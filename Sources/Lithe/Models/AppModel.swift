@@ -22,6 +22,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var currentBranch = "No Git"
     @Published var selectedChange: GitChange?
     @Published private(set) var diffRows: [DiffRow] = []
+    @Published private(set) var isLoadingDiff = false
     @Published private(set) var isRefreshingGit = false
     @Published var pendingDiscardChange: GitChange?
     @Published var commitMessage = ""
@@ -96,6 +97,7 @@ final class AppModel: ObservableObject {
         currentBranch = "No Git"
         selectedChange = nil
         diffRows = []
+        isLoadingDiff = false
     }
 
     func removeRecentProject(_ project: RecentProject) {
@@ -166,6 +168,7 @@ final class AppModel: ObservableObject {
         let query = searchQuery
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             searchResults = []
+            isSearching = false
             return
         }
 
@@ -183,8 +186,10 @@ final class AppModel: ObservableObject {
         selectedChange = change
         activeDocumentID = nil
         diffRows = []
+        isLoadingDiff = true
         Task {
             diffRows = await GitService.diff(for: change)
+            isLoadingDiff = false
         }
     }
 
@@ -204,6 +209,7 @@ final class AppModel: ObservableObject {
             } else if selectedChange != nil {
                 self.selectedChange = nil
                 diffRows = []
+                isLoadingDiff = false
             }
         } else {
             gitRepositoryRoot = nil
@@ -211,6 +217,7 @@ final class AppModel: ObservableObject {
             gitChanges = []
             selectedChange = nil
             diffRows = []
+            isLoadingDiff = false
         }
     }
 

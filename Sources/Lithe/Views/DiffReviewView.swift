@@ -11,10 +11,19 @@ struct DiffReviewView: View {
             columnHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if model.diffRows.isEmpty {
+            if model.isLoadingDiff {
                 VStack(spacing: 9) {
                     ProgressView().controlSize(.small)
                     Text("Loading diff…")
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.diffRows.isEmpty {
+                VStack(spacing: 9) {
+                    Image(systemName: "doc.richtext")
+                        .font(.system(size: 30, weight: .light))
+                    Text("No textual diff available")
                 }
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)

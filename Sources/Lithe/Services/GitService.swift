@@ -17,7 +17,10 @@ enum GitService {
             let repositoryRoot = URL(fileURLWithPath: repositoryPath)
             let branch = run(at: repositoryRoot, arguments: ["branch", "--show-current"]).output
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let status = run(at: repositoryRoot, arguments: ["status", "--porcelain=v1", "--untracked-files=all"]).output
+            let status = run(
+                at: repositoryRoot,
+                arguments: ["-c", "core.quotepath=false", "status", "--porcelain=v1", "--untracked-files=all"]
+            ).output
             return GitSnapshot(
                 repositoryRoot: repositoryRoot,
                 branch: branch.isEmpty ? "detached" : branch,

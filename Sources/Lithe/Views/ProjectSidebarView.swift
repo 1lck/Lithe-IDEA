@@ -17,12 +17,18 @@ struct ProjectSidebarView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let root = model.rootNode {
-                ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        FileNodeRow(node: root, depth: 0, initiallyExpanded: true)
+                GeometryReader { geometry in
+                    ScrollView([.vertical, .horizontal]) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            FileNodeRow(node: root, depth: 0, initiallyExpanded: true)
+                        }
+                        .padding(.vertical, 5)
+                        .frame(
+                            minWidth: geometry.size.width,
+                            minHeight: geometry.size.height,
+                            alignment: .topLeading
+                        )
                     }
-                    .padding(.vertical, 5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 Text("No project loaded")
@@ -98,6 +104,7 @@ private struct FileNodeRow: View {
                     .font(.system(size: 12.5, weight: depth == 0 ? .semibold : .regular))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
@@ -121,6 +128,7 @@ private struct FileNodeRow: View {
                     .font(.system(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 Spacer(minLength: 4)
             }
             .padding(.leading, CGFloat(depth * 14 + 8))

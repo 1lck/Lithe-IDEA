@@ -3,8 +3,9 @@ import Foundation
 enum WorkspaceScanner {
     private static let excludedDirectories: Set<String> = [
         ".git", ".build", ".swiftpm", "node_modules", "target", "build",
-        "DerivedData", ".gradle", ".next", "dist", "coverage"
+        "DerivedData", ".gradle", ".next", "dist", "coverage", "design-qa-artifacts"
     ]
+    private static let excludedNames: Set<String> = [".DS_Store"]
 
     static func snapshot(at rootURL: URL) -> WorkspaceSnapshot {
         var indexedFiles: [URL] = []
@@ -83,7 +84,8 @@ enum WorkspaceScanner {
         )) ?? []
 
         let visibleURLs = urls.filter { child in
-            guard !excludedDirectories.contains(child.lastPathComponent) else { return false }
+            guard !excludedDirectories.contains(child.lastPathComponent),
+                  !excludedNames.contains(child.lastPathComponent) else { return false }
             let values = try? child.resourceValues(forKeys: Set(keys))
             return values?.isSymbolicLink != true
         }

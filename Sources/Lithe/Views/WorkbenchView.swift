@@ -103,12 +103,6 @@ struct WorkbenchView: View {
             }
             .litheIconButton()
             .help("Open Project")
-
-            Button {
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .litheIconButton()
         }
         .padding(.leading, 76)
         .padding(.trailing, 10)
@@ -134,12 +128,6 @@ struct WorkbenchView: View {
             }
 
             Spacer()
-
-            Button {
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .litheIconButton()
         }
         .padding(.vertical, 10)
         .frame(width: 48)
@@ -158,7 +146,7 @@ struct WorkbenchView: View {
                 SearchSidebarView()
             }
         }
-        .frame(width: 310)
+        .frame(width: 360)
         .background(LitheTheme.sidebar)
     }
 

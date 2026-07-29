@@ -131,6 +131,7 @@ struct EditorAreaView: View {
         if let document = model.activeDocument {
             CodeEditorView(document: document)
                 .id(document.id)
+                .clipped()
         } else {
             emptyState
         }

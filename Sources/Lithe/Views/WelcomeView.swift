@@ -60,14 +60,6 @@ struct WelcomeView: View {
                 .padding(.horizontal, 20)
 
             Spacer()
-
-            Button {
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 17))
-            }
-            .litheIconButton()
-            .padding(22)
         }
         .frame(width: 330)
         .background(LitheTheme.sidebar)

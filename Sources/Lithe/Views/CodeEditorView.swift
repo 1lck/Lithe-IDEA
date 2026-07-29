@@ -8,28 +8,40 @@ struct CodeEditorView: NSViewRepresentable {
         Coordinator(document: document)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+    func makeNSView(context: Context) -> EditorContainerView {
+        let container = EditorContainerView()
+        let scrollView = NSScrollView(frame: .zero)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
+        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
         scrollView.backgroundColor = NSColor(red: 0.105, green: 0.110, blue: 0.120, alpha: 1)
+        scrollView.wantsLayer = true
+        scrollView.layer?.masksToBounds = true
 
-        let textView = NSTextView(frame: .zero)
+        container.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
         textView.delegate = context.coordinator
         textView.string = document.text
         textView.isRichText = false
         textView.importsGraphics = false
         textView.allowsUndo = true
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
+        textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
         textView.textContainerInset = NSSize(width: 12, height: 10)
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.backgroundColor = scrollView.backgroundColor
@@ -45,18 +57,15 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = false
 
         scrollView.documentView = textView
-        let ruler = LineNumberRulerView(textView: textView)
-        scrollView.verticalRulerView = ruler
-        scrollView.hasVerticalRuler = true
-        scrollView.rulersVisible = true
+
         context.coordinator.textView = textView
-        context.coordinator.ruler = ruler
         context.coordinator.highlight()
-        return scrollView
+        container.scrollView = scrollView
+        return container
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
+    func updateNSView(_ container: EditorContainerView, context: Context) {
+        guard let textView = container.scrollView?.documentView as? NSTextView else { return }
         context.coordinator.document = document
         if textView.string != document.text && !context.coordinator.isApplyingEditorChange {
             let selection = textView.selectedRange()
@@ -71,7 +80,6 @@ struct CodeEditorView: NSViewRepresentable {
         weak var document: EditorDocument?
         let fileExtension: String
         weak var textView: NSTextView?
-        weak var ruler: LineNumberRulerView?
         var isApplyingEditorChange = false
 
         init(document: EditorDocument) {
@@ -84,7 +92,6 @@ struct CodeEditorView: NSViewRepresentable {
             isApplyingEditorChange = true
             document?.text = textView.string
             highlight()
-            ruler?.needsDisplay = true
             isApplyingEditorChange = false
         }
 
@@ -92,6 +99,21 @@ struct CodeEditorView: NSViewRepresentable {
             guard let textStorage = textView?.textStorage else { return }
             SyntaxHighlighter.apply(to: textStorage, fileExtension: fileExtension)
         }
+    }
+}
+
+@MainActor
+final class EditorContainerView: NSView {
+    weak var scrollView: NSScrollView?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 
@@ -127,58 +149,6 @@ private enum SyntaxHighlighter {
         expression.enumerateMatches(in: storage.string, range: range) { match, _, _ in
             guard let match else { return }
             storage.addAttribute(.foregroundColor, value: color, range: match.range)
-        }
-    }
-}
-
-@MainActor
-final class LineNumberRulerView: NSRulerView {
-    private weak var textView: NSTextView?
-
-    init(textView: NSTextView) {
-        self.textView = textView
-        super.init(scrollView: textView.enclosingScrollView, orientation: .verticalRuler)
-        clientView = textView
-        ruleThickness = 48
-    }
-
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func drawHashMarksAndLabels(in rect: NSRect) {
-        guard let textView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else { return }
-
-        NSColor(red: 0.095, green: 0.100, blue: 0.110, alpha: 1).setFill()
-        rect.fill()
-
-        let visibleRect = textView.enclosingScrollView?.documentVisibleRect ?? textView.visibleRect
-        let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        let text = textView.string as NSString
-        var glyphIndex = glyphRange.location
-        var lineNumber = text.substring(to: min(text.length, layoutManager.characterIndexForGlyph(at: glyphIndex)))
-            .reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: NSColor(white: 0.38, alpha: 1)
-        ]
-
-        while glyphIndex < NSMaxRange(glyphRange) {
-            let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-            let lineRange = text.lineRange(for: NSRange(location: characterIndex, length: 0))
-            let lineGlyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-            var lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-            lineRect.origin.y += textView.textContainerOrigin.y - visibleRect.origin.y
-
-            let label = "\(lineNumber)" as NSString
-            let size = label.size(withAttributes: attributes)
-            label.draw(at: NSPoint(x: ruleThickness - size.width - 9, y: lineRect.minY + 1), withAttributes: attributes)
-
-            glyphIndex = NSMaxRange(lineGlyphRange)
-            lineNumber += 1
         }
     }
 }
