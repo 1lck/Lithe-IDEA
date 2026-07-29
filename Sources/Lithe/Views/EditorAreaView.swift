@@ -80,7 +80,7 @@ struct EditorAreaView: View {
                         }
                         .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .padding(.horizontal, 11)
-                        .frame(height: 38)
+                        .frame(height: 34)
                         .background(model.activeDocumentID == document.id ? LitheTheme.editor : LitheTheme.sidebar)
                         .overlay(alignment: .bottom) {
                             if model.activeDocumentID == document.id {
@@ -89,11 +89,11 @@ struct EditorAreaView: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    Rectangle().fill(LitheTheme.divider).frame(width: 1, height: 38)
+                    Rectangle().fill(LitheTheme.divider).frame(width: 1, height: 34)
                 }
             }
         }
-        .frame(height: 38)
+        .frame(height: 34)
         .background(LitheTheme.sidebar)
     }
 
@@ -123,7 +123,7 @@ struct EditorAreaView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 5)
-        .frame(height: 32)
+        .frame(height: 29)
     }
 
     @ViewBuilder

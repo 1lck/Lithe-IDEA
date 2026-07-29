@@ -11,9 +11,7 @@ struct WorkbenchView: View {
             HStack(spacing: 0) {
                 activityBar
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                activeSidebar
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                EditorAreaView()
+                workspaceArea
             }
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -67,7 +65,7 @@ struct WorkbenchView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             Text(projectInitials)
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
@@ -75,7 +73,7 @@ struct WorkbenchView: View {
                 .background(LitheTheme.accent)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            Text(model.projectName)
+            Text(model.activeDocument?.url.lastPathComponent ?? model.projectName)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
 
@@ -83,7 +81,34 @@ struct WorkbenchView: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
 
-            Spacer()
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(width: 1, height: 20)
+                .padding(.horizontal, 5)
+
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .font(.system(size: 13))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Text(model.currentBranch)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(LitheTheme.secondaryText)
+
+            Spacer(minLength: 22)
+
+            HStack(spacing: 6) {
+                Image(systemName: "leaf")
+                    .foregroundStyle(LitheTheme.success)
+                Text(model.projectName)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .font(.system(size: 12.5, weight: .medium))
+            .foregroundStyle(LitheTheme.primaryText)
 
             Button {
                 model.isRunPlaceholderPresented = true
@@ -98,15 +123,26 @@ struct WorkbenchView: View {
             .buttonStyle(.plain)
             .help("Run support is planned for a later release")
 
-            Button(action: model.chooseProject) {
-                Image(systemName: "folder.badge.plus")
+            Button {
+                model.selectedSidebar = .search
+            } label: {
+                Image(systemName: "magnifyingglass")
             }
             .litheIconButton()
-            .help("Open Project")
+            .help("Search")
+
+            Menu {
+                Button("Open Project…", action: model.chooseProject)
+                Button("Close Project", action: model.closeProject)
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 28)
         }
         .padding(.leading, 76)
         .padding(.trailing, 10)
-        .frame(height: 54)
+        .frame(height: 50)
         .background(LitheTheme.titlebar)
     }
 
@@ -128,10 +164,55 @@ struct WorkbenchView: View {
             }
 
             Spacer()
+
+            Button {
+                if !model.isGitLogVisible {
+                    model.selectedSidebar = .changes
+                }
+                Task { await model.toggleGitLog() }
+            } label: {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 36, height: 36)
+                    .background(model.isGitLogVisible ? LitheTheme.accent : .clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(model.isGitLogVisible ? Color.white : LitheTheme.secondaryText)
+            .help("Git Log")
         }
         .padding(.vertical, 10)
         .frame(width: 48)
         .background(LitheTheme.titlebar)
+    }
+
+    private var workspaceArea: some View {
+        GeometryReader { geometry in
+            let topHeight = model.isGitLogVisible
+                ? max(275, geometry.size.height * 0.46)
+                : geometry.size.height
+
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    activeSidebar
+                    EditorAreaView()
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .padding(.top, 6)
+                .padding(.horizontal, 6)
+                .padding(.bottom, model.isGitLogVisible ? 3 : 6)
+                .frame(height: topHeight)
+
+                if model.isGitLogVisible {
+                    GitLogView()
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, 6)
+                        .frame(height: max(260, geometry.size.height - topHeight))
+                }
+            }
+            .background(LitheTheme.titlebar)
+        }
     }
 
     @ViewBuilder
@@ -146,8 +227,9 @@ struct WorkbenchView: View {
                 SearchSidebarView()
             }
         }
-        .frame(width: 360)
+        .frame(width: 320)
         .background(LitheTheme.sidebar)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var statusBar: some View {

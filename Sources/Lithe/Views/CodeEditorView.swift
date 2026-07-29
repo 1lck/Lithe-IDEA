@@ -17,13 +17,20 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(red: 0.105, green: 0.110, blue: 0.120, alpha: 1)
+        scrollView.backgroundColor = NSColor(red: 0.085, green: 0.089, blue: 0.096, alpha: 1)
         scrollView.wantsLayer = true
         scrollView.layer?.masksToBounds = true
 
+        let gutter = LineNumberGutterView(frame: .zero)
+        gutter.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(gutter)
         container.addSubview(scrollView)
         NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            gutter.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            gutter.topAnchor.constraint(equalTo: container.topAnchor),
+            gutter.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            gutter.widthAnchor.constraint(equalToConstant: 52),
+            scrollView.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
@@ -57,10 +64,13 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = false
 
         scrollView.documentView = textView
+        gutter.attach(textView: textView, scrollView: scrollView)
 
         context.coordinator.textView = textView
+        context.coordinator.gutter = gutter
         context.coordinator.highlight()
         container.scrollView = scrollView
+        container.gutter = gutter
         return container
     }
 
@@ -72,6 +82,7 @@ struct CodeEditorView: NSViewRepresentable {
             textView.string = document.text
             textView.setSelectedRange(NSRange(location: min(selection.location, document.text.utf16.count), length: 0))
             context.coordinator.highlight()
+            container.gutter?.needsDisplay = true
         }
     }
 
@@ -80,6 +91,7 @@ struct CodeEditorView: NSViewRepresentable {
         weak var document: EditorDocument?
         let fileExtension: String
         weak var textView: NSTextView?
+        weak var gutter: LineNumberGutterView?
         var isApplyingEditorChange = false
 
         init(document: EditorDocument) {
@@ -92,6 +104,7 @@ struct CodeEditorView: NSViewRepresentable {
             isApplyingEditorChange = true
             document?.text = textView.string
             highlight()
+            gutter?.needsDisplay = true
             isApplyingEditorChange = false
         }
 
@@ -105,6 +118,7 @@ struct CodeEditorView: NSViewRepresentable {
 @MainActor
 final class EditorContainerView: NSView {
     weak var scrollView: NSScrollView?
+    weak var gutter: LineNumberGutterView?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -114,6 +128,84 @@ final class EditorContainerView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+}
+
+@MainActor
+final class LineNumberGutterView: NSView {
+    private weak var textView: NSTextView?
+    private weak var scrollView: NSScrollView?
+    nonisolated(unsafe) private var boundsObserver: NSObjectProtocol?
+
+    override var isFlipped: Bool { true }
+
+    func attach(textView: NSTextView, scrollView: NSScrollView) {
+        self.textView = textView
+        self.scrollView = scrollView
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(red: 0.075, green: 0.080, blue: 0.087, alpha: 1).cgColor
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        boundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.needsDisplay = true }
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let textView,
+              let scrollView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+
+        NSColor(red: 0.075, green: 0.080, blue: 0.087, alpha: 1).setFill()
+        dirtyRect.fill()
+
+        let visibleRect = scrollView.documentVisibleRect
+        let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+        guard layoutManager.numberOfGlyphs > 0 else {
+            drawLineNumber(1, y: textView.textContainerInset.height)
+            return
+        }
+
+        let text = textView.string as NSString
+        var glyphIndex = min(glyphRange.location, layoutManager.numberOfGlyphs - 1)
+        let firstCharacter = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        var lineNumber = text.substring(to: min(text.length, firstCharacter))
+            .reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+        let maxGlyph = min(NSMaxRange(glyphRange), layoutManager.numberOfGlyphs)
+
+        while glyphIndex < maxGlyph {
+            let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+            let lineRange = text.lineRange(for: NSRange(location: characterIndex, length: 0))
+            let lineGlyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
+            drawLineNumber(lineNumber, y: y + 1)
+
+            let nextGlyph = NSMaxRange(lineGlyphRange)
+            glyphIndex = nextGlyph > glyphIndex ? nextGlyph : glyphIndex + 1
+            lineNumber += 1
+        }
+    }
+
+    private func drawLineNumber(_ number: Int, y: CGFloat) {
+        let label = String(number) as NSString
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
+            .foregroundColor: NSColor(white: 0.34, alpha: 1)
+        ]
+        let size = label.size(withAttributes: attributes)
+        label.draw(at: NSPoint(x: bounds.width - size.width - 9, y: y), withAttributes: attributes)
+    }
+
+    deinit {
+        if let boundsObserver {
+            NotificationCenter.default.removeObserver(boundsObserver)
+        }
     }
 }
 

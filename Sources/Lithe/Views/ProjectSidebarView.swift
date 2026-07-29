@@ -59,7 +59,7 @@ struct ProjectSidebarView: View {
             .help("Refresh")
         }
         .padding(.horizontal, 12)
-        .frame(height: 44)
+        .frame(height: 39)
     }
 }
 
