@@ -6,6 +6,10 @@ struct WorkbenchView: View {
     @State private var sidebarDragStart: CGFloat = 320
     @State private var topPaneHeight: CGFloat?
     @State private var topPaneDragStart: CGFloat = 0
+    @State private var isBranchSwitcherPresented = false
+    @State private var newBranchReference: GitReference?
+    @State private var isCheckoutRevisionPresented = false
+    @State private var pendingTopBarPushReference: GitReference?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +27,18 @@ struct WorkbenchView: View {
         }
         .sheet(isPresented: $model.isRunPlaceholderPresented) {
             RunPlaceholderView()
+        }
+        .sheet(item: $newBranchReference) { reference in
+            TopBarNewBranchDialog(reference: reference) { name, checkout in
+                Task {
+                    await model.createBranch(named: name, from: reference, checkout: checkout)
+                }
+            }
+        }
+        .sheet(isPresented: $isCheckoutRevisionPresented) {
+            CheckoutRevisionDialog { revision in
+                Task { await model.checkoutRevision(revision) }
+            }
         }
         .confirmationDialog(
             "Save changes before closing?",
@@ -52,6 +68,25 @@ struct WorkbenchView: View {
             Button("Cancel", role: .cancel) { model.cancelDiscardChange() }
         } message: {
             Text("This action cannot be undone by Lithe.")
+        }
+        .confirmationDialog(
+            "Push '\(pendingTopBarPushReference?.shortName ?? "")'?",
+            isPresented: Binding(
+                get: { pendingTopBarPushReference != nil },
+                set: { if !$0 { pendingTopBarPushReference = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Push") {
+                guard let reference = pendingTopBarPushReference else { return }
+                pendingTopBarPushReference = nil
+                Task { await model.pushBranch(reference) }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingTopBarPushReference = nil
+            }
+        } message: {
+            Text("This sends the current branch to its configured remote.")
         }
         .overlay(alignment: .bottom) {
             if let message = model.notificationMessage {
@@ -90,16 +125,60 @@ struct WorkbenchView: View {
                 .frame(width: 1, height: 20)
                 .padding(.horizontal, 5)
 
-            Image(systemName: "point.3.connected.trianglepath.dotted")
-                .font(.system(size: 13))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text(model.currentBranch)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(LitheTheme.secondaryText)
+            Button {
+                isBranchSwitcherPresented.toggle()
+                if isBranchSwitcherPresented {
+                    Task { await model.refreshGitHistory() }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .font(.system(size: 13))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    Text(model.currentBranch)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .padding(.horizontal, 9)
+                .frame(height: 32)
+                .background(isBranchSwitcherPresented ? LitheTheme.subtleSelection : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $isBranchSwitcherPresented, arrowEdge: .bottom) {
+                BranchSwitcherPopover(
+                    isPresented: $isBranchSwitcherPresented,
+                    onCommit: {
+                        isBranchSwitcherPresented = false
+                        model.selectedSidebar = .changes
+                    },
+                    onPush: { reference in
+                        isBranchSwitcherPresented = false
+                        pendingTopBarPushReference = reference
+                    },
+                    onNewBranch: { reference in
+                        isBranchSwitcherPresented = false
+                        newBranchReference = reference
+                    },
+                    onCheckoutRevision: {
+                        isBranchSwitcherPresented = false
+                        isCheckoutRevisionPresented = true
+                    },
+                    onManageBranches: {
+                        isBranchSwitcherPresented = false
+                        if !model.isGitLogVisible {
+                            model.selectedSidebar = .changes
+                            Task { await model.toggleGitLog() }
+                        }
+                    }
+                )
+                .environmentObject(model)
+            }
 
             Spacer(minLength: 22)
 
