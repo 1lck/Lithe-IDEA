@@ -1,6 +1,8 @@
 import Foundation
 
 enum GitService {
+    private static let reviewContextLines = "80"
+
     struct CommandResult: Sendable {
         let output: String
         let exitCode: Int32
@@ -35,17 +37,17 @@ enum GitService {
             if change.isUntracked {
                 patch = run(
                     at: change.repositoryRoot,
-                    arguments: ["diff", "--no-index", "--unified=3", "--", "/dev/null", change.path]
+                    arguments: ["diff", "--no-index", "--unified=\(reviewContextLines)", "--", "/dev/null", change.path]
                 ).output
             } else if change.hasWorkingTreeChange {
                 patch = run(
                     at: change.repositoryRoot,
-                    arguments: ["diff", "--no-ext-diff", "--unified=3", "--", change.path]
+                    arguments: ["diff", "--no-ext-diff", "--unified=\(reviewContextLines)", "--", change.path]
                 ).output
             } else {
                 patch = run(
                     at: change.repositoryRoot,
-                    arguments: ["diff", "--cached", "--no-ext-diff", "--unified=3", "--", change.path]
+                    arguments: ["diff", "--cached", "--no-ext-diff", "--unified=\(reviewContextLines)", "--", change.path]
                 ).output
             }
             return DiffParser.parse(patch)
