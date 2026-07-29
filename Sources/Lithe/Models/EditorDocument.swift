@@ -3,7 +3,7 @@ import Foundation
 @MainActor
 final class EditorDocument: ObservableObject, Identifiable {
     let id = UUID()
-    let url: URL
+    private(set) var url: URL
     @Published var text: String
     @Published private(set) var savedText: String
     @Published var hasExternalConflict = false
@@ -52,6 +52,12 @@ final class EditorDocument: ObservableObject, Identifiable {
 
     func markSavedWithoutWriting() {
         savedText = text
+    }
+
+    func relocate(to newURL: URL) {
+        objectWillChange.send()
+        url = newURL.standardizedFileURL
+        lastKnownModificationDate = Self.modificationDate(for: newURL)
     }
 
     static func modificationDate(for url: URL) -> Date? {

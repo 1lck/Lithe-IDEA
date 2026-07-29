@@ -16,6 +16,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var isLoadingWorkspace = false
     @Published private(set) var isSearching = false
     @Published var pendingCloseDocument: EditorDocument?
+    @Published var projectItemEditRequest: ProjectItemEditRequest?
+    @Published var pendingProjectItemDeletion: ProjectItemDeletionRequest?
+    @Published private(set) var isPerformingProjectItemOperation = false
     @Published var notificationMessage: String?
     @Published private(set) var gitChanges: [GitChange] = []
     @Published private(set) var gitRepositoryRoot: URL?
@@ -83,6 +86,9 @@ final class AppModel: ObservableObject {
         projectFiles = []
         openDocuments = []
         activeDocumentID = nil
+        projectItemEditRequest = nil
+        pendingProjectItemDeletion = nil
+        isPerformingProjectItemOperation = false
         branchComparison = nil
         selectedBranchComparisonFile = nil
         branchComparisonRows = []
@@ -128,6 +134,9 @@ final class AppModel: ObservableObject {
         selectedGitCommitFiles = []
         selectedGitCommitFile = nil
         gitLogSearchQuery = ""
+        projectItemEditRequest = nil
+        pendingProjectItemDeletion = nil
+        isPerformingProjectItemOperation = false
         branchComparison = nil
         selectedBranchComparisonFile = nil
         branchComparisonRows = []
@@ -161,6 +170,176 @@ final class AppModel: ObservableObject {
         )
         openDocuments.append(document)
         activeDocumentID = document.id
+    }
+
+    func refreshWorkspace() async {
+        guard let workspaceURL, !isLoadingWorkspace else { return }
+        isLoadingWorkspace = true
+        let snapshot = await Task.detached(priority: .userInitiated) {
+            WorkspaceScanner.snapshot(at: workspaceURL)
+        }.value
+        guard self.workspaceURL == workspaceURL else { return }
+        rootNode = snapshot.root
+        projectFiles = snapshot.files
+        isLoadingWorkspace = false
+        await refreshGit()
+    }
+
+    func requestCreateFile(in directory: URL) {
+        guard !isPerformingProjectItemOperation, isWorkspaceURL(directory) else { return }
+        projectItemEditRequest = ProjectItemEditRequest(kind: .createFile, targetURL: directory)
+    }
+
+    func requestCreateDirectory(in directory: URL) {
+        guard !isPerformingProjectItemOperation, isWorkspaceURL(directory) else { return }
+        projectItemEditRequest = ProjectItemEditRequest(kind: .createDirectory, targetURL: directory)
+    }
+
+    func requestRenameProjectItem(at url: URL) {
+        guard !isPerformingProjectItemOperation,
+              isWorkspaceURL(url),
+              url.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
+        projectItemEditRequest = ProjectItemEditRequest(kind: .rename, targetURL: url)
+    }
+
+    func cancelProjectItemEdit() {
+        projectItemEditRequest = nil
+    }
+
+    func performProjectItemEdit(named rawName: String) async {
+        guard let request = projectItemEditRequest else { return }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidProjectItemName(name) else {
+            showNotification("Use a valid file or directory name")
+            return
+        }
+        projectItemEditRequest = nil
+        isPerformingProjectItemOperation = true
+
+        let destination: URL
+        switch request.kind {
+        case .createFile, .createDirectory:
+            destination = request.targetURL.appendingPathComponent(name)
+        case .rename:
+            destination = request.targetURL.deletingLastPathComponent().appendingPathComponent(name)
+        }
+
+        let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
+            let manager = FileManager.default
+            guard !manager.fileExists(atPath: destination.path) else {
+                return "An item named '\(name)' already exists"
+            }
+            do {
+                switch request.kind {
+                case .createFile:
+                    try Data().write(to: destination, options: .withoutOverwriting)
+                case .createDirectory:
+                    try manager.createDirectory(at: destination, withIntermediateDirectories: false)
+                case .rename:
+                    try manager.moveItem(at: request.targetURL, to: destination)
+                }
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }.value
+
+        isPerformingProjectItemOperation = false
+        if let errorMessage {
+            showNotification(errorMessage)
+            return
+        }
+
+        if request.kind == .rename {
+            relocateOpenDocuments(from: request.targetURL, to: destination)
+            showNotification("Renamed to \(name)")
+        } else if request.kind == .createFile {
+            showNotification("Created \(name)")
+        } else {
+            showNotification("Created directory \(name)")
+        }
+        await refreshWorkspace()
+        if request.kind == .createFile {
+            openFile(destination)
+        }
+    }
+
+    func duplicateProjectItem(at sourceURL: URL) async {
+        guard !isPerformingProjectItemOperation,
+              isWorkspaceURL(sourceURL),
+              sourceURL.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
+        isPerformingProjectItemOperation = true
+        let destination = availableDuplicateURL(for: sourceURL)
+        let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: destination)
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }.value
+        isPerformingProjectItemOperation = false
+        if let errorMessage {
+            showNotification(errorMessage)
+        } else {
+            showNotification("Duplicated \(sourceURL.lastPathComponent)")
+            await refreshWorkspace()
+        }
+    }
+
+    func requestDeleteProjectItem(at url: URL, isDirectory: Bool) {
+        guard !isPerformingProjectItemOperation,
+              isWorkspaceURL(url),
+              url.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
+        if openDocuments.contains(where: { document in
+            document.isDirty && urlContains(url, child: document.url)
+        }) {
+            showNotification("Save or discard unsaved files before deleting this item")
+            return
+        }
+        pendingProjectItemDeletion = ProjectItemDeletionRequest(url: url, isDirectory: isDirectory)
+    }
+
+    func cancelProjectItemDeletion() {
+        pendingProjectItemDeletion = nil
+    }
+
+    func confirmProjectItemDeletion() async {
+        guard let request = pendingProjectItemDeletion else { return }
+        pendingProjectItemDeletion = nil
+        isPerformingProjectItemOperation = true
+        let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
+            do {
+                var resultingURL: NSURL?
+                try FileManager.default.trashItem(
+                    at: request.url,
+                    resultingItemURL: &resultingURL
+                )
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }.value
+        isPerformingProjectItemOperation = false
+        if let errorMessage {
+            showNotification(errorMessage)
+            return
+        }
+        closeDocuments(containedIn: request.url)
+        showNotification("Moved \(request.url.lastPathComponent) to Trash")
+        await refreshWorkspace()
+    }
+
+    func revealProjectItemInFinder(_ url: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func copyProjectItemPath(_ url: URL, relative: Bool) {
+        let relativeValue = relativePath(for: url)
+        let value = relative ? (relativeValue.isEmpty ? "." : relativeValue) : url.path
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        showNotification(relative ? "Copied relative path" : "Copied path")
     }
 
     func requestCloseDocument(_ document: EditorDocument) {
@@ -570,6 +749,61 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func closeDocuments(containedIn url: URL) {
+        let documents = openDocuments.filter { urlContains(url, child: $0.url) }
+        for document in documents {
+            closeDocument(document)
+        }
+    }
+
+    private func relocateOpenDocuments(from sourceURL: URL, to destinationURL: URL) {
+        let sourcePath = sourceURL.standardizedFileURL.path
+        for document in openDocuments where urlContains(sourceURL, child: document.url) {
+            let documentPath = document.url.standardizedFileURL.path
+            let suffix = String(documentPath.dropFirst(sourcePath.count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let relocatedURL = suffix.isEmpty
+                ? destinationURL
+                : destinationURL.appendingPathComponent(suffix)
+            document.relocate(to: relocatedURL)
+        }
+    }
+
+    private func availableDuplicateURL(for sourceURL: URL) -> URL {
+        let parent = sourceURL.deletingLastPathComponent()
+        let fileExtension = sourceURL.pathExtension
+        let baseName = fileExtension.isEmpty
+            ? sourceURL.lastPathComponent
+            : sourceURL.deletingPathExtension().lastPathComponent
+        var index = 1
+        while true {
+            let suffix = index == 1 ? " copy" : " copy \(index)"
+            let name = fileExtension.isEmpty
+                ? "\(baseName)\(suffix)"
+                : "\(baseName)\(suffix).\(fileExtension)"
+            let candidate = parent.appendingPathComponent(name)
+            if !FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            index += 1
+        }
+    }
+
+    private func isValidProjectItemName(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains(":")
+    }
+
+    private func isWorkspaceURL(_ url: URL) -> Bool {
+        guard let workspaceURL else { return false }
+        return urlContains(workspaceURL, child: url)
+    }
+
+    private func urlContains(_ parent: URL, child: URL) -> Bool {
+        let parentPath = parent.standardizedFileURL.path
+        let childPath = child.standardizedFileURL.path
+        return childPath == parentPath || childPath.hasPrefix(parentPath + "/")
+    }
+
     private func startWatching(_ url: URL) {
         directoryWatcher?.stop()
         directoryWatcher = DirectoryWatcher(root: url) { [weak self] paths in
@@ -629,4 +863,22 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .search: "magnifyingglass"
         }
     }
+}
+
+enum ProjectItemEditKind: Sendable {
+    case createFile
+    case createDirectory
+    case rename
+}
+
+struct ProjectItemEditRequest: Identifiable, Sendable {
+    let id = UUID()
+    let kind: ProjectItemEditKind
+    let targetURL: URL
+}
+
+struct ProjectItemDeletionRequest: Identifiable, Sendable {
+    let id = UUID()
+    let url: URL
+    let isDirectory: Bool
 }
