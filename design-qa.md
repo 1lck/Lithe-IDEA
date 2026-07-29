@@ -1,58 +1,57 @@
-# Lithe Design QA — Git Workspace Refinement
+# Lithe Design QA — Resizable Workbench Panes
 
 ## Evidence
 
-- Source visual truth: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-224a4d2e-d22b-4e22-b964-480b011c87be.png`
-- Supporting workbench source: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-0e9ed4b5-cfe2-43b2-b96f-fb04688ce027.png`
+- Source visual truth: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-21dc5b7c-9647-486b-b1b9-81e0be7c1264.png`
 - Implementation: `/Users/lick/code/my-code/building-project/Lithe-IDEA/dist/Lithe.app`
-- Implementation screenshot: `design-qa-artifacts/implementation-git-final.png`
+- Implementation screenshot: `design-qa-artifacts/implementation-resizable-dragged.png`
 - Viewport: implementation 1280 × 768 px; source normalized to 1280 × 768 px
-- State: dark appearance; Commit sidebar active; README open; Git Log visible; `main` selected; multi-file commit selected
-- Full-view comparison: `design-qa-artifacts/comparison-git-final.png`
-- Focused Git comparison: `design-qa-artifacts/comparison-git-final-focus.png`
+- State: dark appearance; Commit sidebar active; Git Log visible; every requested split moved away from its default size
+- Full-view comparison: `design-qa-artifacts/comparison-resizable-dragged.png`
+- Focused-region evidence: not required for this pass because the requested behavior changes macro pane geometry; both complete 1280 × 768 views remain readable in the full comparison. Interaction was separately exercised on all five accessible resize handles.
 
 ## Findings
 
 No actionable P0, P1, or P2 findings remain.
 
-- [P3] The reference contains a larger secondary tool icon inventory.
-  Location: left and right activity rails.
-  Evidence: IntelliJ displays debugger, database, terminal, plugin, and service icons; Lithe keeps only Project, Commit, Search, and Git Log.
-  Impact: visual chrome is lighter, but the confirmed product workflows remain fully reachable.
-  Fix: add tool icons only when their real features enter scope; do not add decorative inactive controls.
+- [P3] Resize dividers remain intentionally low contrast until hovered or dragged.
+  Location: Workbench and Git Log pane boundaries.
+  Evidence: the source uses narrow IDEA-style gutters; Lithe uses a six-point hit target with a one-point divider and accent feedback during drag.
+  Impact: the interface stays visually quiet, although first-time users may discover resizing by cursor change rather than a visible grip.
+  Fix: keep the current treatment unless usability testing shows that a persistent grip is needed.
 
 ## Required Fidelity Surfaces
 
-- Fonts and typography: IntelliJ uses JetBrains UI and its editor font; Lithe intentionally uses native SF Pro and SF Mono. Relative hierarchy, compact row height, truncation, and monospaced code treatment match the normalized reference.
-- Spacing and layout rhythm: the window now matches the reference hierarchy—compact integrated top bar, rounded top Commit/editor surfaces, matching top-to-bottom split, and a bottom Git panel with branch, timeline, files, and detail columns.
-- Colors and visual tokens: near-black surfaces, low-contrast dividers, graphite selections, blue active rows, green graph nodes, warning status colors, and muted secondary text align with the source.
-- Image and icon fidelity: the source contains no product imagery. Lithe uses crisp native SF Symbols as the closest macOS icon system instead of copied IntelliJ assets.
-- Copy and content: Lithe branding and real repository content replace IntelliJ-specific project data while preserving the same information density and labels where useful.
+- Fonts and typography: resizing does not alter the existing SF Pro and SF Mono hierarchy. Narrower columns truncate timeline and path text instead of wrapping or overlapping adjacent panes.
+- Spacing and layout rhythm: the source's four marked pane groups are preserved. The dragged implementation shows changed proportions without collapsed headers, overlapping controls, or broken rounded containers.
+- Colors and visual tokens: the existing near-black surfaces and low-contrast divider tokens remain unchanged; the active divider temporarily uses the established blue accent.
+- Image and icon fidelity: this screen contains no product imagery. Existing SF Symbols stay sharp at every tested pane size.
+- Copy and content: repository labels, commit metadata, paths, and empty-state copy remain readable or intentionally truncate within constrained panes.
 
 ## Patches Made During This QA Pass
 
-- Removed the extra macOS safe-area titlebar offset from the workbench.
-- Matched the top editor/Commit region and bottom Git panel proportions to the reference.
-- Top-aligned the branch tree and commit-file content instead of vertically centering them.
-- Rebalanced the Git three-column widths.
-- Added branch selection and searchable real commit history.
-- Added grouped, collapsible directory rows for multi-file commit contents.
-- Verified commit selection, commit search, branch filtering, file details, line numbers, and panel visibility in the signed native app.
-- Rebuilt and recaptured the App Bundle after the final fixes.
+- Added a reusable native-feeling split handle with horizontal and vertical resize cursors, hover/drag feedback, help text, and accessibility labels.
+- Added horizontal resizing between the active sidebar and editor.
+- Added vertical resizing between the workbench and Git tool window.
+- Added horizontal resizing for the Git reference, timeline, and detail columns.
+- Added vertical resizing between changed files and commit metadata.
+- Added minimum and maximum constraints so every pane keeps a usable content area.
+- Verified all five dividers in both directions in the signed Release app.
 
 ## Implementation Checklist
 
-- [x] Commit sidebar composition and realistic repository changes
-- [x] Current branch, local/remote references, and tag groups
-- [x] Searchable commit timeline and selected-row state
-- [x] Multi-file directory tree and commit detail area
-- [x] Integrated title bar, rounded panels, line-number gutter, and compact editor chrome
-- [x] Full-view and focused side-by-side comparison
+- [x] Sidebar/editor horizontal resize
+- [x] Workbench/Git vertical resize
+- [x] Git reference/timeline horizontal resize
+- [x] Git timeline/detail horizontal resize
+- [x] Git file/detail vertical resize
+- [x] Minimum-size constraints and directional cursors
+- [x] Full-view side-by-side comparison and dragged-state capture
 - [x] Debug build, Release build, Info.plist, and code-sign verification
 
 ## Follow-up Polish
 
-- Expand the activity rails only as real product capabilities are implemented.
-- Add richer merge lanes when testing against repositories with non-linear history.
+- Persist pane sizes only in the later workspace-state phase already defined in the product plan.
+- Add a double-click-to-reset gesture only if users ask for a faster way back to defaults.
 
 final result: passed
