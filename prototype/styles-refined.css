@@ -1,0 +1,90 @@
+/* High-fidelity pass: geometry, icon weight and surface contrast are tuned against the IDEA reference screens. */
+.icon-defs{position:absolute;width:0;height:0;overflow:hidden}
+.ui-icon{display:inline-block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px;flex:none}
+.activity-icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.55;stroke-linecap:round;stroke-linejoin:round}
+.titlebar{height:54px;min-height:54px;padding:0 12px;background:#273b3a;border-bottom:1px solid #334846;gap:7px}
+.titlebar:after{content:"";position:absolute;left:0;right:0;top:53px;height:1px;background:rgba(151,203,191,.08);pointer-events:none}
+.traffic-lights{gap:8px;padding-right:12px}
+.traffic-lights i{width:10px;height:10px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.14)}
+.title-brand{height:32px;padding:3px 8px 3px 4px;gap:9px}
+.title-brand .brand-mark{width:25px;height:25px;border-radius:6px;background:#243f43;border-color:#669da0;color:#a6e0d2}
+.brand-text{font-size:13px;letter-spacing:-.01em}
+.title-separator{height:26px;margin:0 5px;background:#48615e}
+.project-title{min-width:210px;height:37px;padding:3px 8px}
+.project-title b{font-size:11px;letter-spacing:.01em}
+.project-title small{font-size:9px;color:#9aa7a7}
+.project-avatar{width:23px;height:23px;border-radius:6px;background:#2d93a8}
+.branch-title{height:31px;margin-left:4px;padding:3px 9px;color:#b5c4c0}
+.branch-title .ui-icon{width:14px;height:14px;color:#abc5c0}
+.branch-title b{font-size:11px}
+.run-target{height:31px;padding:3px 8px;color:#d2ddda}
+.run-target b{font-size:11px}
+.toolbar-icon{width:29px;height:29px;border-radius:6px}
+.toolbar-icon .ui-icon{width:16px;height:16px}
+.toolbar-icon.debug .ui-icon{width:17px;height:17px}
+.ide-view{background:#1b1e21}
+.activity-bar{width:44px;min-width:44px;padding:10px 0 8px;background:#1a2222;border-right-color:#30403e;gap:6px}
+.activity{width:32px;height:32px;border-radius:6px;color:#71827f}
+.activity.active{background:#294644;color:#8fd4ca}
+.activity.active:before{left:-6px;top:7px;bottom:7px;width:2px;background:#7ccfc1}
+.activity-space{min-height:20px}
+.project-pane{width:296px;min-width:250px;background:#1d2325;border-right-color:#34413f}
+.pane-title{height:42px;padding-left:14px;border-bottom-color:#2d3837}
+.pane-name{font-size:13px;letter-spacing:.01em}
+.pane-title button:not(.pane-arrow),.pane-toolbar button{display:grid;place-items:center;width:24px;height:24px}
+.pane-title .ui-icon,.pane-toolbar .ui-icon{width:14px;height:14px}
+.pane-arrow{display:grid;place-items:center;width:18px;height:22px}
+.pane-arrow .ui-icon{width:13px;height:13px}
+.pane-toolbar{height:35px;padding:0 10px;border-bottom-color:#2b3635}
+.view-selector{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 6px;font-size:11px!important}
+.view-selector .ui-icon{width:12px;height:12px}
+.project-tree{padding:9px 8px 12px}
+.tree-node{min-height:26px;gap:7px;padding-right:7px;font-size:11px}
+.tree-node.selected{background:#294c54;color:#ecf5f3;box-shadow:inset 2px 0 #66b9bb}
+.tree-node b{font-weight:620}
+.disclosure{display:grid;place-items:center;width:12px;height:18px}
+.folder{font-size:10px;color:#7ec2bd}
+.pane-bottom{height:31px;border-top-color:#2d3837}
+.main-area{background:#1c2022}
+.editor-tabs{height:41px;min-height:41px;background:#1c2123;border-bottom-color:#303a3a}
+.editor-tab{min-width:118px;height:41px;max-width:220px;padding:0 10px;color:#7c8989;font-size:10px}
+.editor-tab.selected{background:#263233;color:#eff4f2;box-shadow:inset 0 1px #6ba6c1}
+.editor-tab.selected:after{height:2px;background:#71b6d6}
+.editor-tab .ui-icon{width:13px;height:13px}
+.new-tab{height:41px}
+.editor-breadcrumbs{height:34px;min-height:34px;padding:0 14px;gap:9px;background:#1c2022;border-bottom-color:#2d3636;font-size:10px}
+.editor-breadcrumbs button{display:grid;place-items:center;width:23px;height:23px}
+.editor-breadcrumbs button .ui-icon{width:14px;height:14px}
+.editor-stage{background:#1e2224}
+.gutter{width:46px;min-width:46px;padding-right:9px;color:#5c6a6b;font-size:11px;line-height:1.82}
+.fold-gutter{width:19px;min-width:19px;padding-top:12px;font-size:11px;line-height:1.82;color:#73807e}
+.source-code{padding:12px 65px 28px 10px;color:#cbd3d1;font:12px/1.82 "JetBrains Mono","SFMono-Regular",Consolas,monospace}
+.minimap{right:13px;top:13px;width:52px;gap:4px;opacity:.3}
+.tool-window{height:196px;min-height:196px;background:#1d2224;border-top-color:#35403f}
+.tool-tabs{height:36px;border-bottom-color:#303a39;padding:0 10px}
+.tool-tab{height:36px;padding:0 12px;font-size:10px}
+.tool-body{height:calc(100% - 36px)}
+.run-line{height:38px;padding:0 16px;border-bottom-color:#303a39}
+.console{padding:11px 18px;color:#9aa5a3;font-size:10px;line-height:1.9}
+.tool-rail{width:36px;min-width:36px;background:#1a2021;border-left-color:#34413f}
+.tool-rail button{display:grid;place-items:center;width:30px;height:32px;margin:0 auto}
+.tool-rail .ui-icon{width:15px;height:15px}
+.statusbar{height:25px;min-height:25px;padding:0 11px;background:#275c5d;border-top:1px solid #387374;gap:13px;font-size:9px}
+.statusbar span{display:flex;align-items:center;gap:5px}
+.statusbar .ui-icon{width:12px;height:12px}
+.welcome-top{height:57px;min-height:57px;background:#1b1e21}
+.welcome-top h1{font-size:20px;letter-spacing:.01em}
+.welcome-nav{width:clamp(330px,28vw,440px);min-width:330px;padding:58px 23px 25px;background:#1a1d20}
+.welcome-product{margin:0 10px 51px}
+.welcome-product strong{font-size:19px}
+.welcome-nav-item{height:51px;font-size:16px}
+.recent-projects{padding:46px clamp(34px,5.4vw,86px);background:#1b1e21}
+.welcome-toolbar{gap:12px}
+.project-search{height:49px;max-width:440px}
+.welcome-btn{height:49px;border-color:#565d64;border-radius:7px}
+.recent-list{max-width:720px;margin-top:47px;gap:3px}
+.recent-project{padding:11px 15px;border-radius:6px}
+.recent-project strong{font-size:16px}
+.recent-project small{font-size:12px}
+.toast{background:#303c3d;border-color:#557f7d;box-shadow:0 8px 25px rgba(0,0,0,.26)}
+@media (max-width:1100px){.project-pane{width:274px}.project-title{min-width:180px}.run-target{max-width:220px}.run-target b{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
