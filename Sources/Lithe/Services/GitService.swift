@@ -80,9 +80,92 @@ enum GitService {
         }.value
     }
 
-    static func commit(at repositoryRoot: URL, message: String) async -> CommandResult {
+    static func commit(at repositoryRoot: URL, message: String, amend: Bool = false) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
-            run(at: repositoryRoot, arguments: ["commit", "-m", message])
+            var arguments = ["commit"]
+            if amend { arguments.append("--amend") }
+            arguments += ["-m", message]
+            return run(at: repositoryRoot, arguments: arguments)
+        }.value
+    }
+
+    static func history(at repositoryRoot: URL, reference: GitReference? = nil) async -> GitHistorySnapshot {
+        await Task.detached(priority: .utility) {
+            let referenceOutput = run(
+                at: repositoryRoot,
+                arguments: [
+                    "for-each-ref",
+                    "--sort=refname",
+                    "--format=%(refname)\t%(refname:short)\t%(HEAD)",
+                    "refs/heads",
+                    "refs/remotes",
+                    "refs/tags"
+                ]
+            ).output
+
+            let references = referenceOutput
+                .split(separator: "\n")
+                .compactMap { rawLine -> GitReference? in
+                    let columns = rawLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                    guard columns.count >= 3 else { return nil }
+                    let fullName = columns[0]
+                    let kind: GitReferenceKind
+                    if fullName.hasPrefix("refs/heads/") {
+                        kind = .local
+                    } else if fullName.hasPrefix("refs/remotes/") {
+                        kind = .remote
+                    } else {
+                        kind = .tag
+                    }
+                    guard !columns[1].hasSuffix("/HEAD") else { return nil }
+                    return GitReference(
+                        fullName: fullName,
+                        shortName: columns[1],
+                        kind: kind,
+                        isCurrent: columns[2].trimmingCharacters(in: .whitespaces) == "*"
+                    )
+                }
+
+            var arguments = ["log"]
+            if let reference {
+                arguments.append(reference.fullName)
+            } else {
+                arguments.append("--all")
+            }
+            arguments += [
+                "-n", "150",
+                "--date=format:%Y/%m/%d %H:%M",
+                "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D"
+            ]
+
+            let commits = run(at: repositoryRoot, arguments: arguments).output
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .compactMap(parseCommit)
+
+            return GitHistorySnapshot(references: references, commits: commits)
+        }.value
+    }
+
+    static func files(in commit: GitCommit, at repositoryRoot: URL) async -> [GitCommitFile] {
+        await Task.detached(priority: .utility) {
+            run(
+                at: repositoryRoot,
+                arguments: ["-c", "core.quotepath=false", "show", "--pretty=format:", "--name-status", "--find-renames", commit.hash]
+            ).output
+                .split(separator: "\n")
+                .compactMap { rawLine -> GitCommitFile? in
+                    let columns = rawLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                    guard columns.count >= 2 else { return nil }
+                    let path = columns.last ?? ""
+                    guard !path.isEmpty else { return nil }
+                    return GitCommitFile(status: columns[0], path: path)
+                }
+        }.value
+    }
+
+    static func stageAll(at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            run(at: repositoryRoot, arguments: ["add", "--all"])
         }.value
     }
 
@@ -108,6 +191,21 @@ enum GitService {
             )
         }
         .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    private static func parseCommit(_ rawLine: Substring) -> GitCommit? {
+        let columns = rawLine.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(String.init)
+        guard columns.count >= 8 else { return nil }
+        return GitCommit(
+            hash: columns[0],
+            shortHash: columns[1],
+            parentHashes: columns[2].split(separator: " ").map(String.init),
+            authorName: columns[3],
+            authorEmail: columns[4],
+            date: columns[5],
+            subject: columns[6],
+            decorations: columns[7]
+        )
     }
 
     private static func run(at directory: URL, arguments: [String]) -> CommandResult {

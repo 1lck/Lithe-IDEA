@@ -6,6 +6,46 @@ struct GitSnapshot: Sendable {
     let changes: [GitChange]
 }
 
+enum GitReferenceKind: String, Sendable {
+    case local
+    case remote
+    case tag
+}
+
+struct GitReference: Identifiable, Hashable, Sendable {
+    let fullName: String
+    let shortName: String
+    let kind: GitReferenceKind
+    let isCurrent: Bool
+
+    var id: String { fullName }
+}
+
+struct GitCommit: Identifiable, Hashable, Sendable {
+    let hash: String
+    let shortHash: String
+    let parentHashes: [String]
+    let authorName: String
+    let authorEmail: String
+    let date: String
+    let subject: String
+    let decorations: String
+
+    var id: String { hash }
+}
+
+struct GitCommitFile: Identifiable, Hashable, Sendable {
+    let status: String
+    let path: String
+
+    var id: String { "\(status):\(path)" }
+}
+
+struct GitHistorySnapshot: Sendable {
+    let references: [GitReference]
+    let commits: [GitCommit]
+}
+
 struct GitChange: Identifiable, Hashable, Sendable {
     let repositoryRoot: URL
     let path: String

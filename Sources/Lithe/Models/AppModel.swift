@@ -26,7 +26,17 @@ final class AppModel: ObservableObject {
     @Published private(set) var isRefreshingGit = false
     @Published var pendingDiscardChange: GitChange?
     @Published var commitMessage = ""
+    @Published var amendCommit = false
     @Published private(set) var isCommitting = false
+    @Published var isGitLogVisible = false
+    @Published private(set) var gitReferences: [GitReference] = []
+    @Published private(set) var gitCommits: [GitCommit] = []
+    @Published var selectedGitReference: GitReference?
+    @Published var selectedGitCommit: GitCommit?
+    @Published private(set) var selectedGitCommitFiles: [GitCommitFile] = []
+    @Published var selectedGitCommitFile: GitCommitFile?
+    @Published var gitLogSearchQuery = ""
+    @Published private(set) var isLoadingGitHistory = false
     private var directoryWatcher: DirectoryWatcher?
     private var refreshTask: Task<Void, Never>?
 
@@ -98,6 +108,14 @@ final class AppModel: ObservableObject {
         selectedChange = nil
         diffRows = []
         isLoadingDiff = false
+        isGitLogVisible = false
+        gitReferences = []
+        gitCommits = []
+        selectedGitReference = nil
+        selectedGitCommit = nil
+        selectedGitCommitFiles = []
+        selectedGitCommitFile = nil
+        gitLogSearchQuery = ""
     }
 
     func removeRecentProject(_ project: RecentProject) {
@@ -219,6 +237,10 @@ final class AppModel: ObservableObject {
             diffRows = []
             isLoadingDiff = false
         }
+
+        if isGitLogVisible {
+            await refreshGitHistory()
+        }
     }
 
     func stageSelectedChange() async {
@@ -259,15 +281,80 @@ final class AppModel: ObservableObject {
             return
         }
         isCommitting = true
-        let result = await GitService.commit(at: gitRepositoryRoot, message: message)
+        let result = await GitService.commit(at: gitRepositoryRoot, message: message, amend: amendCommit)
         isCommitting = false
         if result.succeeded {
             commitMessage = ""
+            amendCommit = false
             showNotification("Changes committed")
         } else {
             showNotification(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         await refreshGit()
+    }
+
+    func toggleStaging(_ change: GitChange) async {
+        selectedChange = change
+        let result = change.isStaged ? await GitService.unstage(change) : await GitService.stage(change)
+        let verb = change.isStaged ? "Unstaged" : "Staged"
+        showNotification(result.succeeded ? "\(verb) \(change.path)" : result.output)
+        await refreshGit()
+    }
+
+    func stageAllChanges() async {
+        guard let gitRepositoryRoot else { return }
+        let result = await GitService.stageAll(at: gitRepositoryRoot)
+        showNotification(result.succeeded ? "Staged all changes" : result.output)
+        await refreshGit()
+    }
+
+    func showPushPlaceholder() {
+        showNotification("Push is intentionally not connected in this release")
+    }
+
+    func toggleGitLog() async {
+        isGitLogVisible.toggle()
+        if isGitLogVisible && gitCommits.isEmpty {
+            await refreshGitHistory()
+        }
+    }
+
+    func closeGitLog() {
+        isGitLogVisible = false
+    }
+
+    func selectGitReference(_ reference: GitReference?) async {
+        selectedGitReference = reference
+        await refreshGitHistory()
+    }
+
+    func refreshGitHistory() async {
+        guard let gitRepositoryRoot, !isLoadingGitHistory else { return }
+        isLoadingGitHistory = true
+        let previousCommitHash = selectedGitCommit?.hash
+        let snapshot = await GitService.history(at: gitRepositoryRoot, reference: selectedGitReference)
+        gitReferences = snapshot.references
+        gitCommits = snapshot.commits
+
+        let nextCommit = snapshot.commits.first(where: { $0.hash == previousCommitHash }) ?? snapshot.commits.first
+        isLoadingGitHistory = false
+        if let nextCommit {
+            await selectGitCommit(nextCommit)
+        } else {
+            selectedGitCommit = nil
+            selectedGitCommitFiles = []
+            selectedGitCommitFile = nil
+        }
+    }
+
+    func selectGitCommit(_ commit: GitCommit) async {
+        guard let gitRepositoryRoot else { return }
+        selectedGitCommit = commit
+        selectedGitCommitFile = nil
+        let files = await GitService.files(in: commit, at: gitRepositoryRoot)
+        guard selectedGitCommit?.hash == commit.hash else { return }
+        selectedGitCommitFiles = files
+        selectedGitCommitFile = files.first
     }
 
     func loadExternalVersion(of document: EditorDocument) {
@@ -367,7 +454,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .project: "folder"
-        case .changes: "arrow.triangle.branch"
+        case .changes: "slider.horizontal.3"
         case .search: "magnifyingglass"
         }
     }
