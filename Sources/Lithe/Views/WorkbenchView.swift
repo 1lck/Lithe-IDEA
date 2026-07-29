@@ -2,6 +2,10 @@ import SwiftUI
 
 struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var sidebarWidth: CGFloat = 320
+    @State private var sidebarDragStart: CGFloat = 320
+    @State private var topPaneHeight: CGFloat?
+    @State private var topPaneDragStart: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -188,27 +192,82 @@ struct WorkbenchView: View {
 
     private var workspaceArea: some View {
         GeometryReader { geometry in
-            let topHeight = model.isGitLogVisible
-                ? max(255, geometry.size.height * 0.40)
-                : geometry.size.height
+            let horizontalPadding: CGFloat = 6
+            let availableTopWidth = max(0, geometry.size.width - (horizontalPadding * 2))
+            let minimumSidebarWidth: CGFloat = 220
+            let minimumEditorWidth: CGFloat = 400
+            let maximumSidebarWidth = max(
+                minimumSidebarWidth,
+                min(520, availableTopWidth - SplitHandleView.thickness - minimumEditorWidth)
+            )
+            let resolvedSidebarWidth = constrained(
+                sidebarWidth,
+                minimum: minimumSidebarWidth,
+                maximum: maximumSidebarWidth
+            )
+
+            let minimumTopPaneHeight: CGFloat = 220
+            let minimumGitPaneHeight: CGFloat = 260
+            let maximumTopPaneHeight = max(
+                minimumTopPaneHeight,
+                geometry.size.height - SplitHandleView.thickness - minimumGitPaneHeight
+            )
+            let resolvedTopPaneHeight = constrained(
+                topPaneHeight ?? max(255, geometry.size.height * 0.40),
+                minimum: minimumTopPaneHeight,
+                maximum: maximumTopPaneHeight
+            )
 
             VStack(spacing: 0) {
-                HStack(spacing: 6) {
+                HStack(spacing: 0) {
                     activeSidebar
+                        .frame(width: resolvedSidebarWidth)
+
+                    SplitHandleView(
+                        axis: .horizontal,
+                        onDragStarted: {
+                            sidebarDragStart = resolvedSidebarWidth
+                        },
+                        onDragChanged: { translation in
+                            sidebarWidth = constrained(
+                                sidebarDragStart + translation,
+                                minimum: minimumSidebarWidth,
+                                maximum: maximumSidebarWidth
+                            )
+                        },
+                        onDragEnded: {}
+                    )
+
                     EditorAreaView()
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .padding(.top, 6)
                 .padding(.horizontal, 6)
-                .padding(.bottom, model.isGitLogVisible ? 3 : 6)
-                .frame(height: topHeight)
+                .padding(.bottom, model.isGitLogVisible ? 0 : 6)
+                .frame(height: model.isGitLogVisible ? resolvedTopPaneHeight : geometry.size.height)
 
                 if model.isGitLogVisible {
+                    SplitHandleView(
+                        axis: .vertical,
+                        onDragStarted: {
+                            topPaneDragStart = resolvedTopPaneHeight
+                        },
+                        onDragChanged: { translation in
+                            topPaneHeight = constrained(
+                                topPaneDragStart + translation,
+                                minimum: minimumTopPaneHeight,
+                                maximum: maximumTopPaneHeight
+                            )
+                        },
+                        onDragEnded: {}
+                    )
+                    .padding(.horizontal, 6)
+
                     GitLogView()
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .padding(.horizontal, 6)
                         .padding(.bottom, 6)
-                        .frame(height: max(260, geometry.size.height - topHeight))
+                        .frame(maxHeight: .infinity)
                 }
             }
             .background(LitheTheme.titlebar)
@@ -227,9 +286,12 @@ struct WorkbenchView: View {
                 SearchSidebarView()
             }
         }
-        .frame(width: 320)
         .background(LitheTheme.sidebar)
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
+        min(max(value, minimum), maximum)
     }
 
     private var statusBar: some View {
