@@ -65,7 +65,7 @@ struct GitChange: Identifiable, Hashable, Sendable {
     }
 }
 
-enum DiffRowKind: Sendable {
+enum DiffRowKind: Sendable, Equatable {
     case context
     case changed
     case addition
