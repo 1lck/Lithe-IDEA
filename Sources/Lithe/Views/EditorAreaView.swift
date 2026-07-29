@@ -5,7 +5,9 @@ struct EditorAreaView: View {
 
     var body: some View {
         Group {
-            if let selectedChange = model.selectedChange {
+            if let comparison = model.branchComparison {
+                BranchComparisonView(comparison: comparison)
+            } else if let selectedChange = model.selectedChange {
                 DiffReviewView(change: selectedChange)
             } else {
                 VStack(spacing: 0) {

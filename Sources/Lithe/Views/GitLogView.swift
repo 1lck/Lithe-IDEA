@@ -12,6 +12,8 @@ struct GitLogView: View {
     @State private var detailPaneDragStart: CGFloat = 350
     @State private var filesPaneHeight: CGFloat?
     @State private var filesPaneDragStart: CGFloat = 0
+    @State private var branchDialogRequest: GitBranchDialogRequest?
+    @State private var pendingPushReference: GitReference?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,6 +90,41 @@ struct GitLogView: View {
             }
         }
         .background(LitheTheme.sidebar)
+        .sheet(item: $branchDialogRequest) { request in
+            GitBranchNameDialog(request: request) { name, checkout in
+                Task {
+                    switch request.kind {
+                    case .create:
+                        await model.createBranch(
+                            named: name,
+                            from: request.reference,
+                            checkout: checkout
+                        )
+                    case .rename:
+                        await model.renameBranch(request.reference, to: name)
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "Push '\(pendingPushReference?.shortName ?? "")'?",
+            isPresented: Binding(
+                get: { pendingPushReference != nil },
+                set: { if !$0 { pendingPushReference = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Push") {
+                guard let reference = pendingPushReference else { return }
+                pendingPushReference = nil
+                Task { await model.pushBranch(reference) }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingPushReference = nil
+            }
+        } message: {
+            Text("This sends the selected local branch to its configured remote.")
+        }
     }
 
     private var toolWindowHeader: some View {
@@ -267,6 +304,36 @@ struct GitLogView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("New Branch from '\(reference.shortName)'…") {
+                branchDialogRequest = GitBranchDialogRequest(kind: .create, reference: reference)
+            }
+
+            Button("Show Diff with Working Tree") {
+                Task { await model.showComparisonWithWorkingTree(for: reference) }
+            }
+
+            if reference.kind == .local {
+                Divider()
+
+                Button("Update") {
+                    Task { await model.updateCurrentBranch(reference) }
+                }
+                .disabled(!reference.isCurrent || model.isPerformingBranchOperation)
+
+                Button("Push…") {
+                    pendingPushReference = reference
+                }
+                .disabled(model.isPerformingBranchOperation)
+
+                Divider()
+
+                Button("Rename…") {
+                    branchDialogRequest = GitBranchDialogRequest(kind: .rename, reference: reference)
+                }
+                .disabled(model.isPerformingBranchOperation)
+            }
+        }
     }
 
     private var commitPane: some View {
@@ -602,4 +669,99 @@ private struct GitCommitFileGroup: Identifiable {
     let files: [GitCommitFile]
 
     var id: String { path }
+}
+
+private enum GitBranchDialogKind {
+    case create
+    case rename
+}
+
+private struct GitBranchDialogRequest: Identifiable {
+    let id = UUID()
+    let kind: GitBranchDialogKind
+    let reference: GitReference
+}
+
+private struct GitBranchNameDialog: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: GitBranchDialogRequest
+    let onSubmit: (String, Bool) -> Void
+
+    @State private var name: String
+    @State private var checkout: Bool
+    @FocusState private var nameFieldFocused: Bool
+
+    init(request: GitBranchDialogRequest, onSubmit: @escaping (String, Bool) -> Void) {
+        self.request = request
+        self.onSubmit = onSubmit
+        _name = State(initialValue: request.kind == .rename ? request.reference.shortName : "")
+        _checkout = State(initialValue: request.kind == .create)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text(message)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            TextField("Branch name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .focused($nameFieldFocused)
+                .onSubmit(submit)
+
+            if request.kind == .create {
+                Toggle("Checkout branch after creation", isOn: $checkout)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12.5))
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(actionTitle, action: submit)
+                    .buttonStyle(.borderedProminent)
+                    .tint(LitheTheme.accent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmedName.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .background(LitheTheme.raised)
+        .onAppear { nameFieldFocused = true }
+    }
+
+    private var title: String {
+        switch request.kind {
+        case .create: "New Branch"
+        case .rename: "Rename Branch"
+        }
+    }
+
+    private var message: String {
+        switch request.kind {
+        case .create: "Create from '\(request.reference.shortName)'."
+        case .rename: "Rename '\(request.reference.shortName)'."
+        }
+    }
+
+    private var actionTitle: String {
+        request.kind == .create ? "Create" : "Rename"
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func submit() {
+        guard !trimmedName.isEmpty else { return }
+        onSubmit(trimmedName, checkout)
+        dismiss()
+    }
 }

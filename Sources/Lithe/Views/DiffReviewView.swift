@@ -362,7 +362,7 @@ struct DiffReviewView: View {
     }
 }
 
-private struct DiffRowView: View {
+struct DiffRowView: View {
     let row: DiffRow
     let kind: DiffRowKind
     let fileExtension: String
