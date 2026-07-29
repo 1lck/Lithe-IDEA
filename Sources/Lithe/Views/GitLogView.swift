@@ -6,21 +6,85 @@ struct GitLogView: View {
     @State private var remoteExpanded = true
     @State private var tagsExpanded = true
     @State private var collapsedFileGroups: Set<String> = []
+    @State private var referencePaneWidth: CGFloat = 300
+    @State private var referencePaneDragStart: CGFloat = 300
+    @State private var detailPaneWidth: CGFloat = 350
+    @State private var detailPaneDragStart: CGFloat = 350
+    @State private var filesPaneHeight: CGFloat?
+    @State private var filesPaneDragStart: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            HStack(spacing: 0) {
-                referencePane
-                    .frame(width: 300)
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                commitPane
-                    .frame(minWidth: 340, maxWidth: .infinity)
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                detailPane
-                    .frame(width: 350)
+            GeometryReader { geometry in
+                let minimumReferencePaneWidth: CGFloat = 220
+                let minimumCommitPaneWidth: CGFloat = 340
+                let minimumDetailPaneWidth: CGFloat = 280
+                let availablePaneWidth = max(
+                    0,
+                    geometry.size.width - (SplitHandleView.thickness * 2)
+                )
+                let maximumDetailPaneWidth = max(
+                    minimumDetailPaneWidth,
+                    min(520, availablePaneWidth - minimumReferencePaneWidth - minimumCommitPaneWidth)
+                )
+                let resolvedDetailPaneWidth = constrained(
+                    detailPaneWidth,
+                    minimum: minimumDetailPaneWidth,
+                    maximum: maximumDetailPaneWidth
+                )
+                let maximumReferencePaneWidth = max(
+                    minimumReferencePaneWidth,
+                    min(480, availablePaneWidth - resolvedDetailPaneWidth - minimumCommitPaneWidth)
+                )
+                let resolvedReferencePaneWidth = constrained(
+                    referencePaneWidth,
+                    minimum: minimumReferencePaneWidth,
+                    maximum: maximumReferencePaneWidth
+                )
+
+                HStack(spacing: 0) {
+                    referencePane
+                        .frame(width: resolvedReferencePaneWidth)
+
+                    SplitHandleView(
+                        axis: .horizontal,
+                        onDragStarted: {
+                            referencePaneDragStart = resolvedReferencePaneWidth
+                        },
+                        onDragChanged: { translation in
+                            referencePaneWidth = constrained(
+                                referencePaneDragStart + translation,
+                                minimum: minimumReferencePaneWidth,
+                                maximum: maximumReferencePaneWidth
+                            )
+                        },
+                        onDragEnded: {}
+                    )
+
+                    commitPane
+                        .frame(minWidth: minimumCommitPaneWidth, maxWidth: .infinity)
+
+                    SplitHandleView(
+                        axis: .horizontal,
+                        onDragStarted: {
+                            detailPaneDragStart = resolvedDetailPaneWidth
+                        },
+                        onDragChanged: { translation in
+                            detailPaneWidth = constrained(
+                                detailPaneDragStart - translation,
+                                minimum: minimumDetailPaneWidth,
+                                maximum: maximumDetailPaneWidth
+                            )
+                        },
+                        onDragEnded: {}
+                    )
+
+                    detailPane
+                        .frame(width: resolvedDetailPaneWidth)
+                }
             }
         }
         .background(LitheTheme.sidebar)
@@ -308,87 +372,119 @@ struct GitLogView: View {
     }
 
     private var detailPane: some View {
-        VStack(spacing: 0) {
+        GeometryReader { geometry in
+            let minimumFilesPaneHeight: CGFloat = 90
+            let minimumCommitDetailHeight: CGFloat = 110
+            let maximumFilesPaneHeight = max(
+                minimumFilesPaneHeight,
+                geometry.size.height - SplitHandleView.thickness - minimumCommitDetailHeight
+            )
+            let resolvedFilesPaneHeight = constrained(
+                filesPaneHeight ?? (geometry.size.height - SplitHandleView.thickness - 156),
+                minimum: minimumFilesPaneHeight,
+                maximum: maximumFilesPaneHeight
+            )
+
             VStack(spacing: 0) {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.left.arrow.right")
-                    Image(systemName: "clock")
-                    Image(systemName: "eye")
-                    Spacer()
-                    Text("\(model.selectedGitCommitFiles.count) files")
-                }
-                .font(.system(size: 11.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .padding(.horizontal, 10)
-                .frame(height: 38)
-                .background(LitheTheme.toolHeader)
+                commitFilesPane
+                    .frame(height: resolvedFilesPaneHeight)
 
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                SplitHandleView(
+                    axis: .vertical,
+                    onDragStarted: {
+                        filesPaneDragStart = resolvedFilesPaneHeight
+                    },
+                    onDragChanged: { translation in
+                        filesPaneHeight = constrained(
+                            filesPaneDragStart + translation,
+                            minimum: minimumFilesPaneHeight,
+                            maximum: maximumFilesPaneHeight
+                        )
+                    },
+                    onDragEnded: {}
+                )
 
-                if model.selectedGitCommitFiles.isEmpty {
-                    Text(model.selectedGitCommit == nil ? "Select a commit" : "No changed files")
-                        .font(LitheTheme.uiFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    GeometryReader { geometry in
-                        ScrollView([.vertical, .horizontal]) {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(commitFileGroups) { group in
-                                    Button {
-                                        if collapsedFileGroups.contains(group.path) {
-                                            collapsedFileGroups.remove(group.path)
-                                        } else {
-                                            collapsedFileGroups.insert(group.path)
-                                        }
-                                    } label: {
-                                        HStack(spacing: 7) {
-                                            Image(systemName: collapsedFileGroups.contains(group.path) ? "chevron.right" : "chevron.down")
-                                                .font(.system(size: 8, weight: .bold))
-                                                .frame(width: 10)
-                                                .foregroundStyle(LitheTheme.secondaryText)
-                                            Image(systemName: "folder")
-                                                .font(.system(size: 11.5))
-                                                .foregroundStyle(LitheTheme.secondaryText)
-                                            Text(group.displayName)
-                                                .font(.system(size: 12, weight: .medium))
-                                                .foregroundStyle(LitheTheme.primaryText)
-                                                .lineLimit(1)
-                                            Text(group.files.count == 1 ? "1 file" : "\(group.files.count) files")
-                                                .font(.system(size: 10.5))
-                                                .foregroundStyle(LitheTheme.secondaryText)
-                                            Spacer(minLength: 8)
-                                        }
-                                        .padding(.horizontal, 8)
-                                        .frame(width: 330, height: 27)
-                                        .contentShape(Rectangle())
+                commitDetail
+                    .frame(maxHeight: .infinity)
+            }
+        }
+        .background(LitheTheme.sidebar)
+    }
+
+    private var commitFilesPane: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.left.arrow.right")
+                Image(systemName: "clock")
+                Image(systemName: "eye")
+                Spacer()
+                Text("\(model.selectedGitCommitFiles.count) files")
+            }
+            .font(.system(size: 11.5))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(.horizontal, 10)
+            .frame(height: 38)
+            .background(LitheTheme.toolHeader)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            if model.selectedGitCommitFiles.isEmpty {
+                Text(model.selectedGitCommit == nil ? "Select a commit" : "No changed files")
+                    .font(LitheTheme.uiFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                GeometryReader { geometry in
+                    ScrollView([.vertical, .horizontal]) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(commitFileGroups) { group in
+                                Button {
+                                    if collapsedFileGroups.contains(group.path) {
+                                        collapsedFileGroups.remove(group.path)
+                                    } else {
+                                        collapsedFileGroups.insert(group.path)
                                     }
-                                    .buttonStyle(.plain)
+                                } label: {
+                                    HStack(spacing: 7) {
+                                        Image(systemName: collapsedFileGroups.contains(group.path) ? "chevron.right" : "chevron.down")
+                                            .font(.system(size: 8, weight: .bold))
+                                            .frame(width: 10)
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                        Image(systemName: "folder")
+                                            .font(.system(size: 11.5))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                        Text(group.displayName)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(LitheTheme.primaryText)
+                                            .lineLimit(1)
+                                        Text(group.files.count == 1 ? "1 file" : "\(group.files.count) files")
+                                            .font(.system(size: 10.5))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                        Spacer(minLength: 8)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .frame(width: 330, height: 27)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
 
-                                    if !collapsedFileGroups.contains(group.path) {
-                                        ForEach(group.files) { file in
-                                            commitFileRow(file)
-                                        }
+                                if !collapsedFileGroups.contains(group.path) {
+                                    ForEach(group.files) { file in
+                                        commitFileRow(file)
                                     }
                                 }
                             }
-                            .padding(.vertical, 5)
-                            .frame(
-                                minWidth: geometry.size.width,
-                                minHeight: geometry.size.height,
-                                alignment: .topLeading
-                            )
                         }
+                        .padding(.vertical, 5)
+                        .frame(
+                            minWidth: geometry.size.width,
+                            minHeight: geometry.size.height,
+                            alignment: .topLeading
+                        )
                     }
                 }
             }
-            .frame(maxHeight: .infinity)
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            commitDetail
-                .frame(height: 156)
         }
-        .background(LitheTheme.sidebar)
     }
 
     private var commitDetail: some View {
@@ -466,6 +562,10 @@ struct GitLogView: View {
         if status.hasPrefix("D") { return .red.opacity(0.85) }
         if status.hasPrefix("R") { return LitheTheme.accent }
         return LitheTheme.warning
+    }
+
+    private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
+        min(max(value, minimum), maximum)
     }
 
     private func commitFileRow(_ file: GitCommitFile) -> some View {
