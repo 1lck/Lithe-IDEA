@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WelcomeView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var projectFilter = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -78,9 +79,9 @@ struct WelcomeView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 18))
                     .foregroundStyle(LitheTheme.secondaryText)
-                Text("Open a project to begin reviewing changes")
+                TextField("Search projects", text: $projectFilter)
+                    .textFieldStyle(.plain)
                     .font(.system(size: 15))
-                    .foregroundStyle(LitheTheme.secondaryText)
 
                 Spacer()
 
@@ -95,20 +96,92 @@ struct WelcomeView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 .padding(.horizontal, 24)
 
-            VStack(spacing: 12) {
-                Image(systemName: "folder.badge.plus")
-                    .font(.system(size: 42, weight: .light))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Text("No recent projects")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                Text("Open a local folder. Lithe will remember it here.")
-                    .font(LitheTheme.uiFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
+            if filteredProjects.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 42, weight: .light))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    Text(model.recentProjects.isEmpty ? "No recent projects" : "No matching projects")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(LitheTheme.primaryText)
+                    Text("Open a local folder. Lithe will remember it here.")
+                        .font(LitheTheme.uiFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(filteredProjects) { project in
+                            Button {
+                                if project.exists { model.openProject(project.url) }
+                            } label: {
+                                HStack(spacing: 14) {
+                                    Text(initials(for: project.name))
+                                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 38, height: 38)
+                                        .background(project.exists ? color(for: project.name) : Color.gray)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(project.name)
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundStyle(project.exists ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                                        Text(project.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                                            .font(.system(size: 12.5))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 34)
+                                .frame(height: 68)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!project.exists)
+                            .contextMenu {
+                                if project.exists {
+                                    Button("Open") { model.openProject(project.url) }
+                                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([project.url]) }
+                                }
+                                Button("Remove from Recent Projects", role: .destructive) {
+                                    model.removeRecentProject(project)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 14)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(LitheTheme.window)
+    }
+
+    private var filteredProjects: [RecentProject] {
+        guard !projectFilter.isEmpty else { return model.recentProjects }
+        return model.recentProjects.filter {
+            $0.name.localizedCaseInsensitiveContains(projectFilter) ||
+            $0.path.localizedCaseInsensitiveContains(projectFilter)
+        }
+    }
+
+    private func initials(for name: String) -> String {
+        let words = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        let characters = words.prefix(2).compactMap(\.first)
+        return characters.isEmpty ? "LI" : String(characters).uppercased()
+    }
+
+    private func color(for value: String) -> Color {
+        let palette: [Color] = [
+            Color(red: 0.90, green: 0.43, blue: 0.28),
+            Color(red: 0.12, green: 0.63, blue: 0.68),
+            Color(red: 0.28, green: 0.53, blue: 0.88),
+            Color(red: 0.30, green: 0.66, blue: 0.48),
+            Color(red: 0.70, green: 0.52, blue: 0.12)
+        ]
+        return palette[abs(value.hashValue) % palette.count]
     }
 }
 

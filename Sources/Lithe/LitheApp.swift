@@ -22,10 +22,24 @@ struct LitheApp: App {
             }
 
             CommandGroup(after: .saveItem) {
+                Button("Save") {
+                    model.saveActiveDocument()
+                }
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(model.activeDocument == nil)
+
                 Button("Close Project") {
                     model.closeProject()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
+                .disabled(model.workspaceURL == nil)
+            }
+
+            CommandMenu("Navigate") {
+                Button("Search in Project") {
+                    model.selectedSidebar = .search
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(model.workspaceURL == nil)
             }
         }

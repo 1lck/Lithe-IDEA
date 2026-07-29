@@ -11,9 +11,9 @@ struct WorkbenchView: View {
             HStack(spacing: 0) {
                 activityBar
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                placeholderSidebar
+                activeSidebar
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                editorPlaceholder
+                EditorAreaView()
             }
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -21,6 +21,33 @@ struct WorkbenchView: View {
         }
         .sheet(isPresented: $model.isRunPlaceholderPresented) {
             RunPlaceholderView()
+        }
+        .confirmationDialog(
+            "Save changes before closing?",
+            isPresented: Binding(
+                get: { model.pendingCloseDocument != nil },
+                set: { if !$0 { model.cancelPendingClose() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Save") { model.closePendingDocument(discardingChanges: false) }
+            Button("Discard Changes", role: .destructive) { model.closePendingDocument(discardingChanges: true) }
+            Button("Cancel", role: .cancel) { model.cancelPendingClose() }
+        } message: {
+            Text(model.pendingCloseDocument?.url.lastPathComponent ?? "")
+        }
+        .overlay(alignment: .bottom) {
+            if let message = model.notificationMessage {
+                Text(message)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .padding(.horizontal, 14)
+                    .frame(height: 34)
+                    .background(LitheTheme.raised)
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
+                    .padding(.bottom, 38)
+            }
         }
     }
 
@@ -104,48 +131,20 @@ struct WorkbenchView: View {
         .background(LitheTheme.titlebar)
     }
 
-    private var placeholderSidebar: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(model.selectedSidebar.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
-                Spacer()
-                Image(systemName: "ellipsis")
-                    .foregroundStyle(LitheTheme.secondaryText)
+    @ViewBuilder
+    private var activeSidebar: some View {
+        Group {
+            switch model.selectedSidebar {
+            case .project:
+                ProjectSidebarView()
+            case .changes:
+                ChangesPlaceholderView()
+            case .search:
+                SearchSidebarView()
             }
-            .padding(.horizontal, 14)
-            .frame(height: 44)
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-
-            VStack(spacing: 10) {
-                Image(systemName: model.selectedSidebar.systemImage)
-                    .font(.system(size: 28, weight: .light))
-                Text("Loading \(model.selectedSidebar.title)…")
-                    .font(LitheTheme.uiFont)
-            }
-            .foregroundStyle(LitheTheme.secondaryText)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 310)
         .background(LitheTheme.sidebar)
-    }
-
-    private var editorPlaceholder: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 44, weight: .ultraLight))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text("Select a file to review")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-            Text("Changes from external tools will appear automatically.")
-                .font(LitheTheme.uiFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(LitheTheme.editor)
     }
 
     private var statusBar: some View {
@@ -167,6 +166,29 @@ struct WorkbenchView: View {
         let words = model.projectName.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
         let initials = words.prefix(2).compactMap(\.first)
         return initials.isEmpty ? "LI" : String(initials).uppercased()
+    }
+}
+
+private struct ChangesPlaceholderView: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Changes")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+            }
+            .padding(.horizontal, 13)
+            .frame(height: 44)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            VStack(spacing: 10) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 28, weight: .light))
+                Text("Git review is being connected")
+            }
+            .font(LitheTheme.uiFont)
+            .foregroundStyle(LitheTheme.secondaryText)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
 
