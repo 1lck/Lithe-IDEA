@@ -41,7 +41,7 @@ struct ChangesSidebarView: View {
             Spacer()
         }
         .padding(.horizontal, 10)
-        .frame(height: 45)
+        .frame(height: 40)
         .background(LitheTheme.toolHeader)
     }
 
@@ -102,7 +102,7 @@ struct ChangesSidebarView: View {
                 .lineLimit(1)
         }
         .padding(.horizontal, 7)
-        .frame(height: 39)
+        .frame(height: 36)
     }
 
     private var changeList: some View {
@@ -275,7 +275,7 @@ struct ChangesSidebarView: View {
             .controlSize(.small)
         }
         .padding(10)
-        .frame(height: 154)
+        .frame(height: 124)
         .background(LitheTheme.toolHeader)
     }
 

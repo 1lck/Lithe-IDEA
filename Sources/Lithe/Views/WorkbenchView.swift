@@ -189,7 +189,7 @@ struct WorkbenchView: View {
     private var workspaceArea: some View {
         GeometryReader { geometry in
             let topHeight = model.isGitLogVisible
-                ? max(275, geometry.size.height * 0.46)
+                ? max(255, geometry.size.height * 0.40)
                 : geometry.size.height
 
             VStack(spacing: 0) {

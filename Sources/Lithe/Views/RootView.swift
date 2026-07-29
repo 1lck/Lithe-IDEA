@@ -9,6 +9,7 @@ struct RootView: View {
                 WelcomeView()
             } else {
                 WorkbenchView()
+                    .ignoresSafeArea(.container, edges: .top)
             }
         }
         .background(LitheTheme.window)

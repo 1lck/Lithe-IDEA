@@ -5,6 +5,7 @@ struct GitLogView: View {
     @State private var localExpanded = true
     @State private var remoteExpanded = true
     @State private var tagsExpanded = true
+    @State private var collapsedFileGroups: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,13 +14,13 @@ struct GitLogView: View {
 
             HStack(spacing: 0) {
                 referencePane
-                    .frame(minWidth: 230, idealWidth: 292, maxWidth: 292)
+                    .frame(width: 300)
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 commitPane
                     .frame(minWidth: 340, maxWidth: .infinity)
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 detailPane
-                    .frame(minWidth: 300, idealWidth: 382, maxWidth: 382)
+                    .frame(width: 350)
             }
         }
         .background(LitheTheme.sidebar)
@@ -105,35 +106,41 @@ struct GitLogView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            ScrollView([.vertical, .horizontal]) {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let current = currentReference {
-                        referenceButton(current, title: "HEAD (Current Branch)", icon: "arrow.right")
-                            .padding(.bottom, 4)
-                    }
+            GeometryReader { geometry in
+                ScrollView([.vertical, .horizontal]) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let current = currentReference {
+                            referenceButton(current, title: "HEAD (Current Branch)", icon: "arrow.right")
+                                .padding(.bottom, 4)
+                        }
 
-                    referenceSection(
-                        title: "Local",
-                        icon: "folder",
-                        kind: .local,
-                        expanded: $localExpanded
-                    )
-                    referenceSection(
-                        title: "Remote",
-                        icon: "network",
-                        kind: .remote,
-                        expanded: $remoteExpanded
-                    )
-                    referenceSection(
-                        title: "Tags",
-                        icon: "tag",
-                        kind: .tag,
-                        expanded: $tagsExpanded
+                        referenceSection(
+                            title: "Local",
+                            icon: "folder",
+                            kind: .local,
+                            expanded: $localExpanded
+                        )
+                        referenceSection(
+                            title: "Remote",
+                            icon: "network",
+                            kind: .remote,
+                            expanded: $remoteExpanded
+                        )
+                        referenceSection(
+                            title: "Tags",
+                            icon: "tag",
+                            kind: .tag,
+                            expanded: $tagsExpanded
+                        )
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 9)
+                    .frame(
+                        minWidth: geometry.size.width,
+                        minHeight: geometry.size.height,
+                        alignment: .topLeading
                     )
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 9)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
         .background(LitheTheme.sidebar)
@@ -324,35 +331,54 @@ struct GitLogView: View {
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView([.vertical, .horizontal]) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(model.selectedGitCommitFiles) { file in
-                                Button {
-                                    model.selectedGitCommitFile = file
-                                } label: {
-                                    HStack(spacing: 7) {
-                                        Text(file.status)
-                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                            .foregroundStyle(fileStatusColor(file.status))
-                                            .frame(width: 18)
-                                        Image(systemName: "doc.text")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(LitheTheme.accent)
-                                        Text(file.path)
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(LitheTheme.primaryText)
-                                            .lineLimit(1)
-                                        Spacer(minLength: 8)
+                    GeometryReader { geometry in
+                        ScrollView([.vertical, .horizontal]) {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(commitFileGroups) { group in
+                                    Button {
+                                        if collapsedFileGroups.contains(group.path) {
+                                            collapsedFileGroups.remove(group.path)
+                                        } else {
+                                            collapsedFileGroups.insert(group.path)
+                                        }
+                                    } label: {
+                                        HStack(spacing: 7) {
+                                            Image(systemName: collapsedFileGroups.contains(group.path) ? "chevron.right" : "chevron.down")
+                                                .font(.system(size: 8, weight: .bold))
+                                                .frame(width: 10)
+                                                .foregroundStyle(LitheTheme.secondaryText)
+                                            Image(systemName: "folder")
+                                                .font(.system(size: 11.5))
+                                                .foregroundStyle(LitheTheme.secondaryText)
+                                            Text(group.displayName)
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundStyle(LitheTheme.primaryText)
+                                                .lineLimit(1)
+                                            Text(group.files.count == 1 ? "1 file" : "\(group.files.count) files")
+                                                .font(.system(size: 10.5))
+                                                .foregroundStyle(LitheTheme.secondaryText)
+                                            Spacer(minLength: 8)
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .frame(width: 330, height: 27)
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(.horizontal, 9)
-                                    .frame(width: 360, height: 27)
-                                    .background(model.selectedGitCommitFile?.id == file.id ? LitheTheme.subtleSelection : .clear)
-                                    .contentShape(Rectangle())
+                                    .buttonStyle(.plain)
+
+                                    if !collapsedFileGroups.contains(group.path) {
+                                        ForEach(group.files) { file in
+                                            commitFileRow(file)
+                                        }
+                                    }
                                 }
-                                .buttonStyle(.plain)
                             }
+                            .padding(.vertical, 5)
+                            .frame(
+                                minWidth: geometry.size.width,
+                                minHeight: geometry.size.height,
+                                alignment: .topLeading
+                            )
                         }
-                        .padding(.vertical, 5)
                     }
                 }
             }
@@ -409,6 +435,20 @@ struct GitLogView: View {
         }
     }
 
+    private var commitFileGroups: [GitCommitFileGroup] {
+        let groups = Dictionary(grouping: model.selectedGitCommitFiles) { file in
+            (file.path as NSString).deletingLastPathComponent
+        }
+        return groups.map { path, files in
+            GitCommitFileGroup(
+                path: path,
+                displayName: path.isEmpty ? model.projectName : path,
+                files: files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+            )
+        }
+        .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+
     private var currentReference: GitReference? {
         model.gitReferences.first(where: \.isCurrent)
     }
@@ -427,4 +467,39 @@ struct GitLogView: View {
         if status.hasPrefix("R") { return LitheTheme.accent }
         return LitheTheme.warning
     }
+
+    private func commitFileRow(_ file: GitCommitFile) -> some View {
+        Button {
+            model.selectedGitCommitFile = file
+        } label: {
+            HStack(spacing: 7) {
+                Text(file.status)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(fileStatusColor(file.status))
+                    .frame(width: 18)
+                Image(systemName: "doc.text")
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.accent)
+                Text((file.path as NSString).lastPathComponent)
+                    .font(.system(size: 12))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+            }
+            .padding(.leading, 30)
+            .padding(.trailing, 8)
+            .frame(width: 330, height: 27)
+            .background(model.selectedGitCommitFile?.id == file.id ? LitheTheme.subtleSelection : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct GitCommitFileGroup: Identifiable {
+    let path: String
+    let displayName: String
+    let files: [GitCommitFile]
+
+    var id: String { path }
 }
