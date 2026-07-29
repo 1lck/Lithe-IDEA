@@ -37,6 +37,11 @@ final class AppModel: ObservableObject {
     @Published var selectedGitCommitFile: GitCommitFile?
     @Published var gitLogSearchQuery = ""
     @Published private(set) var isLoadingGitHistory = false
+    @Published private(set) var branchComparison: GitBranchComparison?
+    @Published var selectedBranchComparisonFile: GitBranchComparisonFile?
+    @Published private(set) var branchComparisonRows: [DiffRow] = []
+    @Published private(set) var isLoadingBranchComparison = false
+    @Published private(set) var isPerformingBranchOperation = false
     private var directoryWatcher: DirectoryWatcher?
     private var refreshTask: Task<Void, Never>?
 
@@ -74,6 +79,9 @@ final class AppModel: ObservableObject {
         projectFiles = []
         openDocuments = []
         activeDocumentID = nil
+        branchComparison = nil
+        selectedBranchComparisonFile = nil
+        branchComparisonRows = []
         recentProjects = RecentProjectsStore.record(normalizedURL, in: recentProjects)
         isLoadingWorkspace = true
 
@@ -116,6 +124,11 @@ final class AppModel: ObservableObject {
         selectedGitCommitFiles = []
         selectedGitCommitFile = nil
         gitLogSearchQuery = ""
+        branchComparison = nil
+        selectedBranchComparisonFile = nil
+        branchComparisonRows = []
+        isLoadingBranchComparison = false
+        isPerformingBranchOperation = false
     }
 
     func removeRecentProject(_ project: RecentProject) {
@@ -124,6 +137,7 @@ final class AppModel: ObservableObject {
 
     func openFile(_ url: URL) {
         selectedChange = nil
+        closeBranchComparison()
         let normalizedURL = url.standardizedFileURL
         if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
             activeDocumentID = existing.id
@@ -201,6 +215,7 @@ final class AppModel: ObservableObject {
     }
 
     func selectChange(_ change: GitChange) {
+        closeBranchComparison()
         selectedChange = change
         activeDocumentID = nil
         diffRows = []
@@ -357,6 +372,119 @@ final class AppModel: ObservableObject {
         selectedGitCommitFile = files.first
     }
 
+    func showComparisonWithWorkingTree(for reference: GitReference) async {
+        guard let gitRepositoryRoot else { return }
+        selectedChange = nil
+        activeDocumentID = nil
+        isLoadingBranchComparison = true
+        branchComparisonRows = []
+        let comparison = await GitService.comparisonWithWorkingTree(
+            for: reference,
+            at: gitRepositoryRoot
+        )
+        branchComparison = comparison
+        selectedBranchComparisonFile = comparison.files.first
+        if let firstFile = comparison.files.first {
+            branchComparisonRows = await GitService.diff(
+                for: firstFile,
+                against: reference,
+                at: gitRepositoryRoot
+            )
+        }
+        isLoadingBranchComparison = false
+    }
+
+    func selectBranchComparisonFile(_ file: GitBranchComparisonFile) async {
+        guard let gitRepositoryRoot, let comparison = branchComparison else { return }
+        selectedBranchComparisonFile = file
+        branchComparisonRows = []
+        isLoadingBranchComparison = true
+        let rows = await GitService.diff(
+            for: file,
+            against: comparison.reference,
+            at: gitRepositoryRoot
+        )
+        guard selectedBranchComparisonFile?.id == file.id else { return }
+        branchComparisonRows = rows
+        isLoadingBranchComparison = false
+    }
+
+    func closeBranchComparison() {
+        branchComparison = nil
+        selectedBranchComparisonFile = nil
+        branchComparisonRows = []
+        isLoadingBranchComparison = false
+    }
+
+    func createBranch(
+        named rawName: String,
+        from reference: GitReference,
+        checkout: Bool
+    ) async {
+        guard let gitRepositoryRoot else { return }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            showNotification("Enter a branch name")
+            return
+        }
+        isPerformingBranchOperation = true
+        let result = await GitService.createBranch(
+            named: name,
+            from: reference,
+            checkout: checkout,
+            at: gitRepositoryRoot
+        )
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            selectedGitReference = nil
+            showNotification(checkout ? "Created and checked out \(name)" : "Created branch \(name)")
+            await refreshGit()
+        } else {
+            showNotification(gitErrorMessage(from: result))
+        }
+    }
+
+    func renameBranch(_ reference: GitReference, to rawName: String) async {
+        guard let gitRepositoryRoot else { return }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            showNotification("Enter a branch name")
+            return
+        }
+        isPerformingBranchOperation = true
+        let result = await GitService.renameBranch(reference, to: name, at: gitRepositoryRoot)
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            selectedGitReference = nil
+            closeBranchComparison()
+            showNotification("Renamed branch to \(name)")
+            await refreshGit()
+        } else {
+            showNotification(gitErrorMessage(from: result))
+        }
+    }
+
+    func updateCurrentBranch(_ reference: GitReference) async {
+        guard let gitRepositoryRoot, reference.isCurrent else {
+            showNotification("Only the current branch can be updated")
+            return
+        }
+        isPerformingBranchOperation = true
+        let result = await GitService.updateCurrentBranch(at: gitRepositoryRoot)
+        isPerformingBranchOperation = false
+        showNotification(result.succeeded ? "Updated \(reference.shortName)" : gitErrorMessage(from: result))
+        await refreshGit()
+    }
+
+    func pushBranch(_ reference: GitReference) async {
+        guard let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await GitService.push(reference, at: gitRepositoryRoot)
+        isPerformingBranchOperation = false
+        showNotification(result.succeeded ? "Pushed \(reference.shortName)" : gitErrorMessage(from: result))
+        await refreshGit()
+    }
+
     func loadExternalVersion(of document: EditorDocument) {
         do {
             try document.reloadFromDisk()
@@ -384,6 +512,11 @@ final class AppModel: ObservableObject {
                 notificationMessage = nil
             }
         }
+    }
+
+    private func gitErrorMessage(from result: GitService.CommandResult) -> String {
+        let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return message.isEmpty ? "Git operation failed" : message
     }
 
     private func closeDocument(_ document: EditorDocument) {

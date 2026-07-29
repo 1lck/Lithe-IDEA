@@ -165,6 +165,124 @@ enum GitService {
         }.value
     }
 
+    static func comparisonWithWorkingTree(
+        for reference: GitReference,
+        at repositoryRoot: URL
+    ) async -> GitBranchComparison {
+        await Task.detached(priority: .userInitiated) {
+            let output = run(
+                at: repositoryRoot,
+                arguments: [
+                    "-c", "core.quotepath=false",
+                    "diff", "--name-status", "--find-renames", reference.fullName, "--"
+                ]
+            ).output
+            let files = output
+                .split(separator: "\n")
+                .compactMap { rawLine -> GitBranchComparisonFile? in
+                    let columns = rawLine
+                        .split(separator: "\t", omittingEmptySubsequences: false)
+                        .map(String.init)
+                    guard columns.count >= 2 else { return nil }
+                    let path = columns.last ?? ""
+                    guard !path.isEmpty else { return nil }
+                    return GitBranchComparisonFile(status: columns[0], path: path)
+                }
+            return GitBranchComparison(reference: reference, files: files)
+        }.value
+    }
+
+    static func diff(
+        for file: GitBranchComparisonFile,
+        against reference: GitReference,
+        at repositoryRoot: URL
+    ) async -> [DiffRow] {
+        await Task.detached(priority: .userInitiated) {
+            let patch = run(
+                at: repositoryRoot,
+                arguments: [
+                    "diff", "--no-ext-diff", "--unified=\(reviewContextLines)",
+                    reference.fullName, "--", file.path
+                ]
+            ).output
+            return DiffParser.parse(patch)
+        }.value
+    }
+
+    static func createBranch(
+        named name: String,
+        from reference: GitReference,
+        checkout: Bool,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            let validation = run(at: repositoryRoot, arguments: ["check-ref-format", "--branch", name])
+            guard validation.succeeded else { return validation }
+            if checkout {
+                return run(at: repositoryRoot, arguments: ["switch", "-c", name, reference.fullName])
+            }
+            return run(at: repositoryRoot, arguments: ["branch", name, reference.fullName])
+        }.value
+    }
+
+    static func renameBranch(
+        _ reference: GitReference,
+        to newName: String,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            let validation = run(at: repositoryRoot, arguments: ["check-ref-format", "--branch", newName])
+            guard validation.succeeded else { return validation }
+            if reference.isCurrent {
+                return run(at: repositoryRoot, arguments: ["branch", "-m", newName])
+            }
+            return run(at: repositoryRoot, arguments: ["branch", "-m", reference.shortName, newName])
+        }.value
+    }
+
+    static func updateCurrentBranch(at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            run(at: repositoryRoot, arguments: ["pull", "--ff-only"])
+        }.value
+    }
+
+    static func push(
+        _ reference: GitReference,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            let upstream = run(
+                at: repositoryRoot,
+                arguments: ["rev-parse", "--abbrev-ref", "\(reference.shortName)@{upstream}"]
+            )
+            if upstream.succeeded, reference.isCurrent {
+                return run(at: repositoryRoot, arguments: ["push"])
+            }
+            if upstream.succeeded {
+                let trackingName = upstream.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let separator = trackingName.firstIndex(of: "/") {
+                    let remote = String(trackingName[..<separator])
+                    let remoteBranch = String(trackingName[trackingName.index(after: separator)...])
+                    return run(
+                        at: repositoryRoot,
+                        arguments: ["push", remote, "\(reference.shortName):\(remoteBranch)"]
+                    )
+                }
+            }
+
+            let remotes = run(at: repositoryRoot, arguments: ["remote"]).output
+                .split(separator: "\n")
+                .map(String.init)
+            guard let remote = remotes.first(where: { $0 == "origin" }) ?? remotes.first else {
+                return CommandResult(output: "No Git remote is configured", exitCode: 1)
+            }
+            return run(
+                at: repositoryRoot,
+                arguments: ["push", "--set-upstream", remote, reference.shortName]
+            )
+        }.value
+    }
+
     static func stageAll(at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["add", "--all"])

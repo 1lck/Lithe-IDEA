@@ -41,6 +41,20 @@ struct GitCommitFile: Identifiable, Hashable, Sendable {
     var id: String { "\(status):\(path)" }
 }
 
+struct GitBranchComparisonFile: Identifiable, Hashable, Sendable {
+    let status: String
+    let path: String
+
+    var id: String { "\(status):\(path)" }
+}
+
+struct GitBranchComparison: Identifiable, Sendable {
+    let reference: GitReference
+    let files: [GitBranchComparisonFile]
+
+    var id: String { reference.id }
+}
+
 struct GitHistorySnapshot: Sendable {
     let references: [GitReference]
     let commits: [GitCommit]
