@@ -38,6 +38,18 @@ final class EditorDocument: ObservableObject, Identifiable {
         hasExternalConflict = false
     }
 
+    func processPossibleExternalChange() -> Bool {
+        let currentDate = Self.modificationDate(for: url)
+        guard currentDate != lastKnownModificationDate else { return false }
+
+        if isDirty {
+            hasExternalConflict = true
+        } else {
+            try? reloadFromDisk()
+        }
+        return true
+    }
+
     func markSavedWithoutWriting() {
         savedText = text
     }

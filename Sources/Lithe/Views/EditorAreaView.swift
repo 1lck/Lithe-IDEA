@@ -4,18 +4,50 @@ struct EditorAreaView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            if model.openDocuments.isEmpty {
-                emptyState
+        Group {
+            if let selectedChange = model.selectedChange {
+                DiffReviewView(change: selectedChange)
             } else {
-                editorTabs
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                breadcrumbs
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                activeEditor
+                VStack(spacing: 0) {
+                    if model.openDocuments.isEmpty {
+                        emptyState
+                    } else {
+                        editorTabs
+                        Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                        breadcrumbs
+                        Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                        externalConflictBanner
+                        activeEditor
+                    }
+                }
             }
         }
         .background(LitheTheme.editor)
+    }
+
+    @ViewBuilder
+    private var externalConflictBanner: some View {
+        if let document = model.activeDocument, document.hasExternalConflict {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(LitheTheme.warning)
+                Text("This file changed outside Lithe while you had unsaved edits.")
+                    .font(.system(size: 11.5, weight: .medium))
+                Spacer()
+                Button("Keep Editor") { model.keepEditorVersion(of: document) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                Button("Load Disk Version") { model.loadExternalVersion(of: document) }
+                    .buttonStyle(.borderedProminent)
+                    .tint(LitheTheme.warning)
+                    .controlSize(.small)
+            }
+            .foregroundStyle(LitheTheme.primaryText)
+            .padding(.horizontal, 12)
+            .frame(height: 42)
+            .background(Color.orange.opacity(0.10))
+            Rectangle().fill(LitheTheme.warning.opacity(0.35)).frame(height: 1)
+        }
     }
 
     private var editorTabs: some View {

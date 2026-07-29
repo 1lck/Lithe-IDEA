@@ -36,6 +36,21 @@ struct WorkbenchView: View {
         } message: {
             Text(model.pendingCloseDocument?.url.lastPathComponent ?? "")
         }
+        .confirmationDialog(
+            model.pendingDiscardChange?.isUntracked == true ? "Delete this untracked file?" : "Discard changes to this file?",
+            isPresented: Binding(
+                get: { model.pendingDiscardChange != nil },
+                set: { if !$0 { model.cancelDiscardChange() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(model.pendingDiscardChange?.isUntracked == true ? "Delete File" : "Discard Changes", role: .destructive) {
+                Task { await model.confirmDiscardChange() }
+            }
+            Button("Cancel", role: .cancel) { model.cancelDiscardChange() }
+        } message: {
+            Text("This action cannot be undone by Lithe.")
+        }
         .overlay(alignment: .bottom) {
             if let message = model.notificationMessage {
                 Text(message)
@@ -138,7 +153,7 @@ struct WorkbenchView: View {
             case .project:
                 ProjectSidebarView()
             case .changes:
-                ChangesPlaceholderView()
+                ChangesSidebarView()
             case .search:
                 SearchSidebarView()
             }
@@ -151,7 +166,7 @@ struct WorkbenchView: View {
         HStack(spacing: 16) {
             Label(model.projectName, systemImage: "folder")
             Spacer()
-            Text("Ready")
+            Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
         }
@@ -166,29 +181,6 @@ struct WorkbenchView: View {
         let words = model.projectName.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
         let initials = words.prefix(2).compactMap(\.first)
         return initials.isEmpty ? "LI" : String(initials).uppercased()
-    }
-}
-
-private struct ChangesPlaceholderView: View {
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Changes")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer()
-            }
-            .padding(.horizontal, 13)
-            .frame(height: 44)
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            VStack(spacing: 10) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 28, weight: .light))
-                Text("Git review is being connected")
-            }
-            .font(LitheTheme.uiFont)
-            .foregroundStyle(LitheTheme.secondaryText)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
     }
 }
 
