@@ -5,48 +5,54 @@
 - Source visual truth: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-224a4d2e-d22b-4e22-b964-480b011c87be.png`
 - Supporting workbench source: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-0e9ed4b5-cfe2-43b2-b96f-fb04688ce027.png`
 - Implementation: `/Users/lick/code/my-code/building-project/Lithe-IDEA/dist/Lithe.app`
-- Implementation screenshot: unavailable for the current refinement pass because the Mac is locked
-- Target viewport: 1440 × 900 px, dark appearance
-- Target state: Commit sidebar active, source file open, bottom Git Log visible, current branch selected, first commit selected
-- Full-view comparison evidence: blocked; the source image was opened, but the current implementation could not be captured
-- Focused-region comparison evidence: blocked for the same reason
+- Implementation screenshot: `design-qa-artifacts/implementation-git-final.png`
+- Viewport: implementation 1280 × 768 px; source normalized to 1280 × 768 px
+- State: dark appearance; Commit sidebar active; README open; Git Log visible; `main` selected; multi-file commit selected
+- Full-view comparison: `design-qa-artifacts/comparison-git-final.png`
+- Focused Git comparison: `design-qa-artifacts/comparison-git-final-focus.png`
 
 ## Findings
 
-- [P0] Current implementation cannot be visually verified while macOS is locked.
-  Location: native Lithe window capture.
-  Evidence: the Computer Use runtime returned `The Mac is locked and automatic unlock could not unlock it` on repeated capture attempts.
-  Impact: layout, clipping, line-number placement, Git panel proportions, typography, colors, and interaction states cannot be truthfully accepted against the reference.
-  Fix: manually unlock the Mac, relaunch `dist/Lithe.app`, capture the target Git state, create full-view and focused side-by-side comparisons, then fix all P0/P1/P2 differences.
+No actionable P0, P1, or P2 findings remain.
 
-## Implemented Since the Previous QA Pass
-
-- Added real local/remote branch and tag discovery.
-- Added a real 150-entry Git commit history with author, date, subject, decorations, and parent information.
-- Added per-commit changed-file loading and commit details.
-- Rebuilt the Commit sidebar with IDEA-like tabs, toolbar, grouped changes, staging checkboxes, Amend, commit message, and local commit actions.
-- Added an IDEA-like bottom Git tool window with reference tree, searchable commit timeline, changed-file pane, and commit detail pane.
-- Added rounded tool-window surfaces, denser top bar, branch context, updated dark tokens, and tighter editor chrome.
-- Added a separate non-overlapping AppKit line-number gutter.
-- Completed Debug and Release builds and verified the signed App Bundle.
-
-## Implementation Checklist
-
-- [x] Git data layer and real repository content
-- [x] Commit sidebar layout and interactions
-- [x] Bottom Git Log three-column layout and interactions
-- [x] Workbench density, panel rounding, and line-number implementation
-- [x] Debug and Release build verification
-- [ ] Capture the current native Git state after macOS is unlocked
-- [ ] Produce normalized full-view and focused comparisons
-- [ ] Fix visible P0/P1/P2 differences and repeat capture
+- [P3] The reference contains a larger secondary tool icon inventory.
+  Location: left and right activity rails.
+  Evidence: IntelliJ displays debugger, database, terminal, plugin, and service icons; Lithe keeps only Project, Commit, Search, and Git Log.
+  Impact: visual chrome is lighter, but the confirmed product workflows remain fully reachable.
+  Fix: add tool icons only when their real features enter scope; do not add decorative inactive controls.
 
 ## Required Fidelity Surfaces
 
-- Fonts and typography: pending visual comparison.
-- Spacing and layout rhythm: pending visual comparison.
-- Colors and visual tokens: pending visual comparison.
-- Image and icon fidelity: SF Symbols are used as the native macOS icon library; rendered fidelity is pending visual comparison.
-- Copy and content: real repository data is connected; truncation and density are pending visual comparison.
+- Fonts and typography: IntelliJ uses JetBrains UI and its editor font; Lithe intentionally uses native SF Pro and SF Mono. Relative hierarchy, compact row height, truncation, and monospaced code treatment match the normalized reference.
+- Spacing and layout rhythm: the window now matches the reference hierarchy—compact integrated top bar, rounded top Commit/editor surfaces, matching top-to-bottom split, and a bottom Git panel with branch, timeline, files, and detail columns.
+- Colors and visual tokens: near-black surfaces, low-contrast dividers, graphite selections, blue active rows, green graph nodes, warning status colors, and muted secondary text align with the source.
+- Image and icon fidelity: the source contains no product imagery. Lithe uses crisp native SF Symbols as the closest macOS icon system instead of copied IntelliJ assets.
+- Copy and content: Lithe branding and real repository content replace IntelliJ-specific project data while preserving the same information density and labels where useful.
 
-final result: blocked
+## Patches Made During This QA Pass
+
+- Removed the extra macOS safe-area titlebar offset from the workbench.
+- Matched the top editor/Commit region and bottom Git panel proportions to the reference.
+- Top-aligned the branch tree and commit-file content instead of vertically centering them.
+- Rebalanced the Git three-column widths.
+- Added branch selection and searchable real commit history.
+- Added grouped, collapsible directory rows for multi-file commit contents.
+- Verified commit selection, commit search, branch filtering, file details, line numbers, and panel visibility in the signed native app.
+- Rebuilt and recaptured the App Bundle after the final fixes.
+
+## Implementation Checklist
+
+- [x] Commit sidebar composition and realistic repository changes
+- [x] Current branch, local/remote references, and tag groups
+- [x] Searchable commit timeline and selected-row state
+- [x] Multi-file directory tree and commit detail area
+- [x] Integrated title bar, rounded panels, line-number gutter, and compact editor chrome
+- [x] Full-view and focused side-by-side comparison
+- [x] Debug build, Release build, Info.plist, and code-sign verification
+
+## Follow-up Polish
+
+- Expand the activity rails only as real product capabilities are implemented.
+- Add richer merge lanes when testing against repositories with non-linear history.
+
+final result: passed
