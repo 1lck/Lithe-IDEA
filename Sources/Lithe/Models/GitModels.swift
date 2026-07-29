@@ -17,6 +17,7 @@ struct GitReference: Identifiable, Hashable, Sendable {
     let shortName: String
     let kind: GitReferenceKind
     let isCurrent: Bool
+    let upstreamShortName: String?
 
     var id: String { fullName }
 }

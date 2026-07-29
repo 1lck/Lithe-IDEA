@@ -58,6 +58,10 @@ final class AppModel: ObservableObject {
         return openDocuments.first { $0.id == activeDocumentID }
     }
 
+    var currentGitReference: GitReference? {
+        gitReferences.first(where: \.isCurrent)
+    }
+
     func chooseProject() {
         let panel = NSOpenPanel()
         panel.title = "Open a project"
@@ -474,6 +478,40 @@ final class AppModel: ObservableObject {
         isPerformingBranchOperation = false
         showNotification(result.succeeded ? "Updated \(reference.shortName)" : gitErrorMessage(from: result))
         await refreshGit()
+    }
+
+    func checkoutReference(_ reference: GitReference) async {
+        guard let gitRepositoryRoot else { return }
+        if reference.isCurrent {
+            showNotification("Already on \(reference.shortName)")
+            return
+        }
+        isPerformingBranchOperation = true
+        let result = await GitService.checkout(reference, at: gitRepositoryRoot)
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            selectedGitReference = nil
+            closeBranchComparison()
+            showNotification("Checked out \(reference.shortName)")
+            await refreshGit()
+        } else {
+            showNotification(gitErrorMessage(from: result))
+        }
+    }
+
+    func checkoutRevision(_ rawRevision: String) async {
+        guard let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await GitService.checkoutRevision(rawRevision, at: gitRepositoryRoot)
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            selectedGitReference = nil
+            closeBranchComparison()
+            showNotification("Checked out \(rawRevision) in detached HEAD")
+            await refreshGit()
+        } else {
+            showNotification(gitErrorMessage(from: result))
+        }
     }
 
     func pushBranch(_ reference: GitReference) async {

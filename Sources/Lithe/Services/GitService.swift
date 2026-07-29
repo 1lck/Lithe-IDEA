@@ -98,7 +98,7 @@ enum GitService {
                 arguments: [
                     "for-each-ref",
                     "--sort=refname",
-                    "--format=%(refname)\t%(refname:short)\t%(HEAD)",
+                    "--format=%(refname)\t%(refname:short)\t%(HEAD)\t%(upstream:short)",
                     "refs/heads",
                     "refs/remotes",
                     "refs/tags"
@@ -109,7 +109,7 @@ enum GitService {
                 .split(separator: "\n")
                 .compactMap { rawLine -> GitReference? in
                     let columns = rawLine.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-                    guard columns.count >= 3 else { return nil }
+                    guard columns.count >= 4 else { return nil }
                     let fullName = columns[0]
                     let kind: GitReferenceKind
                     if fullName.hasPrefix("refs/heads/") {
@@ -124,7 +124,8 @@ enum GitService {
                         fullName: fullName,
                         shortName: columns[1],
                         kind: kind,
-                        isCurrent: columns[2].trimmingCharacters(in: .whitespaces) == "*"
+                        isCurrent: columns[2].trimmingCharacters(in: .whitespaces) == "*",
+                        upstreamShortName: columns[3].isEmpty ? nil : columns[3]
                     )
                 }
 
@@ -243,6 +244,56 @@ enum GitService {
     static func updateCurrentBranch(at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["pull", "--ff-only"])
+        }.value
+    }
+
+    static func checkout(
+        _ reference: GitReference,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            switch reference.kind {
+            case .local:
+                return run(at: repositoryRoot, arguments: ["switch", reference.shortName])
+            case .tag:
+                return run(at: repositoryRoot, arguments: ["switch", "--detach", reference.fullName])
+            case .remote:
+                let remotePath = reference.fullName.replacingOccurrences(of: "refs/remotes/", with: "")
+                let components = remotePath.split(separator: "/", maxSplits: 1).map(String.init)
+                guard components.count == 2 else {
+                    return CommandResult(output: "Invalid remote branch name", exitCode: 1)
+                }
+                let localName = components[1]
+                let existingLocal = run(
+                    at: repositoryRoot,
+                    arguments: ["show-ref", "--verify", "--quiet", "refs/heads/\(localName)"]
+                )
+                if existingLocal.succeeded {
+                    return run(at: repositoryRoot, arguments: ["switch", localName])
+                }
+                return run(
+                    at: repositoryRoot,
+                    arguments: ["switch", "--track", "-c", localName, reference.fullName]
+                )
+            }
+        }.value
+    }
+
+    static func checkoutRevision(
+        _ rawRevision: String,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            let revision = rawRevision.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !revision.isEmpty else {
+                return CommandResult(output: "Enter a tag, branch, or revision", exitCode: 1)
+            }
+            let validation = run(
+                at: repositoryRoot,
+                arguments: ["rev-parse", "--verify", "\(revision)^{commit}"]
+            )
+            guard validation.succeeded else { return validation }
+            return run(at: repositoryRoot, arguments: ["switch", "--detach", revision])
         }.value
     }
 
