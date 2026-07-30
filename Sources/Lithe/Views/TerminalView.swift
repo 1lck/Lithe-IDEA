@@ -90,9 +90,10 @@ struct TerminalView: View {
             Text("$")
                 .font(.system(size: 13, weight: .bold, design: .monospaced))
                 .foregroundStyle(LitheTheme.success)
-            TextField("Enter command", text: $command)
+            TextField(model.terminalSession.isReady ? "Enter command" : "Starting shell...", text: $command)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5, design: .monospaced))
+                .disabled(!model.terminalSession.isReady)
                 .onSubmit(runCommand)
                 .onKeyPress(.upArrow) {
                     moveHistory(by: -1)
@@ -106,7 +107,10 @@ struct TerminalView: View {
                 Image(systemName: "return")
             }
             .litheIconButton()
-            .disabled(command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(
+                !model.terminalSession.isReady ||
+                    command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            )
             .help("Run command")
         }
         .padding(.leading, 11)

@@ -4,6 +4,7 @@ import Foundation
 final class TerminalSession: ObservableObject {
     @Published private(set) var output = ""
     @Published private(set) var isRunning = false
+    @Published private(set) var isReady = false
     @Published private(set) var shellName = "Shell"
 
     private var process: Process?
@@ -15,6 +16,7 @@ final class TerminalSession: ObservableObject {
     func start(in workspaceURL: URL) {
         stop()
         self.workspaceURL = workspaceURL
+        isReady = false
 
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         shellName = URL(fileURLWithPath: shell).lastPathComponent
@@ -54,6 +56,10 @@ final class TerminalSession: ObservableObject {
             self.inputPipe = inputPipe
             self.outputPipe = outputPipe
             isRunning = true
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(200))
+                self?.writeRaw("\n")
+            }
         } catch {
             append("Unable to start terminal: \(error.localizedDescription)\n")
         }
@@ -65,12 +71,8 @@ final class TerminalSession: ObservableObject {
     }
 
     func send(_ command: String) {
-        guard isRunning, let data = (command + "\n").data(using: .utf8) else { return }
-        do {
-            try inputPipe?.fileHandleForWriting.write(contentsOf: data)
-        } catch {
-            append("Unable to write to terminal: \(error.localizedDescription)\n")
-        }
+        guard isRunning, isReady else { return }
+        writeRaw(command + "\n")
     }
 
     func interrupt() {
@@ -93,12 +95,23 @@ final class TerminalSession: ObservableObject {
         inputPipe = nil
         outputPipe = nil
         isRunning = false
+        isReady = false
     }
 
     private func append(_ chunk: String) {
+        isReady = true
         output.append(Self.plainText(from: chunk))
         if output.count > maximumOutputCharacters {
             output.removeFirst(output.count - maximumOutputCharacters)
+        }
+    }
+
+    private func writeRaw(_ value: String) {
+        guard isRunning, let data = value.data(using: .utf8) else { return }
+        do {
+            try inputPipe?.fileHandleForWriting.write(contentsOf: data)
+        } catch {
+            append("Unable to write to terminal: \(error.localizedDescription)\n")
         }
     }
 
