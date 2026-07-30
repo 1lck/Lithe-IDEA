@@ -1,39 +1,32 @@
-# Lithe Bottom Navigation and Activity Bar QA
+# Lithe Settings QA
 
 ## Evidence
 
-- Source visual truth: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-07bd22de-6541-44cc-8d0d-ecea3e9abf98.png`
-- Implementation screenshot: `design-qa-artifacts/bottom-breadcrumb-activity-final.png`
-- Full-view comparison: `design-qa-artifacts/bottom-breadcrumb-activity-comparison.jpg`
-- Viewport: 1280 x 768, dark mode.
-- State: `Calculator.java` open with Java Code Vision visible and no bottom tool window expanded.
+- Visual direction: existing Lithe/IDEA-style tool windows and the current application design system.
+- Implementation target: application-level Settings sheet opened from the left activity rail or `Command-,`.
+- Viewport: intended for the existing macOS window minimum of 980 x 640.
+- State: General, Editor, and Terminal categories implemented.
 
-## Full-View Comparison
+## Functional Checks
 
-- The file hierarchy has moved from the editor header to the bottom status bar, matching IDEA's full-width navigation placement.
-- Terminal and Git appear as compact bottom-aligned activity buttons in the left rail instead of large filled tool buttons.
-- The editor gains the vertical space previously occupied by the upper breadcrumb row.
-
-## Focused Comparison
-
-- Typography: path labels use compact 11-point system text with the same muted hierarchy as the reference; labels remain single-line.
-- Spacing and layout: the status bar is 26 points high, separators are tightly spaced, and the right-side line/column and encoding metadata remain fixed.
-- Colors: secondary path segments use Lithe's muted foreground; the active Java method and tool indicator use the existing accent token.
-- Image and icon fidelity: native SF Symbols provide file, class, method, Terminal, Git, status, and chevron icons; no placeholder or handcrafted assets are used.
-- Copy and content: the bar displays the real relative path, enclosing Java class/method, caret position, UTF-8, indentation, Git change count, and repository status.
-- Interaction: path segments select the project tool window, class/method segments navigate to declarations, Terminal opens the PTY tool window, and Git opens the Git Log tool window.
+- Debug build passes with Swift 6.2.
+- Settings persist through `UserDefaults`.
+- Editor font size, Tab width, Code Vision visibility, auto-save delay, and terminal shell are connected to production behavior.
+- Settings can be opened from both the workbench gear button and the standard macOS `Command-,` shortcut.
+- Restore Defaults updates and persists every exposed preference.
 
 ## Findings
 
-- No actionable P0, P1, or P2 mismatch remains for the requested bottom path and left-side Git/Terminal controls.
-- The reference contains additional third-party/problem tool icons that are outside the currently implemented Lithe feature set; no inert placeholders were added.
+- [P1] Final visual capture is blocked because the Mac is locked.
+  Evidence: Computer Use reports that automatic unlock failed, so the packaged Settings sheet cannot be opened or captured.
+  Impact: layout, clipping, and interaction states cannot receive a final visual sign-off in this pass.
+  Fix: unlock the Mac, open Settings, capture all three categories, and compare them against the established Lithe tool-window styling.
 
 ## Patches Since Previous QA
 
-- Moved breadcrumbs from the editor header into the bottom status bar.
-- Added caret-aware Java class and method breadcrumbs.
-- Added clickable navigation behavior to file and symbol path items.
-- Added responsive detailed and compact status groups.
-- Restyled Terminal and Git activity buttons with a narrow IDEA-style selection indicator.
+- Added a persistent `AppSettings` model.
+- Added an application-level categorized Settings sheet.
+- Added Editor, Files, and Terminal preferences with live behavior.
+- Added a left-rail gear button and standard macOS Settings command.
 
-final result: passed
+final result: blocked

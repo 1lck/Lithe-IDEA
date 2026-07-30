@@ -6,6 +6,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var workspaceURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project
     @Published var isRunPlaceholderPresented = false
+    @Published var isSettingsPresented = false
     @Published private(set) var recentProjects: [RecentProject]
     @Published private(set) var rootNode: FileNode?
     @Published private(set) var projectFiles: [URL] = []
@@ -57,6 +58,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var isPerformingBranchOperation = false
     private var directoryWatcher: DirectoryWatcher?
     private var refreshTask: Task<Void, Never>?
+    private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
+    let settings = AppSettings()
     let terminalSession = TerminalSession()
     let javaLanguageService = JavaLanguageService()
 
@@ -412,6 +415,22 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func documentDidChange(_ document: EditorDocument) {
+        autoSaveTasks[document.id]?.cancel()
+        guard settings.autoSave else { return }
+        let delay = settings.autoSaveDelay
+        autoSaveTasks[document.id] = Task { [weak self, weak document] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, let document, document.isDirty else { return }
+            do {
+                try document.save()
+            } catch {
+                self.showNotification("Could not auto-save \(document.url.lastPathComponent)")
+            }
+            self.autoSaveTasks[document.id] = nil
+        }
+    }
+
     func searchProject() async {
         guard let workspaceURL else { return }
         let query = searchQuery
@@ -564,7 +583,7 @@ final class AppModel: ObservableObject {
         isGitLogVisible = false
         isReferencesVisible = false
         if !terminalSession.isRunning, let workspaceURL {
-            terminalSession.start(in: workspaceURL)
+            terminalSession.start(in: workspaceURL, shellPath: settings.terminalShellPath)
         }
     }
 

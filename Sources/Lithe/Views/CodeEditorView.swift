@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CodeEditorView: NSViewRepresentable {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
 
     func makeCoordinator() -> Coordinator {
@@ -52,7 +53,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         textView.textContainerInset = NSSize(width: 12, height: 10)
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
+        textView.indentationWidth = settings.tabWidth
         textView.backgroundColor = scrollView.backgroundColor
         textView.textColor = NSColor(white: 0.82, alpha: 1)
         textView.insertionPointColor = .white
@@ -88,6 +90,10 @@ struct CodeEditorView: NSViewRepresentable {
         guard let textView = container.scrollView?.documentView as? NSTextView else { return }
         context.coordinator.document = document
         context.coordinator.model = model
+        textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
+        if let codeTextView = textView as? CodeTextView {
+            codeTextView.indentationWidth = settings.tabWidth
+        }
         if textView.string != document.text && !context.coordinator.isApplyingEditorChange {
             let selection = textView.selectedRange()
             textView.string = document.text
@@ -121,6 +127,9 @@ struct CodeEditorView: NSViewRepresentable {
             guard let textView else { return }
             isApplyingEditorChange = true
             document?.text = textView.string
+            if let document {
+                model?.documentDidChange(document)
+            }
             highlight()
             gutter?.needsDisplay = true
             isApplyingEditorChange = false
@@ -139,7 +148,7 @@ struct CodeEditorView: NSViewRepresentable {
         func updateCodeVisionAndBlame() {
             guard let document, let model else { return }
             let url = document.url.standardizedFileURL
-            let hints = model.javaCodeVisionHints[url] ?? []
+            let hints = model.settings.showCodeVision ? model.javaCodeVisionHints[url] ?? [] : []
             codeVisionOverlay?.update(
                 hints: hints,
                 onUsages: { [weak model] hint in model?.findUsages(for: hint, in: url) },
@@ -198,9 +207,14 @@ struct CodeEditorView: NSViewRepresentable {
 
 @MainActor
 final class CodeTextView: NSTextView {
+    var indentationWidth = 4
     var isJavaNavigationEnabled = false
     var onGoToDefinition: (() -> Void)?
     var onFindUsages: (() -> Void)?
+
+    override func insertTab(_ sender: Any?) {
+        insertText(String(repeating: " ", count: indentationWidth), replacementRange: selectedRange())
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         if let layoutManager, let textContainer {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
     @State private var sidebarWidth: CGFloat = 320
     @State private var sidebarDragStart: CGFloat = 320
     @State private var topPaneHeight: CGFloat?
@@ -266,6 +267,14 @@ struct WorkbenchView: View {
                 }
                 Task { await model.toggleGitLog() }
             }
+
+            activityToolButton(
+                systemImage: "gearshape",
+                help: "Settings",
+                isSelected: model.isSettingsPresented
+            ) {
+                model.isSettingsPresented = true
+            }
         }
         .padding(.vertical, 8)
         .frame(width: 48)
@@ -516,7 +525,7 @@ struct WorkbenchView: View {
         HStack(spacing: 14) {
             caretPosition
             Text("UTF-8")
-            Text("4 spaces")
+            Text("\(settings.tabWidth) spaces")
             Button {
                 model.saveActiveDocument()
             } label: {

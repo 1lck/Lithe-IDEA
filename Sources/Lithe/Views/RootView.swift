@@ -13,5 +13,9 @@ struct RootView: View {
             }
         }
         .background(LitheTheme.window)
+        .sheet(isPresented: $model.isSettingsPresented) {
+            SettingsView(settings: model.settings)
+                .environmentObject(model)
+        }
     }
 }

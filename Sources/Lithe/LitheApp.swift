@@ -8,6 +8,7 @@ struct LitheApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(model)
+                .environmentObject(model.settings)
                 .frame(minWidth: 980, minHeight: 640)
                 .preferredColorScheme(.dark)
         }
@@ -33,6 +34,13 @@ struct LitheApp: App {
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
                 .disabled(model.workspaceURL == nil)
+            }
+
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    model.isSettingsPresented = true
+                }
+                .keyboardShortcut(",", modifiers: .command)
             }
 
             CommandMenu("Navigate") {
