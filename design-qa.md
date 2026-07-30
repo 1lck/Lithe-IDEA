@@ -1,57 +1,46 @@
-# Lithe Design QA — Resizable Workbench Panes
+# Lithe Unified Acceptance QA
 
 ## Evidence
 
-- Source visual truth: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-21dc5b7c-9647-486b-b1b9-81e0be7c1264.png`
-- Implementation: `/Users/lick/code/my-code/building-project/Lithe-IDEA/dist/Lithe.app`
-- Implementation screenshot: `design-qa-artifacts/implementation-resizable-dragged.png`
-- Viewport: implementation 1280 × 768 px; source normalized to 1280 × 768 px
-- State: dark appearance; Commit sidebar active; Git Log visible; every requested split moved away from its default size
-- Full-view comparison: `design-qa-artifacts/comparison-resizable-dragged.png`
-- Focused-region evidence: not required for this pass because the requested behavior changes macro pane geometry; both complete 1280 × 768 views remain readable in the full comparison. Interaction was separately exercised on all five accessible resize handles.
+- App: `/Users/lick/code/my-code/building-project/Lithe-IDEA/dist/Lithe.app`
+- Fixture: `/private/tmp/lithe-qa-fixture` on `feature/demo`, with one modified and two unversioned Swift files
+- Viewport: 1280 x 768, dark appearance
+- Git reference: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-224a4d2e-d22b-4e22-b964-480b011c87be.png`
+- Diff reference: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-8f786a42-1ed9-40ea-918b-12888e38f50b.png`
+- Git implementation: `design-qa-artifacts/lithe-git-log.jpeg`
+- Diff implementation: `design-qa-artifacts/lithe-diff.jpeg`
+- Git comparison: `design-qa-artifacts/git-log-comparison.jpg`
+- Diff comparison: `design-qa-artifacts/diff-comparison.jpg`
 
-## Findings
+## Acceptance Results
 
-No actionable P0, P1, or P2 findings remain.
+- Project tree context menus expose create, open, duplicate, rename, Finder, copy-path, refresh, and recoverable Trash operations.
+- Project tree expansion survives workspace refreshes and filesystem-driven snapshots.
+- Changes refresh automatically through filesystem events; no periodic polling was introduced.
+- Modified files open an IDEA-style side-by-side diff with version labels, changed-line highlighting, word highlighting, difference navigation, whitespace options, stage, and discard actions.
+- Top branch switcher supports search, checkout, create branch, and checkout revision.
+- Git Log branch context menus expose create, compare, checkout for non-current local branches, update, push, and rename as applicable.
+- Sidebar/editor, workbench/Git, Git refs/timeline, Git timeline/details, and Git files/metadata splits were dragged and remained usable.
+- Git Log and Diff layouts were compared against the supplied IDEA references in combined images at the same viewport.
 
-- [P3] Resize dividers remain intentionally low contrast until hovered or dragged.
-  Location: Workbench and Git Log pane boundaries.
-  Evidence: the source uses narrow IDEA-style gutters; Lithe uses a six-point hit target with a one-point divider and accent feedback during drag.
-  Impact: the interface stays visually quiet, although first-time users may discover resizing by cursor change rather than a visible grip.
-  Fix: keep the current treatment unless usability testing shows that a persistent grip is needed.
+## Findings And Patches
 
-## Required Fidelity Surfaces
+- [Resolved P1] A non-current local branch did not expose Checkout in the Git Log context menu. Added the action and verified it appears for `main` while `feature/demo` is current.
+- [Resolved P2] Refreshing the project snapshot collapsed expanded directories. Moved expansion state to the sidebar and retained it across the temporary loading state; verified `Sources` stays open after Refresh.
+- [P3] Resize gutters remain deliberately low contrast until hover or drag, matching the quiet IDEA treatment. No action required.
 
-- Fonts and typography: resizing does not alter the existing SF Pro and SF Mono hierarchy. Narrower columns truncate timeline and path text instead of wrapping or overlapping adjacent panes.
-- Spacing and layout rhythm: the source's four marked pane groups are preserved. The dragged implementation shows changed proportions without collapsed headers, overlapping controls, or broken rounded containers.
-- Colors and visual tokens: the existing near-black surfaces and low-contrast divider tokens remain unchanged; the active divider temporarily uses the established blue accent.
-- Image and icon fidelity: this screen contains no product imagery. Existing SF Symbols stay sharp at every tested pane size.
-- Copy and content: repository labels, commit metadata, paths, and empty-state copy remain readable or intentionally truncate within constrained panes.
+## Visual Review
 
-## Patches Made During This QA Pass
+- Git workspace: pane hierarchy, Commit sidebar, reference tree, timeline, changed-files tree, commit metadata, dark tokens, and dense typography align with the source. The fixture has one commit, so the timeline is intentionally sparse.
+- Diff review: toolbar hierarchy, two-column headers, line-number gutters, deletion/addition colors, word-level highlight, and transfer arrows align with the source. The fixture is shorter than the source file, so unused editor space is expected.
+- No clipped controls, overlapping text, broken dividers, or unreadable active states were found at 1280 x 768.
 
-- Added a reusable native-feeling split handle with horizontal and vertical resize cursors, hover/drag feedback, help text, and accessibility labels.
-- Added horizontal resizing between the active sidebar and editor.
-- Added vertical resizing between the workbench and Git tool window.
-- Added horizontal resizing for the Git reference, timeline, and detail columns.
-- Added vertical resizing between changed files and commit metadata.
-- Added minimum and maximum constraints so every pane keeps a usable content area.
-- Verified all five dividers in both directions in the signed Release app.
+## Verification
 
-## Implementation Checklist
-
-- [x] Sidebar/editor horizontal resize
-- [x] Workbench/Git vertical resize
-- [x] Git reference/timeline horizontal resize
-- [x] Git timeline/detail horizontal resize
-- [x] Git file/detail vertical resize
-- [x] Minimum-size constraints and directional cursors
-- [x] Full-view side-by-side comparison and dragged-state capture
-- [x] Debug build, Release build, Info.plist, and code-sign verification
-
-## Follow-up Polish
-
-- Persist pane sizes only in the later workspace-state phase already defined in the product plan.
-- Add a double-click-to-reset gesture only if users ask for a faster way back to defaults.
+- `swift build --disable-sandbox` with isolated Swift and Clang module caches: passed
+- Production package and ad-hoc signing through `scripts/package-app.sh`: passed
+- Desktop interaction pass against the packaged app: passed
+- Combined-image visual comparison: passed
+- Remaining actionable P0/P1/P2 findings: none
 
 final result: passed
