@@ -16,8 +16,6 @@ struct EditorAreaView: View {
                     } else {
                         editorTabs
                         Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                        breadcrumbs
-                        Rectangle().fill(LitheTheme.divider).frame(height: 1)
                         externalConflictBanner
                         activeEditor
                     }
@@ -97,35 +95,6 @@ struct EditorAreaView: View {
         }
         .frame(height: 34)
         .background(LitheTheme.sidebar)
-    }
-
-    private var breadcrumbs: some View {
-        HStack(spacing: 6) {
-            if let document = model.activeDocument {
-                let components = model.relativePath(for: document.url).split(separator: "/")
-                ForEach(Array(components.enumerated()), id: \.offset) { index, component in
-                    Text(String(component))
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(index == components.count - 1 ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                    if index < components.count - 1 {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 8))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                    }
-                }
-            }
-            Spacer()
-            Button {
-                model.saveActiveDocument()
-            } label: {
-                Image(systemName: "square.and.arrow.down")
-            }
-            .litheIconButton()
-            .help("Save")
-        }
-        .padding(.leading, 12)
-        .padding(.trailing, 5)
-        .frame(height: 29)
     }
 
     @ViewBuilder

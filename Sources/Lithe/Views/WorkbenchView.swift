@@ -248,38 +248,53 @@ struct WorkbenchView: View {
 
             Spacer()
 
-            Button {
+            activityToolButton(
+                systemImage: "terminal",
+                help: "Terminal",
+                isSelected: model.isTerminalVisible
+            ) {
+                model.toggleTerminal()
+            }
+
+            activityToolButton(
+                systemImage: "point.3.connected.trianglepath.dotted",
+                help: "Git",
+                isSelected: model.isGitLogVisible
+            ) {
                 if !model.isGitLogVisible {
                     model.selectedSidebar = .changes
                 }
                 Task { await model.toggleGitLog() }
-            } label: {
-                Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 36, height: 36)
-                    .background(model.isGitLogVisible ? LitheTheme.accent : .clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(model.isGitLogVisible ? Color.white : LitheTheme.secondaryText)
-            .help("Git Log")
-
-            Button {
-                model.toggleTerminal()
-            } label: {
-                Image(systemName: "terminal")
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 36, height: 36)
-                    .background(model.isTerminalVisible ? LitheTheme.accent : .clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(model.isTerminalVisible ? Color.white : LitheTheme.secondaryText)
-            .help("Terminal")
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .frame(width: 48)
         .background(LitheTheme.titlebar)
+    }
+
+    private func activityToolButton(
+        systemImage: String,
+        help: String,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .medium))
+                .frame(width: 40, height: 34)
+                .contentShape(Rectangle())
+                .overlay(alignment: .leading) {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(LitheTheme.accent)
+                            .frame(width: 3, height: 22)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     private var workspaceArea: some View {
@@ -399,29 +414,141 @@ struct WorkbenchView: View {
     }
 
     private var statusBar: some View {
-        HStack(spacing: 16) {
-            Label(model.projectName, systemImage: "folder")
-            Spacer()
+        HStack(spacing: 10) {
+            editorBreadcrumbs
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ViewThatFits(in: .horizontal) {
+                detailedStatusItems
+                compactStatusItems
+            }
+        }
+        .font(LitheTheme.smallFont)
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.horizontal, 9)
+        .frame(height: 26)
+        .background(LitheTheme.titlebar)
+    }
+
+    private var editorBreadcrumbs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                if let document = model.activeDocument {
+                    let components = model.relativePath(for: document.url).split(separator: "/")
+                    ForEach(Array(components.enumerated()), id: \.offset) { index, component in
+                        breadcrumbItem(
+                            title: String(component),
+                            systemImage: index == components.count - 1 ? "doc.text" : nil,
+                            isEmphasized: index == components.count - 1
+                        ) {
+                            model.selectedSidebar = .project
+                        }
+                        if index < components.count - 1 || !activeJavaBreadcrumbs.isEmpty {
+                            breadcrumbSeparator
+                        }
+                    }
+
+                    ForEach(Array(activeJavaBreadcrumbs.enumerated()), id: \.offset) { index, hint in
+                        breadcrumbItem(
+                            title: hint.symbol,
+                            systemImage: index == activeJavaBreadcrumbs.count - 1 ? "m.circle" : "c.circle",
+                            isEmphasized: index == activeJavaBreadcrumbs.count - 1
+                        ) {
+                            model.editorNavigationTarget = EditorNavigationTarget(
+                                url: document.url,
+                                line: hint.line,
+                                utf16Column: hint.utf16Column
+                            )
+                        }
+                        if index < activeJavaBreadcrumbs.count - 1 {
+                            breadcrumbSeparator
+                        }
+                    }
+                } else {
+                    Label(model.projectName, systemImage: "folder")
+                }
+            }
+        }
+    }
+
+    private var activeJavaBreadcrumbs: [JavaCodeVisionHint] {
+        guard let document = model.activeDocument,
+              document.url.pathExtension.lowercased() == "java" else { return [] }
+        let caretLine = model.editorCaret?.url.standardizedFileURL == document.url.standardizedFileURL
+            ? model.editorCaret?.line ?? Int.max
+            : Int.max
+        return Array(
+            (model.javaCodeVisionHints[document.url] ?? [])
+                .filter { $0.line <= caretLine }
+                .suffix(2)
+        )
+    }
+
+    private func breadcrumbItem(
+        title: String,
+        systemImage: String?,
+        isEmphasized: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 10))
+                        .foregroundStyle(isEmphasized ? LitheTheme.accent : LitheTheme.secondaryText)
+                }
+                Text(title)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isEmphasized ? LitheTheme.primaryText : LitheTheme.secondaryText)
+        }
+        .buttonStyle(.plain)
+        .help(title)
+    }
+
+    private var breadcrumbSeparator: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 7, weight: .semibold))
+            .foregroundStyle(LitheTheme.secondaryText.opacity(0.72))
+    }
+
+    private var detailedStatusItems: some View {
+        HStack(spacing: 14) {
+            caretPosition
+            Text("UTF-8")
+            Text("4 spaces")
             Button {
-                model.toggleTerminal()
+                model.saveActiveDocument()
             } label: {
-                Label("Terminal", systemImage: "terminal")
+                Image(systemName: "lock.open")
             }
             .buttonStyle(.plain)
-            .foregroundStyle(model.isTerminalVisible ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            .help("Save")
+            gitStatus
+        }
+    }
+
+    private var compactStatusItems: some View {
+        HStack(spacing: 10) {
+            caretPosition
+            gitStatus
+        }
+    }
+
+    private var caretPosition: some View {
+        Text(model.editorCaret.map { "\($0.line + 1):\($0.utf16Column + 1)" } ?? "1:1")
+            .monospacedDigit()
+    }
+
+    private var gitStatus: some View {
+        HStack(spacing: 7) {
             if model.isReferencesVisible {
                 Label("\(model.javaNavigationLocations.count) usages", systemImage: "scope")
-                    .foregroundStyle(LitheTheme.primaryText)
             }
             Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
         }
-        .font(LitheTheme.smallFont)
-        .foregroundStyle(LitheTheme.secondaryText)
-        .padding(.horizontal, 10)
-        .frame(height: 24)
-        .background(LitheTheme.titlebar)
     }
 
     private var projectInitials: String {
