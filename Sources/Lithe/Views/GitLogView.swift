@@ -385,10 +385,19 @@ struct GitLogView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(filteredCommits.enumerated()), id: \.element.id) { index, commit in
-                            commitRow(commit, index: index)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(filteredCommits.enumerated()), id: \.element.id) { index, commit in
+                                commitRow(commit, index: index)
+                                    .id(commit.hash)
+                            }
+                        }
+                    }
+                    .onChange(of: model.selectedGitCommit?.hash) {
+                        guard let hash = model.selectedGitCommit?.hash else { return }
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            proxy.scrollTo(hash, anchor: .center)
                         }
                     }
                 }

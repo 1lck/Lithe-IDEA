@@ -30,12 +30,13 @@ struct CodeEditorView: NSViewRepresentable {
             gutter.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             gutter.topAnchor.constraint(equalTo: container.topAnchor),
             gutter.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            gutter.widthAnchor.constraint(equalToConstant: 52),
             scrollView.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
+        let gutterWidthConstraint = gutter.widthAnchor.constraint(equalToConstant: 52)
+        gutterWidthConstraint.isActive = true
 
         let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
         textView.delegate = context.coordinator
@@ -72,10 +73,14 @@ struct CodeEditorView: NSViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
+        context.coordinator.container = container
+        context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
         context.coordinator.highlight()
         context.coordinator.updateCaret()
         container.scrollView = scrollView
         container.gutter = gutter
+        container.gutterWidthConstraint = gutterWidthConstraint
+        context.coordinator.updateCodeVisionAndBlame()
         return container
     }
 
@@ -90,6 +95,7 @@ struct CodeEditorView: NSViewRepresentable {
             context.coordinator.highlight()
             container.gutter?.needsDisplay = true
         }
+        context.coordinator.updateCodeVisionAndBlame()
         context.coordinator.applyNavigationTargetIfNeeded()
     }
 
@@ -100,6 +106,8 @@ struct CodeEditorView: NSViewRepresentable {
         let fileExtension: String
         weak var textView: NSTextView?
         weak var gutter: LineNumberGutterView?
+        weak var container: EditorContainerView?
+        var codeVisionOverlay: CodeVisionOverlayController?
         var isApplyingEditorChange = false
         var appliedNavigationTargetID: UUID?
 
@@ -126,6 +134,24 @@ struct CodeEditorView: NSViewRepresentable {
         func highlight() {
             guard let textStorage = textView?.textStorage else { return }
             SyntaxHighlighter.apply(to: textStorage, fileExtension: fileExtension)
+        }
+
+        func updateCodeVisionAndBlame() {
+            guard let document, let model else { return }
+            let url = document.url.standardizedFileURL
+            let hints = model.javaCodeVisionHints[url] ?? []
+            codeVisionOverlay?.update(
+                hints: hints,
+                onUsages: { [weak model] hint in model?.findUsages(for: hint, in: url) },
+                onAuthor: { [weak model] in model?.showBlame(for: url) }
+            )
+
+            let isBlameVisible = model.blameVisibleURL == url
+            let blameLines = model.gitBlameLines[url] ?? []
+            container?.gutterWidthConstraint?.constant = isBlameVisible ? 224 : 52
+            gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
+                Task { await model?.showGitCommit(blame.commitHash) }
+            }
         }
 
         func applyNavigationTargetIfNeeded() {
@@ -225,6 +251,7 @@ final class CodeTextView: NSTextView {
 final class EditorContainerView: NSView {
     weak var scrollView: NSScrollView?
     weak var gutter: LineNumberGutterView?
+    var gutterWidthConstraint: NSLayoutConstraint?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -242,6 +269,9 @@ final class LineNumberGutterView: NSView {
     private weak var textView: NSTextView?
     private weak var scrollView: NSScrollView?
     nonisolated(unsafe) private var boundsObserver: NSObjectProtocol?
+    private var blameByLine: [Int: GitBlameLine] = [:]
+    private var isBlameVisible = false
+    private var onSelectBlame: ((GitBlameLine) -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -258,6 +288,17 @@ final class LineNumberGutterView: NSView {
         ) { [weak self] _ in
             Task { @MainActor in self?.needsDisplay = true }
         }
+    }
+
+    func update(
+        blameLines: [GitBlameLine],
+        isVisible: Bool,
+        onSelect: @escaping (GitBlameLine) -> Void
+    ) {
+        blameByLine = Dictionary(uniqueKeysWithValues: blameLines.map { ($0.line, $0) })
+        isBlameVisible = isVisible
+        onSelectBlame = onSelect
+        needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -290,6 +331,9 @@ final class LineNumberGutterView: NSView {
             let lineGlyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
+            if isBlameVisible, let blame = blameByLine[lineNumber - 1] {
+                drawBlame(blame, y: y + 1)
+            }
             drawLineNumber(lineNumber, y: y + 1)
 
             let nextGlyph = NSMaxRange(lineGlyphRange)
@@ -308,10 +352,158 @@ final class LineNumberGutterView: NSView {
         label.draw(at: NSPoint(x: bounds.width - size.width - 9, y: y), withAttributes: attributes)
     }
 
+    private func drawBlame(_ blame: GitBlameLine, y: CGFloat) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10.5),
+            .foregroundColor: NSColor(white: 0.53, alpha: 1)
+        ]
+        (blame.date as NSString).draw(at: NSPoint(x: 8, y: y), withAttributes: attributes)
+        (blame.authorName as NSString).draw(
+            in: NSRect(x: 76, y: y, width: max(0, bounds.width - 128), height: 16),
+            withAttributes: attributes
+        )
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isBlameVisible,
+              let textView,
+              let scrollView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
+            super.mouseDown(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        let documentY = point.y + scrollView.documentVisibleRect.minY - textView.textContainerOrigin.y
+        let glyphIndex = layoutManager.glyphIndex(
+            for: NSPoint(x: textView.textContainerInset.width, y: documentY),
+            in: textContainer
+        )
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        let prefix = (textView.string as NSString).substring(to: min(characterIndex, textView.string.utf16.count))
+        let line = prefix.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        if let blame = blameByLine[line] {
+            onSelectBlame?(blame)
+        }
+    }
+
     deinit {
         if let boundsObserver {
             NotificationCenter.default.removeObserver(boundsObserver)
         }
+    }
+}
+
+@MainActor
+final class CodeVisionOverlayController {
+    private weak var textView: NSTextView?
+    private var buttons: [NSButton] = []
+    private var currentHints: [JavaCodeVisionHint] = []
+
+    init(textView: NSTextView) {
+        self.textView = textView
+    }
+
+    func update(
+        hints: [JavaCodeVisionHint],
+        onUsages: @escaping (JavaCodeVisionHint) -> Void,
+        onAuthor: @escaping () -> Void
+    ) {
+        guard hints != currentHints else { return }
+        currentHints = hints
+        buttons.forEach { $0.removeFromSuperview() }
+        buttons = []
+        guard let textView, let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let source = textView.string as NSString
+
+        for hint in hints {
+            let lineStart = characterOffset(forLine: hint.line, in: source)
+            let lineRange = source.lineRange(for: NSRange(location: min(lineStart, source.length), length: 0))
+            guard lineRange.length > 0 else { continue }
+            var contentEnd = NSMaxRange(lineRange)
+            while contentEnd > lineRange.location {
+                let character = source.character(at: contentEnd - 1)
+                guard character == 10 || character == 13 else { break }
+                contentEnd -= 1
+            }
+            guard contentEnd > lineRange.location else { continue }
+            let lineGlyph = layoutManager.glyphIndexForCharacter(at: lineRange.location)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: lineGlyph, effectiveRange: nil)
+            let codeWidth = CGFloat(contentEnd - lineRange.location) * 7.83
+            var x = min(textView.bounds.width - 190, textView.textContainerOrigin.x + codeWidth + 8)
+            x = max(8, x)
+            let y = lineRect.minY + textView.textContainerOrigin.y - 1
+
+            let usageButton = makeButton(title: "\(hint.usageCount) usage\(hint.usageCount == 1 ? "" : "s")") {
+                onUsages(hint)
+            }
+            usageButton.frame = NSRect(x: x, y: y, width: 70, height: 18)
+            textView.addSubview(usageButton)
+            buttons.append(usageButton)
+
+            if let authorName = hint.authorName, !authorName.isEmpty {
+                let authorButton = makeButton(title: authorName, systemImage: "person") {
+                    onAuthor()
+                }
+                authorButton.frame = NSRect(x: x + 72, y: y, width: 112, height: 18)
+                textView.addSubview(authorButton)
+                buttons.append(authorButton)
+            }
+        }
+        textView.setAccessibilityChildren(buttons)
+    }
+
+    private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
+        var line = 0
+        var offset = 0
+        while line < targetLine, offset < source.length {
+            offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
+            line += 1
+        }
+        return offset
+    }
+
+    private func makeButton(
+        title: String,
+        systemImage: String? = nil,
+        action: @escaping () -> Void
+    ) -> NSButton {
+        let button = ClosureButton(title: title, action: action)
+        button.isBordered = false
+        button.font = .systemFont(ofSize: 10.5)
+        button.contentTintColor = NSColor(white: 0.52, alpha: 1)
+        button.alignment = .left
+        button.setAccessibilityElement(true)
+        button.setAccessibilityRole(.button)
+        button.setAccessibilityLabel(title)
+        if let systemImage {
+            button.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: nil)
+            button.imagePosition = .imageLeading
+        }
+        return button
+    }
+}
+
+@MainActor
+private final class ClosureButton: NSButton {
+    private let handler: () -> Void
+
+    init(title: String, action: @escaping () -> Void) {
+        handler = action
+        super.init(frame: .zero)
+        self.title = title
+        target = self
+        self.action = #selector(invoke)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func invoke() {
+        handler()
     }
 }
 
