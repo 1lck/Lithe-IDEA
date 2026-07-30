@@ -142,15 +142,11 @@ final class JavaLanguageService: ObservableObject {
                 self?.receive(data)
             }
         }
-        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            let message = String(decoding: data, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !message.isEmpty else { return }
-            Task { @MainActor [weak self] in
-                self?.statusMessage = message
-            }
+        errorPipe.fileHandleForReading.readabilityHandler = { handle in
+            // JDT LS writes JVM diagnostics and compatibility warnings to stderr
+            // during normal operation. Drain the pipe without exposing that noise
+            // as a user-facing navigation status.
+            _ = handle.availableData
         }
         process.terminationHandler = { [weak self] _ in
             Task { @MainActor [weak self] in

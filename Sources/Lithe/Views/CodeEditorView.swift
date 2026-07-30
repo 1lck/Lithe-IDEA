@@ -272,6 +272,7 @@ final class LineNumberGutterView: NSView {
     private var blameByLine: [Int: GitBlameLine] = [:]
     private var isBlameVisible = false
     private var onSelectBlame: ((GitBlameLine) -> Void)?
+    private var blameButtons: [Int: NSButton] = [:]
 
     override var isFlipped: Bool { true }
 
@@ -286,7 +287,10 @@ final class LineNumberGutterView: NSView {
             object: scrollView.contentView,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.needsDisplay = true }
+            Task { @MainActor in
+                self?.needsDisplay = true
+                self?.layoutBlameButtons()
+            }
         }
     }
 
@@ -298,7 +302,55 @@ final class LineNumberGutterView: NSView {
         blameByLine = Dictionary(uniqueKeysWithValues: blameLines.map { ($0.line, $0) })
         isBlameVisible = isVisible
         onSelectBlame = onSelect
+        blameButtons.values.forEach { $0.removeFromSuperview() }
+        blameButtons = [:]
+        if isVisible {
+            for blame in blameLines {
+                let button = ClosureButton(title: "") { onSelect(blame) }
+                button.isBordered = false
+                button.setAccessibilityElement(true)
+                button.setAccessibilityRole(.button)
+                button.setAccessibilityLabel(
+                    "Line \(blame.line + 1): \(blame.date), \(blame.authorName)"
+                )
+                addSubview(button)
+                blameButtons[blame.line] = button
+            }
+        }
+        layoutBlameButtons()
         needsDisplay = true
+    }
+
+    private func layoutBlameButtons() {
+        guard isBlameVisible,
+              let textView,
+              let scrollView,
+              let layoutManager = textView.layoutManager else { return }
+        let source = textView.string as NSString
+        let visibleRect = scrollView.documentVisibleRect
+        for (line, button) in blameButtons {
+            let characterIndex = characterOffset(forLine: line, in: source)
+            guard characterIndex < source.length else {
+                button.isHidden = true
+                continue
+            }
+            let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndex)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
+            button.frame = NSRect(x: 0, y: y, width: bounds.width, height: max(16, lineRect.height))
+            button.isHidden = button.frame.maxY < 0 || button.frame.minY > bounds.height
+        }
+        setAccessibilityChildren(Array(blameButtons.values))
+    }
+
+    private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
+        var line = 0
+        var offset = 0
+        while line < targetLine, offset < source.length {
+            offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
+            line += 1
+        }
+        return offset
     }
 
     override func draw(_ dirtyRect: NSRect) {
