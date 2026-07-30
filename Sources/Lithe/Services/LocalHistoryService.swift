@@ -69,6 +69,37 @@ actor LocalHistoryService {
         try String(contentsOf: entry.contentURL, encoding: .utf8)
     }
 
+    func relocateHistory(from sourceURL: URL, to destinationURL: URL) throws {
+        let sourceDirectory = historyDirectory(for: sourceURL)
+        guard FileManager.default.fileExists(atPath: sourceDirectory.path) else { return }
+        let destinationDirectory = historyDirectory(for: destinationURL)
+        try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+
+        for entry in try entries(for: sourceURL) {
+            let destinationContentURL = destinationDirectory.appendingPathComponent(entry.contentURL.lastPathComponent)
+            let destinationMetadataURL = destinationDirectory
+                .appendingPathComponent(entry.id.uuidString)
+                .appendingPathExtension("json")
+            if FileManager.default.fileExists(atPath: destinationContentURL.path) {
+                try? FileManager.default.removeItem(at: destinationContentURL)
+            }
+            try FileManager.default.moveItem(at: entry.contentURL, to: destinationContentURL)
+            let relocatedEntry = LocalHistoryEntry(
+                id: entry.id,
+                timestamp: entry.timestamp,
+                relativePath: relativePath(for: destinationURL),
+                reason: entry.reason,
+                contentURL: destinationContentURL,
+                byteCount: entry.byteCount
+            )
+            try encoder.encode(relocatedEntry).write(to: destinationMetadataURL, options: .atomic)
+            try? FileManager.default.removeItem(
+                at: sourceDirectory.appendingPathComponent(entry.id.uuidString).appendingPathExtension("json")
+            )
+        }
+        try? FileManager.default.removeItem(at: sourceDirectory)
+    }
+
     private func record(
         content: Data,
         for fileURL: URL,

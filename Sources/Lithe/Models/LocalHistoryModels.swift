@@ -15,6 +15,7 @@ enum LocalHistoryReason: String, Codable, Sendable {
     case externalChange
     case beforeRename
     case beforeDelete
+    case unsavedDiscard
     case restored
 
     var title: String {
@@ -24,6 +25,7 @@ enum LocalHistoryReason: String, Codable, Sendable {
         case .externalChange: "External change"
         case .beforeRename: "Before rename"
         case .beforeDelete: "Before deletion"
+        case .unsavedDiscard: "Discarded editor changes"
         case .restored: "Before restore"
         }
     }
@@ -33,4 +35,3 @@ struct LocalHistoryRequest: Identifiable {
     let id = UUID()
     let fileURL: URL
 }
-

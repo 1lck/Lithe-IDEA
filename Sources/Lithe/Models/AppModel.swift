@@ -60,11 +60,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var isPerformingBranchOperation = false
     private var directoryWatcher: DirectoryWatcher?
     private var refreshTask: Task<Void, Never>?
+    private var localHistorySeedTask: Task<Void, Never>?
     private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
     private var inlayHintTasks: [UUID: Task<Void, Never>] = [:]
     let settings = AppSettings()
     let terminalSession = TerminalSession()
     let javaLanguageService = JavaLanguageService()
+    private var localHistoryService: LocalHistoryService?
 
     init() {
         recentProjects = RecentProjectsStore.load()
@@ -110,6 +112,8 @@ final class AppModel: ObservableObject {
         gitBlameLines = [:]
         blameVisibleURL = nil
         workspaceURL = normalizedURL
+        let historyService = LocalHistoryService(workspaceURL: normalizedURL)
+        localHistoryService = historyService
         selectedSidebar = .project
         rootNode = nil
         projectFiles = []
@@ -134,6 +138,10 @@ final class AppModel: ObservableObject {
             isLoadingWorkspace = false
             await refreshGit()
             startWatching(normalizedURL)
+            localHistorySeedTask?.cancel()
+            localHistorySeedTask = Task(priority: .utility) {
+                await historyService.seed(files: snapshot.files)
+            }
         }
     }
 
@@ -149,6 +157,9 @@ final class AppModel: ObservableObject {
         directoryWatcher?.stop()
         directoryWatcher = nil
         refreshTask?.cancel()
+        localHistorySeedTask?.cancel()
+        localHistorySeedTask = nil
+        localHistoryService = nil
         gitChanges = []
         gitRepositoryRoot = nil
         currentBranch = "No Git"
@@ -267,6 +278,20 @@ final class AppModel: ObservableObject {
             destination = request.targetURL.deletingLastPathComponent().appendingPathComponent(name)
         }
 
+        let relocatedHistoryFiles: [(source: URL, destination: URL)]
+        if request.kind == .rename {
+            let sourcePath = request.targetURL.standardizedFileURL.path
+            let affectedFiles = projectFiles.filter { urlContains(request.targetURL, child: $0) }
+            relocatedHistoryFiles = affectedFiles.map { source in
+                let suffix = String(source.standardizedFileURL.path.dropFirst(sourcePath.count))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                return (source, suffix.isEmpty ? destination : destination.appendingPathComponent(suffix))
+            }
+            await recordHistory(containedIn: request.targetURL, reason: .beforeRename)
+        } else {
+            relocatedHistoryFiles = []
+        }
+
         let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
             let manager = FileManager.default
             guard !manager.fileExists(atPath: destination.path) else {
@@ -294,6 +319,14 @@ final class AppModel: ObservableObject {
         }
 
         if request.kind == .rename {
+            if let localHistoryService {
+                for relocation in relocatedHistoryFiles {
+                    try? await localHistoryService.relocateHistory(
+                        from: relocation.source,
+                        to: relocation.destination
+                    )
+                }
+            }
             relocateOpenDocuments(from: request.targetURL, to: destination)
             showNotification("Renamed to \(name)")
         } else if request.kind == .createFile {
@@ -351,6 +384,7 @@ final class AppModel: ObservableObject {
         guard let request = pendingProjectItemDeletion else { return }
         pendingProjectItemDeletion = nil
         isPerformingProjectItemOperation = true
+        await recordHistory(containedIn: request.url, reason: .beforeDelete)
         let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
             do {
                 var resultingURL: NSURL?
@@ -395,9 +429,13 @@ final class AppModel: ObservableObject {
 
     func closePendingDocument(discardingChanges: Bool) {
         guard let document = pendingCloseDocument else { return }
-        if !discardingChanges {
+        if discardingChanges {
+            recordDiscardedEditorText(document)
+        } else {
             do {
+                let previousText = document.savedText
                 try document.save()
+                recordSave(document, previousText: previousText)
             } catch {
                 showNotification("Could not save \(document.url.lastPathComponent)")
                 return
@@ -414,7 +452,9 @@ final class AppModel: ObservableObject {
     func saveActiveDocument() {
         guard let document = activeDocument else { return }
         do {
+            let previousText = document.savedText
             try document.save()
+            recordSave(document, previousText: previousText)
             showNotification("Saved \(document.url.lastPathComponent)")
         } catch {
             showNotification("Could not save \(document.url.lastPathComponent)")
@@ -436,7 +476,9 @@ final class AppModel: ObservableObject {
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self, let document, document.isDirty else { return }
             do {
+                let previousText = document.savedText
                 try document.save()
+                self.recordSave(document, previousText: previousText)
             } catch {
                 self.showNotification("Could not auto-save \(document.url.lastPathComponent)")
             }
@@ -959,6 +1001,11 @@ final class AppModel: ObservableObject {
 
     func loadExternalVersion(of document: EditorDocument) {
         do {
+            if document.isDirty, let localHistoryService {
+                let text = document.text
+                let url = document.url
+                Task { try? await localHistoryService.record(text: text, for: url, reason: .saved) }
+            }
             try document.reloadFromDisk()
             showNotification("Loaded file-system version")
         } catch {
@@ -1081,6 +1128,14 @@ final class AppModel: ObservableObject {
                     conflictDetected = true
                 }
             }
+            if let localHistoryService {
+                let changedFiles = paths.map(URL.init(fileURLWithPath:))
+                Task(priority: .utility) {
+                    for fileURL in changedFiles {
+                        _ = try? await localHistoryService.recordFile(at: fileURL, reason: .externalChange)
+                    }
+                }
+            }
             if conflictDetected {
                 showNotification("External edits conflict with unsaved changes")
             }
@@ -1092,6 +1147,38 @@ final class AppModel: ObservableObject {
             rootNode = snapshot.root
             projectFiles = snapshot.files
             await refreshGit()
+        }
+    }
+
+    private func recordSave(_ document: EditorDocument, previousText: String) {
+        guard let localHistoryService else { return }
+        let currentText = document.text
+        let url = document.url
+        Task(priority: .utility) {
+            _ = try? await localHistoryService.record(text: previousText, for: url, reason: .saved)
+            _ = try? await localHistoryService.record(text: currentText, for: url, reason: .saved)
+        }
+    }
+
+    private func recordDiscardedEditorText(_ document: EditorDocument) {
+        guard let localHistoryService else { return }
+        let text = document.text
+        let url = document.url
+        Task(priority: .utility) {
+            _ = try? await localHistoryService.record(text: text, for: url, reason: .unsavedDiscard)
+        }
+    }
+
+    private func recordHistory(containedIn url: URL, reason: LocalHistoryReason) async {
+        guard let localHistoryService else { return }
+        let files: [URL]
+        if projectFiles.contains(where: { $0.standardizedFileURL == url.standardizedFileURL }) {
+            files = [url]
+        } else {
+            files = projectFiles.filter { urlContains(url, child: $0) }
+        }
+        for fileURL in files {
+            _ = try? await localHistoryService.recordFile(at: fileURL, reason: reason)
         }
     }
 }
