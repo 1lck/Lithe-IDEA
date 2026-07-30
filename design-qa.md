@@ -1,45 +1,44 @@
-# Lithe Repeated Pane Resize QA
+# Lithe Responsive Changes Sidebar QA
 
 ## Evidence
 
-- Source visual truth (reported failure): `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-258623c3-09ae-4d14-ac82-fb9e4b42fd9d.png`
+- Source visual truth (reported narrow failure): `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-0931069f-6fe6-45b0-807e-f51eb8149c0d.png`
+- Additional fixed-width evidence: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-b544cc23-eaff-4375-9de5-77abee9c31e7.png`
 - Implementation: `/Users/lick/code/my-code/building-project/Lithe-IDEA/dist/Lithe.app`
-- Implementation screenshot: `design-qa-artifacts/nested-scroll-fixed.jpeg`
-- Full-view comparison: `design-qa-artifacts/nested-scroll-comparison.jpg`
-- Viewport: source normalized from 1440 x 864 to 1280 x 768; implementation 1280 x 768
-- State: dark appearance, Changes sidebar active, short Swift side-by-side Diff open, Git tool window hidden
-- Focused comparison: not required because the failure affects the complete Changes and Diff content frames and remains readable in the full-view comparison.
+- Narrow implementation: `design-qa-artifacts/changes-sidebar-narrow-fixed.jpeg`
+- Wide implementation: `design-qa-artifacts/changes-sidebar-wide-fixed.jpeg`
+- Focused comparison: `design-qa-artifacts/changes-sidebar-responsive-comparison.jpg`
+- Viewport: 1280 x 768 implementation; source crop normalized for focused comparison
+- State: dark appearance, Changes sidebar active, three changed files, sidebar exercised at approximately 220 and 470 points
+- Full-view evidence: the narrow and wide implementation screenshots preserve the entire workbench while the focused comparison makes row behavior readable.
 
 ## Findings
 
-- [Resolved P1] Repeated pane resizing could collapse Diff rows to their minimum intrinsic width while the editor frame remained full width.
-  - Cause: a single two-axis SwiftUI ScrollView left both axes unbounded for LazyVStack measurement and could reuse a stale cross-axis layout after repeated geometry changes.
-  - Fix: replace the two-axis scroll container with a horizontally scrolling outer container and a vertically scrolling inner container whose width and height are explicitly bound to the current geometry.
-- [Resolved P1] The same two-axis measurement behavior could vertically center a short Changes list after resizing.
-  - Fix: use the same nested-scroll structure so the vertical list always receives a bounded viewport and starts at its top edge.
+- [Resolved P1] Changes section headers and file rows were fixed at 298 points and did not expand with a wider sidebar.
+  - Fix: replace fixed row widths with `maxWidth: .infinity` inside the width-bounded list.
+- [Resolved P1] At minimum sidebar width, a 316-point inner canvas was clipped and parent paths overflowed the visible panel.
+  - Fix: remove horizontal scrolling and the fixed inner canvas; use a vertical list that follows the live sidebar width.
+- [Resolved P2] Parent paths competed with filenames in the narrow state.
+  - Fix: prioritize filenames and hide parent paths below 300 points; restore paths automatically in wider states.
 
-No actionable P0, P1, or P2 findings remain in the rendered comparison.
+No actionable P0, P1, or P2 findings remain.
 
 ## Required Fidelity Surfaces
 
-- Fonts and typography: unchanged; SF Pro and monospaced Diff text retain their established sizes and weights.
-- Spacing and layout rhythm: Changes begins below its toolbar; Diff rows span the complete review width directly below the version header.
-- Colors and tokens: unchanged; editor, sidebar, divider, selection, addition, and removal tokens remain consistent.
-- Image and icon fidelity: no raster product imagery is present; SF Symbols remain aligned and sharp.
-- Copy and content: no labels changed; paths, counts, version titles, and Git actions remain visible.
-
-## Patches
-
-- Removed the combined vertical/horizontal ScrollViews from Changes and Diff.
-- Added independent horizontal and vertical scroll layers with explicit live viewport dimensions.
-- Kept LazyVStack inside a width-bounded vertical scroll context to preserve large-Diff efficiency without cross-axis layout collapse.
+- Fonts and typography: unchanged; filenames retain the primary optical weight and counts/paths remain secondary.
+- Spacing and layout rhythm: group backgrounds and file rows fill the available width with the existing eight-point inset in both tested states.
+- Colors and tokens: unchanged; selection and status colors remain consistent.
+- Image and icon fidelity: no product imagery is present; SF Symbols remain aligned.
+- Copy and content: filenames stay visible at minimum width; parent paths appear only when space permits.
 
 ## Verification
 
 - Isolated-cache Debug build: passed
 - Production package and ad-hoc signing: passed
-- Packaged app render and accessibility hierarchy: passed; both affected areas expose independent nested scroll containers
-- Combined failure/implementation comparison: passed
-- Automated pointer drag replay: unavailable because the macOS Computer Use service returned `noWindowsAvailable`; the failure-producing two-axis component structure has been removed rather than patched with additional frame modifiers.
+- Real pointer drag from default to wide state: passed
+- Real pointer drag from wide/default to approximately 220-point minimum: passed
+- Narrow state: no horizontal clipping, complete filenames, parent paths hidden
+- Wide state: parent paths restored, headers and rows fill the panel
+- Focused failure/implementation comparison: passed
 
 final result: passed
