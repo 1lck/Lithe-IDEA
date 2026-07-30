@@ -58,7 +58,7 @@ struct ChangesSidebarView: View {
                 - minimumListHeight
             let maximumCommitHeight = max(
                 minimumCommitHeight,
-                min(320, availableCommitHeight)
+                availableCommitHeight
             )
             let resolvedCommitHeight = constrained(
                 commitAreaHeight,
@@ -290,17 +290,28 @@ struct ChangesSidebarView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
-            TextField("Commit Message", text: $model.commitMessage, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .lineLimit(2...4)
-                .padding(8)
-                .frame(maxWidth: .infinity, minHeight: 50, alignment: .topLeading)
-                .background(LitheTheme.editor)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(LitheTheme.divider, lineWidth: 1)
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $model.commitMessage)
+                    .font(.system(size: 12.5))
+                    .scrollContentBackground(.hidden)
+                    .padding(4)
+
+                if model.commitMessage.isEmpty {
+                    Text("Commit Message")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 7)
+                        .allowsHitTesting(false)
                 }
+            }
+            .frame(maxWidth: .infinity, minHeight: 50, maxHeight: .infinity, alignment: .topLeading)
+            .background(LitheTheme.editor)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(LitheTheme.divider, lineWidth: 1)
+            }
 
             HStack(spacing: 8) {
                 Button {

@@ -102,4 +102,43 @@
 - Added a dedicated full-width renderer for added and deleted files.
 - Preserved the side-by-side renderer for modified, moved, and copied files.
 
+## Flexible Commit Message QA
+
+### Evidence
+
+- Source visual truth: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-cc6ccf88-1377-4b8a-b5f2-c2309f37144c.png`.
+- Implementation screenshot: `design-qa-artifacts/commit-message-multiline.jpeg`.
+- Focused comparison: `design-qa-artifacts/commit-message-flex-comparison.jpeg`.
+- Viewport: 1280 x 768 packaged macOS application in dark mode.
+- State: Commit tool window with seven lines of commit text and its internal scrollbar active.
+
+### Full-View Comparison
+
+- The Commit message editor now consumes the flexible space between the Amend row and action row.
+- The surrounding change list, buttons, staged count, and tool-window boundaries remain aligned.
+- The Commit area can use all height left after the required 120-point minimum change-list height; the previous 320-point cap is removed.
+
+### Focused Comparison
+
+- Typography: commit text and placeholder retain the existing 12.5-point system style without clipping.
+- Spacing: the editor keeps the original inset, border, radius, and eight-point stack rhythm while expanding vertically.
+- Colors: existing editor, divider, primary, and secondary theme tokens are unchanged.
+- Image and icon fidelity: this native editor requires no image assets; existing SF Symbols remain unchanged.
+- Copy: the `Commit Message` placeholder returns after clearing the editor.
+
+### Functional Verification
+
+- Seven lines of text were entered successfully and the native editor exposed its internal scrollbar.
+- Clearing the editor restored the placeholder and disabled Commit actions.
+- SwiftUI's accessibility driver disconnected when synthesizing a native divider drag; the sizing path was therefore verified through the uncapped geometry calculation and the rendered flexible `TextEditor`, not a recorded automated drag gesture.
+
+### Findings
+
+- No actionable P0, P1, or P2 issues remain.
+
+### Patches Since Previous QA
+
+- Replaced the content-sized, four-line `TextField` with a flexible scrolling `TextEditor`.
+- Removed the 320-point Commit-area maximum while preserving the minimum list and editor heights.
+
 final result: passed
