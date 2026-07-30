@@ -125,7 +125,12 @@ final class JavaLanguageService: ObservableObject {
         let outputPipe = Pipe()
         let errorPipe = Pipe()
         process.executableURL = executableURL
-        process.arguments = ["-data", Self.dataDirectory(for: root).path]
+        var arguments: [String] = []
+        if let javaExecutable = Self.javaExecutableURL() {
+            arguments.append(contentsOf: ["--java-executable", javaExecutable.path])
+        }
+        arguments.append(contentsOf: ["-data", Self.dataDirectory(for: root).path])
+        process.arguments = arguments
         process.currentDirectoryURL = root
         process.standardInput = inputPipe
         process.standardOutput = outputPipe
@@ -330,6 +335,17 @@ final class JavaLanguageService: ObservableObject {
             "/opt/homebrew/bin/jdtls",
             "/usr/local/bin/jdtls",
             "/usr/bin/jdtls"
+        ]
+        return candidates
+            .map(URL.init(fileURLWithPath:))
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
+    }
+
+    private static func javaExecutableURL() -> URL? {
+        let candidates = [
+            "/opt/homebrew/opt/openjdk/bin/java",
+            "/usr/local/opt/openjdk/bin/java",
+            "/usr/bin/java"
         ]
         return candidates
             .map(URL.init(fileURLWithPath:))
