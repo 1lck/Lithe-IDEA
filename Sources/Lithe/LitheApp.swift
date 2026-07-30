@@ -36,6 +36,20 @@ struct LitheApp: App {
             }
 
             CommandMenu("Navigate") {
+                Button("Go to Definition") {
+                    model.goToDefinition()
+                }
+                .keyboardShortcut("b", modifiers: .command)
+                .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
+
+                Button("Find Usages") {
+                    model.findJavaReferences()
+                }
+                .keyboardShortcut("u", modifiers: [.command, .option])
+                .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
+
+                Divider()
+
                 Button("Search in Project") {
                     model.selectedSidebar = .search
                 }

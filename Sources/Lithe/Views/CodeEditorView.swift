@@ -2,10 +2,11 @@ import AppKit
 import SwiftUI
 
 struct CodeEditorView: NSViewRepresentable {
+    @EnvironmentObject private var model: AppModel
     @ObservedObject var document: EditorDocument
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(document: document)
+        Coordinator(document: document, model: model)
     }
 
     func makeNSView(context: Context) -> EditorContainerView {
@@ -36,7 +37,7 @@ struct CodeEditorView: NSViewRepresentable {
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
 
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
         textView.delegate = context.coordinator
         textView.string = document.text
         textView.isRichText = false
@@ -62,6 +63,9 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
+        textView.isJavaNavigationEnabled = document.url.pathExtension.lowercased() == "java"
+        textView.onGoToDefinition = { [weak model] in model?.goToDefinition() }
+        textView.onFindUsages = { [weak model] in model?.findJavaReferences() }
 
         scrollView.documentView = textView
         gutter.attach(textView: textView, scrollView: scrollView)
@@ -69,6 +73,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
         context.coordinator.highlight()
+        context.coordinator.updateCaret()
         container.scrollView = scrollView
         container.gutter = gutter
         return container
@@ -77,6 +82,7 @@ struct CodeEditorView: NSViewRepresentable {
     func updateNSView(_ container: EditorContainerView, context: Context) {
         guard let textView = container.scrollView?.documentView as? NSTextView else { return }
         context.coordinator.document = document
+        context.coordinator.model = model
         if textView.string != document.text && !context.coordinator.isApplyingEditorChange {
             let selection = textView.selectedRange()
             textView.string = document.text
@@ -84,18 +90,22 @@ struct CodeEditorView: NSViewRepresentable {
             context.coordinator.highlight()
             container.gutter?.needsDisplay = true
         }
+        context.coordinator.applyNavigationTargetIfNeeded()
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var document: EditorDocument?
+        weak var model: AppModel?
         let fileExtension: String
         weak var textView: NSTextView?
         weak var gutter: LineNumberGutterView?
         var isApplyingEditorChange = false
+        var appliedNavigationTargetID: UUID?
 
-        init(document: EditorDocument) {
+        init(document: EditorDocument, model: AppModel) {
             self.document = document
+            self.model = model
             fileExtension = document.url.pathExtension
         }
 
@@ -106,12 +116,108 @@ struct CodeEditorView: NSViewRepresentable {
             highlight()
             gutter?.needsDisplay = true
             isApplyingEditorChange = false
+            updateCaret()
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            updateCaret()
         }
 
         func highlight() {
             guard let textStorage = textView?.textStorage else { return }
             SyntaxHighlighter.apply(to: textStorage, fileExtension: fileExtension)
         }
+
+        func applyNavigationTargetIfNeeded() {
+            guard let textView, let document, let target = model?.editorNavigationTarget,
+                  target.url.standardizedFileURL == document.url.standardizedFileURL,
+                  appliedNavigationTargetID != target.id else { return }
+            appliedNavigationTargetID = target.id
+
+            let text = textView.string as NSString
+            var lineStart = 0
+            var currentLine = 0
+            while currentLine < target.line, lineStart < text.length {
+                let range = text.lineRange(for: NSRange(location: lineStart, length: 0))
+                lineStart = NSMaxRange(range)
+                currentLine += 1
+            }
+            let lineRange = text.lineRange(for: NSRange(location: min(lineStart, text.length), length: 0))
+            let location = min(NSMaxRange(lineRange), lineStart + target.utf16Column)
+            textView.setSelectedRange(NSRange(location: location, length: 0))
+            textView.scrollRangeToVisible(NSRange(location: location, length: 0))
+            textView.window?.makeFirstResponder(textView)
+            updateCaret()
+        }
+
+        func updateCaret() {
+            guard let textView, let document else { return }
+            let text = textView.string as NSString
+            let location = min(textView.selectedRange().location, text.length)
+            let prefix = text.substring(to: location) as NSString
+            var line = 0
+            var lineStart = 0
+            for index in 0..<prefix.length where prefix.character(at: index) == 10 {
+                line += 1
+                lineStart = index + 1
+            }
+            model?.editorCaret = EditorCaret(
+                url: document.url.standardizedFileURL,
+                line: line,
+                utf16Column: location - lineStart
+            )
+        }
+    }
+}
+
+@MainActor
+final class CodeTextView: NSTextView {
+    var isJavaNavigationEnabled = false
+    var onGoToDefinition: (() -> Void)?
+    var onFindUsages: (() -> Void)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        if let layoutManager, let textContainer {
+            let point = convert(event.locationInWindow, from: nil)
+            let containerPoint = NSPoint(
+                x: point.x - textContainerOrigin.x,
+                y: point.y - textContainerOrigin.y
+            )
+            let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+            let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+            if characterIndex <= string.utf16.count {
+                setSelectedRange(NSRange(location: characterIndex, length: 0))
+            }
+        }
+
+        let menu = super.menu(for: event) ?? NSMenu()
+        guard isJavaNavigationEnabled else { return menu }
+        menu.insertItem(.separator(), at: 0)
+
+        let usages = NSMenuItem(
+            title: "Find Usages",
+            action: #selector(findUsagesFromMenu),
+            keyEquivalent: ""
+        )
+        usages.target = self
+        menu.insertItem(usages, at: 0)
+
+        let definition = NSMenuItem(
+            title: "Go to Definition",
+            action: #selector(goToDefinitionFromMenu),
+            keyEquivalent: ""
+        )
+        definition.target = self
+        menu.insertItem(definition, at: 0)
+        return menu
+    }
+
+    @objc private func goToDefinitionFromMenu() {
+        onGoToDefinition?()
+    }
+
+    @objc private func findUsagesFromMenu() {
+        onFindUsages?()
     }
 }
 

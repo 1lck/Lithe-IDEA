@@ -358,6 +358,8 @@ struct WorkbenchView: View {
                     Group {
                         if model.isTerminalVisible {
                             TerminalView()
+                        } else if model.isReferencesVisible {
+                            JavaReferencesView()
                         } else {
                             GitLogView()
                         }
@@ -393,7 +395,7 @@ struct WorkbenchView: View {
     }
 
     private var isBottomToolVisible: Bool {
-        model.isGitLogVisible || model.isTerminalVisible
+        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible
     }
 
     private var statusBar: some View {
@@ -407,6 +409,10 @@ struct WorkbenchView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(model.isTerminalVisible ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            if model.isReferencesVisible {
+                Label("\(model.javaNavigationLocations.count) usages", systemImage: "scope")
+                    .foregroundStyle(LitheTheme.primaryText)
+            }
             Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
