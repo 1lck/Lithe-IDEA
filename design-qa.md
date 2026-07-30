@@ -1,29 +1,33 @@
-# Lithe Split Handle Stability QA
+# Lithe Java Navigation and Terminal QA
 
 ## Scope
 
-- Shared component: `Sources/Lithe/Views/SplitHandleView.swift`
-- Affected surfaces: workspace sidebar, workspace vertical split, Changes commit pane, Git Log reference/detail columns, Git Log files/detail rows
-- Reported issue: pane boundaries repeatedly oscillate while dragging
+- Java projects only for semantic code navigation.
+- Go to Definition through the editor context menu and `Command-B`.
+- Find Usages through the editor context menu and `Command-Option-U`.
+- Clickable Java usage results in the bottom tool pane.
+- Integrated project terminal backed by a real PTY.
 
-## Root Cause
+## Java Navigation Verification
 
-- `DragGesture` measured translation in the moving handle's local coordinate space.
-- Resizing moved the handle and therefore moved that coordinate origin during the same gesture.
-- Subsequent translation values fed the layout movement back into their own measurement, producing visible jitter across every consumer of the shared handle.
+- Fixture: Maven project at `/private/tmp/lithe-java-qa`.
+- Definition navigation from `calculator.add(...)` to `Calculator.add(...)`: passed.
+- Find Usages returned both call sites in `App.java`: passed.
+- Clicking a usage reopened the source at the reported UTF-16 line and column: passed.
+- JDT LS launched with the compatible Homebrew Java runtime: passed.
 
-## Resolution
+## Terminal Verification
 
-- Measure the shared drag gesture in the stable global coordinate space.
-- Preserve existing per-pane start values, direction handling, minimum sizes, and maximum sizes.
-- No consumer-specific patches were required.
+- Terminal opened in `/private/tmp/lithe-java-qa`: passed.
+- `pwd` executed through the integrated PTY and returned the project directory: passed.
+- Command submitted while the shell was starting was retained and executed once: passed.
+- Terminal restart did not let the old process mark the new session as stopped: passed.
+- ANSI escape sequences were removed from displayed output: passed.
 
-## Verification
+## Build and Package Verification
 
-- All `SplitHandleView` consumers reviewed: passed
-- Isolated-cache Debug build: passed
-- Production package and ad-hoc signing: passed
-- Swift formatting/diff validation: passed
-- Live pointer drag: blocked because the Mac was locked and Computer Use could not unlock it
+- Isolated-cache Debug build: passed.
+- Production app package and ad-hoc signing: passed.
+- App bundle launched from `dist/Lithe.app`: passed.
 
-final result: blocked
+final result: passed
