@@ -57,8 +57,11 @@ final class TerminalSession: ObservableObject {
             self.outputPipe = outputPipe
             isRunning = true
             Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(200))
-                self?.writeRaw("\n")
+                for _ in 0..<10 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard let self, self.isRunning, !self.isReady else { return }
+                    self.writeRaw("\n")
+                }
             }
         } catch {
             append("Unable to start terminal: \(error.localizedDescription)\n")
