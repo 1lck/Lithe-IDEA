@@ -21,7 +21,7 @@ enum GitService {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let status = run(
                 at: repositoryRoot,
-                arguments: ["-c", "core.quotepath=false", "status", "--porcelain=v1", "--untracked-files=all"]
+                arguments: ["-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=all"]
             ).output
             return GitSnapshot(
                 repositoryRoot: repositoryRoot,
@@ -42,12 +42,12 @@ enum GitService {
             } else if change.hasWorkingTreeChange {
                 patch = run(
                     at: change.repositoryRoot,
-                    arguments: ["diff", "--no-ext-diff", "--unified=\(reviewContextLines)", "--", change.path]
+                    arguments: ["diff", "--no-ext-diff", "--unified=\(reviewContextLines)", "--"] + change.pathspecs
                 ).output
             } else {
                 patch = run(
                     at: change.repositoryRoot,
-                    arguments: ["diff", "--cached", "--no-ext-diff", "--unified=\(reviewContextLines)", "--", change.path]
+                    arguments: ["diff", "--cached", "--no-ext-diff", "--unified=\(reviewContextLines)", "--"] + change.pathspecs
                 ).output
             }
             return DiffParser.parse(patch)
@@ -56,15 +56,15 @@ enum GitService {
 
     static func stage(_ change: GitChange) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
-            run(at: change.repositoryRoot, arguments: ["add", "--", change.path])
+            run(at: change.repositoryRoot, arguments: ["add", "-A", "--"] + change.pathspecs)
         }.value
     }
 
     static func unstage(_ change: GitChange) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
-            let restore = run(at: change.repositoryRoot, arguments: ["restore", "--staged", "--", change.path])
+            let restore = run(at: change.repositoryRoot, arguments: ["restore", "--staged", "--"] + change.pathspecs)
             if restore.succeeded { return restore }
-            return run(at: change.repositoryRoot, arguments: ["reset", "HEAD", "--", change.path])
+            return run(at: change.repositoryRoot, arguments: ["reset", "HEAD", "--"] + change.pathspecs)
         }.value
     }
 
@@ -78,7 +78,7 @@ enum GitService {
                     return CommandResult(output: error.localizedDescription, exitCode: 1)
                 }
             }
-            return run(at: change.repositoryRoot, arguments: ["restore", "--worktree", "--", change.path])
+            return run(at: change.repositoryRoot, arguments: ["restore", "--worktree", "--"] + change.pathspecs)
         }.value
     }
 
@@ -403,26 +403,31 @@ enum GitService {
     }
 
     private static func parseStatus(_ output: String, root: URL) -> [GitChange] {
-        output.split(separator: "\n").compactMap { rawLine in
-            let line = String(rawLine)
-            guard line.count >= 4 else { return nil }
-            let characters = Array(line)
+        let fields = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+        var changes: [GitChange] = []
+        var index = 0
+        while index < fields.count {
+            let field = fields[index]
+            let characters = Array(field)
+            guard characters.count >= 4 else {
+                index += 1
+                continue
+            }
             let indexStatus = characters[0]
             let workTreeStatus = characters[1]
-            var path = String(characters.dropFirst(3))
-            if let arrowRange = path.range(of: " -> ") {
-                path = String(path[arrowRange.upperBound...])
-            }
-            if path.hasPrefix("\"") && path.hasSuffix("\"") {
-                path = String(path.dropFirst().dropLast())
-            }
-            return GitChange(
+            let path = String(characters.dropFirst(3))
+            let isRenameOrCopy = indexStatus == "R" || indexStatus == "C" || workTreeStatus == "R" || workTreeStatus == "C"
+            let originalPath = isRenameOrCopy && index + 1 < fields.count ? fields[index + 1] : nil
+            changes.append(GitChange(
                 repositoryRoot: root,
                 path: path,
+                originalPath: originalPath,
                 indexStatus: indexStatus,
                 workTreeStatus: workTreeStatus
-            )
+            ))
+            index += isRenameOrCopy ? 2 : 1
         }
+        return changes
         .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 

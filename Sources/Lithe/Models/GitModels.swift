@@ -73,19 +73,61 @@ struct GitHistorySnapshot: Sendable {
 struct GitChange: Identifiable, Hashable, Sendable {
     let repositoryRoot: URL
     let path: String
+    let originalPath: String?
     let indexStatus: Character
     let workTreeStatus: Character
 
-    var id: String { path }
+    var id: String { "\(originalPath ?? "")->\(path)" }
     var url: URL { repositoryRoot.appendingPathComponent(path) }
     var isStaged: Bool { indexStatus != " " && indexStatus != "?" }
     var hasWorkingTreeChange: Bool { workTreeStatus != " " }
     var isUntracked: Bool { indexStatus == "?" && workTreeStatus == "?" }
 
+    var kind: GitChangeKind {
+        if isUntracked || indexStatus == "A" || workTreeStatus == "A" { return .added }
+        if indexStatus == "D" || workTreeStatus == "D" { return .deleted }
+        if indexStatus == "R" || workTreeStatus == "R" { return .moved }
+        if indexStatus == "C" || workTreeStatus == "C" { return .copied }
+        return .modified
+    }
+
+    var pathspecs: [String] {
+        if let originalPath, originalPath != path { return [originalPath, path] }
+        return [path]
+    }
+
     var displayStatus: String {
         if isUntracked { return "A" }
         if workTreeStatus != " " { return String(workTreeStatus) }
         return String(indexStatus)
+    }
+}
+
+enum GitChangeKind: String, Sendable {
+    case added
+    case modified
+    case deleted
+    case moved
+    case copied
+
+    var title: String {
+        switch self {
+        case .added: "Added"
+        case .modified: "Modified"
+        case .deleted: "Deleted"
+        case .moved: "Moved"
+        case .copied: "Copied"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .added: "plus"
+        case .modified: "pencil"
+        case .deleted: "minus"
+        case .moved: "arrow.right"
+        case .copied: "doc.on.doc"
+        }
     }
 }
 

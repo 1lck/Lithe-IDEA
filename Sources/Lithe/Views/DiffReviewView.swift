@@ -45,6 +45,17 @@ struct DiffReviewView: View {
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
+            HStack(spacing: 4) {
+                Image(systemName: change.kind.symbol)
+                    .font(.system(size: 8, weight: .bold))
+                Text(change.kind.title.uppercased())
+                    .font(.system(size: 8.5, weight: .bold))
+            }
+            .foregroundStyle(changeKindColor)
+            .padding(.horizontal, 6)
+            .frame(height: 18)
+            .background(changeKindColor.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
             Text(change.isStaged && !change.hasWorkingTreeChange ? "STAGED" : "WORKING TREE")
                 .font(.system(size: 8.5, weight: .bold))
                 .foregroundStyle(change.isStaged ? LitheTheme.success : LitheTheme.warning)
@@ -192,15 +203,15 @@ struct DiffReviewView: View {
 
     private var versionHeader: some View {
         HStack(spacing: 0) {
-            versionLabel(leftVersionTitle, systemImage: "lock")
+            versionLabel(leftVersionTitle, path: leftVersionPath, systemImage: "lock")
             centerGutter(kind: nil, isSelected: false)
-            versionLabel(rightVersionTitle, systemImage: "checkmark.square")
+            versionLabel(rightVersionTitle, path: rightVersionPath, systemImage: "checkmark.square")
         }
         .frame(height: 34)
         .background(LitheTheme.window)
     }
 
-    private func versionLabel(_ title: String, systemImage: String) -> some View {
+    private func versionLabel(_ title: String, path: String, systemImage: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: systemImage)
                 .font(.system(size: 10.5))
@@ -209,7 +220,7 @@ struct DiffReviewView: View {
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
-            Text(change.path)
+            Text(path)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
@@ -327,13 +338,38 @@ struct DiffReviewView: View {
     }
 
     private var leftVersionTitle: String {
-        if change.isUntracked { return "No base revision" }
+        if change.kind == .added { return "Empty file" }
+        if change.kind == .deleted { return "Deleted version" }
+        if change.kind == .moved || change.kind == .copied { return "Original location" }
         if change.hasWorkingTreeChange { return "Index version" }
         return "Repository version"
     }
 
     private var rightVersionTitle: String {
-        change.isStaged && !change.hasWorkingTreeChange ? "Staged version" : "Current version"
+        if change.kind == .deleted { return "Empty file" }
+        if change.kind == .added { return "Added version" }
+        if change.kind == .moved { return "Moved version" }
+        if change.kind == .copied { return "Copied version" }
+        return change.isStaged && !change.hasWorkingTreeChange ? "Staged version" : "Current version"
+    }
+
+    private var leftVersionPath: String {
+        if change.kind == .added { return "No file" }
+        return change.originalPath ?? change.path
+    }
+
+    private var rightVersionPath: String {
+        change.kind == .deleted ? "No file" : change.path
+    }
+
+    private var changeKindColor: Color {
+        switch change.kind {
+        case .added: LitheTheme.success
+        case .modified: LitheTheme.warning
+        case .deleted: .red.opacity(0.86)
+        case .moved: LitheTheme.accent
+        case .copied: Color(red: 0.46, green: 0.72, blue: 0.92)
+        }
     }
 
     private var fileIconColor: Color {

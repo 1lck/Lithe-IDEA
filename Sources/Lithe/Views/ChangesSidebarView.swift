@@ -241,16 +241,20 @@ struct ChangesSidebarView: View {
                 model.selectChange(change)
             } label: {
                 HStack(spacing: 7) {
-                    Text(change.displayStatus)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    Image(systemName: change.kind.symbol)
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(statusColor(change))
-                        .frame(width: 17)
-                    Text(change.url.lastPathComponent)
+                        .frame(width: 17, height: 17)
+                        .background(statusColor(change).opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .help(change.kind.title)
+                    Text(changeDisplayName(change))
                         .font(.system(size: 12.5))
-                        .foregroundStyle(LitheTheme.primaryText)
+                        .foregroundStyle(fileNameColor(change))
+                        .strikethrough(change.kind == .deleted, color: statusColor(change))
                         .lineLimit(1)
                         .layoutPriority(1)
-                    let parent = (change.path as NSString).deletingLastPathComponent
+                    let parent = parentPathText(change)
                     if showsParentPath, !parent.isEmpty {
                         Text(parent)
                             .font(.system(size: 10.5))
@@ -375,12 +379,31 @@ struct ChangesSidebarView: View {
     }
 
     private func statusColor(_ change: GitChange) -> Color {
-        switch change.displayStatus {
-        case "A", "?": LitheTheme.success
-        case "D": .red.opacity(0.86)
-        case "R": LitheTheme.accent
-        default: LitheTheme.warning
+        switch change.kind {
+        case .added: LitheTheme.success
+        case .modified: LitheTheme.warning
+        case .deleted: .red.opacity(0.86)
+        case .moved: LitheTheme.accent
+        case .copied: Color(red: 0.46, green: 0.72, blue: 0.92)
         }
+    }
+
+    private func fileNameColor(_ change: GitChange) -> Color {
+        change.kind == .modified ? LitheTheme.primaryText : statusColor(change)
+    }
+
+    private func changeDisplayName(_ change: GitChange) -> String {
+        guard let originalPath = change.originalPath else { return change.url.lastPathComponent }
+        let oldName = (originalPath as NSString).lastPathComponent
+        return "\(oldName) → \(change.url.lastPathComponent)"
+    }
+
+    private func parentPathText(_ change: GitChange) -> String {
+        let parent = (change.path as NSString).deletingLastPathComponent
+        guard let originalPath = change.originalPath else { return parent }
+        let originalParent = (originalPath as NSString).deletingLastPathComponent
+        guard originalParent != parent else { return parent }
+        return "\(originalParent) → \(parent)"
     }
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
