@@ -103,10 +103,26 @@ final class TerminalSession: ObservableObject {
     }
 
     private static func plainText(from value: String) -> String {
-        let pattern = #"\u{001B}(?:\[[0-?]*[ -/]*[@-~]|\][^\u{0007}]*(?:\u{0007}|\u{001B}\\))"#
+        let pattern = "\u{001B}(?:\\[[0-?]*[ -/]*[@-~]|\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\))"
         let range = NSRange(value.startIndex..<value.endIndex, in: value)
         let withoutANSI = (try? NSRegularExpression(pattern: pattern))?
             .stringByReplacingMatches(in: value, range: range, withTemplate: "") ?? value
-        return withoutANSI.replacingOccurrences(of: "\r\n", with: "\n")
+        let normalized = withoutANSI.replacingOccurrences(of: "\r\n", with: "\n")
+        var result = ""
+        for scalar in normalized.unicodeScalars {
+            switch scalar.value {
+            case 8, 127:
+                if !result.isEmpty { result.removeLast() }
+            case 9, 10:
+                result.unicodeScalars.append(scalar)
+            case 13:
+                continue
+            case 0..<32:
+                continue
+            default:
+                result.unicodeScalars.append(scalar)
+            }
+        }
+        return result
     }
 }
