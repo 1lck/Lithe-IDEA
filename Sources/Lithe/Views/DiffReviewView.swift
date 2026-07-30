@@ -257,7 +257,8 @@ struct DiffReviewView: View {
                         .id(row.id)
                     }
                 }
-                .frame(minWidth: max(980, geometry.size.width), alignment: .topLeading)
+                .frame(width: max(980, geometry.size.width), alignment: .topLeading)
+                .frame(minHeight: geometry.size.height, alignment: .topLeading)
                 .textSelection(.enabled)
             }
             .background(LitheTheme.editor)
@@ -382,6 +383,7 @@ struct DiffRowView: View {
             .foregroundStyle(Color(red: 0.50, green: 0.72, blue: 0.98))
             .padding(.horizontal, 12)
             .frame(height: 27)
+            .frame(maxWidth: .infinity)
             .background(Color(red: 0.13, green: 0.20, blue: 0.30))
         } else {
             HStack(spacing: 0) {
@@ -390,6 +392,7 @@ struct DiffRowView: View {
                 diffCell(number: row.newLine, text: row.right, otherText: row.left, side: .right)
             }
             .frame(height: 24)
+            .frame(maxWidth: .infinity)
             .overlay(alignment: .leading) {
                 if isSelectedDifference {
                     Rectangle().fill(LitheTheme.accent).frame(width: 2)

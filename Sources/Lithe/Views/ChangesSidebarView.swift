@@ -118,22 +118,25 @@ struct ChangesSidebarView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 1) {
-                        changeSection(
-                            "Changes",
-                            changes: trackedChanges,
-                            expanded: $trackedExpanded
-                        )
-                        changeSection(
-                            "Unversioned Files",
-                            changes: untrackedChanges,
-                            expanded: $untrackedExpanded
-                        )
+                GeometryReader { geometry in
+                    ScrollView([.vertical, .horizontal]) {
+                        LazyVStack(alignment: .leading, spacing: 1) {
+                            changeSection(
+                                "Changes",
+                                changes: trackedChanges,
+                                expanded: $trackedExpanded
+                            )
+                            changeSection(
+                                "Unversioned Files",
+                                changes: untrackedChanges,
+                                expanded: $untrackedExpanded
+                            )
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                        .frame(width: max(316, geometry.size.width), alignment: .topLeading)
+                        .frame(minHeight: geometry.size.height, alignment: .topLeading)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
-                    .frame(minWidth: 300, alignment: .topLeading)
                 }
             }
         }
