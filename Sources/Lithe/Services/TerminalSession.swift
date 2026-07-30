@@ -11,8 +11,8 @@ final class TerminalSession: ObservableObject {
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
     private var workspaceURL: URL?
-    private var pendingCommands: [String] = []
     private var receivedInitialOutput = false
+    private var startupRequested = false
     private let maximumOutputCharacters = 240_000
 
     func start(in workspaceURL: URL) {
@@ -20,6 +20,7 @@ final class TerminalSession: ObservableObject {
         self.workspaceURL = workspaceURL
         isReady = false
         receivedInitialOutput = false
+        startupRequested = false
 
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         shellName = URL(fileURLWithPath: shell).lastPathComponent
@@ -47,9 +48,11 @@ final class TerminalSession: ObservableObject {
                 self?.append(chunk)
             }
         }
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] terminatedProcess in
             Task { @MainActor [weak self] in
+                guard self?.process === terminatedProcess else { return }
                 self?.isRunning = false
+                self?.isReady = false
             }
         }
 
@@ -70,13 +73,14 @@ final class TerminalSession: ObservableObject {
     }
 
     func send(_ command: String) {
-        guard isRunning else { return }
-        if isReady {
-            writeRaw(command + "\n")
-        } else {
-            pendingCommands.append(command)
-            writeRaw(":\n")
-        }
+        guard isRunning, isReady else { return }
+        writeRaw(command + "\n")
+    }
+
+    func prepareForInput() {
+        guard isRunning, !isReady, !startupRequested else { return }
+        startupRequested = true
+        writeRaw(":\n")
     }
 
     func interrupt() {
@@ -100,39 +104,29 @@ final class TerminalSession: ObservableObject {
         outputPipe = nil
         isRunning = false
         isReady = false
-        pendingCommands = []
         receivedInitialOutput = false
+        startupRequested = false
     }
 
     private func append(_ chunk: String) {
         if !receivedInitialOutput {
             receivedInitialOutput = true
             Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(600))
+                try? await Task.sleep(for: .seconds(1))
                 guard let self, self.isRunning else { return }
                 self.isReady = true
-                self.flushPendingCommands()
             }
             return
         }
 
         isReady = true
         appendOutput(Self.plainText(from: chunk))
-        flushPendingCommands()
     }
 
     private func appendOutput(_ value: String) {
         output.append(value)
         if output.count > maximumOutputCharacters {
             output.removeFirst(output.count - maximumOutputCharacters)
-        }
-    }
-
-    private func flushPendingCommands() {
-        let commands = pendingCommands
-        pendingCommands = []
-        for command in commands {
-            writeRaw(command + "\n")
         }
     }
 

@@ -5,6 +5,7 @@ struct TerminalView: View {
     @State private var command = ""
     @State private var history: [String] = []
     @State private var historyIndex: Int?
+    @State private var hasPendingSubmission = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -95,6 +96,11 @@ struct TerminalView: View {
                 .font(.system(size: 12.5, design: .monospaced))
                 .disabled(!model.terminalSession.isRunning)
                 .onSubmit(runCommand)
+                .onChange(of: model.terminalSession.isReady) {
+                    if model.terminalSession.isReady, hasPendingSubmission {
+                        runCommand()
+                    }
+                }
                 .onKeyPress(.upArrow) {
                     moveHistory(by: -1)
                     return .handled
@@ -122,6 +128,12 @@ struct TerminalView: View {
     private func runCommand() {
         let value = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
+        guard model.terminalSession.isReady else {
+            hasPendingSubmission = true
+            model.terminalSession.prepareForInput()
+            return
+        }
+        hasPendingSubmission = false
         model.terminalSession.send(value)
         if history.last != value {
             history.append(value)
