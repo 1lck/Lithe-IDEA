@@ -357,7 +357,7 @@ struct WorkbenchView: View {
 
                     Group {
                         if model.isTerminalVisible {
-                            TerminalView()
+                            TerminalView(session: model.terminalSession)
                         } else if model.isReferencesVisible {
                             JavaReferencesView()
                         } else {

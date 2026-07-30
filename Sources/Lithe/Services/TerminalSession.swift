@@ -11,18 +11,21 @@ final class TerminalSession: ObservableObject {
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
     private var workspaceURL: URL?
-    private var receivedInitialOutput = false
-    private var startupRequested = false
+    private var selectedShellPath: String?
+    private var startupBuffer = ""
+    private var didCompleteHandshake = false
     private let maximumOutputCharacters = 240_000
+    private let handshakeMarker = "__LITHE_READY__"
 
-    func start(in workspaceURL: URL) {
+    func start(in workspaceURL: URL, shellPath: String? = nil) {
         stop()
         self.workspaceURL = workspaceURL
         isReady = false
-        receivedInitialOutput = false
-        startupRequested = false
+        startupBuffer = ""
+        didCompleteHandshake = false
 
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let shell = shellPath ?? selectedShellPath ?? ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        selectedShellPath = shell
         shellName = URL(fileURLWithPath: shell).lastPathComponent
 
         let process = Process()
@@ -62,6 +65,17 @@ final class TerminalSession: ObservableObject {
             self.inputPipe = inputPipe
             self.outputPipe = outputPipe
             isRunning = true
+            Task { [weak self, weak process] in
+                try? await Task.sleep(for: .milliseconds(700))
+                guard let self, let process, self.process === process, process.isRunning else { return }
+                self.writeRaw("printf '__LITHE_%s__\\n' READY\n")
+                try? await Task.sleep(for: .milliseconds(1_300))
+                guard self.process === process, process.isRunning, !self.didCompleteHandshake else { return }
+                self.startupBuffer = ""
+                self.didCompleteHandshake = true
+                self.isReady = true
+                self.writeRaw("\n")
+            }
         } catch {
             append("Unable to start terminal: \(error.localizedDescription)\n")
         }
@@ -69,7 +83,12 @@ final class TerminalSession: ObservableObject {
 
     func restart() {
         guard let workspaceURL else { return }
-        start(in: workspaceURL)
+        start(in: workspaceURL, shellPath: selectedShellPath)
+    }
+
+    func restart(using shellPath: String) {
+        guard let workspaceURL else { return }
+        start(in: workspaceURL, shellPath: shellPath)
     }
 
     func send(_ command: String) {
@@ -78,9 +97,7 @@ final class TerminalSession: ObservableObject {
     }
 
     func prepareForInput() {
-        guard isRunning, !isReady, !startupRequested else { return }
-        startupRequested = true
-        writeRaw(":\n")
+        guard isRunning else { return }
     }
 
     func interrupt() {
@@ -104,23 +121,23 @@ final class TerminalSession: ObservableObject {
         outputPipe = nil
         isRunning = false
         isReady = false
-        receivedInitialOutput = false
-        startupRequested = false
+        startupBuffer = ""
+        didCompleteHandshake = false
     }
 
     private func append(_ chunk: String) {
-        if !receivedInitialOutput {
-            receivedInitialOutput = true
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(1))
-                guard let self, self.isRunning else { return }
-                self.isReady = true
-            }
+        guard !didCompleteHandshake else {
+            appendOutput(chunk)
             return
         }
 
+        startupBuffer.append(chunk)
+        guard let markerRange = startupBuffer.range(of: handshakeMarker) else { return }
+        let content = String(startupBuffer[markerRange.upperBound...])
+        startupBuffer = ""
+        didCompleteHandshake = true
         isReady = true
-        appendOutput(Self.plainText(from: chunk))
+        appendOutput(content)
     }
 
     private func appendOutput(_ value: String) {
@@ -139,27 +156,4 @@ final class TerminalSession: ObservableObject {
         }
     }
 
-    private static func plainText(from value: String) -> String {
-        let pattern = "\u{001B}(?:\\[[0-?]*[ -/]*[@-~]|\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\))"
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
-        let withoutANSI = (try? NSRegularExpression(pattern: pattern))?
-            .stringByReplacingMatches(in: value, range: range, withTemplate: "") ?? value
-        let normalized = withoutANSI.replacingOccurrences(of: "\r\n", with: "\n")
-        var result = ""
-        for scalar in normalized.unicodeScalars {
-            switch scalar.value {
-            case 8, 127:
-                if !result.isEmpty { result.removeLast() }
-            case 9, 10:
-                result.unicodeScalars.append(scalar)
-            case 13:
-                continue
-            case 0..<32:
-                continue
-            default:
-                result.unicodeScalars.append(scalar)
-            }
-        }
-        return result
-    }
 }
