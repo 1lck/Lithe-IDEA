@@ -28,7 +28,9 @@ struct SplitHandleView: View {
         )
         .contentShape(Rectangle())
         .gesture(
-            DragGesture(minimumDistance: 0)
+            // The handle moves with the resized pane, so local coordinates create a
+            // feedback loop where translation jumps as the coordinate origin moves.
+            DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { value in
                     if !isDragging {
                         isDragging = true
