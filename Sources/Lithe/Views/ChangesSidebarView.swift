@@ -119,29 +119,25 @@ struct ChangesSidebarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { geometry in
-                    let contentWidth = max(316, geometry.size.width)
-
-                    ScrollView(.horizontal) {
-                        ScrollView(.vertical) {
-                            LazyVStack(alignment: .leading, spacing: 1) {
-                                changeSection(
-                                    "Changes",
-                                    changes: trackedChanges,
-                                    expanded: $trackedExpanded
-                                )
-                                changeSection(
-                                    "Unversioned Files",
-                                    changes: untrackedChanges,
-                                    expanded: $untrackedExpanded
-                                )
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 8)
-                            .frame(width: contentWidth, alignment: .topLeading)
+                    ScrollView(.vertical) {
+                        LazyVStack(alignment: .leading, spacing: 1) {
+                            changeSection(
+                                "Changes",
+                                changes: trackedChanges,
+                                expanded: $trackedExpanded,
+                                showsParentPaths: geometry.size.width >= 300
+                            )
+                            changeSection(
+                                "Unversioned Files",
+                                changes: untrackedChanges,
+                                expanded: $untrackedExpanded,
+                                showsParentPaths: geometry.size.width >= 300
+                            )
                         }
-                        .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
-                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 }
             }
         }
@@ -149,7 +145,12 @@ struct ChangesSidebarView: View {
     }
 
     @ViewBuilder
-    private func changeSection(_ title: String, changes: [GitChange], expanded: Binding<Bool>) -> some View {
+    private func changeSection(
+        _ title: String,
+        changes: [GitChange],
+        expanded: Binding<Bool>,
+        showsParentPaths: Bool
+    ) -> some View {
         if !changes.isEmpty {
             Button {
                 expanded.wrappedValue.toggle()
@@ -170,7 +171,8 @@ struct ChangesSidebarView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 7)
-                .frame(width: 298, height: 30)
+                .frame(maxWidth: .infinity)
+                .frame(height: 30)
                 .background(LitheTheme.subtleSelection.opacity(0.72))
                 .clipShape(RoundedRectangle(cornerRadius: 4))
                 .contentShape(Rectangle())
@@ -179,13 +181,13 @@ struct ChangesSidebarView: View {
 
             if expanded.wrappedValue {
                 ForEach(changes) { change in
-                    changeRow(change)
+                    changeRow(change, showsParentPath: showsParentPaths)
                 }
             }
         }
     }
 
-    private func changeRow(_ change: GitChange) -> some View {
+    private func changeRow(_ change: GitChange, showsParentPath: Bool) -> some View {
         HStack(spacing: 6) {
             Button {
                 Task { await model.toggleStaging(change) }
@@ -209,8 +211,9 @@ struct ChangesSidebarView: View {
                         .font(.system(size: 12.5))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
+                        .layoutPriority(1)
                     let parent = (change.path as NSString).deletingLastPathComponent
-                    if !parent.isEmpty {
+                    if showsParentPath, !parent.isEmpty {
                         Text(parent)
                             .font(.system(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
@@ -225,7 +228,8 @@ struct ChangesSidebarView: View {
         }
         .padding(.leading, 30)
         .padding(.trailing, 6)
-        .frame(width: 298, height: 30)
+        .frame(maxWidth: .infinity)
+        .frame(height: 30)
         .background(model.selectedChange?.id == change.id ? LitheTheme.subtleSelection : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
