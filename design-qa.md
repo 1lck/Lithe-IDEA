@@ -147,6 +147,7 @@
 
 - Test project: `/private/tmp/lithe-java-editor-qa` with imports, nested scopes, method calls, one interface, and two implementations.
 - Parameter hints and collapsed imports: `design-qa-artifacts/java-editor-hints-final.png`.
+- Parameter hint spacing regression: `design-qa-artifacts/java-inlay-spacing-fixed.png`.
 - Interface and method implementation markers: `design-qa-artifacts/java-interface-markers-final.png`.
 - Runtime: packaged macOS application with JDT LS 1.60 and Homebrew OpenJDK 26.
 
@@ -168,6 +169,7 @@
 - Replaced an unreliable fold-button subview with directly drawn, hit-tested ellipsis controls.
 - Added JDT configuration responses for parameter-name hints and bounded retries for asynchronous project indexing.
 - Added a local declaration-based fallback and excluded declaration parameter lists so hints never label declarations as calls.
+- Changed parameter-hint spacing from non-layout temporary attributes to TextKit storage attributes; arguments now move into reserved space and remain fully visible after caret changes.
 - No actionable P0, P1, or P2 issue remains in the verified Java editor states.
 
 final result: passed

@@ -967,22 +967,21 @@ final class JavaInlayHintOverlayController {
     }
 
     func update(hints: [JavaInlayHint]) {
-        guard hints != currentHints, let textView,
-              let layoutManager = textView.layoutManager else { return }
+        guard let textView,
+              let layoutManager = textView.layoutManager,
+              let textStorage = textView.textStorage,
+              let textContainer = textView.textContainer else { return }
         currentHints = hints
         labels.forEach { $0.removeFromSuperview() }
         labels = []
         let fullRange = NSRange(location: 0, length: textView.string.utf16.count)
-        layoutManager.removeTemporaryAttribute(.kern, forCharacterRange: fullRange)
         let source = textView.string as NSString
+        var placements: [(hint: JavaInlayHint, location: Int, label: NSTextField, width: CGFloat)] = []
 
         for hint in hints {
             let lineStart = characterOffset(forLine: hint.line, in: source)
             let location = min(source.length, lineStart + hint.utf16Column)
-            guard location < source.length else { continue }
-            let glyph = layoutManager.glyphIndexForCharacter(at: location)
-            let point = layoutManager.location(forGlyphAt: glyph)
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            guard location > 0, location < source.length else { continue }
             let label = NSTextField(labelWithString: normalizedLabel(hint.label))
             label.font = .systemFont(ofSize: 10.5, weight: .medium)
             label.textColor = NSColor(white: 0.61, alpha: 1)
@@ -992,23 +991,37 @@ final class JavaInlayHintOverlayController {
             label.layer?.cornerRadius = 3
             label.sizeToFit()
             let width = label.frame.width + 9
-            label.frame = NSRect(
-                x: textView.textContainerOrigin.x + point.x,
-                y: textView.textContainerOrigin.y + lineRect.minY + 1,
-                width: width,
-                height: max(16, lineRect.height - 2)
-            )
-            label.setAccessibilityLabel("Parameter \(hint.label)")
-            textView.addSubview(label)
-            labels.append(label)
-            let kernLocation = max(0, location - 1)
-            layoutManager.addTemporaryAttribute(
+            placements.append((hint, location, label, width))
+        }
+
+        textStorage.beginEditing()
+        textStorage.removeAttribute(.kern, range: fullRange)
+        for placement in placements {
+            textStorage.addAttribute(
                 .kern,
-                value: width + 3,
-                forCharacterRange: NSRange(location: kernLocation, length: 1)
+                value: placement.width + 3,
+                range: NSRange(location: placement.location - 1, length: 1)
             )
         }
+        textStorage.endEditing()
         layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        layoutManager.ensureLayout(for: textContainer)
+
+        for placement in placements {
+            let glyph = layoutManager.glyphIndexForCharacter(at: placement.location)
+            let point = layoutManager.location(forGlyphAt: glyph)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let label = placement.label
+            label.frame = NSRect(
+                x: textView.textContainerOrigin.x + point.x - placement.width - 3,
+                y: textView.textContainerOrigin.y + lineRect.minY + 1,
+                width: placement.width,
+                height: max(16, lineRect.height - 2)
+            )
+            label.setAccessibilityLabel("Parameter \(placement.hint.label)")
+            textView.addSubview(label)
+            labels.append(label)
+        }
     }
 
     private func normalizedLabel(_ label: String) -> String {
