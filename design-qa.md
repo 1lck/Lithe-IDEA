@@ -2,31 +2,46 @@
 
 ## Evidence
 
-- Visual direction: existing Lithe/IDEA-style tool windows and the current application design system.
-- Implementation target: application-level Settings sheet opened from the left activity rail or `Command-,`.
-- Viewport: intended for the existing macOS window minimum of 980 x 640.
-- State: General, Editor, and Terminal categories implemented.
+- Visual direction: existing Lithe/IDEA-style tool-window design system.
+- General screenshot: `design-qa-artifacts/settings-general-final.png`
+- Editor screenshot: `design-qa-artifacts/settings-editor-final.png`
+- Terminal screenshot: `design-qa-artifacts/settings-terminal-final.png`
+- Viewport: 760 x 520 Settings sheet inside the packaged macOS application.
+- State: General, Editor, and Terminal categories captured in dark mode.
 
-## Functional Checks
+## Full-View Comparison
 
-- Debug build passes with Swift 6.2.
-- Settings persist through `UserDefaults`.
-- Editor font size, Tab width, Code Vision visibility, auto-save delay, and terminal shell are connected to production behavior.
-- Settings can be opened from both the workbench gear button and the standard macOS `Command-,` shortcut.
-- Restore Defaults updates and persists every exposed preference.
+- The sheet follows Lithe's established compact dark tool-window hierarchy: 44-point title bar, 190-point category rail, unframed content area, and 50-point action footer.
+- Category selection, group boundaries, controls, and footer actions remain aligned without clipping at the application's minimum window size.
+- The Settings sheet is available from both the Welcome screen via `Command-,` and the workbench activity rail.
+
+## Focused Comparison
+
+- Typography: 12-14 point system text matches existing tool-window density, with a 20-point page title and no wrapping or truncation.
+- Spacing: category rows, group padding, control alignment, and footer actions use consistent 3/8/13/16/24-point rhythm.
+- Colors: existing Lithe window, sidebar, divider, selection, primary, and secondary tokens are used throughout.
+- Image and icon fidelity: native SF Symbols are used for settings categories and actions; no placeholder or handcrafted assets are present.
+- Copy: labels describe actual behavior and expose units for font size, delay, and indentation.
+
+## Functional Verification
+
+- `Command-,` opens Settings from Welcome.
+- The left activity-rail gear opens Settings from a project.
+- Auto-save reveals its delay picker and persists the selected `0.5 seconds` value after restart.
+- Editor font size persisted at `14 pt`; Tab width persisted at `2 spaces`.
+- Code Vision hid immediately when disabled and returned when restored.
+- Default shell persisted as `bash` after restart.
+- Restore Defaults reset auto-save, font size, Tab width, Code Vision, and shell across all categories.
+- Production build, code signing, and `Info.plist` validation pass.
 
 ## Findings
 
-- [P1] Final visual capture is blocked because the Mac is locked.
-  Evidence: Computer Use reports that automatic unlock failed, so the packaged Settings sheet cannot be opened or captured.
-  Impact: layout, clipping, and interaction states cannot receive a final visual sign-off in this pass.
-  Fix: unlock the Mac, open Settings, capture all three categories, and compare them against the established Lithe tool-window styling.
+- No actionable P0, P1, or P2 issues remain.
+- Auto-save file writing was not exercised against a user project during UI QA to avoid modifying user content; scheduling and save code paths compile and are connected to editor change events.
 
 ## Patches Since Previous QA
 
-- Added a persistent `AppSettings` model.
-- Added an application-level categorized Settings sheet.
-- Added Editor, Files, and Terminal preferences with live behavior.
-- Added a left-rail gear button and standard macOS Settings command.
+- No production-code patch was required during final acceptance.
+- Replaced the locked-screen blocker with captured General, Editor, and Terminal evidence.
 
-final result: blocked
+final result: passed
