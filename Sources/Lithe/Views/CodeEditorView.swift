@@ -78,6 +78,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.container = container
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
         context.coordinator.highlight()
+        textView.updateEditorDecorations()
         context.coordinator.updateCaret()
         container.scrollView = scrollView
         container.gutter = gutter
@@ -99,6 +100,7 @@ struct CodeEditorView: NSViewRepresentable {
             textView.string = document.text
             textView.setSelectedRange(NSRange(location: min(selection.location, document.text.utf16.count), length: 0))
             context.coordinator.highlight()
+            (textView as? CodeTextView)?.updateEditorDecorations()
             container.gutter?.needsDisplay = true
         }
         context.coordinator.updateCodeVisionAndBlame()
@@ -131,12 +133,15 @@ struct CodeEditorView: NSViewRepresentable {
                 model?.documentDidChange(document)
             }
             highlight()
+            (textView as? CodeTextView)?.updateEditorDecorations()
             gutter?.needsDisplay = true
             isApplyingEditorChange = false
             updateCaret()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
+            (textView as? CodeTextView)?.updateEditorDecorations()
+            gutter?.needsDisplay = true
             updateCaret()
         }
 
@@ -211,6 +216,126 @@ final class CodeTextView: NSTextView {
     var isJavaNavigationEnabled = false
     var onGoToDefinition: (() -> Void)?
     var onFindUsages: (() -> Void)?
+
+    private let currentLineColor = NSColor(white: 1, alpha: 0.035)
+    private let bracketColor = NSColor(white: 0.72, alpha: 0.22)
+    private let symbolColor = NSColor(white: 0.68, alpha: 0.14)
+
+    func updateEditorDecorations() {
+        guard let layoutManager else { return }
+        let fullRange = NSRange(location: 0, length: string.utf16.count)
+        layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+        guard fullRange.length > 0 else { return }
+
+        let source = string as NSString
+        let caret = min(selectedRange().location, source.length)
+        let lineRange = source.lineRange(for: NSRange(location: caret, length: 0))
+        layoutManager.addTemporaryAttribute(
+            .backgroundColor,
+            value: currentLineColor,
+            forCharacterRange: lineRange
+        )
+
+        for range in matchingBracketRanges(in: source, caret: caret) {
+            layoutManager.addTemporaryAttribute(.backgroundColor, value: bracketColor, forCharacterRange: range)
+        }
+
+        if isJavaNavigationEnabled,
+           let symbol = identifier(at: caret, in: source),
+           let scope = enclosingCodeScope(at: caret, in: source) {
+            let escaped = NSRegularExpression.escapedPattern(for: symbol.text)
+            if let expression = try? NSRegularExpression(pattern: "\\b\(escaped)\\b") {
+                expression.enumerateMatches(in: string, range: scope) { [weak layoutManager] match, _, _ in
+                    guard let match else { return }
+                    layoutManager?.addTemporaryAttribute(
+                        .backgroundColor,
+                        value: self.symbolColor,
+                        forCharacterRange: match.range
+                    )
+                }
+            }
+        }
+    }
+
+    private func matchingBracketRanges(in source: NSString, caret: Int) -> [NSRange] {
+        let candidates = [caret, caret - 1].filter { $0 >= 0 && $0 < source.length }
+        let pairs: [unichar: (unichar, Int)] = [
+            40: (41, 1), 91: (93, 1), 123: (125, 1),
+            41: (40, -1), 93: (91, -1), 125: (123, -1)
+        ]
+        for position in candidates {
+            let character = source.character(at: position)
+            guard let (match, direction) = pairs[character] else { continue }
+            var depth = 0
+            var index = position
+            while true {
+                index += direction
+                guard index >= 0, index < source.length else { break }
+                let next = source.character(at: index)
+                if next == character { depth += 1 }
+                if next == match {
+                    if depth == 0 {
+                        return [NSRange(location: position, length: 1), NSRange(location: index, length: 1)]
+                    }
+                    depth -= 1
+                }
+            }
+        }
+        return []
+    }
+
+    private func identifier(at caret: Int, in source: NSString) -> (text: String, range: NSRange)? {
+        guard source.length > 0 else { return nil }
+        let characterSet = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$"))
+        var location = min(caret, source.length - 1)
+        if !characterSet.contains(UnicodeScalar(source.character(at: location))!), location > 0 {
+            location -= 1
+        }
+        guard characterSet.contains(UnicodeScalar(source.character(at: location))!) else { return nil }
+        var start = location
+        var end = location + 1
+        while start > 0,
+              let scalar = UnicodeScalar(source.character(at: start - 1)),
+              characterSet.contains(scalar) { start -= 1 }
+        while end < source.length,
+              let scalar = UnicodeScalar(source.character(at: end)),
+              characterSet.contains(scalar) { end += 1 }
+        let range = NSRange(location: start, length: end - start)
+        let text = source.substring(with: range)
+        guard text.first?.isLetter == true || text.first == "_" || text.first == "$" else { return nil }
+        return (text, range)
+    }
+
+    private func enclosingCodeScope(at caret: Int, in source: NSString) -> NSRange? {
+        var start: Int?
+        var depth = 0
+        if caret > 0 {
+            for index in stride(from: min(caret - 1, source.length - 1), through: 0, by: -1) {
+                let character = source.character(at: index)
+                if character == 125 { depth += 1 }
+                if character == 123 {
+                    if depth == 0 {
+                        start = index
+                        break
+                    }
+                    depth -= 1
+                }
+            }
+        }
+        guard let start else { return nil }
+        depth = 0
+        for index in start..<source.length {
+            let character = source.character(at: index)
+            if character == 123 { depth += 1 }
+            if character == 125 {
+                depth -= 1
+                if depth == 0 {
+                    return NSRange(location: start, length: index - start + 1)
+                }
+            }
+        }
+        return nil
+    }
 
     override func insertTab(_ sender: Any?) {
         insertText(String(repeating: " ", count: indentationWidth), replacementRange: selectedRange())
