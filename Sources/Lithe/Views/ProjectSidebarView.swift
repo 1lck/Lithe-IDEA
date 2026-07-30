@@ -3,6 +3,7 @@ import SwiftUI
 struct ProjectSidebarView: View {
     @EnvironmentObject private var model: AppModel
     @State private var expandedDirectoryPaths: Set<String> = []
+    @State private var expandedTreeRootPath: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,6 +36,8 @@ struct ProjectSidebarView: View {
                         )
                     }
                     .task(id: root.url.path) {
+                        guard expandedTreeRootPath != root.url.path else { return }
+                        expandedTreeRootPath = root.url.path
                         expandedDirectoryPaths = [root.url.path]
                     }
                     .contextMenu {
