@@ -42,6 +42,15 @@ struct GitCommitFile: Identifiable, Hashable, Sendable {
     var id: String { "\(status):\(path)" }
 }
 
+struct GitBlameLine: Identifiable, Hashable, Sendable {
+    let line: Int
+    let commitHash: String
+    let authorName: String
+    let date: String
+
+    var id: Int { line }
+}
+
 struct GitBranchComparisonFile: Identifiable, Hashable, Sendable {
     let status: String
     let path: String

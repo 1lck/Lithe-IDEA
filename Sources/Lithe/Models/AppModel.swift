@@ -39,6 +39,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var isLoadingJavaNavigation = false
     @Published var editorCaret: EditorCaret?
     @Published var editorNavigationTarget: EditorNavigationTarget?
+    @Published private(set) var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] = [:]
+    @Published private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
+    @Published var blameVisibleURL: URL?
     @Published private(set) var gitReferences: [GitReference] = []
     @Published private(set) var gitCommits: [GitCommit] = []
     @Published var selectedGitReference: GitReference?
@@ -96,6 +99,9 @@ final class AppModel: ObservableObject {
         javaNavigationLocations = []
         editorCaret = nil
         editorNavigationTarget = nil
+        javaCodeVisionHints = [:]
+        gitBlameLines = [:]
+        blameVisibleURL = nil
         workspaceURL = normalizedURL
         selectedSidebar = .project
         rootNode = nil
@@ -150,6 +156,9 @@ final class AppModel: ObservableObject {
         javaNavigationLocations = []
         editorCaret = nil
         editorNavigationTarget = nil
+        javaCodeVisionHints = [:]
+        gitBlameLines = [:]
+        blameVisibleURL = nil
         gitReferences = []
         gitCommits = []
         selectedGitReference = nil
@@ -177,6 +186,7 @@ final class AppModel: ObservableObject {
         let normalizedURL = url.standardizedFileURL
         if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
             activeDocumentID = existing.id
+            Task { await refreshCodeVision(for: existing.url) }
             return
         }
 
@@ -193,6 +203,7 @@ final class AppModel: ObservableObject {
         )
         openDocuments.append(document)
         activeDocumentID = document.id
+        Task { await refreshCodeVision(for: normalizedURL) }
     }
 
     func refreshWorkspace() async {
@@ -462,6 +473,9 @@ final class AppModel: ObservableObject {
         if isGitLogVisible {
             await refreshGitHistory()
         }
+        if let activeDocument {
+            await refreshCodeVision(for: activeDocument.url)
+        }
     }
 
     func stageSelectedChange() async {
@@ -656,6 +670,60 @@ final class AppModel: ObservableObject {
         guard selectedGitCommit?.hash == commit.hash else { return }
         selectedGitCommitFiles = files
         selectedGitCommitFile = files.first
+    }
+
+    func refreshCodeVision(for fileURL: URL) async {
+        let normalizedURL = fileURL.standardizedFileURL
+        guard normalizedURL.pathExtension.lowercased() == "java", let gitRepositoryRoot else { return }
+        let blame = await GitService.blame(fileURL: normalizedURL, at: gitRepositoryRoot)
+        let hints = await JavaCodeVisionService.hints(
+            for: normalizedURL,
+            projectFiles: projectFiles,
+            blameLines: blame
+        )
+        guard openDocuments.contains(where: { $0.url == normalizedURL }) else { return }
+        gitBlameLines[normalizedURL] = blame
+        javaCodeVisionHints[normalizedURL] = hints
+    }
+
+    func showBlame(for fileURL: URL) {
+        let normalizedURL = fileURL.standardizedFileURL
+        blameVisibleURL = blameVisibleURL == normalizedURL ? nil : normalizedURL
+    }
+
+    func hideBlame() {
+        blameVisibleURL = nil
+    }
+
+    func findUsages(for hint: JavaCodeVisionHint, in fileURL: URL) {
+        editorCaret = EditorCaret(
+            url: fileURL.standardizedFileURL,
+            line: hint.line,
+            utf16Column: hint.utf16Column
+        )
+        findJavaReferences()
+    }
+
+    func showGitCommit(_ hash: String) async {
+        guard let gitRepositoryRoot, !hash.allSatisfy({ $0 == "0" }) else { return }
+        isTerminalVisible = false
+        isReferencesVisible = false
+        isGitLogVisible = true
+        if gitCommits.isEmpty {
+            await refreshGitHistory()
+        }
+        let commit: GitCommit?
+        if let existing = gitCommits.first(where: { $0.hash == hash }) {
+            commit = existing
+        } else {
+            commit = await GitService.commit(withHash: hash, at: gitRepositoryRoot)
+        }
+        if let commit {
+            if !gitCommits.contains(where: { $0.hash == commit.hash }) {
+                gitCommits.insert(commit, at: 0)
+            }
+            await selectGitCommit(commit)
+        }
     }
 
     func showComparisonWithWorkingTree(for reference: GitReference) async {

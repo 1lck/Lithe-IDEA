@@ -166,6 +166,68 @@ enum GitService {
         }.value
     }
 
+    static func blame(fileURL: URL, at repositoryRoot: URL) async -> [GitBlameLine] {
+        await Task.detached(priority: .utility) {
+            let rootPath = repositoryRoot.standardizedFileURL.path
+            let filePath = fileURL.standardizedFileURL.path
+            guard filePath.hasPrefix(rootPath + "/") else { return [] }
+            let relativePath = String(filePath.dropFirst(rootPath.count + 1))
+            let output = run(
+                at: repositoryRoot,
+                arguments: ["blame", "--line-porcelain", "--", relativePath]
+            ).output
+
+            var result: [GitBlameLine] = []
+            var commitHash = ""
+            var authorName = "Unknown"
+            var authorTime: TimeInterval = 0
+            var finalLine = 0
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy/M/d"
+
+            for rawLine in output.split(separator: "\n", omittingEmptySubsequences: false) {
+                let line = String(rawLine)
+                let columns = line.split(separator: " ")
+                if columns.count >= 3, columns[0].count == 40,
+                   let parsedLine = Int(columns[2]) {
+                    commitHash = String(columns[0])
+                    finalLine = parsedLine
+                } else if line.hasPrefix("author ") {
+                    authorName = String(line.dropFirst(7))
+                } else if line.hasPrefix("author-time ") {
+                    authorTime = TimeInterval(line.dropFirst(12)) ?? 0
+                } else if line.hasPrefix("\t"), finalLine > 0 {
+                    let date = authorTime > 0
+                        ? dateFormatter.string(from: Date(timeIntervalSince1970: authorTime))
+                        : "Working tree"
+                    result.append(GitBlameLine(
+                        line: finalLine - 1,
+                        commitHash: commitHash,
+                        authorName: authorName,
+                        date: date
+                    ))
+                    finalLine += 1
+                }
+            }
+            return result
+        }.value
+    }
+
+    static func commit(withHash hash: String, at repositoryRoot: URL) async -> GitCommit? {
+        await Task.detached(priority: .utility) {
+            let output = run(
+                at: repositoryRoot,
+                arguments: [
+                    "show", "-s",
+                    "--date=format:%Y/%m/%d %H:%M",
+                    "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D",
+                    hash
+                ]
+            ).output
+            return output.split(separator: "\n", omittingEmptySubsequences: true).first.flatMap(parseCommit)
+        }.value
+    }
+
     static func comparisonWithWorkingTree(
         for reference: GitReference,
         at repositoryRoot: URL

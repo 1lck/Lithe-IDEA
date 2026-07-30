@@ -21,6 +21,16 @@ struct JavaNavigationLocation: Identifiable, Hashable {
     var id: String { "\(url.path):\(line):\(utf16Column)" }
 }
 
+struct JavaCodeVisionHint: Identifiable, Hashable {
+    let line: Int
+    let utf16Column: Int
+    let symbol: String
+    let usageCount: Int
+    let authorName: String?
+
+    var id: String { "\(line):\(utf16Column):\(symbol)" }
+}
+
 enum JavaNavigationResultKind {
     case definitions
     case references
