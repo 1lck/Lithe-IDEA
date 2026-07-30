@@ -90,10 +90,10 @@ struct TerminalView: View {
             Text("$")
                 .font(.system(size: 13, weight: .bold, design: .monospaced))
                 .foregroundStyle(LitheTheme.success)
-            TextField(model.terminalSession.isReady ? "Enter command" : "Starting shell...", text: $command)
+            TextField(model.terminalSession.isReady ? "Enter command" : "Queue command while shell starts", text: $command)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5, design: .monospaced))
-                .disabled(!model.terminalSession.isReady)
+                .disabled(!model.terminalSession.isRunning)
                 .onSubmit(runCommand)
                 .onKeyPress(.upArrow) {
                     moveHistory(by: -1)
@@ -108,7 +108,7 @@ struct TerminalView: View {
             }
             .litheIconButton()
             .disabled(
-                !model.terminalSession.isReady ||
+                !model.terminalSession.isRunning ||
                     command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             )
             .help("Run command")

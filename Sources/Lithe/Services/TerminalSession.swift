@@ -11,6 +11,7 @@ final class TerminalSession: ObservableObject {
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
     private var workspaceURL: URL?
+    private var pendingCommands: [String] = []
     private let maximumOutputCharacters = 240_000
 
     func start(in workspaceURL: URL) {
@@ -56,13 +57,6 @@ final class TerminalSession: ObservableObject {
             self.inputPipe = inputPipe
             self.outputPipe = outputPipe
             isRunning = true
-            Task { [weak self] in
-                for _ in 0..<10 {
-                    try? await Task.sleep(for: .milliseconds(500))
-                    guard let self, self.isRunning, !self.isReady else { return }
-                    self.writeRaw(":\n")
-                }
-            }
         } catch {
             append("Unable to start terminal: \(error.localizedDescription)\n")
         }
@@ -74,8 +68,13 @@ final class TerminalSession: ObservableObject {
     }
 
     func send(_ command: String) {
-        guard isRunning, isReady else { return }
-        writeRaw(command + "\n")
+        guard isRunning else { return }
+        if isReady {
+            writeRaw(command + "\n")
+        } else {
+            pendingCommands.append(command)
+            writeRaw(":\n")
+        }
     }
 
     func interrupt() {
@@ -99,13 +98,26 @@ final class TerminalSession: ObservableObject {
         outputPipe = nil
         isRunning = false
         isReady = false
+        pendingCommands = []
     }
 
     private func append(_ chunk: String) {
+        let becameReady = !isReady
         isReady = true
         output.append(Self.plainText(from: chunk))
         if output.count > maximumOutputCharacters {
             output.removeFirst(output.count - maximumOutputCharacters)
+        }
+        if becameReady, !pendingCommands.isEmpty {
+            let commands = pendingCommands
+            pendingCommands = []
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let self, self.isRunning else { return }
+                for command in commands {
+                    self.writeRaw(command + "\n")
+                }
+            }
         }
     }
 
