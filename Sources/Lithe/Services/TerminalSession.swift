@@ -60,7 +60,7 @@ final class TerminalSession: ObservableObject {
                 for _ in 0..<10 {
                     try? await Task.sleep(for: .milliseconds(500))
                     guard let self, self.isRunning, !self.isReady else { return }
-                    self.writeRaw("\n")
+                    self.writeRaw(":\n")
                 }
             }
         } catch {
