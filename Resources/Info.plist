@@ -8,6 +8,8 @@
     <string>Lithe</string>
     <key>CFBundleExecutable</key>
     <string>Lithe</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>app.lithe.desktop</string>
     <key>CFBundleInfoDictionaryVersion</key>
