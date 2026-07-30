@@ -1,46 +1,47 @@
-# Lithe Unified Acceptance QA
+# Lithe Adaptive Pane Layout QA
 
 ## Evidence
 
-- App: `/Users/lick/code/my-code/building-project/Lithe-IDEA/dist/Lithe.app`
-- Fixture: `/private/tmp/lithe-qa-fixture` on `feature/demo`, with one modified and two unversioned Swift files
-- Viewport: 1280 x 768, dark appearance
-- Git reference: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-224a4d2e-d22b-4e22-b964-480b011c87be.png`
-- Diff reference: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-8f786a42-1ed9-40ea-918b-12888e38f50b.png`
-- Git implementation: `design-qa-artifacts/lithe-git-log.jpeg`
-- Diff implementation: `design-qa-artifacts/lithe-diff.jpeg`
-- Git comparison: `design-qa-artifacts/git-log-comparison.jpg`
-- Diff comparison: `design-qa-artifacts/diff-comparison.jpg`
+- Source visual truth: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-6e49ec9e-1c72-4bc6-a5cb-611a266d3f5d.png`
+- Additional reported state: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-e9a19764-215f-4cfc-b069-58e22649dbe0.png`
+- Implementation: `/Users/lick/code/my-code/building-project/Lithe-IDEA/dist/Lithe.app`
+- Implementation screenshot: `design-qa-artifacts/adaptive-layout-fixed.jpeg`
+- Full-view comparison: `design-qa-artifacts/adaptive-layout-comparison.jpg`
+- Viewport: source normalized from 1440 x 864 to 1280 x 768; implementation 1280 x 768
+- State: dark appearance, Changes sidebar active, short Swift side-by-side Diff open, Git tool window hidden
+- Focused comparison: not required because the defect affects the macro position and width of both complete content regions; text and controls remain readable in the full-view comparison.
 
-## Acceptance Results
+## Findings
 
-- Project tree context menus expose create, open, duplicate, rename, Finder, copy-path, refresh, and recoverable Trash operations.
-- Project tree expansion survives workspace refreshes and filesystem-driven snapshots.
-- Changes refresh automatically through filesystem events; no periodic polling was introduced.
-- Modified files open an IDEA-style side-by-side diff with version labels, changed-line highlighting, word highlighting, difference navigation, whitespace options, stage, and discard actions.
-- Top branch switcher supports search, checkout, create branch, and checkout revision.
-- Git Log branch context menus expose create, compare, checkout for non-current local branches, update, push, and rename as applicable.
-- Sidebar/editor, workbench/Git, Git refs/timeline, Git timeline/details, and Git files/metadata splits were dragged and remained usable.
-- Git Log and Diff layouts were compared against the supplied IDEA references in combined images at the same viewport.
+- [Resolved P1] Short Changes and Diff content moved toward the vertical center after pane resizing.
+  - Cause: both two-axis ScrollViews left the content height unconstrained, allowing macOS to place the short ideal-size stack within the resized viewport.
+  - Fix: bind each scroll content container to at least the current GeometryReader height with top-leading alignment.
+- [Resolved P1] Diff rows could retain their ideal content width instead of filling the resized editor.
+  - Cause: the LazyVStack used only a minimum width inside a horizontally scrolling container, and individual rows did not explicitly expand.
+  - Fix: bind the diff stack to the current viewport width (with a 980-point horizontal-scroll floor) and make information and code rows fill that width.
 
-## Findings And Patches
+No actionable P0, P1, or P2 findings remain in the rendered comparison.
 
-- [Resolved P1] A non-current local branch did not expose Checkout in the Git Log context menu. Added the action and verified it appears for `main` while `feature/demo` is current.
-- [Resolved P2] Refreshing the project snapshot collapsed expanded directories. Moved expansion state to the sidebar and retained it across the temporary loading state; verified `Sources` stays open after Refresh.
-- [P3] Resize gutters remain deliberately low contrast until hover or drag, matching the quiet IDEA treatment. No action required.
+## Required Fidelity Surfaces
 
-## Visual Review
+- Fonts and typography: unchanged; SF Pro and monospaced Diff text retain existing sizes, weights, and line heights.
+- Spacing and layout rhythm: Changes now starts eight points below its toolbar and Diff starts directly below the version header at every rendered size.
+- Colors and tokens: unchanged; selection, addition, removal, editor, divider, and sidebar tokens remain consistent.
+- Image and icon fidelity: no raster product imagery is used; existing SF Symbols remain aligned and sharp.
+- Copy and content: no labels changed; paths, counts, version names, and actions remain visible.
 
-- Git workspace: pane hierarchy, Commit sidebar, reference tree, timeline, changed-files tree, commit metadata, dark tokens, and dense typography align with the source. The fixture has one commit, so the timeline is intentionally sparse.
-- Diff review: toolbar hierarchy, two-column headers, line-number gutters, deletion/addition colors, word-level highlight, and transfer arrows align with the source. The fixture is shorter than the source file, so unused editor space is expected.
-- No clipped controls, overlapping text, broken dividers, or unreadable active states were found at 1280 x 768.
+## Patches
+
+- Added GeometryReader-backed width and minimum-height constraints to the Changes list.
+- Added current-width and minimum-height constraints to Diff content.
+- Expanded information rows and paired code rows to the full computed Diff width.
 
 ## Verification
 
-- `swift build --disable-sandbox` with isolated Swift and Clang module caches: passed
-- Production package and ad-hoc signing through `scripts/package-app.sh`: passed
-- Desktop interaction pass against the packaged app: passed
-- Combined-image visual comparison: passed
-- Remaining actionable P0/P1/P2 findings: none
+- Isolated-cache Debug build: passed
+- Production package and ad-hoc signing: passed
+- Packaged app render with short Changes and Diff data: passed
+- Combined source/implementation comparison: passed
+- Automated pointer drag replay: unavailable because the macOS Computer Use service returned `noWindowsAvailable`; initial and repaired rendered states plus responsive geometry constraints were verified.
 
 final result: passed
