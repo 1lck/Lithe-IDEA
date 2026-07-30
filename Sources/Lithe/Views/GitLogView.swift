@@ -316,6 +316,13 @@ struct GitLogView: View {
             if reference.kind == .local {
                 Divider()
 
+                if !reference.isCurrent {
+                    Button("Checkout") {
+                        Task { await model.checkoutReference(reference) }
+                    }
+                    .disabled(model.isPerformingBranchOperation)
+                }
+
                 Button("Update") {
                     Task { await model.updateCurrentBranch(reference) }
                 }
