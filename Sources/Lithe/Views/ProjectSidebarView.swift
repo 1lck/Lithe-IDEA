@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProjectSidebarView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var expandedDirectoryPaths: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,7 +21,11 @@ struct ProjectSidebarView: View {
                 GeometryReader { geometry in
                     ScrollView([.vertical, .horizontal]) {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            FileNodeRow(node: root, depth: 0, initiallyExpanded: true)
+                            FileNodeRow(
+                                node: root,
+                                depth: 0,
+                                expandedDirectoryPaths: $expandedDirectoryPaths
+                            )
                         }
                         .padding(.vertical, 5)
                         .frame(
@@ -28,6 +33,9 @@ struct ProjectSidebarView: View {
                             minHeight: geometry.size.height,
                             alignment: .topLeading
                         )
+                    }
+                    .task(id: root.url.path) {
+                        expandedDirectoryPaths = [root.url.path]
                     }
                     .contextMenu {
                         Button("New File…") {
@@ -108,12 +116,10 @@ private struct FileNodeRow: View {
     @EnvironmentObject private var model: AppModel
     let node: FileNode
     let depth: Int
-    @State private var isExpanded: Bool
+    @Binding var expandedDirectoryPaths: Set<String>
 
-    init(node: FileNode, depth: Int, initiallyExpanded: Bool = false) {
-        self.node = node
-        self.depth = depth
-        _isExpanded = State(initialValue: initiallyExpanded)
+    private var isExpanded: Bool {
+        expandedDirectoryPaths.contains(node.url.path)
     }
 
     var body: some View {
@@ -121,7 +127,11 @@ private struct FileNodeRow: View {
             directoryRow
             if isExpanded {
                 ForEach(node.children ?? []) { child in
-                    FileNodeRow(node: child, depth: depth + 1)
+                    FileNodeRow(
+                        node: child,
+                        depth: depth + 1,
+                        expandedDirectoryPaths: $expandedDirectoryPaths
+                    )
                 }
             }
         } else {
@@ -131,7 +141,11 @@ private struct FileNodeRow: View {
 
     private var directoryRow: some View {
         Button {
-            isExpanded.toggle()
+            if isExpanded {
+                expandedDirectoryPaths.remove(node.url.path)
+            } else {
+                expandedDirectoryPaths.insert(node.url.path)
+            }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
