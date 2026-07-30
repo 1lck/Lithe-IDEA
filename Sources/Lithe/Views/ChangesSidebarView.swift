@@ -5,6 +5,8 @@ struct ChangesSidebarView: View {
     @State private var selectedTab = CommitTab.commit
     @State private var trackedExpanded = true
     @State private var untrackedExpanded = true
+    @State private var commitAreaHeight: CGFloat = 124
+    @State private var commitAreaDragStart: CGFloat = 124
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,12 +48,48 @@ struct ChangesSidebarView: View {
     }
 
     private var commitContent: some View {
-        VStack(spacing: 0) {
-            commitToolbar
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            changeList
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            commitArea
+        GeometryReader { geometry in
+            let toolbarHeight: CGFloat = 37
+            let minimumListHeight: CGFloat = 120
+            let minimumCommitHeight: CGFloat = 124
+            let availableCommitHeight = geometry.size.height
+                - toolbarHeight
+                - SplitHandleView.thickness
+                - minimumListHeight
+            let maximumCommitHeight = max(
+                minimumCommitHeight,
+                min(320, availableCommitHeight)
+            )
+            let resolvedCommitHeight = constrained(
+                commitAreaHeight,
+                minimum: minimumCommitHeight,
+                maximum: maximumCommitHeight
+            )
+
+            VStack(spacing: 0) {
+                commitToolbar
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                changeList
+                    .frame(minHeight: minimumListHeight)
+                SplitHandleView(
+                    axis: .vertical,
+                    onDragStarted: {
+                        commitAreaDragStart = resolvedCommitHeight
+                    },
+                    onDragChanged: { translation in
+                        commitAreaHeight = constrained(
+                            commitAreaDragStart - translation,
+                            minimum: minimumCommitHeight,
+                            maximum: maximumCommitHeight
+                        )
+                    },
+                    onDragEnded: {
+                        commitAreaHeight = resolvedCommitHeight
+                    }
+                )
+                commitArea
+                    .frame(height: resolvedCommitHeight)
+            }
         }
     }
 
@@ -287,7 +325,7 @@ struct ChangesSidebarView: View {
             .controlSize(.small)
         }
         .padding(10)
-        .frame(height: 124)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(LitheTheme.toolHeader)
     }
 
@@ -343,6 +381,10 @@ struct ChangesSidebarView: View {
         case "R": LitheTheme.accent
         default: LitheTheme.warning
         }
+    }
+
+    private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
+        min(maximum, max(minimum, value))
     }
 }
 
