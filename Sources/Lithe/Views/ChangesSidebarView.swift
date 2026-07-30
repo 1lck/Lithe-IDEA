@@ -119,24 +119,29 @@ struct ChangesSidebarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { geometry in
-                    ScrollView([.vertical, .horizontal]) {
-                        LazyVStack(alignment: .leading, spacing: 1) {
-                            changeSection(
-                                "Changes",
-                                changes: trackedChanges,
-                                expanded: $trackedExpanded
-                            )
-                            changeSection(
-                                "Unversioned Files",
-                                changes: untrackedChanges,
-                                expanded: $untrackedExpanded
-                            )
+                    let contentWidth = max(316, geometry.size.width)
+
+                    ScrollView(.horizontal) {
+                        ScrollView(.vertical) {
+                            LazyVStack(alignment: .leading, spacing: 1) {
+                                changeSection(
+                                    "Changes",
+                                    changes: trackedChanges,
+                                    expanded: $trackedExpanded
+                                )
+                                changeSection(
+                                    "Unversioned Files",
+                                    changes: untrackedChanges,
+                                    expanded: $untrackedExpanded
+                                )
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 8)
+                            .frame(width: contentWidth, alignment: .topLeading)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
-                        .frame(width: max(316, geometry.size.width), alignment: .topLeading)
-                        .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                        .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
                     }
+                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 }
             }
         }

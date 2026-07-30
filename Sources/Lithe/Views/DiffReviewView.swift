@@ -242,25 +242,30 @@ struct DiffReviewView: View {
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
         GeometryReader { geometry in
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(spacing: 0) {
-                    ForEach(model.diffRows) { row in
-                        let kind = effectiveKind(for: row)
-                        let differenceIndex = differenceIndexByRow[row.id]
-                        DiffRowView(
-                            row: row,
-                            kind: kind,
-                            fileExtension: change.url.pathExtension,
-                            highlightsWords: highlightsWords,
-                            isSelectedDifference: differenceIndex == selectedDifferenceIndex
-                        )
-                        .id(row.id)
+            let contentWidth = max(980, geometry.size.width)
+
+            ScrollView(.horizontal) {
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(model.diffRows) { row in
+                            let kind = effectiveKind(for: row)
+                            let differenceIndex = differenceIndexByRow[row.id]
+                            DiffRowView(
+                                row: row,
+                                kind: kind,
+                                fileExtension: change.url.pathExtension,
+                                highlightsWords: highlightsWords,
+                                isSelectedDifference: differenceIndex == selectedDifferenceIndex
+                            )
+                            .id(row.id)
+                        }
                     }
+                    .frame(width: contentWidth, alignment: .topLeading)
+                    .textSelection(.enabled)
                 }
-                .frame(width: max(980, geometry.size.width), alignment: .topLeading)
-                .frame(minHeight: geometry.size.height, alignment: .topLeading)
-                .textSelection(.enabled)
+                .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
             }
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             .background(LitheTheme.editor)
         }
     }
