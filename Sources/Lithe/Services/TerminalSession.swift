@@ -107,37 +107,32 @@ final class TerminalSession: ObservableObject {
     private func append(_ chunk: String) {
         if !receivedInitialOutput {
             receivedInitialOutput = true
-            appendOutput(Self.plainText(from: chunk))
             Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: .milliseconds(600))
                 guard let self, self.isRunning else { return }
-                self.writeRaw(":\n")
+                self.isReady = true
+                self.flushPendingCommands()
             }
             return
         }
 
-        let becameReady = !isReady
         isReady = true
-        if !becameReady {
-            appendOutput(Self.plainText(from: chunk))
-        }
-        if becameReady, !pendingCommands.isEmpty {
-            let commands = pendingCommands
-            pendingCommands = []
-            Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(100))
-                guard let self, self.isRunning else { return }
-                for command in commands {
-                    self.writeRaw(command + "\n")
-                }
-            }
-        }
+        appendOutput(Self.plainText(from: chunk))
+        flushPendingCommands()
     }
 
     private func appendOutput(_ value: String) {
         output.append(value)
         if output.count > maximumOutputCharacters {
             output.removeFirst(output.count - maximumOutputCharacters)
+        }
+    }
+
+    private func flushPendingCommands() {
+        let commands = pendingCommands
+        pendingCommands = []
+        for command in commands {
+            writeRaw(command + "\n")
         }
     }
 
