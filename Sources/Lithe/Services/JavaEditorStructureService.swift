@@ -1,6 +1,49 @@
 import Foundation
 
 enum JavaEditorStructureService {
+    static func fallbackParameterHints(in source: String, declarationSources: [String]) -> [JavaInlayHint] {
+        let declarations = declarationSources.reduce(into: [String: [[String]]]()) { result, text in
+            for (name, parameters) in methodDeclarations(in: text) {
+                result[name, default: []].append(parameters)
+            }
+        }
+        let text = source as NSString
+        let pattern = #"\b([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*\(([^(){};]*)\)"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        var hints: [JavaInlayHint] = []
+
+        for match in expression.matches(in: source, range: NSRange(location: 0, length: text.length)) {
+            let name = text.substring(with: match.range(at: 1))
+            let argumentsRange = match.range(at: 2)
+            let rawArguments = text.substring(with: argumentsRange)
+            if looksLikeParameterDeclarationList(rawArguments) { continue }
+            let argumentStarts = commaSeparatedItemStarts(in: text, range: argumentsRange)
+            guard !argumentStarts.isEmpty,
+                  let candidates = declarations[name],
+                  let parameters = candidates.first(where: { $0.count == argumentStarts.count }) else { continue }
+
+            let suffixStart = NSMaxRange(match.range)
+            let suffixLength = min(40, text.length - suffixStart)
+            let suffix = text.substring(with: NSRange(location: suffixStart, length: suffixLength))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if suffix.hasPrefix("{") || suffix.hasPrefix("throws ") { continue }
+
+            for (index, location) in argumentStarts.enumerated() {
+                let line = lineNumber(at: location, in: text)
+                let lineRange = text.lineRange(for: NSRange(location: location, length: 0))
+                hints.append(JavaInlayHint(
+                    line: line,
+                    utf16Column: location - lineRange.location,
+                    label: parameters[index]
+                ))
+            }
+        }
+        return Array(Set(hints)).sorted {
+            if $0.line == $1.line { return $0.utf16Column < $1.utf16Column }
+            return $0.line < $1.line
+        }
+    }
+
     static func implementationMarkers(in source: String) -> [JavaImplementationMarker] {
         let text = source as NSString
         var result: [JavaImplementationMarker] = []
@@ -35,12 +78,12 @@ enum JavaEditorStructureService {
     }
 
     private static func importRegion(in source: NSString) -> JavaFoldRegion? {
-        let pattern = #"(?m)^\s*import\s+[^;]+;\s*$"#
+        let pattern = #"(?m)^[ \t]*import[ \t]+[^;]+;[ \t]*$"#
         guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
         let matches = expression.matches(in: source as String, range: NSRange(location: 0, length: source.length))
         guard matches.count >= 2, let first = matches.first, let last = matches.last else { return nil }
         let startLine = lineNumber(at: first.range.location, in: source)
-        let endLine = lineNumber(at: NSMaxRange(last.range), in: source)
+        let endLine = lineNumber(at: last.range.location, in: source)
         let firstLine = source.lineRange(for: NSRange(location: first.range.location, length: 0))
         let lastLine = source.lineRange(for: NSRange(location: max(last.range.location, NSMaxRange(last.range) - 1), length: 0))
         let hiddenStart = NSMaxRange(firstLine)
@@ -127,6 +170,78 @@ enum JavaEditorStructureService {
         }
         if prefix.contains("(") && prefix.contains(")") { return .method }
         return .block
+    }
+
+    private static func methodDeclarations(in source: String) -> [(String, [String])] {
+        let text = source as NSString
+        let pattern = #"\b([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*\(([^(){};]*)\)[ \t]*(?:throws[^{]+)?\{"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let excluded = Set(["if", "for", "while", "switch", "catch", "new"])
+        return expression.matches(in: source, range: NSRange(location: 0, length: text.length)).compactMap { match in
+            let name = text.substring(with: match.range(at: 1))
+            guard !excluded.contains(name) else { return nil }
+            let rawParameters = text.substring(with: match.range(at: 2))
+            let parameters = rawParameters.split(separator: ",").compactMap { parameter -> String? in
+                let cleaned = parameter
+                    .replacingOccurrences(of: #"@[A-Za-z_$][A-Za-z0-9_$]*(?:\([^)]*\))?"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return cleaned.split(whereSeparator: { $0.isWhitespace }).last.map(String.init)
+            }
+            return parameters.isEmpty ? nil : (name, parameters)
+        }
+    }
+
+    private static func commaSeparatedItemStarts(in source: NSString, range: NSRange) -> [Int] {
+        guard range.length > 0 else { return [] }
+        var starts: [Int] = []
+        var itemStart = range.location
+        var index = range.location
+        var depth = 0
+        var quote: unichar?
+        while index < NSMaxRange(range) {
+            let character = source.character(at: index)
+            if let activeQuote = quote {
+                if character == 92 { index += 1 }
+                else if character == activeQuote { quote = nil }
+            } else if character == 34 || character == 39 {
+                quote = character
+            } else if character == 40 || character == 91 || character == 123 {
+                depth += 1
+            } else if character == 41 || character == 93 || character == 125 {
+                depth = max(0, depth - 1)
+            } else if character == 44, depth == 0 {
+                if let start = firstNonWhitespace(in: source, range: NSRange(location: itemStart, length: index - itemStart)) {
+                    starts.append(start)
+                }
+                itemStart = index + 1
+            }
+            index += 1
+        }
+        if let start = firstNonWhitespace(
+            in: source,
+            range: NSRange(location: itemStart, length: NSMaxRange(range) - itemStart)
+        ) {
+            starts.append(start)
+        }
+        return starts
+    }
+
+    private static func firstNonWhitespace(in source: NSString, range: NSRange) -> Int? {
+        for index in range.location..<NSMaxRange(range) {
+            guard let scalar = UnicodeScalar(source.character(at: index)),
+                  CharacterSet.whitespacesAndNewlines.contains(scalar) else { return index }
+        }
+        return nil
+    }
+
+    private static func looksLikeParameterDeclarationList(_ text: String) -> Bool {
+        let items = text.split(separator: ",")
+        guard !items.isEmpty else { return false }
+        return items.allSatisfy { item in
+            let words = item.split(whereSeparator: { $0.isWhitespace })
+            guard words.count >= 2, let name = words.last else { return false }
+            return name.range(of: #"^[A-Za-z_$][A-Za-z0-9_$]*$"#, options: .regularExpression) != nil
+        }
     }
 
     private static func lineNumber(at location: Int, in source: NSString) -> Int {

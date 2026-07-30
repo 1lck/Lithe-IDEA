@@ -41,6 +41,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
         textView.delegate = context.coordinator
+        textView.layoutManager?.delegate = textView
         textView.string = document.text
         textView.isRichText = false
         textView.importsGraphics = false
@@ -265,7 +266,7 @@ struct CodeEditorView: NSViewRepresentable {
 }
 
 @MainActor
-final class CodeTextView: NSTextView {
+final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var indentationWidth = 4
     var isJavaNavigationEnabled = false
     var onGoToDefinition: (() -> Void)?
@@ -276,7 +277,6 @@ final class CodeTextView: NSTextView {
     private let symbolColor = NSColor(white: 0.68, alpha: 0.14)
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
-    private var foldButtons: [NSButton] = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
 
     func updateEditorDecorations() {
@@ -327,9 +327,7 @@ final class CodeTextView: NSTextView {
         let fullRange = NSRange(location: 0, length: string.utf16.count)
         layoutManager.removeTemporaryAttribute(.font, forCharacterRange: fullRange)
         layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
-        foldButtons.forEach { $0.removeFromSuperview() }
-        foldButtons = []
-
+        layoutManager.removeTemporaryAttribute(.paragraphStyle, forCharacterRange: fullRange)
         for region in regions where collapsedIDs.contains(region.id) {
             guard NSMaxRange(region.hiddenRange) <= fullRange.length else { continue }
             layoutManager.addTemporaryAttribute(
@@ -342,40 +340,98 @@ final class CodeTextView: NSTextView {
                 value: NSColor.clear,
                 forCharacterRange: region.hiddenRange
             )
-            addFoldButton(for: region)
+            let collapsedParagraph = NSMutableParagraphStyle()
+            collapsedParagraph.minimumLineHeight = 0.1
+            collapsedParagraph.maximumLineHeight = 0.1
+            collapsedParagraph.lineSpacing = 0
+            layoutManager.addTemporaryAttribute(
+                .paragraphStyle,
+                value: collapsedParagraph,
+                forCharacterRange: region.hiddenRange
+            )
         }
         layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        if let textContainer {
+            layoutManager.ensureLayout(for: textContainer)
+        }
         needsDisplay = true
     }
 
-    private func addFoldButton(for region: JavaFoldRegion) {
-        guard let layoutManager, textContainer != nil else { return }
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
+        lineFragmentUsedRect: UnsafeMutablePointer<NSRect>,
+        baselineOffset: UnsafeMutablePointer<CGFloat>,
+        in textContainer: NSTextContainer,
+        forGlyphRange glyphRange: NSRange
+    ) -> Bool {
+        let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+        guard collapsedFoldIDs.contains(where: { id in
+            guard let region = foldRegions.first(where: { $0.id == id }) else { return false }
+            return NSLocationInRange(characterRange.location, region.hiddenRange)
+        }) else { return false }
+
+        lineFragmentRect.pointee.size.height = 0.1
+        lineFragmentUsedRect.pointee.size.height = 0.1
+        baselineOffset.pointee = 0
+        return true
+    }
+
+    private func foldSummaryRect(for region: JavaFoldRegion) -> NSRect? {
+        guard let layoutManager, textContainer != nil else { return nil }
         let source = string as NSString
         let firstLineStart = characterOffset(forLine: region.startLine, in: source)
         let lineRange = source.lineRange(for: NSRange(location: min(firstLineStart, source.length), length: 0))
         var contentEnd = NSMaxRange(lineRange)
         while contentEnd > lineRange.location,
               [10, 13].contains(source.character(at: contentEnd - 1)) { contentEnd -= 1 }
-        guard contentEnd > lineRange.location else { return }
-        let glyph = layoutManager.glyphIndexForCharacter(at: max(lineRange.location, contentEnd - 1))
-        let point = layoutManager.location(forGlyphAt: glyph)
-        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-        let button = ClosureButton(title: "…") { [weak self] in self?.onToggleFold?(region) }
-        button.isBordered = false
-        button.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
-        button.contentTintColor = NSColor(white: 0.62, alpha: 1)
-        button.wantsLayer = true
-        button.layer?.backgroundColor = NSColor(white: 0.25, alpha: 0.72).cgColor
-        button.layer?.cornerRadius = 3
-        button.frame = NSRect(
-            x: min(bounds.width - 30, textContainerOrigin.x + point.x + 10),
-            y: textContainerOrigin.y + lineRect.minY,
+        guard contentEnd > lineRange.location else { return nil }
+        let contentRange = NSRange(location: lineRange.location, length: contentEnd - lineRange.location)
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: contentRange, actualCharacterRange: nil)
+        let contentRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer!)
+        let lastGlyph = max(glyphRange.location, NSMaxRange(glyphRange) - 1)
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
+        return NSRect(
+            x: min(bounds.width - 32, textContainerOrigin.x + contentRect.maxX + 7),
+            y: textContainerOrigin.y + lineRect.minY + max(0, (lineRect.height - 17) / 2),
             width: 28,
-            height: max(17, lineRect.height)
+            height: 17
         )
-        button.setAccessibilityLabel("Expand lines \(region.startLine + 1) through \(region.endLine + 1)")
-        addSubview(button)
-        foldButtons.append(button)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        for region in foldRegions where collapsedFoldIDs.contains(region.id) {
+            guard let rect = foldSummaryRect(for: region), rect.intersects(dirtyRect) else { continue }
+            let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
+            NSColor(white: 0.25, alpha: 0.78).setFill()
+            path.fill()
+            ("…" as NSString).draw(
+                in: rect.offsetBy(dx: 0, dy: -1),
+                withAttributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+                    .foregroundColor: NSColor(white: 0.68, alpha: 1),
+                    .paragraphStyle: centeredParagraphStyle
+                ]
+            )
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let region = foldRegions.first(where: {
+            collapsedFoldIDs.contains($0.id) && foldSummaryRect(for: $0)?.contains(point) == true
+        }) {
+            onToggleFold?(region)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    private var centeredParagraphStyle: NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        return style
     }
 
     private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
@@ -680,6 +736,16 @@ final class LineNumberGutterView: NSView {
             let lineGlyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
+            let isCollapsedHiddenLine = foldRegions.contains { region in
+                collapsedFoldIDs.contains(region.id) &&
+                    lineNumber - 1 > region.startLine && lineNumber - 1 <= region.endLine
+            }
+            if isCollapsedHiddenLine {
+                let nextGlyph = NSMaxRange(lineGlyphRange)
+                glyphIndex = nextGlyph > glyphIndex ? nextGlyph : glyphIndex + 1
+                lineNumber += 1
+                continue
+            }
             if lineNumber - 1 == currentLine {
                 NSColor(white: 1, alpha: 0.035).setFill()
                 NSRect(x: 0, y: y, width: bounds.width, height: lineRect.height).fill()

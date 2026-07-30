@@ -34,6 +34,10 @@ final class JavaLanguageService: ObservableObject {
     private var openedDocumentVersions: [String: Int] = [:]
     private var projectURL: URL?
 
+    func configureProjectRoot(_ url: URL) {
+        projectURL = url.standardizedFileURL
+    }
+
     func locations(
         method: String,
         document: EditorDocument,
@@ -124,7 +128,6 @@ final class JavaLanguageService: ObservableObject {
         readyHandlers = []
         openedDocumentVersions = [:]
         readBuffer = Data()
-        projectURL = nil
         isStarting = false
         isReady = false
         statusMessage = "Java navigation is idle"
@@ -228,6 +231,15 @@ final class JavaLanguageService: ObservableObject {
                 self.finishStartup(.failure(error))
             case .success:
                 self.sendNotification(method: "initialized", parameters: [:])
+                self.sendNotification(method: "workspace/didChangeConfiguration", parameters: [
+                    "settings": [
+                        "java": [
+                            "inlayHints": [
+                                "parameterNames": ["enabled": "all"]
+                            ]
+                        ]
+                    ]
+                ])
                 self.isReady = true
                 self.isStarting = false
                 self.statusMessage = "Java navigation ready"
@@ -324,8 +336,21 @@ final class JavaLanguageService: ObservableObject {
         guard let method = message["method"] as? String, let id = message["id"] else { return }
         switch method {
         case "workspace/configuration":
-            let items = ((message["params"] as? [String: Any])?["items"] as? [Any]) ?? []
-            sendResponse(id: id, result: items.map { _ in NSNull() })
+            let items = ((message["params"] as? [String: Any])?["items"] as? [[String: Any]]) ?? []
+            sendResponse(id: id, result: items.map { item -> Any in
+                switch item["section"] as? String {
+                case "java":
+                    return ["inlayHints": ["parameterNames": ["enabled": "all"]]]
+                case "java.inlayHints":
+                    return ["parameterNames": ["enabled": "all"]]
+                case "java.inlayHints.parameterNames":
+                    return ["enabled": "all"]
+                case "java.inlayHints.parameterNames.enabled":
+                    return "all"
+                default:
+                    return NSNull()
+                }
+            })
         default:
             sendResponse(id: id, result: NSNull())
         }

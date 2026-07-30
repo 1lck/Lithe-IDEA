@@ -141,4 +141,33 @@
 - Replaced the content-sized, four-line `TextField` with a flexible scrolling `TextEditor`.
 - Removed the 320-point Commit-area maximum while preserving the minimum list and editor heights.
 
+## Java Editor Enhancements QA
+
+### Evidence
+
+- Test project: `/private/tmp/lithe-java-editor-qa` with imports, nested scopes, method calls, one interface, and two implementations.
+- Parameter hints and collapsed imports: `design-qa-artifacts/java-editor-hints-final.png`.
+- Interface and method implementation markers: `design-qa-artifacts/java-interface-markers-final.png`.
+- Runtime: packaged macOS application with JDT LS 1.60 and Homebrew OpenJDK 26.
+
+### Functional Verification
+
+- The current caret line receives a restrained full-width highlight in both editor and gutter.
+- Matching parentheses, brackets, and braces receive paired temporary highlights without changing source or undo history.
+- Selecting a Java identifier highlights occurrences only inside its nearest enclosing brace scope.
+- Consecutive imports start collapsed, hidden rows consume no editor height, line numbers skip the hidden rows, and a clickable ellipsis remains beside the first import.
+- Classes, methods, nested blocks, and multiline comments expose gutter fold controls.
+- Parameter-name hints prefer JDT LS, retry while the Java project is indexing, and fall back to project-local Java declarations if the server returns no hints. The verified call renders `name:`, `width:`, and `value:` rather than argument values.
+- Interface types and abstract methods render distinct green gutter markers. JDT implementation lookup is connected to direct navigation for one result and the searchable chooser for multiple results.
+- Plain Java folders use the folder selected by the user as the JDT workspace root; Maven and Gradle roots continue to take precedence when detected.
+
+### Findings And Patches
+
+- Fixed import matching that previously absorbed the preceding blank line.
+- Replaced font-only hiding with TextKit line-fragment compression so folded rows no longer leave empty vertical space.
+- Replaced an unreliable fold-button subview with directly drawn, hit-tested ellipsis controls.
+- Added JDT configuration responses for parameter-name hints and bounded retries for asynchronous project indexing.
+- Added a local declaration-based fallback and excluded declaration parameter lists so hints never label declarations as calls.
+- No actionable P0, P1, or P2 issue remains in the verified Java editor states.
+
 final result: passed

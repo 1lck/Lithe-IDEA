@@ -100,6 +100,7 @@ final class AppModel: ObservableObject {
         let normalizedURL = url.standardizedFileURL
         terminalSession.stop()
         javaLanguageService.stop()
+        javaLanguageService.configureProjectRoot(normalizedURL)
         isTerminalVisible = false
         isReferencesVisible = false
         javaNavigationLocations = []
@@ -730,6 +731,10 @@ final class AppModel: ObservableObject {
     }
 
     func refreshJavaInlayHints(for document: EditorDocument) {
+        requestJavaInlayHints(for: document, attempt: 0)
+    }
+
+    private func requestJavaInlayHints(for document: EditorDocument, attempt: Int) {
         let url = document.url.standardizedFileURL
         guard url.pathExtension.lowercased() == "java" else { return }
         javaLanguageService.inlayHints(document: document) { [weak self, weak document] result in
@@ -737,6 +742,30 @@ final class AppModel: ObservableObject {
                   self.openDocuments.contains(where: { $0.id == document.id }) else { return }
             if case .success(let hints) = result {
                 self.javaInlayHints[url] = hints
+                if hints.isEmpty, attempt < 3 {
+                    Task { [weak self, weak document] in
+                        try? await Task.sleep(for: .milliseconds(900 * (attempt + 1)))
+                        guard let self, let document,
+                              self.openDocuments.contains(where: { $0.id == document.id }) else { return }
+                        self.requestJavaInlayHints(for: document, attempt: attempt + 1)
+                    }
+                } else if hints.isEmpty {
+                    let files = self.projectFiles.filter { $0.pathExtension.lowercased() == "java" }
+                    let currentText = document.text
+                    let documentID = document.id
+                    Task { [weak self] in
+                        let fallback = await Task.detached {
+                            let sources = files.compactMap { try? String(contentsOf: $0, encoding: .utf8) }
+                            return JavaEditorStructureService.fallbackParameterHints(
+                                in: currentText,
+                                declarationSources: sources
+                            )
+                        }.value
+                        guard let self,
+                              self.openDocuments.contains(where: { $0.id == documentID }) else { return }
+                        self.javaInlayHints[url] = fallback
+                    }
+                }
             }
         }
     }
