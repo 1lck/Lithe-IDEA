@@ -79,6 +79,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
         context.coordinator.highlight()
         textView.updateEditorDecorations()
+        context.coordinator.refreshFoldRegions(useDefaultImportFold: true)
         context.coordinator.updateCaret()
         container.scrollView = scrollView
         container.gutter = gutter
@@ -118,6 +119,8 @@ struct CodeEditorView: NSViewRepresentable {
         var codeVisionOverlay: CodeVisionOverlayController?
         var isApplyingEditorChange = false
         var appliedNavigationTargetID: UUID?
+        var foldRegions: [JavaFoldRegion] = []
+        var collapsedFoldIDs: Set<String> = []
 
         init(document: EditorDocument, model: AppModel) {
             self.document = document
@@ -134,6 +137,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
             highlight()
             (textView as? CodeTextView)?.updateEditorDecorations()
+            refreshFoldRegions(useDefaultImportFold: false)
             gutter?.needsDisplay = true
             isApplyingEditorChange = false
             updateCaret()
@@ -148,6 +152,44 @@ struct CodeEditorView: NSViewRepresentable {
         func highlight() {
             guard let textStorage = textView?.textStorage else { return }
             SyntaxHighlighter.apply(to: textStorage, fileExtension: fileExtension)
+        }
+
+        func refreshFoldRegions(useDefaultImportFold: Bool) {
+            guard fileExtension.lowercased() == "java", let textView = textView as? CodeTextView else {
+                foldRegions = []
+                collapsedFoldIDs = []
+                return
+            }
+            foldRegions = JavaEditorStructureService.foldRegions(in: textView.string)
+            let availableIDs = Set(foldRegions.map(\.id))
+            collapsedFoldIDs.formIntersection(availableIDs)
+            if useDefaultImportFold,
+               let imports = foldRegions.first(where: { $0.kind == .imports }) {
+                collapsedFoldIDs.insert(imports.id)
+            }
+            applyFoldState()
+        }
+
+        func toggleFold(_ region: JavaFoldRegion) {
+            if collapsedFoldIDs.contains(region.id) {
+                collapsedFoldIDs.remove(region.id)
+            } else {
+                collapsedFoldIDs.insert(region.id)
+            }
+            applyFoldState()
+        }
+
+        private func applyFoldState() {
+            (textView as? CodeTextView)?.updateFolds(
+                regions: foldRegions,
+                collapsedIDs: collapsedFoldIDs,
+                onToggle: { [weak self] region in self?.toggleFold(region) }
+            )
+            gutter?.updateFoldRegions(
+                foldRegions,
+                collapsedIDs: collapsedFoldIDs,
+                onToggle: { [weak self] region in self?.toggleFold(region) }
+            )
         }
 
         func updateCodeVisionAndBlame() {
@@ -220,6 +262,10 @@ final class CodeTextView: NSTextView {
     private let currentLineColor = NSColor(white: 1, alpha: 0.035)
     private let bracketColor = NSColor(white: 0.72, alpha: 0.22)
     private let symbolColor = NSColor(white: 0.68, alpha: 0.14)
+    private var foldRegions: [JavaFoldRegion] = []
+    private var collapsedFoldIDs: Set<String> = []
+    private var foldButtons: [NSButton] = []
+    private var onToggleFold: ((JavaFoldRegion) -> Void)?
 
     func updateEditorDecorations() {
         guard let layoutManager else { return }
@@ -255,6 +301,79 @@ final class CodeTextView: NSTextView {
                 }
             }
         }
+    }
+
+    func updateFolds(
+        regions: [JavaFoldRegion],
+        collapsedIDs: Set<String>,
+        onToggle: @escaping (JavaFoldRegion) -> Void
+    ) {
+        foldRegions = regions
+        collapsedFoldIDs = collapsedIDs
+        onToggleFold = onToggle
+        guard let layoutManager else { return }
+        let fullRange = NSRange(location: 0, length: string.utf16.count)
+        layoutManager.removeTemporaryAttribute(.font, forCharacterRange: fullRange)
+        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
+        foldButtons.forEach { $0.removeFromSuperview() }
+        foldButtons = []
+
+        for region in regions where collapsedIDs.contains(region.id) {
+            guard NSMaxRange(region.hiddenRange) <= fullRange.length else { continue }
+            layoutManager.addTemporaryAttribute(
+                .font,
+                value: NSFont.monospacedSystemFont(ofSize: 0.1, weight: .regular),
+                forCharacterRange: region.hiddenRange
+            )
+            layoutManager.addTemporaryAttribute(
+                .foregroundColor,
+                value: NSColor.clear,
+                forCharacterRange: region.hiddenRange
+            )
+            addFoldButton(for: region)
+        }
+        layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        needsDisplay = true
+    }
+
+    private func addFoldButton(for region: JavaFoldRegion) {
+        guard let layoutManager, textContainer != nil else { return }
+        let source = string as NSString
+        let firstLineStart = characterOffset(forLine: region.startLine, in: source)
+        let lineRange = source.lineRange(for: NSRange(location: min(firstLineStart, source.length), length: 0))
+        var contentEnd = NSMaxRange(lineRange)
+        while contentEnd > lineRange.location,
+              [10, 13].contains(source.character(at: contentEnd - 1)) { contentEnd -= 1 }
+        guard contentEnd > lineRange.location else { return }
+        let glyph = layoutManager.glyphIndexForCharacter(at: max(lineRange.location, contentEnd - 1))
+        let point = layoutManager.location(forGlyphAt: glyph)
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let button = ClosureButton(title: "…") { [weak self] in self?.onToggleFold?(region) }
+        button.isBordered = false
+        button.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        button.contentTintColor = NSColor(white: 0.62, alpha: 1)
+        button.wantsLayer = true
+        button.layer?.backgroundColor = NSColor(white: 0.25, alpha: 0.72).cgColor
+        button.layer?.cornerRadius = 3
+        button.frame = NSRect(
+            x: min(bounds.width - 30, textContainerOrigin.x + point.x + 10),
+            y: textContainerOrigin.y + lineRect.minY,
+            width: 28,
+            height: max(17, lineRect.height)
+        )
+        button.setAccessibilityLabel("Expand lines \(region.startLine + 1) through \(region.endLine + 1)")
+        addSubview(button)
+        foldButtons.append(button)
+    }
+
+    private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
+        var line = 0
+        var offset = 0
+        while line < targetLine, offset < source.length {
+            offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
+            line += 1
+        }
+        return offset
     }
 
     private func matchingBracketRanges(in source: NSString, caret: Int) -> [NSRange] {
@@ -412,6 +531,9 @@ final class LineNumberGutterView: NSView {
     private var isBlameVisible = false
     private var onSelectBlame: ((GitBlameLine) -> Void)?
     private var blameButtons: [Int: NSButton] = [:]
+    private var foldRegions: [JavaFoldRegion] = []
+    private var collapsedFoldIDs: Set<String> = []
+    private var onToggleFold: ((JavaFoldRegion) -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -457,6 +579,17 @@ final class LineNumberGutterView: NSView {
             }
         }
         layoutBlameButtons()
+        needsDisplay = true
+    }
+
+    func updateFoldRegions(
+        _ regions: [JavaFoldRegion],
+        collapsedIDs: Set<String>,
+        onToggle: @escaping (JavaFoldRegion) -> Void
+    ) {
+        foldRegions = regions
+        collapsedFoldIDs = collapsedIDs
+        onToggleFold = onToggle
         needsDisplay = true
     }
 
@@ -510,6 +643,8 @@ final class LineNumberGutterView: NSView {
         }
 
         let text = textView.string as NSString
+        let caret = min(textView.selectedRange().location, text.length)
+        let currentLine = text.substring(to: caret).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
         var glyphIndex = min(glyphRange.location, layoutManager.numberOfGlyphs - 1)
         let firstCharacter = layoutManager.characterIndexForGlyph(at: glyphIndex)
         var lineNumber = text.substring(to: min(text.length, firstCharacter))
@@ -522,8 +657,15 @@ final class LineNumberGutterView: NSView {
             let lineGlyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
+            if lineNumber - 1 == currentLine {
+                NSColor(white: 1, alpha: 0.035).setFill()
+                NSRect(x: 0, y: y, width: bounds.width, height: lineRect.height).fill()
+            }
             if isBlameVisible, let blame = blameByLine[lineNumber - 1] {
                 drawBlame(blame, y: y + 1)
+            }
+            if let region = foldRegions.first(where: { $0.startLine == lineNumber - 1 }) {
+                drawFoldIndicator(region, y: y, height: lineRect.height)
             }
             drawLineNumber(lineNumber, y: y + 1)
 
@@ -543,6 +685,21 @@ final class LineNumberGutterView: NSView {
         label.draw(at: NSPoint(x: bounds.width - size.width - 9, y: y), withAttributes: attributes)
     }
 
+    private func drawFoldIndicator(_ region: JavaFoldRegion, y: CGFloat, height: CGFloat) {
+        let symbolName = collapsedFoldIDs.contains(region.id) ? "chevron.right" : "chevron.down"
+        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else { return }
+        let configuration = NSImage.SymbolConfiguration(pointSize: 8, weight: .semibold)
+        let configured = image.withSymbolConfiguration(configuration) ?? image
+        configured.isTemplate = true
+        NSColor(white: 0.46, alpha: 1).set()
+        configured.draw(
+            in: NSRect(x: 5, y: y + max(0, (height - 10) / 2), width: 10, height: 10),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1
+        )
+    }
+
     private func drawBlame(_ blame: GitBlameLine, y: CGFloat) {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 10.5),
@@ -556,8 +713,7 @@ final class LineNumberGutterView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard isBlameVisible,
-              let textView,
+        guard let textView,
               let scrollView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else {
@@ -573,8 +729,13 @@ final class LineNumberGutterView: NSView {
         let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         let prefix = (textView.string as NSString).substring(to: min(characterIndex, textView.string.utf16.count))
         let line = prefix.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
-        if let blame = blameByLine[line] {
+        if point.x <= 22, let region = foldRegions.first(where: { $0.startLine == line }) {
+            onToggleFold?(region)
+        } else if isBlameVisible, let blame = blameByLine[line] {
             onSelectBlame?(blame)
+        } else {
+            textView.window?.makeFirstResponder(textView)
+            textView.setSelectedRange(NSRange(location: characterIndex, length: 0))
         }
     }
 

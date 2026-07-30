@@ -31,6 +31,31 @@ struct JavaCodeVisionHint: Identifiable, Hashable {
     var id: String { "\(line):\(utf16Column):\(symbol)" }
 }
 
+enum JavaFoldKind: String, Hashable {
+    case imports
+    case type
+    case method
+    case block
+    case comment
+}
+
+struct JavaFoldRegion: Identifiable, Hashable {
+    let kind: JavaFoldKind
+    let startLine: Int
+    let endLine: Int
+    let hiddenRange: NSRange
+
+    var id: String { "\(kind.rawValue):\(startLine):\(endLine)" }
+}
+
+struct JavaInlayHint: Identifiable, Hashable {
+    let line: Int
+    let utf16Column: Int
+    let label: String
+
+    var id: String { "\(line):\(utf16Column):\(label)" }
+}
+
 enum JavaNavigationResultKind {
     case definitions
     case references
