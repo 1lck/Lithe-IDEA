@@ -33,6 +33,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var isCommitting = false
     @Published var isGitLogVisible = false
     @Published var isTerminalVisible = false
+    @Published var isReferencesVisible = false
+    @Published private(set) var javaNavigationLocations: [JavaNavigationLocation] = []
+    @Published private(set) var javaNavigationResultKind = JavaNavigationResultKind.references
+    @Published private(set) var isLoadingJavaNavigation = false
+    @Published var editorCaret: EditorCaret?
+    @Published var editorNavigationTarget: EditorNavigationTarget?
     @Published private(set) var gitReferences: [GitReference] = []
     @Published private(set) var gitCommits: [GitCommit] = []
     @Published var selectedGitReference: GitReference?
@@ -49,6 +55,7 @@ final class AppModel: ObservableObject {
     private var directoryWatcher: DirectoryWatcher?
     private var refreshTask: Task<Void, Never>?
     let terminalSession = TerminalSession()
+    let javaLanguageService = JavaLanguageService()
 
     init() {
         recentProjects = RecentProjectsStore.load()
@@ -83,7 +90,12 @@ final class AppModel: ObservableObject {
     func openProject(_ url: URL) {
         let normalizedURL = url.standardizedFileURL
         terminalSession.stop()
+        javaLanguageService.stop()
         isTerminalVisible = false
+        isReferencesVisible = false
+        javaNavigationLocations = []
+        editorCaret = nil
+        editorNavigationTarget = nil
         workspaceURL = normalizedURL
         selectedSidebar = .project
         rootNode = nil
@@ -132,7 +144,12 @@ final class AppModel: ObservableObject {
         isLoadingDiff = false
         isGitLogVisible = false
         isTerminalVisible = false
+        isReferencesVisible = false
         terminalSession.stop()
+        javaLanguageService.stop()
+        javaNavigationLocations = []
+        editorCaret = nil
+        editorNavigationTarget = nil
         gitReferences = []
         gitCommits = []
         selectedGitReference = nil
@@ -520,6 +537,7 @@ final class AppModel: ObservableObject {
         isGitLogVisible.toggle()
         if isGitLogVisible {
             isTerminalVisible = false
+            isReferencesVisible = false
         }
         if isGitLogVisible && gitCommits.isEmpty {
             await refreshGitHistory()
@@ -530,8 +548,75 @@ final class AppModel: ObservableObject {
         isTerminalVisible.toggle()
         guard isTerminalVisible else { return }
         isGitLogVisible = false
+        isReferencesVisible = false
         if !terminalSession.isRunning, let workspaceURL {
             terminalSession.start(in: workspaceURL)
+        }
+    }
+
+    func goToDefinition() {
+        performJavaNavigation(method: "textDocument/definition", kind: .definitions)
+    }
+
+    func findJavaReferences() {
+        performJavaNavigation(method: "textDocument/references", kind: .references)
+    }
+
+    func navigate(to location: JavaNavigationLocation) {
+        openFile(location.url)
+        editorNavigationTarget = EditorNavigationTarget(
+            url: location.url.standardizedFileURL,
+            line: location.line,
+            utf16Column: location.utf16Column
+        )
+    }
+
+    func closeJavaNavigationResults() {
+        isReferencesVisible = false
+    }
+
+    private func performJavaNavigation(method: String, kind: JavaNavigationResultKind) {
+        guard !isLoadingJavaNavigation,
+              let document = activeDocument,
+              let caret = editorCaret,
+              caret.url.standardizedFileURL == document.url.standardizedFileURL else {
+            showNotification("Place the caret on a Java symbol first")
+            return
+        }
+        guard document.url.pathExtension.lowercased() == "java" else {
+            showNotification("Java navigation is available for .java files")
+            return
+        }
+
+        isLoadingJavaNavigation = true
+        showNotification("Starting Java navigation...")
+        javaLanguageService.locations(
+            method: method,
+            document: document,
+            line: caret.line,
+            utf16Column: caret.utf16Column
+        ) { [weak self] result in
+            guard let self else { return }
+            self.isLoadingJavaNavigation = false
+            switch result {
+            case .failure(let error):
+                self.showNotification(error.localizedDescription)
+            case .success(let locations):
+                guard !locations.isEmpty else {
+                    self.showNotification(kind == .definitions ? "Definition not found" : "No usages found")
+                    return
+                }
+                if kind == .definitions, locations.count == 1, let location = locations.first {
+                    self.navigate(to: location)
+                    self.showNotification("Opened definition")
+                } else {
+                    self.javaNavigationResultKind = kind
+                    self.javaNavigationLocations = locations
+                    self.isGitLogVisible = false
+                    self.isTerminalVisible = false
+                    self.isReferencesVisible = true
+                }
+            }
         }
     }
 
