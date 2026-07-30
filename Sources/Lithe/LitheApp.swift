@@ -64,6 +64,15 @@ struct LitheApp: App {
                 .keyboardShortcut("f", modifiers: [.command, .shift])
                 .disabled(model.workspaceURL == nil)
             }
+
+            CommandMenu("History") {
+                Button("Show Local History…") {
+                    if let fileURL = model.activeDocument?.url {
+                        model.showLocalHistory(for: fileURL)
+                    }
+                }
+                .disabled(model.activeDocument == nil)
+            }
         }
     }
 }

@@ -21,6 +21,11 @@ final class AppModel: ObservableObject {
     @Published var pendingProjectItemDeletion: ProjectItemDeletionRequest?
     @Published private(set) var isPerformingProjectItemOperation = false
     @Published var notificationMessage: String?
+    @Published var localHistoryRequest: LocalHistoryRequest?
+    @Published private(set) var localHistoryEntries: [LocalHistoryEntry] = []
+    @Published var selectedLocalHistoryEntry: LocalHistoryEntry?
+    @Published private(set) var localHistoryDiffRows: [DiffRow] = []
+    @Published private(set) var isLoadingLocalHistory = false
     @Published private(set) var gitChanges: [GitChange] = []
     @Published private(set) var gitRepositoryRoot: URL?
     @Published private(set) var currentBranch = "No Git"
@@ -160,6 +165,10 @@ final class AppModel: ObservableObject {
         localHistorySeedTask?.cancel()
         localHistorySeedTask = nil
         localHistoryService = nil
+        localHistoryRequest = nil
+        localHistoryEntries = []
+        selectedLocalHistoryEntry = nil
+        localHistoryDiffRows = []
         gitChanges = []
         gitRepositoryRoot = nil
         currentBranch = "No Git"
@@ -417,6 +426,64 @@ final class AppModel: ObservableObject {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)
         showNotification(relative ? "Copied relative path" : "Copied path")
+    }
+
+    func showLocalHistory(for fileURL: URL) {
+        guard isWorkspaceURL(fileURL), WorkspaceScanner.isReadableTextFile(fileURL) else {
+            showNotification("Local History is available for text files")
+            return
+        }
+        localHistoryRequest = LocalHistoryRequest(fileURL: fileURL.standardizedFileURL)
+        localHistoryEntries = []
+        selectedLocalHistoryEntry = nil
+        localHistoryDiffRows = []
+        isLoadingLocalHistory = true
+        Task { await reloadLocalHistory() }
+    }
+
+    func selectLocalHistoryEntry(_ entry: LocalHistoryEntry) {
+        selectedLocalHistoryEntry = entry
+        localHistoryDiffRows = []
+        isLoadingLocalHistory = true
+        Task { await loadLocalHistoryDiff(for: entry) }
+    }
+
+    func refreshLocalHistory() async {
+        isLoadingLocalHistory = true
+        await reloadLocalHistory()
+        if let selectedLocalHistoryEntry {
+            await loadLocalHistoryDiff(for: selectedLocalHistoryEntry)
+        }
+    }
+
+    func restoreSelectedLocalHistoryEntry() async {
+        guard let request = localHistoryRequest,
+              let entry = selectedLocalHistoryEntry,
+              let localHistoryService else { return }
+        do {
+            let restoredText = try await localHistoryService.content(for: entry)
+            if let document = openDocuments.first(where: { $0.url == request.fileURL }) {
+                _ = try? await localHistoryService.record(
+                    text: document.text,
+                    for: request.fileURL,
+                    reason: .restored
+                )
+            } else {
+                _ = try? await localHistoryService.recordFile(at: request.fileURL, reason: .restored)
+            }
+            try restoredText.write(to: request.fileURL, atomically: true, encoding: .utf8)
+            if let document = openDocuments.first(where: { $0.url == request.fileURL }) {
+                try document.reloadFromDisk()
+                activeDocumentID = document.id
+            } else {
+                openFile(request.fileURL)
+            }
+            showNotification("Restored \(request.fileURL.lastPathComponent)")
+            await refreshWorkspace()
+            await reloadLocalHistory(selectNewest: true)
+        } catch {
+            showNotification("Could not restore local history")
+        }
     }
 
     func requestCloseDocument(_ document: EditorDocument) {
@@ -1004,7 +1071,13 @@ final class AppModel: ObservableObject {
             if document.isDirty, let localHistoryService {
                 let text = document.text
                 let url = document.url
-                Task { try? await localHistoryService.record(text: text, for: url, reason: .saved) }
+                Task {
+                    _ = try? await localHistoryService.record(
+                        text: text,
+                        for: url,
+                        reason: .unsavedDiscard
+                    )
+                }
             }
             try document.reloadFromDisk()
             showNotification("Loaded file-system version")
@@ -1180,6 +1253,49 @@ final class AppModel: ObservableObject {
         for fileURL in files {
             _ = try? await localHistoryService.recordFile(at: fileURL, reason: reason)
         }
+    }
+
+    private func reloadLocalHistory(selectNewest: Bool = false) async {
+        guard let request = localHistoryRequest, let localHistoryService else {
+            isLoadingLocalHistory = false
+            return
+        }
+        do {
+            localHistoryEntries = try await localHistoryService.entries(for: request.fileURL)
+            if selectNewest || selectedLocalHistoryEntry == nil,
+               let first = localHistoryEntries.first {
+                selectLocalHistoryEntry(first)
+            } else {
+                isLoadingLocalHistory = false
+            }
+        } catch {
+            localHistoryEntries = []
+            localHistoryDiffRows = []
+            isLoadingLocalHistory = false
+        }
+    }
+
+    private func loadLocalHistoryDiff(for entry: LocalHistoryEntry) async {
+        guard let request = localHistoryRequest,
+              let localHistoryService,
+              selectedLocalHistoryEntry?.id == entry.id else { return }
+        do {
+            let historicalText = try await localHistoryService.content(for: entry)
+            let currentText: String
+            if let document = openDocuments.first(where: { $0.url == request.fileURL }) {
+                currentText = document.text
+            } else {
+                currentText = try String(contentsOf: request.fileURL, encoding: .utf8)
+            }
+            let rows = await Task.detached(priority: .userInitiated) {
+                LocalHistoryDiffBuilder.rows(old: historicalText, current: currentText)
+            }.value
+            guard selectedLocalHistoryEntry?.id == entry.id else { return }
+            localHistoryDiffRows = rows
+        } catch {
+            localHistoryDiffRows = []
+        }
+        isLoadingLocalHistory = false
     }
 }
 

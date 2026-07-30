@@ -256,6 +256,9 @@ private struct FileNodeRow: View {
         Button("Rename…") {
             model.requestRenameProjectItem(at: node.url)
         }
+        Button("Local History…") {
+            model.showLocalHistory(for: node.url)
+        }
         Button("Move to Trash", role: .destructive) {
             model.requestDeleteProjectItem(at: node.url, isDirectory: false)
         }

@@ -17,5 +17,9 @@ struct RootView: View {
             SettingsView(settings: model.settings)
                 .environmentObject(model)
         }
+        .sheet(item: $model.localHistoryRequest) { request in
+            LocalHistoryView(request: request)
+                .environmentObject(model)
+        }
     }
 }
