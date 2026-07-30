@@ -263,6 +263,19 @@ struct WorkbenchView: View {
             .buttonStyle(.plain)
             .foregroundStyle(model.isGitLogVisible ? Color.white : LitheTheme.secondaryText)
             .help("Git Log")
+
+            Button {
+                model.toggleTerminal()
+            } label: {
+                Image(systemName: "terminal")
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 36, height: 36)
+                    .background(model.isTerminalVisible ? LitheTheme.accent : .clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(model.isTerminalVisible ? Color.white : LitheTheme.secondaryText)
+            .help("Terminal")
         }
         .padding(.vertical, 10)
         .frame(width: 48)
@@ -322,10 +335,10 @@ struct WorkbenchView: View {
                 }
                 .padding(.top, 6)
                 .padding(.horizontal, 6)
-                .padding(.bottom, model.isGitLogVisible ? 0 : 6)
-                .frame(height: model.isGitLogVisible ? resolvedTopPaneHeight : geometry.size.height)
+                .padding(.bottom, isBottomToolVisible ? 0 : 6)
+                .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
 
-                if model.isGitLogVisible {
+                if isBottomToolVisible {
                     SplitHandleView(
                         axis: .vertical,
                         onDragStarted: {
@@ -342,7 +355,13 @@ struct WorkbenchView: View {
                     )
                     .padding(.horizontal, 6)
 
-                    GitLogView()
+                    Group {
+                        if model.isTerminalVisible {
+                            TerminalView()
+                        } else {
+                            GitLogView()
+                        }
+                    }
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .padding(.horizontal, 6)
                         .padding(.bottom, 6)
@@ -373,10 +392,21 @@ struct WorkbenchView: View {
         min(max(value, minimum), maximum)
     }
 
+    private var isBottomToolVisible: Bool {
+        model.isGitLogVisible || model.isTerminalVisible
+    }
+
     private var statusBar: some View {
         HStack(spacing: 16) {
             Label(model.projectName, systemImage: "folder")
             Spacer()
+            Button {
+                model.toggleTerminal()
+            } label: {
+                Label("Terminal", systemImage: "terminal")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(model.isTerminalVisible ? LitheTheme.primaryText : LitheTheme.secondaryText)
             Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)

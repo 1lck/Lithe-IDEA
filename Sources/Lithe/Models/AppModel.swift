@@ -32,6 +32,7 @@ final class AppModel: ObservableObject {
     @Published var amendCommit = false
     @Published private(set) var isCommitting = false
     @Published var isGitLogVisible = false
+    @Published var isTerminalVisible = false
     @Published private(set) var gitReferences: [GitReference] = []
     @Published private(set) var gitCommits: [GitCommit] = []
     @Published var selectedGitReference: GitReference?
@@ -47,6 +48,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isPerformingBranchOperation = false
     private var directoryWatcher: DirectoryWatcher?
     private var refreshTask: Task<Void, Never>?
+    let terminalSession = TerminalSession()
 
     init() {
         recentProjects = RecentProjectsStore.load()
@@ -80,6 +82,8 @@ final class AppModel: ObservableObject {
 
     func openProject(_ url: URL) {
         let normalizedURL = url.standardizedFileURL
+        terminalSession.stop()
+        isTerminalVisible = false
         workspaceURL = normalizedURL
         selectedSidebar = .project
         rootNode = nil
@@ -127,6 +131,8 @@ final class AppModel: ObservableObject {
         diffRows = []
         isLoadingDiff = false
         isGitLogVisible = false
+        isTerminalVisible = false
+        terminalSession.stop()
         gitReferences = []
         gitCommits = []
         selectedGitReference = nil
@@ -512,8 +518,20 @@ final class AppModel: ObservableObject {
 
     func toggleGitLog() async {
         isGitLogVisible.toggle()
+        if isGitLogVisible {
+            isTerminalVisible = false
+        }
         if isGitLogVisible && gitCommits.isEmpty {
             await refreshGitHistory()
+        }
+    }
+
+    func toggleTerminal() {
+        isTerminalVisible.toggle()
+        guard isTerminalVisible else { return }
+        isGitLogVisible = false
+        if !terminalSession.isRunning, let workspaceURL {
+            terminalSession.start(in: workspaceURL)
         }
     }
 
