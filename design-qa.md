@@ -67,4 +67,39 @@
 - No actionable P0, P1, or P2 issues remain.
 - The moved fixture has unchanged content, so its Diff correctly reports zero textual differences while retaining the path transition.
 
+## Added And Deleted Single-File Diff QA
+
+### Evidence
+
+- Source visual truth: `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-c9f90dad-da89-4f91-abb8-7503f9ae02d7.png` and `/var/folders/r0/qpfjznh96yl028rd750kf5q80000gn/T/codex-clipboard-ec1475ac-994f-42f9-80c0-8afeaca2fbe4.png`.
+- Added implementation: `design-qa-artifacts/git-added-single-file.jpeg`.
+- Deleted implementation: `design-qa-artifacts/git-deleted-single-file.jpeg`.
+- Combined comparison: `design-qa-artifacts/git-single-file-comparison.jpeg`.
+- Viewport: 1280 x 768 packaged macOS application in dark mode.
+- State: untracked added Java file and staged deleted Java file.
+
+### Full-View Comparison
+
+- Added and deleted files now use the full Diff width instead of reserving an empty comparison pane.
+- Added source lines use a full-width green treatment; deleted source lines use a full-width red treatment.
+- Modified files were regression-tested and retain the side-by-side repository/index/current-version comparison.
+
+### Focused Comparison
+
+- Typography: monospaced source, compact line numbers, status badges, and toolbar labels retain the established Lithe density.
+- Spacing: the single version header, hunk header, line-number gutter, change marker, and source text align without a center gutter.
+- Colors: semantic green/red backgrounds, markers, and line numbers follow the source references and existing Lithe theme tokens.
+- Image and icon fidelity: native SF Symbols remain consistent with the rest of the macOS application; no new raster assets are required by this code editor surface.
+- Copy: `Single file`, `Added version`, and `Deleted version` describe the actual rendering mode without referring to a nonexistent empty pane.
+
+### Findings
+
+- No actionable P0, P1, or P2 issues remain.
+- The reference screenshots use different project content and viewport proportions; comparison is based on the matching Diff state and component region.
+
+### Patches Since Previous QA
+
+- Added a dedicated full-width renderer for added and deleted files.
+- Preserved the side-by-side renderer for modified, moved, and copied files.
+
 final result: passed

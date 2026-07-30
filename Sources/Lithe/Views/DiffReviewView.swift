@@ -105,7 +105,10 @@ struct DiffReviewView: View {
 
                 toolbarDivider
 
-                toolbarLabel("Side-by-side", systemImage: "rectangle.split.2x1")
+                toolbarLabel(
+                    usesSingleFileDiff ? "Single file" : "Side-by-side",
+                    systemImage: usesSingleFileDiff ? "doc.text" : "rectangle.split.2x1"
+                )
 
                 Menu {
                     ForEach(DiffWhitespaceMode.allCases) { mode in
@@ -202,10 +205,20 @@ struct DiffReviewView: View {
     }
 
     private var versionHeader: some View {
-        HStack(spacing: 0) {
-            versionLabel(leftVersionTitle, path: leftVersionPath, systemImage: "lock")
-            centerGutter(kind: nil, isSelected: false)
-            versionLabel(rightVersionTitle, path: rightVersionPath, systemImage: "checkmark.square")
+        Group {
+            if usesSingleFileDiff {
+                versionLabel(
+                    change.kind == .added ? "Added version" : "Deleted version",
+                    path: change.path,
+                    systemImage: change.kind == .added ? "checkmark.square" : "lock"
+                )
+            } else {
+                HStack(spacing: 0) {
+                    versionLabel(leftVersionTitle, path: leftVersionPath, systemImage: "lock")
+                    centerGutter(kind: nil, isSelected: false)
+                    versionLabel(rightVersionTitle, path: rightVersionPath, systemImage: "checkmark.square")
+                }
+            }
         }
         .frame(height: 34)
         .background(LitheTheme.window)
@@ -253,7 +266,7 @@ struct DiffReviewView: View {
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
         GeometryReader { geometry in
-            let contentWidth = max(980, geometry.size.width)
+            let contentWidth = max(usesSingleFileDiff ? 680 : 980, geometry.size.width)
 
             ScrollView(.horizontal) {
                 ScrollView(.vertical) {
@@ -261,14 +274,24 @@ struct DiffReviewView: View {
                         ForEach(model.diffRows) { row in
                             let kind = effectiveKind(for: row)
                             let differenceIndex = differenceIndexByRow[row.id]
-                            DiffRowView(
-                                row: row,
-                                kind: kind,
-                                fileExtension: change.url.pathExtension,
-                                highlightsWords: highlightsWords,
-                                isSelectedDifference: differenceIndex == selectedDifferenceIndex
-                            )
-                            .id(row.id)
+                            if usesSingleFileDiff {
+                                SingleFileDiffRowView(
+                                    row: row,
+                                    changeKind: change.kind,
+                                    fileExtension: change.url.pathExtension,
+                                    isSelectedDifference: differenceIndex == selectedDifferenceIndex
+                                )
+                                .id(row.id)
+                            } else {
+                                DiffRowView(
+                                    row: row,
+                                    kind: kind,
+                                    fileExtension: change.url.pathExtension,
+                                    highlightsWords: highlightsWords,
+                                    isSelectedDifference: differenceIndex == selectedDifferenceIndex
+                                )
+                                .id(row.id)
+                            }
                         }
                     }
                     .frame(width: contentWidth, alignment: .topLeading)
@@ -292,6 +315,10 @@ struct DiffReviewView: View {
             insideDifference = isDifference
         }
         return result
+    }
+
+    private var usesSingleFileDiff: Bool {
+        change.kind == .added || change.kind == .deleted
     }
 
     private var differenceIndexByRow: [UUID: Int] {
@@ -401,6 +428,81 @@ struct DiffReviewView: View {
         case .changed: "arrow.left.arrow.right"
         default: "circle"
         }
+    }
+}
+
+struct SingleFileDiffRowView: View {
+    let row: DiffRow
+    let changeKind: GitChangeKind
+    let fileExtension: String
+    let isSelectedDifference: Bool
+
+    private var isAddition: Bool { changeKind == .added }
+
+    var body: some View {
+        if row.kind == .information {
+            HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 10))
+                Text(row.left ?? "")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .lineLimit(1)
+                Spacer()
+            }
+            .foregroundStyle(Color(red: 0.50, green: 0.72, blue: 0.98))
+            .padding(.horizontal, 12)
+            .frame(height: 27)
+            .frame(maxWidth: .infinity)
+            .background(Color(red: 0.13, green: 0.20, blue: 0.30))
+        } else {
+            HStack(spacing: 0) {
+                Text(lineNumber.map(String.init) ?? "")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(changeColor.opacity(0.82))
+                    .frame(width: 55, alignment: .trailing)
+                    .padding(.trailing, 9)
+                    .frame(maxHeight: .infinity)
+                    .background(changeColor.opacity(0.08))
+
+                Rectangle()
+                    .fill(changeColor.opacity(0.82))
+                    .frame(width: 3)
+
+                Text(
+                    DiffSyntaxHighlighter.styled(
+                        lineText,
+                        comparing: nil,
+                        fileExtension: fileExtension,
+                        side: isAddition ? .right : .left,
+                        highlightsWords: false
+                    )
+                )
+                .font(.system(size: 12.5, design: .monospaced))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+            }
+            .frame(height: 24)
+            .frame(maxWidth: .infinity)
+            .background(changeColor.opacity(isSelectedDifference ? 0.24 : 0.18))
+            .overlay(alignment: .leading) {
+                if isSelectedDifference {
+                    Rectangle().fill(LitheTheme.accent).frame(width: 2)
+                }
+            }
+        }
+    }
+
+    private var lineText: String {
+        (isAddition ? row.right : row.left) ?? ""
+    }
+
+    private var lineNumber: Int? {
+        isAddition ? row.newLine : row.oldLine
+    }
+
+    private var changeColor: Color {
+        isAddition ? LitheTheme.success : .red
     }
 }
 
