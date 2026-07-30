@@ -4,22 +4,31 @@ struct EditorAreaView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        Group {
-            if let comparison = model.branchComparison {
-                BranchComparisonView(comparison: comparison)
-            } else if let selectedChange = model.selectedChange {
-                DiffReviewView(change: selectedChange)
-            } else {
-                VStack(spacing: 0) {
-                    if model.openDocuments.isEmpty {
-                        emptyState
-                    } else {
-                        editorTabs
-                        Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                        externalConflictBanner
-                        activeEditor
+        ZStack(alignment: .top) {
+            Group {
+                if let comparison = model.branchComparison {
+                    BranchComparisonView(comparison: comparison)
+                } else if let selectedChange = model.selectedChange {
+                    DiffReviewView(change: selectedChange)
+                } else {
+                    VStack(spacing: 0) {
+                        if model.openDocuments.isEmpty {
+                            emptyState
+                        } else {
+                            editorTabs
+                            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                            externalConflictBanner
+                            activeEditor
+                        }
                     }
                 }
+            }
+
+            if model.isImplementationChooserVisible {
+                JavaImplementationChooserView()
+                    .padding(.top, 48)
+                    .padding(.horizontal, 24)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
         }
         .background(LitheTheme.editor)

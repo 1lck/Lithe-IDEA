@@ -77,6 +77,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.gutter = gutter
         context.coordinator.container = container
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
+        context.coordinator.inlayHintOverlay = JavaInlayHintOverlayController(textView: textView)
         context.coordinator.highlight()
         textView.updateEditorDecorations()
         context.coordinator.refreshFoldRegions(useDefaultImportFold: true)
@@ -117,6 +118,7 @@ struct CodeEditorView: NSViewRepresentable {
         weak var gutter: LineNumberGutterView?
         weak var container: EditorContainerView?
         var codeVisionOverlay: CodeVisionOverlayController?
+        var inlayHintOverlay: JavaInlayHintOverlayController?
         var isApplyingEditorChange = false
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
@@ -190,6 +192,15 @@ struct CodeEditorView: NSViewRepresentable {
                 collapsedIDs: collapsedFoldIDs,
                 onToggle: { [weak self] region in self?.toggleFold(region) }
             )
+            guard let document else { return }
+            let markers = JavaEditorStructureService.implementationMarkers(in: document.text)
+            gutter?.updateImplementationMarkers(markers) { [weak model] marker in
+                model?.findJavaImplementations(
+                    line: marker.line,
+                    utf16Column: marker.utf16Column,
+                    in: document.url
+                )
+            }
         }
 
         func updateCodeVisionAndBlame() {
@@ -201,6 +212,7 @@ struct CodeEditorView: NSViewRepresentable {
                 onUsages: { [weak model] hint in model?.findUsages(for: hint, in: url) },
                 onAuthor: { [weak model] in model?.showBlame(for: url) }
             )
+            inlayHintOverlay?.update(hints: model.javaInlayHints[url] ?? [])
 
             let isBlameVisible = model.blameVisibleURL == url
             let blameLines = model.gitBlameLines[url] ?? []
@@ -534,6 +546,8 @@ final class LineNumberGutterView: NSView {
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
+    private var implementationMarkers: [JavaImplementationMarker] = []
+    private var onSelectImplementation: ((JavaImplementationMarker) -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -590,6 +604,15 @@ final class LineNumberGutterView: NSView {
         foldRegions = regions
         collapsedFoldIDs = collapsedIDs
         onToggleFold = onToggle
+        needsDisplay = true
+    }
+
+    func updateImplementationMarkers(
+        _ markers: [JavaImplementationMarker],
+        onSelect: @escaping (JavaImplementationMarker) -> Void
+    ) {
+        implementationMarkers = markers
+        onSelectImplementation = onSelect
         needsDisplay = true
     }
 
@@ -667,6 +690,9 @@ final class LineNumberGutterView: NSView {
             if let region = foldRegions.first(where: { $0.startLine == lineNumber - 1 }) {
                 drawFoldIndicator(region, y: y, height: lineRect.height)
             }
+            if let marker = implementationMarkers.first(where: { $0.line == lineNumber - 1 }) {
+                drawImplementationMarker(marker, y: y, height: lineRect.height)
+            }
             drawLineNumber(lineNumber, y: y + 1)
 
             let nextGlyph = NSMaxRange(lineGlyphRange)
@@ -700,6 +726,29 @@ final class LineNumberGutterView: NSView {
         )
     }
 
+    private func drawImplementationMarker(_ marker: JavaImplementationMarker, y: CGFloat, height: CGFloat) {
+        let rect = NSRect(x: 18, y: y + max(0, (height - 13) / 2), width: 13, height: 13)
+        NSColor(red: 0.31, green: 0.67, blue: 0.43, alpha: 0.92).setStroke()
+        let path = NSBezierPath(ovalIn: rect)
+        path.lineWidth = 1.2
+        path.stroke()
+        let label = (marker.isType ? "I" : "v") as NSString
+        label.draw(
+            in: rect.insetBy(dx: 1, dy: -1),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: marker.isType ? 8 : 9, weight: .bold),
+                .foregroundColor: NSColor(red: 0.39, green: 0.78, blue: 0.51, alpha: 1),
+                .paragraphStyle: centeredParagraphStyle
+            ]
+        )
+    }
+
+    private var centeredParagraphStyle: NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        return style
+    }
+
     private func drawBlame(_ blame: GitBlameLine, y: CGFloat) {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 10.5),
@@ -729,8 +778,11 @@ final class LineNumberGutterView: NSView {
         let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         let prefix = (textView.string as NSString).substring(to: min(characterIndex, textView.string.utf16.count))
         let line = prefix.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
-        if point.x <= 22, let region = foldRegions.first(where: { $0.startLine == line }) {
+        if point.x <= 16, let region = foldRegions.first(where: { $0.startLine == line }) {
             onToggleFold?(region)
+        } else if point.x <= 34,
+                  let marker = implementationMarkers.first(where: { $0.line == line }) {
+            onSelectImplementation?(marker)
         } else if isBlameVisible, let blame = blameByLine[line] {
             onSelectBlame?(blame)
         } else {
@@ -835,6 +887,76 @@ final class CodeVisionOverlayController {
             button.imagePosition = .imageLeading
         }
         return button
+    }
+}
+
+@MainActor
+final class JavaInlayHintOverlayController {
+    private weak var textView: NSTextView?
+    private var labels: [NSTextField] = []
+    private var currentHints: [JavaInlayHint] = []
+
+    init(textView: NSTextView) {
+        self.textView = textView
+    }
+
+    func update(hints: [JavaInlayHint]) {
+        guard hints != currentHints, let textView,
+              let layoutManager = textView.layoutManager else { return }
+        currentHints = hints
+        labels.forEach { $0.removeFromSuperview() }
+        labels = []
+        let fullRange = NSRange(location: 0, length: textView.string.utf16.count)
+        layoutManager.removeTemporaryAttribute(.kern, forCharacterRange: fullRange)
+        let source = textView.string as NSString
+
+        for hint in hints {
+            let lineStart = characterOffset(forLine: hint.line, in: source)
+            let location = min(source.length, lineStart + hint.utf16Column)
+            guard location < source.length else { continue }
+            let glyph = layoutManager.glyphIndexForCharacter(at: location)
+            let point = layoutManager.location(forGlyphAt: glyph)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let label = NSTextField(labelWithString: normalizedLabel(hint.label))
+            label.font = .systemFont(ofSize: 10.5, weight: .medium)
+            label.textColor = NSColor(white: 0.61, alpha: 1)
+            label.alignment = .center
+            label.wantsLayer = true
+            label.layer?.backgroundColor = NSColor(white: 0.23, alpha: 0.88).cgColor
+            label.layer?.cornerRadius = 3
+            label.sizeToFit()
+            let width = label.frame.width + 9
+            label.frame = NSRect(
+                x: textView.textContainerOrigin.x + point.x,
+                y: textView.textContainerOrigin.y + lineRect.minY + 1,
+                width: width,
+                height: max(16, lineRect.height - 2)
+            )
+            label.setAccessibilityLabel("Parameter \(hint.label)")
+            textView.addSubview(label)
+            labels.append(label)
+            let kernLocation = max(0, location - 1)
+            layoutManager.addTemporaryAttribute(
+                .kern,
+                value: width + 3,
+                forCharacterRange: NSRange(location: kernLocation, length: 1)
+            )
+        }
+        layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+    }
+
+    private func normalizedLabel(_ label: String) -> String {
+        label.hasSuffix(":") ? label : "\(label):"
+    }
+
+    private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
+        var line = 0
+        var offset = 0
+        while line < targetLine, offset < source.length {
+            offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
+            line += 1
+        }
+        return offset
     }
 }
 

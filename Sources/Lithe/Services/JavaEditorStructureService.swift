@@ -1,6 +1,28 @@
 import Foundation
 
 enum JavaEditorStructureService {
+    static func implementationMarkers(in source: String) -> [JavaImplementationMarker] {
+        let text = source as NSString
+        var result: [JavaImplementationMarker] = []
+        let patterns: [(String, Bool)] = [
+            (#"(?m)^\s*(?:public\s+)?interface\s+[A-Za-z_$][A-Za-z0-9_$]*"#, true),
+            (#"(?m)^\s*(?:public\s+)?(?:[A-Za-z_$][A-Za-z0-9_$<>?,.\[\]\s]+\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*\([^;{}]*\)\s*(?:throws\s+[^;]+)?;\s*$"#, false)
+        ]
+        for (pattern, isType) in patterns {
+            guard let expression = try? NSRegularExpression(pattern: pattern) else { continue }
+            for match in expression.matches(in: source, range: NSRange(location: 0, length: text.length)) {
+                let line = lineNumber(at: match.range.location, in: text)
+                let lineRange = text.lineRange(for: NSRange(location: match.range.location, length: 0))
+                result.append(JavaImplementationMarker(
+                    line: line,
+                    utf16Column: max(0, match.range.location - lineRange.location),
+                    isType: isType
+                ))
+            }
+        }
+        return Array(Set(result)).sorted { $0.line < $1.line }
+    }
+
     static func foldRegions(in source: String) -> [JavaFoldRegion] {
         let text = source as NSString
         var regions = importRegion(in: text).map { [$0] } ?? []

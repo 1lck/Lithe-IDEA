@@ -88,3 +88,92 @@ struct JavaReferencesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+struct JavaImplementationChooserView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var query = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.branch")
+                    .foregroundStyle(LitheTheme.accent)
+                Text("Choose Implementation")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("\(filteredLocations.count) found")
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Spacer()
+                Button {
+                    model.closeJavaNavigationResults()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .litheIconButton()
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 38)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(LitheTheme.secondaryText)
+                TextField("Search implementations", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(LitheTheme.editor)
+
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 1) {
+                    ForEach(filteredLocations) { location in
+                        Button {
+                            model.navigate(to: location)
+                        } label: {
+                            HStack(spacing: 9) {
+                                Image(systemName: "c.circle")
+                                    .foregroundStyle(Color(red: 0.42, green: 0.66, blue: 0.95))
+                                Text(location.url.deletingPathExtension().lastPathComponent)
+                                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.primaryText)
+                                Text(model.relativePath(for: location.url))
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text("\(location.line + 1):\(location.utf16Column + 1)")
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                            }
+                            .padding(.horizontal, 10)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 30)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(5)
+            }
+        }
+        .frame(maxWidth: 760, minHeight: 220, maxHeight: 390)
+        .background(LitheTheme.toolHeader)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(LitheTheme.divider, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.42), radius: 18, y: 8)
+    }
+
+    private var filteredLocations: [JavaNavigationLocation] {
+        guard !query.isEmpty else { return model.javaNavigationLocations }
+        return model.javaNavigationLocations.filter {
+            $0.url.lastPathComponent.localizedCaseInsensitiveContains(query) ||
+                model.relativePath(for: $0.url).localizedCaseInsensitiveContains(query)
+        }
+    }
+}

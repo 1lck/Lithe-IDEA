@@ -72,6 +72,37 @@ final class JavaLanguageService: ObservableObject {
         }
     }
 
+    func inlayHints(
+        document: EditorDocument,
+        completion: @escaping (Result<[JavaInlayHint], Error>) -> Void
+    ) {
+        guard document.url.pathExtension.lowercased() == "java" else {
+            completion(.success([]))
+            return
+        }
+        ensureReady(for: document.url.deletingLastPathComponent()) { [weak self, weak document] result in
+            guard let self, let document else { return }
+            switch result {
+            case .failure(let error): completion(.failure(error))
+            case .success:
+                self.synchronize(document)
+                let lines = max(0, document.text.reduce(0) { $1 == "\n" ? $0 + 1 : $0 })
+                self.sendRequest(method: "textDocument/inlayHint", parameters: [
+                    "textDocument": ["uri": document.url.absoluteString],
+                    "range": [
+                        "start": ["line": 0, "character": 0],
+                        "end": ["line": lines + 1, "character": 0]
+                    ]
+                ]) { response in
+                    switch response {
+                    case .failure(let error): completion(.failure(error))
+                    case .success(let value): completion(.success(Self.parseInlayHints(value)))
+                    }
+                }
+            }
+        }
+    }
+
     func stop() {
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         errorPipe?.fileHandleForReading.readabilityHandler = nil
@@ -176,6 +207,8 @@ final class JavaLanguageService: ObservableObject {
             "textDocument": [
                 "definition": ["dynamicRegistration": false, "linkSupport": true],
                 "references": ["dynamicRegistration": false],
+                "implementation": ["dynamicRegistration": false, "linkSupport": true],
+                "inlayHint": ["dynamicRegistration": false, "resolveSupport": ["properties": []]],
                 "synchronization": ["dynamicRegistration": false, "didSave": true]
             ],
             "workspace": ["workspaceFolders": true, "configuration": true],
@@ -374,6 +407,25 @@ final class JavaLanguageService: ObservableObject {
                   let line = start?["line"] as? Int,
                   let column = start?["character"] as? Int else { return nil }
             return JavaNavigationLocation(url: url, line: line, utf16Column: column)
+        }
+    }
+
+    private static func parseInlayHints(_ value: Any) -> [JavaInlayHint] {
+        guard let objects = value as? [[String: Any]] else { return [] }
+        return objects.compactMap { object in
+            guard let position = object["position"] as? [String: Any],
+                  let line = position["line"] as? Int,
+                  let column = position["character"] as? Int else { return nil }
+            let label: String
+            if let raw = object["label"] as? String {
+                label = raw
+            } else if let parts = object["label"] as? [[String: Any]] {
+                label = parts.compactMap { $0["value"] as? String }.joined()
+            } else {
+                return nil
+            }
+            guard !label.isEmpty else { return nil }
+            return JavaInlayHint(line: line, utf16Column: column, label: label)
         }
     }
 }

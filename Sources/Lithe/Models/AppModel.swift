@@ -35,12 +35,14 @@ final class AppModel: ObservableObject {
     @Published var isGitLogVisible = false
     @Published var isTerminalVisible = false
     @Published var isReferencesVisible = false
+    @Published var isImplementationChooserVisible = false
     @Published private(set) var javaNavigationLocations: [JavaNavigationLocation] = []
     @Published private(set) var javaNavigationResultKind = JavaNavigationResultKind.references
     @Published private(set) var isLoadingJavaNavigation = false
     @Published var editorCaret: EditorCaret?
     @Published var editorNavigationTarget: EditorNavigationTarget?
     @Published private(set) var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] = [:]
+    @Published private(set) var javaInlayHints: [URL: [JavaInlayHint]] = [:]
     @Published private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published var blameVisibleURL: URL?
     @Published private(set) var gitReferences: [GitReference] = []
@@ -59,6 +61,7 @@ final class AppModel: ObservableObject {
     private var directoryWatcher: DirectoryWatcher?
     private var refreshTask: Task<Void, Never>?
     private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
+    private var inlayHintTasks: [UUID: Task<Void, Never>] = [:]
     let settings = AppSettings()
     let terminalSession = TerminalSession()
     let javaLanguageService = JavaLanguageService()
@@ -190,6 +193,7 @@ final class AppModel: ObservableObject {
         if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
             activeDocumentID = existing.id
             Task { await refreshCodeVision(for: existing.url) }
+            refreshJavaInlayHints(for: existing)
             return
         }
 
@@ -207,6 +211,7 @@ final class AppModel: ObservableObject {
         openDocuments.append(document)
         activeDocumentID = document.id
         Task { await refreshCodeVision(for: normalizedURL) }
+        refreshJavaInlayHints(for: document)
     }
 
     func refreshWorkspace() async {
@@ -416,6 +421,13 @@ final class AppModel: ObservableObject {
     }
 
     func documentDidChange(_ document: EditorDocument) {
+        inlayHintTasks[document.id]?.cancel()
+        inlayHintTasks[document.id] = Task { [weak self, weak document] in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled, let self, let document else { return }
+            self.refreshJavaInlayHints(for: document)
+            self.inlayHintTasks[document.id] = nil
+        }
         autoSaveTasks[document.id]?.cancel()
         guard settings.autoSave else { return }
         let delay = settings.autoSaveDelay
@@ -595,7 +607,17 @@ final class AppModel: ObservableObject {
         performJavaNavigation(method: "textDocument/references", kind: .references)
     }
 
+    func findJavaImplementations(line: Int, utf16Column: Int, in fileURL: URL) {
+        editorCaret = EditorCaret(
+            url: fileURL.standardizedFileURL,
+            line: line,
+            utf16Column: utf16Column
+        )
+        performJavaNavigation(method: "textDocument/implementation", kind: .implementations)
+    }
+
     func navigate(to location: JavaNavigationLocation) {
+        isImplementationChooserVisible = false
         openFile(location.url)
         editorNavigationTarget = EditorNavigationTarget(
             url: location.url.standardizedFileURL,
@@ -606,6 +628,7 @@ final class AppModel: ObservableObject {
 
     func closeJavaNavigationResults() {
         isReferencesVisible = false
+        isImplementationChooserVisible = false
     }
 
     private func performJavaNavigation(method: String, kind: JavaNavigationResultKind) {
@@ -639,15 +662,16 @@ final class AppModel: ObservableObject {
                     self.showNotification(kind == .definitions ? "Definition not found" : "No usages found")
                     return
                 }
-                if kind == .definitions, locations.count == 1, let location = locations.first {
+                if kind != .references, locations.count == 1, let location = locations.first {
                     self.navigate(to: location)
-                    self.showNotification("Opened definition")
+                    self.showNotification(kind == .definitions ? "Opened definition" : "Opened implementation")
                 } else {
                     self.javaNavigationResultKind = kind
                     self.javaNavigationLocations = locations
                     self.isGitLogVisible = false
                     self.isTerminalVisible = false
-                    self.isReferencesVisible = true
+                    self.isReferencesVisible = kind != .implementations
+                    self.isImplementationChooserVisible = kind == .implementations
                 }
             }
         }
@@ -703,6 +727,18 @@ final class AppModel: ObservableObject {
         guard openDocuments.contains(where: { $0.url == normalizedURL }) else { return }
         gitBlameLines[normalizedURL] = blame
         javaCodeVisionHints[normalizedURL] = hints
+    }
+
+    func refreshJavaInlayHints(for document: EditorDocument) {
+        let url = document.url.standardizedFileURL
+        guard url.pathExtension.lowercased() == "java" else { return }
+        javaLanguageService.inlayHints(document: document) { [weak self, weak document] result in
+            guard let self, let document,
+                  self.openDocuments.contains(where: { $0.id == document.id }) else { return }
+            if case .success(let hints) = result {
+                self.javaInlayHints[url] = hints
+            }
+        }
     }
 
     func showBlame(for fileURL: URL) {

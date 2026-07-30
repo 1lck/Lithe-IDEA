@@ -56,14 +56,24 @@ struct JavaInlayHint: Identifiable, Hashable {
     var id: String { "\(line):\(utf16Column):\(label)" }
 }
 
+struct JavaImplementationMarker: Identifiable, Hashable {
+    let line: Int
+    let utf16Column: Int
+    let isType: Bool
+
+    var id: String { "\(line):\(utf16Column):\(isType)" }
+}
+
 enum JavaNavigationResultKind {
     case definitions
     case references
+    case implementations
 
     var title: String {
         switch self {
         case .definitions: "Definitions"
         case .references: "Usages"
+        case .implementations: "Implementations"
         }
     }
 }
