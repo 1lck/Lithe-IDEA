@@ -12,12 +12,14 @@ final class TerminalSession: ObservableObject {
     private var outputPipe: Pipe?
     private var workspaceURL: URL?
     private var pendingCommands: [String] = []
+    private var receivedInitialOutput = false
     private let maximumOutputCharacters = 240_000
 
     func start(in workspaceURL: URL) {
         stop()
         self.workspaceURL = workspaceURL
         isReady = false
+        receivedInitialOutput = false
 
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         shellName = URL(fileURLWithPath: shell).lastPathComponent
@@ -99,15 +101,27 @@ final class TerminalSession: ObservableObject {
         isRunning = false
         isReady = false
         pendingCommands = []
+        receivedInitialOutput = false
     }
 
     private func append(_ chunk: String) {
-        let becameReady = !isReady
-        isReady = true
         output.append(Self.plainText(from: chunk))
         if output.count > maximumOutputCharacters {
             output.removeFirst(output.count - maximumOutputCharacters)
         }
+
+        if !receivedInitialOutput {
+            receivedInitialOutput = true
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let self, self.isRunning else { return }
+                self.writeRaw(":\n")
+            }
+            return
+        }
+
+        let becameReady = !isReady
+        isReady = true
         if becameReady, !pendingCommands.isEmpty {
             let commands = pendingCommands
             pendingCommands = []
