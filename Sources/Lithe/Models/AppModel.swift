@@ -16,6 +16,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var searchResults: [FileSearchResult] = []
     @Published private(set) var isLoadingWorkspace = false
     @Published private(set) var isSearching = false
+    @Published var isSearchEverywhereVisible = false
+    @Published var searchEverywhereQuery = ""
+    @Published private(set) var searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
+    @Published private(set) var isSearchingEverywhere = false
+    @Published var isFindBarVisible = false
+    @Published var findBarQuery = ""
+    @Published private(set) var findMatchCount = 0
+    @Published private(set) var currentFindMatchIndex = 0
     @Published var pendingCloseDocument: EditorDocument?
     @Published var projectItemEditRequest: ProjectItemEditRequest?
     @Published var pendingProjectItemDeletion: ProjectItemDeletionRequest?
@@ -73,6 +81,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isLoadingBranchComparison = false
     @Published private(set) var isPerformingBranchOperation = false
     private var directoryWatcher: DirectoryWatcher?
+    private var doubleShiftDetector: DoubleShiftDetector?
     private var refreshTask: Task<Void, Never>?
     private var localHistorySeedTask: Task<Void, Never>?
     private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
@@ -90,6 +99,14 @@ final class AppModel: ObservableObject {
         javaLanguageService.onDiagnostics = { [weak self] fileURL, diagnostics in
             self?.javaDiagnostics[fileURL.standardizedFileURL] = diagnostics
         }
+        doubleShiftDetector = DoubleShiftDetector { [weak self] in
+            self?.toggleSearchEverywhere()
+        }
+        doubleShiftDetector?.start()
+    }
+
+    deinit {
+        doubleShiftDetector?.stop()
     }
 
     var projectName: String {
@@ -198,6 +215,14 @@ final class AppModel: ObservableObject {
         activeDocumentID = nil
         searchResults = []
         searchQuery = ""
+        isSearchEverywhereVisible = false
+        searchEverywhereQuery = ""
+        searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
+        isSearchingEverywhere = false
+        isFindBarVisible = false
+        findBarQuery = ""
+        findMatchCount = 0
+        currentFindMatchIndex = 0
         directoryWatcher?.stop()
         directoryWatcher = nil
         refreshTask?.cancel()
@@ -698,6 +723,98 @@ final class AppModel: ObservableObject {
         guard searchQuery == query else { return }
         searchResults = results
         isSearching = false
+    }
+
+    func toggleSearchEverywhere() {
+        guard workspaceURL != nil else { return }
+        // 弹窗已打开时忽略再次双击 Shift：避免输入大写字母等场景误触关闭。
+        guard !isSearchEverywhereVisible else { return }
+        isSearchEverywhereVisible = true
+    }
+
+    func dismissSearchEverywhere() {
+        isSearchEverywhereVisible = false
+        searchEverywhereQuery = ""
+        searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
+        isSearchingEverywhere = false
+    }
+
+    func searchEverywhere() async {
+        guard let workspaceURL else {
+            searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
+            isSearchingEverywhere = false
+            return
+        }
+        let query = searchEverywhereQuery
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
+            isSearchingEverywhere = false
+            return
+        }
+
+        isSearchingEverywhere = true
+        let files = projectFiles
+        let results = await Task.detached(priority: .userInitiated) {
+            WorkspaceScanner.searchEverywhere(query: query, root: workspaceURL, files: files)
+        }.value
+        guard searchEverywhereQuery == query else { return }
+        searchEverywhereResults = results
+        isSearchingEverywhere = false
+    }
+
+    func openSearchEverywhereResult(_ result: FileSearchResult) {
+        dismissSearchEverywhere()
+        openFile(result.url)
+        if let line = result.line {
+            editorNavigationTarget = EditorNavigationTarget(
+                url: result.url,
+                line: line - 1,
+                utf16Column: 0
+            )
+        }
+    }
+
+    func showFindBar() {
+        guard activeDocument != nil else { return }
+        isFindBarVisible = true
+    }
+
+    func hideFindBar() {
+        isFindBarVisible = false
+        findBarQuery = ""
+        findMatchCount = 0
+        currentFindMatchIndex = 0
+        NotificationCenter.default.post(name: .litheFindDismiss, object: nil)
+    }
+
+    func toggleFindBar() {
+        if isFindBarVisible {
+            hideFindBar()
+        } else {
+            showFindBar()
+        }
+    }
+
+    func setFindBarQuery(_ query: String) {
+        findBarQuery = query
+        NotificationCenter.default.post(
+            name: .litheFindQueryChanged,
+            object: nil,
+            userInfo: [FindNotificationKeys.query: query]
+        )
+    }
+
+    func navigateFind(offset: Int) {
+        NotificationCenter.default.post(
+            name: .litheFindNavigate,
+            object: nil,
+            userInfo: [FindNotificationKeys.direction: offset]
+        )
+    }
+
+    func updateFindState(currentIndex: Int, count: Int) {
+        findMatchCount = count
+        currentFindMatchIndex = currentIndex
     }
 
     func selectChange(_ change: GitChange) {
@@ -1739,4 +1856,60 @@ struct ProjectItemDeletionRequest: Identifiable, Sendable {
     let id = UUID()
     let url: URL
     let isDirectory: Bool
+}
+
+enum FindNotificationKeys {
+    static let query = "query"
+    static let direction = "direction"
+}
+
+extension Notification.Name {
+    static let litheFindQueryChanged = Notification.Name("litheFindQueryChanged")
+    static let litheFindNavigate = Notification.Name("litheFindNavigate")
+    static let litheFindDismiss = Notification.Name("litheFindDismiss")
+}
+
+/// 监听本地 flagsChanged 事件，检测双击 Shift（两次按下间隔小于阈值）。
+/// 事件回调运行在主线程事件循环；内部可变状态仅由主线程访问，
+/// onDoubleTap 通过 @MainActor 闭包回到主隔离域。
+final class DoubleShiftDetector: @unchecked Sendable {
+    private static let threshold: TimeInterval = 0.35
+    private var shiftWasDown = false
+    private var lastShiftPress = Date.distantPast
+    private let onDoubleTap: @MainActor () -> Void
+    private var monitor: Any?
+
+    init(onDoubleTap: @escaping @MainActor () -> Void) {
+        self.onDoubleTap = onDoubleTap
+    }
+
+    func start() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            let isShiftDown = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .contains(.shift)
+            guard let self else { return event }
+            if isShiftDown && !self.shiftWasDown {
+                let now = Date()
+                if now.timeIntervalSince(self.lastShiftPress) < Self.threshold {
+                    self.lastShiftPress = .distantPast
+                    Task { @MainActor in
+                        self.onDoubleTap()
+                    }
+                } else {
+                    self.lastShiftPress = now
+                }
+            }
+            self.shiftWasDown = isShiftDown
+            return event
+        }
+    }
+
+    func stop() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
 }

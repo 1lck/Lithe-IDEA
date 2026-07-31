@@ -44,6 +44,33 @@ struct LitheApp: App {
             }
 
             CommandMenu("Navigate") {
+                Button("Search Everywhere…") {
+                    model.toggleSearchEverywhere()
+                }
+                .disabled(model.workspaceURL == nil)
+
+                Divider()
+
+                Button("Find in File…") {
+                    model.showFindBar()
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(model.activeDocument == nil)
+
+                Button("Find Next") {
+                    model.navigateFind(offset: 1)
+                }
+                .keyboardShortcut("g", modifiers: .command)
+                .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
+
+                Button("Find Previous") {
+                    model.navigateFind(offset: -1)
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
+
+                Divider()
+
                 Button("Go to Definition") {
                     model.goToDefinition()
                 }
