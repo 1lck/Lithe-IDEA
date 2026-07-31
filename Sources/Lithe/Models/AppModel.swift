@@ -5,7 +5,7 @@ import Foundation
 final class AppModel: ObservableObject {
     @Published private(set) var workspaceURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project
-    @Published var isRunPlaceholderPresented = false
+    @Published var isRunVisible = false
     @Published var isSettingsPresented = false
     @Published private(set) var recentProjects: [RecentProject]
     @Published private(set) var rootNode: FileNode?
@@ -26,6 +26,11 @@ final class AppModel: ObservableObject {
     @Published var selectedLocalHistoryEntry: LocalHistoryEntry?
     @Published private(set) var localHistoryDiffRows: [DiffRow] = []
     @Published private(set) var isLoadingLocalHistory = false
+    @Published var projectLocalHistoryRequest: ProjectLocalHistoryRequest?
+    @Published private(set) var projectLocalHistoryEntries: [LocalHistoryEntry] = []
+    @Published var selectedProjectLocalHistoryEntry: LocalHistoryEntry?
+    @Published private(set) var projectLocalHistoryDiffRows: [DiffRow] = []
+    @Published private(set) var isLoadingProjectLocalHistory = false
     @Published private(set) var gitChanges: [GitChange] = []
     @Published private(set) var gitRepositoryRoot: URL?
     @Published private(set) var currentBranch = "No Git"
@@ -40,6 +45,9 @@ final class AppModel: ObservableObject {
     @Published var isGitLogVisible = false
     @Published var isTerminalVisible = false
     @Published var isReferencesVisible = false
+    @Published var isProblemsVisible = false
+    @Published var isMavenVisible = false
+    @Published var isDebugVisible = false
     @Published var isImplementationChooserVisible = false
     @Published private(set) var javaNavigationLocations: [JavaNavigationLocation] = []
     @Published private(set) var javaNavigationResultKind = JavaNavigationResultKind.references
@@ -48,6 +56,7 @@ final class AppModel: ObservableObject {
     @Published var editorNavigationTarget: EditorNavigationTarget?
     @Published private(set) var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] = [:]
     @Published private(set) var javaInlayHints: [URL: [JavaInlayHint]] = [:]
+    @Published private(set) var javaDiagnostics: [URL: [JavaDiagnostic]] = [:]
     @Published private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published var blameVisibleURL: URL?
     @Published private(set) var gitReferences: [GitReference] = []
@@ -71,10 +80,16 @@ final class AppModel: ObservableObject {
     let settings = AppSettings()
     let terminalSession = TerminalSession()
     let javaLanguageService = JavaLanguageService()
+    let mavenService = MavenService()
+    let javaRunService = JavaRunService()
+    let javaDebugService = JavaDebugService()
     private var localHistoryService: LocalHistoryService?
 
     init() {
         recentProjects = RecentProjectsStore.load()
+        javaLanguageService.onDiagnostics = { [weak self] fileURL, diagnostics in
+            self?.javaDiagnostics[fileURL.standardizedFileURL] = diagnostics
+        }
     }
 
     var projectName: String {
@@ -106,16 +121,34 @@ final class AppModel: ObservableObject {
     func openProject(_ url: URL) {
         let normalizedURL = url.standardizedFileURL
         terminalSession.stop()
+        mavenService.reset()
+        javaRunService.reset()
+        javaDebugService.reset()
         javaLanguageService.stop()
         javaLanguageService.configureProjectRoot(normalizedURL)
         isTerminalVisible = false
         isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+        isDebugVisible = false
         javaNavigationLocations = []
         editorCaret = nil
         editorNavigationTarget = nil
         javaCodeVisionHints = [:]
+        javaDiagnostics = [:]
         gitBlameLines = [:]
         blameVisibleURL = nil
+        localHistoryRequest = nil
+        localHistoryEntries = []
+        selectedLocalHistoryEntry = nil
+        localHistoryDiffRows = []
+        isLoadingLocalHistory = false
+        projectLocalHistoryRequest = nil
+        projectLocalHistoryEntries = []
+        selectedProjectLocalHistoryEntry = nil
+        projectLocalHistoryDiffRows = []
+        isLoadingProjectLocalHistory = false
         workspaceURL = normalizedURL
         let historyService = LocalHistoryService(workspaceURL: normalizedURL)
         localHistoryService = historyService
@@ -142,6 +175,12 @@ final class AppModel: ObservableObject {
             projectFiles = snapshot.files
             isLoadingWorkspace = false
             await refreshGit()
+            await mavenService.loadProject(at: normalizedURL)
+            await javaRunService.loadProject(
+                at: normalizedURL,
+                files: snapshot.files,
+                mavenProject: mavenService.project
+            )
             startWatching(normalizedURL)
             localHistorySeedTask?.cancel()
             localHistorySeedTask = Task(priority: .utility) {
@@ -169,6 +208,11 @@ final class AppModel: ObservableObject {
         localHistoryEntries = []
         selectedLocalHistoryEntry = nil
         localHistoryDiffRows = []
+        projectLocalHistoryRequest = nil
+        projectLocalHistoryEntries = []
+        selectedProjectLocalHistoryEntry = nil
+        projectLocalHistoryDiffRows = []
+        isLoadingProjectLocalHistory = false
         gitChanges = []
         gitRepositoryRoot = nil
         currentBranch = "No Git"
@@ -178,12 +222,20 @@ final class AppModel: ObservableObject {
         isGitLogVisible = false
         isTerminalVisible = false
         isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+        isDebugVisible = false
         terminalSession.stop()
+        mavenService.reset()
+        javaRunService.reset()
+        javaDebugService.reset()
         javaLanguageService.stop()
         javaNavigationLocations = []
         editorCaret = nil
         editorNavigationTarget = nil
         javaCodeVisionHints = [:]
+        javaDiagnostics = [:]
         gitBlameLines = [:]
         blameVisibleURL = nil
         gitReferences = []
@@ -246,6 +298,12 @@ final class AppModel: ObservableObject {
         projectFiles = snapshot.files
         isLoadingWorkspace = false
         await refreshGit()
+        await mavenService.loadProject(at: workspaceURL)
+        await javaRunService.loadProject(
+            at: workspaceURL,
+            files: snapshot.files,
+            mavenProject: mavenService.project
+        )
     }
 
     func requestCreateFile(in directory: URL) {
@@ -441,6 +499,16 @@ final class AppModel: ObservableObject {
         Task { await reloadLocalHistory() }
     }
 
+    func showProjectLocalHistory() {
+        guard workspaceURL != nil else { return }
+        projectLocalHistoryRequest = ProjectLocalHistoryRequest()
+        projectLocalHistoryEntries = []
+        selectedProjectLocalHistoryEntry = nil
+        projectLocalHistoryDiffRows = []
+        isLoadingProjectLocalHistory = true
+        Task { await reloadProjectLocalHistory() }
+    }
+
     func selectLocalHistoryEntry(_ entry: LocalHistoryEntry) {
         selectedLocalHistoryEntry = entry
         localHistoryDiffRows = []
@@ -448,11 +516,26 @@ final class AppModel: ObservableObject {
         Task { await loadLocalHistoryDiff(for: entry) }
     }
 
+    func selectProjectLocalHistoryEntry(_ entry: LocalHistoryEntry) {
+        selectedProjectLocalHistoryEntry = entry
+        projectLocalHistoryDiffRows = []
+        isLoadingProjectLocalHistory = true
+        Task { await loadProjectLocalHistoryDiff(for: entry) }
+    }
+
     func refreshLocalHistory() async {
         isLoadingLocalHistory = true
         await reloadLocalHistory()
         if let selectedLocalHistoryEntry {
             await loadLocalHistoryDiff(for: selectedLocalHistoryEntry)
+        }
+    }
+
+    func refreshProjectLocalHistory() async {
+        isLoadingProjectLocalHistory = true
+        await reloadProjectLocalHistory()
+        if let selectedProjectLocalHistoryEntry {
+            await loadProjectLocalHistoryDiff(for: selectedProjectLocalHistoryEntry)
         }
     }
 
@@ -483,6 +566,50 @@ final class AppModel: ObservableObject {
             await reloadLocalHistory(selectNewest: true)
         } catch {
             showNotification("Could not restore local history")
+        }
+    }
+
+    func restoreSelectedProjectLocalHistoryEntry() async {
+        guard let entry = selectedProjectLocalHistoryEntry,
+              let workspaceURL,
+              let localHistoryService else { return }
+
+        let targetURL = workspaceURL
+            .appendingPathComponent(entry.relativePath)
+            .standardizedFileURL
+        guard isWorkspaceURL(targetURL), WorkspaceScanner.isReadableTextFile(targetURL) else {
+            showNotification("Could not restore this project history entry")
+            return
+        }
+
+        do {
+            let restoredText = try await localHistoryService.content(for: entry)
+            if let document = openDocuments.first(where: { $0.url == targetURL }) {
+                _ = try? await localHistoryService.record(
+                    text: document.text,
+                    for: targetURL,
+                    reason: .restored
+                )
+            } else if FileManager.default.fileExists(atPath: targetURL.path) {
+                _ = try? await localHistoryService.recordFile(at: targetURL, reason: .restored)
+            }
+
+            try FileManager.default.createDirectory(
+                at: targetURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try restoredText.write(to: targetURL, atomically: true, encoding: .utf8)
+
+            if let document = openDocuments.first(where: { $0.url == targetURL }) {
+                try document.reloadFromDisk()
+                activeDocumentID = document.id
+            }
+
+            showNotification("Restored \(entry.relativePath)")
+            await refreshWorkspace()
+            await reloadProjectLocalHistory(selectNewest: true)
+        } catch {
+            showNotification("Could not restore project history")
         }
     }
 
@@ -529,6 +656,7 @@ final class AppModel: ObservableObject {
     }
 
     func documentDidChange(_ document: EditorDocument) {
+        javaLanguageService.update(document)
         inlayHintTasks[document.id]?.cancel()
         inlayHintTasks[document.id] = Task { [weak self, weak document] in
             try? await Task.sleep(for: .milliseconds(450))
@@ -693,6 +821,10 @@ final class AppModel: ObservableObject {
         if isGitLogVisible {
             isTerminalVisible = false
             isReferencesVisible = false
+            isProblemsVisible = false
+            isMavenVisible = false
+            isRunVisible = false
+            isDebugVisible = false
         }
         if isGitLogVisible && gitCommits.isEmpty {
             await refreshGitHistory()
@@ -704,8 +836,212 @@ final class AppModel: ObservableObject {
         guard isTerminalVisible else { return }
         isGitLogVisible = false
         isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+        isDebugVisible = false
         if !terminalSession.isRunning, let workspaceURL {
             terminalSession.start(in: workspaceURL, shellPath: settings.terminalShellPath)
+        }
+    }
+
+    func toggleMaven() {
+        isMavenVisible.toggle()
+        guard isMavenVisible else { return }
+        isGitLogVisible = false
+        isTerminalVisible = false
+        isReferencesVisible = false
+        isProblemsVisible = false
+        isRunVisible = false
+        isDebugVisible = false
+        if let workspaceURL, mavenService.project == nil, !mavenService.isLoadingProject {
+            Task { await mavenService.loadProject(at: workspaceURL) }
+        }
+    }
+
+    func runMaven(
+        phase: MavenLifecyclePhase,
+        module: MavenModule?,
+        profiles: Set<String>
+    ) {
+        isMavenVisible = true
+        isGitLogVisible = false
+        isTerminalVisible = false
+        isReferencesVisible = false
+        isProblemsVisible = false
+        isRunVisible = false
+        isDebugVisible = false
+        mavenService.run(phase: phase, module: module, profiles: profiles)
+    }
+
+    func stopMaven() {
+        mavenService.stop()
+    }
+
+    func openMavenIssue(_ issue: MavenBuildIssue) {
+        guard let fileURL = issue.fileURL,
+              FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        openFile(fileURL)
+        editorNavigationTarget = EditorNavigationTarget(
+            url: fileURL.standardizedFileURL,
+            line: max(0, (issue.line ?? 1) - 1),
+            utf16Column: max(0, (issue.column ?? 1) - 1)
+        )
+    }
+
+    /// 打开源码文件并定位到指定行/列(供构建输出、运行堆栈等可点击文本跳转)。
+    func openSourceLocation(url: URL, line: Int, column: Int?) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        openFile(url)
+        editorNavigationTarget = EditorNavigationTarget(
+            url: url.standardizedFileURL,
+            line: max(0, line - 1),
+            utf16Column: max(0, (column ?? 1) - 1)
+        )
+    }
+
+    func toggleProblems() {
+        isProblemsVisible.toggle()
+        guard isProblemsVisible else { return }
+        isGitLogVisible = false
+        isTerminalVisible = false
+        isReferencesVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+        isDebugVisible = false
+    }
+
+    func openJavaDiagnostic(_ diagnostic: JavaDiagnostic) {
+        guard FileManager.default.fileExists(atPath: diagnostic.fileURL.path) else { return }
+        openFile(diagnostic.fileURL)
+        editorNavigationTarget = EditorNavigationTarget(
+            url: diagnostic.fileURL.standardizedFileURL,
+            line: diagnostic.line,
+            utf16Column: diagnostic.utf16Column
+        )
+    }
+
+    func selectRunConfiguration(_ configuration: JavaRunConfiguration) {
+        javaRunService.select(configuration)
+    }
+
+    func runSelectedConfiguration() {
+        guard let configuration = javaRunService.selectedConfiguration else { return }
+        if configuration.kind == .currentFile,
+           let document = activeDocument,
+           document.isDirty {
+            do {
+                let previousText = document.savedText
+                try document.save()
+                recordSave(document, previousText: previousText)
+            } catch {
+                showNotification("Could not save \(document.url.lastPathComponent)")
+                return
+            }
+        }
+        isRunVisible = true
+        isGitLogVisible = false
+        isTerminalVisible = false
+        isReferencesVisible = false
+        isMavenVisible = false
+        isDebugVisible = false
+        javaRunService.runSelected(currentFileURL: activeDocument?.url)
+    }
+
+    func restartSelectedRun() {
+        isRunVisible = true
+        javaRunService.restart()
+    }
+
+    func stopSelectedRun() {
+        javaRunService.stop()
+    }
+
+    func toggleDebug() {
+        isDebugVisible.toggle()
+        guard isDebugVisible else { return }
+        isGitLogVisible = false
+        isTerminalVisible = false
+        isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+    }
+
+    func startDebugging() {
+        if javaDebugService.targetKind != .remote, !saveActiveDocumentBeforeDebug() {
+            return
+        }
+        isDebugVisible = true
+        isGitLogVisible = false
+        isTerminalVisible = false
+        isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+        switch javaDebugService.targetKind {
+        case .currentFile:
+            guard let document = activeDocument,
+                  document.url.pathExtension.lowercased() == "java" else {
+                showNotification("Open a Java file before starting Debug")
+                return
+            }
+            javaDebugService.start(
+                fileURL: document.url,
+                sourceText: document.text,
+                projectURL: workspaceURL,
+                options: javaRunService.options(for: .currentFile)
+            )
+        case .runConfiguration:
+            guard let configuration = javaRunService.selectedConfiguration,
+                  configuration.kind == .springBoot || configuration.kind == .mavenModule else {
+                showNotification("Select a Spring Boot or Maven Module configuration before starting Debug")
+                return
+            }
+            guard let workspaceURL, let mavenProject = mavenService.project else {
+                showNotification("No Maven project is available for Debug")
+                return
+            }
+            javaDebugService.startMaven(
+                configuration: configuration,
+                project: mavenProject,
+                projectURL: workspaceURL,
+                options: javaRunService.options(for: configuration)
+            )
+        case .remote:
+            javaDebugService.attachRemote()
+        }
+    }
+
+    func stopDebugging() {
+        javaDebugService.stop()
+    }
+
+    func toggleDebugBreakpointAtCaret() {
+        guard let caret = editorCaret,
+              let document = openDocuments.first(where: { $0.url == caret.url }),
+              document.url.pathExtension.lowercased() == "java" else {
+            showNotification("Place the caret in a Java file to set a breakpoint")
+            return
+        }
+        let className = JavaDebugService.className(for: document.url, sourceText: document.text)
+        javaDebugService.toggleBreakpoint(
+            fileURL: document.url,
+            line: caret.line + 1,
+            className: className
+        )
+    }
+
+    private func saveActiveDocumentBeforeDebug() -> Bool {
+        guard let document = activeDocument, document.isDirty else { return true }
+        do {
+            let previousText = document.savedText
+            try document.save()
+            recordSave(document, previousText: previousText)
+            return true
+        } catch {
+            showNotification("Could not save \(document.url.lastPathComponent)")
+            return false
         }
     }
 
@@ -780,6 +1116,9 @@ final class AppModel: ObservableObject {
                     self.javaNavigationLocations = locations
                     self.isGitLogVisible = false
                     self.isTerminalVisible = false
+                    self.isProblemsVisible = false
+                    self.isMavenVisible = false
+                    self.isRunVisible = false
                     self.isReferencesVisible = kind != .implementations
                     self.isImplementationChooserVisible = kind == .implementations
                 }
@@ -901,6 +1240,10 @@ final class AppModel: ObservableObject {
         guard let gitRepositoryRoot, !hash.allSatisfy({ $0 == "0" }) else { return }
         isTerminalVisible = false
         isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+        isDebugVisible = false
         isGitLogVisible = true
         if gitCommits.isEmpty {
             await refreshGitHistory()
@@ -1113,6 +1456,8 @@ final class AppModel: ObservableObject {
 
     private func closeDocument(_ document: EditorDocument) {
         guard let index = openDocuments.firstIndex(where: { $0.id == document.id }) else { return }
+        javaLanguageService.close(document)
+        javaDiagnostics[document.url.standardizedFileURL] = nil
         let wasActive = activeDocumentID == document.id
         openDocuments.remove(at: index)
         if wasActive {
@@ -1219,6 +1564,12 @@ final class AppModel: ObservableObject {
             guard self.workspaceURL == workspaceURL else { return }
             rootNode = snapshot.root
             projectFiles = snapshot.files
+            await mavenService.loadProject(at: workspaceURL)
+            await javaRunService.loadProject(
+                at: workspaceURL,
+                files: snapshot.files,
+                mavenProject: mavenService.project
+            )
             await refreshGit()
         }
     }
@@ -1296,6 +1647,55 @@ final class AppModel: ObservableObject {
             localHistoryDiffRows = []
         }
         isLoadingLocalHistory = false
+    }
+
+    private func reloadProjectLocalHistory(selectNewest: Bool = false) async {
+        guard projectLocalHistoryRequest != nil, let localHistoryService else {
+            isLoadingProjectLocalHistory = false
+            return
+        }
+        do {
+            projectLocalHistoryEntries = try await localHistoryService.allEntries()
+            if selectNewest || selectedProjectLocalHistoryEntry == nil,
+               let first = projectLocalHistoryEntries.first {
+                selectProjectLocalHistoryEntry(first)
+            } else {
+                isLoadingProjectLocalHistory = false
+            }
+        } catch {
+            projectLocalHistoryEntries = []
+            selectedProjectLocalHistoryEntry = nil
+            projectLocalHistoryDiffRows = []
+            isLoadingProjectLocalHistory = false
+        }
+    }
+
+    private func loadProjectLocalHistoryDiff(for entry: LocalHistoryEntry) async {
+        guard projectLocalHistoryRequest != nil,
+              let workspaceURL,
+              let localHistoryService,
+              selectedProjectLocalHistoryEntry?.id == entry.id else { return }
+
+        let fileURL = workspaceURL
+            .appendingPathComponent(entry.relativePath)
+            .standardizedFileURL
+        do {
+            let historicalText = try await localHistoryService.content(for: entry)
+            let currentText: String
+            if let document = openDocuments.first(where: { $0.url == fileURL }) {
+                currentText = document.text
+            } else {
+                currentText = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+            }
+            let rows = await Task.detached(priority: .userInitiated) {
+                LocalHistoryDiffBuilder.rows(old: historicalText, current: currentText)
+            }.value
+            guard selectedProjectLocalHistoryEntry?.id == entry.id else { return }
+            projectLocalHistoryDiffRows = rows
+        } catch {
+            projectLocalHistoryDiffRows = []
+        }
+        isLoadingProjectLocalHistory = false
     }
 }
 

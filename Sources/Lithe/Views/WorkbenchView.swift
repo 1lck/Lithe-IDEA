@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var runService: JavaRunService
     @State private var sidebarWidth: CGFloat = 320
     @State private var sidebarDragStart: CGFloat = 320
     @State private var topPaneHeight: CGFloat?
@@ -11,6 +12,7 @@ struct WorkbenchView: View {
     @State private var newBranchReference: GitReference?
     @State private var isCheckoutRevisionPresented = false
     @State private var pendingTopBarPushReference: GitReference?
+    @State private var isRunConfigurationEditorPresented = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,9 +27,6 @@ struct WorkbenchView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             statusBar
-        }
-        .sheet(isPresented: $model.isRunPlaceholderPresented) {
-            RunPlaceholderView()
         }
         .sheet(item: $newBranchReference) { reference in
             TopBarNewBranchDialog(reference: reference) { name, checkout in
@@ -194,18 +193,7 @@ struct WorkbenchView: View {
             .font(.system(size: 12.5, weight: .medium))
             .foregroundStyle(LitheTheme.primaryText)
 
-            Button {
-                model.isRunPlaceholderPresented = true
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "play.fill")
-                    Text("Run")
-                }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .buttonStyle(.plain)
-            .help("Run support is planned for a later release")
+            runControls
 
             Button {
                 model.selectedSidebar = .search
@@ -269,6 +257,30 @@ struct WorkbenchView: View {
             }
 
             activityToolButton(
+                systemImage: "exclamationmark.triangle",
+                help: "Problems",
+                isSelected: model.isProblemsVisible
+            ) {
+                model.toggleProblems()
+            }
+
+            activityToolButton(
+                systemImage: "shippingbox",
+                help: "Maven",
+                isSelected: model.isMavenVisible
+            ) {
+                model.toggleMaven()
+            }
+
+            activityToolButton(
+                systemImage: "ladybug",
+                help: "Debug",
+                isSelected: model.isDebugVisible
+            ) {
+                model.toggleDebug()
+            }
+
+            activityToolButton(
                 systemImage: "gearshape",
                 help: "Settings",
                 isSelected: model.isSettingsPresented
@@ -279,6 +291,65 @@ struct WorkbenchView: View {
         .padding(.vertical, 8)
         .frame(width: 48)
         .background(LitheTheme.titlebar)
+    }
+
+    private var runControls: some View {
+        HStack(spacing: 3) {
+            Picker(
+                selection: Binding(
+                    get: { runService.selectedConfigurationID },
+                    set: { runService.selectedConfigurationID = $0 }
+                )
+            ) {
+                ForEach(runService.configurations) { configuration in
+                    Label(configuration.name, systemImage: configuration.systemImage)
+                        .tag(configuration.id)
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: runService.selectedConfiguration?.systemImage ?? "play.fill")
+                    Text(runService.selectedConfiguration?.name ?? "Current File")
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: 230)
+            }
+            .pickerStyle(.menu)
+            .help("Select run configuration")
+
+            Button {
+                isRunConfigurationEditorPresented = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .litheIconButton()
+            .help("Edit run configuration")
+            .popover(isPresented: $isRunConfigurationEditorPresented, arrowEdge: .bottom) {
+                if let configuration = runService.selectedConfiguration {
+                    JavaRunConfigurationEditorView(
+                        service: runService,
+                        configuration: configuration
+                    )
+                }
+            }
+
+            Button {
+                if runService.isRunning {
+                    model.stopSelectedRun()
+                } else {
+                    model.runSelectedConfiguration()
+                }
+            } label: {
+                Image(systemName: runService.isRunning ? "stop.fill" : "play.fill")
+                    .foregroundStyle(runService.isRunning ? LitheTheme.warning : LitheTheme.success)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 24, height: 28)
+            .help(runService.isRunning ? "Stop" : "Run")
+        }
     }
 
     private func activityToolButton(
@@ -384,6 +455,17 @@ struct WorkbenchView: View {
                             TerminalView(session: model.terminalSession)
                         } else if model.isReferencesVisible {
                             JavaReferencesView()
+                        } else if model.isProblemsVisible {
+                            JavaProblemsView()
+                        } else if model.isDebugVisible {
+                            JavaDebugView(
+                                service: model.javaDebugService,
+                                runService: runService
+                            )
+                        } else if model.isRunVisible {
+                            RunView(service: runService)
+                        } else if model.isMavenVisible {
+                            MavenView(service: model.mavenService)
                         } else {
                             GitLogView()
                         }
@@ -419,7 +501,7 @@ struct WorkbenchView: View {
     }
 
     private var isBottomToolVisible: Bool {
-        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible
+        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible || model.isProblemsVisible || model.isMavenVisible || model.isDebugVisible || model.isRunVisible
     }
 
     private var statusBar: some View {
@@ -564,28 +646,5 @@ struct WorkbenchView: View {
         let words = model.projectName.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
         let initials = words.prefix(2).compactMap(\.first)
         return initials.isEmpty ? "LI" : String(initials).uppercased()
-    }
-}
-
-private struct RunPlaceholderView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "play.slash")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text("Run is not connected yet")
-                .font(.system(size: 16, weight: .semibold))
-            Text("For now, use your external AI tool or terminal to run the project.")
-                .font(LitheTheme.uiFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-                .multilineTextAlignment(.center)
-            Button("Done") { dismiss() }
-                .keyboardShortcut(.defaultAction)
-        }
-        .padding(32)
-        .frame(width: 390)
-        .background(LitheTheme.window)
     }
 }
