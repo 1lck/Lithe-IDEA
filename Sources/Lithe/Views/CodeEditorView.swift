@@ -87,6 +87,7 @@ struct CodeEditorView: NSViewRepresentable {
         container.gutter = gutter
         container.gutterWidthConstraint = gutterWidthConstraint
         context.coordinator.updateCodeVisionAndBlame()
+        context.coordinator.updateDiagnostics()
         return container
     }
 
@@ -107,6 +108,7 @@ struct CodeEditorView: NSViewRepresentable {
             container.gutter?.needsDisplay = true
         }
         context.coordinator.updateCodeVisionAndBlame()
+        context.coordinator.updateDiagnostics()
         context.coordinator.applyNavigationTargetIfNeeded()
     }
 
@@ -223,6 +225,14 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
+        func updateDiagnostics() {
+            guard let document, let model,
+                  let textView = textView as? CodeTextView else { return }
+            textView.updateDiagnostics(
+                model.javaDiagnostics[document.url.standardizedFileURL] ?? []
+            )
+        }
+
         func applyNavigationTargetIfNeeded() {
             guard let textView, let document, let target = model?.editorNavigationTarget,
                   target.url.standardizedFileURL == document.url.standardizedFileURL,
@@ -278,11 +288,19 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
+    private var diagnostics: [JavaDiagnostic] = []
+
+    func updateDiagnostics(_ diagnostics: [JavaDiagnostic]) {
+        self.diagnostics = diagnostics
+        updateEditorDecorations()
+    }
 
     func updateEditorDecorations() {
         guard let layoutManager else { return }
         let fullRange = NSRange(location: 0, length: string.utf16.count)
         layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+        layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: fullRange)
+        layoutManager.removeTemporaryAttribute(.underlineColor, forCharacterRange: fullRange)
         guard fullRange.length > 0 else { return }
 
         let source = string as NSString
@@ -312,6 +330,20 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
                     )
                 }
             }
+        }
+
+        for diagnostic in diagnostics {
+            guard let range = diagnosticRange(for: diagnostic, in: source) else { continue }
+            layoutManager.addTemporaryAttribute(
+                .underlineStyle,
+                value: NSUnderlineStyle.single.rawValue,
+                forCharacterRange: range
+            )
+            layoutManager.addTemporaryAttribute(
+                .underlineColor,
+                value: diagnosticColor(for: diagnostic.severity),
+                forCharacterRange: range
+            )
         }
     }
 
@@ -442,6 +474,43 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
             line += 1
         }
         return offset
+    }
+
+    private func diagnosticRange(for diagnostic: JavaDiagnostic, in source: NSString) -> NSRange? {
+        guard source.length > 0 else { return nil }
+        let lastLine = max(0, lineCount(in: source) - 1)
+        let startLine = min(max(0, diagnostic.line), lastLine)
+        let endLine = min(max(startLine, diagnostic.endLine), lastLine)
+        let start = characterOffset(forLine: startLine, column: diagnostic.utf16Column, in: source)
+        var end = characterOffset(forLine: endLine, column: diagnostic.endUTF16Column, in: source)
+        if end <= start { end = min(source.length, start + 1) }
+        guard start < source.length, end > start else { return nil }
+        return NSRange(location: start, length: end - start)
+    }
+
+    private func characterOffset(forLine line: Int, column: Int, in source: NSString) -> Int {
+        let lineStart = characterOffset(forLine: line, in: source)
+        let lineRange = source.lineRange(for: NSRange(location: min(lineStart, source.length), length: 0))
+        return min(NSMaxRange(lineRange), lineStart + max(0, column))
+    }
+
+    private func lineCount(in source: NSString) -> Int {
+        var count = 1
+        var offset = 0
+        while offset < source.length {
+            offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
+            if offset < source.length { count += 1 }
+        }
+        return count
+    }
+
+    private func diagnosticColor(for severity: JavaDiagnosticSeverity) -> NSColor {
+        switch severity {
+        case .error: NSColor.systemRed
+        case .warning: NSColor.systemOrange
+        case .information: NSColor.systemBlue
+        case .hint: NSColor.systemGray
+        }
     }
 
     private func matchingBracketRanges(in source: NSString, caret: Int) -> [NSRange] {

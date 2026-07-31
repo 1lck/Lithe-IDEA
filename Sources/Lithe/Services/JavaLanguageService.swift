@@ -22,6 +22,9 @@ final class JavaLanguageService: ObservableObject {
     @Published private(set) var isStarting = false
     @Published private(set) var isReady = false
     @Published private(set) var statusMessage = "Java navigation is idle"
+    @Published private(set) var diagnostics: [URL: [JavaDiagnostic]] = [:]
+
+    var onDiagnostics: ((URL, [JavaDiagnostic]) -> Void)?
 
     private var process: Process?
     private var inputPipe: Pipe?
@@ -107,6 +110,28 @@ final class JavaLanguageService: ObservableObject {
         }
     }
 
+    func update(_ document: EditorDocument) {
+        guard document.url.pathExtension.lowercased() == "java" else { return }
+        ensureReady(for: document.url.deletingLastPathComponent()) { [weak self, weak document] result in
+            guard let self, let document else { return }
+            guard case .success = result else { return }
+            self.synchronize(document)
+        }
+    }
+
+    func close(_ document: EditorDocument) {
+        guard document.url.pathExtension.lowercased() == "java" else { return }
+        let uri = document.url.absoluteString
+        if isReady {
+            sendNotification(method: "textDocument/didClose", parameters: [
+                "textDocument": ["uri": uri]
+            ])
+        }
+        openedDocumentVersions[uri] = nil
+        diagnostics[document.url.standardizedFileURL] = nil
+        onDiagnostics?(document.url.standardizedFileURL, [])
+    }
+
     func stop() {
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         errorPipe?.fileHandleForReading.readabilityHandler = nil
@@ -127,6 +152,7 @@ final class JavaLanguageService: ObservableObject {
         responseHandlers = [:]
         readyHandlers = []
         openedDocumentVersions = [:]
+        diagnostics = [:]
         readBuffer = Data()
         isStarting = false
         isReady = false
@@ -212,6 +238,7 @@ final class JavaLanguageService: ObservableObject {
                 "references": ["dynamicRegistration": false],
                 "implementation": ["dynamicRegistration": false, "linkSupport": true],
                 "inlayHint": ["dynamicRegistration": false, "resolveSupport": ["properties": []]],
+                "publishDiagnostics": ["relatedInformation": true],
                 "synchronization": ["dynamicRegistration": false, "didSave": true]
             ],
             "workspace": ["workspaceFolders": true, "configuration": true],
@@ -333,7 +360,12 @@ final class JavaLanguageService: ObservableObject {
             return
         }
 
-        guard let method = message["method"] as? String, let id = message["id"] else { return }
+        guard let method = message["method"] as? String else { return }
+        if message["id"] == nil {
+            handleNotification(method: method, parameters: message["params"] as? [String: Any])
+            return
+        }
+        guard let id = message["id"] else { return }
         switch method {
         case "workspace/configuration":
             let items = ((message["params"] as? [String: Any])?["items"] as? [[String: Any]]) ?? []
@@ -354,6 +386,20 @@ final class JavaLanguageService: ObservableObject {
         default:
             sendResponse(id: id, result: NSNull())
         }
+    }
+
+    private func handleNotification(method: String, parameters: [String: Any]?) {
+        guard method == "textDocument/publishDiagnostics",
+              let parameters,
+              let uri = parameters["uri"] as? String,
+              let url = URL(string: uri) else { return }
+        let normalizedURL = url.standardizedFileURL
+        let parsed = Self.parseDiagnostics(
+            parameters["diagnostics"] as? [[String: Any]] ?? [],
+            fileURL: normalizedURL
+        )
+        diagnostics[normalizedURL] = parsed
+        onDiagnostics?(normalizedURL, parsed)
     }
 
     private func finishStartup(_ result: Result<Void, Error>) {
@@ -451,6 +497,37 @@ final class JavaLanguageService: ObservableObject {
             }
             guard !label.isEmpty else { return nil }
             return JavaInlayHint(line: line, utf16Column: column, label: label)
+        }
+    }
+
+    private static func parseDiagnostics(
+        _ objects: [[String: Any]],
+        fileURL: URL
+    ) -> [JavaDiagnostic] {
+        objects.compactMap { object in
+            guard let range = object["range"] as? [String: Any],
+                  let start = range["start"] as? [String: Any],
+                  let line = start["line"] as? Int,
+                  let column = start["character"] as? Int,
+                  let message = object["message"] as? String,
+                  !message.isEmpty else { return nil }
+            let end = range["end"] as? [String: Any]
+            let endLine = end?["line"] as? Int ?? line
+            let endColumn = end?["character"] as? Int ?? column + 1
+            let severity = JavaDiagnosticSeverity(rawValue: object["severity"] as? Int ?? 1) ?? .error
+            let source = object["source"] as? String
+            let id = fileURL.path + ":" + String(line) + ":" + String(column) + ":" + message
+            return JavaDiagnostic(
+                id: id,
+                fileURL: fileURL,
+                line: max(0, line),
+                utf16Column: max(0, column),
+                endLine: max(0, endLine),
+                endUTF16Column: max(0, endColumn),
+                severity: severity,
+                message: message,
+                source: source
+            )
         }
     }
 }
