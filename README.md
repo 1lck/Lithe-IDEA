@@ -16,6 +16,8 @@ Lithe 是一款面向 AI 编程工作流的原生 macOS 代码浏览与 Git 审�
 - Git 分支与标签树、可搜索提交时间线、提交文件目录树和提交详情
 - 明确的 Run 未接入状态
 
+当前完成度、性能基线和后续计划见 [开发进度](./docs/开发进度.md)。
+
 ## 构建
 
 需要 Swift 6.2 或更高版本。Java 语义导航还需要 Eclipse JDT LS：
@@ -44,4 +46,18 @@ open dist/Lithe.app
 
 Lithe 不内置 AI、测试运行器或调试器。外部 AI 工具负责生成代码；Lithe 负责浏览项目、Java 代码导航、终端操作、观察外部变化和审查 Git 修改。Java 语言服务器仅在首次请求定义或引用时按需启动，关闭项目时停止。Local History 只把文本快照写入磁盘，内容按需加载，不作为 Git 的替代品。
 
-完整范围见 [需求开发书.md](./需求开发书.md)。
+完整范围见 [需求开发书](./docs/需求开发书.md)。IDEA 交互参考整理在 [IDEA UI 源码参考](./docs/IDEA-UI源码参考.md)。
+
+## 目录结构
+
+```text
+Lithe-IDEA/
+├── Sources/Lithe/   # SwiftUI / AppKit 源码
+├── Resources/       # Info.plist 与应用图标
+├── scripts/         # 本地打包脚本
+├── docs/            # 需求、进度与设计参考
+├── Package.swift
+└── README.md
+```
+
+`.build/`、`dist/` 和视觉验收截图均为可重建产物，不纳入仓库。
