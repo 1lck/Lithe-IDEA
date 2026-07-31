@@ -15,6 +15,7 @@ enum LitheTheme {
     static let accent = Color(red: 0.31, green: 0.58, blue: 0.98)
     static let success = Color(red: 0.28, green: 0.72, blue: 0.39)
     static let warning = Color(red: 0.91, green: 0.63, blue: 0.20)
+    static let error = Color(red: 0.92, green: 0.33, blue: 0.33)
 
     static let uiFont = Font.system(size: 13, weight: .regular)
     static let smallFont = Font.system(size: 11, weight: .regular)
