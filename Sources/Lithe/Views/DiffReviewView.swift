@@ -7,6 +7,9 @@ struct DiffReviewView: View {
     @State private var whitespaceMode = DiffWhitespaceMode.doNotIgnore
     @State private var highlightsWords = true
     @State private var selectedDifferenceIndex = 0
+    @State private var diffSearchQuery = ""
+    @State private var selectedDiffSearchIndex = 0
+    @FocusState private var diffSearchFocused: Bool
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -30,9 +33,13 @@ struct DiffReviewView: View {
         .background(LitheTheme.editor)
         .onChange(of: model.diffRows.count) { _, _ in
             selectedDifferenceIndex = 0
+            selectedDiffSearchIndex = 0
         }
         .onChange(of: whitespaceMode) { _, _ in
             selectedDifferenceIndex = 0
+        }
+        .onChange(of: diffSearchQuery) { _, _ in
+            selectedDiffSearchIndex = 0
         }
     }
 
@@ -102,6 +109,10 @@ struct DiffReviewView: View {
                 .litheIconButton()
                 .disabled(differenceStarts.isEmpty)
                 .help("Next difference")
+
+                toolbarDivider
+
+                diffSearchControl(proxy: proxy)
 
                 toolbarDivider
 
@@ -271,27 +282,8 @@ struct DiffReviewView: View {
             ScrollView(.horizontal) {
                 ScrollView(.vertical) {
                     LazyVStack(spacing: 0) {
-                        ForEach(model.diffRows) { row in
-                            let kind = effectiveKind(for: row)
-                            let differenceIndex = differenceIndexByRow[row.id]
-                            if usesSingleFileDiff {
-                                SingleFileDiffRowView(
-                                    row: row,
-                                    changeKind: change.kind,
-                                    fileExtension: change.url.pathExtension,
-                                    isSelectedDifference: differenceIndex == selectedDifferenceIndex
-                                )
-                                .id(row.id)
-                            } else {
-                                DiffRowView(
-                                    row: row,
-                                    kind: kind,
-                                    fileExtension: change.url.pathExtension,
-                                    highlightsWords: highlightsWords,
-                                    isSelectedDifference: differenceIndex == selectedDifferenceIndex
-                                )
-                                .id(row.id)
-                            }
+                        ForEach(model.diffRows, id: \DiffRow.id) { row in
+                            diffRowView(for: row)
                         }
                     }
                     .frame(width: contentWidth, alignment: .topLeading)
@@ -301,6 +293,40 @@ struct DiffReviewView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             .background(LitheTheme.editor)
+        }
+    }
+
+    @ViewBuilder
+    private func diffRowView(for row: DiffRow) -> some View {
+        let kind = effectiveKind(for: row)
+        let differenceIndex = differenceIndexByRow[row.id]
+        if usesSingleFileDiff {
+            SingleFileDiffRowView(
+                row: row,
+                changeKind: change.kind,
+                fileExtension: change.url.pathExtension,
+                isSelectedDifference: differenceIndex == selectedDifferenceIndex,
+                isSearchMatch: diffSearchMatches.contains(row.id),
+                isCurrentSearchMatch: row.id == selectedDiffSearchRowID
+            )
+            .overlay(alignment: .topTrailing) {
+                hunkActions(for: row)
+            }
+            .id(row.id)
+        } else {
+            DiffRowView(
+                row: row,
+                kind: kind,
+                fileExtension: change.url.pathExtension,
+                highlightsWords: highlightsWords,
+                isSelectedDifference: differenceIndex == selectedDifferenceIndex,
+                isSearchMatch: diffSearchMatches.contains(row.id),
+                isCurrentSearchMatch: row.id == selectedDiffSearchRowID
+            )
+            .overlay(alignment: .topTrailing) {
+                hunkActions(for: row)
+            }
+            .id(row.id)
         }
     }
 
@@ -315,6 +341,98 @@ struct DiffReviewView: View {
             insideDifference = isDifference
         }
         return result
+    }
+
+    private func diffSearchControl(proxy: ScrollViewProxy) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+
+            TextField("Search diff", text: $diffSearchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11.5))
+                .frame(width: 145)
+                .focused($diffSearchFocused)
+                .onKeyPress(keys: [.return]) { press in
+                    navigateDiffSearch(
+                        by: press.modifiers.contains(.shift) ? -1 : 1,
+                        proxy: proxy
+                    )
+                    return .handled
+                }
+
+            Text(diffSearchLabel)
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(minWidth: 34, alignment: .trailing)
+                .monospacedDigit()
+
+            Button {
+                navigateDiffSearch(by: -1, proxy: proxy)
+            } label: {
+                Image(systemName: "chevron.up")
+            }
+            .litheIconButton()
+            .disabled(diffSearchMatches.isEmpty)
+            .help("Previous diff match")
+
+            Button {
+                navigateDiffSearch(by: 1, proxy: proxy)
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .litheIconButton()
+            .disabled(diffSearchMatches.isEmpty)
+            .help("Next diff match")
+        }
+        .padding(.horizontal, 7)
+        .frame(height: 28)
+        .background(LitheTheme.raised.opacity(0.58))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .onAppear { diffSearchFocused = false }
+    }
+
+    private var diffSearchMatches: [UUID] {
+        let query = diffSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        let foldedQuery = query.localizedLowercase
+        return model.diffRows.compactMap { row in
+            let texts = [row.left, row.right].compactMap { $0 }
+            return texts.contains(where: { $0.localizedLowercase.contains(foldedQuery) }) ? row.id : nil
+        }
+    }
+
+    private var selectedDiffSearchRowID: UUID? {
+        guard !diffSearchMatches.isEmpty else { return nil }
+        let index = min(max(selectedDiffSearchIndex, 0), diffSearchMatches.count - 1)
+        return diffSearchMatches[index]
+    }
+
+    private var diffSearchLabel: String {
+        guard !diffSearchMatches.isEmpty else { return diffSearchQuery.isEmpty ? "" : "0/0" }
+        let index = min(max(selectedDiffSearchIndex, 0), diffSearchMatches.count - 1)
+        return "\(index + 1)/\(diffSearchMatches.count)"
+    }
+
+    private func navigateDiffSearch(by offset: Int, proxy: ScrollViewProxy) {
+        let matches = diffSearchMatches
+        guard !matches.isEmpty else { return }
+        let current = min(max(selectedDiffSearchIndex, 0), matches.count - 1)
+        let next = (current + offset + matches.count) % matches.count
+        selectedDiffSearchIndex = next
+        withAnimation(.easeOut(duration: 0.18)) {
+            proxy.scrollTo(matches[next], anchor: .center)
+        }
+    }
+
+    @ViewBuilder
+    private func hunkActions(for row: DiffRow) -> some View {
+        if row.kind == .information,
+           let hunkID = row.hunkID,
+           let hunk = model.diffHunks.first(where: { $0.id == hunkID }) {
+            DiffHunkActionsView(hunk: hunk, change: change)
+        }
     }
 
     private var usesSingleFileDiff: Bool {
@@ -436,6 +554,24 @@ struct SingleFileDiffRowView: View {
     let changeKind: GitChangeKind
     let fileExtension: String
     let isSelectedDifference: Bool
+    let isSearchMatch: Bool
+    let isCurrentSearchMatch: Bool
+
+    init(
+        row: DiffRow,
+        changeKind: GitChangeKind,
+        fileExtension: String,
+        isSelectedDifference: Bool,
+        isSearchMatch: Bool = false,
+        isCurrentSearchMatch: Bool = false
+    ) {
+        self.row = row
+        self.changeKind = changeKind
+        self.fileExtension = fileExtension
+        self.isSelectedDifference = isSelectedDifference
+        self.isSearchMatch = isSearchMatch
+        self.isCurrentSearchMatch = isCurrentSearchMatch
+    }
 
     private var isAddition: Bool { changeKind == .added }
 
@@ -453,7 +589,8 @@ struct SingleFileDiffRowView: View {
             .padding(.horizontal, 12)
             .frame(height: 27)
             .frame(maxWidth: .infinity)
-            .background(Color(red: 0.13, green: 0.20, blue: 0.30))
+            .background(Color(red: 0.13, green: 0.20, blue: 0.30).opacity(isSearchMatch ? 0.92 : 1))
+            .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {
                 Text(lineNumber.map(String.init) ?? "")
@@ -484,12 +621,21 @@ struct SingleFileDiffRowView: View {
             }
             .frame(height: 24)
             .frame(maxWidth: .infinity)
-            .background(changeColor.opacity(isSelectedDifference ? 0.24 : 0.18))
+            .background(changeColor.opacity(isSelectedDifference ? 0.24 : 0.18 + (isSearchMatch ? 0.06 : 0)))
             .overlay(alignment: .leading) {
                 if isSelectedDifference {
                     Rectangle().fill(LitheTheme.accent).frame(width: 2)
                 }
             }
+            .overlay(searchMatchOverlay)
+        }
+    }
+
+    @ViewBuilder
+    private var searchMatchOverlay: some View {
+        if isCurrentSearchMatch {
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(Color.yellow.opacity(0.88), lineWidth: 1)
         }
     }
 
@@ -512,6 +658,26 @@ struct DiffRowView: View {
     let fileExtension: String
     let highlightsWords: Bool
     let isSelectedDifference: Bool
+    let isSearchMatch: Bool
+    let isCurrentSearchMatch: Bool
+
+    init(
+        row: DiffRow,
+        kind: DiffRowKind,
+        fileExtension: String,
+        highlightsWords: Bool,
+        isSelectedDifference: Bool,
+        isSearchMatch: Bool = false,
+        isCurrentSearchMatch: Bool = false
+    ) {
+        self.row = row
+        self.kind = kind
+        self.fileExtension = fileExtension
+        self.highlightsWords = highlightsWords
+        self.isSelectedDifference = isSelectedDifference
+        self.isSearchMatch = isSearchMatch
+        self.isCurrentSearchMatch = isCurrentSearchMatch
+    }
 
     var body: some View {
         if kind == .information {
@@ -528,6 +694,7 @@ struct DiffRowView: View {
             .frame(height: 27)
             .frame(maxWidth: .infinity)
             .background(Color(red: 0.13, green: 0.20, blue: 0.30))
+            .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {
                 diffCell(number: row.oldLine, text: row.left, otherText: row.right, side: .left)
@@ -541,6 +708,7 @@ struct DiffRowView: View {
                     Rectangle().fill(LitheTheme.accent).frame(width: 2)
                 }
             }
+            .overlay(searchMatchOverlay)
         }
     }
 
@@ -606,14 +774,22 @@ struct DiffRowView: View {
         switch kind {
         case .changed:
             return side == .left
-                ? Color.red.opacity(0.13 + selectionBoost)
-                : Color.green.opacity(0.14 + selectionBoost)
+                ? Color.red.opacity(0.13 + selectionBoost + (isSearchMatch ? 0.04 : 0))
+                : Color.green.opacity(0.14 + selectionBoost + (isSearchMatch ? 0.04 : 0))
         case .removal:
-            return side == .left ? Color.red.opacity(0.17 + selectionBoost) : .clear
+            return side == .left ? Color.red.opacity(0.17 + selectionBoost + (isSearchMatch ? 0.04 : 0)) : .clear
         case .addition:
-            return side == .right ? Color.green.opacity(0.17 + selectionBoost) : .clear
+            return side == .right ? Color.green.opacity(0.17 + selectionBoost + (isSearchMatch ? 0.04 : 0)) : .clear
         default:
             return .clear
+        }
+    }
+
+    @ViewBuilder
+    private var searchMatchOverlay: some View {
+        if isCurrentSearchMatch {
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(Color.yellow.opacity(0.88), lineWidth: 1)
         }
     }
 
@@ -637,6 +813,45 @@ struct DiffRowView: View {
         case .removal where side == .left: Color.red.opacity(0.72)
         default: LitheTheme.secondaryText.opacity(0.78)
         }
+    }
+}
+
+private struct DiffHunkActionsView: View {
+    @EnvironmentObject private var model: AppModel
+    let hunk: DiffHunk
+    let change: GitChange
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if change.hasWorkingTreeChange {
+                Button {
+                    Task { await model.stageDiffHunk(hunk, in: change) }
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .litheIconButton()
+                .help("Stage this change block")
+
+                Button {
+                    model.requestDiscardHunk(hunk, in: change)
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .litheIconButton()
+                .help("Discard this change block")
+            } else if change.isStaged {
+                Button {
+                    Task { await model.unstageDiffHunk(hunk, in: change) }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .litheIconButton()
+                .help("Unstage this change block")
+            }
+        }
+        .padding(.trailing, 6)
+        .frame(height: 27)
+        .background(LitheTheme.raised.opacity(0.92))
     }
 }
 

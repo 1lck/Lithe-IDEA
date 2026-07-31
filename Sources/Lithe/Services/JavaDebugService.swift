@@ -6,6 +6,11 @@ final class JavaDebugService: ObservableObject {
     @Published private(set) var output = ""
     @Published private(set) var inspectionTitle: String?
     @Published private(set) var inspectionOutput = ""
+    @Published private(set) var variables: [JavaDebugVariable] = []
+    @Published private(set) var threads: [JavaDebugThread] = []
+    @Published private(set) var callStack: [JavaDebugStackFrame] = []
+    @Published private(set) var expandingVariableID: String?
+    @Published private(set) var exceptionMessage: String?
     @Published private(set) var port: Int?
     @Published private(set) var breakpoints: [JavaDebugBreakpoint] = []
     @Published var targetKind: JavaDebugTargetKind = .currentFile
@@ -26,6 +31,15 @@ final class JavaDebugService: ObservableObject {
     @Published private(set) var runningTargetTitle: String?
     private var didBootstrap = false
     private let maximumOutputCharacters = 400_000
+
+    private enum InspectionKind {
+        case threads
+        case stack
+        case locals
+        case dump(variableID: String)
+    }
+
+    private var inspectionKind: InspectionKind?
 
     var isSessionActive: Bool { state != .idle }
     var canControl: Bool { jdbProcess?.isRunning == true }
@@ -120,7 +134,7 @@ final class JavaDebugService: ObservableObject {
         arguments.append("spring-boot:run")
 
         let moduleDirectory = configuration.modulePath.flatMap { modulePath in
-            project.modules.first(where: { $0.relativePath == modulePath })?.url
+            project.allModules.first(where: { $0.relativePath == modulePath })?.url
         } ?? project.rootURL
         let executable = MavenService.executableURL(for: project)
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
@@ -221,20 +235,40 @@ final class JavaDebugService: ObservableObject {
     }
 
     func inspectThreads() {
-        inspect(title: "Threads", command: "threads")
+        inspect(title: "Threads", command: "threads", kind: .threads)
     }
 
     func inspectStack() {
-        inspect(title: "Call Stack", command: "where all")
+        inspect(title: "Call Stack", command: "where all", kind: .stack)
     }
 
     func inspectVariables() {
-        inspect(title: "Local Variables", command: "locals")
+        inspect(title: "Local Variables", command: "locals", kind: .locals)
+    }
+
+    func toggleVariable(_ variable: JavaDebugVariable) {
+        guard variable.canExpand else { return }
+        if variable.isExpanded {
+            updateVariable(variable.id) { $0.isExpanded = false }
+            return
+        }
+        guard canControl else { return }
+        updateVariable(variable.id) { $0.isExpanded = true }
+        expandingVariableID = variable.id
+        inspectionTitle = "Local Variables"
+        inspectionKind = .dump(variableID: variable.id)
+        inspectionOutput = "> dump \(variable.expression)\n"
+        send("dump \(variable.expression)")
     }
 
     func clearOutput() {
         output = ""
         inspectionOutput = ""
+        variables = []
+        threads = []
+        callStack = []
+        expandingVariableID = nil
+        exceptionMessage = nil
     }
 
     func stop() {
@@ -262,6 +296,12 @@ final class JavaDebugService: ObservableObject {
         port = nil
         inspectionTitle = nil
         inspectionOutput = ""
+        variables = []
+        threads = []
+        callStack = []
+        expandingVariableID = nil
+        exceptionMessage = nil
+        inspectionKind = nil
         state = .idle
     }
 
@@ -311,6 +351,12 @@ final class JavaDebugService: ObservableObject {
         output = ""
         inspectionTitle = nil
         inspectionOutput = ""
+        variables = []
+        threads = []
+        callStack = []
+        expandingVariableID = nil
+        exceptionMessage = nil
+        inspectionKind = nil
         didBootstrap = false
         state = .launching
         return id
@@ -446,6 +492,7 @@ final class JavaDebugService: ObservableObject {
     private func appendDebuggeeOutput(_ chunk: String, sessionID: UUID) {
         guard self.sessionID == sessionID else { return }
         append("[debuggee] " + chunk)
+        _ = detectException(in: chunk)
         if chunk.localizedCaseInsensitiveContains("Listening for transport") {
             guard let port, let activeJDBURL else { return }
             attachJDB(
@@ -460,21 +507,240 @@ final class JavaDebugService: ObservableObject {
     private func appendJDBOutput(_ chunk: String, sessionID: UUID) {
         guard self.sessionID == sessionID else { return }
         append("[jdb] " + chunk)
+        let didDetectException = detectException(in: chunk)
         if inspectionTitle != nil {
             inspectionOutput.append(chunk)
             if inspectionOutput.count > 80_000 {
                 inspectionOutput.removeFirst(inspectionOutput.count - 80_000)
             }
+            refreshInspectionData()
         }
-        if chunk.contains("Breakpoint hit:") || chunk.contains("Step completed:") || chunk.contains("Method entered:") {
+        if chunk.contains("Breakpoint hit:") || chunk.contains("Step completed:") || chunk.contains("Method entered:") || didDetectException {
             state = .paused
         }
     }
 
-    private func inspect(title: String, command: String) {
+    private func inspect(title: String, command: String, kind: InspectionKind) {
         inspectionTitle = title
         inspectionOutput = "> \(command)\n"
+        inspectionKind = kind
+        expandingVariableID = nil
+        switch kind {
+        case .threads: threads = []
+        case .stack: callStack = []
+        case .locals: variables = []
+        case .dump: break
+        }
         send(command)
+    }
+
+    private func refreshInspectionData() {
+        guard let inspectionKind else { return }
+        switch inspectionKind {
+        case .threads:
+            threads = Self.parseThreads(inspectionOutput)
+        case .stack:
+            callStack = Self.parseStackFrames(inspectionOutput)
+        case .locals:
+            variables = Self.parseVariables(inspectionOutput)
+        case .dump(let variableID):
+            guard let variable = variable(with: variableID) else { return }
+            let children = Self.parseDumpChildren(inspectionOutput, parent: variable)
+            guard !children.isEmpty else { return }
+            updateVariable(variableID) {
+                $0.children = children
+                $0.isExpanded = true
+            }
+            expandingVariableID = nil
+        }
+    }
+
+    private func variable(with id: String, in values: [JavaDebugVariable]? = nil) -> JavaDebugVariable? {
+        let values = values ?? variables
+        for value in values {
+            if value.id == id { return value }
+            if let child = variable(with: id, in: value.children) { return child }
+        }
+        return nil
+    }
+
+    @discardableResult
+    private func updateVariable(
+        _ id: String,
+        in values: inout [JavaDebugVariable],
+        update: (inout JavaDebugVariable) -> Void
+    ) -> Bool {
+        for index in values.indices {
+            if values[index].id == id {
+                update(&values[index])
+                return true
+            }
+            if updateVariable(id, in: &values[index].children, update: update) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func updateVariable(
+        _ id: String,
+        update: (inout JavaDebugVariable) -> Void
+    ) {
+        _ = updateVariable(id, in: &variables, update: update)
+    }
+
+    private static func parseVariables(_ text: String) -> [JavaDebugVariable] {
+        var result: [JavaDebugVariable] = []
+        for line in text.components(separatedBy: .newlines) {
+            guard let assignment = parseAssignment(line) else { continue }
+            let expression = assignment.name
+            guard !result.contains(where: { $0.id == expression }) else { continue }
+            result.append(JavaDebugVariable(
+                id: expression,
+                name: assignment.name,
+                expression: expression,
+                value: assignment.value,
+                children: [],
+                isExpanded: false,
+                isExpandable: looksExpandable(assignment.value)
+            ))
+        }
+        return result
+    }
+
+    private static func parseDumpChildren(
+        _ text: String,
+        parent: JavaDebugVariable
+    ) -> [JavaDebugVariable] {
+        var result: [JavaDebugVariable] = []
+        for line in text.components(separatedBy: .newlines) {
+            guard let assignment = parseAssignment(line),
+                  assignment.name != parent.name,
+                  assignment.name != parent.expression else { continue }
+            let expression: String
+            if assignment.name.hasPrefix("[") {
+                expression = parent.expression + assignment.name
+            } else {
+                expression = parent.expression + "." + assignment.name
+            }
+            guard !result.contains(where: { $0.id == expression }) else { continue }
+            result.append(JavaDebugVariable(
+                id: expression,
+                name: assignment.name,
+                expression: expression,
+                value: assignment.value,
+                children: [],
+                isExpanded: false,
+                isExpandable: looksExpandable(assignment.value)
+            ))
+        }
+        return result
+    }
+
+    private static func parseAssignment(_ line: String) -> (name: String, value: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.hasPrefix(">"),
+              !trimmed.hasSuffix(":"),
+              let separator = trimmed.range(of: " = ") else { return nil }
+        let name = String(trimmed[..<separator.lowerBound]).trimmingCharacters(in: .whitespaces)
+        let value = String(trimmed[separator.upperBound...]).trimmingCharacters(in: .whitespaces)
+        guard isValidVariableName(name), !value.isEmpty else { return nil }
+        return (name, value)
+    }
+
+    private static func isValidVariableName(_ name: String) -> Bool {
+        if name.hasPrefix("[") && name.hasSuffix("]") { return true }
+        guard let first = name.unicodeScalars.first,
+              CharacterSet.letters.union(CharacterSet(charactersIn: "_$")).contains(first) else {
+            return false
+        }
+        return name.unicodeScalars.dropFirst().allSatisfy {
+            CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$")).contains($0)
+        }
+    }
+
+    private static func looksExpandable(_ value: String) -> Bool {
+        let lowercased = value.lowercased()
+        return value.hasSuffix("{") ||
+            lowercased.contains("instance of ") ||
+            lowercased.contains("[length") ||
+            lowercased.contains("array")
+    }
+
+    private static func parseThreads(_ text: String) -> [JavaDebugThread] {
+        var result: [JavaDebugThread] = []
+        for line in text.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  !trimmed.lowercased().hasPrefix("group ") else { continue }
+
+            let id: String
+            let name: String
+            let status: String
+            if let colon = trimmed.firstIndex(of: ":"),
+               Int(trimmed[..<colon].trimmingCharacters(in: .whitespaces)) != nil {
+                id = String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces)
+                let remainder = trimmed[trimmed.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                if remainder.first == "\"", let closing = remainder.dropFirst().firstIndex(of: "\"") {
+                    name = String(remainder[remainder.index(after: remainder.startIndex)..<closing])
+                    status = String(remainder[remainder.index(after: closing)...]).trimmingCharacters(in: .whitespaces)
+                } else {
+                    let parts = remainder.split(maxSplits: 1, omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
+                    name = parts.first.map(String.init) ?? "Thread \(id)"
+                    status = parts.dropFirst().first.map(String.init) ?? ""
+                }
+            } else if trimmed.hasPrefix("("),
+                      let close = trimmed.firstIndex(of: ")") {
+                let afterClose = trimmed[trimmed.index(after: close)...].trimmingCharacters(in: .whitespaces)
+                let parts = afterClose.split(maxSplits: 1, omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
+                id = String(afterClose[..<(parts.first?.endIndex ?? afterClose.endIndex)])
+                name = parts.dropFirst().first.map(String.init) ?? String(trimmed[..<close])
+                status = parts.dropFirst(2).first.map(String.init) ?? ""
+            } else {
+                continue
+            }
+            guard !result.contains(where: { $0.id == id }) else { continue }
+            result.append(JavaDebugThread(
+                id: id,
+                name: name,
+                status: status,
+                isCurrent: trimmed.contains("*") || status.localizedCaseInsensitiveContains("current")
+            ))
+        }
+        return result
+    }
+
+    private static func parseStackFrames(_ text: String) -> [JavaDebugStackFrame] {
+        var result: [JavaDebugStackFrame] = []
+        for line in text.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("[") else { continue }
+            guard let closing = trimmed.firstIndex(of: "]"),
+                  let level = Int(trimmed[trimmed.index(after: trimmed.startIndex)..<closing]) else { continue }
+            let description = trimmed[trimmed.index(after: closing)...]
+                .trimmingCharacters(in: .whitespaces)
+            guard !description.isEmpty else { continue }
+            result.append(JavaDebugStackFrame(level: level, description: description))
+        }
+        return result
+    }
+
+    @discardableResult
+    private func detectException(in text: String) -> Bool {
+        for line in text.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lowercased = trimmed.lowercased()
+            guard lowercased.contains("exception") || lowercased.hasPrefix("caused by:") else { continue }
+            if lowercased.contains("exception occurred") ||
+                lowercased.hasPrefix("exception in thread") ||
+                lowercased.hasPrefix("uncaught exception") ||
+                lowercased.hasPrefix("caused by:") {
+                exceptionMessage = trimmed
+                return true
+            }
+        }
+        return false
     }
 
     private func send(_ command: String) {

@@ -109,7 +109,7 @@ struct EditorAreaView: View {
     @ViewBuilder
     private var activeEditor: some View {
         if let document = model.activeDocument {
-            CodeEditorView(document: document)
+            CodeEditorView(document: document, debugService: model.javaDebugService)
                 .id(document.id)
                 .clipped()
                 .overlay(alignment: .top) {

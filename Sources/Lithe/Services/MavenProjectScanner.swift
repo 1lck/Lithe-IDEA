@@ -12,11 +12,7 @@ enum MavenProjectScanner {
         let modules = rootDescriptor.modulePaths.compactMap { rawPath -> MavenModule? in
             let relativePath = normalizedRelativePath(rawPath)
             guard !relativePath.isEmpty else { return nil }
-            return module(
-                at: rootURL,
-                relativePath: relativePath,
-                visitedPaths: [rootURL.path]
-            )
+            return module(at: rootURL, relativePath: relativePath, visitedPaths: [rootURL.path])
         }
 
         return MavenProject(
@@ -28,9 +24,6 @@ enum MavenProjectScanner {
             packaging: rootDescriptor.packaging,
             modules: modules,
             profiles: rootDescriptor.profiles,
-            plugins: rootDescriptor.plugins,
-            dependencies: rootDescriptor.dependencies,
-            repositories: rootDescriptor.repositories,
             hasWrapper: hasMavenWrapper(at: rootURL)
         )
     }
@@ -46,16 +39,11 @@ enum MavenProjectScanner {
         let moduleDescriptor = descriptor(at: moduleURL.appendingPathComponent("pom.xml"))
         let nextVisitedPaths = visitedPaths.union([moduleURL.path])
         let childModules = moduleDescriptor?.modulePaths.compactMap { rawPath -> MavenModule? in
-            let childURL = moduleURL
-                .appendingPathComponent(normalizedRelativePath(rawPath))
-                .standardizedFileURL
-            guard let childRelativePath = rootRelativePath(from: rootURL, to: childURL),
-                  !childRelativePath.isEmpty else { return nil }
-            return module(
-                at: rootURL,
-                relativePath: childRelativePath,
-                visitedPaths: nextVisitedPaths
-            )
+            let childPath = normalizedRelativePath(rawPath)
+            guard !childPath.isEmpty else { return nil }
+            let childURL = moduleURL.appendingPathComponent(childPath).standardizedFileURL
+            guard let childRelativePath = rootRelativePath(from: rootURL, to: childURL) else { return nil }
+            return module(at: rootURL, relativePath: childRelativePath, visitedPaths: nextVisitedPaths)
         } ?? []
 
         return MavenModule(
@@ -65,10 +53,7 @@ enum MavenProjectScanner {
             artifactID: moduleDescriptor?.artifactID ?? moduleURL.lastPathComponent,
             version: moduleDescriptor?.version,
             packaging: moduleDescriptor?.packaging ?? "jar",
-            modules: childModules,
-            plugins: moduleDescriptor?.plugins ?? [],
-            dependencies: moduleDescriptor?.dependencies ?? [],
-            repositories: moduleDescriptor?.repositories ?? []
+            modules: childModules
         )
     }
 
@@ -106,42 +91,20 @@ enum MavenProjectScanner {
         let packaging: String
         let modulePaths: [String]
         let profiles: [MavenProfile]
-        let plugins: [MavenPlugin]
-        let dependencies: [MavenDependency]
-        let repositories: [MavenRepository]
     }
 
     private final class MavenXMLDelegate: NSObject, XMLParserDelegate {
         private(set) var descriptor: Descriptor?
         private var elementStack: [String] = []
         private var currentText = ""
-
         private var groupID: String?
         private var artifactID: String?
         private var version: String?
         private var packaging = "jar"
         private var modulePaths: [String] = []
         private var profiles: [MavenProfile] = []
-        private var plugins: [MavenPlugin] = []
-        private var dependencies: [MavenDependency] = []
-        private var repositories: [MavenRepository] = []
-
         private var profileID: String?
         private var profileActiveByDefault = false
-
-        private var dependencyGroupID: String?
-        private var dependencyArtifactID: String?
-        private var dependencyVersion: String?
-        private var dependencyScope: String?
-        private var dependencyType: String?
-        private var dependencyOptional = false
-
-        private var pluginGroupID: String?
-        private var pluginArtifactID: String?
-        private var pluginVersion: String?
-
-        private var repositoryID = ""
-        private var repositoryURL = ""
 
         func parser(
             _ parser: XMLParser,
@@ -152,27 +115,9 @@ enum MavenProjectScanner {
         ) {
             elementStack.append(elementName)
             currentText = ""
-
-            switch elementName {
-            case "profile":
+            if elementName == "profile" {
                 profileID = nil
                 profileActiveByDefault = false
-            case "dependency":
-                dependencyGroupID = nil
-                dependencyArtifactID = nil
-                dependencyVersion = nil
-                dependencyScope = nil
-                dependencyType = nil
-                dependencyOptional = false
-            case "plugin":
-                pluginGroupID = nil
-                pluginArtifactID = nil
-                pluginVersion = nil
-            case "repository":
-                repositoryID = ""
-                repositoryURL = ""
-            default:
-                break
             }
         }
 
@@ -204,56 +149,8 @@ enum MavenProjectScanner {
                 profileID = value
             case "project/profiles/profile/activation/activeByDefault":
                 profileActiveByDefault = value.lowercased() == "true"
-            case "project/dependencies/dependency/groupId":
-                dependencyGroupID = value
-            case "project/dependencies/dependency/artifactId":
-                dependencyArtifactID = value
-            case "project/dependencies/dependency/version":
-                dependencyVersion = value
-            case "project/dependencies/dependency/scope":
-                dependencyScope = value
-            case "project/dependencies/dependency/type":
-                dependencyType = value
-            case "project/dependencies/dependency/optional":
-                dependencyOptional = value.lowercased() == "true"
-            case "project/build/plugins/plugin/groupId", "project/build/pluginManagement/plugins/plugin/groupId":
-                pluginGroupID = value
-            case "project/build/plugins/plugin/artifactId", "project/build/pluginManagement/plugins/plugin/artifactId":
-                pluginArtifactID = value
-            case "project/build/plugins/plugin/version", "project/build/pluginManagement/plugins/plugin/version":
-                pluginVersion = value
-            case "project/repositories/repository/id":
-                repositoryID = value
-            case "project/repositories/repository/url":
-                repositoryURL = value
             default:
                 break
-            }
-
-            if elementName == "dependency", isProjectDependencyPath(path),
-               let dependencyArtifactID, !dependencyArtifactID.isEmpty {
-                appendDependency(MavenDependency(
-                    groupID: dependencyGroupID,
-                    artifactID: dependencyArtifactID,
-                    version: dependencyVersion,
-                    scope: dependencyScope,
-                    type: dependencyType,
-                    isOptional: dependencyOptional
-                ))
-            }
-
-            if elementName == "plugin", isProjectPluginPath(path),
-               let pluginArtifactID, !pluginArtifactID.isEmpty {
-                appendPlugin(MavenPlugin(
-                    groupID: pluginGroupID,
-                    artifactID: pluginArtifactID,
-                    version: pluginVersion
-                ))
-            }
-
-            if elementName == "repository", path == "project/repositories/repository",
-               !repositoryID.isEmpty || !repositoryURL.isEmpty {
-                appendRepository(MavenRepository(repositoryID: repositoryID, url: repositoryURL))
             }
 
             if elementName == "profile", path == "project/profiles/profile",
@@ -273,35 +170,8 @@ enum MavenProjectScanner {
                 version: version,
                 packaging: packaging,
                 modulePaths: modulePaths,
-                profiles: profiles,
-                plugins: plugins,
-                dependencies: dependencies,
-                repositories: repositories
+                profiles: profiles
             )
-        }
-
-        private func isProjectDependencyPath(_ path: String) -> Bool {
-            path == "project/dependencies/dependency"
-        }
-
-        private func isProjectPluginPath(_ path: String) -> Bool {
-            path == "project/build/plugins/plugin" ||
-                path == "project/build/pluginManagement/plugins/plugin"
-        }
-
-        private func appendPlugin(_ plugin: MavenPlugin) {
-            guard !plugins.contains(where: { $0.id == plugin.id }) else { return }
-            plugins.append(plugin)
-        }
-
-        private func appendDependency(_ dependency: MavenDependency) {
-            guard !dependencies.contains(where: { $0.id == dependency.id }) else { return }
-            dependencies.append(dependency)
-        }
-
-        private func appendRepository(_ repository: MavenRepository) {
-            guard !repositories.contains(where: { $0.id == repository.id }) else { return }
-            repositories.append(repository)
         }
     }
 }

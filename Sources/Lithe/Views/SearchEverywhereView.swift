@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// IDEA 风格的双击 Shift 全局搜索弹窗：文件名/路径匹配优先，全文匹配其次。
+/// IDEA 风格的双击 Shift 全局搜索弹窗：文件、类、符号和全文结果统一展示。
 struct SearchEverywhereView: View {
     @EnvironmentObject private var model: AppModel
     @FocusState private var searchFocused: Bool
@@ -9,7 +9,7 @@ struct SearchEverywhereView: View {
     @State private var keyMonitor: Any?
 
     private var allResults: [FileSearchResult] {
-        model.searchEverywhereResults.fileMatches + model.searchEverywhereResults.contentMatches
+        model.searchEverywhereResults.allMatches
     }
 
     var body: some View {
@@ -82,7 +82,7 @@ struct SearchEverywhereView: View {
 
     private var searchField: some View {
         HStack(spacing: 8) {
-            TextField("Type to search files and contents", text: $model.searchEverywhereQuery)
+            TextField("Type to search files, classes, symbols and contents", text: $model.searchEverywhereQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13.5))
                 .focused($searchFocused)
@@ -104,7 +104,7 @@ struct SearchEverywhereView: View {
     @ViewBuilder
     private var resultsList: some View {
         if model.searchEverywhereQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            placeholder("Type to search files and their contents")
+            placeholder("Type to search files, classes, symbols and contents")
         } else if allResults.isEmpty && !model.isSearchingEverywhere {
             placeholder("No matches")
         } else {
@@ -116,6 +116,28 @@ struct SearchEverywhereView: View {
                             resultRow(result, flatIndex: index, showsLine: false)
                         }
                     }
+                    if !model.searchEverywhereResults.classMatches.isEmpty {
+                        sectionHeader("Classes")
+                        ForEach(Array(model.searchEverywhereResults.classMatches.enumerated()), id: \.offset) { index, result in
+                            resultRow(
+                                result,
+                                flatIndex: model.searchEverywhereResults.fileMatches.count + index,
+                                showsLine: true
+                            )
+                        }
+                    }
+                    if !model.searchEverywhereResults.symbolMatches.isEmpty {
+                        sectionHeader("Symbols")
+                        ForEach(Array(model.searchEverywhereResults.symbolMatches.enumerated()), id: \.offset) { index, result in
+                            resultRow(
+                                result,
+                                flatIndex: model.searchEverywhereResults.fileMatches.count
+                                    + model.searchEverywhereResults.classMatches.count
+                                    + index,
+                                showsLine: true
+                            )
+                        }
+                    }
                     if !model.searchEverywhereResults.contentMatches.isEmpty {
                         sectionHeader("Matches")
                         ForEach(
@@ -124,7 +146,10 @@ struct SearchEverywhereView: View {
                         ) { index, result in
                             resultRow(
                                 result,
-                                flatIndex: model.searchEverywhereResults.fileMatches.count + index,
+                                flatIndex: model.searchEverywhereResults.fileMatches.count
+                                    + model.searchEverywhereResults.classMatches.count
+                                    + model.searchEverywhereResults.symbolMatches.count
+                                    + index,
                                 showsLine: true
                             )
                         }
@@ -164,11 +189,11 @@ struct SearchEverywhereView: View {
             model.openSearchEverywhereResult(result)
         } label: {
             HStack(spacing: 9) {
-                Image(systemName: "doc.text")
+                Image(systemName: result.kind.systemImage)
                     .font(.system(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 14)
-                Text(result.url.lastPathComponent)
+                Text(result.symbolName ?? result.url.lastPathComponent)
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
@@ -210,7 +235,7 @@ struct SearchEverywhereView: View {
                 }
                 return nil
             case 36, 76: // Return / Enter
-                let all = model.searchEverywhereResults.fileMatches + model.searchEverywhereResults.contentMatches
+                let all = model.searchEverywhereResults.allMatches
                 if all.indices.contains(selectedIndex) {
                     model.openSearchEverywhereResult(all[selectedIndex])
                 }

@@ -2,14 +2,17 @@ import SwiftUI
 
 struct JavaProblemsView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var severityFilter = Set(JavaDiagnosticSeverity.allCases)
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if diagnostics.isEmpty {
+            if allDiagnostics.isEmpty {
                 emptyState
+            } else if diagnostics.isEmpty {
+                filteredEmptyState
             } else {
                 ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: 2) {
@@ -32,7 +35,7 @@ struct JavaProblemsView: View {
             Text("Problems")
                 .font(.system(size: 12.5, weight: .semibold))
 
-            if !diagnostics.isEmpty {
+            if !allDiagnostics.isEmpty {
                 Text(String(diagnostics.count))
                     .font(.system(size: 11.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -51,6 +54,35 @@ struct JavaProblemsView: View {
                     .foregroundStyle(LitheTheme.warning)
             }
 
+            Menu {
+                Button {
+                    severityFilter = Set(JavaDiagnosticSeverity.allCases)
+                } label: {
+                    Label("All severities", systemImage: severityFilter.count == JavaDiagnosticSeverity.allCases.count ? "checkmark" : "circle")
+                }
+
+                Divider()
+
+                ForEach(JavaDiagnosticSeverity.allCases, id: \.self) { severity in
+                    Button {
+                        if severityFilter.contains(severity) {
+                            severityFilter.remove(severity)
+                        } else {
+                            severityFilter.insert(severity)
+                        }
+                    } label: {
+                        Label(
+                            severity.title,
+                            systemImage: severityFilter.contains(severity) ? "checkmark" : "circle"
+                        )
+                    }
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+            }
+            .litheIconButton()
+            .help("Filter problems by severity")
+
             Button {
                 model.isProblemsVisible = false
             } label: {
@@ -66,7 +98,7 @@ struct JavaProblemsView: View {
         .background(LitheTheme.toolHeader)
     }
 
-    private var diagnostics: [JavaDiagnostic] {
+    private var allDiagnostics: [JavaDiagnostic] {
         model.javaDiagnostics.values
             .flatMap { $0 }
             .sorted {
@@ -76,6 +108,10 @@ struct JavaProblemsView: View {
                 if $0.line != $1.line { return $0.line < $1.line }
                 return $0.utf16Column < $1.utf16Column
             }
+    }
+
+    private var diagnostics: [JavaDiagnostic] {
+        allDiagnostics.filter { severityFilter.contains($0.severity) }
     }
 
     private var errorCount: Int {
@@ -103,11 +139,22 @@ struct JavaProblemsView: View {
                                 .font(.system(size: 10.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
+                        if let reason = diagnostic.reasonSummary {
+                            Text(reason)
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(diagnostic.isUnnecessary ? LitheTheme.secondaryText : LitheTheme.accent)
+                        }
                     }
                     Text(diagnostic.message)
                         .font(.system(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(3)
+                    if !diagnostic.relatedInformation.isEmpty {
+                        Text(diagnostic.relatedInformation.map { "\($0.locationTitle): \($0.message)" }.joined(separator: " · "))
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(LitheTheme.secondaryText.opacity(0.82))
+                            .lineLimit(2)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -117,6 +164,7 @@ struct JavaProblemsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(diagnostic.detailText)
     }
 
     private var emptyState: some View {
@@ -127,6 +175,20 @@ struct JavaProblemsView: View {
             Text("No Java problems")
                 .font(.system(size: 13.5, weight: .semibold))
             Text("Diagnostics from JDT LS will appear here.")
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var filteredEmptyState: some View {
+        VStack(spacing: 9) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Text("No problems match the current filter")
+                .font(.system(size: 13.5, weight: .semibold))
+            Text("Use the filter menu to show other severities.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
         }

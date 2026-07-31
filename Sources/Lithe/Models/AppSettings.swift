@@ -9,6 +9,8 @@ final class AppSettings: ObservableObject {
         static let autoSave = "settings.autoSave"
         static let autoSaveDelay = "settings.autoSaveDelay"
         static let terminalShell = "settings.terminalShell"
+        static let hiddenDirectories = "settings.hiddenDirectories"
+        static let hiddenFilePatterns = "settings.hiddenFilePatterns"
     }
 
     private let defaults: UserDefaults
@@ -19,6 +21,20 @@ final class AppSettings: ObservableObject {
     @Published var autoSave: Bool { didSet { defaults.set(autoSave, forKey: Key.autoSave) } }
     @Published var autoSaveDelay: Double { didSet { defaults.set(autoSaveDelay, forKey: Key.autoSaveDelay) } }
     @Published var terminalShell: TerminalShell { didSet { defaults.set(terminalShell.rawValue, forKey: Key.terminalShell) } }
+    @Published var hiddenDirectoryNames: [String] {
+        didSet {
+            defaults.set(hiddenDirectoryNames, forKey: Key.hiddenDirectories)
+            onFileVisibilityRulesChanged?()
+        }
+    }
+    @Published var hiddenFilePatterns: [String] {
+        didSet {
+            defaults.set(hiddenFilePatterns, forKey: Key.hiddenFilePatterns)
+            onFileVisibilityRulesChanged?()
+        }
+    }
+
+    var onFileVisibilityRulesChanged: (() -> Void)?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -28,9 +44,20 @@ final class AppSettings: ObservableObject {
         autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? false
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
         terminalShell = TerminalShell(rawValue: defaults.string(forKey: Key.terminalShell) ?? "") ?? .system
+        hiddenDirectoryNames = defaults.stringArray(forKey: Key.hiddenDirectories)
+            ?? FileVisibilityRules.default.hiddenDirectoryNames
+        hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
+            ?? FileVisibilityRules.default.hiddenFilePatterns
     }
 
     var terminalShellPath: String? { terminalShell.path }
+
+    var fileVisibilityRules: FileVisibilityRules {
+        FileVisibilityRules(
+            hiddenDirectoryNames: hiddenDirectoryNames,
+            hiddenFilePatterns: hiddenFilePatterns
+        )
+    }
 
     func restoreDefaults() {
         editorFontSize = 13
@@ -39,6 +66,8 @@ final class AppSettings: ObservableObject {
         autoSave = false
         autoSaveDelay = 1.5
         terminalShell = .system
+        hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
+        hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
     }
 }
 

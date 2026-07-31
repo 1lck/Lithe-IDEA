@@ -1,15 +1,17 @@
 import Foundation
 
 enum WorkspaceScanner {
-    private static let excludedDirectories: Set<String> = [
-        ".git", ".build", ".swiftpm", "node_modules", "target", "build",
-        "DerivedData", ".gradle", ".next", "dist", "coverage", "design-qa-artifacts"
-    ]
-    private static let excludedNames: Set<String> = [".DS_Store"]
-
-    static func snapshot(at rootURL: URL) -> WorkspaceSnapshot {
+    static func snapshot(
+        at rootURL: URL,
+        rules: FileVisibilityRules = .default
+    ) -> WorkspaceSnapshot {
         var indexedFiles: [URL] = []
-        let root = makeNode(at: rootURL, indexedFiles: &indexedFiles)
+        let root = makeNode(
+            at: rootURL,
+            indexedFiles: &indexedFiles,
+            rules: rules,
+            workspaceRoot: rootURL
+        )
         return WorkspaceSnapshot(root: root, files: indexedFiles)
     }
 
@@ -108,7 +110,12 @@ enum WorkspaceScanner {
         return textExtensions.contains(url.pathExtension.lowercased()) || url.pathExtension.isEmpty
     }
 
-    private static func makeNode(at url: URL, indexedFiles: inout [URL]) -> FileNode {
+    private static func makeNode(
+        at url: URL,
+        indexedFiles: inout [URL],
+        rules: FileVisibilityRules,
+        workspaceRoot: URL
+    ) -> FileNode {
         var isDirectory: ObjCBool = false
         FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
 
@@ -125,10 +132,13 @@ enum WorkspaceScanner {
         )) ?? []
 
         let visibleURLs = urls.filter { child in
-            guard !excludedDirectories.contains(child.lastPathComponent),
-                  !excludedNames.contains(child.lastPathComponent) else { return false }
             let values = try? child.resourceValues(forKeys: Set(keys))
-            return values?.isSymbolicLink != true
+            guard values?.isSymbolicLink != true else { return false }
+            return !rules.isHidden(
+                child,
+                relativeTo: workspaceRoot,
+                isDirectory: values?.isDirectory
+            )
         }
 
         let sortedURLs = visibleURLs.sorted { lhs, rhs in
@@ -138,7 +148,14 @@ enum WorkspaceScanner {
             return lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent) == .orderedAscending
         }
 
-        let children = sortedURLs.map { makeNode(at: $0, indexedFiles: &indexedFiles) }
+        let children = sortedURLs.map {
+            makeNode(
+                at: $0,
+                indexedFiles: &indexedFiles,
+                rules: rules,
+                workspaceRoot: workspaceRoot
+            )
+        }
         return FileNode(url: url, isDirectory: true, children: children)
     }
 }

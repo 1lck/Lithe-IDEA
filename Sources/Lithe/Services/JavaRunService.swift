@@ -34,7 +34,7 @@ final class JavaRunService: ObservableObject {
     var sourceSearchRoots: [URL] {
         var roots = projectURL.map { [$0] } ?? []
         if let mavenProject {
-            roots.append(contentsOf: mavenProject.modules.map(\.url))
+            roots.append(contentsOf: mavenProject.allModules.map(\.url))
         }
         return roots
     }
@@ -62,7 +62,12 @@ final class JavaRunService: ObservableObject {
         })
         refreshPortConflicts()
         if !configurations.contains(where: { $0.id == selectedConfigurationID }) {
-            selectedConfigurationID = JavaRunConfiguration.currentFileID
+            selectedConfigurationID = scannedConfigurations.first(where: { $0.kind == .springBoot })?.id
+                ?? JavaRunConfiguration.currentFileID
+        } else if selectedConfigurationID == JavaRunConfiguration.currentFileID,
+                  let springBootConfiguration = scannedConfigurations.first(where: { $0.kind == .springBoot }) {
+            // A detected Spring Boot app is the useful default for a newly opened Maven project.
+            selectedConfigurationID = springBootConfiguration.id
         }
         isLoadingProject = false
     }
@@ -160,7 +165,7 @@ final class JavaRunService: ObservableObject {
             mavenArguments.append("spring-boot:run")
             arguments = mavenArguments
             let moduleDirectory = configuration.modulePath.flatMap { modulePath in
-                mavenProject.modules.first(where: { $0.relativePath == modulePath })?.url
+                mavenProject.allModules.first(where: { $0.relativePath == modulePath })?.url
             } ?? mavenProject.rootURL
             workingDirectory = resolvedWorkingDirectory(options.workingDirectoryPath, fallback: moduleDirectory)
         }
@@ -343,7 +348,7 @@ final class JavaRunService: ObservableObject {
         }
         arguments.append("spring-boot:run")
 
-        let moduleDirectory = mavenProject.modules.first(where: { $0.relativePath == modulePath })?.url
+        let moduleDirectory = mavenProject.allModules.first(where: { $0.relativePath == modulePath })?.url
             ?? mavenProject.rootURL
         let workingDirectory = resolvedWorkingDirectory(options.workingDirectoryPath, fallback: moduleDirectory)
         var environment = ProcessInfo.processInfo.environment

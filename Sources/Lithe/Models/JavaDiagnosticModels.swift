@@ -25,6 +25,22 @@ enum JavaDiagnosticSeverity: Int, CaseIterable, Hashable, Sendable {
     }
 }
 
+enum JavaDiagnosticTag: Int, Hashable, Sendable {
+    case unnecessary = 1
+    case deprecated = 2
+}
+
+struct JavaDiagnosticRelatedInformation: Hashable, Sendable {
+    let fileURL: URL
+    let line: Int
+    let utf16Column: Int
+    let message: String
+
+    var locationTitle: String {
+        fileURL.lastPathComponent + ":" + String(line + 1) + ":" + String(utf16Column + 1)
+    }
+}
+
 struct JavaDiagnostic: Identifiable, Hashable, Sendable {
     let id: String
     let fileURL: URL
@@ -35,6 +51,36 @@ struct JavaDiagnostic: Identifiable, Hashable, Sendable {
     let severity: JavaDiagnosticSeverity
     let message: String
     let source: String?
+    let code: String?
+    let tags: Set<JavaDiagnosticTag>
+    let relatedInformation: [JavaDiagnosticRelatedInformation]
+
+    var isUnnecessary: Bool {
+        if tags.contains(.unnecessary) { return true }
+        let searchableText = ((code ?? "") + " " + message).lowercased()
+        return searchableText.contains("unused") ||
+            searchableText.contains("unnecessary") ||
+            searchableText.contains("never used") ||
+            searchableText.contains("not used") ||
+            searchableText.contains("never read")
+    }
+
+    var reasonSummary: String? {
+        if isUnnecessary { return "Unused code" }
+        if tags.contains(.deprecated) { return "Deprecated API" }
+        guard let code, !code.isEmpty else { return nil }
+        return code
+    }
+
+    var detailText: String {
+        var details = [message]
+        if let source, !source.isEmpty { details.append("Source: \(source)") }
+        if let code, !code.isEmpty { details.append("Code: \(code)") }
+        for related in relatedInformation {
+            details.append("Related: \(related.locationTitle) - \(related.message)")
+        }
+        return details.joined(separator: "\n")
+    }
 
     var locationTitle: String {
         fileURL.lastPathComponent + ":" + String(line + 1) + ":" + String(utf16Column + 1)

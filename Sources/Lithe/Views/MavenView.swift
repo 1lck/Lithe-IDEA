@@ -70,13 +70,11 @@ struct MavenView: View {
                 .foregroundStyle(exitCode == 0 ? LitheTheme.success : LitheTheme.error)
             }
 
-            syncMenu
-
             Button(action: refreshProject) {
                 Image(systemName: "arrow.clockwise")
             }
             .litheIconButton()
-            .help("Refresh Maven project")
+            .help("Reload Maven project")
 
             if service.isRunning {
                 Button(action: model.stopMaven) {
@@ -108,28 +106,6 @@ struct MavenView: View {
         .background(LitheTheme.toolHeader)
     }
 
-    private var syncMenu: some View {
-        Menu {
-            Button {
-                refreshProject()
-            } label: {
-                Label("Sync All Maven Projects", systemImage: "arrow.triangle.2.circlepath")
-            }
-
-            Button {
-                refreshProject()
-            } label: {
-                Label("Reload All Maven Projects", systemImage: "arrow.clockwise")
-            }
-        } label: {
-            Image(systemName: "arrow.triangle.2.circlepath")
-        }
-        .menuStyle(.borderlessButton)
-        .frame(width: 28)
-        .help("Sync Maven projects")
-        .disabled(model.workspaceURL == nil || service.isLoadingProject || service.isRunning)
-    }
-
     private func refreshProject() {
         guard let workspaceURL = model.workspaceURL else { return }
         Task { await service.loadProject(at: workspaceURL) }
@@ -159,14 +135,7 @@ struct MavenView: View {
                     isSelected: selectedModuleID == nil,
                     onLabelAction: { selectedModuleID = nil }
                 ) {
-                    projectCategoryNodes(
-                        ownerID: projectNodeID(project),
-                        module: nil,
-                        plugins: project.plugins,
-                        dependencies: project.dependencies,
-                        repositories: project.repositories
-                    )
-
+                    lifecycleNode(ownerID: projectNodeID(project), module: nil)
                     ForEach(project.modules) { module in
                         moduleTreeNode(module)
                     }
@@ -188,33 +157,12 @@ struct MavenView: View {
                 isSelected: selectedModuleID == module.id,
                 onLabelAction: { selectedModuleID = module.id }
             ) {
-                projectCategoryNodes(
-                    ownerID: moduleNodeID(module),
-                    module: module,
-                    plugins: module.plugins,
-                    dependencies: module.dependencies,
-                    repositories: module.repositories
-                )
-
+                lifecycleNode(ownerID: moduleNodeID(module), module: module)
                 ForEach(module.modules) { childModule in
                     moduleTreeNode(childModule)
                 }
             }
         )
-    }
-
-    @ViewBuilder
-    private func projectCategoryNodes(
-        ownerID: String,
-        module: MavenModule?,
-        plugins: [MavenPlugin],
-        dependencies: [MavenDependency],
-        repositories: [MavenRepository]
-    ) -> some View {
-        lifecycleNode(ownerID: ownerID, module: module)
-        pluginsNode(ownerID: ownerID, plugins: plugins)
-        dependenciesNode(ownerID: ownerID, dependencies: dependencies)
-        repositoriesNode(ownerID: ownerID, repositories: repositories)
     }
 
     private func lifecycleNode(ownerID: String, module: MavenModule?) -> AnyView {
@@ -228,78 +176,6 @@ struct MavenView: View {
             ) {
                 ForEach(MavenLifecyclePhase.allCases) { phase in
                     lifecycleRow(phase, module: module)
-                }
-            }
-        )
-    }
-
-    private func pluginsNode(ownerID: String, plugins: [MavenPlugin]) -> AnyView {
-        let nodeID = childNodeID(ownerID: ownerID, name: "plugins")
-        return AnyView(
-            treeNode(
-                id: nodeID,
-                title: "Plugins",
-                systemImage: "puzzlepiece.extension",
-                onLabelAction: { toggleNode(nodeID) }
-            ) {
-                if plugins.isEmpty {
-                    emptyTreeRow("No plugins declared")
-                } else {
-                    ForEach(plugins) { plugin in
-                        infoTreeRow(
-                            title: plugin.artifactID,
-                            subtitle: plugin.coordinate,
-                            systemImage: "puzzlepiece.extension"
-                        )
-                    }
-                }
-            }
-        )
-    }
-
-    private func dependenciesNode(ownerID: String, dependencies: [MavenDependency]) -> AnyView {
-        let nodeID = childNodeID(ownerID: ownerID, name: "dependencies")
-        return AnyView(
-            treeNode(
-                id: nodeID,
-                title: "Dependencies",
-                systemImage: "shippingbox",
-                onLabelAction: { toggleNode(nodeID) }
-            ) {
-                if dependencies.isEmpty {
-                    emptyTreeRow("No dependencies declared")
-                } else {
-                    ForEach(dependencies) { dependency in
-                        infoTreeRow(
-                            title: dependency.coordinate.isEmpty ? dependency.artifactID : dependency.coordinate,
-                            subtitle: dependency.qualifier,
-                            systemImage: "shippingbox"
-                        )
-                    }
-                }
-            }
-        )
-    }
-
-    private func repositoriesNode(ownerID: String, repositories: [MavenRepository]) -> AnyView {
-        let nodeID = childNodeID(ownerID: ownerID, name: "repositories")
-        return AnyView(
-            treeNode(
-                id: nodeID,
-                title: "Repositories",
-                systemImage: "folder",
-                onLabelAction: { toggleNode(nodeID) }
-            ) {
-                if repositories.isEmpty {
-                    emptyTreeRow("No repositories declared")
-                } else {
-                    ForEach(repositories) { repository in
-                        infoTreeRow(
-                            title: repository.displayName,
-                            subtitle: repository.url,
-                            systemImage: "folder"
-                        )
-                    }
                 }
             }
         )
@@ -345,47 +221,6 @@ struct MavenView: View {
         }
         .buttonStyle(.plain)
         .disabled(service.isRunning)
-    }
-
-    private func infoTreeRow(title: String, subtitle: String?, systemImage: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.system(size: 10.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .lineLimit(1)
-                if let subtitle, !subtitle.isEmpty, subtitle != title {
-                    Text(subtitle)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 2)
-        .frame(minHeight: 24)
-        .contentShape(Rectangle())
-    }
-
-    private func emptyTreeRow(_ title: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "minus")
-                .font(.system(size: 9))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 16)
-            Text(title)
-                .font(.system(size: 11.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 2)
-        .frame(height: 24)
     }
 
     private func treeNode<Content: View>(
@@ -450,7 +285,11 @@ struct MavenView: View {
 
     private var mavenSearchRoots: [URL] {
         guard let project = service.project else { return [] }
-        return [project.rootURL] + project.modules.map(\.url)
+        return [project.rootURL] + moduleURLs(project.modules)
+    }
+
+    private func moduleURLs(_ modules: [MavenModule]) -> [URL] {
+        modules.flatMap { [$0.url] + moduleURLs($0.modules) }
     }
 
     private var buildOutputPane: some View {

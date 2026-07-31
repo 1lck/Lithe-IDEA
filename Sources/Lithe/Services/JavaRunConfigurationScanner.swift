@@ -26,7 +26,7 @@ enum JavaRunConfigurationScanner {
         }
 
         if let mavenProject {
-            for module in mavenProject.modules {
+            for module in mavenProject.allModules {
                 let moduleMainClass = mainClasses.first {
                     isInside($0.fileURL, directory: module.url)
                 }
@@ -75,7 +75,7 @@ enum JavaRunConfigurationScanner {
     }
 
     private static func modulePath(for fileURL: URL, in project: MavenProject?) -> String? {
-        project?.modules
+        project?.allModules
             .filter { isInside(fileURL, directory: $0.url) }
             .max(by: { $0.url.path.count < $1.url.path.count })?
             .relativePath

@@ -20,6 +20,12 @@ final class AppModel: ObservableObject {
     @Published var searchEverywhereQuery = ""
     @Published private(set) var searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
     @Published private(set) var isSearchingEverywhere = false
+    @Published var isProjectReplaceVisible = false
+    @Published var projectReplaceQuery = ""
+    @Published var projectReplaceText = ""
+    @Published private(set) var projectReplacementFiles: [ProjectReplacementFile] = []
+    @Published var selectedProjectReplacementPaths: Set<String> = []
+    @Published private(set) var isLoadingProjectReplacement = false
     @Published var isFindBarVisible = false
     @Published var findBarQuery = ""
     @Published private(set) var findMatchCount = 0
@@ -44,9 +50,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var currentBranch = "No Git"
     @Published var selectedChange: GitChange?
     @Published private(set) var diffRows: [DiffRow] = []
+    @Published private(set) var diffHunks: [DiffHunk] = []
     @Published private(set) var isLoadingDiff = false
     @Published private(set) var isRefreshingGit = false
     @Published var pendingDiscardChange: GitChange?
+    @Published var pendingDiscardHunk: DiffHunkRequest?
     @Published var commitMessage = ""
     @Published var amendCommit = false
     @Published private(set) var isCommitting = false
@@ -83,6 +91,7 @@ final class AppModel: ObservableObject {
     private var directoryWatcher: DirectoryWatcher?
     private var doubleShiftDetector: DoubleShiftDetector?
     private var refreshTask: Task<Void, Never>?
+    private var visibilityRulesRefreshTask: Task<Void, Never>?
     private var localHistorySeedTask: Task<Void, Never>?
     private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
     private var inlayHintTasks: [UUID: Task<Void, Never>] = [:]
@@ -92,10 +101,14 @@ final class AppModel: ObservableObject {
     let mavenService = MavenService()
     let javaRunService = JavaRunService()
     let javaDebugService = JavaDebugService()
+    let searchIndex = WorkspaceSearchIndex()
     private var localHistoryService: LocalHistoryService?
 
     init() {
         recentProjects = RecentProjectsStore.load()
+        settings.onFileVisibilityRulesChanged = { [weak self] in
+            self?.applyVisibilityRules()
+        }
         javaLanguageService.onDiagnostics = { [weak self] fileURL, diagnostics in
             self?.javaDiagnostics[fileURL.standardizedFileURL] = diagnostics
         }
@@ -167,7 +180,11 @@ final class AppModel: ObservableObject {
         projectLocalHistoryDiffRows = []
         isLoadingProjectLocalHistory = false
         workspaceURL = normalizedURL
-        let historyService = LocalHistoryService(workspaceURL: normalizedURL)
+        let visibilityRules = settings.fileVisibilityRules
+        let historyService = LocalHistoryService(
+            workspaceURL: normalizedURL,
+            visibilityRules: visibilityRules
+        )
         localHistoryService = historyService
         selectedSidebar = .project
         rootNode = nil
@@ -185,12 +202,17 @@ final class AppModel: ObservableObject {
 
         Task {
             let snapshot = await Task.detached(priority: .userInitiated) {
-                WorkspaceScanner.snapshot(at: normalizedURL)
+                WorkspaceScanner.snapshot(at: normalizedURL, rules: visibilityRules)
             }.value
             guard workspaceURL == normalizedURL else { return }
             rootNode = snapshot.root
             projectFiles = snapshot.files
             isLoadingWorkspace = false
+            if snapshot.files.contains(where: { $0.pathExtension.lowercased() == "java" }) {
+                javaLanguageService.prepare(for: normalizedURL)
+            }
+            await searchIndex.configure(at: normalizedURL)
+            await searchIndex.update(files: snapshot.files)
             await refreshGit()
             await mavenService.loadProject(at: normalizedURL)
             await javaRunService.loadProject(
@@ -198,7 +220,9 @@ final class AppModel: ObservableObject {
                 files: snapshot.files,
                 mavenProject: mavenService.project
             )
-            startWatching(normalizedURL)
+            if settings.fileVisibilityRules == visibilityRules {
+                startWatching(normalizedURL, visibilityRules: visibilityRules)
+            }
             localHistorySeedTask?.cancel()
             localHistorySeedTask = Task(priority: .utility) {
                 await historyService.seed(files: snapshot.files)
@@ -219,6 +243,12 @@ final class AppModel: ObservableObject {
         searchEverywhereQuery = ""
         searchEverywhereResults = SearchEverywhereResults(fileMatches: [], contentMatches: [])
         isSearchingEverywhere = false
+        isProjectReplaceVisible = false
+        projectReplaceQuery = ""
+        projectReplaceText = ""
+        projectReplacementFiles = []
+        selectedProjectReplacementPaths = []
+        isLoadingProjectReplacement = false
         isFindBarVisible = false
         findBarQuery = ""
         findMatchCount = 0
@@ -226,6 +256,7 @@ final class AppModel: ObservableObject {
         directoryWatcher?.stop()
         directoryWatcher = nil
         refreshTask?.cancel()
+        visibilityRulesRefreshTask?.cancel()
         localHistorySeedTask?.cancel()
         localHistorySeedTask = nil
         localHistoryService = nil
@@ -243,6 +274,7 @@ final class AppModel: ObservableObject {
         currentBranch = "No Git"
         selectedChange = nil
         diffRows = []
+        diffHunks = []
         isLoadingDiff = false
         isGitLogVisible = false
         isTerminalVisible = false
@@ -255,6 +287,7 @@ final class AppModel: ObservableObject {
         mavenService.reset()
         javaRunService.reset()
         javaDebugService.reset()
+        Task { await searchIndex.reset() }
         javaLanguageService.stop()
         javaNavigationLocations = []
         editorCaret = nil
@@ -314,14 +347,34 @@ final class AppModel: ObservableObject {
 
     func refreshWorkspace() async {
         guard let workspaceURL, !isLoadingWorkspace else { return }
+        await rebuildWorkspace(
+            at: workspaceURL,
+            rules: settings.fileVisibilityRules,
+            restartWatcher: false
+        )
+    }
+
+    private func rebuildWorkspace(
+        at workspaceURL: URL,
+        rules: FileVisibilityRules,
+        restartWatcher: Bool
+    ) async {
         isLoadingWorkspace = true
         let snapshot = await Task.detached(priority: .userInitiated) {
-            WorkspaceScanner.snapshot(at: workspaceURL)
+            WorkspaceScanner.snapshot(at: workspaceURL, rules: rules)
         }.value
-        guard self.workspaceURL == workspaceURL else { return }
+        guard self.workspaceURL == workspaceURL else {
+            isLoadingWorkspace = false
+            return
+        }
         rootNode = snapshot.root
         projectFiles = snapshot.files
         isLoadingWorkspace = false
+        if snapshot.files.contains(where: { $0.pathExtension.lowercased() == "java" }) {
+            javaLanguageService.prepare(for: workspaceURL)
+        }
+        await searchIndex.configure(at: workspaceURL)
+        await searchIndex.update(files: snapshot.files)
         await refreshGit()
         await mavenService.loadProject(at: workspaceURL)
         await javaRunService.loadProject(
@@ -329,6 +382,9 @@ final class AppModel: ObservableObject {
             files: snapshot.files,
             mavenProject: mavenService.project
         )
+        if restartWatcher {
+            startWatching(workspaceURL, visibilityRules: rules)
+        }
     }
 
     func requestCreateFile(in directory: URL) {
@@ -707,7 +763,7 @@ final class AppModel: ObservableObject {
     }
 
     func searchProject() async {
-        guard let workspaceURL else { return }
+        guard workspaceURL != nil else { return }
         let query = searchQuery
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             searchResults = []
@@ -717,9 +773,7 @@ final class AppModel: ObservableObject {
 
         isSearching = true
         let files = projectFiles
-        let results = await Task.detached(priority: .userInitiated) {
-            WorkspaceScanner.search(query: query, root: workspaceURL, files: files)
-        }.value
+        let results = await searchIndex.searchProject(query: query, files: files)
         guard searchQuery == query else { return }
         searchResults = results
         isSearching = false
@@ -754,16 +808,180 @@ final class AppModel: ObservableObject {
 
         isSearchingEverywhere = true
         let files = projectFiles
-        let results = await Task.detached(priority: .userInitiated) {
-            WorkspaceScanner.searchEverywhere(query: query, root: workspaceURL, files: files)
-        }.value
+        let indexedResults = await searchIndex.searchEverywhere(query: query, files: files)
+        let semanticResults = await javaWorkspaceSearchResults(
+            query: query,
+            rootURL: workspaceURL,
+            files: files
+        )
         guard searchEverywhereQuery == query else { return }
-        searchEverywhereResults = results
+        if let semanticResults {
+            searchEverywhereResults = SearchEverywhereResults(
+                fileMatches: indexedResults.fileMatches,
+                classMatches: semanticResults.filter { $0.kind == .type },
+                symbolMatches: semanticResults.filter { $0.kind == .symbol },
+                contentMatches: indexedResults.contentMatches
+            )
+        } else {
+            searchEverywhereResults = indexedResults
+        }
         isSearchingEverywhere = false
+    }
+
+    private func javaWorkspaceSearchResults(
+        query: String,
+        rootURL: URL,
+        files: [URL]
+    ) async -> [FileSearchResult]? {
+        guard files.contains(where: { $0.pathExtension.lowercased() == "java" }) else { return [] }
+        return await withCheckedContinuation { continuation in
+            javaLanguageService.workspaceSymbols(
+                query: query,
+                rootURL: rootURL,
+                documents: openDocuments
+            ) { result in
+                switch result {
+                case .failure:
+                    continuation.resume(returning: nil)
+                case .success(let symbols):
+                    let results = symbols.compactMap { symbol -> FileSearchResult? in
+                        guard symbol.url.pathExtension.lowercased() == "java",
+                              self.urlContains(rootURL, child: symbol.url) else { return nil }
+                        let kind: SearchResultKind = symbol.isType ? .type : .symbol
+                        let location = symbol.containerName.map { $0 + " · " } ?? ""
+                        return FileSearchResult(
+                            url: symbol.url,
+                            line: symbol.line + 1,
+                            preview: location + symbol.name,
+                            kind: kind,
+                            symbolName: symbol.name
+                        )
+                    }
+                    continuation.resume(returning: results)
+                }
+            }
+        }
+    }
+
+    func clearProjectReplacementPreview() {
+        projectReplacementFiles = []
+        selectedProjectReplacementPaths = []
+    }
+
+    func openProjectReplace() {
+        guard workspaceURL != nil else { return }
+        projectReplaceQuery = searchQuery
+        projectReplaceText = ""
+        projectReplacementFiles = []
+        selectedProjectReplacementPaths = []
+        isProjectReplaceVisible = true
+    }
+
+    func previewProjectReplacement() async {
+        guard workspaceURL != nil else { return }
+        let query = projectReplaceQuery
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            projectReplacementFiles = []
+            selectedProjectReplacementPaths = []
+            return
+        }
+
+        isLoadingProjectReplacement = true
+        let files = projectFiles
+        let overrides = Dictionary(uniqueKeysWithValues: openDocuments.map { ($0.url.standardizedFileURL.path, $0.text) })
+        let results = await searchIndex.previewReplacement(
+            query: query,
+            replacement: projectReplaceText,
+            files: files,
+            textOverrides: overrides
+        )
+        guard projectReplaceQuery == query else { return }
+        projectReplacementFiles = results
+        selectedProjectReplacementPaths = Set(results.map(\.relativePath))
+        isLoadingProjectReplacement = false
+    }
+
+    func applyProjectReplacement() async {
+        guard self.workspaceURL != nil,
+              let localHistoryService,
+              !projectReplaceQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        let query = projectReplaceQuery
+        let replacement = projectReplaceText
+        let selectedPaths = selectedProjectReplacementPaths
+        let targets = projectReplacementFiles.filter { selectedPaths.contains($0.relativePath) }
+        guard !targets.isEmpty else { return }
+
+        isLoadingProjectReplacement = true
+        var changedFiles = 0
+        var failedFiles: [String] = []
+        for target in targets {
+            let document = openDocuments.first { $0.url.standardizedFileURL == target.url.standardizedFileURL }
+            let currentText: String?
+            if let document {
+                currentText = document.text
+            } else {
+                currentText = try? String(contentsOf: target.url, encoding: .utf8)
+            }
+            guard let currentText else {
+                failedFiles.append(target.relativePath)
+                continue
+            }
+
+            let replacedText = ProjectReplacementEngine.replace(
+                in: currentText,
+                query: query,
+                replacement: replacement
+            )
+            guard replacedText != currentText else { continue }
+
+            do {
+                _ = try await localHistoryService.record(
+                    text: currentText,
+                    for: target.url,
+                    reason: .beforeBatchReplace
+                )
+            } catch {
+                failedFiles.append(target.relativePath)
+                continue
+            }
+
+            do {
+                if let document {
+                    document.text = replacedText
+                    try document.save()
+                } else {
+                    try replacedText.write(to: target.url, atomically: true, encoding: .utf8)
+                }
+                changedFiles += 1
+            } catch {
+                if let document {
+                    document.text = currentText
+                }
+                failedFiles.append(target.relativePath)
+            }
+        }
+
+        isLoadingProjectReplacement = false
+        isProjectReplaceVisible = false
+        projectReplacementFiles = []
+        selectedProjectReplacementPaths = []
+        await searchIndex.update(files: projectFiles)
+        await refreshWorkspace()
+        if !failedFiles.isEmpty {
+            showNotification("Could not replace in \(failedFiles.count) file(s)")
+        } else if changedFiles > 0 {
+            showNotification("Replaced text in \(changedFiles) file(s)")
+        }
+
     }
 
     func openSearchEverywhereResult(_ result: FileSearchResult) {
         dismissSearchEverywhere()
+        openSearchResult(result)
+    }
+
+    func openSearchResult(_ result: FileSearchResult) {
         openFile(result.url)
         if let line = result.line {
             editorNavigationTarget = EditorNavigationTarget(
@@ -822,9 +1040,13 @@ final class AppModel: ObservableObject {
         selectedChange = change
         activeDocumentID = nil
         diffRows = []
+        diffHunks = []
         isLoadingDiff = true
         Task {
-            diffRows = await GitService.diff(for: change)
+            let document = await GitService.diffDocument(for: change)
+            guard selectedChange?.id == change.id else { return }
+            diffRows = document.rows
+            diffHunks = document.hunks
             isLoadingDiff = false
         }
     }
@@ -841,10 +1063,13 @@ final class AppModel: ObservableObject {
             if let selectedChange,
                let updated = snapshot.changes.first(where: { $0.path == selectedChange.path }) {
                 self.selectedChange = updated
-                diffRows = await GitService.diff(for: updated)
+                let document = await GitService.diffDocument(for: updated)
+                diffRows = document.rows
+                diffHunks = document.hunks
             } else if selectedChange != nil {
                 self.selectedChange = nil
                 diffRows = []
+                diffHunks = []
                 isLoadingDiff = false
             }
         } else {
@@ -853,6 +1078,7 @@ final class AppModel: ObservableObject {
             gitChanges = []
             selectedChange = nil
             diffRows = []
+            diffHunks = []
             isLoadingDiff = false
         }
 
@@ -876,6 +1102,34 @@ final class AppModel: ObservableObject {
         let result = await GitService.unstage(selectedChange)
         showNotification(result.succeeded ? "Unstaged \(selectedChange.path)" : result.output)
         await refreshGit()
+    }
+
+    func stageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
+        let result = await GitService.stage(hunk: hunk, of: change)
+        showNotification(result.succeeded ? "Staged a change block in \(change.path)" : result.output)
+        await refreshGit()
+    }
+
+    func unstageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
+        let result = await GitService.unstage(hunk: hunk, of: change)
+        showNotification(result.succeeded ? "Unstaged a change block in \(change.path)" : result.output)
+        await refreshGit()
+    }
+
+    func requestDiscardHunk(_ hunk: DiffHunk, in change: GitChange) {
+        pendingDiscardHunk = DiffHunkRequest(change: change, hunk: hunk)
+    }
+
+    func confirmDiscardHunk() async {
+        guard let request = pendingDiscardHunk else { return }
+        pendingDiscardHunk = nil
+        let result = await GitService.discard(hunk: request.hunk, of: request.change)
+        showNotification(result.succeeded ? "Discarded a change block in \(request.change.path)" : result.output)
+        await refreshGit()
+    }
+
+    func cancelDiscardHunk() {
+        pendingDiscardHunk = nil
     }
 
     func requestDiscardSelectedChange() {
@@ -1141,10 +1395,19 @@ final class AppModel: ObservableObject {
             showNotification("Place the caret in a Java file to set a breakpoint")
             return
         }
+        toggleDebugBreakpoint(fileURL: document.url, line: caret.line + 1)
+    }
+
+    func toggleDebugBreakpoint(fileURL: URL, line: Int) {
+        guard let document = openDocuments.first(where: {
+            $0.url.standardizedFileURL == fileURL.standardizedFileURL
+        }),
+        document.url.pathExtension.lowercased() == "java",
+        line > 0 else { return }
         let className = JavaDebugService.className(for: document.url, sourceText: document.text)
         javaDebugService.toggleBreakpoint(
             fileURL: document.url,
-            line: caret.line + 1,
+            line: line,
             className: className
         )
     }
@@ -1641,9 +1904,15 @@ final class AppModel: ObservableObject {
         return childPath == parentPath || childPath.hasPrefix(parentPath + "/")
     }
 
-    private func startWatching(_ url: URL) {
+    private func startWatching(
+        _ url: URL,
+        visibilityRules: FileVisibilityRules
+    ) {
         directoryWatcher?.stop()
-        directoryWatcher = DirectoryWatcher(root: url) { [weak self] paths in
+        directoryWatcher = DirectoryWatcher(
+            root: url,
+            visibilityRules: visibilityRules
+        ) { [weak self] paths in
             Task { @MainActor [weak self] in
                 self?.scheduleExternalRefresh(paths: paths)
             }
@@ -1653,6 +1922,7 @@ final class AppModel: ObservableObject {
 
     private func scheduleExternalRefresh(paths: [String]) {
         refreshTask?.cancel()
+        let visibilityRules = settings.fileVisibilityRules
         refreshTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled, let self, let workspaceURL else { return }
@@ -1676,11 +1946,13 @@ final class AppModel: ObservableObject {
             }
 
             let snapshot = await Task.detached(priority: .utility) {
-                WorkspaceScanner.snapshot(at: workspaceURL)
+                WorkspaceScanner.snapshot(at: workspaceURL, rules: visibilityRules)
             }.value
             guard self.workspaceURL == workspaceURL else { return }
             rootNode = snapshot.root
             projectFiles = snapshot.files
+            await searchIndex.configure(at: workspaceURL)
+            await searchIndex.update(files: snapshot.files)
             await mavenService.loadProject(at: workspaceURL)
             await javaRunService.loadProject(
                 at: workspaceURL,
@@ -1688,6 +1960,28 @@ final class AppModel: ObservableObject {
                 mavenProject: mavenService.project
             )
             await refreshGit()
+        }
+    }
+
+    private func applyVisibilityRules() {
+        visibilityRulesRefreshTask?.cancel()
+        refreshTask?.cancel()
+        guard let workspaceURL else { return }
+        let visibilityRules = settings.fileVisibilityRules
+        visibilityRulesRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            while isLoadingWorkspace, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard !Task.isCancelled, self.workspaceURL == workspaceURL else { return }
+            if let localHistoryService {
+                await localHistoryService.updateVisibilityRules(visibilityRules)
+            }
+            await rebuildWorkspace(
+                at: workspaceURL,
+                rules: visibilityRules,
+                restartWatcher: true
+            )
         }
     }
 

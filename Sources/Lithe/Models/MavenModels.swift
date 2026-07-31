@@ -9,14 +9,14 @@ struct MavenProject: Identifiable, Hashable, Sendable {
     let packaging: String
     let modules: [MavenModule]
     let profiles: [MavenProfile]
-    let plugins: [MavenPlugin]
-    let dependencies: [MavenDependency]
-    let repositories: [MavenRepository]
     let hasWrapper: Bool
 
     var id: String { rootURL.path }
     var displayName: String { artifactID.isEmpty ? rootURL.lastPathComponent : artifactID }
     var isMultiModule: Bool { !modules.isEmpty }
+    var allModules: [MavenModule] {
+        modules + modules.flatMap { $0.allModules }
+    }
 }
 
 struct MavenModule: Identifiable, Hashable, Sendable {
@@ -27,68 +27,17 @@ struct MavenModule: Identifiable, Hashable, Sendable {
     let version: String?
     let packaging: String
     let modules: [MavenModule]
-    let plugins: [MavenPlugin]
-    let dependencies: [MavenDependency]
-    let repositories: [MavenRepository]
 
     var id: String { relativePath }
     var displayName: String { artifactID.isEmpty ? relativePath : artifactID }
+    var allModules: [MavenModule] {
+        modules + modules.flatMap { $0.allModules }
+    }
 }
 
 struct MavenProfile: Identifiable, Hashable, Sendable {
     let id: String
     let isActiveByDefault: Bool
-}
-
-struct MavenPlugin: Identifiable, Hashable, Sendable {
-    let groupID: String?
-    let artifactID: String
-    let version: String?
-
-    var id: String {
-        [groupID ?? "org.apache.maven.plugins", artifactID, version ?? ""].joined(separator: ":")
-    }
-
-    var coordinate: String {
-        [groupID ?? "org.apache.maven.plugins", artifactID, version]
-            .compactMap { $0?.isEmpty == false ? $0 : nil }
-            .joined(separator: ":")
-    }
-}
-
-struct MavenDependency: Identifiable, Hashable, Sendable {
-    let groupID: String?
-    let artifactID: String
-    let version: String?
-    let scope: String?
-    let type: String?
-    let isOptional: Bool
-
-    var id: String {
-        [groupID ?? "", artifactID, version ?? "", scope ?? "", type ?? ""].joined(separator: ":")
-    }
-
-    var coordinate: String {
-        [groupID, artifactID, version]
-            .compactMap { $0?.isEmpty == false ? $0 : nil }
-            .joined(separator: ":")
-    }
-
-    var qualifier: String? {
-        let values = [scope, type == "jar" ? nil : type, isOptional ? "optional" : nil]
-            .compactMap { value in
-                value?.isEmpty == false ? value : nil
-            }
-        return values.isEmpty ? nil : values.joined(separator: ", ")
-    }
-}
-
-struct MavenRepository: Identifiable, Hashable, Sendable {
-    let repositoryID: String
-    let url: String
-
-    var id: String { repositoryID + "|" + url }
-    var displayName: String { repositoryID.isEmpty ? url : repositoryID }
 }
 
 enum MavenLifecyclePhase: String, CaseIterable, Identifiable, Sendable {

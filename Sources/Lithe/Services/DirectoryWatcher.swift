@@ -3,12 +3,18 @@ import Foundation
 
 final class DirectoryWatcher: @unchecked Sendable {
     private let root: URL
+    private let visibilityRules: FileVisibilityRules
     private let queue = DispatchQueue(label: "app.lithe.file-events", qos: .utility)
     private let onChange: @Sendable ([String]) -> Void
     private var stream: FSEventStreamRef?
 
-    init(root: URL, onChange: @escaping @Sendable ([String]) -> Void) {
+    init(
+        root: URL,
+        visibilityRules: FileVisibilityRules = .default,
+        onChange: @escaping @Sendable ([String]) -> Void
+    ) {
         self.root = root
+        self.visibilityRules = visibilityRules
         self.onChange = onChange
     }
 
@@ -26,7 +32,14 @@ final class DirectoryWatcher: @unchecked Sendable {
             guard let info, eventCount > 0 else { return }
             let watcher = Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue()
             let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] ?? []
-            watcher.onChange(paths)
+            let visiblePaths = paths.filter { path in
+                !watcher.visibilityRules.isHiddenPath(
+                    URL(fileURLWithPath: path),
+                    relativeTo: watcher.root
+                )
+            }
+            guard !visiblePaths.isEmpty else { return }
+            watcher.onChange(visiblePaths)
         }
 
         let flags = UInt32(

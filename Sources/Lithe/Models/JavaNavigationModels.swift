@@ -21,6 +21,21 @@ struct JavaNavigationLocation: Identifiable, Hashable {
     var id: String { "\(url.path):\(line):\(utf16Column)" }
 }
 
+struct JavaWorkspaceSymbol: Identifiable, Hashable, Sendable {
+    let name: String
+    let containerName: String?
+    let url: URL
+    let line: Int
+    let utf16Column: Int
+    let kind: Int
+
+    var id: String { "\(url.path):\(line):\(utf16Column):\(name):\(kind)" }
+
+    var isType: Bool {
+        [5, 10, 11, 23].contains(kind)
+    }
+}
+
 struct JavaCodeVisionHint: Identifiable, Hashable {
     let line: Int
     let utf16Column: Int

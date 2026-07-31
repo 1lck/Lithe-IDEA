@@ -257,6 +257,10 @@ struct JavaDebugView: View {
             inspectButton("Call Stack", icon: "list.number", action: service.inspectStack)
             inspectButton("Local Variables", icon: "list.bullet.rectangle", action: service.inspectVariables)
 
+            if let exceptionMessage = service.exceptionMessage {
+                exceptionBanner(exceptionMessage)
+            }
+
             if let title = service.inspectionTitle {
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 Text(title)
@@ -265,18 +269,125 @@ struct JavaDebugView: View {
                     .padding(.horizontal, 12)
                     .frame(height: 30, alignment: .leading)
                 ScrollView([.vertical, .horizontal]) {
-                    Text(service.inspectionOutput)
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .padding(10)
+                    VStack(alignment: .leading, spacing: 0) {
+                        structuredInspection
+                        if !service.inspectionOutput.isEmpty {
+                            DisclosureGroup("Raw jdb output") {
+                                Text(service.inspectionOutput)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                                    .padding(.top, 7)
+                            }
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .padding(10)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
             }
 
             Spacer(minLength: 0)
         }
         .background(LitheTheme.sidebar)
+    }
+
+    @ViewBuilder
+    private var structuredInspection: some View {
+        switch service.inspectionTitle {
+        case "Threads":
+            if service.threads.isEmpty {
+                Text("Waiting for thread data…")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .padding(10)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(service.threads) { thread in
+                        HStack(spacing: 7) {
+                            Image(systemName: thread.isCurrent ? "play.circle.fill" : "circle")
+                                .foregroundStyle(thread.isCurrent ? LitheTheme.accent : LitheTheme.secondaryText)
+                            Text(thread.name)
+                                .font(.system(size: 11.5, weight: thread.isCurrent ? .medium : .regular))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(thread.status.isEmpty ? thread.id : thread.status)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 28)
+                    }
+                }
+            }
+        case "Call Stack":
+            if service.callStack.isEmpty {
+                Text("Waiting for stack data…")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .padding(10)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(service.callStack) { frame in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("#\(frame.level)")
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .frame(width: 24, alignment: .trailing)
+                            Text(frame.description)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .lineLimit(2)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                    }
+                }
+            }
+        case "Local Variables":
+            if service.variables.isEmpty {
+                Text("No local variables in the current frame")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .padding(10)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(service.variables) { variable in
+                        variableRow(variable, depth: 0)
+                    }
+                }
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private func variableRow(_ variable: JavaDebugVariable, depth: Int) -> JavaDebugVariableRow {
+        JavaDebugVariableRow(service: service, variable: variable, depth: depth)
+    }
+
+    private func exceptionBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(LitheTheme.error)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Exception")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text(message)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(3)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(LitheTheme.error.opacity(0.10))
     }
 
     private var outputView: some View {
@@ -379,6 +490,50 @@ struct JavaDebugView: View {
         case .failed: LitheTheme.error
         case .launching: LitheTheme.warning
         default: LitheTheme.secondaryText
+        }
+    }
+}
+
+private struct JavaDebugVariableRow: View {
+    @ObservedObject var service: JavaDebugService
+    let variable: JavaDebugVariable
+    let depth: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                service.toggleVariable(variable)
+            } label: {
+                HStack(spacing: 6) {
+                    if variable.canExpand {
+                        Image(systemName: service.expandingVariableID == variable.id ? "hourglass" : (variable.isExpanded ? "chevron.down" : "chevron.right"))
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .frame(width: 10)
+                    } else {
+                        Color.clear.frame(width: 10, height: 1)
+                    }
+                    Text(variable.name)
+                        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(LitheTheme.primaryText)
+                    Text(variable.value)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, CGFloat(depth * 14) + 10)
+                .padding(.trailing, 10)
+                .frame(minHeight: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if variable.isExpanded {
+                ForEach(variable.children) { child in
+                    JavaDebugVariableRow(service: service, variable: child, depth: depth + 1)
+                }
+            }
         }
     }
 }

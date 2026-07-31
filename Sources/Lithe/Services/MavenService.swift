@@ -33,23 +33,65 @@ final class MavenService: ObservableObject {
         module: MavenModule?,
         profiles: Set<String>
     ) {
-        guard let project else { return }
+        guard project != nil else { return }
         stop()
-        output = ""
-        issues = []
-        lastExitCode = nil
-        isRunning = true
-        runningTitle = taskTitle(phase: phase, module: module)
-
-        let executable = MavenService.executableURL(for: project)
-        var arguments = ["-B", "-ntp"]
-        if !profiles.isEmpty {
-            arguments += ["-P", profiles.sorted().joined(separator: ",")]
-        }
+        resetOutput()
+        var arguments = baseArguments(profiles: profiles)
         if let module {
             arguments += ["-pl", module.relativePath, "-am"]
         }
         arguments.append(phase.rawValue)
+        startProcess(arguments: arguments, title: taskTitle(phase: phase, module: module))
+    }
+
+    func stop() {
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        if let process, process.isRunning {
+            process.terminate()
+        }
+        process = nil
+        outputPipe = nil
+        isRunning = false
+        runningTitle = nil
+    }
+
+    func reset() {
+        stop()
+        projectLoadID = UUID()
+        project = nil
+        isLoadingProject = false
+        output = ""
+        issues = []
+        lastExitCode = nil
+    }
+
+    func clearOutput() {
+        output = ""
+        issues = []
+        lastExitCode = nil
+    }
+
+    // MARK: - 进程执行
+
+    private func baseArguments(profiles: Set<String>) -> [String] {
+        var arguments = ["-B", "-ntp"]
+        if !profiles.isEmpty {
+            arguments += ["-P", profiles.sorted().joined(separator: ",")]
+        }
+        return arguments
+    }
+
+    private func resetOutput() {
+        output = ""
+        issues = []
+        lastExitCode = nil
+    }
+
+    private func startProcess(arguments: [String], title: String) {
+        guard let project else { return }
+        let executable = MavenService.executableURL(for: project)
+        isRunning = true
+        runningTitle = title
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
 
         let process = Process()
@@ -57,6 +99,7 @@ final class MavenService: ObservableObject {
         process.executableURL = executable
         process.arguments = arguments
         process.currentDirectoryURL = project.rootURL
+
         process.standardOutput = outputPipe
         process.standardError = outputPipe
         outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -100,33 +143,6 @@ final class MavenService: ObservableObject {
                 message: error.localizedDescription
             )]
         }
-    }
-
-    func stop() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
-        if let process, process.isRunning {
-            process.terminate()
-        }
-        process = nil
-        outputPipe = nil
-        isRunning = false
-        runningTitle = nil
-    }
-
-    func reset() {
-        stop()
-        projectLoadID = UUID()
-        project = nil
-        isLoadingProject = false
-        output = ""
-        issues = []
-        lastExitCode = nil
-    }
-
-    func clearOutput() {
-        output = ""
-        issues = []
-        lastExitCode = nil
     }
 
     private func append(_ value: String) {

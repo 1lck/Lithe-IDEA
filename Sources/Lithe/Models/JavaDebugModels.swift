@@ -54,3 +54,31 @@ struct JavaDebugBreakpoint: Identifiable, Hashable, Sendable {
         "\(fileURL.lastPathComponent):\(line)"
     }
 }
+
+struct JavaDebugVariable: Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let expression: String
+    var value: String
+    var children: [JavaDebugVariable]
+    var isExpanded: Bool
+    let isExpandable: Bool
+
+    var canExpand: Bool {
+        isExpandable || !children.isEmpty
+    }
+}
+
+struct JavaDebugThread: Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let status: String
+    let isCurrent: Bool
+}
+
+struct JavaDebugStackFrame: Identifiable, Hashable, Sendable {
+    let level: Int
+    let description: String
+
+    var id: String { "\(level):\(description)" }
+}

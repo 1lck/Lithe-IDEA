@@ -5,9 +5,10 @@ struct CodeEditorView: NSViewRepresentable {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
+    @ObservedObject var debugService: JavaDebugService
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(document: document, model: model)
+        Coordinator(document: document, model: model, debugService: debugService)
     }
 
     func makeNSView(context: Context) -> EditorContainerView {
@@ -101,6 +102,7 @@ struct CodeEditorView: NSViewRepresentable {
         guard let textView = container.scrollView?.documentView as? NSTextView else { return }
         context.coordinator.document = document
         context.coordinator.model = model
+        context.coordinator.debugService = debugService
         textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
         if let codeTextView = textView as? CodeTextView {
             codeTextView.indentationWidth = settings.tabWidth
@@ -125,6 +127,7 @@ struct CodeEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var document: EditorDocument?
         weak var model: AppModel?
+        weak var debugService: JavaDebugService?
         let fileExtension: String
         weak var textView: NSTextView?
         weak var gutter: LineNumberGutterView?
@@ -136,9 +139,10 @@ struct CodeEditorView: NSViewRepresentable {
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
 
-        init(document: EditorDocument, model: AppModel) {
+        init(document: EditorDocument, model: AppModel, debugService: JavaDebugService) {
             self.document = document
             self.model = model
+            self.debugService = debugService
             fileExtension = document.url.pathExtension
         }
 
@@ -234,9 +238,15 @@ struct CodeEditorView: NSViewRepresentable {
 
             let isBlameVisible = model.blameVisibleURL == url
             let blameLines = model.gitBlameLines[url] ?? []
+            let debugBreakpoints = debugService?.breakpoints.filter {
+                $0.fileURL.standardizedFileURL == url
+            } ?? []
             container?.gutterWidthConstraint?.constant = isBlameVisible ? 224 : 52
             gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                 Task { await model?.showGitCommit(blame.commitHash) }
+            }
+            gutter?.updateDebugBreakpoints(debugBreakpoints) { [weak model] line in
+                model?.toggleDebugBreakpoint(fileURL: url, line: line)
             }
         }
 
@@ -307,10 +317,12 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     private let currentLineColor = NSColor(white: 1, alpha: 0.035)
     private let bracketColor = NSColor(white: 0.72, alpha: 0.22)
     private let symbolColor = NSColor(white: 0.68, alpha: 0.14)
+    private let unusedCodeColor = NSColor(white: 0.48, alpha: 1)
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
     private var diagnostics: [JavaDiagnostic] = []
+    private var fadedCodeRanges: [NSRange] = []
 
     func updateDiagnostics(_ diagnostics: [JavaDiagnostic]) {
         self.diagnostics = diagnostics
@@ -323,6 +335,8 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
         layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: fullRange)
         layoutManager.removeTemporaryAttribute(.underlineColor, forCharacterRange: fullRange)
+        removeUnusedCodeFade()
+        fadedCodeRanges = []
         guard fullRange.length > 0 else { return }
 
         let source = string as NSString
@@ -367,6 +381,13 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
                 forCharacterRange: range
             )
         }
+
+        fadedCodeRanges = diagnostics.compactMap { diagnostic in
+            guard diagnostic.isUnnecessary else { return nil }
+            return diagnosticRange(for: diagnostic, in: source)
+        }
+        applyUnusedCodeFade()
+        applyCollapsedFoldForeground()
 
         if !findMatchRanges.isEmpty {
             // 文本可能已变化，过滤越界 range 后再应用，避免无效 range 异常
@@ -483,21 +504,29 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         foldRegions = regions
         collapsedFoldIDs = collapsedIDs
         onToggleFold = onToggle
+        applyFoldAttributes()
+        applyUnusedCodeFade()
+        applyCollapsedFoldForeground()
+        guard let layoutManager else { return }
+        let fullRange = NSRange(location: 0, length: string.utf16.count)
+        layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        if let textContainer {
+            layoutManager.ensureLayout(for: textContainer)
+        }
+        needsDisplay = true
+    }
+
+    private func applyFoldAttributes() {
         guard let layoutManager else { return }
         let fullRange = NSRange(location: 0, length: string.utf16.count)
         layoutManager.removeTemporaryAttribute(.font, forCharacterRange: fullRange)
         layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
         layoutManager.removeTemporaryAttribute(.paragraphStyle, forCharacterRange: fullRange)
-        for region in regions where collapsedIDs.contains(region.id) {
+        for region in foldRegions where collapsedFoldIDs.contains(region.id) {
             guard NSMaxRange(region.hiddenRange) <= fullRange.length else { continue }
             layoutManager.addTemporaryAttribute(
                 .font,
                 value: NSFont.monospacedSystemFont(ofSize: 0.1, weight: .regular),
-                forCharacterRange: region.hiddenRange
-            )
-            layoutManager.addTemporaryAttribute(
-                .foregroundColor,
-                value: NSColor.clear,
                 forCharacterRange: region.hiddenRange
             )
             let collapsedParagraph = NSMutableParagraphStyle()
@@ -510,11 +539,43 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
                 forCharacterRange: region.hiddenRange
             )
         }
-        layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
-        if let textContainer {
-            layoutManager.ensureLayout(for: textContainer)
+    }
+
+    private func applyCollapsedFoldForeground() {
+        guard let layoutManager else { return }
+        let fullLength = string.utf16.count
+        for region in foldRegions where collapsedFoldIDs.contains(region.id) {
+            guard region.hiddenRange.location >= 0,
+                  NSMaxRange(region.hiddenRange) <= fullLength else { continue }
+            layoutManager.addTemporaryAttribute(
+                .foregroundColor,
+                value: NSColor.clear,
+                forCharacterRange: region.hiddenRange
+            )
         }
-        needsDisplay = true
+    }
+
+    private func applyUnusedCodeFade() {
+        guard let layoutManager else { return }
+        for range in fadedCodeRanges {
+            guard range.location >= 0,
+                  NSMaxRange(range) <= string.utf16.count else { continue }
+            layoutManager.addTemporaryAttribute(
+                .foregroundColor,
+                value: unusedCodeColor,
+                forCharacterRange: range
+            )
+        }
+    }
+
+    private func removeUnusedCodeFade() {
+        guard let layoutManager else { return }
+        let fullLength = string.utf16.count
+        for range in fadedCodeRanges {
+            guard range.location >= 0,
+                  NSMaxRange(range) <= fullLength else { continue }
+            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
+        }
     }
 
     func layoutManager(
@@ -846,6 +907,8 @@ final class LineNumberGutterView: NSView {
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
     private var implementationMarkers: [JavaImplementationMarker] = []
     private var onSelectImplementation: ((JavaImplementationMarker) -> Void)?
+    private var debugBreakpointLines: Set<Int> = []
+    private var onToggleDebugBreakpoint: ((Int) -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -911,6 +974,15 @@ final class LineNumberGutterView: NSView {
     ) {
         implementationMarkers = markers
         onSelectImplementation = onSelect
+        needsDisplay = true
+    }
+
+    func updateDebugBreakpoints(
+        _ breakpoints: [JavaDebugBreakpoint],
+        onToggle: @escaping (Int) -> Void
+    ) {
+        debugBreakpointLines = Set(breakpoints.map { max(0, $0.line - 1) })
+        onToggleDebugBreakpoint = onToggle
         needsDisplay = true
     }
 
@@ -1001,6 +1073,9 @@ final class LineNumberGutterView: NSView {
             if let marker = implementationMarkers.first(where: { $0.line == lineNumber - 1 }) {
                 drawImplementationMarker(marker, y: y, height: lineRect.height)
             }
+            if !isBlameVisible, debugBreakpointLines.contains(lineNumber - 1) {
+                drawDebugBreakpoint(y: y, height: lineRect.height)
+            }
             drawLineNumber(lineNumber, y: y + 1)
 
             let nextGlyph = NSMaxRange(lineGlyphRange)
@@ -1051,6 +1126,13 @@ final class LineNumberGutterView: NSView {
         )
     }
 
+    private func drawDebugBreakpoint(y: CGFloat, height: CGFloat) {
+        NSColor(red: 0.92, green: 0.28, blue: 0.30, alpha: 0.96).setFill()
+        NSBezierPath(
+            ovalIn: NSRect(x: 29, y: y + max(0, (height - 8) / 2), width: 8, height: 8)
+        ).fill()
+    }
+
     private var centeredParagraphStyle: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.alignment = .center
@@ -1091,6 +1173,8 @@ final class LineNumberGutterView: NSView {
         } else if point.x <= 34,
                   let marker = implementationMarkers.first(where: { $0.line == line }) {
             onSelectImplementation?(marker)
+        } else if !isBlameVisible, point.x <= 52 {
+            onToggleDebugBreakpoint?(line)
         } else if isBlameVisible, let blame = blameByLine[line] {
             onSelectBlame?(blame)
         } else {

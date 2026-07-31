@@ -32,25 +32,12 @@ enum GitService {
     }
 
     static func diff(for change: GitChange) async -> [DiffRow] {
+        (await diffDocument(for: change)).rows
+    }
+
+    static func diffDocument(for change: GitChange) async -> DiffDocument {
         await Task.detached(priority: .userInitiated) {
-            let patch: String
-            if change.isUntracked {
-                patch = run(
-                    at: change.repositoryRoot,
-                    arguments: ["diff", "--no-index", "--unified=\(reviewContextLines)", "--", "/dev/null", change.path]
-                ).output
-            } else if change.hasWorkingTreeChange {
-                patch = run(
-                    at: change.repositoryRoot,
-                    arguments: ["diff", "--no-ext-diff", "--unified=\(reviewContextLines)", "--"] + change.pathspecs
-                ).output
-            } else {
-                patch = run(
-                    at: change.repositoryRoot,
-                    arguments: ["diff", "--cached", "--no-ext-diff", "--unified=\(reviewContextLines)", "--"] + change.pathspecs
-                ).output
-            }
-            return DiffParser.parse(patch)
+            DiffParser.parseDocument(patch(for: change))
         }.value
     }
 
@@ -80,6 +67,26 @@ enum GitService {
             }
             return run(at: change.repositoryRoot, arguments: ["restore", "--worktree", "--"] + change.pathspecs)
         }.value
+    }
+
+    static func stage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
+        await apply(hunk.patch, at: change.repositoryRoot, arguments: ["apply", "--cached", "--whitespace=nowarn"])
+    }
+
+    static func unstage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
+        await apply(
+            hunk.patch,
+            at: change.repositoryRoot,
+            arguments: ["apply", "--cached", "--reverse", "--whitespace=nowarn"]
+        )
+    }
+
+    static func discard(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
+        await apply(
+            hunk.patch,
+            at: change.repositoryRoot,
+            arguments: ["apply", "--reverse", "--whitespace=nowarn"]
+        )
     }
 
     static func commit(at repositoryRoot: URL, message: String, amend: Bool = false) async -> CommandResult {
@@ -446,7 +453,40 @@ enum GitService {
         )
     }
 
-    private static func run(at directory: URL, arguments: [String]) -> CommandResult {
+    private static func patch(for change: GitChange) -> String {
+        if change.isUntracked {
+            return run(
+                at: change.repositoryRoot,
+                arguments: ["diff", "--no-index", "--unified=\(reviewContextLines)", "--", "/dev/null", change.path]
+            ).output
+        }
+        if change.hasWorkingTreeChange {
+            return run(
+                at: change.repositoryRoot,
+                arguments: ["diff", "--no-ext-diff", "--unified=\(reviewContextLines)", "--"] + change.pathspecs
+            ).output
+        }
+        return run(
+            at: change.repositoryRoot,
+            arguments: ["diff", "--cached", "--no-ext-diff", "--unified=\(reviewContextLines)", "--"] + change.pathspecs
+        ).output
+    }
+
+    private static func apply(
+        _ patch: String,
+        at directory: URL,
+        arguments: [String]
+    ) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            run(at: directory, arguments: arguments, input: patch)
+        }.value
+    }
+
+    private static func run(
+        at directory: URL,
+        arguments: [String],
+        input: String? = nil
+    ) -> CommandResult {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -454,9 +494,15 @@ enum GitService {
         process.arguments = arguments
         process.standardOutput = pipe
         process.standardError = pipe
+        let inputPipe = input.map { _ in Pipe() }
+        process.standardInput = inputPipe
 
         do {
             try process.run()
+            if let input, let inputPipe {
+                inputPipe.fileHandleForWriting.write(Data(input.utf8))
+                inputPipe.fileHandleForWriting.closeFile()
+            }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             return CommandResult(

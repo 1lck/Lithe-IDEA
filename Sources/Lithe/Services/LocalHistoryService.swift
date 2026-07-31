@@ -6,12 +6,17 @@ actor LocalHistoryService {
     static let maximumEntriesPerFile = 100
 
     private let workspaceURL: URL
+    private var visibilityRules: FileVisibilityRules
     private let storageURL: URL
     private let encoder: JSONEncoder
     private let decoder = JSONDecoder()
 
-    init(workspaceURL: URL) {
+    init(
+        workspaceURL: URL,
+        visibilityRules: FileVisibilityRules = .default
+    ) {
         self.workspaceURL = workspaceURL.standardizedFileURL
+        self.visibilityRules = visibilityRules
         let applicationSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -25,6 +30,10 @@ actor LocalHistoryService {
         decoder.dateDecodingStrategy = .iso8601
     }
 
+    func updateVisibilityRules(_ rules: FileVisibilityRules) {
+        visibilityRules = rules
+    }
+
     func seed(files: [URL]) async {
         for fileURL in files where !Task.isCancelled {
             _ = try? recordFile(at: fileURL, reason: .projectBaseline)
@@ -34,6 +43,11 @@ actor LocalHistoryService {
 
     @discardableResult
     func recordFile(at fileURL: URL, reason: LocalHistoryReason) throws -> LocalHistoryEntry? {
+        guard !visibilityRules.isHidden(
+            fileURL,
+            relativeTo: workspaceURL,
+            isDirectory: false
+        ) else { return nil }
         let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         guard values.isRegularFile == true,
               let fileSize = values.fileSize,
@@ -44,11 +58,21 @@ actor LocalHistoryService {
 
     @discardableResult
     func record(text: String, for fileURL: URL, reason: LocalHistoryReason) throws -> LocalHistoryEntry? {
+        guard !visibilityRules.isHidden(
+            fileURL,
+            relativeTo: workspaceURL,
+            isDirectory: false
+        ) else { return nil }
         guard let data = text.data(using: .utf8), data.count <= Self.maximumFileSize else { return nil }
         return try record(content: data, for: fileURL, reason: reason)
     }
 
     func entries(for fileURL: URL) throws -> [LocalHistoryEntry] {
+        guard !visibilityRules.isHidden(
+            fileURL,
+            relativeTo: workspaceURL,
+            isDirectory: false
+        ) else { return [] }
         let directory = historyDirectory(for: fileURL)
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(
@@ -77,7 +101,12 @@ actor LocalHistoryService {
             guard metadataURL.pathExtension == "json",
                   let data = try? Data(contentsOf: metadataURL),
                   let entry = try? decoder.decode(LocalHistoryEntry.self, from: data),
-                  FileManager.default.fileExists(atPath: entry.contentURL.path) else { continue }
+                  FileManager.default.fileExists(atPath: entry.contentURL.path),
+                  !visibilityRules.isHidden(
+                      workspaceURL.appendingPathComponent(entry.relativePath),
+                      relativeTo: workspaceURL,
+                      isDirectory: false
+                  ) else { continue }
             entries.append(entry)
         }
         return entries.sorted {
@@ -127,7 +156,12 @@ actor LocalHistoryService {
         reason: LocalHistoryReason
     ) throws -> LocalHistoryEntry? {
         guard content.count <= Self.maximumFileSize,
-              isInsideWorkspace(fileURL) else { return nil }
+              isInsideWorkspace(fileURL),
+              !visibilityRules.isHidden(
+                  fileURL,
+                  relativeTo: workspaceURL,
+                  isDirectory: false
+              ) else { return nil }
 
         let directory = historyDirectory(for: fileURL)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -20,6 +20,8 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var settings: AppSettings
     @State private var selection: Category = .general
+    @State private var hiddenDirectoriesDraft = ""
+    @State private var hiddenFilePatternsDraft = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,6 +38,9 @@ struct SettingsView: View {
         .frame(width: 760, height: 520)
         .background(LitheTheme.window)
         .preferredColorScheme(.dark)
+        .onAppear(perform: syncVisibilityDrafts)
+        .onChange(of: settings.hiddenDirectoryNames) { syncVisibilityDrafts() }
+        .onChange(of: settings.hiddenFilePatterns) { syncVisibilityDrafts() }
     }
 
     private var header: some View {
@@ -104,17 +109,46 @@ struct SettingsView: View {
     }
 
     private var generalSettings: some View {
-        group("Files") {
-            Toggle("Save changed files automatically", isOn: $settings.autoSave)
-            if settings.autoSave {
-                row("Save after") {
-                    Picker("", selection: $settings.autoSaveDelay) {
-                        Text("0.5 seconds").tag(0.5)
-                        Text("1.5 seconds").tag(1.5)
-                        Text("3 seconds").tag(3.0)
+        VStack(alignment: .leading, spacing: 18) {
+            group("Files") {
+                Toggle("Save changed files automatically", isOn: $settings.autoSave)
+                if settings.autoSave {
+                    row("Save after") {
+                        Picker("", selection: $settings.autoSaveDelay) {
+                            Text("0.5 seconds").tag(0.5)
+                            Text("1.5 seconds").tag(1.5)
+                            Text("3 seconds").tag(3.0)
+                        }
+                        .labelsHidden()
+                        .frame(width: 150)
                     }
-                    .labelsHidden()
-                    .frame(width: 150)
+                }
+            }
+
+            group("Hidden paths") {
+                Text("One entry per line. Directory names hide matching folders; file entries support * and ?.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+
+                Text("Directories")
+                    .font(.system(size: 11.5, weight: .medium))
+                TextEditor(text: $hiddenDirectoriesDraft)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(height: 66)
+                    .overlay { RoundedRectangle(cornerRadius: 4).stroke(LitheTheme.divider, lineWidth: 1) }
+
+                Text("File patterns")
+                    .font(.system(size: 11.5, weight: .medium))
+                TextEditor(text: $hiddenFilePatternsDraft)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(height: 52)
+                    .overlay { RoundedRectangle(cornerRadius: 4).stroke(LitheTheme.divider, lineWidth: 1) }
+
+                HStack {
+                    Spacer()
+                    Button("Apply") { applyVisibilityDrafts() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(LitheTheme.accent)
                 }
             }
         }
@@ -207,5 +241,21 @@ struct SettingsView: View {
         .padding(.horizontal, 14)
         .frame(height: 50)
         .background(LitheTheme.toolHeader)
+    }
+
+    private func syncVisibilityDrafts() {
+        hiddenDirectoriesDraft = settings.hiddenDirectoryNames.joined(separator: "\n")
+        hiddenFilePatternsDraft = settings.hiddenFilePatterns.joined(separator: "\n")
+    }
+
+    private func applyVisibilityDrafts() {
+        settings.hiddenDirectoryNames = entries(from: hiddenDirectoriesDraft)
+        settings.hiddenFilePatterns = entries(from: hiddenFilePatternsDraft)
+    }
+
+    private func entries(from text: String) -> [String] {
+        text.split(whereSeparator: { $0 == "\n" || $0 == "," })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 }

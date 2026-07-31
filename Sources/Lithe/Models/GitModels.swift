@@ -140,12 +140,48 @@ enum DiffRowKind: Sendable, Equatable {
 }
 
 struct DiffRow: Identifiable, Sendable {
-    let id = UUID()
+    let id: UUID
     let oldLine: Int?
     let newLine: Int?
     let left: String?
     let right: String?
     let kind: DiffRowKind
+    let hunkID: String?
+
+    init(
+        oldLine: Int?,
+        newLine: Int?,
+        left: String?,
+        right: String?,
+        kind: DiffRowKind,
+        hunkID: String? = nil
+    ) {
+        self.id = UUID()
+        self.oldLine = oldLine
+        self.newLine = newLine
+        self.left = left
+        self.right = right
+        self.kind = kind
+        self.hunkID = hunkID
+    }
+}
+
+struct DiffHunk: Identifiable, Sendable {
+    let id: String
+    let header: String
+    let rows: [DiffRow]
+    let patch: String
+}
+
+struct DiffDocument: Sendable {
+    let rows: [DiffRow]
+    let hunks: [DiffHunk]
+}
+
+struct DiffHunkRequest: Identifiable {
+    let id = UUID()
+    let change: GitChange
+    let hunk: DiffHunk
 }
 
 enum DiffParser {
@@ -155,11 +191,26 @@ enum DiffParser {
     }
 
     static func parse(_ patch: String) -> [DiffRow] {
+        parseDocument(patch).rows
+    }
+
+    static func parseDocument(_ patch: String) -> DiffDocument {
         var rows: [DiffRow] = []
         var oldLine = 0
         var newLine = 0
         var removed: [Entry] = []
         var added: [Entry] = []
+        var currentHunkID: String?
+        var currentHunkHeader = ""
+        var currentHunkLines: [String] = []
+        var fileHeaderLines: [String] = []
+        var hunkRecords: [(id: String, header: String, lines: [String])] = []
+        var hunkIndex = 0
+        let hasTrailingNewline = patch.hasSuffix("\n")
+        var patchLines = patch.components(separatedBy: "\n")
+        if hasTrailingNewline {
+            patchLines.removeLast()
+        }
 
         func flushChanges() {
             let count = max(removed.count, added.count)
@@ -180,41 +231,92 @@ enum DiffParser {
                     newLine: right?.number,
                     left: left?.text,
                     right: right?.text,
-                    kind: kind
+                    kind: kind,
+                    hunkID: currentHunkID
                 ))
             }
             removed.removeAll(keepingCapacity: true)
             added.removeAll(keepingCapacity: true)
         }
 
-        for line in patch.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+        func finishHunk() {
+            guard let hunkID = currentHunkID else { return }
+            flushChanges()
+            hunkRecords.append((
+                id: hunkID,
+                header: currentHunkHeader,
+                lines: currentHunkLines
+            ))
+            currentHunkID = nil
+            currentHunkHeader = ""
+            currentHunkLines.removeAll(keepingCapacity: true)
+        }
+
+        for line in patchLines {
             if line.hasPrefix("@@") {
-                flushChanges()
+                finishHunk()
+                let hunkID = "hunk-\(hunkIndex)"
+                hunkIndex += 1
+                currentHunkID = hunkID
+                currentHunkHeader = line
+                currentHunkLines = fileHeaderLines + [line]
                 if let ranges = parseHunkHeader(line) {
                     oldLine = ranges.old
                     newLine = ranges.new
                 }
-                rows.append(DiffRow(oldLine: nil, newLine: nil, left: line, right: line, kind: .information))
-            } else if line.hasPrefix("diff --git") || line.hasPrefix("index ") || line.hasPrefix("--- ") || line.hasPrefix("+++ ") {
-                continue
+                rows.append(DiffRow(
+                    oldLine: nil,
+                    newLine: nil,
+                    left: line,
+                    right: line,
+                    kind: .information,
+                    hunkID: hunkID
+                ))
+            } else if line.hasPrefix("diff --git"), currentHunkID != nil {
+                finishHunk()
+                fileHeaderLines = [line]
+            } else if currentHunkID == nil {
+                fileHeaderLines.append(line)
             } else if line.hasPrefix("-") {
+                currentHunkLines.append(line)
                 removed.append(Entry(number: oldLine, text: String(line.dropFirst())))
                 oldLine += 1
             } else if line.hasPrefix("+") {
+                currentHunkLines.append(line)
                 added.append(Entry(number: newLine, text: String(line.dropFirst())))
                 newLine += 1
             } else if line.hasPrefix(" ") {
                 flushChanges()
+                currentHunkLines.append(line)
                 let text = String(line.dropFirst())
-                rows.append(DiffRow(oldLine: oldLine, newLine: newLine, left: text, right: text, kind: .context))
+                rows.append(DiffRow(
+                    oldLine: oldLine,
+                    newLine: newLine,
+                    left: text,
+                    right: text,
+                    kind: .context,
+                    hunkID: currentHunkID
+                ))
                 oldLine += 1
                 newLine += 1
             } else if line.hasPrefix("\\ No newline") {
-                continue
+                currentHunkLines.append(line)
+            } else {
+                currentHunkLines.append(line)
             }
         }
-        flushChanges()
-        return rows
+        finishHunk()
+
+        let hunks = hunkRecords.map { record in
+            let patchText = record.lines.joined(separator: "\n") + (hasTrailingNewline ? "\n" : "")
+            return DiffHunk(
+                id: record.id,
+                header: record.header,
+                rows: rows.filter { $0.hunkID == record.id },
+                patch: patchText
+            )
+        }
+        return DiffDocument(rows: rows, hunks: hunks)
     }
 
     private static func parseHunkHeader(_ header: String) -> (old: Int, new: Int)? {

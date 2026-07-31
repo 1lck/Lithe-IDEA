@@ -41,6 +41,12 @@ final class JavaLanguageService: ObservableObject {
         projectURL = url.standardizedFileURL
     }
 
+    /// Starts JDT LS in the background while the workspace finishes opening.
+    func prepare(for rootURL: URL) {
+        guard !isReady, !isStarting else { return }
+        ensureReady(for: rootURL) { _ in }
+    }
+
     func locations(
         method: String,
         document: EditorDocument,
@@ -73,6 +79,39 @@ final class JavaLanguageService: ObservableObject {
                         completion(.failure(error))
                     case .success(let value):
                         completion(.success(Self.parseLocations(value)))
+                    }
+                }
+            }
+        }
+    }
+
+    func workspaceSymbols(
+        query: String,
+        rootURL: URL,
+        documents: [EditorDocument],
+        completion: @escaping (Result<[JavaWorkspaceSymbol], Error>) -> Void
+    ) {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else {
+            completion(.success([]))
+            return
+        }
+
+        ensureReady(for: rootURL) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success:
+                for document in documents where document.url.pathExtension.lowercased() == "java" {
+                    self.synchronize(document)
+                }
+                self.sendRequest(method: "workspace/symbol", parameters: [
+                    "query": normalizedQuery
+                ]) { response in
+                    switch response {
+                    case .failure(let error): completion(.failure(error))
+                    case .success(let value): completion(.success(Self.parseWorkspaceSymbols(value)))
                     }
                 }
             }
@@ -241,7 +280,11 @@ final class JavaLanguageService: ObservableObject {
                 "publishDiagnostics": ["relatedInformation": true],
                 "synchronization": ["dynamicRegistration": false, "didSave": true]
             ],
-            "workspace": ["workspaceFolders": true, "configuration": true],
+            "workspace": [
+                "workspaceFolders": true,
+                "configuration": true,
+                "symbol": ["dynamicRegistration": false]
+            ],
             "window": ["workDoneProgress": true]
         ]
         let parameters: [String: Any] = [
@@ -481,6 +524,31 @@ final class JavaLanguageService: ObservableObject {
         }
     }
 
+    private static func parseWorkspaceSymbols(_ value: Any) -> [JavaWorkspaceSymbol] {
+        guard let objects = value as? [[String: Any]] else { return [] }
+        return objects.compactMap { object in
+            guard let name = object["name"] as? String,
+                  let kind = object["kind"] as? Int,
+                  let location = object["location"] as? [String: Any] else { return nil }
+            let uri = (location["uri"] as? String) ?? (location["targetUri"] as? String)
+            let range = (location["range"] as? [String: Any]) ??
+                (location["targetSelectionRange"] as? [String: Any])
+            let start = range?["start"] as? [String: Any]
+            guard let uri,
+                  let url = URL(string: uri),
+                  let line = start?["line"] as? Int,
+                  let column = start?["character"] as? Int else { return nil }
+            return JavaWorkspaceSymbol(
+                name: name,
+                containerName: object["containerName"] as? String,
+                url: url.standardizedFileURL,
+                line: line,
+                utf16Column: column,
+                kind: kind
+            )
+        }
+    }
+
     private static func parseInlayHints(_ value: Any) -> [JavaInlayHint] {
         guard let objects = value as? [[String: Any]] else { return [] }
         return objects.compactMap { object in
@@ -504,7 +572,13 @@ final class JavaLanguageService: ObservableObject {
         _ objects: [[String: Any]],
         fileURL: URL
     ) -> [JavaDiagnostic] {
-        objects.compactMap { object in
+        objects.compactMap { parseDiagnostic($0, fileURL: fileURL) }
+    }
+
+    private static func parseDiagnostic(
+        _ object: [String: Any],
+        fileURL: URL
+    ) -> JavaDiagnostic? {
             guard let range = object["range"] as? [String: Any],
                   let start = range["start"] as? [String: Any],
                   let line = start["line"] as? Int,
@@ -516,7 +590,10 @@ final class JavaLanguageService: ObservableObject {
             let endColumn = end?["character"] as? Int ?? column + 1
             let severity = JavaDiagnosticSeverity(rawValue: object["severity"] as? Int ?? 1) ?? .error
             let source = object["source"] as? String
-            let id = fileURL.path + ":" + String(line) + ":" + String(column) + ":" + message
+            let code = Self.parseDiagnosticCode(object["code"])
+            let tags = Self.parseDiagnosticTags(object["tags"])
+            let relatedInformation = Self.parseRelatedInformation(object["relatedInformation"])
+            let id = fileURL.path + ":" + String(line) + ":" + String(column) + ":" + message + ":" + (code ?? "")
             return JavaDiagnostic(
                 id: id,
                 fileURL: fileURL,
@@ -526,7 +603,44 @@ final class JavaLanguageService: ObservableObject {
                 endUTF16Column: max(0, endColumn),
                 severity: severity,
                 message: message,
-                source: source
+                source: source,
+                code: code,
+                tags: tags,
+                relatedInformation: relatedInformation
+            )
+    }
+
+    private static func parseDiagnosticCode(_ value: Any?) -> String? {
+        if let value = value as? String, !value.isEmpty { return value }
+        if let value = value as? Int { return String(value) }
+        return nil
+    }
+
+    private static func parseDiagnosticTags(_ value: Any?) -> Set<JavaDiagnosticTag> {
+        guard let values = value as? [Any] else { return [] }
+        return Set(values.compactMap { value in
+            guard let rawValue = value as? Int else { return nil }
+            return JavaDiagnosticTag(rawValue: rawValue)
+        })
+    }
+
+    private static func parseRelatedInformation(_ value: Any?) -> [JavaDiagnosticRelatedInformation] {
+        guard let objects = value as? [[String: Any]] else { return [] }
+        return objects.compactMap { object in
+            guard let location = object["location"] as? [String: Any],
+                  let uri = location["uri"] as? String,
+                  let fileURL = URL(string: uri),
+                  let range = location["range"] as? [String: Any],
+                  let start = range["start"] as? [String: Any],
+                  let line = start["line"] as? Int,
+                  let column = start["character"] as? Int,
+                  let message = object["message"] as? String,
+                  !message.isEmpty else { return nil }
+            return JavaDiagnosticRelatedInformation(
+                fileURL: fileURL.standardizedFileURL,
+                line: max(0, line),
+                utf16Column: max(0, column),
+                message: message
             )
         }
     }

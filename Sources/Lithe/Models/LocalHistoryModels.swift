@@ -15,6 +15,7 @@ enum LocalHistoryReason: String, Codable, Sendable {
     case externalChange
     case beforeRename
     case beforeDelete
+    case beforeBatchReplace
     case unsavedDiscard
     case restored
 
@@ -25,6 +26,7 @@ enum LocalHistoryReason: String, Codable, Sendable {
         case .externalChange: "External change"
         case .beforeRename: "Before rename"
         case .beforeDelete: "Before deletion"
+        case .beforeBatchReplace: "Before project replacement"
         case .unsavedDiscard: "Discarded editor changes"
         case .restored: "Before restore"
         }

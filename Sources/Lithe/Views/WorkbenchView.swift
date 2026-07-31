@@ -70,6 +70,21 @@ struct WorkbenchView: View {
             Text("This action cannot be undone by Lithe.")
         }
         .confirmationDialog(
+            "Discard this change block?",
+            isPresented: Binding(
+                get: { model.pendingDiscardHunk != nil },
+                set: { if !$0 { model.cancelDiscardHunk() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Discard Block", role: .destructive) {
+                Task { await model.confirmDiscardHunk() }
+            }
+            Button("Cancel", role: .cancel) { model.cancelDiscardHunk() }
+        } message: {
+            Text(model.pendingDiscardHunk?.change.path ?? "This action cannot be undone by Lithe.")
+        }
+        .confirmationDialog(
             "Push '\(pendingTopBarPushReference?.shortName ?? "")'?",
             isPresented: Binding(
                 get: { pendingTopBarPushReference != nil },

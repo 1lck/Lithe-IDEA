@@ -34,6 +34,11 @@ struct SearchSidebarView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(LitheTheme.secondaryText)
                 }
+                Button(action: model.openProjectReplace) {
+                    Image(systemName: "arrow.left.arrow.right")
+                }
+                .litheIconButton()
+                .help("Replace in project")
             }
             .padding(.horizontal, 9)
             .frame(height: 32)
@@ -63,7 +68,7 @@ struct SearchSidebarView: View {
                     LazyVStack(spacing: 0) {
                         ForEach(model.searchResults) { result in
                             Button {
-                                model.openFile(result.url)
+                                model.openSearchResult(result)
                             } label: {
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack(spacing: 6) {
@@ -99,5 +104,9 @@ struct SearchSidebarView: View {
             await model.searchProject()
         }
         .onAppear { searchFocused = true }
+        .sheet(isPresented: $model.isProjectReplaceVisible) {
+            ProjectReplaceView()
+                .environmentObject(model)
+        }
     }
 }
