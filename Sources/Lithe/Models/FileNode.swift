@@ -34,3 +34,10 @@ struct FileSearchResult: Identifiable, Hashable, Sendable {
 
     var id: String { "\(url.path):\(line ?? 0):\(preview)" }
 }
+
+struct SearchEverywhereResults: Sendable {
+    let fileMatches: [FileSearchResult]
+    let contentMatches: [FileSearchResult]
+
+    var totalCount: Int { fileMatches.count + contentMatches.count }
+}

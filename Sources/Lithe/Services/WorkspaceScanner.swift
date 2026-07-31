@@ -51,6 +51,47 @@ enum WorkspaceScanner {
         return results
     }
 
+    static func searchEverywhere(
+        query: String,
+        root: URL,
+        files: [URL],
+        fileLimit: Int = 50,
+        contentLimit: Int = 50
+    ) -> SearchEverywhereResults {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return SearchEverywhereResults(fileMatches: [], contentMatches: []) }
+
+        let lowercasedQuery = normalized.lowercased()
+        var fileMatches: [FileSearchResult] = []
+        var contentMatches: [FileSearchResult] = []
+        let searchable = files.filter(isReadableTextFile)
+
+        for file in searchable {
+            let relativePath = relativePath(for: file, root: root)
+            if fileMatches.count < fileLimit,
+               relativePath.lowercased().contains(lowercasedQuery) {
+                fileMatches.append(FileSearchResult(url: file, line: nil, preview: relativePath))
+            }
+
+            guard contentMatches.count < contentLimit,
+                  let data = try? Data(contentsOf: file, options: [.mappedIfSafe]),
+                  data.count <= 2_000_000,
+                  let contents = String(data: data, encoding: .utf8) else { continue }
+
+            for (index, line) in contents.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                if line.localizedCaseInsensitiveContains(normalized) {
+                    contentMatches.append(FileSearchResult(
+                        url: file,
+                        line: index + 1,
+                        preview: line.trimmingCharacters(in: .whitespaces)
+                    ))
+                    if contentMatches.count >= contentLimit { break }
+                }
+            }
+        }
+        return SearchEverywhereResults(fileMatches: fileMatches, contentMatches: contentMatches)
+    }
+
     static func relativePath(for url: URL, root: URL) -> String {
         let rootPath = root.standardizedFileURL.path
         let path = url.standardizedFileURL.path

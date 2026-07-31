@@ -70,6 +70,12 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isJavaNavigationEnabled = document.url.pathExtension.lowercased() == "java"
         textView.onGoToDefinition = { [weak model] in model?.goToDefinition() }
         textView.onFindUsages = { [weak model] in model?.findJavaReferences() }
+        textView.onFindRequested = { [weak model] in model?.showFindBar() }
+        textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
+        textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
+        textView.onFindStateChange = { [weak model] index, count in
+            model?.updateFindState(currentIndex: index, count: count)
+        }
 
         scrollView.documentView = textView
         gutter.attach(textView: textView, scrollView: scrollView)
@@ -110,6 +116,9 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.updateCodeVisionAndBlame()
         context.coordinator.updateDiagnostics()
         context.coordinator.applyNavigationTargetIfNeeded()
+        if let codeTextView = textView as? CodeTextView {
+            codeTextView.syncFindState(isVisible: model.isFindBarVisible, query: model.findBarQuery)
+        }
     }
 
     @MainActor
@@ -141,7 +150,13 @@ struct CodeEditorView: NSViewRepresentable {
                 model?.documentDidChange(document)
             }
             highlight()
-            (textView as? CodeTextView)?.updateEditorDecorations()
+            let codeTextView = textView as? CodeTextView
+            if let codeTextView, let model, model.isFindBarVisible, !model.findBarQuery.isEmpty {
+                // 先按新文本重算匹配再统一刷新装饰，避免旧 range 越界
+                codeTextView.updateFindMatches(query: model.findBarQuery)
+            } else {
+                codeTextView?.updateEditorDecorations()
+            }
             refreshFoldRegions(useDefaultImportFold: false)
             gutter?.needsDisplay = true
             isApplyingEditorChange = false
@@ -281,6 +296,13 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var isJavaNavigationEnabled = false
     var onGoToDefinition: (() -> Void)?
     var onFindUsages: (() -> Void)?
+    var onFindRequested: (() -> Void)?
+    var onFindNextRequested: (() -> Void)?
+    var onFindPreviousRequested: (() -> Void)?
+    var onFindStateChange: ((Int, Int) -> Void)?
+
+    private var findMatchRanges: [NSRange] = []
+    private var currentFindMatchIndex = 0
 
     private let currentLineColor = NSColor(white: 1, alpha: 0.035)
     private let bracketColor = NSColor(white: 0.72, alpha: 0.22)
@@ -344,6 +366,112 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
                 value: diagnosticColor(for: diagnostic.severity),
                 forCharacterRange: range
             )
+        }
+
+        if !findMatchRanges.isEmpty {
+            // 文本可能已变化，过滤越界 range 后再应用，避免无效 range 异常
+            let validRanges = findMatchRanges.filter {
+                $0.location >= 0 && NSMaxRange($0) <= fullRange.length
+            }
+            if validRanges.count != findMatchRanges.count {
+                findMatchRanges = validRanges
+                currentFindMatchIndex = min(currentFindMatchIndex, max(0, validRanges.count - 1))
+            }
+            if !findMatchRanges.isEmpty {
+                applyFindHighlights()
+            }
+        }
+    }
+
+    // MARK: - Find in file
+
+    /// 重新计算匹配范围并刷新高亮，用于 Find Bar 查询变化。
+    /// 通过 updateEditorDecorations 统一重画，避免旧查询高亮残留。
+    func updateFindMatches(query: String) {
+        let source = string as NSString
+        var newRanges: [NSRange] = []
+        if !query.isEmpty {
+            var searchRange = NSRange(location: 0, length: source.length)
+            while searchRange.length > 0 {
+                let found = source.range(
+                    of: query,
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    range: searchRange
+                )
+                if found.location == NSNotFound { break }
+                newRanges.append(found)
+                let nextLocation = NSMaxRange(found)
+                searchRange = NSRange(location: nextLocation, length: source.length - nextLocation)
+            }
+        }
+        let needsRefresh = !findMatchRanges.isEmpty || !newRanges.isEmpty
+        let previousIndex = currentFindMatchIndex
+        let previousRanges = findMatchRanges
+        findMatchRanges = newRanges
+        currentFindMatchIndex = 0
+        if !newRanges.isEmpty, newRanges == previousRanges {
+            // 匹配列表未变（如光标移动触发的重算），保留当前匹配位置
+            currentFindMatchIndex = min(previousIndex, newRanges.count - 1)
+        }
+        if needsRefresh {
+            updateEditorDecorations()
+        }
+        onFindStateChange?(findMatchRanges.isEmpty ? -1 : 0, findMatchRanges.count)
+    }
+
+    /// 跳转到下一个/上一个匹配并选中。
+    func navigateFind(offset: Int) {
+        guard !findMatchRanges.isEmpty else { return }
+        let total = findMatchRanges.count
+        currentFindMatchIndex = (currentFindMatchIndex + offset + total) % total
+        applyFindHighlights()
+        let range = findMatchRanges[currentFindMatchIndex]
+        scrollRangeToVisible(range)
+        setSelectedRange(range)
+        onFindStateChange?(currentFindMatchIndex, total)
+    }
+
+    /// 清除匹配高亮（Find Bar 关闭时调用）。
+    func clearFindHighlights() {
+        findMatchRanges = []
+        currentFindMatchIndex = 0
+        updateEditorDecorations()
+    }
+
+    /// 文档或查询变化时同步 Find Bar 状态；Find Bar 关闭时仅清理已有高亮。
+    func syncFindState(isVisible: Bool, query: String) {
+        if isVisible {
+            updateFindMatches(query: query)
+        } else if !findMatchRanges.isEmpty {
+            clearFindHighlights()
+        }
+    }
+
+    private func applyFindHighlights() {
+        guard let layoutManager else { return }
+        let matchColor = NSColor.systemYellow.withAlphaComponent(0.32)
+        let currentColor = NSColor.systemOrange.withAlphaComponent(0.55)
+        for (index, range) in findMatchRanges.enumerated() {
+            layoutManager.addTemporaryAttribute(
+                .backgroundColor,
+                value: index == currentFindMatchIndex ? currentColor : matchColor,
+                forCharacterRange: range
+            )
+        }
+    }
+
+    override func performFindPanelAction(_ sender: Any?) {
+        // 系统 Edit ▸ Find 子菜单（若存在）共享此 action，靠 tag 区分：
+        // 1 = Find…(⌘F)、2 = Find Next(⌘G)、3 = Find Previous(⇧⌘G)
+        switch (sender as? NSMenuItem)?.tag {
+        case 1:
+            onFindRequested?()
+        case 2:
+            onFindNextRequested?()
+        case 3:
+            onFindPreviousRequested?()
+        default:
+            break
         }
     }
 
@@ -639,6 +767,51 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
 
     @objc private func findUsagesFromMenu() {
         onFindUsages?()
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFindQueryChanged(_:)),
+            name: .litheFindQueryChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFindNavigate(_:)),
+            name: .litheFindNavigate,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleFindDismiss(_:)),
+            name: .litheFindDismiss,
+            object: nil
+        )
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleFindQueryChanged(_ notification: Notification) {
+        let query = notification.userInfo?[FindNotificationKeys.query] as? String ?? ""
+        updateFindMatches(query: query)
+    }
+
+    @objc private func handleFindNavigate(_ notification: Notification) {
+        let direction = notification.userInfo?[FindNotificationKeys.direction] as? Int ?? 1
+        navigateFind(offset: direction)
+    }
+
+    @objc private func handleFindDismiss(_ notification: Notification) {
+        clearFindHighlights()
+        window?.makeFirstResponder(self)
     }
 }
 

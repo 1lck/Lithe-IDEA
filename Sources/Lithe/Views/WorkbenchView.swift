@@ -101,6 +101,14 @@ struct WorkbenchView: View {
                     .padding(.bottom, 38)
             }
         }
+        .overlay {
+            if model.isSearchEverywhereVisible {
+                SearchEverywhereView()
+                    .environmentObject(model)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: model.isSearchEverywhereVisible)
     }
 
     private var topBar: some View {

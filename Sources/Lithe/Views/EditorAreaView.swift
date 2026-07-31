@@ -112,6 +112,14 @@ struct EditorAreaView: View {
             CodeEditorView(document: document)
                 .id(document.id)
                 .clipped()
+                .overlay(alignment: .top) {
+                    if model.isFindBarVisible {
+                        FindBarView()
+                            .padding(.top, 10)
+                            .padding(.horizontal, 12)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
         } else {
             emptyState
         }
