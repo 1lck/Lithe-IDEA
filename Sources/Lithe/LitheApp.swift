@@ -72,6 +72,11 @@ struct LitheApp: App {
                     }
                 }
                 .disabled(model.activeDocument == nil)
+
+                Button("Show Project Local History…") {
+                    model.showProjectLocalHistory()
+                }
+                .disabled(model.workspaceURL == nil)
             }
         }
     }

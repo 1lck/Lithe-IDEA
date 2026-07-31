@@ -9,6 +9,7 @@ struct RootView: View {
                 WelcomeView()
             } else {
                 WorkbenchView()
+                    .environmentObject(model.javaRunService)
                     .ignoresSafeArea(.container, edges: .top)
             }
         }
@@ -19,6 +20,10 @@ struct RootView: View {
         }
         .sheet(item: $model.localHistoryRequest) { request in
             LocalHistoryView(request: request)
+                .environmentObject(model)
+        }
+        .sheet(item: $model.projectLocalHistoryRequest) { request in
+            ProjectLocalHistoryView(request: request)
                 .environmentObject(model)
         }
     }

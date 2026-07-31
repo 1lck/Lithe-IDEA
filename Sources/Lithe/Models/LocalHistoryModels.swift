@@ -36,6 +36,10 @@ struct LocalHistoryRequest: Identifiable {
     let fileURL: URL
 }
 
+struct ProjectLocalHistoryRequest: Identifiable {
+    let id = UUID()
+}
+
 enum LocalHistoryDiffBuilder {
     static func rows(old oldText: String, current currentText: String) -> [DiffRow] {
         let oldLines = lines(in: oldText)

@@ -65,6 +65,27 @@ actor LocalHistoryService {
         .sorted { $0.timestamp > $1.timestamp }
     }
 
+    func allEntries() throws -> [LocalHistoryEntry] {
+        guard FileManager.default.fileExists(atPath: storageURL.path) else { return [] }
+        let enumerator = FileManager.default.enumerator(
+            at: storageURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        var entries: [LocalHistoryEntry] = []
+        while let metadataURL = enumerator?.nextObject() as? URL {
+            guard metadataURL.pathExtension == "json",
+                  let data = try? Data(contentsOf: metadataURL),
+                  let entry = try? decoder.decode(LocalHistoryEntry.self, from: data),
+                  FileManager.default.fileExists(atPath: entry.contentURL.path) else { continue }
+            entries.append(entry)
+        }
+        return entries.sorted {
+            if $0.timestamp != $1.timestamp { return $0.timestamp > $1.timestamp }
+            return $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending
+        }
+    }
+
     func content(for entry: LocalHistoryEntry) throws -> String {
         try String(contentsOf: entry.contentURL, encoding: .utf8)
     }

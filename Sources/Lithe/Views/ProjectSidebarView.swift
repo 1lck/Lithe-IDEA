@@ -51,6 +51,9 @@ struct ProjectSidebarView: View {
                         Button("Show Project in Finder") {
                             model.revealProjectItemInFinder(root.url)
                         }
+                        Button("Show Project Local History…") {
+                            model.showProjectLocalHistory()
+                        }
                         Button("Copy Project Path") {
                             model.copyProjectItemPath(root.url, relative: false)
                         }
