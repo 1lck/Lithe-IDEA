@@ -6,3 +6,5 @@ dist/
 *.xcuserstate
 *.xcuserdata/
 design-qa-artifacts/
+.reasonix/
+reasonix.toml
