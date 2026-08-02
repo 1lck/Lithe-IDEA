@@ -5,11 +5,11 @@
 <h1 align="center">Lithe</h1>
 
 <p align="center">
-  <strong>A native macOS workbench for reading, validating, and reviewing AI-generated code</strong>
+  <strong>A lightweight, native macOS IDE inspired by IntelliJ IDEA</strong>
 </p>
 
 <p align="center">
-  Let AI produce the code. Let people understand it, verify it, and decide what to keep.
+  The familiar IDE core, with a lighter memory footprint.
 </p>
 
 <p align="center">
@@ -36,35 +36,37 @@
 
 ## Why Lithe
 
-AI is changing how software gets written. More code is now generated, modified, and refactored by AI, while people spend more of their time understanding changes, validating outcomes, and deciding what belongs in the project.
+Most developers do not need to learn another way to work. They need the familiar core of an IDE—project browsing, an editor, search, navigation, Git, Run, and Debug—without carrying the full resource footprint of a large IDE for every task.
 
-IntelliJ IDEA remains an excellent deep-coding workbench. But after an AI tool changes a project, the immediate job is often much narrower: browse the project, read the changed code, navigate references, inspect the diff, run the result, and accept or undo the change. Starting a full IDE for every review can mean more workspace than the task requires.
+Lithe is built around that idea: reproduce the core IDE workflow in a native macOS application, keep the interaction model familiar to IntelliJ IDEA users, and keep heavyweight services out of memory until they are needed.
 
-Lithe is built for that moment. It watches the same local project directory as external AI tools and puts reading, validation, and Git decisions on one short path.
+The goal is not to build a smaller-looking editor. It is to provide a practical, lightweight alternative for the everyday IDE loop: open a project, read and edit code, search and navigate, run it, inspect the result, and review Git changes.
 
-> **AI produces the code. Lithe helps people understand, verify, and accept it.**
+> **The familiar IDE core, with a lighter footprint.**
+
+AI-assisted development is one of Lithe's most important use cases. When an external AI tool changes a project, Lithe is ready to observe the changes, navigate the affected Java code, run the project, inspect the Diff, and let people decide what to keep.
 
 ```text
-AI changes the project
-          ↓
-Lithe discovers the changes
-          ↓
-Browse / Search / Navigate Java
-          ↓
+Open a project
+      ↓
+Browse / Edit / Search / Navigate
+      ↓
 Run / Maven / Debug
-          ↓
-Review the diff → Stage, undo, or commit
+      ↓
+Review Git changes → Stage, undo, or commit
+      ↓
+Optional: inspect changes made by an external AI tool
 ```
 
-You do not need to uninstall IntelliJ IDEA or learn a completely new interaction model. Lithe keeps the familiar Project, Changes, Search, Editor, Diff, Run, and Debug concepts, then applies them to an AI-native review workflow.
+You do not need to uninstall IntelliJ IDEA or learn a completely new interaction model. Lithe is designed to be a lighter alternative for the core daily workflow, while IDEA remains available for advanced coding and its broader ecosystem.
 
 ## Lithe vs IntelliJ IDEA
 
-Lithe is not trying to replace IntelliJ IDEA in every scenario. It replaces the moments in an AI-assisted workflow that need IDE capabilities, but not the weight of a complete IDE.
+Lithe aims to replace the core everyday IDE loop with a lighter native application, not every advanced capability in IntelliJ IDEA.
 
 | Area | IntelliJ IDEA | Lithe |
 | --- | --- | --- |
-| Primary role | Full Java and multi-language IDE | Workbench for reading, validating, and reviewing AI changes |
+| Primary role | Full Java and multi-language IDE | Lightweight IDEA-style IDE for core daily workflows |
 | Deep coding | Complete completion, refactoring, plugins, and project tooling | Focused on reading and small manual corrections |
 | External AI changes | Possible inside a full IDE workflow | External change detection, conflict prompts, Diff, and Local History are first-class |
 | Git workflow | Broad version-control capabilities | Centered on Changes, side-by-side Diff, hunk actions, and accept/undo decisions |
@@ -72,17 +74,17 @@ Lithe is not trying to replace IntelliJ IDEA in every scenario. It replaces the 
 | Startup and resources | Broader IDE platform | Native SwiftUI/AppKit with Java services and processes started on demand |
 | Familiarity | The established IDEA workflow | Keeps the Project, Changes, Search, Editor, and Diff habits IDEA users already know |
 
-### Moments Lithe can replace IDEA
+### Core workflows Lithe can replace
 
-- An AI tool just changed the project and you need to understand what changed and why.
-- You only need project browsing, text search, Java navigation, or a quick code read.
-- You want to decide what to keep, undo, stage, commit, or apply at the individual hunk level.
-- You need to run Maven, Spring Boot, or a Java file and inspect the result quickly.
-- External tools are continuously editing the project and you need Local History and conflict protection.
+- Open a Java project, browse its files, edit a small piece of code, and save it.
+- Search the project, navigate Java definitions and usages, and inspect diagnostics.
+- Run Maven, Spring Boot, or a Java file and inspect the result.
+- Review Git changes, then stage, undo, commit, or apply an individual hunk.
+- Inspect and validate changes made by an external AI tool without changing your familiar IDE habits.
 
 ### Moments IDEA is still the better tool
 
-Deep completion, complex refactoring, automatic imports, a broad plugin ecosystem, multi-language projects, test trees, and coverage remain IDEA strengths. Lithe is not asking you to give those up; it makes the AI-generated-code review loop lighter, faster, and more focused.
+Deep completion, complex refactoring, automatic imports, a broad plugin ecosystem, multi-language projects, test trees, and coverage remain IDEA strengths. Lithe is not asking you to give those up; it provides a lower-overhead alternative for the core IDE loop and makes AI-assisted changes easier to inspect.
 
 ## Performance and familiar workflow
 
@@ -101,7 +103,7 @@ On the current development machine, an idle Welcome window uses about **86 MB**.
 
 Lithe follows the IDEA-shaped workflow: Project, Changes, Search, Editor, Diff, Maven, Run, and Debug have corresponding entry points. Familiar actions such as `⌘F` file search, `⌘B` navigation to usages, and double-Shift Search Everywhere remain available.
 
-The cost of switching to Lithe is not learning another IDE. It is simply opening a workbench that is better suited to reading and making decisions after AI has changed the code.
+The cost of switching to Lithe is not learning another IDE. It is simply opening a workbench with the same familiar concepts and a smaller memory footprint.
 
 ## Product Tour
 
