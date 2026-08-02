@@ -1,83 +1,265 @@
-# Lithe
+<p align="center">
+  <img src="./Resources/AppIcon.png" width="128" alt="Lithe app icon">
+</p>
 
-Lithe 是一款面向 AI 编程工作流的原生 macOS 代码浏览与 Git 审查工具。
+<h1 align="center">Lithe</h1>
 
-## 当前能力
+<p align="center">
+  <strong>A native macOS workbench for reading, validating, and reviewing AI-generated code</strong>
+</p>
 
-- IDEA 风格的 Welcome Screen 和工作台
-- 打开本地目录、最近项目和文件树
-- 多标签原生文本编辑、保存和基础语法着色
-- Java 方法定义跳转与引用查找（Eclipse JDT LS）
-- 项目目录内置交互式终端
-- 文件名与项目全文搜索
-- 项目搜索和 Search Everywhere 的大小写、整词、正则表达式选项
-- FSEvents 外部文件变化监听和编辑冲突提示
-- 磁盘型 Local History、项目级时间线、版本 Diff 与整文件恢复
-- Git Changes、并排 Diff、文件暂存、撤销、提交、Commit and Push、Clone、Fetch、真实 Shelf（stash）
-- Git 分支 Checkout、创建、重命名、删除、Merge、Rebase、Push 与 Update
-- Git 分支与标签树、可搜索提交时间线、提交文件目录树和提交详情
-- Maven 根项目、模块、Profiles 与 Lifecycle 浏览，支持执行构建任务和查看 Build Output
-- Java Current File、Spring Boot 与 Maven Module 基础运行配置，支持输出、停止、重启、配置持久化和多个 Maven Module 独立会话
-- JDT LS Java 实时诊断、编辑器诊断下划线和 Problems 面板
-- Java Debug：Current File、Maven/Spring Boot 和 Remote JVM/Tomcat JDWP attach，支持断点、继续/暂停、单步和线程/调用栈/变量查询
-- 工作台状态恢复：按项目恢复标签、活动文件、选中侧栏和分栏尺寸，支持编辑器右侧分栏
+<p align="center">
+  Let AI produce the code. Let people understand it, verify it, and decide what to keep.
+</p>
 
-当前完成度、性能基线和后续计划见 [开发进度](./docs/开发进度.md)。
+<p align="center">
+  <a href="./README.zh-CN.md">简体中文</a>
+</p>
 
-## 构建
+<p align="center">
+  <a href="#product-tour">Product Tour</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#why-lithe">Why Lithe</a> ·
+  <a href="#lithe-vs-intellij-idea">Lithe vs IDEA</a>
+</p>
 
-需要 Swift 6.2 或更高版本。Java 语义导航还需要 Eclipse JDT LS：
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-111827?style=flat-square&logo=apple" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/Swift-6.2%2B-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6.2+">
+  <img src="https://img.shields.io/badge/UI-SwiftUI%20%2B%20AppKit-0A84FF?style=flat-square" alt="SwiftUI and AppKit">
+  <img src="https://img.shields.io/badge/status-active%20development-F59E0B?style=flat-square" alt="Active development">
+</p>
+
+<p align="center">
+  <img src="./docs/visual-qa/07-git-history-graph.png" width="92%" alt="Lithe Git history graph">
+</p>
+
+## Why Lithe
+
+AI is changing how software gets written. More code is now generated, modified, and refactored by AI, while people spend more of their time understanding changes, validating outcomes, and deciding what belongs in the project.
+
+IntelliJ IDEA remains an excellent deep-coding workbench. But after an AI tool changes a project, the immediate job is often much narrower: browse the project, read the changed code, navigate references, inspect the diff, run the result, and accept or undo the change. Starting a full IDE for every review can mean more workspace than the task requires.
+
+Lithe is built for that moment. It watches the same local project directory as external AI tools and puts reading, validation, and Git decisions on one short path.
+
+> **AI produces the code. Lithe helps people understand, verify, and accept it.**
+
+```text
+AI changes the project
+          ↓
+Lithe discovers the changes
+          ↓
+Browse / Search / Navigate Java
+          ↓
+Run / Maven / Debug
+          ↓
+Review the diff → Stage, undo, or commit
+```
+
+You do not need to uninstall IntelliJ IDEA or learn a completely new interaction model. Lithe keeps the familiar Project, Changes, Search, Editor, Diff, Run, and Debug concepts, then applies them to an AI-native review workflow.
+
+## Lithe vs IntelliJ IDEA
+
+Lithe is not trying to replace IntelliJ IDEA in every scenario. It replaces the moments in an AI-assisted workflow that need IDE capabilities, but not the weight of a complete IDE.
+
+| Area | IntelliJ IDEA | Lithe |
+| --- | --- | --- |
+| Primary role | Full Java and multi-language IDE | Workbench for reading, validating, and reviewing AI changes |
+| Deep coding | Complete completion, refactoring, plugins, and project tooling | Focused on reading and small manual corrections |
+| External AI changes | Possible inside a full IDE workflow | External change detection, conflict prompts, Diff, and Local History are first-class |
+| Git workflow | Broad version-control capabilities | Centered on Changes, side-by-side Diff, hunk actions, and accept/undo decisions |
+| Java support | Full Java project experience | Eclipse JDT LS navigation, diagnostics, and basic Debug |
+| Startup and resources | Broader IDE platform | Native SwiftUI/AppKit with Java services and processes started on demand |
+| Familiarity | The established IDEA workflow | Keeps the Project, Changes, Search, Editor, and Diff habits IDEA users already know |
+
+### Moments Lithe can replace IDEA
+
+- An AI tool just changed the project and you need to understand what changed and why.
+- You only need project browsing, text search, Java navigation, or a quick code read.
+- You want to decide what to keep, undo, stage, commit, or apply at the individual hunk level.
+- You need to run Maven, Spring Boot, or a Java file and inspect the result quickly.
+- External tools are continuously editing the project and you need Local History and conflict protection.
+
+### Moments IDEA is still the better tool
+
+Deep completion, complex refactoring, automatic imports, a broad plugin ecosystem, multi-language projects, test trees, and coverage remain IDEA strengths. Lithe is not asking you to give those up; it makes the AI-generated-code review loop lighter, faster, and more focused.
+
+## Performance and familiar workflow
+
+### Native, lightweight, and on demand
+
+Lithe is built with SwiftUI and AppKit. It does not embed Chromium or maintain a full IDE-scale resident project model:
+
+- The Java language service starts when a Java project needs it.
+- Terminal, Maven, Run, and Debug processes start when you use them.
+- Search uses a lightweight disk index, while Local History stores snapshots on disk instead of keeping history text resident in memory.
+- Closing a project stops file watchers, language services, terminal sessions, and Run/Debug processes.
+
+On the current development machine, an idle Welcome window uses about **86 MB**. The product targets less than **150 MB** for Welcome and less than **300 MB** for an ordinary project, excluding on-demand child processes. These are development baselines, not a substitute for future stress testing across larger projects.
+
+### No new IDE habits to learn
+
+Lithe follows the IDEA-shaped workflow: Project, Changes, Search, Editor, Diff, Maven, Run, and Debug have corresponding entry points. Familiar actions such as `⌘F` file search, `⌘B` navigation to usages, and double-Shift Search Everywhere remain available.
+
+The cost of switching to Lithe is not learning another IDE. It is simply opening a workbench that is better suited to reading and making decisions after AI has changed the code.
+
+## Product Tour
+
+<p align="center">
+  <img src="./docs/visual-qa/00-welcome-projects.png" width="49%" alt="Welcome and recent projects">
+  <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="49%" alt="Java editor and project tree">
+</p>
+
+<p align="center">
+  <img src="./docs/visual-qa/09-search-everywhere-results.png" width="49%" alt="Search Everywhere">
+  <img src="./docs/visual-qa/13-spring-boot-usages.png" width="49%" alt="Java usages from JDT LS">
+</p>
+
+<p align="center">
+  <img src="./docs/visual-qa/08-git-diff-green-state.png" width="49%" alt="Git diff review">
+  <img src="./docs/visual-qa/14-spring-boot-run-configuration.png" width="49%" alt="Spring Boot run configuration">
+</p>
+
+## Features
+
+| Workflow | What Lithe provides |
+| --- | --- |
+| Project browsing | Welcome Screen, recent projects, file tree, file icons, breadcrumbs, and workspace state restoration |
+| Code reading | Multi-tab native editor, Java syntax highlighting, code folding, line numbers, saving, and dirty-file state |
+| Java navigation | Eclipse JDT LS definitions, usages, implementations, workspace symbols, and live diagnostics |
+| Search | File name, path, full-text, Search Everywhere, case/whole-word/regex matching, and project replacement |
+| External changes | FSEvents monitoring, file refresh, and conflict prompts between disk and unsaved editor content |
+| Git review | Changes, side-by-side Diff, Diff search, hunk staging/undo, Commit, Shelf, branches, and Git Graph |
+| Build and Run | Maven roots, modules, Profiles, Lifecycle, Build Output, Current File, Spring Boot, and Maven Module configurations |
+| Java Debug | Local JDWP, Maven/Spring Boot Debug, Remote JVM/Tomcat attach, breakpoints, stepping, threads, and variables |
+| Productivity | Project Local History, integrated terminal, resizable tool windows, and restored split layouts |
+
+## Quick Start
+
+### Requirements
+
+- macOS 14 or later
+- Swift 6.2 or later
+- A JDK for Java features; JDK 17 or JDK 21 is recommended
+- Eclipse JDT LS for Java semantic navigation
+- A project `mvnw` or a system Maven installation for Maven projects
+
+Install JDT LS with Homebrew:
 
 ```bash
 brew install jdtls
 ```
 
-构建应用：
+### Run the development build
+
+From the project root:
 
 ```bash
-swift build --disable-sandbox
 swift run --disable-sandbox Lithe
 ```
 
-开发预览也可以直接运行 Debug 窗口，不需要打包或安装 App：
+You can also use the preview script:
 
 ```bash
 ./scripts/preview.sh
 ```
 
-在没有完整 XCTest 工具链的开发机上，可以先运行核心逻辑验收：
-
-```bash
-./scripts/verify-core.sh
-```
-
-它会在临时 Git 仓库中验证 Diff、文件可见性、Git Graph、搜索匹配、空白过滤、stash 和 clone 流程。
-
-生成可直接打开的本地 App Bundle：
+### Build an App Bundle
 
 ```bash
 ./scripts/package-app.sh
 open dist/Lithe.app
 ```
 
-最低支持 macOS 14。当前使用 Swift Package Manager，不依赖第三方包。
+### Check the core workflows
 
-## 产品边界
+The repository includes UI-independent checks for the core logic:
 
-Lithe 不内置 AI 或测试运行器。外部 AI 工具负责生成代码；Lithe 负责浏览项目、Java 代码导航、Maven 构建、运行配置、Java Debug、终端操作、观察外部变化和审查 Git 修改。Java 语言服务器仅在首次请求定义或引用时按需启动，关闭项目时停止。Local History 只把文本快照写入磁盘，内容按需加载，不作为 Git 的替代品。
+```bash
+./scripts/verify-core.sh
+./scripts/verify-git-graph.sh
+```
 
-完整范围见 [需求开发书](./docs/需求开发书.md)。IDEA 交互参考整理在 [IDEA UI 源码参考](./docs/IDEA-UI源码参考.md)。
+These cover Diff, file visibility, search matching, Git Graph, whitespace filtering, stash, clone, and real Merge/Tag/Remote reference layouts.
 
-## 目录结构
+## Configure Java and Maven
+
+After opening a project, use **Settings → Project** to configure:
+
+- Project JDK
+- Maven Wrapper, system Maven, or a custom Maven Home
+- The JDK used by Maven
+
+Lithe discovers installed JDKs by probing `JAVA_HOME`, macOS `java_home`, standard JDK locations, and Homebrew JDKs; Maven is discovered from a project `mvnw`, `MAVEN_HOME`, `PATH`, and standard Homebrew/system locations. The selected runtime is stored per project in local application settings, so machine-specific paths do not enter the repository. These settings are shared by Current File, Maven, Spring Boot, Maven Module, Debug, and JDT LS. A run configuration can still override the project JDK with **JDK Home**.
+
+## Design boundaries
+
+Lithe currently focuses on reading, running, and reviewing Java projects on macOS. It does not include:
+
+- AI model calls, Agent sessions, or chat UI
+- LSP and code intelligence for languages other than Java
+- Traditional completion, automatic imports, quick fixes, or safe rename
+- Test discovery, test trees, coverage, or a full test runner
+- Three-way merge conflict resolution, multi-root workspaces, or a plugin marketplace
+
+Current File uses Java source-file mode and is intended for quick single-file examples. For code that depends on other project sources, use a Maven Module or Spring Boot run configuration.
+
+## Technical architecture
+
+```text
+SwiftUI Workbench
+├── Welcome / Recent Projects
+├── Project / Changes / Search
+├── Editor Tabs / Diff Review
+└── Run / Debug / Maven / Terminal
+          ↓
+AppKit NSTextView     FSEvents       System Git       JDT LS
+Native text editing   File changes   Git review       Java semantics
+```
+
+Lithe uses Swift Package Manager and has no third-party Swift Package dependencies:
+
+```text
+Sources/Lithe/
+├── Models/       Workspace, editor, Git, Java, and run configuration models
+├── Services/     Scanning, search, Git, Maven, Java, and Local History
+├── Theme/        Lithe visual tokens and icons
+└── Views/        Welcome, Workbench, Editor, Diff, and tool windows
+```
+
+## Current status
+
+Lithe is in active development. The core loop from opening a project to reading changes, running Java/Maven, reviewing a Diff, and making a Git decision is in place.
+
+| Status | Scope |
+| --- | --- |
+| Available now | Welcome, project tree, editor, search, external changes, Git/Diff, Local History, terminal, Maven, and basic Run/Debug |
+| Being refined | Java navigation edges, cross-file Current File execution, and large-project performance |
+| Planned | Automated tests, more Java workflows, and further interaction polish |
+
+## Project structure
 
 ```text
 Lithe-IDEA/
-├── Sources/Lithe/   # SwiftUI / AppKit 源码
-├── Resources/       # Info.plist 与应用图标
-├── scripts/         # 本地打包脚本
-├── docs/            # 需求、进度与设计参考
+├── Sources/Lithe/          # SwiftUI / AppKit source
+├── Resources/              # Info.plist, app icons, and IDEA-inspired assets
+├── Fixtures/               # Maven / Spring Boot examples and Git history fixtures
+├── scripts/                # Build, packaging, and core check scripts
+├── docs/                   # Supporting documentation and examples
 ├── Package.swift
-└── README.md
+├── README.md               # English README
+└── README.zh-CN.md         # Simplified Chinese README
 ```
 
-`.build/`、`dist/` 和视觉验收截图均为可重建产物，不纳入仓库。
+## Contributing
+
+If you want to contribute:
+
+1. Start with the feature scope and design boundaries above.
+2. Run `./scripts/verify-core.sh` and `./scripts/verify-git-graph.sh`.
+3. Test UI and runtime behavior in a real Java/Maven project.
+4. Include the verification steps and known limitations with your change.
+
+## License
+
+Lithe will be released under an open-source license. A `LICENSE` file and the complete license terms will be added before the public release.
