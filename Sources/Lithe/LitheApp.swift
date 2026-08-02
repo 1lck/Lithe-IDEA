@@ -3,12 +3,14 @@ import SwiftUI
 @main
 struct LitheApp: App {
     @StateObject private var model = AppModel()
+    @StateObject private var updateChecker = UpdateChecker()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(model)
                 .environmentObject(model.settings)
+                .environmentObject(updateChecker)
                 .frame(minWidth: 980, minHeight: 640)
                 .preferredColorScheme(.dark)
         }
@@ -41,6 +43,13 @@ struct LitheApp: App {
                     model.isSettingsPresented = true
                 }
                 .keyboardShortcut(",", modifiers: .command)
+            }
+
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    Task { await updateChecker.checkForUpdates(manual: true) }
+                }
+                .disabled(updateChecker.isChecking)
             }
 
             CommandMenu("Navigate") {

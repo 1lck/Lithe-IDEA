@@ -135,6 +135,7 @@ The cost of switching to Lithe is not learning another IDE. It is simply opening
 | Build and Run | Maven roots, modules, Profiles, Lifecycle, Build Output, Current File, Spring Boot, and Maven Module configurations |
 | Java Debug | Local JDWP, Maven/Spring Boot Debug, Remote JVM/Tomcat attach, breakpoints, stepping, threads, and variables |
 | Productivity | Project Local History, integrated terminal, resizable tool windows, and restored split layouts |
+| Updates | Checks the latest GitHub Release and opens the download page for manual updates |
 
 ## Quick Start
 
@@ -172,6 +173,21 @@ You can also use the preview script:
 ./scripts/package-app.sh
 open dist/Lithe.app
 ```
+
+### Download a release
+
+Download published versions from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). Lithe can check for a newer release and open the download page, but the current update flow is manual: quit Lithe, replace `Lithe.app` in `/Applications`, and reopen it.
+
+If macOS blocks an app from an unidentified developer, first try right-clicking the app and choosing **Open**. You can also use **System Settings → Privacy & Security → Open Anyway** after trying to launch it.
+
+Only if the app came from the official Lithe GitHub Release, and macOS still blocks it, run:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Lithe.app"
+open "/Applications/Lithe.app"
+```
+
+This removes macOS's downloaded-file quarantine marker for that app. It does not install updates automatically or disable Gatekeeper system-wide.
 
 ### Check the core workflows
 

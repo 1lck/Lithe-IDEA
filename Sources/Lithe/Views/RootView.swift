@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var updateChecker: UpdateChecker
 
     var body: some View {
         Group {
@@ -32,6 +33,26 @@ struct RootView: View {
         .sheet(item: $model.projectLocalHistoryRequest) { request in
             ProjectLocalHistoryView(request: request)
                 .environmentObject(model)
+        }
+        .task {
+            await updateChecker.checkForUpdates()
+        }
+        .alert(item: $updateChecker.notice) { notice in
+            if let downloadURL = notice.downloadURL {
+                return Alert(
+                    title: Text(notice.title),
+                    message: Text(notice.message),
+                    primaryButton: .default(Text("Download")) {
+                        updateChecker.openRelease(downloadURL)
+                    },
+                    secondaryButton: .cancel()
+                )
+            }
+            return Alert(
+                title: Text(notice.title),
+                message: Text(notice.message),
+                dismissButton: .default(Text("OK"))
+            )
         }
     }
 }

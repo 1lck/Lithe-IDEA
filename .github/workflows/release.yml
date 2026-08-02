@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semantic version to release, for example 0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish Lithe
+    runs-on: macos-14
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v3
+        with:
+          swift-version: "6.2"
+
+      - name: Resolve release version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$MANUAL_VERSION"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release version must use the form MAJOR.MINOR.PATCH: $version"
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "build_number=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Build the App bundle
+        env:
+          LITHE_VERSION: ${{ steps.version.outputs.version }}
+          LITHE_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+        run: |
+          chmod +x scripts/package-app.sh
+          ./scripts/package-app.sh
+          ditto -c -k --keepParent \
+            dist/Lithe.app \
+            "dist/Lithe-${LITHE_VERSION}.zip"
+          shasum -a 256 \
+            "dist/Lithe-${LITHE_VERSION}.zip" \
+            > "dist/Lithe-${LITHE_VERSION}.zip.sha256"
+
+      - name: Verify the bundle
+        env:
+          LITHE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          codesign --verify --deep --strict dist/Lithe.app
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleShortVersionString" \
+            dist/Lithe.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleVersion" \
+            dist/Lithe.app/Contents/Info.plist
+          test -s "dist/Lithe-${LITHE_VERSION}.zip"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          LITHE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            "dist/Lithe-${LITHE_VERSION}.zip" \
+            "dist/Lithe-${LITHE_VERSION}.zip.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Lithe $RELEASE_TAG" \
+            --generate-notes

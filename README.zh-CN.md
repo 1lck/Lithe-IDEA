@@ -135,6 +135,7 @@ Lithe 的信息架构和操作路径刻意贴近 IDEA：Project、Changes、Sear
 | 构建运行 | Maven 根项目、多模块、Profiles、Lifecycle、Build Output、Current File、Spring Boot 和 Maven Module |
 | Java Debug | 本地 JDWP、Maven/Spring Boot Debug、Remote JVM/Tomcat attach、断点、单步、线程和变量查询 |
 | 工作效率 | 项目级 Local History、内置终端、可拖拽工具窗口和分栏布局恢复 |
+| 更新 | 检查最新 GitHub Release，并打开下载页面进行手动更新 |
 
 ## 快速开始
 
@@ -172,6 +173,21 @@ swift run --disable-sandbox Lithe
 ./scripts/package-app.sh
 open dist/Lithe.app
 ```
+
+### 下载发布版本
+
+从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载已发布版本。Lithe 可以检查是否有更新并打开下载页面，但当前更新方式是手动的：退出 Lithe，将新的 `Lithe.app` 替换到 `/Applications`，然后重新打开。
+
+如果 macOS 阻止打开来自未识别开发者的 App，可以先右键点击 App 并选择 **打开**；也可以在尝试启动后进入 **系统设置 → 隐私与安全性 → 仍要打开**。
+
+只有在确认 App 来自 Lithe 官方 GitHub Release 的情况下，如果 macOS 仍然阻止打开，可以执行：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Lithe.app"
+open "/Applications/Lithe.app"
+```
+
+这只会移除该 App 的下载隔离标记，不会自动安装更新，也不会全局关闭 Gatekeeper。
 
 ### 检查核心功能
 
