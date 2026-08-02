@@ -8,6 +8,11 @@ struct FileNode: Identifiable, Hashable, Sendable {
     var id: String { url.path }
     var name: String { url.lastPathComponent }
 
+    var iconKind: LitheIconKind {
+        LitheIcons.kind(for: url, isDirectory: isDirectory)
+    }
+
+    @available(*, deprecated, message: "Use iconKind and LitheIcon instead")
     var systemImage: String {
         if isDirectory { return "folder" }
         switch url.pathExtension.lowercased() {
@@ -83,27 +88,30 @@ struct SearchSymbol: Codable, Hashable, Sendable {
     let signature: String
 }
 
-struct SearchEverywhereResults: Sendable {
+struct SearchEverywhereResults: @unchecked Sendable {
     let fileMatches: [FileSearchResult]
     let classMatches: [FileSearchResult]
     let symbolMatches: [FileSearchResult]
     let contentMatches: [FileSearchResult]
+    let actionMatches: [LitheAction]
 
     init(
         fileMatches: [FileSearchResult] = [],
         classMatches: [FileSearchResult] = [],
         symbolMatches: [FileSearchResult] = [],
-        contentMatches: [FileSearchResult] = []
+        contentMatches: [FileSearchResult] = [],
+        actionMatches: [LitheAction] = []
     ) {
         self.fileMatches = fileMatches
         self.classMatches = classMatches
         self.symbolMatches = symbolMatches
         self.contentMatches = contentMatches
+        self.actionMatches = actionMatches
     }
 
     var allMatches: [FileSearchResult] {
         fileMatches + classMatches + symbolMatches + contentMatches
     }
 
-    var totalCount: Int { allMatches.count }
+    var totalCount: Int { allMatches.count + actionMatches.count }
 }

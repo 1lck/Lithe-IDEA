@@ -130,9 +130,15 @@ final class JavaRunService: ObservableObject {
                 return
             }
             executable = javaURL
-            arguments = Self.arguments(from: options.vmArguments)
-                + [currentFileURL.standardizedFileURL.path]
-                + Self.arguments(from: options.programArguments)
+            var currentFileArguments = Self.arguments(from: options.vmArguments)
+            if let classPath = classPath(for: currentFileURL) {
+                // Source-file mode still needs the compiled project classes when
+                // the current file references sibling Maven classes.
+                currentFileArguments += ["--class-path", classPath]
+            }
+            currentFileArguments += [currentFileURL.standardizedFileURL.path]
+            currentFileArguments += Self.arguments(from: options.programArguments)
+            arguments = currentFileArguments
             workingDirectory = resolvedWorkingDirectory(
                 options.workingDirectoryPath,
                 fallback: currentFileURL.deletingLastPathComponent()
@@ -310,6 +316,33 @@ final class JavaRunService: ObservableObject {
         if output.count > maximumOutputCharacters {
             output.removeFirst(output.count - maximumOutputCharacters)
         }
+    }
+
+    private func classPath(for fileURL: URL) -> String? {
+        var candidateRoots: [URL] = []
+        if let mavenProject {
+            candidateRoots += mavenProject.allModules
+                .filter { Self.isInside(fileURL, directory: $0.url) }
+                .sorted { $0.url.path.count > $1.url.path.count }
+                .map(\.url)
+            candidateRoots.append(mavenProject.rootURL)
+        }
+        if let projectURL {
+            candidateRoots.append(projectURL)
+        }
+
+        var seenPaths = Set<String>()
+        for root in candidateRoots {
+            let classesURL = root.appendingPathComponent("target/classes", isDirectory: true)
+            guard seenPaths.insert(classesURL.standardizedFileURL.path).inserted else { continue }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: classesURL.path,
+                isDirectory: &isDirectory
+            ), isDirectory.boolValue else { continue }
+            return classesURL.standardizedFileURL.path
+        }
+        return nil
     }
 
     private func startModuleSession(_ configuration: JavaRunConfiguration) {

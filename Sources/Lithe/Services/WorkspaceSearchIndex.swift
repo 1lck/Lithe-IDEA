@@ -43,13 +43,16 @@ actor WorkspaceSearchIndex {
         updateIfNeeded(files: files, rootURL: rootURL)
     }
 
-    func searchProject(query: String, files: [URL]) -> [FileSearchResult] {
+    func searchProject(
+        query: String,
+        files: [URL],
+        options: ProjectSearchOptions = .default
+    ) -> [FileSearchResult] {
         guard let rootURL else { return [] }
         updateIfNeeded(files: files, rootURL: rootURL)
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return [] }
 
-        let lowercasedQuery = normalized.lowercased()
         var results: [FileSearchResult] = []
         let orderedEntries = entries.values.sorted {
             $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending
@@ -58,7 +61,7 @@ actor WorkspaceSearchIndex {
         for entry in orderedEntries {
             guard results.count < 200 else { break }
             let fileURL = rootURL.appendingPathComponent(entry.relativePath)
-            if entry.relativePath.lowercased().contains(lowercasedQuery) {
+            if options.matches(entry.relativePath, query: normalized) {
                 results.append(FileSearchResult(
                     url: fileURL,
                     line: nil,
@@ -72,23 +75,27 @@ actor WorkspaceSearchIndex {
             query: normalized,
             entries: orderedEntries,
             rootURL: rootURL,
-            limit: max(0, 200 - results.count)
+            limit: max(0, 200 - results.count),
+            options: options
         ))
         return results
     }
 
-    func searchEverywhere(query: String, files: [URL]) -> SearchEverywhereResults {
+    func searchEverywhere(
+        query: String,
+        files: [URL],
+        options: ProjectSearchOptions = .default
+    ) -> SearchEverywhereResults {
         guard let rootURL else { return SearchEverywhereResults() }
         updateIfNeeded(files: files, rootURL: rootURL)
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return SearchEverywhereResults() }
 
-        let lowercasedQuery = normalized.lowercased()
         let orderedEntries = entries.values.sorted {
             $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending
         }
         let fileMatches = orderedEntries
-            .filter { $0.relativePath.lowercased().contains(lowercasedQuery) }
+            .filter { options.matches($0.relativePath, query: normalized) }
             .prefix(50)
             .map { entry in
                 FileSearchResult(
@@ -102,7 +109,7 @@ actor WorkspaceSearchIndex {
         var classMatches: [FileSearchResult] = []
         var symbolMatches: [FileSearchResult] = []
         for entry in orderedEntries {
-            for symbol in entry.symbols where symbol.name.localizedCaseInsensitiveContains(normalized) {
+            for symbol in entry.symbols where options.matches(symbol.name, query: normalized) {
                 let result = FileSearchResult(
                     url: rootURL.appendingPathComponent(entry.relativePath),
                     line: symbol.line,
@@ -128,7 +135,8 @@ actor WorkspaceSearchIndex {
                 query: normalized,
                 entries: orderedEntries,
                 rootURL: rootURL,
-                limit: 50
+                limit: 50,
+                options: options
             )
         )
     }
@@ -210,10 +218,13 @@ actor WorkspaceSearchIndex {
         query: String,
         entries: [IndexEntry],
         rootURL: URL,
-        limit: Int
+        limit: Int,
+        options: ProjectSearchOptions
     ) -> [FileSearchResult] {
         guard limit > 0 else { return [] }
-        let queryTokens = Self.tokens(in: query)
+        let queryTokens = options.regularExpression || options.wholeWords
+            ? []
+            : Self.tokens(in: query)
         let candidates = entries.filter { entry in
             guard entry.isSearchable else { return false }
             guard !queryTokens.isEmpty else { return true }
@@ -228,7 +239,7 @@ actor WorkspaceSearchIndex {
             let fileURL = rootURL.appendingPathComponent(entry.relativePath)
             guard let text = readText(for: fileURL, entry: entry) else { continue }
             for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()
-                where line.localizedCaseInsensitiveContains(query) {
+                where options.matches(String(line), query: query) {
                 results.append(FileSearchResult(
                     url: fileURL,
                     line: index + 1,

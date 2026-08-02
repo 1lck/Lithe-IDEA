@@ -35,6 +35,7 @@ enum JavaCodeVisionService {
                     utf16Column: declaration.utf16Column,
                     symbol: declaration.symbol,
                     usageCount: max(0, usageCount - 1),
+                    implementationCount: 0,
                     authorName: blameByLine[declaration.line]?.authorName
                 )
             }

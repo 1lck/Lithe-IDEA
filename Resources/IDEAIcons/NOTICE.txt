@@ -1,0 +1,9 @@
+This directory contains selected icon resources from the JetBrains IntelliJ
+Platform Community repository and its JetBrains Maven plugin:
+
+https://github.com/JetBrains/intellij-community/tree/master/platform/icons/src
+https://github.com/JetBrains/intellij-community/tree/master/plugins/maven/src/main/resources/images
+
+The source project and these resources are distributed under the Apache License
+2.0. Lithe does not include JetBrains product logos or external third-party
+plugin icons. See LICENSE-APACHE-2.0.txt for the license text.

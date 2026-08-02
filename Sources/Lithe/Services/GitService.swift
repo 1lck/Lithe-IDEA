@@ -35,9 +35,12 @@ enum GitService {
         (await diffDocument(for: change)).rows
     }
 
-    static func diffDocument(for change: GitChange) async -> DiffDocument {
+    static func diffDocument(
+        for change: GitChange,
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) async -> DiffDocument {
         await Task.detached(priority: .userInitiated) {
-            DiffParser.parseDocument(patch(for: change))
+            DiffParser.parseDocument(patch(for: change, whitespace: whitespace))
         }.value
     }
 
@@ -98,7 +101,36 @@ enum GitService {
         }.value
     }
 
-    static func history(at repositoryRoot: URL, reference: GitReference? = nil) async -> GitHistorySnapshot {
+    static func cherryPick(_ hash: String, at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            run(at: repositoryRoot, arguments: ["cherry-pick", hash])
+        }.value
+    }
+
+    static func revert(_ hash: String, at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            run(at: repositoryRoot, arguments: ["revert", "--no-edit", hash])
+        }.value
+    }
+
+    static func resetCurrentBranch(
+        to hash: String,
+        at repositoryRoot: URL,
+        mode: String = "--mixed"
+    ) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            guard ["--soft", "--mixed", "--hard"].contains(mode) else {
+                return CommandResult(output: "Unsupported reset mode", exitCode: 1)
+            }
+            return run(at: repositoryRoot, arguments: ["reset", mode, hash])
+        }.value
+    }
+
+    static func history(
+        at repositoryRoot: URL,
+        reference: GitReference? = nil,
+        limit: Int = 300
+    ) async -> GitHistorySnapshot {
         await Task.detached(priority: .utility) {
             let referenceOutput = run(
                 at: repositoryRoot,
@@ -143,16 +175,24 @@ enum GitService {
                 arguments.append("--all")
             }
             arguments += [
-                "-n", "150",
+                "--topo-order",
+                "--decorate=short",
+                "-n", "\(max(1, limit) + 1)",
                 "--date=format:%Y/%m/%d %H:%M",
                 "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D"
             ]
 
-            let commits = run(at: repositoryRoot, arguments: arguments).output
+            let allCommits = run(at: repositoryRoot, arguments: arguments).output
                 .split(separator: "\n", omittingEmptySubsequences: true)
                 .compactMap(parseCommit)
+            let resolvedLimit = max(1, limit)
+            let commits = Array(allCommits.prefix(resolvedLimit))
 
-            return GitHistorySnapshot(references: references, commits: commits)
+            return GitHistorySnapshot(
+                references: references,
+                commits: commits,
+                hasMore: allCommits.count > resolvedLimit
+            )
         }.value
     }
 
@@ -170,6 +210,33 @@ enum GitService {
                     guard !path.isEmpty else { return nil }
                     return GitCommitFile(status: columns[0], path: path)
                 }
+        }.value
+    }
+
+    static func diffDocument(
+        for commit: GitCommit,
+        file: GitCommitFile,
+        at repositoryRoot: URL,
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) async -> DiffDocument {
+        await Task.detached(priority: .userInitiated) {
+            var arguments = [
+                "-c", "core.quotepath=false",
+                "show",
+                "--format=",
+                "--no-ext-diff"
+            ]
+            if whitespace == .ignoreAllWhitespace {
+                arguments.append("--ignore-all-space")
+            }
+            arguments += [
+                "--unified=80",
+                commit.hash,
+                "--",
+                file.path
+            ]
+            let patch = run(at: repositoryRoot, arguments: arguments).output
+            return DiffParser.parseDocument(patch)
         }.value
     }
 
@@ -310,9 +377,42 @@ enum GitService {
         }.value
     }
 
+    static func deleteBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            guard reference.kind == .local, !reference.isCurrent else {
+                return CommandResult(output: "Only a non-current local branch can be deleted", exitCode: 1)
+            }
+            return run(at: repositoryRoot, arguments: ["branch", "-d", reference.shortName])
+        }.value
+    }
+
+    static func mergeBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            guard !reference.isCurrent else {
+                return CommandResult(output: "The current branch cannot be merged into itself", exitCode: 1)
+            }
+            return run(at: repositoryRoot, arguments: ["merge", "--no-edit", reference.fullName])
+        }.value
+    }
+
+    static func rebaseCurrentBranch(onto reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            guard !reference.isCurrent else {
+                return CommandResult(output: "The current branch cannot be rebased onto itself", exitCode: 1)
+            }
+            return run(at: repositoryRoot, arguments: ["rebase", reference.fullName])
+        }.value
+    }
+
     static func updateCurrentBranch(at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["pull", "--ff-only"])
+        }.value
+    }
+
+    static func fetch(at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            run(at: repositoryRoot, arguments: ["fetch", "--all", "--prune"])
         }.value
     }
 
@@ -403,6 +503,113 @@ enum GitService {
         }.value
     }
 
+    static func cloneRepository(
+        from remote: String,
+        to destination: URL
+    ) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            let parent = destination.deletingLastPathComponent()
+            guard FileManager.default.fileExists(atPath: parent.path) else {
+                return CommandResult(output: "The destination folder does not exist", exitCode: 1)
+            }
+            return run(
+                at: parent,
+                arguments: ["clone", "--", remote, destination.path]
+            )
+        }.value
+    }
+
+    static func stashes(at repositoryRoot: URL) async -> [GitStash] {
+        await Task.detached(priority: .utility) {
+            let output = run(
+                at: repositoryRoot,
+                arguments: [
+                    "stash", "list",
+                    "--date=iso",
+                    "--pretty=format:%gd%x1f%gs%x1f%ad"
+                ]
+            ).output
+            return output
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .compactMap { line in
+                    let columns = line.split(separator: "\u{1f}", omittingEmptySubsequences: false)
+                        .map(String.init)
+                    guard columns.count >= 3 else { return nil }
+                    let reference = columns[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                    let subject = columns[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !reference.isEmpty else { return nil }
+                    let branch: String?
+                    let branchMarker = subject.range(of: "On ", options: .caseInsensitive)
+                        ?? subject.range(of: " on ", options: .caseInsensitive)
+                    if let start = branchMarker {
+                        let branchAndMessage = subject[start.upperBound...]
+                        let branchPart = branchAndMessage.split(
+                            maxSplits: 1,
+                            omittingEmptySubsequences: true,
+                            whereSeparator: { $0 == ":" || $0 == "," }
+                        ).first
+                        let rawBranch = branchPart.map(String.init)
+                        branch = rawBranch?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else {
+                        branch = nil
+                    }
+                    let message: String
+                    if let start = branchMarker,
+                       let separator = subject[start.upperBound...].firstIndex(of: ":") {
+                        message = String(subject[subject.index(after: separator)...])
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if let separator = subject.firstIndex(of: ":") {
+                        message = String(subject[subject.index(after: separator)...])
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else {
+                        message = subject
+                    }
+                    return GitStash(
+                        reference: reference,
+                        message: message,
+                        branch: branch,
+                        date: columns[2].trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                }
+        }.value
+    }
+
+    static func stash(
+        message: String,
+        includeUntracked: Bool,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            var arguments = ["stash", "push"]
+            if includeUntracked {
+                arguments.append("--include-untracked")
+            }
+            let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalizedMessage.isEmpty {
+                arguments += ["-m", normalizedMessage]
+            }
+            return run(at: repositoryRoot, arguments: arguments)
+        }.value
+    }
+
+    static func applyStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            run(at: repositoryRoot, arguments: ["stash", "apply", stash.reference])
+        }.value
+    }
+
+    static func popStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            run(at: repositoryRoot, arguments: ["stash", "pop", stash.reference])
+        }.value
+    }
+
+    static func dropStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
+        await Task.detached(priority: .userInitiated) {
+            run(at: repositoryRoot, arguments: ["stash", "drop", stash.reference])
+        }.value
+    }
+
     static func stageAll(at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["add", "--all"])
@@ -453,22 +660,31 @@ enum GitService {
         )
     }
 
-    private static func patch(for change: GitChange) -> String {
+    private static func patch(
+        for change: GitChange,
+        whitespace: GitDiffWhitespaceMode
+    ) -> String {
+        let whitespaceArguments = whitespace == .ignoreAllWhitespace
+            ? ["--ignore-all-space"]
+            : []
         if change.isUntracked {
             return run(
                 at: change.repositoryRoot,
-                arguments: ["diff", "--no-index", "--unified=\(reviewContextLines)", "--", "/dev/null", change.path]
+                arguments: ["diff", "--no-index"] + whitespaceArguments +
+                    ["--unified=\(reviewContextLines)", "--", "/dev/null", change.path]
             ).output
         }
         if change.hasWorkingTreeChange {
             return run(
                 at: change.repositoryRoot,
-                arguments: ["diff", "--no-ext-diff", "--unified=\(reviewContextLines)", "--"] + change.pathspecs
+                arguments: ["diff", "--no-ext-diff"] + whitespaceArguments +
+                    ["--unified=\(reviewContextLines)", "--"] + change.pathspecs
             ).output
         }
         return run(
             at: change.repositoryRoot,
-            arguments: ["diff", "--cached", "--no-ext-diff", "--unified=\(reviewContextLines)", "--"] + change.pathspecs
+            arguments: ["diff", "--cached", "--no-ext-diff"] + whitespaceArguments +
+                ["--unified=\(reviewContextLines)", "--"] + change.pathspecs
         ).output
     }
 

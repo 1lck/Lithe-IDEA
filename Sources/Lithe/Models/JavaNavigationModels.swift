@@ -13,12 +13,30 @@ struct EditorNavigationTarget: Equatable, Identifiable {
     let utf16Column: Int
 }
 
-struct JavaNavigationLocation: Identifiable, Hashable {
+struct JavaNavigationLocation: Identifiable, Hashable, Sendable {
     let url: URL
     let line: Int
     let utf16Column: Int
+    let isReadOnly: Bool
+    let displayPath: String?
+
+    init(
+        url: URL,
+        line: Int,
+        utf16Column: Int,
+        isReadOnly: Bool = false,
+        displayPath: String? = nil
+    ) {
+        self.url = url
+        self.line = line
+        self.utf16Column = utf16Column
+        self.isReadOnly = isReadOnly
+        self.displayPath = displayPath
+    }
 
     var id: String { "\(url.path):\(line):\(utf16Column)" }
+
+    var displayName: String { displayPath?.split(separator: "/").last.map(String.init) ?? url.lastPathComponent }
 }
 
 struct JavaWorkspaceSymbol: Identifiable, Hashable, Sendable {
@@ -41,6 +59,7 @@ struct JavaCodeVisionHint: Identifiable, Hashable {
     let utf16Column: Int
     let symbol: String
     let usageCount: Int
+    let implementationCount: Int
     let authorName: String?
 
     var id: String { "\(line):\(utf16Column):\(symbol)" }
@@ -71,12 +90,46 @@ struct JavaInlayHint: Identifiable, Hashable {
     var id: String { "\(line):\(utf16Column):\(label)" }
 }
 
-struct JavaImplementationMarker: Identifiable, Hashable {
+enum JavaImplementationDirection: String, Hashable, Sendable {
+    case down
+    case up
+}
+
+struct JavaImplementationMarker: Identifiable, Hashable, Sendable {
     let line: Int
     let utf16Column: Int
-    let isType: Bool
+    let implementationCount: Int
+    let direction: JavaImplementationDirection
 
-    var id: String { "\(line):\(utf16Column):\(isType)" }
+    init(
+        line: Int,
+        utf16Column: Int,
+        isType: Bool,
+        implementationCount: Int = 0
+    ) {
+        self.init(
+            line: line,
+            utf16Column: utf16Column,
+            implementationCount: implementationCount,
+            direction: isType ? .down : .up
+        )
+    }
+
+    init(
+        line: Int,
+        utf16Column: Int,
+        implementationCount: Int,
+        direction: JavaImplementationDirection
+    ) {
+        self.line = line
+        self.utf16Column = utf16Column
+        self.implementationCount = implementationCount
+        self.direction = direction
+    }
+
+    var isType: Bool { direction == .down }
+
+    var id: String { "\(line):\(utf16Column):\(direction.rawValue)" }
 }
 
 enum JavaNavigationResultKind {

@@ -78,7 +78,18 @@ final class JavaLanguageService: ObservableObject {
                     case .failure(let error):
                         completion(.failure(error))
                     case .success(let value):
-                        completion(.success(Self.parseLocations(value)))
+                        let locations = Self.parseLocations(value)
+                        if locations.isEmpty, method == "textDocument/definition" {
+                            self.resolveMissingJDKDefinition(
+                                document: document,
+                                line: line,
+                                utf16Column: utf16Column,
+                                parameters: parameters,
+                                completion: completion
+                            )
+                        } else {
+                            self.resolveExternalLocations(locations, completion: completion)
+                        }
                     }
                 }
             }
@@ -161,7 +172,7 @@ final class JavaLanguageService: ObservableObject {
     func close(_ document: EditorDocument) {
         guard document.url.pathExtension.lowercased() == "java" else { return }
         let uri = document.url.absoluteString
-        if isReady {
+        if isReady, !document.isReadOnly {
             sendNotification(method: "textDocument/didClose", parameters: [
                 "textDocument": ["uri": uri]
             ])
@@ -351,6 +362,25 @@ final class JavaLanguageService: ObservableObject {
         send(["jsonrpc": "2.0", "id": id, "method": method, "params": parameters])
     }
 
+    private func executeCommand(
+        command: String,
+        arguments: [Any],
+        completion: @escaping (Result<Any, Error>) -> Void
+    ) {
+        ensureReady(for: projectURL ?? FileManager.default.homeDirectoryForCurrentUser) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success:
+                self.sendRequest(method: "workspace/executeCommand", parameters: [
+                    "command": command,
+                    "arguments": arguments
+                ], completion: completion)
+            }
+        }
+    }
+
     private func sendNotification(method: String, parameters: [String: Any]) {
         send(["jsonrpc": "2.0", "method": method, "params": parameters])
     }
@@ -502,6 +532,107 @@ final class JavaLanguageService: ObservableObject {
             .appendingPathComponent(key, isDirectory: true)
     }
 
+    private func resolveExternalLocations(
+        _ locations: [JavaNavigationLocation],
+        completion: @escaping (Result<[JavaNavigationLocation], Error>) -> Void
+    ) {
+        func resolveNext(
+            at index: Int,
+            resolved: [JavaNavigationLocation]
+        ) {
+            guard index < locations.count else {
+                completion(.success(resolved))
+                return
+            }
+
+            let location = locations[index]
+            guard location.url.scheme?.lowercased() != "file" else {
+                resolveNext(at: index + 1, resolved: resolved + [location])
+                return
+            }
+
+            if let source = Self.jdkSource(for: location.url),
+               let sourceURL = Self.materializeLibrarySource(source, for: location.url) {
+                let materialized = JavaNavigationLocation(
+                    url: sourceURL,
+                    line: location.line,
+                    utf16Column: location.utf16Column,
+                    isReadOnly: true,
+                    displayPath: Self.displayPath(for: location.url)
+                )
+                resolveNext(at: index + 1, resolved: resolved + [materialized])
+                return
+            }
+
+            executeCommand(command: "java.decompile", arguments: [location.url.absoluteString]) { result in
+                switch result {
+                case .success(let value) where value is String:
+                    let content = value as! String
+                    if let sourceURL = Self.materializeLibrarySource(content, for: location.url) {
+                        let materialized = JavaNavigationLocation(
+                            url: sourceURL,
+                            line: location.line,
+                            utf16Column: location.utf16Column,
+                            isReadOnly: true,
+                            displayPath: Self.displayPath(for: location.url)
+                        )
+                        resolveNext(at: index + 1, resolved: resolved + [materialized])
+                    } else {
+                        resolveNext(at: index + 1, resolved: resolved)
+                    }
+                case .success, .failure:
+                    resolveNext(at: index + 1, resolved: resolved)
+                }
+            }
+        }
+
+        resolveNext(at: 0, resolved: [])
+    }
+
+    private func resolveMissingJDKDefinition(
+        document: EditorDocument,
+        line: Int,
+        utf16Column: Int,
+        parameters: [String: Any],
+        completion: @escaping (Result<[JavaNavigationLocation], Error>) -> Void
+    ) {
+        let finish: (String?) -> Void = { qualifiedName in
+            guard let qualifiedName,
+                  let symbol = Self.identifier(at: line, utf16Column: utf16Column, in: document.text),
+                  let location = Self.jdkDefinitionLocation(
+                      for: qualifiedName,
+                      symbol: symbol
+                  ) else {
+                completion(.success([]))
+                return
+            }
+            completion(.success([location]))
+        }
+
+        executeCommand(command: "java.getFullyQualifiedName", arguments: [parameters]) { [weak self] result in
+            guard let self else { return }
+            if case .success(let value) = result,
+               let qualifiedName = value as? String,
+               !qualifiedName.isEmpty {
+                finish(qualifiedName)
+                return
+            }
+
+            self.sendRequest(method: "textDocument/hover", parameters: parameters) { hoverResult in
+                switch hoverResult {
+                case .success(let value):
+                    finish(Self.qualifiedName(fromHover: value, symbol: Self.identifier(
+                        at: line,
+                        utf16Column: utf16Column,
+                        in: document.text
+                    )))
+                case .failure:
+                    completion(.success([]))
+                }
+            }
+        }
+    }
+
     private static func parseLocations(_ value: Any) -> [JavaNavigationLocation] {
         let rawLocations: [[String: Any]]
         if let array = value as? [[String: Any]] {
@@ -515,13 +646,246 @@ final class JavaLanguageService: ObservableObject {
         return rawLocations.compactMap { object in
             let uri = (object["uri"] as? String) ?? (object["targetUri"] as? String)
             let range = (object["range"] as? [String: Any]) ??
-                (object["targetSelectionRange"] as? [String: Any])
+                (object["targetSelectionRange"] as? [String: Any]) ??
+                (object["targetRange"] as? [String: Any])
             let start = range?["start"] as? [String: Any]
             guard let uri, let url = URL(string: uri),
                   let line = start?["line"] as? Int,
                   let column = start?["character"] as? Int else { return nil }
             return JavaNavigationLocation(url: url, line: line, utf16Column: column)
         }
+    }
+
+    private static func javaHomeURL() -> URL? {
+        guard let javaExecutable = javaExecutableURL() else { return nil }
+        return javaExecutable
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .resolvingSymlinksInPath()
+    }
+
+    private static func jdkSource(for uri: URL) -> String? {
+        guard uri.scheme?.lowercased() == "jdt",
+              let entry = jdkSourceEntry(for: uri),
+              let javaHome = javaHomeURL() else { return nil }
+
+        let archives = [
+            javaHome.appendingPathComponent("lib/src.zip"),
+            javaHome.appendingPathComponent("src.zip")
+        ]
+        let entries = [entry, entry.hasPrefix("java.base/") ? String(entry.dropFirst("java.base/".count)) : "java.base/\(entry)"]
+        for archive in archives where FileManager.default.fileExists(atPath: archive.path) {
+            for candidate in entries where !candidate.isEmpty {
+                if let source = readZipEntry(candidate, from: archive), !source.isEmpty {
+                    return source
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func jdkSourceEntry(for uri: URL) -> String? {
+        let components = uri.path
+            .split(separator: "/")
+            .map(String.init)
+        guard let last = components.last,
+              last.hasSuffix(".class") else { return nil }
+        var sourceComponents = components
+        sourceComponents[sourceComponents.count - 1] = String(last.dropLast(".class".count)) + ".java"
+        return sourceComponents.joined(separator: "/")
+    }
+
+    private static func readZipEntry(_ entry: String, from archive: URL) -> String? {
+        let output = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-p", archive.path, entry]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func materializeLibrarySource(_ content: String, for uri: URL) -> URL? {
+        guard !content.isEmpty else { return nil }
+        let key = String(uri.absoluteString.utf8.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1) }, radix: 16)
+        let baseName = uri.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: "[^A-Za-z0-9_$-]", with: "_", options: .regularExpression)
+        let fileName = "\(baseName.isEmpty ? "JavaLibrary" : baseName)-\(key).java"
+        let directory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/Lithe/java-sources", isDirectory: true)
+        let destination = directory.appendingPathComponent(fileName)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try content.write(to: destination, atomically: true, encoding: .utf8)
+            return destination
+        } catch {
+            return nil
+        }
+    }
+
+    private static func displayPath(for uri: URL) -> String {
+        let components = uri.path.split(separator: "/").map(String.init)
+        guard let last = components.last else { return uri.lastPathComponent }
+        var displayComponents = components
+        if last.hasSuffix(".class") {
+            displayComponents[displayComponents.count - 1] = String(last.dropLast(".class".count)) + ".java"
+        }
+        return displayComponents.joined(separator: "/")
+    }
+
+    private static func identifier(at line: Int, utf16Column: Int, in text: String) -> String? {
+        let lines = text.components(separatedBy: .newlines)
+        guard lines.indices.contains(line) else { return nil }
+        let units = Array(lines[line].utf16)
+        guard !units.isEmpty else { return nil }
+        var index = min(max(0, utf16Column), units.count - 1)
+        if !isJavaIdentifierUnit(units[index]), index > 0,
+           isJavaIdentifierUnit(units[index - 1]) {
+            index -= 1
+        }
+        guard isJavaIdentifierUnit(units[index]) else { return nil }
+        var start = index
+        while start > 0, isJavaIdentifierUnit(units[start - 1]) { start -= 1 }
+        var end = index + 1
+        while end < units.count, isJavaIdentifierUnit(units[end]) { end += 1 }
+        return String(decoding: units[start..<end], as: UTF16.self)
+    }
+
+    private static func isJavaIdentifierUnit(_ unit: UInt16) -> Bool {
+        (unit >= 48 && unit <= 57) ||
+            (unit >= 65 && unit <= 90) ||
+            (unit >= 97 && unit <= 122) ||
+            unit == 95 || unit == 36
+    }
+
+    private static func qualifiedName(fromHover value: Any, symbol: String?) -> String? {
+        guard let object = value as? [String: Any],
+              let contents = object["contents"] as? [Any] else { return nil }
+        let text = contents.compactMap { item -> String? in
+            if let string = item as? String { return string }
+            return (item as? [String: Any])?["value"] as? String
+        }.joined(separator: "\n")
+        guard !text.isEmpty,
+              let expression = try? NSRegularExpression(
+                  pattern: "\\b(?:java|javax|jdk|sun)\\.[A-Za-z0-9_$.]+"
+              ) else { return nil }
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        let matches = expression.matches(in: text, range: fullRange).compactMap {
+            Range($0.range, in: text).map { String(text[$0]) }
+        }
+        guard !matches.isEmpty else { return nil }
+        if let symbol {
+            if let matching = matches.last(where: { $0.split(separator: ".").last.map(String.init) == symbol }) {
+                return matching
+            }
+        }
+        return matches.first
+    }
+
+    private static func jdkDefinitionLocation(
+        for qualifiedName: String,
+        symbol: String
+    ) -> JavaNavigationLocation? {
+        let parts = qualifiedName.split(separator: ".").map(String.init)
+        guard parts.count >= 2,
+              ["java", "javax", "jdk", "sun"].contains(parts[0]) else { return nil }
+
+        guard let typeIndex = parts.firstIndex(where: { part in
+            guard let first = part.first else { return false }
+            return first.isUppercase || part.contains("$")
+        }), typeIndex > 0 else { return nil }
+
+        let packageParts = Array(parts[..<typeIndex])
+        let typeParts = Array(parts[typeIndex...])
+        guard let primaryType = typeParts.first else { return nil }
+        let sourcePath = (packageParts + [primaryType]).joined(separator: "/") + ".class"
+        guard let uri = URL(string: "jdt://contents/java.base/\(sourcePath)"),
+              let source = jdkSource(for: uri),
+              let sourceURL = materializeLibrarySource(source, for: uri) else { return nil }
+
+        let declarationName: String
+        let memberName: String?
+        if typeParts.count == 1 {
+            declarationName = primaryType
+            memberName = nil
+        } else if typeParts.last == primaryType || typeParts.last == symbol {
+            declarationName = primaryType
+            memberName = typeParts.last
+        } else if typeParts.last?.first?.isLowercase == true {
+            declarationName = primaryType
+            memberName = typeParts.last
+        } else {
+            declarationName = typeParts.last ?? primaryType
+            memberName = nil
+        }
+
+        let position = sourceDefinitionPosition(
+            in: source,
+            declarationName: declarationName,
+            memberName: memberName
+        ) ?? (0, 0)
+        return JavaNavigationLocation(
+            url: sourceURL,
+            line: position.0,
+            utf16Column: position.1,
+            isReadOnly: true,
+            displayPath: Self.displayPath(for: uri)
+        )
+    }
+
+    private static func sourceDefinitionPosition(
+        in source: String,
+        declarationName: String,
+        memberName: String?
+    ) -> (Int, Int)? {
+        let lines = source.components(separatedBy: .newlines)
+        if let memberName {
+            let escapedMember = NSRegularExpression.escapedPattern(for: memberName)
+            let methodPattern = "\\b\(escapedMember)\\s*\\("
+            if let expression = try? NSRegularExpression(pattern: methodPattern) {
+                for (lineNumber, line) in lines.enumerated() {
+                    let range = NSRange(location: 0, length: (line as NSString).length)
+                    guard let match = expression.firstMatch(in: line, range: range) else { continue }
+                    let prefix = (line as NSString).substring(to: match.range.location)
+                    let trimmed = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.hasPrefix("*") && !trimmed.hasPrefix("//"),
+                          !trimmed.contains("#"),
+                          !trimmed.hasSuffix(".") else { continue }
+                    return (lineNumber, match.range.location)
+                }
+            }
+
+            let fieldPattern = "\\b\(escapedMember)\\s*(?:=|;)"
+            if let expression = try? NSRegularExpression(pattern: fieldPattern) {
+                for (lineNumber, line) in lines.enumerated() {
+                    let range = NSRange(location: 0, length: (line as NSString).length)
+                    if let match = expression.firstMatch(in: line, range: range) {
+                        return (lineNumber, match.range.location)
+                    }
+                }
+            }
+        }
+
+        let declarationPattern = "\\b(?:class|interface|enum|record)\\s+\(NSRegularExpression.escapedPattern(for: declarationName))\\b"
+        if let expression = try? NSRegularExpression(pattern: declarationPattern) {
+            for (lineNumber, line) in lines.enumerated() {
+                let range = NSRange(location: 0, length: (line as NSString).length)
+                guard expression.firstMatch(in: line, range: range) != nil else { continue }
+                let nameRange = (line as NSString).range(of: declarationName)
+                if nameRange.location != NSNotFound {
+                    return (lineNumber, nameRange.location)
+                }
+            }
+        }
+        return nil
     }
 
     private static func parseWorkspaceSymbols(_ value: Any) -> [JavaWorkspaceSymbol] {

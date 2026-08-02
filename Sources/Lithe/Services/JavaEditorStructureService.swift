@@ -47,23 +47,88 @@ enum JavaEditorStructureService {
     static func implementationMarkers(in source: String) -> [JavaImplementationMarker] {
         let text = source as NSString
         var result: [JavaImplementationMarker] = []
-        let patterns: [(String, Bool)] = [
-            (#"(?m)^\s*(?:public\s+)?interface\s+[A-Za-z_$][A-Za-z0-9_$]*"#, true),
-            (#"(?m)^\s*(?:public\s+)?(?:[A-Za-z_$][A-Za-z0-9_$<>?,.\[\]\s]+\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*\([^;{}]*\)\s*(?:throws\s+[^;]+)?;\s*$"#, false)
-        ]
-        for (pattern, isType) in patterns {
-            guard let expression = try? NSRegularExpression(pattern: pattern) else { continue }
-            for match in expression.matches(in: source, range: NSRange(location: 0, length: text.length)) {
+        let fullRange = NSRange(location: 0, length: text.length)
+
+        if let expression = try? NSRegularExpression(
+            pattern: #"(?m)^[ \t]*(?:(?:public|protected|private|abstract|sealed|non-sealed)\s+)*interface\s+[A-Za-z_$][A-Za-z0-9_$]*"#
+        ) {
+            for match in expression.matches(in: source, range: fullRange) {
                 let line = lineNumber(at: match.range.location, in: text)
                 let lineRange = text.lineRange(for: NSRange(location: match.range.location, length: 0))
+                let keywordRange = text.range(of: "interface", range: match.range)
+                let location = keywordRange.location == NSNotFound ? match.range.location : keywordRange.location
                 result.append(JavaImplementationMarker(
                     line: line,
-                    utf16Column: max(0, match.range.location - lineRange.location),
-                    isType: isType
+                    utf16Column: max(0, location - lineRange.location),
+                    implementationCount: 0,
+                    direction: .down
                 ))
             }
         }
+
+        // Interface and abstract declarations are candidates for downward
+        // implementations. An @Override method is a candidate in the other
+        // direction, and is discovered separately below because it normally
+        // has a body rather than a trailing semicolon.
+        if let expression = try? NSRegularExpression(
+            pattern: #"(?m)^[ \t]*(?:(?:public|protected|private|abstract|static|default|final|native|synchronized|strictfp)\s+)*(?:<[^>\n]+>\s+)?(?:[A-Za-z_$][A-Za-z0-9_$<>,.?\[\]]*\s+)+[A-Za-z_$][A-Za-z0-9_$]*\s*\([^;{}\n]*\)\s*(?:throws\s+[^;]+)?;\s*$"#
+        ) {
+            for match in expression.matches(in: source, range: fullRange) {
+                let line = lineNumber(at: match.range.location, in: text)
+                let lineRange = text.lineRange(for: NSRange(location: match.range.location, length: 0))
+                let location = methodNameLocation(in: text, matchRange: match.range)
+                result.append(JavaImplementationMarker(
+                    line: line,
+                    utf16Column: max(0, location - lineRange.location),
+                    implementationCount: 0,
+                    direction: hasOverrideAnnotation(nearLine: line, in: text) ? .up : .down
+                ))
+            }
+        }
+
+        let lines = source.components(separatedBy: "\n")
+        let methodExpression = try? NSRegularExpression(
+            pattern: #"(?:(?:public|protected|private|abstract|static|default|final|native|synchronized|strictfp)\s+)*(?:<[^>\n]+>\s+)?(?:[A-Za-z_$][A-Za-z0-9_$<>,.?\[\]]*\s+)+([A-Za-z_$][A-Za-z0-9_$]*)\s*\("#
+        )
+        for (lineIndex, rawLine) in lines.enumerated() where rawLine.contains("@Override") {
+            var methodLineIndex = lineIndex
+            if !rawLine.contains("(") {
+                for candidateIndex in (lineIndex + 1)..<min(lines.count, lineIndex + 4) {
+                    if lines[candidateIndex].contains("(") {
+                        methodLineIndex = candidateIndex
+                        break
+                    }
+                }
+            }
+            guard let methodExpression,
+                  methodLineIndex < lines.count else { continue }
+            let methodLine = lines[methodLineIndex]
+            let methodRange = NSRange(methodLine.startIndex..<methodLine.endIndex, in: methodLine)
+            guard let match = methodExpression.firstMatch(in: methodLine, range: methodRange) else { continue }
+            let lineStart = characterOffset(ofLine: methodLineIndex, in: text)
+            let methodNameLocation = lineStart + match.range(at: 1).location
+            let sourceLine = text.lineRange(for: NSRange(location: methodNameLocation, length: 0))
+            result.append(JavaImplementationMarker(
+                line: methodLineIndex,
+                utf16Column: max(0, methodNameLocation - sourceLine.location),
+                implementationCount: 0,
+                direction: .up
+            ))
+        }
+
         return Array(Set(result)).sorted { $0.line < $1.line }
+    }
+
+    private static func hasOverrideAnnotation(nearLine line: Int, in source: NSString) -> Bool {
+        let start = max(0, line - 3)
+        for candidateLine in start..<line {
+            let offset = characterOffset(ofLine: candidateLine, in: source)
+            let range = source.lineRange(for: NSRange(location: min(offset, source.length), length: 0))
+            if source.substring(with: range).range(of: #"@Override\b"#, options: .regularExpression) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     static func foldRegions(in source: String) -> [JavaFoldRegion] {
@@ -251,6 +316,34 @@ enum JavaEditorStructureService {
             result += 1
         }
         return result
+    }
+
+    private static func characterOffset(ofLine line: Int, in source: NSString) -> Int {
+        var currentLine = 0
+        var offset = 0
+        while currentLine < line, offset < source.length {
+            offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
+            currentLine += 1
+        }
+        return offset
+    }
+
+    private static func methodNameLocation(in source: NSString, matchRange: NSRange) -> Int {
+        let openingParenthesis = source.range(of: "(", range: matchRange)
+        guard openingParenthesis.location != NSNotFound else { return matchRange.location }
+        var index = openingParenthesis.location - 1
+        while index >= matchRange.location,
+              let scalar = UnicodeScalar(source.character(at: index)),
+              CharacterSet.whitespaces.contains(scalar) {
+            index -= 1
+        }
+        let end = index + 1
+        while index >= matchRange.location,
+              let scalar = UnicodeScalar(source.character(at: index)),
+              CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$")).contains(scalar) {
+            index -= 1
+        }
+        return index + 1 < end ? index + 1 : matchRange.location
     }
 
     private enum ScanState {

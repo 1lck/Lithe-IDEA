@@ -37,6 +37,7 @@ final class JavaDebugService: ObservableObject {
         case stack
         case locals
         case dump(variableID: String)
+        case evaluate
     }
 
     private var inspectionKind: InspectionKind?
@@ -244,6 +245,22 @@ final class JavaDebugService: ObservableObject {
 
     func inspectVariables() {
         inspect(title: "Local Variables", command: "locals", kind: .locals)
+    }
+
+    func evaluate(_ rawExpression: String) {
+        let expression = rawExpression.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !expression.isEmpty else { return }
+        guard canControl else {
+            inspectionTitle = "Evaluate"
+            inspectionOutput = "Start or pause a debug session before evaluating an expression.\n"
+            inspectionKind = .evaluate
+            return
+        }
+        inspectionTitle = "Evaluate"
+        inspectionOutput = "> print \(expression)\n"
+        inspectionKind = .evaluate
+        expandingVariableID = nil
+        send("print \(expression)")
     }
 
     func toggleVariable(_ variable: JavaDebugVariable) {
@@ -530,6 +547,7 @@ final class JavaDebugService: ObservableObject {
         case .stack: callStack = []
         case .locals: variables = []
         case .dump: break
+        case .evaluate: break
         }
         send(command)
     }
@@ -552,6 +570,8 @@ final class JavaDebugService: ObservableObject {
                 $0.isExpanded = true
             }
             expandingVariableID = nil
+        case .evaluate:
+            break
         }
     }
 

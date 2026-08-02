@@ -22,6 +22,15 @@ struct GitReference: Identifiable, Hashable, Sendable {
     var id: String { fullName }
 }
 
+struct GitStash: Identifiable, Hashable, Sendable {
+    let reference: String
+    let message: String
+    let branch: String?
+    let date: String
+
+    var id: String { reference }
+}
+
 struct GitCommit: Identifiable, Hashable, Sendable {
     let hash: String
     let shortHash: String
@@ -40,6 +49,25 @@ struct GitCommitFile: Identifiable, Hashable, Sendable {
     let path: String
 
     var id: String { "\(status):\(path)" }
+}
+
+/// Read-only diff context for a file changed by a historical commit.
+struct GitCommitDiffContext: Identifiable, Hashable, Sendable {
+    let repositoryRoot: URL
+    let commit: GitCommit
+    let file: GitCommitFile
+
+    var id: String { "\(commit.hash):\(file.id)" }
+    var path: String { file.path }
+    var url: URL { repositoryRoot.appendingPathComponent(file.path) }
+
+    var kind: GitChangeKind {
+        if file.status.hasPrefix("A") { return .added }
+        if file.status.hasPrefix("D") { return .deleted }
+        if file.status.hasPrefix("R") { return .moved }
+        if file.status.hasPrefix("C") { return .copied }
+        return .modified
+    }
 }
 
 struct GitBlameLine: Identifiable, Hashable, Sendable {
@@ -68,6 +96,7 @@ struct GitBranchComparison: Identifiable, Sendable {
 struct GitHistorySnapshot: Sendable {
     let references: [GitReference]
     let commits: [GitCommit]
+    let hasMore: Bool
 }
 
 struct GitChange: Identifiable, Hashable, Sendable {
@@ -127,6 +156,22 @@ enum GitChangeKind: String, Sendable {
         case .deleted: "minus"
         case .moved: "arrow.right"
         case .copied: "doc.on.doc"
+        }
+    }
+}
+
+enum GitDiffWhitespaceMode: String, CaseIterable, Identifiable, Equatable, Sendable {
+    case doNotIgnore
+    case ignoreAllWhitespace
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .doNotIgnore:
+            return "Do not ignore"
+        case .ignoreAllWhitespace:
+            return "Ignore whitespace"
         }
     }
 }
