@@ -244,6 +244,13 @@ final class JavaLanguageService: ObservableObject {
         if let javaExecutable = runtimeService.javaExecutableURL() {
             arguments.append(contentsOf: ["--java-executable", javaExecutable.path])
         }
+        // jdtls defaults to a 1 GiB initial heap. Keep the on-demand language
+        // service lightweight for ordinary projects while leaving room for
+        // larger workspaces to grow when needed.
+        arguments.append(contentsOf: [
+            "--jvm-arg=-Xms256m",
+            "--jvm-arg=-Xmx1024m"
+        ])
         arguments.append(contentsOf: ["-data", Self.dataDirectory(for: root).path])
         process.arguments = arguments
         process.currentDirectoryURL = root

@@ -97,7 +97,7 @@ Lithe is built with SwiftUI and AppKit. It does not embed Chromium or maintain a
 - Search uses a lightweight disk index, while Local History stores snapshots on disk instead of keeping history text resident in memory.
 - Closing a project stops file watchers, language services, terminal sessions, and Run/Debug processes.
 
-On the current development machine, an idle Welcome window uses about **86 MB**. The product targets less than **150 MB** for Welcome and less than **300 MB** for an ordinary project, excluding on-demand child processes. These are development baselines, not a substitute for future stress testing across larger projects.
+The current physical-footprint baseline on the development machine is about **44 MB** for an idle Welcome window, **58 MB** for the Lithe process with a Java project open, and **282 MB** for the on-demand JDT LS process. That makes the observed idle Java-project total about **340 MB**; JDT LS is reported separately because it is stopped when the project closes, but it is still part of the user's real resource cost. These are development baselines, not a substitute for future stress testing across larger projects. The main Lithe process remains targeted below **150 MB**.
 
 ### No new IDE habits to learn
 
