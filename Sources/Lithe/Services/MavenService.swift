@@ -14,6 +14,11 @@ final class MavenService: ObservableObject {
     private var outputPipe: Pipe?
     private var projectLoadID = UUID()
     private let maximumOutputCharacters = 500_000
+    private let runtimeService: ProjectRuntimeService
+
+    init(runtimeService: ProjectRuntimeService) {
+        self.runtimeService = runtimeService
+    }
 
     func loadProject(at workspaceURL: URL) async {
         let loadID = UUID()
@@ -89,7 +94,11 @@ final class MavenService: ObservableObject {
 
     private func startProcess(arguments: [String], title: String) {
         guard let project else { return }
-        let executable = MavenService.executableURL(for: project)
+        guard let executable = runtimeService.mavenExecutable(for: project) else {
+            output = "No Maven executable was found for this project. Configure Maven in Project Settings.\n"
+            lastExitCode = 1
+            return
+        }
         isRunning = true
         runningTitle = title
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
@@ -99,6 +108,7 @@ final class MavenService: ObservableObject {
         process.executableURL = executable
         process.arguments = arguments
         process.currentDirectoryURL = project.rootURL
+        process.environment = runtimeService.environment(for: .maven)
 
         process.standardOutput = outputPipe
         process.standardError = outputPipe
@@ -155,28 +165,6 @@ final class MavenService: ObservableObject {
     private func taskTitle(phase: MavenLifecyclePhase, module: MavenModule?) -> String {
         let target = module?.displayName ?? project?.displayName ?? "Project"
         return phase.title + " · " + target
-    }
-
-    static func executableURL(for project: MavenProject) -> URL {
-        let wrapper = project.rootURL.appendingPathComponent("mvnw")
-        if FileManager.default.isExecutableFile(atPath: wrapper.path) {
-            return wrapper
-        }
-
-        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for component in path.split(separator: ":").map(String.init) {
-            let candidate = URL(fileURLWithPath: component).appendingPathComponent("mvn")
-            if FileManager.default.isExecutableFile(atPath: candidate.path) {
-                return candidate
-            }
-        }
-
-        for path in ["/opt/homebrew/bin/mvn", "/usr/local/bin/mvn", "/usr/bin/mvn"] {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return URL(fileURLWithPath: path)
-            }
-        }
-        return URL(fileURLWithPath: "/usr/bin/mvn")
     }
 
     private static func parseIssues(in output: String, projectRoot: URL) -> [MavenBuildIssue] {

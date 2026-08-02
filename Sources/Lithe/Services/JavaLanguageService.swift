@@ -36,6 +36,11 @@ final class JavaLanguageService: ObservableObject {
     private var readyHandlers: [(Result<Void, Error>) -> Void] = []
     private var openedDocumentVersions: [String: Int] = [:]
     private var projectURL: URL?
+    private let runtimeService: ProjectRuntimeService
+
+    init(runtimeService: ProjectRuntimeService) {
+        self.runtimeService = runtimeService
+    }
 
     func configureProjectRoot(_ url: URL) {
         projectURL = url.standardizedFileURL
@@ -236,7 +241,7 @@ final class JavaLanguageService: ObservableObject {
         let errorPipe = Pipe()
         process.executableURL = executableURL
         var arguments: [String] = []
-        if let javaExecutable = Self.javaExecutableURL() {
+        if let javaExecutable = runtimeService.javaExecutableURL() {
             arguments.append(contentsOf: ["--java-executable", javaExecutable.path])
         }
         arguments.append(contentsOf: ["-data", Self.dataDirectory(for: root).path])
@@ -514,17 +519,6 @@ final class JavaLanguageService: ObservableObject {
             .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
     }
 
-    private static func javaExecutableURL() -> URL? {
-        let candidates = [
-            "/opt/homebrew/opt/openjdk/bin/java",
-            "/usr/local/opt/openjdk/bin/java",
-            "/usr/bin/java"
-        ]
-        return candidates
-            .map(URL.init(fileURLWithPath:))
-            .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
-    }
-
     private static func dataDirectory(for root: URL) -> URL {
         let key = String(root.path.utf8.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1) }, radix: 16)
         return FileManager.default.homeDirectoryForCurrentUser
@@ -551,7 +545,7 @@ final class JavaLanguageService: ObservableObject {
                 return
             }
 
-            if let source = Self.jdkSource(for: location.url),
+            if let source = jdkSource(for: location.url),
                let sourceURL = Self.materializeLibrarySource(source, for: location.url) {
                 let materialized = JavaNavigationLocation(
                     url: sourceURL,
@@ -599,7 +593,7 @@ final class JavaLanguageService: ObservableObject {
         let finish: (String?) -> Void = { qualifiedName in
             guard let qualifiedName,
                   let symbol = Self.identifier(at: line, utf16Column: utf16Column, in: document.text),
-                  let location = Self.jdkDefinitionLocation(
+                  let location = self.jdkDefinitionLocation(
                       for: qualifiedName,
                       symbol: symbol
                   ) else {
@@ -656,17 +650,17 @@ final class JavaLanguageService: ObservableObject {
         }
     }
 
-    private static func javaHomeURL() -> URL? {
-        guard let javaExecutable = javaExecutableURL() else { return nil }
+    private func javaHomeURL() -> URL? {
+        guard let javaExecutable = runtimeService.javaExecutableURL() else { return nil }
         return javaExecutable
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .resolvingSymlinksInPath()
     }
 
-    private static func jdkSource(for uri: URL) -> String? {
+    private func jdkSource(for uri: URL) -> String? {
         guard uri.scheme?.lowercased() == "jdt",
-              let entry = jdkSourceEntry(for: uri),
+              let entry = Self.jdkSourceEntry(for: uri),
               let javaHome = javaHomeURL() else { return nil }
 
         let archives = [
@@ -676,7 +670,7 @@ final class JavaLanguageService: ObservableObject {
         let entries = [entry, entry.hasPrefix("java.base/") ? String(entry.dropFirst("java.base/".count)) : "java.base/\(entry)"]
         for archive in archives where FileManager.default.fileExists(atPath: archive.path) {
             for candidate in entries where !candidate.isEmpty {
-                if let source = readZipEntry(candidate, from: archive), !source.isEmpty {
+                if let source = Self.readZipEntry(candidate, from: archive), !source.isEmpty {
                     return source
                 }
             }
@@ -790,7 +784,7 @@ final class JavaLanguageService: ObservableObject {
         return matches.first
     }
 
-    private static func jdkDefinitionLocation(
+    private func jdkDefinitionLocation(
         for qualifiedName: String,
         symbol: String
     ) -> JavaNavigationLocation? {
@@ -809,7 +803,7 @@ final class JavaLanguageService: ObservableObject {
         let sourcePath = (packageParts + [primaryType]).joined(separator: "/") + ".class"
         guard let uri = URL(string: "jdt://contents/java.base/\(sourcePath)"),
               let source = jdkSource(for: uri),
-              let sourceURL = materializeLibrarySource(source, for: uri) else { return nil }
+              let sourceURL = Self.materializeLibrarySource(source, for: uri) else { return nil }
 
         let declarationName: String
         let memberName: String?
@@ -827,7 +821,7 @@ final class JavaLanguageService: ObservableObject {
             memberName = nil
         }
 
-        let position = sourceDefinitionPosition(
+        let position = Self.sourceDefinitionPosition(
             in: source,
             declarationName: declarationName,
             memberName: memberName

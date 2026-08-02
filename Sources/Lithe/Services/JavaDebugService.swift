@@ -31,6 +31,11 @@ final class JavaDebugService: ObservableObject {
     @Published private(set) var runningTargetTitle: String?
     private var didBootstrap = false
     private let maximumOutputCharacters = 400_000
+    private let runtimeService: ProjectRuntimeService
+
+    init(runtimeService: ProjectRuntimeService) {
+        self.runtimeService = runtimeService
+    }
 
     private enum InspectionKind {
         case threads
@@ -51,8 +56,8 @@ final class JavaDebugService: ObservableObject {
             fail("Select a Java file before starting Debug.")
             return
         }
-        guard let javaURL = javaExecutableURL(javaHomePath: options.javaHomePath),
-              let jdbURL = jdbExecutableURL(javaExecutableURL: javaURL) else {
+        guard let javaURL = runtimeService.javaExecutableURL(overridePath: options.javaHomePath),
+              let jdbURL = runtimeService.jdbExecutableURL(overridePath: options.javaHomePath) else {
             fail("No JDK with jdb was found. Set JDK Home or JAVA_HOME.")
             return
         }
@@ -81,7 +86,7 @@ final class JavaDebugService: ObservableObject {
                 fallback: fileURL.deletingLastPathComponent(),
                 relativeTo: projectURL
             ),
-            environment: environment(javaHomePath: options.javaHomePath),
+            environment: runtimeService.environment(for: .java, javaHomeOverride: options.javaHomePath),
             jdbURL: jdbURL,
             host: "127.0.0.1",
             port: debugPort,
@@ -100,8 +105,11 @@ final class JavaDebugService: ObservableObject {
             fail("Select a Spring Boot or Maven Module configuration before starting Debug.")
             return
         }
-        guard let javaURL = javaExecutableURL(javaHomePath: options.javaHomePath),
-              let jdbURL = jdbExecutableURL(javaExecutableURL: javaURL) else {
+        guard runtimeService.mavenJavaHomeURL(overridePath: options.javaHomePath) != nil,
+              let jdbURL = runtimeService.jdbExecutableURL(
+                  overridePath: options.javaHomePath,
+                  for: .maven
+              ) else {
             fail("No JDK with jdb was found. Set JDK Home or JAVA_HOME.")
             return
         }
@@ -137,7 +145,10 @@ final class JavaDebugService: ObservableObject {
         let moduleDirectory = configuration.modulePath.flatMap { modulePath in
             project.allModules.first(where: { $0.relativePath == modulePath })?.url
         } ?? project.rootURL
-        let executable = MavenService.executableURL(for: project)
+        guard let executable = runtimeService.mavenExecutable(for: project) else {
+            fail("No Maven executable was found. Configure Maven in Project Settings.")
+            return
+        }
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
         startDebuggee(
             executable: executable,
@@ -147,7 +158,7 @@ final class JavaDebugService: ObservableObject {
                 fallback: moduleDirectory,
                 relativeTo: projectURL
             ),
-            environment: environment(javaHomePath: options.javaHomePath),
+            environment: runtimeService.environment(for: .maven, javaHomeOverride: options.javaHomePath),
             jdbURL: jdbURL,
             host: "127.0.0.1",
             port: debugPort,
@@ -167,8 +178,8 @@ final class JavaDebugService: ObservableObject {
             fail("Enter a valid JDWP port.")
             return
         }
-        guard let javaURL = javaExecutableURL(javaHomePath: remoteJavaHomePath),
-              let jdbURL = jdbExecutableURL(javaExecutableURL: javaURL) else {
+        guard runtimeService.javaExecutableURL(overridePath: remoteJavaHomePath) != nil,
+              let jdbURL = runtimeService.jdbExecutableURL(overridePath: remoteJavaHomePath) else {
             fail("No local JDK with jdb was found for the attach session.")
             return
         }
@@ -782,15 +793,6 @@ final class JavaDebugService: ObservableObject {
         if let debuggeeProcess, debuggeeProcess.isRunning { debuggeeProcess.terminate() }
     }
 
-    private func environment(javaHomePath: String) -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        let configured = javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configured.isEmpty, let home = resolvedJavaHome(configured) {
-            environment["JAVA_HOME"] = home.path
-        }
-        return environment
-    }
-
     private func workingDirectory(_ path: String, fallback: URL, relativeTo projectURL: URL?) -> URL {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return fallback }
@@ -802,43 +804,6 @@ final class JavaDebugService: ObservableObject {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
             return fallback
-        }
-        return url
-    }
-
-    private func javaExecutableURL(javaHomePath: String) -> URL? {
-        let configured = javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configured.isEmpty,
-           let home = resolvedJavaHome(configured),
-           FileManager.default.isExecutableFile(atPath: home.appendingPathComponent("bin/java").path) {
-            return home.appendingPathComponent("bin/java")
-        }
-        if let home = ProcessInfo.processInfo.environment["JAVA_HOME"],
-           FileManager.default.isExecutableFile(atPath: URL(fileURLWithPath: home).appendingPathComponent("bin/java").path) {
-            return URL(fileURLWithPath: home).appendingPathComponent("bin/java")
-        }
-        return [
-            "/opt/homebrew/opt/openjdk/bin/java",
-            "/usr/local/opt/openjdk/bin/java",
-            "/usr/bin/java"
-        ].map(URL.init(fileURLWithPath:)).first(where: {
-            FileManager.default.isExecutableFile(atPath: $0.path)
-        })
-    }
-
-    private func jdbExecutableURL(javaExecutableURL: URL) -> URL? {
-        let candidate = javaExecutableURL.deletingLastPathComponent().appendingPathComponent("jdb")
-        if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
-        return ["/opt/homebrew/bin/jdb", "/usr/local/bin/jdb", "/usr/bin/jdb"]
-            .map(URL.init(fileURLWithPath:))
-            .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
-    }
-
-    private func resolvedJavaHome(_ path: String) -> URL? {
-        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return nil
         }
         return url
     }

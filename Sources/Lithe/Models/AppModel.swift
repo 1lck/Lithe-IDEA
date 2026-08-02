@@ -109,18 +109,24 @@ final class AppModel: ObservableObject {
     private var pendingCloseQueue: [EditorDocument] = []
     private var pendingClosePreferredDocumentID: UUID?
     private var gitHistoryLimit = 300
+    let projectRuntimeService: ProjectRuntimeService
     let settings = AppSettings()
     let terminalSession = TerminalSession()
     let javaLanguageService: JavaLanguageService
     let javaImplementationMarkerService: JavaImplementationMarkerService
-    let mavenService = MavenService()
-    let javaRunService = JavaRunService()
-    let javaDebugService = JavaDebugService()
+    let mavenService: MavenService
+    let javaRunService: JavaRunService
+    let javaDebugService: JavaDebugService
     let searchIndex = WorkspaceSearchIndex()
     private var localHistoryService: LocalHistoryService?
 
     init() {
-        let languageService = JavaLanguageService()
+        let runtimeService = ProjectRuntimeService()
+        projectRuntimeService = runtimeService
+        mavenService = MavenService(runtimeService: runtimeService)
+        javaRunService = JavaRunService(runtimeService: runtimeService)
+        javaDebugService = JavaDebugService(runtimeService: runtimeService)
+        let languageService = JavaLanguageService(runtimeService: runtimeService)
         javaLanguageService = languageService
         javaImplementationMarkerService = JavaImplementationMarkerService(languageService: languageService)
         recentProjects = RecentProjectsStore.load()
@@ -130,6 +136,9 @@ final class AppModel: ObservableObject {
         javaLanguageService.onDiagnostics = { [weak self] fileURL, diagnostics in
             self?.javaDiagnostics[fileURL.standardizedFileURL] = diagnostics
         }
+        runtimeService.onRuntimeChanged = { [weak self] in
+            self?.reloadJavaRuntimeServices()
+        }
         doubleShiftDetector = DoubleShiftDetector { [weak self] in
             self?.toggleSearchEverywhere()
         }
@@ -138,6 +147,17 @@ final class AppModel: ObservableObject {
 
     deinit {
         doubleShiftDetector?.stop()
+    }
+
+    private func reloadJavaRuntimeServices() {
+        javaRunService.stop()
+        javaDebugService.stop()
+        mavenService.stop()
+        javaLanguageService.stop()
+        if let workspaceURL,
+           projectFiles.contains(where: { $0.pathExtension.lowercased() == "java" }) {
+            javaLanguageService.prepare(for: workspaceURL)
+        }
     }
 
     var projectName: String {
@@ -201,6 +221,7 @@ final class AppModel: ObservableObject {
             persistWorkspaceSession(for: previousWorkspaceURL)
         }
         terminalSession.stop()
+        projectRuntimeService.openProject(at: normalizedURL)
         mavenService.reset()
         javaRunService.reset()
         javaDebugService.reset()
@@ -367,6 +388,7 @@ final class AppModel: ObservableObject {
         isRunVisible = false
         isDebugVisible = false
         terminalSession.stop()
+        projectRuntimeService.closeProject()
         mavenService.reset()
         javaRunService.reset()
         javaDebugService.reset()

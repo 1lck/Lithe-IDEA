@@ -15,7 +15,10 @@ struct RootView: View {
         }
         .background(LitheTheme.window)
         .sheet(isPresented: $model.isSettingsPresented) {
-            SettingsView(settings: model.settings)
+            SettingsView(
+                settings: model.settings,
+                projectRuntime: model.projectRuntimeService
+            )
                 .environmentObject(model)
         }
         .sheet(isPresented: $model.isCloneRepositoryPresented) {

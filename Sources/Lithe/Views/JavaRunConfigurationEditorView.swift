@@ -101,7 +101,7 @@ struct JavaRunConfigurationEditorView: View {
         section(title: "Runtime") {
             pathRow(
                 title: "JDK Home",
-                placeholder: "Use JAVA_HOME or system JDK",
+                placeholder: "Use project JDK or system default",
                 text: stringBinding(\.javaHomePath),
                 chooseDirectory: { chooseDirectory(for: \.javaHomePath) }
             )

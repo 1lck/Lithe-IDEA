@@ -25,6 +25,11 @@ final class JavaRunService: ObservableObject {
     private var moduleProcesses: [String: Process] = [:]
     private var moduleOutputPipes: [String: Pipe] = [:]
     private let maximumOutputCharacters = 500_000
+    private let runtimeService: ProjectRuntimeService
+
+    init(runtimeService: ProjectRuntimeService) {
+        self.runtimeService = runtimeService
+    }
 
     var selectedConfiguration: JavaRunConfiguration? {
         configurations.first { $0.id == selectedConfigurationID }
@@ -109,7 +114,7 @@ final class JavaRunService: ObservableObject {
         lastCurrentFileURL = currentFileURL
         let options = self.options(for: configuration)
         let configuredJavaHome = options.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configuredJavaHome.isEmpty && Self.resolvedJavaHome(configuredJavaHome) == nil {
+        if !configuredJavaHome.isEmpty && runtimeService.javaHomeURL(overridePath: configuredJavaHome) == nil {
             fail("JDK Home does not point to a directory: " + configuredJavaHome)
             return
         }
@@ -125,7 +130,7 @@ final class JavaRunService: ObservableObject {
                 fail("Select a Java file before running Current File.")
                 return
             }
-            guard let javaURL = Self.javaExecutableURL(javaHomePath: options.javaHomePath) else {
+            guard let javaURL = runtimeService.javaExecutableURL(overridePath: options.javaHomePath) else {
                 fail("No Java runtime was found. Set JAVA_HOME or install a JDK.")
                 return
             }
@@ -149,7 +154,11 @@ final class JavaRunService: ObservableObject {
                 fail("No Maven project is available for this run configuration.")
                 return
             }
-            executable = MavenService.executableURL(for: mavenProject)
+            guard let mavenExecutable = runtimeService.mavenExecutable(for: mavenProject) else {
+                fail("No Maven executable was found. Configure Maven in Project Settings.")
+                return
+            }
+            executable = mavenExecutable
             var mavenArguments = ["-B", "-ntp"]
             if let modulePath = configuration.modulePath {
                 mavenArguments += ["-pl", modulePath]
@@ -185,11 +194,11 @@ final class JavaRunService: ObservableObject {
         process.executableURL = executable
         process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
-        var environment = ProcessInfo.processInfo.environment
-        if !configuredJavaHome.isEmpty {
-            environment["JAVA_HOME"] = Self.resolvedJavaHome(configuredJavaHome)?.path
-        }
-        process.environment = environment
+        let processKind: ProjectRuntimeProcessKind = configuration.kind == .currentFile ? .java : .maven
+        process.environment = runtimeService.environment(
+            for: processKind,
+            javaHomeOverride: configuredJavaHome
+        )
         process.standardOutput = outputPipe
         process.standardError = outputPipe
         outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -350,7 +359,7 @@ final class JavaRunService: ObservableObject {
         moduleSessions.removeAll { $0.id == configuration.id }
         let options = self.options(for: configuration)
         let configuredJavaHome = options.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configuredJavaHome.isEmpty && Self.resolvedJavaHome(configuredJavaHome) == nil {
+        if !configuredJavaHome.isEmpty && runtimeService.mavenJavaHomeURL(overridePath: configuredJavaHome) == nil {
             moduleSessions.append(JavaRunSession(
                 id: configuration.id,
                 configurationID: configuration.id,
@@ -363,7 +372,17 @@ final class JavaRunService: ObservableObject {
         }
         guard let modulePath = configuration.modulePath else { return }
 
-        let executable = MavenService.executableURL(for: mavenProject)
+        guard let executable = runtimeService.mavenExecutable(for: mavenProject) else {
+            moduleSessions.append(JavaRunSession(
+                id: configuration.id,
+                configurationID: configuration.id,
+                title: configuration.name,
+                output: "No Maven executable was found. Configure Maven in Project Settings.\n",
+                isRunning: false,
+                exitCode: 1
+            ))
+            return
+        }
         var arguments = ["-B", "-ntp", "-pl", modulePath]
         if !options.activeProfiles.isEmpty {
             arguments += ["-P", options.activeProfiles.sorted().joined(separator: ",")]
@@ -384,10 +403,10 @@ final class JavaRunService: ObservableObject {
         let moduleDirectory = mavenProject.allModules.first(where: { $0.relativePath == modulePath })?.url
             ?? mavenProject.rootURL
         let workingDirectory = resolvedWorkingDirectory(options.workingDirectoryPath, fallback: moduleDirectory)
-        var environment = ProcessInfo.processInfo.environment
-        if !configuredJavaHome.isEmpty {
-            environment["JAVA_HOME"] = Self.resolvedJavaHome(configuredJavaHome)?.path
-        }
+        let environment = runtimeService.environment(
+            for: .maven,
+            javaHomeOverride: configuredJavaHome
+        )
 
         let session = JavaRunSession(
             id: configuration.id,
@@ -585,28 +604,6 @@ final class JavaRunService: ObservableObject {
         return filePath.hasPrefix(directoryPath + "/")
     }
 
-    private static func javaExecutableURL(javaHomePath: String) -> URL? {
-        let configuredPath = javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configuredPath.isEmpty {
-            guard let javaHome = resolvedJavaHome(configuredPath) else { return nil }
-            let candidate = javaHome.appendingPathComponent("bin/java")
-            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
-            return nil
-        }
-        if let javaHome = ProcessInfo.processInfo.environment["JAVA_HOME"] {
-            let candidate = URL(fileURLWithPath: javaHome).appendingPathComponent("bin/java")
-            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
-        }
-        let candidates = [
-            "/opt/homebrew/opt/openjdk/bin/java",
-            "/usr/local/opt/openjdk/bin/java",
-            "/usr/bin/java"
-        ]
-        return candidates
-            .map(URL.init(fileURLWithPath:))
-            .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
-    }
-
     private func resolvedWorkingDirectory(_ path: String, fallback: URL) -> URL {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return fallback }
@@ -619,15 +616,6 @@ final class JavaRunService: ObservableObject {
         guard FileManager.default.fileExists(atPath: standardized.path, isDirectory: &isDirectory),
               isDirectory.boolValue else { return fallback }
         return standardized
-    }
-
-    private static func resolvedJavaHome(_ path: String) -> URL? {
-        let expanded = (path as NSString).expandingTildeInPath
-        let url = URL(fileURLWithPath: expanded).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else { return nil }
-        return url
     }
 
     private static func arguments(from input: String) -> [String] {
