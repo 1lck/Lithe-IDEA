@@ -3,6 +3,7 @@ import SwiftUI
 struct SearchSidebarView: View {
     @EnvironmentObject private var model: AppModel
     @FocusState private var searchFocused: Bool
+    @State private var searchOptions = ProjectSearchOptions.default
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,7 +20,7 @@ struct SearchSidebarView: View {
             .frame(height: 44)
 
             HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
+                LitheSystemIcon(systemImage: "magnifyingglass")
                     .foregroundStyle(LitheTheme.secondaryText)
                 TextField("Search files and contents", text: $model.searchQuery)
                     .textFieldStyle(.plain)
@@ -32,6 +33,7 @@ struct SearchSidebarView: View {
                         Image(systemName: "xmark.circle.fill")
                     }
                     .buttonStyle(.plain)
+                    .lithePointer()
                     .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Button(action: model.openProjectReplace) {
@@ -39,11 +41,17 @@ struct SearchSidebarView: View {
                 }
                 .litheIconButton()
                 .help("Replace in project")
+
+                searchOptionsMenu
             }
             .padding(.horizontal, 9)
             .frame(height: 32)
-            .background(LitheTheme.raised)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .background(LitheTheme.inputBackground)
+            .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+            .overlay {
+                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                    .stroke(LitheTheme.inputBorder, lineWidth: 1)
+            }
             .padding(.horizontal, 10)
             .padding(.bottom, 10)
 
@@ -72,7 +80,7 @@ struct SearchSidebarView: View {
                             } label: {
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack(spacing: 6) {
-                                        Image(systemName: "doc.text")
+                                        LitheSystemIcon(systemImage: "doc.text")
                                         Text(result.url.lastPathComponent)
                                             .font(.system(size: 12.5, weight: .medium))
                                         Spacer()
@@ -92,21 +100,36 @@ struct SearchSidebarView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .lithePointer()
                             Rectangle().fill(LitheTheme.divider).frame(height: 1)
                         }
                     }
                 }
             }
         }
-        .task(id: model.searchQuery) {
+        .task(id: "\(model.searchQuery)|\(searchOptions.cacheKey)") {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            await model.searchProject()
+            await model.searchProject(options: searchOptions)
         }
         .onAppear { searchFocused = true }
         .sheet(isPresented: $model.isProjectReplaceVisible) {
             ProjectReplaceView()
                 .environmentObject(model)
         }
+    }
+
+    private var searchOptionsMenu: some View {
+        Menu {
+            Toggle("Match Case", isOn: $searchOptions.caseSensitive)
+            Toggle("Whole Words", isOn: $searchOptions.wholeWords)
+            Toggle("Regular Expression", isOn: $searchOptions.regularExpression)
+        } label: {
+            Image(systemName: searchOptions == .default ? "slider.horizontal.3" : "slider.horizontal.3.circle.fill")
+                .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
+        }
+        .menuStyle(.borderlessButton)
+        .lithePointer()
+        .help("Search options")
     }
 }

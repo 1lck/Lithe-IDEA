@@ -47,6 +47,8 @@ struct LitheApp: App {
                 Button("Search Everywhere…") {
                     model.toggleSearchEverywhere()
                 }
+                // 保留双 Shift 入口，同时提供一个可见且可测试的菜单快捷键。
+                .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(model.workspaceURL == nil)
 
                 Divider()
@@ -71,10 +73,16 @@ struct LitheApp: App {
 
                 Divider()
 
-                Button("Go to Definition") {
-                    model.goToDefinition()
+                Button("Go to Usage") {
+                    model.goToUsages()
                 }
                 .keyboardShortcut("b", modifiers: .command)
+                .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
+
+                Button("Go to Implementation") {
+                    model.goToImplementation()
+                }
+                .keyboardShortcut("b", modifiers: [.command, .option])
                 .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
 
                 Button("Find Usages") {

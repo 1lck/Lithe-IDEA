@@ -228,6 +228,7 @@ struct OutputTextView: View {
                 .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .lithePointer()
         .foregroundStyle(LitheTheme.primaryText)
         .disabled(output.isEmpty)
         .opacity(output.isEmpty ? 0.4 : 1)
@@ -250,6 +251,7 @@ struct OutputTextView: View {
                 .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .lithePointer()
         .foregroundStyle(LitheTheme.primaryText)
     }
 }

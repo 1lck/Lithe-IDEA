@@ -88,9 +88,11 @@ struct ProjectSidebarView: View {
             Button("Move to Trash", role: .destructive) {
                 Task { await model.confirmProjectItemDeletion() }
             }
+            .lithePointer()
             Button("Cancel", role: .cancel) {
                 model.cancelProjectItemDeletion()
             }
+            .lithePointer()
         } message: {
             Text("The item can be recovered from the macOS Trash.")
         }
@@ -105,13 +107,20 @@ struct ProjectSidebarView: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
-            Button {
-                Task { await model.refreshWorkspace() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
+            if model.isRefreshingWorkspace {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 28, height: 28)
+                    .help("Refreshing project")
+            } else {
+                Button {
+                    Task { await model.refreshWorkspace() }
+                } label: {
+                    LitheSystemIcon(systemImage: "arrow.clockwise")
+                }
+                .litheIconButton()
+                .help("Refresh")
             }
-            .litheIconButton()
-            .help("Refresh")
         }
         .padding(.horizontal, 12)
         .frame(height: 39)
@@ -123,6 +132,7 @@ private struct FileNodeRow: View {
     let node: FileNode
     let depth: Int
     @Binding var expandedDirectoryPaths: Set<String>
+    @State private var resolvedJavaIconKind: LitheIconKind?
 
     private var isExpanded: Bool {
         expandedDirectoryPaths.contains(node.url.path)
@@ -158,9 +168,7 @@ private struct FileNodeRow: View {
                     .font(.system(size: 8, weight: .bold))
                     .frame(width: 10)
                     .foregroundStyle(LitheTheme.secondaryText)
-                Image(systemName: isExpanded ? "folder.fill" : "folder")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color(red: 0.42, green: 0.61, blue: 0.82))
+                LitheIcon(kind: node.iconKind, size: 14)
                 Text(node.name)
                     .font(.system(size: 12.5, weight: depth == 0 ? .semibold : .regular))
                     .foregroundStyle(LitheTheme.primaryText)
@@ -169,10 +177,13 @@ private struct FileNodeRow: View {
             }
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 25)
             .contentShape(Rectangle())
+            .litheRowHover(cornerRadius: 4)
         }
         .buttonStyle(.plain)
+        .lithePointer()
         .contextMenu { directoryContextMenu }
     }
 
@@ -182,10 +193,8 @@ private struct FileNodeRow: View {
         } label: {
             HStack(spacing: 6) {
                 Color.clear.frame(width: 10)
-                Image(systemName: node.systemImage)
-                    .font(.system(size: 12))
+                LitheIcon(kind: resolvedJavaIconKind ?? node.iconKind, size: 14)
                     .frame(width: 14)
-                    .foregroundStyle(fileColor)
                 Text(node.name)
                     .font(.system(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
@@ -195,12 +204,29 @@ private struct FileNodeRow: View {
             }
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 25)
-            .background(model.activeDocument?.url == node.url ? LitheTheme.subtleSelection : .clear)
             .contentShape(Rectangle())
+            .litheRowHover(
+                isActive: model.activeDocument?.url == node.url,
+                cornerRadius: 4,
+                activeBackground: LitheTheme.subtleSelection
+            )
         }
         .buttonStyle(.plain)
+        .lithePointer()
         .contextMenu { fileContextMenu }
+        .task(id: node.url.standardizedFileURL.path) {
+            guard node.url.pathExtension.lowercased() == "java" else { return }
+            let url = node.url
+            resolvedJavaIconKind = await Task.detached(priority: .utility) {
+                guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+                defer { try? handle.close() }
+                let data = handle.readData(ofLength: 4 * 1024)
+                guard let prefix = String(data: data, encoding: .utf8) else { return nil }
+                return LitheIcons.javaSymbolKind(fromSourcePrefix: prefix)
+            }.value
+        }
     }
 
     @ViewBuilder
@@ -279,16 +305,6 @@ private struct FileNodeRow: View {
         }
     }
 
-    private var fileColor: Color {
-        switch node.url.pathExtension.lowercased() {
-        case "swift": .orange
-        case "java", "kt", "kts": Color(red: 0.42, green: 0.66, blue: 0.95)
-        case "js", "jsx", "ts", "tsx": .yellow
-        case "json", "yaml", "yml", "xml", "toml": Color(red: 0.72, green: 0.50, blue: 0.88)
-        case "md": Color(red: 0.45, green: 0.76, blue: 0.90)
-        default: LitheTheme.secondaryText
-        }
-    }
 }
 
 private struct ProjectItemNameDialog: View {
@@ -334,9 +350,11 @@ private struct ProjectItemNameDialog: View {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
+                .lithePointer()
 
                 Button(actionTitle, action: submit)
                     .buttonStyle(.borderedProminent)
+                    .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(trimmedName.isEmpty)

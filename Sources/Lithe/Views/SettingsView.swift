@@ -45,7 +45,7 @@ struct SettingsView: View {
 
     private var header: some View {
         HStack(spacing: 9) {
-            Image(systemName: "gearshape.fill")
+            LitheSystemIcon(systemImage: "gearshape.fill")
                 .foregroundStyle(LitheTheme.secondaryText)
             Text("Settings")
                 .font(.system(size: 14, weight: .semibold))
@@ -80,6 +80,7 @@ struct SettingsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
                 .buttonStyle(.plain)
+                .lithePointer()
                 .foregroundStyle(selection == category ? Color.white : LitheTheme.primaryText)
             }
             Spacer()
@@ -112,6 +113,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Files") {
                 Toggle("Save changed files automatically", isOn: $settings.autoSave)
+                    .lithePointer()
                 if settings.autoSave {
                     row("Save after") {
                         Picker("", selection: $settings.autoSaveDelay) {
@@ -121,6 +123,7 @@ struct SettingsView: View {
                         }
                         .labelsHidden()
                         .frame(width: 150)
+                        .lithePointer()
                     }
                 }
             }
@@ -135,19 +138,32 @@ struct SettingsView: View {
                 TextEditor(text: $hiddenDirectoriesDraft)
                     .font(.system(size: 12, design: .monospaced))
                     .frame(height: 66)
-                    .overlay { RoundedRectangle(cornerRadius: 4).stroke(LitheTheme.divider, lineWidth: 1) }
+                    .padding(5)
+                    .background(LitheTheme.inputBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                    }
 
                 Text("File patterns")
                     .font(.system(size: 11.5, weight: .medium))
                 TextEditor(text: $hiddenFilePatternsDraft)
                     .font(.system(size: 12, design: .monospaced))
                     .frame(height: 52)
-                    .overlay { RoundedRectangle(cornerRadius: 4).stroke(LitheTheme.divider, lineWidth: 1) }
+                    .padding(5)
+                    .background(LitheTheme.inputBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                    }
 
                 HStack {
                     Spacer()
                     Button("Apply") { applyVisibilityDrafts() }
                         .buttonStyle(.borderedProminent)
+                        .lithePointer()
                         .tint(LitheTheme.accent)
                 }
             }
@@ -158,13 +174,15 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Display") {
                 row("Font size") {
-                    Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
+                        Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
                         Text("\(Int(settings.editorFontSize)) pt")
                             .monospacedDigit()
                             .frame(width: 42, alignment: .trailing)
+                        }
+                        .lithePointer()
                     }
-                }
                 Toggle("Show usages and Git author", isOn: $settings.showCodeVision)
+                    .lithePointer()
             }
             group("Indentation") {
                 row("Tab width") {
@@ -175,6 +193,7 @@ struct SettingsView: View {
                     }
                     .labelsHidden()
                     .frame(width: 130)
+                    .lithePointer()
                 }
             }
         }
@@ -190,6 +209,7 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
                 .frame(width: 180)
+                .lithePointer()
                 .onChange(of: settings.terminalShell) {
                     guard model.terminalSession.isRunning else { return }
                     let path = settings.terminalShellPath
@@ -233,10 +253,12 @@ struct SettingsView: View {
         HStack {
             Button("Restore Defaults") { settings.restoreDefaults() }
                 .buttonStyle(.borderless)
+                .lithePointer()
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
             Button("Done") { dismiss() }
                 .keyboardShortcut(.defaultAction)
+                .lithePointer()
         }
         .padding(.horizontal, 14)
         .frame(height: 50)

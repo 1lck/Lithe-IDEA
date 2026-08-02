@@ -26,7 +26,9 @@ struct ProjectLocalHistoryView: View {
             Button("Restore") {
                 Task { await model.restoreSelectedProjectLocalHistoryEntry() }
             }
+            .lithePointer()
             Button("Cancel", role: .cancel) {}
+                .lithePointer()
         } message: {
             Text("The current file will be saved to Local History before it is replaced.")
         }
@@ -46,7 +48,7 @@ struct ProjectLocalHistoryView: View {
             Button {
                 Task { await model.refreshProjectLocalHistory() }
             } label: {
-                Image(systemName: "arrow.clockwise")
+                LitheSystemIcon(systemImage: "arrow.clockwise")
             }
             .litheIconButton()
             .help("Refresh project history")
@@ -54,6 +56,7 @@ struct ProjectLocalHistoryView: View {
                 isRestoreConfirmationPresented = true
             }
             .buttonStyle(.borderedProminent)
+            .lithePointer()
             .tint(LitheTheme.accent)
             .controlSize(.small)
             .disabled(model.selectedProjectLocalHistoryEntry == nil)
@@ -131,6 +134,7 @@ struct ProjectLocalHistoryView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .lithePointer()
                         }
                     }
                 }
@@ -165,20 +169,35 @@ struct ProjectLocalHistoryView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { geometry in
+                    let contentWidth = max(900, geometry.size.width)
+                    let kinds = model.projectLocalHistoryDiffRows.map(\.kind)
+                    let contentHeight = max(
+                        DiffLayoutMetrics.contentHeight(rows: model.projectLocalHistoryDiffRows, kinds: kinds),
+                        geometry.size.height
+                    )
+
                     ScrollView([.vertical, .horizontal]) {
-                        LazyVStack(spacing: 0) {
-                            ForEach(model.projectLocalHistoryDiffRows) { row in
-                                DiffRowView(
-                                    row: row,
-                                    kind: row.kind,
-                                    fileExtension: selectedFileExtension,
-                                    highlightsWords: true,
-                                    isSelectedDifference: false
-                                )
+                        ZStack(alignment: .topLeading) {
+                            DiffConnectorOverlay(
+                                rows: model.projectLocalHistoryDiffRows,
+                                kinds: kinds,
+                                contentWidth: contentWidth
+                            )
+
+                            LazyVStack(spacing: 0) {
+                                ForEach(model.projectLocalHistoryDiffRows) { row in
+                                    DiffRowView(
+                                        row: row,
+                                        kind: row.kind,
+                                        fileExtension: selectedFileExtension,
+                                        highlightsWords: true,
+                                        isSelectedDifference: false
+                                    )
+                                }
                             }
+                            .textSelection(.enabled)
                         }
-                        .frame(minWidth: max(900, geometry.size.width), alignment: .topLeading)
-                        .textSelection(.enabled)
+                        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
                     }
                 }
             }

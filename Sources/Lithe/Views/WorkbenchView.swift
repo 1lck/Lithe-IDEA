@@ -13,6 +13,8 @@ struct WorkbenchView: View {
     @State private var isCheckoutRevisionPresented = false
     @State private var pendingTopBarPushReference: GitReference?
     @State private var isRunConfigurationEditorPresented = false
+    @State private var isProjectSwitcherPresented = false
+    @State private var didRestoreLayout = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,6 +26,7 @@ struct WorkbenchView: View {
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 workspaceArea
             }
+            .frame(maxHeight: .infinity)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             statusBar
@@ -49,8 +52,11 @@ struct WorkbenchView: View {
             titleVisibility: .visible
         ) {
             Button("Save") { model.closePendingDocument(discardingChanges: false) }
+                .lithePointer()
             Button("Discard Changes", role: .destructive) { model.closePendingDocument(discardingChanges: true) }
+                .lithePointer()
             Button("Cancel", role: .cancel) { model.cancelPendingClose() }
+                .lithePointer()
         } message: {
             Text(model.pendingCloseDocument?.url.lastPathComponent ?? "")
         }
@@ -65,7 +71,9 @@ struct WorkbenchView: View {
             Button(model.pendingDiscardChange?.isUntracked == true ? "Delete File" : "Discard Changes", role: .destructive) {
                 Task { await model.confirmDiscardChange() }
             }
+            .lithePointer()
             Button("Cancel", role: .cancel) { model.cancelDiscardChange() }
+                .lithePointer()
         } message: {
             Text("This action cannot be undone by Lithe.")
         }
@@ -80,7 +88,9 @@ struct WorkbenchView: View {
             Button("Discard Block", role: .destructive) {
                 Task { await model.confirmDiscardHunk() }
             }
+            .lithePointer()
             Button("Cancel", role: .cancel) { model.cancelDiscardHunk() }
+                .lithePointer()
         } message: {
             Text(model.pendingDiscardHunk?.change.path ?? "This action cannot be undone by Lithe.")
         }
@@ -97,9 +107,11 @@ struct WorkbenchView: View {
                 pendingTopBarPushReference = nil
                 Task { await model.pushBranch(reference) }
             }
+            .lithePointer()
             Button("Cancel", role: .cancel) {
                 pendingTopBarPushReference = nil
             }
+            .lithePointer()
         } message: {
             Text("This sends the current branch to its configured remote.")
         }
@@ -124,24 +136,70 @@ struct WorkbenchView: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: model.isSearchEverywhereVisible)
+        .onAppear {
+            restoreLayout()
+        }
+        .onChange(of: sidebarWidth) { _, _ in
+            saveLayout()
+        }
+        .onChange(of: topPaneHeight) { _, _ in
+            saveLayout()
+        }
+        .onChange(of: model.workspaceURL?.standardizedFileURL.path) { _, _ in
+            didRestoreLayout = false
+            restoreLayout()
+        }
     }
 
     private var topBar: some View {
         HStack(spacing: 9) {
-            Text(projectInitials)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(width: 28, height: 28)
-                .background(LitheTheme.accent)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+            Button {
+                isProjectSwitcherPresented.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    LitheLogo(size: 28)
 
-            Text(model.activeDocument?.url.lastPathComponent ?? model.projectName)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
+                    Text(model.activeDocument?.displayName ?? model.projectName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
 
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 32)
+                .litheRowHover(
+                    isActive: isProjectSwitcherPresented,
+                    cornerRadius: 6,
+                    activeBackground: LitheTheme.subtleSelection
+                )
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .popover(isPresented: $isProjectSwitcherPresented, arrowEdge: .bottom) {
+                ProjectSwitcherPopover(
+                    isPresented: $isProjectSwitcherPresented,
+                    onNewProject: {
+                        isProjectSwitcherPresented = false
+                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                    },
+                    onOpenProject: {
+                        isProjectSwitcherPresented = false
+                        model.chooseProject()
+                    },
+                    onCloneRepository: {
+                        isProjectSwitcherPresented = false
+                        model.showCloneRepository()
+                    },
+                    onOpenRecentProject: { project in
+                        isProjectSwitcherPresented = false
+                        model.openProject(project.url)
+                    }
+                )
+                .environmentObject(model)
+            }
 
             Rectangle()
                 .fill(LitheTheme.divider)
@@ -155,8 +213,11 @@ struct WorkbenchView: View {
                 }
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "point.3.connected.trianglepath.dotted")
-                        .font(.system(size: 13))
+                    LitheIDEAIcon(
+                        resourcePath: "vcs/branch.svg",
+                        size: 14,
+                        fallbackSystemImage: "point.3.connected.trianglepath.dotted"
+                    )
                         .foregroundStyle(LitheTheme.secondaryText)
                     Text(model.currentBranch)
                         .font(.system(size: 12.5, weight: .medium))
@@ -168,11 +229,14 @@ struct WorkbenchView: View {
                 }
                 .padding(.horizontal, 9)
                 .frame(height: 32)
-                .background(isBranchSwitcherPresented ? LitheTheme.subtleSelection : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .contentShape(Rectangle())
+                .litheRowHover(
+                    isActive: isBranchSwitcherPresented,
+                    cornerRadius: 6,
+                    activeBackground: LitheTheme.subtleSelection
+                )
             }
             .buttonStyle(.plain)
+            .lithePointer()
             .popover(isPresented: $isBranchSwitcherPresented, arrowEdge: .bottom) {
                 BranchSwitcherPopover(
                     isPresented: $isBranchSwitcherPresented,
@@ -221,7 +285,7 @@ struct WorkbenchView: View {
             Button {
                 model.selectedSidebar = .search
             } label: {
-                Image(systemName: "magnifyingglass")
+                LitheIDEAIcon(resourcePath: "actions/search.svg", size: 16, fallbackSystemImage: "magnifyingglass")
             }
             .litheIconButton()
             .help("Search")
@@ -230,90 +294,117 @@ struct WorkbenchView: View {
                 Button("Open Project…", action: model.chooseProject)
                 Button("Close Project", action: model.closeProject)
             } label: {
-                Image(systemName: "ellipsis")
+                LitheIDEAIcon(resourcePath: "actions/more.svg", size: 16, fallbackSystemImage: "ellipsis")
             }
             .menuStyle(.borderlessButton)
+            .lithePointer()
             .frame(width: 28)
         }
         .padding(.leading, 76)
         .padding(.trailing, 10)
-        .frame(height: 50)
+        .frame(height: LitheTheme.Metrics.toolbarHeight)
         .background(LitheTheme.titlebar)
     }
 
     private var activityBar: some View {
-        VStack(spacing: 6) {
-            ForEach(SidebarDestination.allCases) { destination in
-                Button {
-                    model.selectedSidebar = destination
-                } label: {
-                    Image(systemName: destination.systemImage)
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: 36, height: 36)
-                        .background(model.selectedSidebar == destination ? LitheTheme.subtleSelection : .clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                VStack(spacing: 6) {
+                    ForEach(SidebarDestination.allCases) { destination in
+                        Button {
+                            model.selectedSidebar = destination
+                        } label: {
+                            LitheIDEAIcon(
+                                resourcePath: destination.ideaAssetPath,
+                                size: 16,
+                                fallbackSystemImage: destination.systemImage
+                            )
+                                .frame(width: 40, height: 34)
+                                .overlay(alignment: .leading) {
+                                    if model.selectedSidebar == destination {
+                                        Rectangle()
+                                            .fill(LitheTheme.accent)
+                                            .frame(width: 2, height: 21)
+                                    }
+                                }
+                                .litheRowHover(
+                                    isActive: model.selectedSidebar == destination,
+                                    cornerRadius: 4,
+                                    activeBackground: LitheTheme.subtleSelection
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .lithePointer()
+                        .foregroundStyle(model.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                        .help(destination.title)
+                    }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(model.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                .help(destination.title)
-            }
 
-            Spacer()
+                Spacer(minLength: 0)
 
-            activityToolButton(
-                systemImage: "terminal",
-                help: "Terminal",
-                isSelected: model.isTerminalVisible
-            ) {
-                model.toggleTerminal()
-            }
+                VStack(spacing: 6) {
+                    activityToolButton(
+                        systemImage: "terminal",
+                        help: "Terminal",
+                        isSelected: model.isTerminalVisible
+                    ) {
+                        model.toggleTerminal()
+                    }
 
-            activityToolButton(
-                systemImage: "point.3.connected.trianglepath.dotted",
-                help: "Git",
-                isSelected: model.isGitLogVisible
-            ) {
-                if !model.isGitLogVisible {
-                    model.selectedSidebar = .changes
+                    activityToolButton(
+                        systemImage: "point.3.connected.trianglepath.dotted",
+                        ideaAssetPath: "vcs/branch.svg",
+                        help: "Git",
+                        isSelected: model.isGitLogVisible
+                    ) {
+                        if !model.isGitLogVisible {
+                            model.selectedSidebar = .changes
+                        }
+                        Task { await model.toggleGitLog() }
+                    }
+
+                    activityToolButton(
+                        systemImage: "exclamationmark.triangle",
+                        ideaAssetPath: "toolwindows/toolWindowProblems.svg",
+                        help: "Problems",
+                        isSelected: model.isProblemsVisible
+                    ) {
+                        model.toggleProblems()
+                    }
+
+                    activityToolButton(
+                        systemImage: "shippingbox",
+                        ideaAssetPath: "maven/toolWindowMaven.svg",
+                        help: "Maven",
+                        isSelected: model.isMavenVisible
+                    ) {
+                        model.toggleMaven()
+                    }
+
+                    activityToolButton(
+                        systemImage: "ladybug",
+                        ideaAssetPath: "toolwindows/toolWindowDebugger.svg",
+                        help: "Debug",
+                        isSelected: model.isDebugVisible
+                    ) {
+                        model.toggleDebug()
+                    }
+
+                    activityToolButton(
+                        systemImage: "gearshape",
+                        ideaAssetPath: "general/gear.svg",
+                        help: "Settings",
+                        isSelected: model.isSettingsPresented
+                    ) {
+                        model.isSettingsPresented = true
+                    }
                 }
-                Task { await model.toggleGitLog() }
+                .padding(.bottom, 8)
             }
-
-            activityToolButton(
-                systemImage: "exclamationmark.triangle",
-                help: "Problems",
-                isSelected: model.isProblemsVisible
-            ) {
-                model.toggleProblems()
-            }
-
-            activityToolButton(
-                systemImage: "shippingbox",
-                help: "Maven",
-                isSelected: model.isMavenVisible
-            ) {
-                model.toggleMaven()
-            }
-
-            activityToolButton(
-                systemImage: "ladybug",
-                help: "Debug",
-                isSelected: model.isDebugVisible
-            ) {
-                model.toggleDebug()
-            }
-
-            activityToolButton(
-                systemImage: "gearshape",
-                help: "Settings",
-                isSelected: model.isSettingsPresented
-            ) {
-                model.isSettingsPresented = true
-            }
+            .frame(width: 48, height: geometry.size.height, alignment: .top)
+            .background(LitheTheme.titlebar)
         }
-        .padding(.vertical, 8)
         .frame(width: 48)
-        .background(LitheTheme.titlebar)
     }
 
     private var runControls: some View {
@@ -341,12 +432,13 @@ struct WorkbenchView: View {
                 .frame(maxWidth: 230)
             }
             .pickerStyle(.menu)
+            .lithePointer()
             .help("Select run configuration")
 
             Button {
                 isRunConfigurationEditorPresented = true
             } label: {
-                Image(systemName: "gearshape")
+                LitheIDEAIcon(resourcePath: "general/gear.svg", size: 15, fallbackSystemImage: "gearshape")
             }
             .litheIconButton()
             .help("Edit run configuration")
@@ -366,26 +458,39 @@ struct WorkbenchView: View {
                     model.runSelectedConfiguration()
                 }
             } label: {
-                Image(systemName: runService.isRunning ? "stop.fill" : "play.fill")
-                    .foregroundStyle(runService.isRunning ? LitheTheme.warning : LitheTheme.success)
+                if runService.isRunning {
+                    Image(systemName: "stop.fill")
+                        .foregroundStyle(LitheTheme.warning)
+                } else {
+                    LitheIDEAIcon(resourcePath: "actions/execute.svg", size: 16, fallbackSystemImage: "play.fill")
+                }
             }
-            .buttonStyle(.plain)
-            .frame(width: 24, height: 28)
+            .litheIconButton()
             .help(runService.isRunning ? "Stop" : "Run")
         }
     }
 
     private func activityToolButton(
         systemImage: String,
+        ideaAssetPath: String? = nil,
         help: String,
         isSelected: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .medium))
-                .frame(width: 40, height: 34)
-                .contentShape(Rectangle())
+            Group {
+                if let ideaAssetPath {
+                    LitheIDEAIcon(
+                        resourcePath: ideaAssetPath,
+                        size: 17,
+                        fallbackSystemImage: systemImage
+                    )
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 17, weight: .medium))
+                }
+            }
+            .frame(width: 40, height: 34)
                 .overlay(alignment: .leading) {
                     if isSelected {
                         RoundedRectangle(cornerRadius: 1)
@@ -393,8 +498,14 @@ struct WorkbenchView: View {
                             .frame(width: 3, height: 22)
                     }
                 }
+                .litheRowHover(
+                    isActive: isSelected,
+                    cornerRadius: 4,
+                    activeBackground: LitheTheme.subtleSelection
+                )
         }
         .buttonStyle(.plain)
+        .lithePointer()
         .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
         .help(help)
         .accessibilityLabel(help)
@@ -540,7 +651,7 @@ struct WorkbenchView: View {
         .font(LitheTheme.smallFont)
         .foregroundStyle(LitheTheme.secondaryText)
         .padding(.horizontal, 9)
-        .frame(height: 26)
+        .frame(height: LitheTheme.Metrics.statusBarHeight)
         .background(LitheTheme.titlebar)
     }
 
@@ -548,11 +659,14 @@ struct WorkbenchView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 if let document = model.activeDocument {
-                    let components = model.relativePath(for: document.url).split(separator: "/")
+                    let path = document.displayPath ?? model.relativePath(for: document.url)
+                    let components = path.split(separator: "/")
                     ForEach(Array(components.enumerated()), id: \.offset) { index, component in
                         breadcrumbItem(
                             title: String(component),
-                            systemImage: index == components.count - 1 ? "doc.text" : nil,
+                            iconKind: index == components.count - 1
+                                ? LitheIcons.kind(for: document.url, isDirectory: false)
+                                : nil,
                             isEmphasized: index == components.count - 1
                         ) {
                             model.selectedSidebar = .project
@@ -565,7 +679,7 @@ struct WorkbenchView: View {
                     ForEach(Array(activeJavaBreadcrumbs.enumerated()), id: \.offset) { index, hint in
                         breadcrumbItem(
                             title: hint.symbol,
-                            systemImage: index == activeJavaBreadcrumbs.count - 1 ? "m.circle" : "c.circle",
+                            iconKind: index == activeJavaBreadcrumbs.count - 1 ? .javaGeneric : .javaClass,
                             isEmphasized: index == activeJavaBreadcrumbs.count - 1
                         ) {
                             model.editorNavigationTarget = EditorNavigationTarget(
@@ -579,7 +693,10 @@ struct WorkbenchView: View {
                         }
                     }
                 } else {
-                    Label(model.projectName, systemImage: "folder")
+                    HStack(spacing: 5) {
+                        LitheIcon(kind: .folder, size: 13)
+                        Text(model.projectName)
+                    }
                 }
             }
         }
@@ -600,16 +717,15 @@ struct WorkbenchView: View {
 
     private func breadcrumbItem(
         title: String,
-        systemImage: String?,
+        iconKind: LitheIconKind?,
         isEmphasized: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 10))
-                        .foregroundStyle(isEmphasized ? LitheTheme.accent : LitheTheme.secondaryText)
+                if let iconKind {
+                    LitheIcon(kind: iconKind, size: 12)
+                        .opacity(isEmphasized ? 1 : 0.72)
                 }
                 Text(title)
                     .lineLimit(1)
@@ -617,6 +733,7 @@ struct WorkbenchView: View {
             .foregroundStyle(isEmphasized ? LitheTheme.primaryText : LitheTheme.secondaryText)
         }
         .buttonStyle(.plain)
+        .lithePointer()
         .help(title)
     }
 
@@ -634,10 +751,12 @@ struct WorkbenchView: View {
             Button {
                 model.saveActiveDocument()
             } label: {
-                Image(systemName: "lock.open")
+                Image(systemName: model.activeDocument?.isReadOnly == true ? "lock.fill" : "lock.open")
             }
             .buttonStyle(.plain)
-            .help("Save")
+            .lithePointer()
+            .disabled(model.activeDocument?.isReadOnly == true)
+            .help(model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save")
             gitStatus
         }
     }
@@ -669,5 +788,24 @@ struct WorkbenchView: View {
         let words = model.projectName.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
         let initials = words.prefix(2).compactMap(\.first)
         return initials.isEmpty ? "LI" : String(initials).uppercased()
+    }
+
+    private func restoreLayout() {
+        guard !didRestoreLayout, let workspaceURL = model.workspaceURL else { return }
+        let layout = WorkbenchLayoutStore.load(for: workspaceURL)
+        sidebarWidth = CGFloat(layout.sidebarWidth)
+        topPaneHeight = layout.topPaneHeight.map { CGFloat($0) }
+        didRestoreLayout = true
+    }
+
+    private func saveLayout() {
+        guard didRestoreLayout, let workspaceURL = model.workspaceURL else { return }
+        WorkbenchLayoutStore.save(
+            WorkbenchLayout(
+                sidebarWidth: Double(sidebarWidth),
+                topPaneHeight: topPaneHeight.map(Double.init)
+            ),
+            for: workspaceURL
+        )
     }
 }

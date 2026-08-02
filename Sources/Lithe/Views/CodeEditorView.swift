@@ -60,6 +60,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.backgroundColor = scrollView.backgroundColor
         textView.textColor = NSColor(white: 0.82, alpha: 1)
         textView.insertionPointColor = .white
+        textView.isEditable = !document.isReadOnly
+        textView.isSelectable = true
         textView.selectedTextAttributes = [
             .backgroundColor: NSColor(red: 0.16, green: 0.31, blue: 0.54, alpha: 1),
             .foregroundColor: NSColor.white
@@ -69,7 +71,11 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
         textView.isJavaNavigationEnabled = document.url.pathExtension.lowercased() == "java"
+        textView.onNavigateToSymbol = { [weak model] line, utf16Column in
+            model?.navigateToSymbol(line: line, utf16Column: utf16Column, in: document.url)
+        }
         textView.onGoToDefinition = { [weak model] in model?.goToDefinition() }
+        textView.onGoToImplementation = { [weak model] in model?.goToImplementation() }
         textView.onFindUsages = { [weak model] in model?.findJavaReferences() }
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
@@ -107,6 +113,8 @@ struct CodeEditorView: NSViewRepresentable {
         if let codeTextView = textView as? CodeTextView {
             codeTextView.indentationWidth = settings.tabWidth
         }
+        textView.isEditable = !document.isReadOnly
+        textView.isSelectable = true
         if textView.string != document.text && !context.coordinator.isApplyingEditorChange {
             let selection = textView.selectedRange()
             textView.string = document.text
@@ -138,6 +146,7 @@ struct CodeEditorView: NSViewRepresentable {
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
+        private var implementationValidationTask: Task<Void, Never>?
 
         init(document: EditorDocument, model: AppModel, debugService: JavaDebugService) {
             self.document = document
@@ -148,6 +157,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
+            guard document?.isReadOnly != true else { return }
             isApplyingEditorChange = true
             document?.text = textView.string
             if let document {
@@ -169,6 +179,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             (textView as? CodeTextView)?.updateEditorDecorations()
+            textView?.needsDisplay = true
             gutter?.needsDisplay = true
             updateCaret()
         }
@@ -214,14 +225,38 @@ struct CodeEditorView: NSViewRepresentable {
                 collapsedIDs: collapsedFoldIDs,
                 onToggle: { [weak self] region in self?.toggleFold(region) }
             )
-            guard let document else { return }
-            let markers = JavaEditorStructureService.implementationMarkers(in: document.text)
-            gutter?.updateImplementationMarkers(markers) { [weak model] marker in
+            implementationValidationTask?.cancel()
+            gutter?.updateImplementationMarkers([]) { [weak model, weak document] marker in
+                guard let document else { return }
                 model?.findJavaImplementations(
                     line: marker.line,
                     utf16Column: marker.utf16Column,
                     in: document.url
                 )
+            }
+            guard let document,
+                  fileExtension.lowercased() == "java",
+                  let model else { return }
+            let candidates = JavaEditorStructureService.implementationMarkers(in: document.text)
+            guard !candidates.isEmpty else { return }
+            implementationValidationTask = Task { @MainActor [weak self, weak document, weak model] in
+                guard let self,
+                      let document,
+                      let model else { return }
+                let markers = await model.javaImplementationMarkerService.markers(
+                    for: document,
+                    candidates: candidates
+                )
+                guard !Task.isCancelled,
+                      self.document?.id == document.id else { return }
+                self.gutter?.updateImplementationMarkers(markers) { [weak model, weak document] marker in
+                    guard let document else { return }
+                    model?.findJavaImplementations(
+                        line: marker.line,
+                        utf16Column: marker.utf16Column,
+                        in: document.url
+                    )
+                }
             }
         }
 
@@ -232,6 +267,13 @@ struct CodeEditorView: NSViewRepresentable {
             codeVisionOverlay?.update(
                 hints: hints,
                 onUsages: { [weak model] hint in model?.findUsages(for: hint, in: url) },
+                onImplementations: { [weak model] hint in
+                    model?.findJavaImplementations(
+                        line: hint.line,
+                        utf16Column: hint.utf16Column,
+                        in: url
+                    )
+                },
                 onAuthor: { [weak model] in model?.showBlame(for: url) }
             )
             inlayHintOverlay?.update(hints: model.javaInlayHints[url] ?? [])
@@ -300,11 +342,12 @@ struct CodeEditorView: NSViewRepresentable {
     }
 }
 
-@MainActor
 final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var indentationWidth = 4
     var isJavaNavigationEnabled = false
+    var onNavigateToSymbol: ((Int, Int) -> Void)?
     var onGoToDefinition: (() -> Void)?
+    var onGoToImplementation: (() -> Void)?
     var onFindUsages: (() -> Void)?
     var onFindRequested: (() -> Void)?
     var onFindNextRequested: (() -> Void)?
@@ -317,12 +360,17 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     private let currentLineColor = NSColor(white: 1, alpha: 0.035)
     private let bracketColor = NSColor(white: 0.72, alpha: 0.22)
     private let symbolColor = NSColor(white: 0.68, alpha: 0.14)
+    private let guideColor = NSColor(white: 1, alpha: 0.085)
+    private let activeGuideColor = NSColor(white: 1, alpha: 0.24)
     private let unusedCodeColor = NSColor(white: 0.48, alpha: 1)
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
     private var diagnostics: [JavaDiagnostic] = []
     private var fadedCodeRanges: [NSRange] = []
+    private var linkRange: NSRange?
+    private var trackingArea: NSTrackingArea?
+    nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
 
     func updateDiagnostics(_ diagnostics: [JavaDiagnostic]) {
         self.diagnostics = diagnostics
@@ -333,11 +381,15 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         guard let layoutManager else { return }
         let fullRange = NSRange(location: 0, length: string.utf16.count)
         layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
         layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: fullRange)
         layoutManager.removeTemporaryAttribute(.underlineColor, forCharacterRange: fullRange)
         removeUnusedCodeFade()
         fadedCodeRanges = []
-        guard fullRange.length > 0 else { return }
+        guard fullRange.length > 0 else {
+            linkRange = nil
+            return
+        }
 
         let source = string as NSString
         let caret = min(selectedRange().location, source.length)
@@ -402,6 +454,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
                 applyFindHighlights()
             }
         }
+        applyLinkHighlight()
     }
 
     // MARK: - Find in file
@@ -598,6 +651,155 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         return true
     }
 
+    /// Draws IDEA-style indentation guides for every text file. Guides are
+    /// calculated from visible lines plus a bounded context window so large
+    /// files do not trigger a full-document scan on every redraw.
+    private func drawIndentGuides(in dirtyRect: NSRect) {
+        guard let layoutManager,
+              let textContainer,
+              layoutManager.numberOfGlyphs > 0 else { return }
+
+        let source = string as NSString
+        let font = self.font ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let spaceWidth = (" " as NSString).size(withAttributes: [.font: font]).width
+        let width = max(1, indentationWidth)
+        guard spaceWidth > 0 else { return }
+
+        let containerDirtyRect = dirtyRect.offsetBy(
+            dx: -textContainerOrigin.x,
+            dy: -textContainerOrigin.y
+        )
+        let glyphRange = layoutManager.glyphRange(
+            forBoundingRect: containerDirtyRect,
+            in: textContainer
+        )
+        let firstVisibleCharacter = layoutManager.characterIndexForGlyph(at: glyphRange.location)
+        let lastVisibleGlyph = min(
+            max(glyphRange.location, NSMaxRange(glyphRange) - 1),
+            layoutManager.numberOfGlyphs - 1
+        )
+        let lastVisibleCharacter = layoutManager.characterIndexForGlyph(at: lastVisibleGlyph)
+        let firstVisibleLine = lineNumber(at: firstVisibleCharacter, in: source)
+        let lastVisibleLine = lineNumber(at: lastVisibleCharacter, in: source)
+        let firstLine = max(0, firstVisibleLine - 200)
+        let lastLine = min(lineCount(in: source) - 1, lastVisibleLine + 200)
+        guard firstLine <= lastLine else { return }
+
+        var indentations: [Int: Int] = [:]
+        var nonEmptyLines: [Int] = []
+        for line in firstLine...lastLine {
+            let indentation = leadingIndentationColumns(forLine: line, in: source)
+            indentations[line] = indentation
+            if !lineIsBlank(line, in: source) {
+                nonEmptyLines.append(line)
+            }
+        }
+
+        // Blank lines inherit the nearest non-empty line's indentation, so a
+        // vertical guide continues through intentionally spaced-out code.
+        for line in firstLine...lastLine where lineIsBlank(line, in: source) {
+            let previous = nonEmptyLines.last(where: { $0 < line })
+            let next = nonEmptyLines.first(where: { $0 > line })
+            if let previous {
+                indentations[line] = indentations[previous] ?? 0
+            } else if let next {
+                indentations[line] = indentations[next] ?? 0
+            }
+        }
+
+        let maximumIndentation = indentations.values.max() ?? 0
+        guard maximumIndentation >= width else { return }
+        let caretLine = lineNumber(at: min(selectedRange().location, source.length), in: source)
+        let caretIndentation = indentations[caretLine] ?? leadingIndentationColumns(forLine: caretLine, in: source)
+
+        for level in stride(from: width, through: maximumIndentation, by: width) {
+            var segmentStart: Int?
+            for line in firstLine...lastLine {
+                let qualifies = (indentations[line] ?? 0) >= level
+                if qualifies, segmentStart == nil {
+                    segmentStart = line
+                }
+                let isLastLine = line == lastLine
+                if !qualifies || isLastLine {
+                    guard let start = segmentStart else { continue }
+                    let end = qualifies && isLastLine ? line : line - 1
+                    drawIndentGuide(
+                        level: level,
+                        startLine: start,
+                        endLine: end,
+                        source: source,
+                        spaceWidth: spaceWidth,
+                        isActive: caretIndentation >= level,
+                        dirtyRect: dirtyRect,
+                        layoutManager: layoutManager
+                    )
+                    segmentStart = nil
+                }
+            }
+        }
+    }
+
+    private func drawIndentGuide(
+        level: Int,
+        startLine: Int,
+        endLine: Int,
+        source: NSString,
+        spaceWidth: CGFloat,
+        isActive: Bool,
+        dirtyRect: NSRect,
+        layoutManager: NSLayoutManager
+    ) {
+        guard startLine <= endLine,
+              let firstRect = lineFragmentRect(forLine: startLine, in: source, layoutManager: layoutManager),
+              let lastRect = lineFragmentRect(forLine: endLine, in: source, layoutManager: layoutManager) else { return }
+        let x = textContainerOrigin.x + CGFloat(level) * spaceWidth
+        let y1 = textContainerOrigin.y + firstRect.minY + 2
+        let y2 = textContainerOrigin.y + lastRect.maxY - 2
+        let guideRect = NSRect(x: x - 1, y: y1, width: 2, height: max(0, y2 - y1))
+        guard guideRect.intersects(dirtyRect.insetBy(dx: -2, dy: -2)) else { return }
+
+        (isActive ? activeGuideColor : guideColor).setStroke()
+        let path = NSBezierPath()
+        path.lineWidth = 1
+        path.move(to: NSPoint(x: x, y: y1))
+        path.line(to: NSPoint(x: x, y: y2))
+        path.stroke()
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawIndentGuides(in: rect)
+    }
+
+    private func lineFragmentRect(
+        forLine line: Int,
+        in source: NSString,
+        layoutManager: NSLayoutManager
+    ) -> NSRect? {
+        guard layoutManager.numberOfGlyphs > 0 else { return nil }
+        let offset = characterOffset(forLine: line, in: source)
+        let glyphIndex = min(max(0, offset), layoutManager.numberOfGlyphs - 1)
+        return layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+    }
+
+    private func leadingIndentationColumns(forLine line: Int, in source: NSString) -> Int {
+        let lineStart = characterOffset(forLine: line, in: source)
+        let lineRange = source.lineRange(for: NSRange(location: min(lineStart, source.length), length: 0))
+        var columns = 0
+        for index in lineRange.location..<NSMaxRange(lineRange) {
+            switch source.character(at: index) {
+            case 32:
+                columns += 1
+            case 9:
+                let width = max(1, indentationWidth)
+                columns += width - (columns % width)
+            default:
+                return columns
+            }
+        }
+        return columns
+    }
+
     private func foldSummaryRect(for region: JavaFoldRegion) -> NSRect? {
         guard let layoutManager, textContainer != nil else { return nil }
         let source = string as NSString
@@ -646,7 +848,181 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
             onToggleFold?(region)
             return
         }
+
+        if hasNavigationModifier(event.modifierFlags) {
+            updateLinkHighlight(at: point)
+            if let linkRange,
+               let characterIndex = characterIndex(at: point),
+               NSLocationInRange(characterIndex, linkRange) {
+                let (line, column) = lineAndColumn(for: linkRange.location)
+                onNavigateToSymbol?(line, column)
+                return
+            }
+        }
         super.mouseDown(with: event)
+    }
+
+    // MARK: - Cmd/Ctrl symbol navigation
+
+    override func updateTrackingAreas() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+        super.updateTrackingAreas()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let windowResignObserver {
+            NotificationCenter.default.removeObserver(windowResignObserver)
+            self.windowResignObserver = nil
+        }
+        if let window {
+            windowResignObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.clearLinkHighlight()
+                }
+            }
+        }
+        updateTrackingAreas()
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        guard isJavaNavigationEnabled, hasNavigationModifier(event.modifierFlags) else {
+            clearLinkHighlight()
+            return
+        }
+        if let window {
+            updateLinkHighlight(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard isJavaNavigationEnabled,
+              hasNavigationModifier(event.modifierFlags) else { return }
+        updateLinkHighlight(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        clearLinkHighlight()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        clearLinkHighlight()
+        return super.resignFirstResponder()
+    }
+
+    private func updateLinkHighlight(at point: NSPoint) {
+        guard isJavaNavigationEnabled,
+              let target = linkRange(at: point) else {
+            clearLinkHighlight()
+            return
+        }
+        guard linkRange != target else {
+            NSCursor.pointingHand.set()
+            return
+        }
+        linkRange = target
+        updateEditorDecorations()
+        NSCursor.pointingHand.set()
+    }
+
+    private func clearLinkHighlight() {
+        guard linkRange != nil else {
+            NSCursor.iBeam.set()
+            return
+        }
+        linkRange = nil
+        updateEditorDecorations()
+        NSCursor.iBeam.set()
+    }
+
+    private func applyLinkHighlight() {
+        guard isJavaNavigationEnabled,
+              let linkRange,
+              linkRange.location >= 0,
+              NSMaxRange(linkRange) <= string.utf16.count,
+              let layoutManager else { return }
+        layoutManager.addTemporaryAttribute(
+            .foregroundColor,
+            value: NSColor(red: 0.42, green: 0.68, blue: 1, alpha: 1),
+            forCharacterRange: linkRange
+        )
+        layoutManager.addTemporaryAttribute(
+            .underlineStyle,
+            value: NSUnderlineStyle.single.rawValue,
+            forCharacterRange: linkRange
+        )
+        layoutManager.addTemporaryAttribute(
+            .underlineColor,
+            value: NSColor(red: 0.42, green: 0.68, blue: 1, alpha: 1),
+            forCharacterRange: linkRange
+        )
+    }
+
+    private func linkRange(at point: NSPoint) -> NSRange? {
+        guard let characterIndex = characterIndex(at: point),
+              let layoutManager,
+              let textContainer else { return nil }
+        let source = string as NSString
+        guard let identifier = identifier(at: characterIndex, in: source) else { return nil }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: identifier.range,
+            actualCharacterRange: nil
+        )
+        let glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        let containerPoint = NSPoint(
+            x: point.x - textContainerOrigin.x,
+            y: point.y - textContainerOrigin.y
+        )
+        guard glyphRect.insetBy(dx: -2, dy: -2).contains(containerPoint) else { return nil }
+        return identifier.range
+    }
+
+    private func characterIndex(at point: NSPoint) -> Int? {
+        guard let layoutManager,
+              let textContainer,
+              layoutManager.numberOfGlyphs > 0 else { return nil }
+        let containerPoint = NSPoint(
+            x: point.x - textContainerOrigin.x,
+            y: point.y - textContainerOrigin.y
+        )
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        guard glyphIndex >= 0, glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+        return layoutManager.characterIndexForGlyph(at: glyphIndex)
+    }
+
+    private func hasNavigationModifier(_ flags: NSEvent.ModifierFlags) -> Bool {
+        let mask = flags.intersection(.deviceIndependentFlagsMask)
+        return mask.contains(.command) || mask.contains(.control)
+    }
+
+    private func lineAndColumn(for location: Int) -> (line: Int, column: Int) {
+        let source = string as NSString
+        let safeLocation = min(max(0, location), source.length)
+        let prefix = source.substring(to: safeLocation) as NSString
+        var line = 0
+        var lineStart = 0
+        for index in 0..<prefix.length where prefix.character(at: index) == 10 {
+            line += 1
+            lineStart = index + 1
+        }
+        return (line, safeLocation - lineStart)
     }
 
     private var centeredParagraphStyle: NSParagraphStyle {
@@ -663,6 +1039,28 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
             line += 1
         }
         return offset
+    }
+
+    private func lineNumber(at location: Int, in source: NSString) -> Int {
+        let safeLocation = min(max(0, location), source.length)
+        guard safeLocation > 0 else { return 0 }
+        var result = 0
+        for index in 0..<safeLocation where source.character(at: index) == 10 {
+            result += 1
+        }
+        return result
+    }
+
+    private func lineIsBlank(_ line: Int, in source: NSString) -> Bool {
+        let start = characterOffset(forLine: line, in: source)
+        let range = source.lineRange(for: NSRange(location: min(start, source.length), length: 0))
+        for index in range.location..<NSMaxRange(range) {
+            let character = source.character(at: index)
+            if character != 9, character != 10, character != 13, character != 32 {
+                return false
+            }
+        }
+        return true
     }
 
     private func diagnosticRange(for diagnostic: JavaDiagnostic, in source: NSString) -> NSRange? {
@@ -819,6 +1217,14 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         )
         definition.target = self
         menu.insertItem(definition, at: 0)
+
+        let implementation = NSMenuItem(
+            title: "Go to Implementation",
+            action: #selector(goToImplementationFromMenu),
+            keyEquivalent: ""
+        )
+        implementation.target = self
+        menu.insertItem(implementation, at: 0)
         return menu
     }
 
@@ -826,12 +1232,32 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         onGoToDefinition?()
     }
 
+    @objc private func goToImplementationFromMenu() {
+        onGoToImplementation?()
+    }
+
     @objc private func findUsagesFromMenu() {
         onFindUsages?()
     }
 
     override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
+        // Build the TextKit 1 object graph explicitly. Calling NSTextView's
+        // convenience init(frame:) makes AppKit create the text system through
+        // its newer TextKit path; on current macOS releases that can trap while
+        // initializing an NSTextView subclass. The editor relies on
+        // NSLayoutManager for folding and temporary decorations, so the
+        // explicit graph is also the intended compatibility mode.
+        let textContainer = NSTextContainer(
+            containerSize: NSSize(
+                width: max(frameRect.width, 1),
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        )
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(textContainer)
+        let textStorage = NSTextStorage()
+        textStorage.addLayoutManager(layoutManager)
+        super.init(frame: frameRect, textContainer: textContainer)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleFindQueryChanged(_:)),
@@ -858,6 +1284,9 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        if let windowResignObserver {
+            NotificationCenter.default.removeObserver(windowResignObserver)
+        }
     }
 
     @objc private func handleFindQueryChanged(_ notification: Notification) {
@@ -1111,19 +1540,18 @@ final class LineNumberGutterView: NSView {
 
     private func drawImplementationMarker(_ marker: JavaImplementationMarker, y: CGFloat, height: CGFloat) {
         let rect = NSRect(x: 18, y: y + max(0, (height - 13) / 2), width: 13, height: 13)
+        if let image = LitheIcons.implementationMarkerImage(
+            pointingDown: marker.direction == .down,
+            size: 13
+        ) {
+            image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+            return
+        }
+
         NSColor(red: 0.31, green: 0.67, blue: 0.43, alpha: 0.92).setStroke()
         let path = NSBezierPath(ovalIn: rect)
         path.lineWidth = 1.2
         path.stroke()
-        let label = (marker.isType ? "I" : "v") as NSString
-        label.draw(
-            in: rect.insetBy(dx: 1, dy: -1),
-            withAttributes: [
-                .font: NSFont.systemFont(ofSize: marker.isType ? 8 : 9, weight: .bold),
-                .foregroundColor: NSColor(red: 0.39, green: 0.78, blue: 0.51, alpha: 1),
-                .paragraphStyle: centeredParagraphStyle
-            ]
-        )
     }
 
     private func drawDebugBreakpoint(y: CGFloat, height: CGFloat) {
@@ -1203,6 +1631,7 @@ final class CodeVisionOverlayController {
     func update(
         hints: [JavaCodeVisionHint],
         onUsages: @escaping (JavaCodeVisionHint) -> Void,
+        onImplementations: @escaping (JavaCodeVisionHint) -> Void,
         onAuthor: @escaping () -> Void
     ) {
         guard hints != currentHints else { return }
@@ -1239,11 +1668,24 @@ final class CodeVisionOverlayController {
             textView.addSubview(usageButton)
             buttons.append(usageButton)
 
+            var nextX = x + 72
+            if hint.implementationCount > 0 {
+                let title = "\(hint.implementationCount) implementation\(hint.implementationCount == 1 ? "" : "s")"
+                let implementationButton = makeButton(title: title) {
+                    onImplementations(hint)
+                }
+                let width = max(108, CGFloat(title.count) * 5.8 + 16)
+                implementationButton.frame = NSRect(x: nextX, y: y, width: width, height: 18)
+                textView.addSubview(implementationButton)
+                buttons.append(implementationButton)
+                nextX += width + 2
+            }
+
             if let authorName = hint.authorName, !authorName.isEmpty {
                 let authorButton = makeButton(title: authorName, systemImage: "person") {
                     onAuthor()
                 }
-                authorButton.frame = NSRect(x: x + 72, y: y, width: 112, height: 18)
+                authorButton.frame = NSRect(x: nextX, y: y, width: 112, height: 18)
                 textView.addSubview(authorButton)
                 buttons.append(authorButton)
             }
@@ -1379,6 +1821,11 @@ private final class ClosureButton: NSButton {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 
     @objc private func invoke() {

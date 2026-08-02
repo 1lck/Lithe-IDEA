@@ -57,11 +57,13 @@ struct ProjectReplaceView: View {
         VStack(spacing: 9) {
             HStack(spacing: 9) {
                 TextField("Find", text: $model.projectReplaceQuery)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .litheSearchField()
                 Image(systemName: "arrow.right")
                     .foregroundStyle(LitheTheme.secondaryText)
                 TextField("Replace with", text: $model.projectReplaceText)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .litheSearchField()
             }
 
             HStack(spacing: 8) {
@@ -71,6 +73,7 @@ struct ProjectReplaceView: View {
                     Label("Preview", systemImage: "eye")
                 }
                 .buttonStyle(.borderedProminent)
+                .lithePointer()
                 .tint(LitheTheme.accent)
                 .disabled(model.projectReplaceQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isLoadingProjectReplacement)
 
@@ -85,6 +88,7 @@ struct ProjectReplaceView: View {
                         : "Select All")
                 }
                 .buttonStyle(.bordered)
+                .lithePointer()
                 .disabled(model.projectReplacementFiles.isEmpty)
 
                 Spacer()
@@ -100,6 +104,7 @@ struct ProjectReplaceView: View {
                     Task { await model.applyProjectReplacement() }
                 }
                 .buttonStyle(.borderedProminent)
+                .lithePointer()
                 .tint(LitheTheme.accent)
                 .disabled(selectedFiles.isEmpty || model.isLoadingProjectReplacement)
             }
@@ -172,7 +177,8 @@ struct ProjectReplaceView: View {
                     )
                 )
                 .labelsHidden()
-                Image(systemName: "doc.text")
+                .lithePointer()
+                LitheSystemIcon(systemImage: "doc.text")
                     .foregroundStyle(LitheTheme.secondaryText)
                 Text(file.relativePath)
                     .font(.system(size: 12.5, weight: .medium))
@@ -184,6 +190,7 @@ struct ProjectReplaceView: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
+            .lithePointer()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)

@@ -14,7 +14,7 @@ struct FindBarView: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
+            LitheSystemIcon(systemImage: "magnifyingglass")
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
 
@@ -43,6 +43,7 @@ struct FindBarView: View {
                 Image(systemName: "chevron.up")
             }
             .buttonStyle(.plain)
+            .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
             .disabled(model.findMatchCount == 0)
             .help("Previous match (Shift+Return)")
@@ -53,6 +54,7 @@ struct FindBarView: View {
                 Image(systemName: "chevron.down")
             }
             .buttonStyle(.plain)
+            .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
             .disabled(model.findMatchCount == 0)
             .help("Next match (Return)")
@@ -63,19 +65,14 @@ struct FindBarView: View {
                 Image(systemName: "xmark")
             }
             .buttonStyle(.plain)
+            .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
             .help("Close (Esc)")
         }
         .padding(.horizontal, 10)
         .frame(height: 34)
         .frame(maxWidth: 520)
-        .background(LitheTheme.raised)
-        .clipShape(RoundedRectangle(cornerRadius: 7))
-        .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
-        .overlay(
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(LitheTheme.divider, lineWidth: 1)
-        )
+        .lithePopupChrome(cornerRadius: 7)
         .onAppear { focused = true }
         .onExitCommand {
             model.hideFindBar()

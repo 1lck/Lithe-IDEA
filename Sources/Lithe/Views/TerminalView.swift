@@ -15,7 +15,6 @@ struct TerminalView: View {
     var body: some View {
         VStack(spacing: 0) {
             terminalToolbar
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
             terminalCanvas
         }
         .background(Color(red: 0.071, green: 0.075, blue: 0.081))
@@ -23,32 +22,12 @@ struct TerminalView: View {
     }
 
     private var terminalToolbar: some View {
-        HStack(spacing: 8) {
-            Text("Terminal")
-                .font(.system(size: 13, weight: .semibold))
-                .padding(.leading, 10)
-
-            HStack(spacing: 7) {
-                Text("Local")
-                Button {
-                    model.isTerminalVisible = false
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .font(.system(size: 12.5))
-            .padding(.horizontal, 9)
-            .frame(height: 28)
-            .background(LitheTheme.raised.opacity(0.78))
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay {
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
-            }
-
+        LitheToolWindowHeader(
+            title: "Terminal",
+            systemImage: "terminal",
+            subtitle: "Local",
+            onMinimize: { model.isTerminalVisible = false }
+        ) {
             Button {
                 session.restart()
                 isInputFocused = true
@@ -69,36 +48,25 @@ struct TerminalView: View {
                 Image(systemName: "chevron.down")
             }
             .menuStyle(.borderlessButton)
+            .lithePointer()
             .menuIndicator(.hidden)
             .frame(width: 26, height: 28)
             .foregroundStyle(LitheTheme.secondaryText)
             .help("Select shell")
-
-            Spacer()
 
             Menu {
                 Button("Interrupt", action: session.interrupt)
                 Button("Restart", action: session.restart)
                 Button("Clear", action: session.clear)
             } label: {
-                Image(systemName: "ellipsis.vertical")
+                LitheSystemIcon(systemImage: "ellipsis.vertical")
             }
             .menuStyle(.borderlessButton)
+            .lithePointer()
             .menuIndicator(.hidden)
             .frame(width: 28, height: 28)
             .foregroundStyle(LitheTheme.secondaryText)
-
-            Button {
-                model.isTerminalVisible = false
-            } label: {
-                Image(systemName: "minus")
-            }
-            .litheIconButton()
-            .help("Hide terminal")
         }
-        .frame(height: 38)
-        .foregroundStyle(LitheTheme.primaryText)
-        .background(Color(red: 0.076, green: 0.081, blue: 0.087))
     }
 
     private var terminalCanvas: some View {
