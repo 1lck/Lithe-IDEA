@@ -1,37 +1,48 @@
-<p align="center">
-  <img src="./Resources/AppIcon.png" width="128" alt="Lithe 应用图标">
-</p>
+<div align="center">
+  <img src="./Resources/AppIcon.png" width="112" alt="Lithe 应用图标">
 
-<h1 align="center">Lithe</h1>
+  <h1>Lithe</h1>
+
+  <p><strong>为 AI 辅助开发保留 IDEA 核心习惯</strong></p>
+  <p>原生 macOS IDE · 熟悉的操作路径 · 更轻的内存占用</p>
+  <p><em>AI 负责大量编写，Lithe 负责让你看得清、跑得通、审得明白。</em></p>
+
+  <p>
+    <a href="./README.md"><strong>English</strong></a> ·
+    <a href="#为什么需要-lithe">为什么需要 Lithe</a> ·
+    <a href="#产品截图">产品截图</a> ·
+    <a href="#快速开始">快速开始</a> ·
+    <a href="#lithe-与-intellij-idea">Lithe 与 IDEA</a>
+  </p>
+
+  <p>
+    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=for-the-badge&label=latest%20release&logo=github&logoColor=white" alt="最新版本"></a>
+    <img src="https://img.shields.io/badge/platform-macOS%2014%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14+">
+    <img src="https://img.shields.io/badge/Swift-6.2%2B-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 6.2+">
+  </p>
+  <p>
+    <img src="https://img.shields.io/badge/UI-SwiftUI%20%2B%20AppKit-0A84FF?style=for-the-badge&logo=apple&logoColor=white" alt="SwiftUI 和 AppKit">
+    <img src="https://img.shields.io/badge/workflow-IDEA--style-7C3AED?style=for-the-badge&logo=intellijidea&logoColor=white" alt="IDEA 风格工作流">
+    <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=for-the-badge&label=license" alt="Apache License 2.0"></a>
+  </p>
+
+  <p>
+    <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><strong>下载最新版本</strong></a> ·
+    <a href="https://github.com/1lck/Lithe-IDEA">查看 GitHub 仓库</a>
+  </p>
+</div>
+
+<table align="center">
+  <tr>
+    <td align="center">🧭<br><strong>熟悉的 IDE 核心</strong><br>Project · Editor · Search · Diff</td>
+    <td align="center">⚡<br><strong>原生、按需启动</strong><br>SwiftUI/AppKit，重量级服务需要时才启动</td>
+    <td align="center">🤖<br><strong>适配 AI 开发</strong><br>查看、运行、Diff、撤销和提交外部修改</td>
+    <td align="center">🪶<br><strong>更轻的资源占用</strong><br>让常驻应用保持小而专注</td>
+  </tr>
+</table>
 
 <p align="center">
-  <strong>一款轻量、原生、贴近 IntelliJ IDEA 核心体验的 macOS IDE</strong>
-</p>
-
-<p align="center">
-  保留熟悉的 IDE 工作方式，降低内存占用。
-</p>
-
-<p align="center">
-  <a href="./README.md">English</a>
-</p>
-
-<p align="center">
-  <a href="#产品截图">产品截图</a> ·
-  <a href="#快速开始">快速开始</a> ·
-  <a href="#为什么需要-lithe">为什么需要 Lithe</a> ·
-  <a href="#lithe-与-intellij-idea">Lithe 与 IDEA</a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-111827?style=flat-square&logo=apple" alt="macOS 14+">
-  <img src="https://img.shields.io/badge/Swift-6.2%2B-F05138?style=flat-square&logo=swift&logoColor=white" alt="Swift 6.2+">
-  <img src="https://img.shields.io/badge/UI-SwiftUI%20%2B%20AppKit-0A84FF?style=flat-square" alt="SwiftUI 和 AppKit">
-  <img src="https://img.shields.io/badge/status-active%20development-F59E0B?style=flat-square" alt="积极开发中">
-</p>
-
-<p align="center">
-  <img src="./docs/visual-qa/07-git-history-graph.png" width="92%" alt="Lithe Git 历史图">
+  <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="96%" alt="Lithe Java 编辑器和项目树">
 </p>
 
 ## 为什么需要 Lithe
