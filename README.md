@@ -10,14 +10,17 @@ Lithe 是一款面向 AI 编程工作流的原生 macOS 代码浏览与 Git 审�
 - Java 方法定义跳转与引用查找（Eclipse JDT LS）
 - 项目目录内置交互式终端
 - 文件名与项目全文搜索
+- 项目搜索和 Search Everywhere 的大小写、整词、正则表达式选项
 - FSEvents 外部文件变化监听和编辑冲突提示
 - 磁盘型 Local History、项目级时间线、版本 Diff 与整文件恢复
-- Git Changes、并排 Diff、文件暂存、撤销与提交
+- Git Changes、并排 Diff、文件暂存、撤销、提交、Commit and Push、Clone、Fetch、真实 Shelf（stash）
+- Git 分支 Checkout、创建、重命名、删除、Merge、Rebase、Push 与 Update
 - Git 分支与标签树、可搜索提交时间线、提交文件目录树和提交详情
 - Maven 根项目、模块、Profiles 与 Lifecycle 浏览，支持执行构建任务和查看 Build Output
 - Java Current File、Spring Boot 与 Maven Module 基础运行配置，支持输出、停止、重启、配置持久化和多个 Maven Module 独立会话
 - JDT LS Java 实时诊断、编辑器诊断下划线和 Problems 面板
 - Java Debug：Current File、Maven/Spring Boot 和 Remote JVM/Tomcat JDWP attach，支持断点、继续/暂停、单步和线程/调用栈/变量查询
+- 工作台状态恢复：按项目恢复标签、活动文件、选中侧栏和分栏尺寸，支持编辑器右侧分栏
 
 当前完成度、性能基线和后续计划见 [开发进度](./docs/开发进度.md)。
 
@@ -35,6 +38,20 @@ brew install jdtls
 swift build --disable-sandbox
 swift run --disable-sandbox Lithe
 ```
+
+开发预览也可以直接运行 Debug 窗口，不需要打包或安装 App：
+
+```bash
+./scripts/preview.sh
+```
+
+在没有完整 XCTest 工具链的开发机上，可以先运行核心逻辑验收：
+
+```bash
+./scripts/verify-core.sh
+```
+
+它会在临时 Git 仓库中验证 Diff、文件可见性、Git Graph、搜索匹配、空白过滤、stash 和 clone 流程。
 
 生成可直接打开的本地 App Bundle：
 

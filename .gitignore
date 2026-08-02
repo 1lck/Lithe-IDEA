@@ -3,6 +3,7 @@
 .swiftpm/
 DerivedData/
 dist/
+Fixtures/**/target/
 *.xcuserstate
 *.xcuserdata/
 design-qa-artifacts/
