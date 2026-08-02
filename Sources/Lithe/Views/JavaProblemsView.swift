@@ -7,7 +7,6 @@ struct JavaProblemsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if allDiagnostics.isEmpty {
                 emptyState
@@ -29,20 +28,13 @@ struct JavaProblemsView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 12, weight: .medium))
-            Text("Problems")
-                .font(.system(size: 12.5, weight: .semibold))
-
-            if !allDiagnostics.isEmpty {
-                Text(String(diagnostics.count))
-                    .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-
-            Spacer()
-
+        LitheToolWindowHeader(
+            title: "Problems",
+            systemImage: "exclamationmark.triangle",
+            ideaAssetPath: "toolwindows/toolWindowProblems.svg",
+            subtitle: allDiagnostics.isEmpty ? nil : String(diagnostics.count),
+            onMinimize: { model.isProblemsVisible = false }
+        ) {
             if errorCount > 0 {
                 Label(String(errorCount), systemImage: "xmark.octagon.fill")
                     .font(.system(size: 11.5, weight: .medium))
@@ -82,20 +74,7 @@ struct JavaProblemsView: View {
             }
             .litheIconButton()
             .help("Filter problems by severity")
-
-            Button {
-                model.isProblemsVisible = false
-            } label: {
-                Image(systemName: "minus")
-            }
-            .litheIconButton()
-            .help("Hide Problems tool window")
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 7)
-        .frame(height: 42)
-        .foregroundStyle(LitheTheme.primaryText)
-        .background(LitheTheme.toolHeader)
     }
 
     private var allDiagnostics: [JavaDiagnostic] {
@@ -164,6 +143,7 @@ struct JavaProblemsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .lithePointer()
         .help(diagnostic.detailText)
     }
 

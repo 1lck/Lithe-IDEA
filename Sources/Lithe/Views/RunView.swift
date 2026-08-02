@@ -8,7 +8,6 @@ struct RunView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if !service.portConflicts.isEmpty {
                 portConflictBanner
@@ -48,26 +47,13 @@ struct RunView: View {
     }
 
     private var toolWindowHeader: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "play.rectangle")
-                .font(.system(size: 12, weight: .medium))
-            Text("Run")
-                .font(.system(size: 12.5, weight: .semibold))
-
-            if let session = selectedModuleSession {
-                Text(session.title)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-            } else if let runningTitle = service.runningTitle {
-                Text(runningTitle)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
+        LitheToolWindowHeader(
+            title: "Run",
+            systemImage: "play.rectangle",
+            ideaAssetPath: "toolwindows/toolWindowRun.svg",
+            subtitle: selectedModuleSession?.title ?? service.runningTitle,
+            onMinimize: { model.isRunVisible = false }
+        ) {
             if let session = selectedModuleSession {
                 sessionStatus(isRunning: session.isRunning, exitCode: session.exitCode)
             } else if service.isLoadingProject {
@@ -127,7 +113,7 @@ struct RunView: View {
                     model.restartSelectedRun()
                 }
             } label: {
-                Image(systemName: "arrow.clockwise")
+                LitheSystemIcon(systemImage: "arrow.clockwise")
             }
             .litheIconButton()
             .disabled(selectedModuleSession == nil && service.runningTitle == nil && service.lastExitCode == nil)
@@ -145,19 +131,7 @@ struct RunView: View {
             .litheIconButton()
             .help("Clear run output")
 
-            Button {
-                model.isRunVisible = false
-            } label: {
-                Image(systemName: "minus")
-            }
-            .litheIconButton()
-            .help("Hide Run tool window")
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 7)
-        .frame(height: 42)
-        .foregroundStyle(LitheTheme.primaryText)
-        .background(LitheTheme.toolHeader)
     }
 
     private var hasModuleConfigurations: Bool {
@@ -269,5 +243,6 @@ struct RunView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .lithePointer()
     }
 }

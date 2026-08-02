@@ -6,7 +6,6 @@ struct JavaReferencesView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
             if model.javaNavigationLocations.isEmpty {
                 emptyState
             } else {
@@ -17,32 +16,18 @@ struct JavaReferencesView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "scope")
-                .foregroundStyle(LitheTheme.accent)
-            Text(model.javaNavigationResultKind.title)
-                .font(.system(size: 12.5, weight: .semibold))
-            Text("\(model.javaNavigationLocations.count) results")
-                .font(.system(size: 11))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Spacer()
+        LitheToolWindowHeader(
+            title: model.javaNavigationResultKind.title,
+            systemImage: "scope",
+            ideaAssetPath: "toolwindows/toolWindowFind.svg",
+            subtitle: "\(model.javaNavigationLocations.count) results",
+            onMinimize: { model.closeJavaNavigationResults() }
+        ) {
             Text(model.javaLanguageService.statusMessage)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
-            Button {
-                model.closeJavaNavigationResults()
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .litheIconButton()
-            .help("Hide navigation results")
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 4)
-        .frame(height: 36)
-        .foregroundStyle(LitheTheme.primaryText)
-        .background(LitheTheme.toolHeader)
     }
 
     private var results: some View {
@@ -57,10 +42,10 @@ struct JavaReferencesView: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(.orange)
                                 .frame(width: 16)
-                            Text(location.url.lastPathComponent)
+                            Text(location.displayName)
                                 .font(.system(size: 12.5, weight: .medium))
                                 .foregroundStyle(LitheTheme.primaryText)
-                            Text(model.relativePath(for: location.url))
+                            Text(location.displayPath ?? model.relativePath(for: location.url))
                                 .font(.system(size: 10.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .lineLimit(1)
@@ -75,6 +60,7 @@ struct JavaReferencesView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .lithePointer()
                 }
             }
             .padding(6)
@@ -95,29 +81,15 @@ struct JavaImplementationChooserView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "arrow.triangle.branch")
-                    .foregroundStyle(LitheTheme.accent)
-                Text("Choose Implementation")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("\(filteredLocations.count) found")
-                    .font(.system(size: 11))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Spacer()
-                Button {
-                    model.closeJavaNavigationResults()
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .litheIconButton()
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 38)
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            LitheToolWindowHeader(
+                title: "Choose Implementation",
+                systemImage: "arrow.triangle.branch",
+                subtitle: "\(filteredLocations.count) found",
+                onMinimize: { model.closeJavaNavigationResults() }
+            )
 
             HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
+                LitheSystemIcon(systemImage: "magnifyingglass")
                     .foregroundStyle(LitheTheme.secondaryText)
                 TextField("Search implementations", text: $query)
                     .textFieldStyle(.plain)
@@ -136,10 +108,10 @@ struct JavaImplementationChooserView: View {
                             HStack(spacing: 9) {
                                 Image(systemName: "c.circle")
                                     .foregroundStyle(Color(red: 0.42, green: 0.66, blue: 0.95))
-                                Text(location.url.deletingPathExtension().lastPathComponent)
+                                Text(location.displayName.replacingOccurrences(of: ".java", with: ""))
                                     .font(.system(size: 12.5, weight: .medium, design: .monospaced))
                                     .foregroundStyle(LitheTheme.primaryText)
-                                Text(model.relativePath(for: location.url))
+                                Text(location.displayPath ?? model.relativePath(for: location.url))
                                     .font(.system(size: 10.5, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .lineLimit(1)
@@ -154,26 +126,21 @@ struct JavaImplementationChooserView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .lithePointer()
                     }
                 }
                 .padding(5)
             }
         }
         .frame(maxWidth: 760, minHeight: 220, maxHeight: 390)
-        .background(LitheTheme.toolHeader)
-        .clipShape(RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(LitheTheme.divider, lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.42), radius: 18, y: 8)
+        .lithePopupChrome(cornerRadius: 7)
     }
 
     private var filteredLocations: [JavaNavigationLocation] {
         guard !query.isEmpty else { return model.javaNavigationLocations }
         return model.javaNavigationLocations.filter {
-            $0.url.lastPathComponent.localizedCaseInsensitiveContains(query) ||
-                model.relativePath(for: $0.url).localizedCaseInsensitiveContains(query)
+            $0.displayName.localizedCaseInsensitiveContains(query) ||
+            ($0.displayPath ?? model.relativePath(for: $0.url)).localizedCaseInsensitiveContains(query)
         }
     }
 }

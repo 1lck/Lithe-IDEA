@@ -37,10 +37,12 @@ struct JavaRunConfigurationEditorView: View {
                     options = service.options(for: configuration)
                 }
                 .buttonStyle(.borderless)
+                .lithePointer()
                 .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.defaultAction)
+                    .lithePointer()
             }
             .padding(.horizontal, 14)
             .frame(height: 48)
@@ -135,6 +137,7 @@ struct JavaRunConfigurationEditorView: View {
                         .lineLimit(1)
                 }
                 .toggleStyle(.checkbox)
+                .lithePointer()
                 .font(.system(size: 12))
                 .foregroundStyle(LitheTheme.primaryText)
             }
@@ -179,7 +182,7 @@ struct JavaRunConfigurationEditorView: View {
             TextField(placeholder, text: text)
                 .textFieldStyle(.roundedBorder)
             Button(action: chooseDirectory) {
-                Image(systemName: "folder")
+                LitheSystemIcon(systemImage: "folder")
             }
             .litheIconButton()
             .help("Choose directory")

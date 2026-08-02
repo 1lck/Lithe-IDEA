@@ -4,11 +4,11 @@ struct JavaDebugView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var service: JavaDebugService
     @ObservedObject var runService: JavaRunService
+    @State private var evaluateExpression = ""
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
             targetBar
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
@@ -35,13 +35,14 @@ struct JavaDebugView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .lithePointer()
             .labelsHidden()
             .disabled(service.isSessionActive)
 
             switch service.targetKind {
             case .currentFile:
                 HStack(spacing: 7) {
-                    Image(systemName: "doc.text")
+                    LitheSystemIcon(systemImage: "doc.text")
                         .foregroundStyle(LitheTheme.secondaryText)
                     Text(model.activeDocument?.url.lastPathComponent ?? "Open a Java file")
                         .font(.system(size: 11.5))
@@ -77,6 +78,7 @@ struct JavaDebugView: View {
                         }
                     }
                     .menuStyle(.borderlessButton)
+                    .lithePointer()
                     .menuIndicator(.hidden)
                     Spacer(minLength: 0)
                 }
@@ -108,15 +110,13 @@ struct JavaDebugView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "ladybug")
-                .font(.system(size: 12, weight: .medium))
-            Text("Debug")
-                .font(.system(size: 12.5, weight: .semibold))
-            Text(service.state.title)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(stateColor)
-
+        LitheToolWindowHeader(
+            title: "Debug",
+            systemImage: "ladybug",
+            ideaAssetPath: "toolwindows/toolWindowDebugger.svg",
+            subtitle: service.state.title,
+            onMinimize: { model.isDebugVisible = false }
+        ) {
             if let runningTargetTitle = service.runningTargetTitle {
                 Text(runningTargetTitle)
                     .font(.system(size: 11.5, weight: .medium))
@@ -165,7 +165,7 @@ struct JavaDebugView: View {
             Button {
                 service.continueExecution()
             } label: {
-                Image(systemName: "play.fill")
+                LitheSystemIcon(systemImage: "play.fill")
             }
             .litheIconButton()
             .disabled(!service.canControl || service.state != .paused)
@@ -206,19 +206,7 @@ struct JavaDebugView: View {
             .litheIconButton()
             .help("Clear debug output")
 
-            Button {
-                model.isDebugVisible = false
-            } label: {
-                Image(systemName: "minus")
-            }
-            .litheIconButton()
-            .help("Hide Debug tool window")
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 7)
-        .frame(height: 42)
-        .foregroundStyle(LitheTheme.primaryText)
-        .background(LitheTheme.toolHeader)
     }
 
     private var inspector: some View {
@@ -256,6 +244,7 @@ struct JavaDebugView: View {
             inspectButton("Threads", icon: "person.3", action: service.inspectThreads)
             inspectButton("Call Stack", icon: "list.number", action: service.inspectStack)
             inspectButton("Local Variables", icon: "list.bullet.rectangle", action: service.inspectVariables)
+            evaluateRow
 
             if let exceptionMessage = service.exceptionMessage {
                 exceptionBanner(exceptionMessage)
@@ -282,6 +271,7 @@ struct JavaDebugView: View {
                             }
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(LitheTheme.secondaryText)
+                            .lithePointer()
                             .padding(10)
                         }
                     }
@@ -292,6 +282,35 @@ struct JavaDebugView: View {
             Spacer(minLength: 0)
         }
         .background(LitheTheme.sidebar)
+    }
+
+    private var evaluateRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "function")
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(width: 16)
+            TextField("Evaluate expression", text: $evaluateExpression)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11.5, design: .monospaced))
+                .onSubmit {
+                    service.evaluate(evaluateExpression)
+                }
+            Button {
+                service.evaluate(evaluateExpression)
+            } label: {
+                Image(systemName: "arrow.right.circle")
+            }
+            .litheIconButton()
+            .disabled(evaluateExpression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Evaluate expression")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(LitheTheme.inputBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
     }
 
     @ViewBuilder
@@ -403,7 +422,7 @@ struct JavaDebugView: View {
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "ladybug")
+            LitheSystemIcon(systemImage: "ladybug")
                 .font(.system(size: 30, weight: .light))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(emptyStateTitle)
@@ -413,6 +432,7 @@ struct JavaDebugView: View {
                 model.startDebugging()
             }
             .buttonStyle(.borderedProminent)
+            .lithePointer()
             .tint(LitheTheme.accent)
             .controlSize(.small)
             .disabled(service.targetKind == .runConfiguration && selectedDebugConfiguration == nil)
@@ -477,6 +497,7 @@ struct JavaDebugView: View {
                 .frame(height: 30)
         }
         .buttonStyle(.plain)
+        .lithePointer()
     }
 
     private var canStop: Bool {
@@ -528,6 +549,7 @@ private struct JavaDebugVariableRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .lithePointer()
 
             if variable.isExpanded {
                 ForEach(variable.children) { child in

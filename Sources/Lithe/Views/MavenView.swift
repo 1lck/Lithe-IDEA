@@ -10,7 +10,6 @@ struct MavenView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if service.isLoadingProject {
                 ProgressView("Scanning Maven project...")
@@ -39,21 +38,13 @@ struct MavenView: View {
     }
 
     private var toolWindowHeader: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "shippingbox")
-                .font(.system(size: 12, weight: .medium))
-            Text("Maven")
-                .font(.system(size: 12.5, weight: .semibold))
-
-            if let project = service.project {
-                Text(project.displayName)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
+        LitheToolWindowHeader(
+            title: "Maven",
+            systemImage: "shippingbox",
+            ideaAssetPath: "maven/toolWindowMaven.svg",
+            subtitle: service.project?.displayName,
+            onMinimize: { model.isMavenVisible = false }
+        ) {
             if let runningTitle = service.runningTitle {
                 ProgressView()
                     .controlSize(.mini)
@@ -71,7 +62,7 @@ struct MavenView: View {
             }
 
             Button(action: refreshProject) {
-                Image(systemName: "arrow.clockwise")
+                LitheSystemIcon(systemImage: "arrow.clockwise")
             }
             .litheIconButton()
             .help("Reload Maven project")
@@ -91,19 +82,7 @@ struct MavenView: View {
             .litheIconButton()
             .help("Clear build output")
 
-            Button {
-                model.isMavenVisible = false
-            } label: {
-                Image(systemName: "minus")
-            }
-            .litheIconButton()
-            .help("Hide Maven tool window")
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 7)
-        .frame(height: 42)
-        .foregroundStyle(LitheTheme.primaryText)
-        .background(LitheTheme.toolHeader)
     }
 
     private func refreshProject() {
@@ -189,6 +168,7 @@ struct MavenView: View {
                 .lineLimit(1)
         }
         .toggleStyle(.checkbox)
+        .lithePointer()
         .padding(.leading, 2)
         .frame(height: 24)
     }
@@ -209,7 +189,7 @@ struct MavenView: View {
                 Text(phase.title)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Image(systemName: "play.fill")
+                LitheSystemIcon(systemImage: "play.fill")
                     .font(.system(size: 8))
                     .foregroundStyle(LitheTheme.accent)
             }
@@ -220,6 +200,7 @@ struct MavenView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .lithePointer()
         .disabled(service.isRunning)
     }
 
@@ -244,6 +225,7 @@ struct MavenView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .lithePointer()
 
                 Button(action: onLabelAction) {
                     HStack(spacing: 6) {
@@ -272,6 +254,7 @@ struct MavenView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .lithePointer()
             }
 
             if isNodeExpanded(id) {
@@ -351,6 +334,7 @@ struct MavenView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .lithePointer()
                 }
             }
             .padding(.vertical, 5)
@@ -361,7 +345,7 @@ struct MavenView: View {
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "shippingbox")
+            LitheSystemIcon(systemImage: "shippingbox")
                 .font(.system(size: 30, weight: .light))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text("No Maven project detected")
