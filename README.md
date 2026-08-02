@@ -264,4 +264,4 @@ If you want to contribute:
 
 ## License
 
-Lithe will be released under an open-source license. A `LICENSE` file and the complete license terms will be added before the public release.
+Lithe is licensed under the [Apache License 2.0](./LICENSE).

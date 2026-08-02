@@ -264,4 +264,4 @@ Lithe-IDEA/
 
 ## License
 
-Lithe 将以开源许可证发布。正式公开仓库前会补充 `LICENSE` 文件和完整的授权条款。
+Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
