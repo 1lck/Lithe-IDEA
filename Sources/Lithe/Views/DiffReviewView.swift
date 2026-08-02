@@ -4,7 +4,6 @@ struct DiffReviewView: View {
     @EnvironmentObject private var model: AppModel
     let change: GitChange
 
-    @State private var whitespaceMode = DiffWhitespaceMode.doNotIgnore
     @State private var highlightsWords = true
     @State private var selectedDifferenceIndex = 0
     @State private var diffSearchQuery = ""
@@ -35,9 +34,6 @@ struct DiffReviewView: View {
             selectedDifferenceIndex = 0
             selectedDiffSearchIndex = 0
         }
-        .onChange(of: whitespaceMode) { _, _ in
-            selectedDifferenceIndex = 0
-        }
         .onChange(of: diffSearchQuery) { _, _ in
             selectedDiffSearchIndex = 0
         }
@@ -45,7 +41,7 @@ struct DiffReviewView: View {
 
     private var diffTab: some View {
         HStack(spacing: 7) {
-            Image(systemName: "doc.text")
+            LitheSystemIcon(systemImage: "doc.text")
                 .font(.system(size: 11.5))
                 .foregroundStyle(fileIconColor)
             Text(change.url.lastPathComponent)
@@ -122,11 +118,14 @@ struct DiffReviewView: View {
                 )
 
                 Menu {
-                    ForEach(DiffWhitespaceMode.allCases) { mode in
+                    ForEach(GitDiffWhitespaceMode.allCases) { mode in
                         Button {
-                            whitespaceMode = mode
+                            Task {
+                                selectedDifferenceIndex = 0
+                                await model.reloadSelectedChangeDiff(whitespace: mode)
+                            }
                         } label: {
-                            if whitespaceMode == mode {
+                            if model.gitDiffWhitespaceMode == mode {
                                 Label(mode.title, systemImage: "checkmark")
                             } else {
                                 Text(mode.title)
@@ -134,9 +133,10 @@ struct DiffReviewView: View {
                         }
                     }
                 } label: {
-                    toolbarLabel(whitespaceMode.title, systemImage: "textformat")
+                    toolbarLabel(model.gitDiffWhitespaceMode.title, systemImage: "textformat")
                 }
                 .menuStyle(.borderlessButton)
+                .lithePointer()
                 .fixedSize()
                 .help("Whitespace comparison")
 
@@ -149,6 +149,7 @@ struct DiffReviewView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .lithePointer()
                 .help(highlightsWords ? "Disable word-level highlights" : "Enable word-level highlights")
 
                 toolbarDivider
@@ -171,18 +172,21 @@ struct DiffReviewView: View {
                         Task { await model.unstageSelectedChange() }
                     }
                     .buttonStyle(.bordered)
+                    .lithePointer()
                     .controlSize(.small)
                 } else {
                     Button("Discard") {
                         model.requestDiscardSelectedChange()
                     }
                     .buttonStyle(.bordered)
+                    .lithePointer()
                     .controlSize(.small)
 
                     Button("Stage File") {
                         Task { await model.stageSelectedChange() }
                     }
                     .buttonStyle(.borderedProminent)
+                    .lithePointer()
                     .tint(LitheTheme.accent)
                     .controlSize(.small)
                 }
@@ -281,13 +285,29 @@ struct DiffReviewView: View {
 
             ScrollView(.horizontal) {
                 ScrollView(.vertical) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(model.diffRows, id: \DiffRow.id) { row in
-                            diffRowView(for: row)
+                    let kinds = model.diffRows.map(effectiveKind)
+                    let contentHeight = max(
+                        DiffLayoutMetrics.contentHeight(rows: model.diffRows, kinds: kinds),
+                        geometry.size.height
+                    )
+
+                    ZStack(alignment: .topLeading) {
+                        if !usesSingleFileDiff {
+                            DiffConnectorOverlay(
+                                rows: model.diffRows,
+                                kinds: kinds,
+                                contentWidth: contentWidth
+                            )
                         }
+
+                        LazyVStack(spacing: 0) {
+                            ForEach(model.diffRows, id: \DiffRow.id) { row in
+                                diffRowView(for: row)
+                            }
+                        }
+                        .textSelection(.enabled)
                     }
-                    .frame(width: contentWidth, alignment: .topLeading)
-                    .textSelection(.enabled)
+                    .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
                 }
                 .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
             }
@@ -345,7 +365,7 @@ struct DiffReviewView: View {
 
     private func diffSearchControl(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: "magnifyingglass")
+            LitheSystemIcon(systemImage: "magnifyingglass")
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
 
@@ -431,7 +451,11 @@ struct DiffReviewView: View {
         if row.kind == .information,
            let hunkID = row.hunkID,
            let hunk = model.diffHunks.first(where: { $0.id == hunkID }) {
-            DiffHunkActionsView(hunk: hunk, change: change)
+            DiffHunkActionsView(
+                hunk: hunk,
+                change: change,
+                        isMutationEnabled: model.gitDiffWhitespaceMode == .doNotIgnore
+            )
         }
     }
 
@@ -457,7 +481,7 @@ struct DiffReviewView: View {
     }
 
     private func effectiveKind(for row: DiffRow) -> DiffRowKind {
-        guard whitespaceMode == .ignoreWhitespace,
+        guard model.gitDiffWhitespaceMode == .ignoreAllWhitespace,
               row.kind == .changed,
               let left = row.left,
               let right = row.right,
@@ -599,7 +623,7 @@ struct SingleFileDiffRowView: View {
                     .frame(width: 55, alignment: .trailing)
                     .padding(.trailing, 9)
                     .frame(maxHeight: .infinity)
-                    .background(changeColor.opacity(0.08))
+                    .background(changeColor.opacity(0.13))
 
                 Rectangle()
                     .fill(changeColor.opacity(0.82))
@@ -621,7 +645,7 @@ struct SingleFileDiffRowView: View {
             }
             .frame(height: 24)
             .frame(maxWidth: .infinity)
-            .background(changeColor.opacity(isSelectedDifference ? 0.24 : 0.18 + (isSearchMatch ? 0.06 : 0)))
+            .background(changeColor.opacity(isSelectedDifference ? 0.31 : 0.25 + (isSearchMatch ? 0.06 : 0)))
             .overlay(alignment: .leading) {
                 if isSelectedDifference {
                     Rectangle().fill(LitheTheme.accent).frame(width: 2)
@@ -748,7 +772,7 @@ struct DiffRowView: View {
 
     private var centerGutter: some View {
         ZStack {
-            LitheTheme.window
+            Color.clear
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
             if kind.isDifference {
                 Image(systemName: centerSymbol)
@@ -774,12 +798,16 @@ struct DiffRowView: View {
         switch kind {
         case .changed:
             return side == .left
-                ? Color.red.opacity(0.13 + selectionBoost + (isSearchMatch ? 0.04 : 0))
-                : Color.green.opacity(0.14 + selectionBoost + (isSearchMatch ? 0.04 : 0))
+                ? LitheTheme.error.opacity(0.22 + selectionBoost + (isSearchMatch ? 0.04 : 0))
+                : LitheTheme.success.opacity(0.24 + selectionBoost + (isSearchMatch ? 0.04 : 0))
         case .removal:
-            return side == .left ? Color.red.opacity(0.17 + selectionBoost + (isSearchMatch ? 0.04 : 0)) : .clear
+            return side == .left
+                ? LitheTheme.error.opacity(0.27 + selectionBoost + (isSearchMatch ? 0.04 : 0))
+                : .clear
         case .addition:
-            return side == .right ? Color.green.opacity(0.17 + selectionBoost + (isSearchMatch ? 0.04 : 0)) : .clear
+            return side == .right
+                ? LitheTheme.success.opacity(0.27 + selectionBoost + (isSearchMatch ? 0.04 : 0))
+                : .clear
         default:
             return .clear
         }
@@ -799,9 +827,9 @@ struct DiffRowView: View {
         case .addition where side == .right:
             return LitheTheme.success.opacity(0.72)
         case .removal where side == .left:
-            return Color.red.opacity(0.72)
+            return LitheTheme.error.opacity(0.72)
         case .changed:
-            return side == .left ? Color.red.opacity(0.58) : LitheTheme.success.opacity(0.58)
+            return side == .left ? LitheTheme.error.opacity(0.64) : LitheTheme.success.opacity(0.64)
         default:
             return .clear
         }
@@ -810,9 +838,200 @@ struct DiffRowView: View {
     private func lineNumberColor(side: DiffSide) -> Color {
         switch kind {
         case .addition where side == .right: LitheTheme.success.opacity(0.75)
-        case .removal where side == .left: Color.red.opacity(0.72)
+        case .removal where side == .left: LitheTheme.error.opacity(0.74)
         default: LitheTheme.secondaryText.opacity(0.78)
         }
+    }
+}
+
+enum DiffLayoutMetrics {
+    static let rowHeight: CGFloat = 24
+    static let informationRowHeight: CGFloat = 27
+
+    static func rowHeight(for kind: DiffRowKind) -> CGFloat {
+        kind == .information ? informationRowHeight : rowHeight
+    }
+
+    static func contentHeight(rows: [DiffRow], kinds: [DiffRowKind]) -> CGFloat {
+        zip(rows, kinds).reduce(0) { height, pair in
+            height + rowHeight(for: pair.1)
+        }
+    }
+}
+
+struct DiffConnectorOverlay: View {
+    let rows: [DiffRow]
+    let kinds: [DiffRowKind]
+    let contentWidth: CGFloat
+    let gutterWidth: CGFloat = 34
+
+    var body: some View {
+        Canvas { context, _ in
+            guard contentWidth > gutterWidth else { return }
+            let blocks = differenceBlocks()
+            let paneWidth = (contentWidth - gutterWidth) / 2
+            let gutterStart = paneWidth
+            let gutterEnd = paneWidth + gutterWidth
+
+            for block in blocks {
+                let top = yPosition(forRow: block.start)
+                let bottom = yPosition(forRow: block.end)
+                guard bottom > top else { continue }
+
+                if block.hasRightText {
+                    let path = rightConnectorPath(
+                        gutterStart: gutterStart,
+                        gutterEnd: gutterEnd,
+                        top: top,
+                        bottom: bottom
+                    )
+                    context.fill(
+                        path,
+                        with: .color(LitheTheme.success.opacity(block.hasLeftText ? 0.19 : 0.23))
+                    )
+                    context.stroke(
+                        path,
+                        with: .color(LitheTheme.success.opacity(0.34)),
+                        style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+                    )
+                } else if block.hasLeftText {
+                    let path = leftConnectorPath(
+                        gutterStart: gutterStart,
+                        gutterEnd: gutterEnd,
+                        top: top,
+                        bottom: bottom
+                    )
+                    context.fill(path, with: .color(LitheTheme.error.opacity(0.21)))
+                    context.stroke(
+                        path,
+                        with: .color(LitheTheme.error.opacity(0.32)),
+                        style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+                    )
+                }
+            }
+        }
+        .frame(
+            width: contentWidth,
+            height: DiffLayoutMetrics.contentHeight(rows: rows, kinds: kinds),
+            alignment: .topLeading
+        )
+        .allowsHitTesting(false)
+    }
+
+    private struct DifferenceBlock {
+        let start: Int
+        let end: Int
+        let hasLeftText: Bool
+        let hasRightText: Bool
+    }
+
+    private func differenceBlocks() -> [DifferenceBlock] {
+        guard !rows.isEmpty else { return [] }
+        var blocks: [DifferenceBlock] = []
+        var start: Int?
+        let lastRowIndex = rows.index(before: rows.endIndex)
+
+        for index in rows.indices {
+            let isDifference = index < kinds.count && kinds[index].isDifference
+            if isDifference, start == nil {
+                start = index
+            }
+
+            let isLastRow = index == lastRowIndex
+            if !isDifference || isLastRow, let blockStart = start {
+                let blockEnd = isDifference && isLastRow ? index + 1 : index
+                let blockRows = rows[blockStart..<blockEnd]
+                blocks.append(
+                    DifferenceBlock(
+                        start: blockStart,
+                        end: blockEnd,
+                        hasLeftText: blockRows.contains { $0.left != nil },
+                        hasRightText: blockRows.contains { $0.right != nil }
+                    )
+                )
+                start = nil
+            }
+        }
+        return blocks
+    }
+
+    private func yPosition(forRow rowIndex: Int) -> CGFloat {
+        guard rowIndex > 0 else { return 0 }
+        return rows[..<min(rowIndex, rows.count)].enumerated().reduce(0) { height, pair in
+            let kind = pair.offset < kinds.count ? kinds[pair.offset] : pair.element.kind
+            return height + DiffLayoutMetrics.rowHeight(for: kind)
+        }
+    }
+
+    private func rightConnectorPath(
+        gutterStart: CGFloat,
+        gutterEnd: CGFloat,
+        top: CGFloat,
+        bottom: CGFloat
+    ) -> Path {
+        let height = bottom - top
+        let curveDepth = min(18, max(5, height * 0.18))
+        let innerTop = gutterStart + 7
+        let innerMiddle = gutterStart + 19
+        let outer = gutterEnd + 1
+        var path = Path()
+
+        path.move(to: CGPoint(x: innerTop, y: top))
+        path.addLine(to: CGPoint(x: outer, y: top))
+        path.addLine(to: CGPoint(x: outer, y: bottom))
+        path.addLine(to: CGPoint(x: innerTop, y: bottom))
+        path.addCurve(
+            to: CGPoint(x: innerMiddle, y: bottom - curveDepth),
+            control1: CGPoint(x: innerTop + 4, y: bottom),
+            control2: CGPoint(x: innerMiddle, y: bottom - curveDepth + 4)
+        )
+        path.addCurve(
+            to: CGPoint(x: innerMiddle, y: top + curveDepth),
+            control1: CGPoint(x: innerMiddle, y: bottom - curveDepth - 4),
+            control2: CGPoint(x: innerMiddle, y: top + curveDepth + 4)
+        )
+        path.addCurve(
+            to: CGPoint(x: innerTop, y: top),
+            control1: CGPoint(x: innerMiddle, y: top + 4),
+            control2: CGPoint(x: innerTop + 4, y: top)
+        )
+        path.closeSubpath()
+        return path
+    }
+
+    private func leftConnectorPath(
+        gutterStart: CGFloat,
+        gutterEnd: CGFloat,
+        top: CGFloat,
+        bottom: CGFloat
+    ) -> Path {
+        let height = bottom - top
+        let curveDepth = min(18, max(5, height * 0.18))
+        let innerTop = gutterEnd - 7
+        let innerMiddle = gutterEnd - 19
+        let outer = gutterStart - 1
+        var path = Path()
+
+        path.move(to: CGPoint(x: outer, y: top))
+        path.addLine(to: CGPoint(x: innerTop, y: top))
+        path.addCurve(
+            to: CGPoint(x: innerMiddle, y: top + curveDepth),
+            control1: CGPoint(x: innerTop - 4, y: top),
+            control2: CGPoint(x: innerMiddle, y: top + 4)
+        )
+        path.addCurve(
+            to: CGPoint(x: innerMiddle, y: bottom - curveDepth),
+            control1: CGPoint(x: innerMiddle, y: top + curveDepth + 4),
+            control2: CGPoint(x: innerMiddle, y: bottom - curveDepth - 4)
+        )
+        path.addCurve(
+            to: CGPoint(x: innerTop, y: bottom),
+            control1: CGPoint(x: innerMiddle, y: bottom - curveDepth + 4),
+            control2: CGPoint(x: innerTop - 4, y: bottom)
+        )
+        path.addLine(to: CGPoint(x: outer, y: bottom))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -820,6 +1039,7 @@ private struct DiffHunkActionsView: View {
     @EnvironmentObject private var model: AppModel
     let hunk: DiffHunk
     let change: GitChange
+    let isMutationEnabled: Bool
 
     var body: some View {
         HStack(spacing: 2) {
@@ -830,6 +1050,7 @@ private struct DiffHunkActionsView: View {
                     Image(systemName: "square.and.arrow.down")
                 }
                 .litheIconButton()
+                .disabled(!isMutationEnabled)
                 .help("Stage this change block")
 
                 Button {
@@ -838,6 +1059,7 @@ private struct DiffHunkActionsView: View {
                     Image(systemName: "arrow.uturn.backward")
                 }
                 .litheIconButton()
+                .disabled(!isMutationEnabled)
                 .help("Discard this change block")
             } else if change.isStaged {
                 Button {
@@ -846,26 +1068,13 @@ private struct DiffHunkActionsView: View {
                     Image(systemName: "square.and.arrow.up")
                 }
                 .litheIconButton()
+                .disabled(!isMutationEnabled)
                 .help("Unstage this change block")
             }
         }
         .padding(.trailing, 6)
         .frame(height: 27)
         .background(LitheTheme.raised.opacity(0.92))
-    }
-}
-
-private enum DiffWhitespaceMode: String, CaseIterable, Identifiable {
-    case doNotIgnore
-    case ignoreWhitespace
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .doNotIgnore: "Do not ignore"
-        case .ignoreWhitespace: "Ignore whitespace"
-        }
     }
 }
 

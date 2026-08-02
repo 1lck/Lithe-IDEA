@@ -89,7 +89,7 @@ struct BranchComparisonView: View {
                                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                                         .foregroundStyle(statusColor(file.status))
                                         .frame(width: 20)
-                                    Image(systemName: "doc.text")
+                                    LitheSystemIcon(systemImage: "doc.text")
                                         .font(.system(size: 11))
                                         .foregroundStyle(LitheTheme.accent)
                                     VStack(alignment: .leading, spacing: 1) {
@@ -117,6 +117,7 @@ struct BranchComparisonView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .lithePointer()
                         }
                     }
                     .padding(.vertical, 5)
@@ -151,20 +152,35 @@ struct BranchComparisonView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { geometry in
+                    let contentWidth = max(900, geometry.size.width)
+                    let kinds = model.branchComparisonRows.map(\.kind)
+                    let contentHeight = max(
+                        DiffLayoutMetrics.contentHeight(rows: model.branchComparisonRows, kinds: kinds),
+                        geometry.size.height
+                    )
+
                     ScrollView([.vertical, .horizontal]) {
-                        LazyVStack(spacing: 0) {
-                            ForEach(model.branchComparisonRows) { row in
-                                DiffRowView(
-                                    row: row,
-                                    kind: row.kind,
-                                    fileExtension: selectedFileExtension,
-                                    highlightsWords: true,
-                                    isSelectedDifference: false
-                                )
+                        ZStack(alignment: .topLeading) {
+                            DiffConnectorOverlay(
+                                rows: model.branchComparisonRows,
+                                kinds: kinds,
+                                contentWidth: contentWidth
+                            )
+
+                            LazyVStack(spacing: 0) {
+                                ForEach(model.branchComparisonRows) { row in
+                                    DiffRowView(
+                                        row: row,
+                                        kind: row.kind,
+                                        fileExtension: selectedFileExtension,
+                                        highlightsWords: true,
+                                        isSelectedDifference: false
+                                    )
+                                }
                             }
+                            .textSelection(.enabled)
                         }
-                        .frame(minWidth: max(900, geometry.size.width), alignment: .topLeading)
-                        .textSelection(.enabled)
+                        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
                     }
                 }
             }

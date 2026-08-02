@@ -7,21 +7,61 @@ struct ChangesSidebarView: View {
     @State private var untrackedExpanded = true
     @State private var commitAreaHeight: CGFloat = 124
     @State private var commitAreaDragStart: CGFloat = 124
+    @State private var stashMessage = "WIP"
+    @State private var includeUntracked = true
+    @State private var selectedStash: GitStash?
+    @State private var pendingDropStash: GitStash?
+    @State private var shouldConfirmCommitAndPush = false
 
     var body: some View {
         VStack(spacing: 0) {
             tabHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if selectedTab == .shelf {
-                shelfPlaceholder
-            } else if model.gitRepositoryRoot == nil {
+            if model.gitRepositoryRoot == nil {
                 noRepository
+            } else if selectedTab == .shelf {
+                shelfContent
             } else {
                 commitContent
             }
         }
         .background(LitheTheme.sidebar)
+        .confirmationDialog(
+            "Drop \(pendingDropStash?.reference ?? "stash")?",
+            isPresented: Binding(
+                get: { pendingDropStash != nil },
+                set: { if !$0 { pendingDropStash = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Drop Stash", role: .destructive) {
+                guard let pendingDropStash else { return }
+                self.pendingDropStash = nil
+                Task { await model.dropStash(pendingDropStash) }
+            }
+            .lithePointer()
+            Button("Cancel", role: .cancel) {
+                pendingDropStash = nil
+            }
+            .lithePointer()
+        } message: {
+            Text("This removes the stash from Git and cannot be undone.")
+        }
+        .confirmationDialog(
+            "Commit and push changes?",
+            isPresented: $shouldConfirmCommitAndPush,
+            titleVisibility: .visible
+        ) {
+            Button("Commit and Push") {
+                Task { await model.commitAndPushStagedChanges() }
+            }
+            .lithePointer()
+            Button("Cancel", role: .cancel) {}
+                .lithePointer()
+        } message: {
+            Text("The staged changes will be committed and the current branch will be pushed to its configured remote.")
+        }
     }
 
     private var tabHeader: some View {
@@ -39,6 +79,7 @@ struct ChangesSidebarView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 5))
                 }
                 .buttonStyle(.plain)
+                .lithePointer()
             }
             Spacer()
         }
@@ -93,12 +134,129 @@ struct ChangesSidebarView: View {
         }
     }
 
+    private var shelfContent: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                TextField("Stash message", text: $stashMessage)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11.5))
+                    .padding(.horizontal, 7)
+                    .frame(height: 27)
+                    .background(LitheTheme.inputBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                Toggle("Untracked", isOn: $includeUntracked)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 10.5))
+                    .fixedSize()
+
+                Button {
+                    Task {
+                        await model.stashWorkingTree(
+                            message: stashMessage,
+                            includeUntracked: includeUntracked
+                        )
+                        selectedStash = nil
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        if model.isPerformingStashOperation {
+                            ProgressView().controlSize(.mini)
+                        }
+                        Text("Stash")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(LitheTheme.accent)
+                .lithePointer()
+                .disabled(!canStash)
+            }
+            .padding(8)
+            .background(LitheTheme.toolHeader)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            if model.gitStashes.isEmpty {
+                VStack(spacing: 9) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 28, weight: .light))
+                    Text("No shelves")
+                    Text("Stash changes here to switch branches safely.")
+                        .font(.system(size: 11.5))
+                        .multilineTextAlignment(.center)
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(20)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 1) {
+                        ForEach(model.gitStashes) { stash in
+                            stashRow(stash)
+                        }
+                    }
+                    .padding(7)
+                }
+            }
+        }
+    }
+
+    private func stashRow(_ stash: GitStash) -> some View {
+        Button {
+            selectedStash = stash
+        } label: {
+            HStack(spacing: 8) {
+                LitheSystemIcon(systemImage: "archivebox")
+                    .foregroundStyle(LitheTheme.accent)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(stash.message.isEmpty ? stash.reference : stash.message)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(stash.reference)
+                        if let branch = stash.branch, !branch.isEmpty {
+                            Text("·")
+                            Text(branch)
+                        }
+                        Text("·")
+                        Text(stash.date)
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(
+                selectedStash?.id == stash.id
+                    ? LitheTheme.subtleSelection
+                    : LitheTheme.sidebar
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .contextMenu {
+            Button("Apply") { Task { await model.applyStash(stash) } }
+            Button("Pop") { Task { await model.applyStash(stash, pop: true) } }
+            Divider()
+            Button("Drop", role: .destructive) { pendingDropStash = stash }
+        }
+    }
+
     private var commitToolbar: some View {
         HStack(spacing: 2) {
             Button {
                 Task { await model.refreshGit() }
             } label: {
-                Image(systemName: "arrow.clockwise")
+                LitheSystemIcon(systemImage: "arrow.clockwise")
             }
             .litheIconButton()
             .help("Refresh changes")
@@ -216,6 +374,7 @@ struct ChangesSidebarView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .lithePointer()
 
             if expanded.wrappedValue {
                 ForEach(changes) { change in
@@ -235,6 +394,7 @@ struct ChangesSidebarView: View {
                     .foregroundStyle(change.isStaged ? LitheTheme.accent : LitheTheme.secondaryText)
             }
             .buttonStyle(.plain)
+            .lithePointer()
             .help(change.isStaged ? "Unstage file" : "Stage file")
 
             Button {
@@ -267,6 +427,7 @@ struct ChangesSidebarView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .lithePointer()
         }
         .padding(.leading, 30)
         .padding(.trailing, 6)
@@ -281,6 +442,7 @@ struct ChangesSidebarView: View {
             HStack(spacing: 7) {
                 Toggle("Amend", isOn: $model.amendCommit)
                     .toggleStyle(.checkbox)
+                    .lithePointer()
                     .font(.system(size: 12))
                 Image(systemName: "clock")
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -325,16 +487,25 @@ struct ChangesSidebarView: View {
                     }
                 }
                 .buttonStyle(.bordered)
+                .lithePointer()
                 .disabled(!canCommit)
 
-                Button("Commit and Push…") {
-                    model.showPushPlaceholder()
+                Button {
+                    shouldConfirmCommitAndPush = true
+                } label: {
+                    HStack(spacing: 6) {
+                        if model.isCommitting {
+                            ProgressView().controlSize(.mini)
+                        }
+                        Text("Commit and Push…")
+                    }
                 }
                 .buttonStyle(.bordered)
+                .lithePointer()
                 .disabled(!canCommit)
 
                 Spacer()
-                Image(systemName: "gearshape")
+                LitheSystemIcon(systemImage: "gearshape")
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .controlSize(.small)
@@ -346,8 +517,11 @@ struct ChangesSidebarView: View {
 
     private var noRepository: some View {
         VStack(spacing: 10) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
-                .font(.system(size: 30, weight: .light))
+            LitheIDEAIcon(
+                resourcePath: "vcs/branch.svg",
+                size: 30,
+                fallbackSystemImage: "point.3.connected.trianglepath.dotted"
+            )
             Text("This project is not a Git repository")
                 .multilineTextAlignment(.center)
         }
@@ -355,20 +529,6 @@ struct ChangesSidebarView: View {
         .foregroundStyle(LitheTheme.secondaryText)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
-    }
-
-    private var shelfPlaceholder: some View {
-        VStack(spacing: 9) {
-            Image(systemName: "archivebox")
-                .font(.system(size: 28, weight: .light))
-            Text("No shelves")
-            Text("Shelving is outside the current Lithe scope.")
-                .font(.system(size: 11.5))
-        }
-        .font(LitheTheme.uiFont)
-        .foregroundStyle(LitheTheme.secondaryText)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(20)
     }
 
     private var trackedChanges: [GitChange] {
@@ -387,6 +547,10 @@ struct ChangesSidebarView: View {
         !stagedChanges.isEmpty &&
             !model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !model.isCommitting
+    }
+
+    private var canStash: Bool {
+        !model.gitChanges.isEmpty && !model.isPerformingStashOperation
     }
 
     private func statusColor(_ change: GitChange) -> Color {

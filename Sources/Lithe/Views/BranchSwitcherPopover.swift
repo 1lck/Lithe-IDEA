@@ -21,13 +21,13 @@ struct BranchSwitcherPopover: View {
             branchList
         }
         .frame(width: 500, height: 570)
-        .background(LitheTheme.raised)
+        .lithePopupChrome(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
         .onAppear { searchFocused = true }
     }
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
+            LitheSystemIcon(systemImage: "magnifyingglass")
                 .font(.system(size: 13))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField("Search for branches and actions", text: $searchQuery)
@@ -44,7 +44,7 @@ struct BranchSwitcherPopover: View {
                 .help("Clear search")
             }
             Button(action: onManageBranches) {
-                Image(systemName: "gearshape")
+                LitheSystemIcon(systemImage: "gearshape")
             }
             .litheIconButton()
             .help("Open Git branches")
@@ -56,6 +56,14 @@ struct BranchSwitcherPopover: View {
 
     private var actions: some View {
         VStack(spacing: 1) {
+            if actionMatches("Fetch") {
+                actionRow("Fetch", icon: "arrow.down.to.line", shortcut: nil) {
+                    isPresented = false
+                    Task { await model.fetchGit() }
+                }
+                .disabled(model.gitRepositoryRoot == nil || model.isPerformingBranchOperation)
+            }
+
             if actionMatches("Update Project") {
                 actionRow("Update Project…", icon: "arrow.down.left", shortcut: "⌘T") {
                     guard let current = model.currentGitReference else { return }
@@ -176,6 +184,7 @@ struct BranchSwitcherPopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .lithePointer()
     }
 
     private func branchRow(_ reference: GitReference, indented: Bool) -> some View {
@@ -217,6 +226,7 @@ struct BranchSwitcherPopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .lithePointer()
         .disabled(reference.isCurrent || model.isPerformingBranchOperation)
     }
 
@@ -320,13 +330,16 @@ struct TopBarNewBranchDialog: View {
                 .onSubmit(submit)
             Toggle("Checkout branch after creation", isOn: $checkout)
                 .toggleStyle(.checkbox)
+                .lithePointer()
                 .font(.system(size: 12.5))
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .lithePointer()
                 Button("Create", action: submit)
                     .buttonStyle(.borderedProminent)
+                    .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(trimmedName.isEmpty)
@@ -375,8 +388,10 @@ struct CheckoutRevisionDialog: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .lithePointer()
                 Button("Checkout", action: submit)
                     .buttonStyle(.borderedProminent)
+                    .lithePointer()
                     .tint(LitheTheme.accent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(trimmedRevision.isEmpty)
