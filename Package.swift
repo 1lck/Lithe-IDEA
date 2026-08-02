@@ -13,7 +13,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Lithe",
-            path: "Sources/Lithe"
+            path: "Sources/Lithe",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
         )
     ]
 )
