@@ -271,15 +271,19 @@ Lithe 目前处于积极开发阶段，已经形成从打开项目、阅读代�
 
 ```text
 Lithe-IDEA/
-├── Sources/Lithe/          # SwiftUI / AppKit 源码
-├── Resources/              # Info.plist、应用图标和 IDEA 风格资源
-├── Fixtures/               # Maven / Spring Boot 示例项目和 Git 历史夹具
+├── Sources/Lithe/          # 当前 macOS SwiftUI / AppKit 源码
+├── Resources/              # macOS 元数据、本地化和运行时资源
+├── windows/                # 独立 Windows 实现（计划中）
+├── shared/                 # 跨平台契约和验收材料
+├── Fixtures/               # 共享 Maven / Spring Boot 和 Git 夹具
 ├── scripts/                # 构建、打包和核心检查脚本
-├── docs/                   # 补充文档和示例资料
-├── Package.swift
+├── docs/                   # 产品、架构、发布和验收文档
+├── Package.swift           # 当前 macOS 包
 ├── README.md               # English README
 └── README.zh-CN.md         # 简体中文 README
 ```
+
+macOS 与 Windows 使用独立运行时实现，目录归属和共享规则见[仓库目录与共享边界](./docs/architecture/repository-layout.md)。
 
 ## 参与开发
 

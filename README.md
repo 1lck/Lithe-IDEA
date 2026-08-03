@@ -271,15 +271,19 @@ Lithe is in active development. The core loop from opening a project to reading 
 
 ```text
 Lithe-IDEA/
-├── Sources/Lithe/          # SwiftUI / AppKit source
-├── Resources/              # Info.plist, app icons, and IDEA-inspired assets
-├── Fixtures/               # Maven / Spring Boot examples and Git history fixtures
+├── Sources/Lithe/          # Current macOS SwiftUI / AppKit source
+├── Resources/              # macOS metadata, localization, and runtime assets
+├── windows/                # Independent Windows implementation (planned)
+├── shared/                 # Cross-platform contracts and acceptance material
+├── Fixtures/               # Shared Maven / Spring Boot and Git fixtures
 ├── scripts/                # Build, packaging, and core check scripts
-├── docs/                   # Supporting documentation and examples
-├── Package.swift
+├── docs/                   # Product, architecture, release, and QA documentation
+├── Package.swift           # Current macOS package
 ├── README.md               # English README
 └── README.zh-CN.md         # Simplified Chinese README
 ```
+
+The macOS and Windows applications use independent runtime implementations. See the [repository layout and sharing rules](./docs/architecture/repository-layout.md).
 
 ## Contributing
 
