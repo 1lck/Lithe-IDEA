@@ -1,8 +1,8 @@
 # macOS Service Boundaries
 
-The macOS implementation is being separated in Swift before any Rust migration.
-The goal is to make platform behavior replaceable without changing the workbench
-and application workflows.
+The macOS implementation is being separated around a Rust application core. The
+Swift ports remain useful for capabilities that are genuinely macOS-owned, while
+the Rust core owns behavior that the future Windows UI must consume unchanged.
 
 ## Layers
 
@@ -14,6 +14,8 @@ Sources/Lithe/Platform/MacOS/  FSEvents, FileManager, Process, PTY, and shell ad
 Sources/Lithe/Services/        Product workflows and domain orchestration
 Sources/Lithe/Models/           SwiftUI-facing application state
 Sources/Lithe/Views/            SwiftUI/AppKit presentation
+rust/lithe-core/                Cross-platform commands, models, errors, and events
+Sources/LitheRustCore/          C ABI bridge used by the Swift application
 ```
 
 Core ports must not import SwiftUI, AppKit, CoreServices, or use `Process` and
@@ -64,7 +66,11 @@ from being passed directly into views.
 
 ## Migration Rule
 
-Do not rewrite every service at once. Move one capability behind a port, keep
-the existing product behavior, add or update a focused verification, and only
-then migrate the next capability. Rust is a later implementation option for
-the stable core; it is not required for this Swift boundary work.
+The Rust core is the public application boundary for both platforms. Migrate one
+capability at a time, keep the existing Swift implementation as a fallback until
+the macOS behavior is verified, and add a shared fixture before exposing the
+capability to Windows. The current Rust boundary covers workspace snapshots,
+search, file read/write, and Git status. Diff operations, commit workflows,
+runtime services, Java language services, terminal sessions, and native UI
+capabilities remain behind the existing Swift ports until their behavior is
+covered by the same contract.

@@ -170,13 +170,14 @@ brew install jdtls
 From the project root:
 
 ```bash
-swift run --disable-sandbox Lithe
+./scripts/preview.sh
 ```
 
-You can also use the preview script:
+This builds and links the Rust Core before launching the macOS app. To validate
+the Swift sources without linking Rust, you can also run:
 
 ```bash
-./scripts/preview.sh
+swift run --disable-sandbox Lithe
 ```
 
 ### Build an App Bundle
@@ -208,9 +209,10 @@ The repository includes UI-independent checks for the core logic:
 ```bash
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
+./scripts/verify-rust-core.sh
 ```
 
-These cover Diff, file visibility, search matching, Git Graph, whitespace filtering, stash, clone, and real Merge/Tag/Remote reference layouts.
+These cover Diff, file visibility, search matching, Git Graph, whitespace filtering, stash, clone, real Merge/Tag/Remote reference layouts, and the Rust Core ABI.
 
 ## Configure Java and Maven
 
@@ -272,7 +274,9 @@ Lithe is in active development. The core loop from opening a project to reading 
 ```text
 Lithe-IDEA/
 ├── Sources/Lithe/          # Current macOS SwiftUI / AppKit source
+├── Sources/LitheRustCore/  # macOS C bridge for the Rust Core
 ├── Resources/              # macOS metadata, localization, and runtime assets
+├── rust/                   # Shared Rust Core and C ABI
 ├── windows/                # Independent Windows implementation (planned)
 ├── shared/                 # Cross-platform contracts and acceptance material
 ├── Fixtures/               # Shared Maven / Spring Boot and Git fixtures

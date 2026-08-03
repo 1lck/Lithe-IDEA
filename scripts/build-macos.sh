@@ -1,0 +1,48 @@
+#!/bin/zsh
+set -euo pipefail
+
+ROOT_DIR="${0:A:h:h}"
+CONFIGURATION="debug"
+TRIPLE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --configuration) CONFIGURATION="$2"; shift 2 ;;
+        --triple) TRIPLE="$2"; shift 2 ;;
+        *) print -u2 -- "Usage: $0 [--configuration debug|release] [--triple triple]"; exit 2 ;;
+    esac
+done
+
+if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
+    print -u2 -- "Unsupported configuration: $CONFIGURATION"
+    exit 2
+fi
+
+cd "$ROOT_DIR"
+RUST_TARGET=""
+if [[ -n "$TRIPLE" ]]; then
+    case "$TRIPLE" in
+        arm64-apple-macosx) RUST_TARGET="aarch64-apple-darwin" ;;
+        x86_64-apple-macosx) RUST_TARGET="x86_64-apple-darwin" ;;
+        *) print -u2 -- "Unsupported macOS Swift triple: $TRIPLE"; exit 2 ;;
+    esac
+fi
+
+RUST_BUILD_ARGS=()
+if [[ "$CONFIGURATION" == "release" ]]; then
+    RUST_BUILD_ARGS+=(--release)
+    SWIFT_CONFIGURATION_ARGS=(--configuration release)
+else
+    RUST_BUILD_ARGS+=(--debug)
+    SWIFT_CONFIGURATION_ARGS=()
+fi
+if [[ -n "$RUST_TARGET" ]]; then
+    RUST_BUILD_ARGS+=(--target "$RUST_TARGET")
+fi
+RUST_LIBRARY="$(scripts/build-rust-core.sh "${RUST_BUILD_ARGS[@]}")"
+
+SWIFT_ARGS=(build --disable-sandbox "${SWIFT_CONFIGURATION_ARGS[@]}")
+if [[ -n "$TRIPLE" ]]; then
+    SWIFT_ARGS+=(--triple "$TRIPLE")
+fi
+SWIFT_ARGS+=(-Xlinker -force_load -Xlinker "$RUST_LIBRARY")
+swift "${SWIFT_ARGS[@]}"

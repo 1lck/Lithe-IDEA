@@ -114,6 +114,7 @@ final class AppModel: ObservableObject {
     private var gitHistoryLimit = 300
     private let services: AppServices
     private let platformUI: any PlatformUI
+    private var rustCore: RustCoreBridge { services.rustCore }
     let settings: AppSettings
     let runtimeFeature: RuntimeSettingsFeatureModel
     let mavenFeature: MavenFeatureModel
@@ -321,10 +322,15 @@ final class AppModel: ObservableObject {
         recentProjects = recentProjectsStore.record(normalizedURL, in: recentProjects)
         isLoadingWorkspace = true
         let scanner = workspaceScanner
+        let rustCore = self.rustCore
 
         Task {
             let snapshot = await Task.detached(priority: .userInitiated) {
-                scanner.snapshot(at: normalizedURL, rules: visibilityRules)
+                rustCore.snapshot(
+                    at: normalizedURL,
+                    hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
+                    hiddenFilePatterns: visibilityRules.hiddenFilePatterns
+                )?.makeSnapshot(at: normalizedURL) ?? scanner.snapshot(at: normalizedURL, rules: visibilityRules)
             }.value
             guard workspaceURL == normalizedURL else { return }
             rootNode = snapshot.root
@@ -590,8 +596,13 @@ final class AppModel: ObservableObject {
             isRefreshingWorkspace = true
         }
         let scanner = workspaceScanner
+        let rustCore = self.rustCore
         let snapshot = await Task.detached(priority: .userInitiated) {
-            scanner.snapshot(at: workspaceURL, rules: rules)
+            rustCore.snapshot(
+                at: workspaceURL,
+                hiddenDirectoryNames: rules.hiddenDirectoryNames,
+                hiddenFilePatterns: rules.hiddenFilePatterns
+            )?.makeSnapshot(at: workspaceURL) ?? scanner.snapshot(at: workspaceURL, rules: rules)
         }.value
         guard self.workspaceURL == workspaceURL else {
             if isInitialLoad {
@@ -975,7 +986,7 @@ final class AppModel: ObservableObject {
         } else {
             do {
                 let previousText = document.savedText
-                try document.save()
+                try saveDocument(document)
                 recordSave(document, previousText: previousText)
             } catch {
                 showNotification("Could not save \(document.url.lastPathComponent)")
@@ -1014,7 +1025,7 @@ final class AppModel: ObservableObject {
         for document in openDocuments where document.isDirty {
             do {
                 let previousText = document.savedText
-                try document.save()
+                try saveDocument(document)
                 recordSave(document, previousText: previousText)
             } catch {
                 return false
@@ -1031,12 +1042,29 @@ final class AppModel: ObservableObject {
         }
         do {
             let previousText = document.savedText
-            try document.save()
+            try saveDocument(document)
             recordSave(document, previousText: previousText)
             showNotification("Saved \(document.url.lastPathComponent)")
         } catch {
             showNotification("Could not save \(document.url.lastPathComponent)")
         }
+    }
+
+    private func saveDocument(_ document: EditorDocument) throws {
+        if let workspaceURL,
+           let relativePath = workspaceRelativePath(for: document.url, root: workspaceURL),
+           rustCore.writeFile(document.text, at: workspaceURL, relativePath: relativePath) != nil {
+            document.markSavedWithoutWriting()
+            return
+        }
+        try document.save()
+    }
+
+    private func workspaceRelativePath(for url: URL, root: URL) -> String? {
+        let normalizedRoot = root.standardizedFileURL.path
+        let normalizedPath = url.standardizedFileURL.path
+        guard normalizedPath.hasPrefix(normalizedRoot + "/") else { return nil }
+        return String(normalizedPath.dropFirst(normalizedRoot.count + 1))
     }
 
     func documentDidChange(_ document: EditorDocument) {
@@ -1056,7 +1084,7 @@ final class AppModel: ObservableObject {
             guard !Task.isCancelled, let self, let document, document.isDirty else { return }
             do {
                 let previousText = document.savedText
-                try document.save()
+                try saveDocument(document)
                 self.recordSave(document, previousText: previousText)
             } catch {
                 self.showNotification("Could not auto-save \(document.url.lastPathComponent)")
@@ -1076,11 +1104,25 @@ final class AppModel: ObservableObject {
 
         isSearching = true
         let files = projectFiles
-        let results = await searchIndex.searchProject(
-            query: query,
-            files: files,
-            options: options
-        )
+        let rootURL = workspaceURL
+        let rustCore = self.rustCore
+        let searchIndex = self.searchIndex
+        let visibilityRules = settings.fileVisibilityRules
+        let results = await Task.detached(priority: .userInitiated) {
+            if let rootURL,
+               let rustResults = rustCore.search(
+                   at: rootURL,
+                   query: query,
+                   caseSensitive: options.caseSensitive,
+                   wholeWords: options.wholeWords,
+                   regularExpression: options.regularExpression,
+                   hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
+                   hiddenFilePatterns: visibilityRules.hiddenFilePatterns
+               ) {
+                return rustResults.makeResults(at: rootURL)
+            }
+            return await searchIndex.searchProject(query: query, files: files, options: options)
+        }.value
         guard searchQuery == query else { return }
         searchResults = results
         isSearching = false
@@ -1115,11 +1157,38 @@ final class AppModel: ObservableObject {
 
         isSearchingEverywhere = true
         let files = projectFiles
-        let indexedResults = await searchIndex.searchEverywhere(
+        let rustCore = self.rustCore
+        let swiftIndexedResults = await searchIndex.searchEverywhere(
             query: query,
             files: files,
             options: options
         )
+        let indexedResults: SearchEverywhereResults
+        let visibilityRules = settings.fileVisibilityRules
+        if let rustResults = await Task.detached(priority: .userInitiated, operation: {
+            rustCore.search(
+                at: workspaceURL,
+                query: query,
+                caseSensitive: options.caseSensitive,
+                wholeWords: options.wholeWords,
+                regularExpression: options.regularExpression,
+                maxResults: 100,
+                maxFileResults: 50,
+                maxContentResults: 50,
+                hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
+                hiddenFilePatterns: visibilityRules.hiddenFilePatterns
+            )
+        }).value {
+            let results = rustResults.makeResults(at: workspaceURL)
+            indexedResults = SearchEverywhereResults(
+                fileMatches: Array(results.filter { $0.kind == .file }.prefix(50)),
+                classMatches: swiftIndexedResults.classMatches,
+                symbolMatches: swiftIndexedResults.symbolMatches,
+                contentMatches: Array(results.filter { $0.kind == .content }.prefix(50))
+            )
+        } else {
+            indexedResults = swiftIndexedResults
+        }
         let semanticResults = await javaWorkspaceSearchResults(
             query: query,
             rootURL: workspaceURL,
@@ -1274,9 +1343,15 @@ final class AppModel: ObservableObject {
             do {
                 if let document {
                     document.text = replacedText
-                    try document.save()
+                    try saveDocument(document)
                 } else {
-                    try replacedText.write(to: target.url, atomically: true, encoding: .utf8)
+                    if let workspaceURL,
+                       let relativePath = workspaceRelativePath(for: target.url, root: workspaceURL),
+                       rustCore.writeFile(replacedText, at: workspaceURL, relativePath: relativePath) != nil {
+                        // Rust Core performed the write.
+                    } else {
+                        try replacedText.write(to: target.url, atomically: true, encoding: .utf8)
+                    }
                 }
                 changedFiles += 1
             } catch {
@@ -1399,7 +1474,18 @@ final class AppModel: ObservableObject {
         isRefreshingGit = true
         defer { isRefreshingGit = false }
 
-        if let snapshot = await gitService.snapshot(for: workspaceURL) {
+        let rustCore = self.rustCore
+        let rustStatus = await Task.detached(priority: .utility) {
+            rustCore.gitStatus(at: workspaceURL)
+        }.value
+        let snapshot: GitSnapshot?
+        if let rustStatus {
+            snapshot = rustGitSnapshot(rustStatus, workspaceURL: workspaceURL)
+        } else {
+            snapshot = await gitService.snapshot(for: workspaceURL)
+        }
+
+        if let snapshot {
             gitRepositoryRoot = snapshot.repositoryRoot
             currentBranch = snapshot.branch
             gitChanges = snapshot.changes
@@ -1436,6 +1522,34 @@ final class AppModel: ObservableObject {
         if let activeDocument {
             await refreshCodeVision(for: activeDocument.url)
         }
+    }
+
+    private func rustGitSnapshot(
+        _ payload: RustCoreBridge.GitStatusPayload,
+        workspaceURL: URL
+    ) -> GitSnapshot? {
+        guard let repositoryRootValue = payload.repositoryRoot else { return nil }
+        let repositoryRoot: URL
+        if repositoryRootValue.hasPrefix("/") {
+            repositoryRoot = URL(fileURLWithPath: repositoryRootValue)
+        } else {
+            repositoryRoot = workspaceURL.appendingPathComponent(repositoryRootValue)
+        }
+        let changes = payload.changes.map { change in
+            let status = Array(change.status)
+            return GitChange(
+                repositoryRoot: repositoryRoot.standardizedFileURL,
+                path: change.path,
+                originalPath: change.originalPath,
+                indexStatus: status.first ?? " ",
+                workTreeStatus: status.dropFirst().first ?? " "
+            )
+        }
+        return GitSnapshot(
+            repositoryRoot: repositoryRoot.standardizedFileURL,
+            branch: payload.branch ?? "detached",
+            changes: changes
+        )
     }
 
     func stageSelectedChange() async {
@@ -1812,7 +1926,7 @@ final class AppModel: ObservableObject {
            document.isDirty {
             do {
                 let previousText = document.savedText
-                try document.save()
+                try saveDocument(document)
                 recordSave(document, previousText: previousText)
             } catch {
                 showNotification("Could not save \(document.url.lastPathComponent)")
@@ -1925,7 +2039,7 @@ final class AppModel: ObservableObject {
         guard let document = activeDocument, document.isDirty else { return true }
         do {
             let previousText = document.savedText
-            try document.save()
+            try saveDocument(document)
             recordSave(document, previousText: previousText)
             return true
         } catch {

@@ -12,6 +12,7 @@ protocol DirectoryWatcherFactory {
 /// Platform composition roots construct this graph with their own adapters.
 @MainActor
 final class AppServices {
+    let rustCore: RustCoreBridge
     let store: any KeyValueStore
     let fileStorage: any FileStorage
     let workspaceScanner: WorkspaceScanner
@@ -33,6 +34,7 @@ final class AppServices {
     let shortcutDetectorFactory: any ShortcutDetectorFactory
 
     init(
+        rustCore: RustCoreBridge,
         store: any KeyValueStore,
         fileStorage: any FileStorage,
         workspaceScanner: WorkspaceScanner,
@@ -53,6 +55,7 @@ final class AppServices {
         platformUI: any PlatformUI,
         shortcutDetectorFactory: any ShortcutDetectorFactory
     ) {
+        self.rustCore = rustCore
         self.store = store
         self.fileStorage = fileStorage
         self.workspaceScanner = workspaceScanner

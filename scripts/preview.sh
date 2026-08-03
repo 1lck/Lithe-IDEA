@@ -10,5 +10,5 @@ case "$(uname -m)" in
     *) print -u2 -- "Unsupported host architecture: $(uname -m)"; exit 1 ;;
 esac
 
-swift build --disable-sandbox --triple "$TRIPLE"
+scripts/build-macos.sh --configuration debug --triple "$TRIPLE"
 exec ".build/$TRIPLE/debug/Lithe"

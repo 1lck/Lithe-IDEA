@@ -20,11 +20,11 @@ esac
 
 cd "$ROOT_DIR"
 if [[ "$ARCH" == "universal" ]]; then
-    swift build --configuration release --disable-sandbox --triple "$ARM64_TRIPLE"
-    swift build --configuration release --disable-sandbox --triple "$X86_64_TRIPLE"
+    scripts/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
+    scripts/build-macos.sh --configuration release --triple "$X86_64_TRIPLE"
 else
     triple="$ARCH-apple-macosx"
-    swift build --configuration release --disable-sandbox --triple "$triple"
+    scripts/build-macos.sh --configuration release --triple "$triple"
 fi
 
 rm -rf "$APP_DIR"

@@ -30,6 +30,12 @@ jobs:
         with:
           swift-version: "6.2"
 
+      - name: Set up Rust targets
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
       - name: Resolve release version
         id: version
         env:

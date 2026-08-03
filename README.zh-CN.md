@@ -170,13 +170,13 @@ brew install jdtls
 在项目根目录执行：
 
 ```bash
-swift run --disable-sandbox Lithe
+./scripts/preview.sh
 ```
 
-也可以使用预览脚本：
+该脚本会先构建并链接 Rust Core，再启动 macOS 应用。若只需要验证 Swift 源码，也可以执行：
 
 ```bash
-./scripts/preview.sh
+swift run --disable-sandbox Lithe
 ```
 
 ### 构建 App Bundle
@@ -208,6 +208,7 @@ open "/Applications/Lithe.app"
 ```bash
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
+./scripts/verify-rust-core.sh
 ```
 
 它们会覆盖 Diff、文件可见性、搜索匹配、Git Graph、空白过滤、stash、clone 以及真实 Merge/Tag/Remote 引用布局。
@@ -272,7 +273,9 @@ Lithe 目前处于积极开发阶段，已经形成从打开项目、阅读代�
 ```text
 Lithe-IDEA/
 ├── Sources/Lithe/          # 当前 macOS SwiftUI / AppKit 源码
+├── Sources/LitheRustCore/  # macOS 侧 Rust Core C bridge
 ├── Resources/              # macOS 元数据、本地化和运行时资源
+├── rust/                   # 跨平台 Rust Core 与 C ABI
 ├── windows/                # 独立 Windows 实现（计划中）
 ├── shared/                 # 跨平台契约和验收材料
 ├── Fixtures/               # 共享 Maven / Spring Boot 和 Git 夹具

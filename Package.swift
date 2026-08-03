@@ -11,8 +11,14 @@ let package = Package(
         .executable(name: "Lithe", targets: ["Lithe"])
     ],
     targets: [
+        .target(
+            name: "LitheRustCore",
+            path: "Sources/LitheRustCore",
+            publicHeadersPath: "include"
+        ),
         .executableTarget(
             name: "Lithe",
+            dependencies: ["LitheRustCore"],
             path: "Sources/Lithe",
             swiftSettings: [
                 .swiftLanguageMode(.v5)

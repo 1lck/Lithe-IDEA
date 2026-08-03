@@ -78,6 +78,8 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
 
     func markSavedWithoutWriting() {
         savedText = text
+        lastKnownModificationDate = Self.modificationDate(for: url)
+        hasExternalConflict = false
     }
 
     func relocate(to newURL: URL) {

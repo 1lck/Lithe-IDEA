@@ -64,6 +64,7 @@ final class MacServiceContainer {
             fileOperations: fileOperations
         )
         services = AppServices(
+            rustCore: RustCoreBridge(),
             store: store,
             fileStorage: fileStorage,
             workspaceScanner: workspaceScanner,

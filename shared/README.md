@@ -1,6 +1,6 @@
 # Shared contracts
 
-This directory is for the small, platform-neutral part of Lithe. Share behavior and test inputs before sharing runtime code.
+This directory contains the platform-neutral application contract consumed by the Rust core and both UI implementations.
 
 Suitable content includes:
 
@@ -11,4 +11,4 @@ Suitable content includes:
 
 The current behavioral contract is documented in [`contracts/application-boundary.md`](contracts/application-boundary.md). Search and Git golden fixtures live under [`fixtures`](fixtures).
 
-Do not place UI state, process management, file watching, terminal sessions, installers, or update logic here. A compiled shared library requires a separate architecture review and measured benefit on both platforms.
+Do not place UI state, process management, file watching, terminal sessions, installers, or update logic here. The compiled implementation lives under `rust/lithe-core`; this directory remains the stable contract and fixture source.
