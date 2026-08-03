@@ -76,6 +76,7 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleVersion" \
             dist/Lithe.app/Contents/Info.plist
+          lipo dist/Lithe.app/Contents/MacOS/Lithe -verify_arch arm64 x86_64
           hdiutil imageinfo "dist/Lithe-${LITHE_VERSION}.dmg" > /dev/null
           test -s "dist/Lithe-${LITHE_VERSION}.dmg"
 

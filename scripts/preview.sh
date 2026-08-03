@@ -4,5 +4,11 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
-swift build --disable-sandbox
-exec .build/arm64-apple-macosx/debug/Lithe
+case "$(uname -m)" in
+    arm64) TRIPLE="arm64-apple-macosx" ;;
+    x86_64) TRIPLE="x86_64-apple-macosx" ;;
+    *) print -u2 -- "Unsupported host architecture: $(uname -m)"; exit 1 ;;
+esac
+
+swift build --disable-sandbox --triple "$TRIPLE"
+exec ".build/$TRIPLE/debug/Lithe"
