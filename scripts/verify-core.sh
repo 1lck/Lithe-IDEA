@@ -28,3 +28,4 @@ swiftc \
 
 "$OUTPUT_DIR/verify-core"
 "$ROOT_DIR/scripts/verify-service-boundaries.sh"
+"$ROOT_DIR/scripts/verify-shared-contracts.sh"

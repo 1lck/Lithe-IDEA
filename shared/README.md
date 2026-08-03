@@ -9,4 +9,6 @@ Suitable content includes:
 - acceptance scenarios and expected results;
 - platform-neutral visual tokens or assets.
 
+The current behavioral contract is documented in [`contracts/application-boundary.md`](contracts/application-boundary.md). Search and Git golden fixtures live under [`fixtures`](fixtures).
+
 Do not place UI state, process management, file watching, terminal sessions, installers, or update logic here. A compiled shared library requires a separate architecture review and measured benefit on both platforms.

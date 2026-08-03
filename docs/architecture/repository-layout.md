@@ -13,7 +13,7 @@ Lithe-IDEA/
 ├── Resources/              # macOS metadata, localization, and runtime assets
 ├── Package.swift           # macOS Swift package
 ├── windows/                # Windows Qt/C++ implementation
-├── shared/                 # Cross-platform contracts and acceptance material
+├── shared/                 # Cross-platform contracts and acceptance fixtures
 ├── Fixtures/               # Existing reusable Java and Git fixtures
 ├── scripts/                # macOS build and repository verification scripts
 ├── docs/                   # Product, architecture, release, and QA documentation

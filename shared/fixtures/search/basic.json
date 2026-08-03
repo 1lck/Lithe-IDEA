@@ -1,0 +1,70 @@
+{
+  "name": "basic-search",
+  "workspace": "fixture-project",
+  "files": [
+    {
+      "path": "src/main/java/com/example/UserService.java",
+      "content": "class UserService {\n    void loadUser() {}\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/OrderService.java",
+      "content": "class OrderService {\n    void loadOrder() {}\n}\n"
+    },
+    {
+      "path": "README.md",
+      "content": "Search fixtures are shared by both platform implementations.\n"
+    }
+  ],
+  "cases": [
+    {
+      "name": "case-insensitive-content",
+      "request": {
+        "query": "userservice",
+        "caseSensitive": false,
+        "wholeWords": false,
+        "regularExpression": false
+      },
+      "expected": [
+        {
+          "kind": "file",
+          "path": "src/main/java/com/example/UserService.java",
+          "line": null,
+          "preview": "src/main/java/com/example/UserService.java"
+        },
+        {
+          "kind": "content",
+          "path": "src/main/java/com/example/UserService.java",
+          "line": 1,
+          "preview": "class UserService {"
+        }
+      ]
+    },
+    {
+      "name": "whole-word-content",
+      "request": {
+        "query": "load",
+        "caseSensitive": false,
+        "wholeWords": true,
+        "regularExpression": false
+      },
+      "expected": []
+    },
+    {
+      "name": "file-name-match",
+      "request": {
+        "query": "README",
+        "caseSensitive": true,
+        "wholeWords": false,
+        "regularExpression": false
+      },
+      "expected": [
+        {
+          "kind": "file",
+          "path": "README.md",
+          "line": null,
+          "preview": "README.md"
+        }
+      ]
+    }
+  ]
+}

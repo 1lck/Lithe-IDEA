@@ -8,6 +8,7 @@ struct CoreVerification {
     )
 
     static func main() async {
+        verifySharedContractFixtures()
         verifyDiffParser()
         verifyVisibilityRules()
         verifyGitGraph()
@@ -16,7 +17,123 @@ struct CoreVerification {
         verifySearchOptions()
         await verifyGitWhitespaceFiltering()
         await verifyGitStashAndClone()
-        print("Core verification passed: diff, visibility, graph, search options, whitespace modes, stash, clone, and Git filtering")
+        print("Core verification passed: shared fixtures, diff, visibility, graph, search options, whitespace modes, stash, clone, and Git filtering")
+    }
+
+    private struct SearchFixture: Decodable {
+        struct File: Decodable {
+            let path: String
+            let content: String
+        }
+
+        struct Request: Decodable {
+            let query: String
+            let caseSensitive: Bool
+            let wholeWords: Bool
+            let regularExpression: Bool
+        }
+
+        struct Match: Decodable, Equatable {
+            let kind: String
+            let path: String
+            let line: Int?
+            let preview: String
+        }
+
+        struct Case: Decodable {
+            let name: String
+            let request: Request
+            let expected: [Match]
+        }
+
+        let files: [File]
+        let cases: [Case]
+    }
+
+    private struct GitFixture: Decodable {
+        struct Commit: Decodable {
+            let hash: String
+            let parents: [String]
+            let subject: String
+            let decorations: String
+        }
+
+        struct Expected: Decodable {
+            let rowCount: Int
+            let mergeRow: Int
+            let mergeParentCount: Int
+            let hasMissingParents: Bool
+            let headLabel: String
+        }
+
+        let commits: [Commit]
+        let expected: Expected
+    }
+
+    private static func verifySharedContractFixtures() {
+        let searchURL = URL(fileURLWithPath: "shared/fixtures/search/basic.json")
+        guard let searchData = try? Data(contentsOf: searchURL),
+              let searchFixture = try? JSONDecoder().decode(SearchFixture.self, from: searchData) else {
+            require(false, "search contract fixture could not be decoded")
+            return
+        }
+
+        let files = searchFixture.files.sorted { $0.path < $1.path }
+        for fixtureCase in searchFixture.cases {
+            var actual: [SearchFixture.Match] = []
+            var options = ProjectSearchOptions.default
+            options.caseSensitive = fixtureCase.request.caseSensitive
+            options.wholeWords = fixtureCase.request.wholeWords
+            options.regularExpression = fixtureCase.request.regularExpression
+
+            for file in files where options.matches(file.path, query: fixtureCase.request.query) {
+                actual.append(SearchFixture.Match(
+                    kind: "file",
+                    path: file.path,
+                    line: nil,
+                    preview: file.path
+                ))
+            }
+            for file in files {
+                for (index, line) in file.content
+                    .split(separator: "\n", omittingEmptySubsequences: false)
+                    .enumerated()
+                where options.matches(String(line), query: fixtureCase.request.query) {
+                    actual.append(SearchFixture.Match(
+                        kind: "content",
+                        path: file.path,
+                        line: index + 1,
+                        preview: line.trimmingCharacters(in: .whitespaces)
+                    ))
+                }
+            }
+            require(actual == fixtureCase.expected, "search fixture case failed: \(fixtureCase.name)")
+        }
+
+        let gitURL = URL(fileURLWithPath: "shared/fixtures/git/graph.json")
+        guard let gitData = try? Data(contentsOf: gitURL),
+              let gitFixture = try? JSONDecoder().decode(GitFixture.self, from: gitData) else {
+            require(false, "Git contract fixture could not be decoded")
+            return
+        }
+        let commits = gitFixture.commits.map { commit in
+            GitCommit(
+                hash: commit.hash,
+                shortHash: commit.hash,
+                parentHashes: commit.parents,
+                authorName: "Fixture",
+                authorEmail: "fixture@example.com",
+                date: "2026/08/02 10:00",
+                subject: commit.subject,
+                decorations: commit.decorations
+            )
+        }
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        let mergeRow = layout.rows[gitFixture.expected.mergeRow]
+        require(layout.rows.count == gitFixture.expected.rowCount, "Git fixture row count changed")
+        require(mergeRow.parentEdges.count == gitFixture.expected.mergeParentCount, "Git fixture merge edge count changed")
+        require(layout.hasMissingParents == gitFixture.expected.hasMissingParents, "Git fixture missing-parent state changed")
+        require(mergeRow.labels.contains { $0.title == gitFixture.expected.headLabel }, "Git fixture HEAD label changed")
     }
 
     private static func verifyDiffParser() {
