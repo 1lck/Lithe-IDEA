@@ -188,7 +188,24 @@ open dist/Lithe.app
 
 ### Download a release
 
-Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). Open the disk image, drag `Lithe.app` to `/Applications`, and launch it. Lithe can check for a newer release and open the download page, but the current update flow is manual: quit Lithe, replace the existing app, and reopen it.
+Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). When a release provides separate installers, choose `arm64` for Apple Silicon Macs (M1 and later) or `x86_64` for Intel Macs. Open the disk image, drag `Lithe.app` to `/Applications`, and launch it. Lithe can check for a newer release and open the download page, but the current update flow is manual: quit Lithe, replace the existing app, and reopen it.
+
+### Install with Homebrew
+
+Lithe is distributed as a Homebrew Cask. The Cask definition is kept in `Casks/lithe.rb`; to offer the short install command below, publish that file in a tap repository named `1lck/homebrew-lithe`:
+
+```bash
+brew tap 1lck/lithe
+brew install --cask lithe
+```
+
+The tap repository must contain the file at `Casks/lithe.rb`. For a local validation before publishing the tap, run:
+
+```bash
+brew audit --cask --strict --online ./Casks/lithe.rb
+```
+
+For a new release, update `version` and `sha256` in the Cask to match the GitHub Release DMG. The current Cask points to the Universal `v0.1.5` DMG; if releases only publish architecture-specific DMGs, use Homebrew's `arch arm: "arm64", intel: "x86_64"` syntax and an architecture-specific `sha256` value.
 
 If macOS blocks an app from an unidentified developer, first try right-clicking the app and choosing **Open**. You can also use **System Settings → Privacy & Security → Open Anyway** after trying to launch it.
 

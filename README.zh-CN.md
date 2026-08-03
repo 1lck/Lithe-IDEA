@@ -188,7 +188,24 @@ open dist/Lithe.app
 
 ### 下载发布版本
 
-从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。Lithe 可以检查是否有更新并打开下载页面，但当前更新方式是手动的：退出 Lithe，替换现有 App，然后重新打开。
+从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。如果某个版本提供独立架构安装包，M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。Lithe 可以检查是否有更新并打开下载页面，但当前更新方式是手动的：退出 Lithe，替换现有 App，然后重新打开。
+
+### 使用 Homebrew 安装
+
+Lithe 通过 Homebrew Cask 分发。Cask 定义保存在 `Casks/lithe.rb`；将这个文件发布到名为 `1lck/homebrew-lithe` 的 Tap 仓库后，用户即可使用下面的命令安装：
+
+```bash
+brew tap 1lck/lithe
+brew install --cask lithe
+```
+
+Tap 仓库中必须存在 `Casks/lithe.rb`。发布 Tap 前，可以在本地先运行下面的命令校验 Cask：
+
+```bash
+brew audit --cask --strict --online ./Casks/lithe.rb
+```
+
+发布新版本时，更新 Cask 中的 `version` 和 `sha256`，使其匹配 GitHub Release 的 DMG。当前 Cask 指向 Universal 版本 `v0.1.5`；如果后续只发布按架构区分的 DMG，需要使用 Homebrew 的 `arch arm: "arm64", intel: "x86_64"` 语法，并分别填写两个架构的 `sha256`。
 
 如果 macOS 阻止打开来自未识别开发者的 App，可以先右键点击 App 并选择 **打开**；也可以在尝试启动后进入 **系统设置 → 隐私与安全性 → 仍要打开**。
 
