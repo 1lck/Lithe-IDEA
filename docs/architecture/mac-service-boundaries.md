@@ -31,6 +31,8 @@ Current ports include:
 - `ArchiveEntryReader` for JDK source archive lookup;
 - `RuntimeLocator` for JDK/Maven discovery and executable selection;
 - `DirectoryChangeSource` for external file events.
+- `PlatformUI` for directory picking, file-browser reveal, and clipboard access;
+- `ShortcutDetector` for native shortcut monitoring.
 
 `AppServices` is the platform-neutral service graph. `MacServiceContainer`
 constructs it with macOS adapters; a Windows composition root will construct an
@@ -44,6 +46,11 @@ Services no longer construct `Process`, `Pipe`, `FileManager`, `UserDefaults`,
 shell transports, or runtime discovery directly. Views must not receive
 concrete workflow services; they receive an application model or UI feature
 model and send user actions through that boundary.
+
+Small native interactions used by application workflows also go through ports:
+`AppModel` must not import AppKit or call `NSOpenPanel`, `NSWorkspace`,
+`NSPasteboard`, or `NSEvent` directly. The macOS implementations live under
+`Platform/MacOS/UI/`.
 
 The update checker remains deliberately macOS-owned under
 `Platform/MacOS/Updates/`, because DMG mounting, application replacement,

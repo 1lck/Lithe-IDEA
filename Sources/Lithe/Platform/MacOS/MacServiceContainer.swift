@@ -80,7 +80,9 @@ final class MacServiceContainer {
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
             terminalFactory: { MacTerminalTransport() },
-            directoryWatcherFactory: MacDirectoryWatcherFactory()
+            directoryWatcherFactory: MacDirectoryWatcherFactory(),
+            platformUI: MacPlatformUI(),
+            shortcutDetectorFactory: MacShortcutDetectorFactory()
         )
     }
 }

@@ -29,6 +29,8 @@ final class AppServices {
     let workbenchLayoutStore: WorkbenchLayoutStore
     let terminalFactory: () -> any TerminalTransport
     let directoryWatcherFactory: any DirectoryWatcherFactory
+    let platformUI: any PlatformUI
+    let shortcutDetectorFactory: any ShortcutDetectorFactory
 
     init(
         store: any KeyValueStore,
@@ -47,7 +49,9 @@ final class AppServices {
         workspaceSessionStore: WorkspaceSessionStore,
         workbenchLayoutStore: WorkbenchLayoutStore,
         terminalFactory: @escaping () -> any TerminalTransport,
-        directoryWatcherFactory: any DirectoryWatcherFactory
+        directoryWatcherFactory: any DirectoryWatcherFactory,
+        platformUI: any PlatformUI,
+        shortcutDetectorFactory: any ShortcutDetectorFactory
     ) {
         self.store = store
         self.fileStorage = fileStorage
@@ -66,5 +70,7 @@ final class AppServices {
         self.workbenchLayoutStore = workbenchLayoutStore
         self.terminalFactory = terminalFactory
         self.directoryWatcherFactory = directoryWatcherFactory
+        self.platformUI = platformUI
+        self.shortcutDetectorFactory = shortcutDetectorFactory
     }
 }

@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 @MainActor
@@ -99,7 +98,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isLoadingBranchComparison = false
     @Published private(set) var isPerformingBranchOperation = false
     private var directoryWatcher: (any DirectoryChangeSource)?
-    private var doubleShiftDetector: DoubleShiftDetector?
+    private var doubleShiftDetector: (any ShortcutDetector)?
     private var refreshTask: Task<Void, Never>?
     private var pendingExternalPaths: Set<String> = []
     private var externalRefreshGeneration = 0
@@ -114,6 +113,7 @@ final class AppModel: ObservableObject {
     private var pendingClosePreferredDocumentID: UUID?
     private var gitHistoryLimit = 300
     private let services: AppServices
+    private let platformUI: any PlatformUI
     let settings: AppSettings
     let runtimeFeature: RuntimeSettingsFeatureModel
     let mavenFeature: MavenFeatureModel
@@ -141,6 +141,7 @@ final class AppModel: ObservableObject {
     init(settings: AppSettings, services: AppServices) {
         self.settings = settings
         self.services = services
+        platformUI = services.platformUI
         runtimeFeature = RuntimeSettingsFeatureModel(service: services.projectRuntimeService)
         mavenFeature = MavenFeatureModel(service: services.mavenService)
         runFeature = JavaRunFeatureModel(service: services.javaRunService)
@@ -155,7 +156,7 @@ final class AppModel: ObservableObject {
         projectRuntimeService.onRuntimeChanged = { [weak self] in
             self?.reloadJavaRuntimeServices()
         }
-        doubleShiftDetector = DoubleShiftDetector { [weak self] in
+        doubleShiftDetector = services.shortcutDetectorFactory.make { [weak self] in
             self?.toggleSearchEverywhere()
         }
         doubleShiftDetector?.start()
@@ -206,15 +207,7 @@ final class AppModel: ObservableObject {
     }
 
     func chooseProject(title: String, prompt: String) {
-        let panel = NSOpenPanel()
-        panel.title = title
-        panel.prompt = prompt
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.resolvesAliases = true
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = platformUI.chooseDirectory(title: title, prompt: prompt) else { return }
         openProject(url)
     }
 
@@ -802,14 +795,13 @@ final class AppModel: ObservableObject {
     }
 
     func revealProjectItemInFinder(_ url: URL) {
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        platformUI.revealInFileBrowser(url)
     }
 
     func copyProjectItemPath(_ url: URL, relative: Bool) {
         let relativeValue = relativePath(for: url)
         let value = relative ? (relativeValue.isEmpty ? "." : relativeValue) : url.path
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
+        platformUI.copyToClipboard(value)
         showNotification(relative ? "Copied relative path" : "Copied path")
     }
 
@@ -3041,49 +3033,4 @@ extension Notification.Name {
     static let litheFindQueryChanged = Notification.Name("litheFindQueryChanged")
     static let litheFindNavigate = Notification.Name("litheFindNavigate")
     static let litheFindDismiss = Notification.Name("litheFindDismiss")
-}
-
-/// 监听本地 flagsChanged 事件，检测双击 Shift（两次按下间隔小于阈值）。
-/// 事件回调运行在主线程事件循环；内部可变状态仅由主线程访问，
-/// onDoubleTap 通过 @MainActor 闭包回到主隔离域。
-final class DoubleShiftDetector: @unchecked Sendable {
-    private static let threshold: TimeInterval = 0.35
-    private var shiftWasDown = false
-    private var lastShiftPress = Date.distantPast
-    private let onDoubleTap: @MainActor () -> Void
-    private var monitor: Any?
-
-    init(onDoubleTap: @escaping @MainActor () -> Void) {
-        self.onDoubleTap = onDoubleTap
-    }
-
-    func start() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            let isShiftDown = event.modifierFlags
-                .intersection(.deviceIndependentFlagsMask)
-                .contains(.shift)
-            guard let self else { return event }
-            if isShiftDown && !self.shiftWasDown {
-                let now = Date()
-                if now.timeIntervalSince(self.lastShiftPress) < Self.threshold {
-                    self.lastShiftPress = .distantPast
-                    Task { @MainActor in
-                        self.onDoubleTap()
-                    }
-                } else {
-                    self.lastShiftPress = now
-                }
-            }
-            self.shiftWasDown = isShiftDown
-            return event
-        }
-    }
-
-    func stop() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
-        }
-    }
 }
