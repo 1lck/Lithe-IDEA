@@ -191,9 +191,13 @@ struct ProjectReplaceView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .lithePointer()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private func clearPreview() {

@@ -159,7 +159,7 @@ struct WorkbenchView: View {
                 HStack(spacing: 8) {
                     LitheLogo(size: 28)
 
-                    Text(model.activeDocument?.displayName ?? model.projectName)
+                    Text(model.projectName)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
@@ -295,10 +295,12 @@ struct WorkbenchView: View {
                 Button("Close Project", action: model.closeProject)
             } label: {
                 LitheIDEAIcon(resourcePath: "actions/more.svg", size: 16, fallbackSystemImage: "ellipsis")
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .lithePointer()
-            .frame(width: 28)
+            .frame(width: 28, height: 28)
         }
         .padding(.leading, 76)
         .padding(.trailing, 10)
@@ -429,7 +431,8 @@ struct WorkbenchView: View {
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
-                .frame(maxWidth: 230)
+                .frame(maxWidth: 230, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .pickerStyle(.menu)
             .lithePointer()
@@ -753,8 +756,7 @@ struct WorkbenchView: View {
             } label: {
                 Image(systemName: model.activeDocument?.isReadOnly == true ? "lock.fill" : "lock.open")
             }
-            .buttonStyle(.plain)
-            .lithePointer()
+            .litheIconButton()
             .disabled(model.activeDocument?.isReadOnly == true)
             .help(model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save")
             gitStatus

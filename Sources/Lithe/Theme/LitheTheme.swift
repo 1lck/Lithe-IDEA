@@ -157,6 +157,7 @@ struct LithePrimaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                     .fill(LitheTheme.accent.opacity(configuration.isPressed ? 0.78 : (isHovering ? 1 : 0.92)))
             )
+            .contentShape(Rectangle())
             .onHover { isHovering = $0 }
             .lithePointer()
     }
@@ -179,6 +180,7 @@ struct LitheSecondaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                     .stroke(LitheTheme.panelBorder, lineWidth: 1)
             }
+            .contentShape(Rectangle())
             .onHover { isHovering = $0 }
             .lithePointer()
     }

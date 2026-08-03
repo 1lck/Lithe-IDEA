@@ -393,8 +393,7 @@ struct ChangesSidebarView: View {
                     .font(.system(size: 16))
                     .foregroundStyle(change.isStaged ? LitheTheme.accent : LitheTheme.secondaryText)
             }
-            .buttonStyle(.plain)
-            .lithePointer()
+            .litheIconButton()
             .help(change.isStaged ? "Unstage file" : "Stage file")
 
             Button {
@@ -423,6 +422,7 @@ struct ChangesSidebarView: View {
                     }
                     Spacer(minLength: 8)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: 28)
                 .contentShape(Rectangle())
             }

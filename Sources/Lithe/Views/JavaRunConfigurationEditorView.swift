@@ -133,13 +133,19 @@ struct JavaRunConfigurationEditorView: View {
         section(title: "Active Maven Profiles") {
             ForEach(service.mavenProfiles) { profile in
                 Toggle(isOn: profileBinding(for: profile)) {
-                    Text(profile.id)
-                        .lineLimit(1)
+                    HStack(spacing: 0) {
+                        Text(profile.id)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .toggleStyle(.checkbox)
                 .lithePointer()
                 .font(.system(size: 12))
                 .foregroundStyle(LitheTheme.primaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

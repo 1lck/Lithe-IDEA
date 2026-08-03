@@ -162,14 +162,20 @@ struct MavenView: View {
 
     private func profileRow(_ profile: MavenProfile) -> some View {
         Toggle(isOn: profileBinding(for: profile)) {
-            Text(profile.id)
-                .font(.system(size: 12))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
+            HStack(spacing: 0) {
+                Text(profile.id)
+                    .font(.system(size: 12))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .toggleStyle(.checkbox)
         .lithePointer()
         .padding(.leading, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 24)
     }
 
@@ -196,6 +202,7 @@ struct MavenView: View {
             .font(.system(size: 12))
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 24)
             .contentShape(Rectangle())
         }
@@ -248,6 +255,7 @@ struct MavenView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(minHeight: 24)
                     .background(isSelected ? LitheTheme.subtleSelection : .clear)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -331,6 +339,7 @@ struct MavenView: View {
                         .foregroundStyle(LitheTheme.primaryText)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

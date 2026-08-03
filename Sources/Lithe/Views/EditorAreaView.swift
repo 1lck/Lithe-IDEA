@@ -71,51 +71,56 @@ struct EditorAreaView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 ForEach(Array(model.openDocuments.enumerated()), id: \.element.id) { index, document in
-                    Button {
-                        model.activeDocumentID = document.id
-                    } label: {
-                        HStack(spacing: 7) {
-                            LitheIcon(
-                                kind: LitheIcons.kind(for: document.url, isDirectory: false),
-                                size: 13
-                            )
-                            Text(document.displayName)
-                                .font(.system(size: 12.5))
-                                .lineLimit(1)
-                            if document.isDirty {
-                                Circle()
-                                    .fill(LitheTheme.primaryText)
-                                    .frame(width: 6, height: 6)
+                    HStack(spacing: 0) {
+                        Button {
+                            model.activeDocumentID = document.id
+                        } label: {
+                            HStack(spacing: 7) {
+                                LitheIcon(
+                                    kind: LitheIcons.kind(for: document.url, isDirectory: false),
+                                    size: 13
+                                )
+                                Text(document.displayName)
+                                    .font(.system(size: 12.5))
+                                    .lineLimit(1)
+                                if document.isDirty {
+                                    Circle()
+                                        .fill(LitheTheme.primaryText)
+                                        .frame(width: 6, height: 6)
+                                }
                             }
-                            Button {
-                                model.requestCloseDocument(document)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .semibold))
-                            }
-                            .buttonStyle(.plain)
-                            .lithePointer()
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .opacity(model.activeDocumentID == document.id || hoveredTabID == document.id ? 1 : 0)
+                            .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                            .padding(.leading, 11)
+                            .frame(height: LitheTheme.Metrics.tabHeight)
+                            .contentShape(Rectangle())
                         }
-                        .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                        .padding(.horizontal, 11)
-                        .frame(height: LitheTheme.Metrics.tabHeight)
-                        .background(model.activeDocumentID == document.id ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
-                        .overlay(alignment: .bottom) {
-                            if model.activeDocumentID == document.id {
-                                Rectangle().fill(LitheTheme.accent).frame(height: 2)
-                            }
+                        .buttonStyle(.plain)
+                        .lithePointer()
+
+                        Button {
+                            model.requestCloseDocument(document)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .semibold))
                         }
-                        .contextMenu {
-                            editorTabContextMenu(for: document, at: index)
-                        }
-                        .onHover { isHovering in
-                            hoveredTabID = isHovering ? document.id : nil
+                        .litheIconButton()
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .opacity(model.activeDocumentID == document.id || hoveredTabID == document.id ? 1 : 0)
+                        .allowsHitTesting(model.activeDocumentID == document.id || hoveredTabID == document.id)
+                        .padding(.trailing, 4)
+                    }
+                    .background(model.activeDocumentID == document.id ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
+                    .overlay(alignment: .bottom) {
+                        if model.activeDocumentID == document.id {
+                            Rectangle().fill(LitheTheme.accent).frame(height: 2)
                         }
                     }
-                    .buttonStyle(.plain)
-                    .lithePointer()
+                    .contextMenu {
+                        editorTabContextMenu(for: document, at: index)
+                    }
+                    .onHover { isHovering in
+                        hoveredTabID = isHovering ? document.id : nil
+                    }
                 }
             }
         }
@@ -175,7 +180,11 @@ struct EditorAreaView: View {
             }
 
             if let document {
-                CodeEditorView(document: document, debugService: model.javaDebugService)
+                CodeEditorView(
+                    document: document,
+                    debugService: model.javaDebugService,
+                    shouldFocus: !showsHeader && document.id == model.activeDocumentID
+                )
                     .id(document.id)
                     .clipped()
             } else {
@@ -257,7 +266,11 @@ struct EditorAreaView: View {
     @ViewBuilder
     private var activeEditor: some View {
         if let document = model.activeDocument {
-            CodeEditorView(document: document, debugService: model.javaDebugService)
+            CodeEditorView(
+                document: document,
+                debugService: model.javaDebugService,
+                shouldFocus: true
+            )
                 .id(document.id)
                 .clipped()
                 .overlay(alignment: .top) {

@@ -110,6 +110,7 @@ private struct GitGraphRowView: View {
                     .frame(width: 122, alignment: .trailing)
             }
             .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: rowHeight)
             .background(backgroundColor)
             .contentShape(Rectangle())

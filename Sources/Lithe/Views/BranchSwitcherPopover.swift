@@ -180,6 +180,7 @@ struct BranchSwitcherPopover: View {
                 }
             }
             .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 34)
             .contentShape(Rectangle())
         }
@@ -220,6 +221,7 @@ struct BranchSwitcherPopover: View {
             }
             .padding(.leading, indented ? 28 : 10)
             .padding(.trailing, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 34)
             .background(reference.isCurrent ? LitheTheme.selection : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 5))

@@ -85,10 +85,20 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           LITHE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release create "$RELEASE_TAG" \
-            "dist/Lithe-${LITHE_VERSION}.dmg" \
-            "dist/Lithe-${LITHE_VERSION}.dmg.sha256" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "Lithe $RELEASE_TAG" \
-            --generate-notes
+          notes_file="docs/releases/v${LITHE_VERSION}.md"
+          release_args=(
+            "$RELEASE_TAG"
+            "dist/Lithe-${LITHE_VERSION}.dmg"
+            "dist/Lithe-${LITHE_VERSION}.dmg.sha256"
+            --repo "$GITHUB_REPOSITORY"
+            --target "$GITHUB_SHA"
+            --title "Lithe $RELEASE_TAG"
+          )
+
+          if [[ -f "$notes_file" ]]; then
+            release_args+=(--notes-file "$notes_file")
+          else
+            release_args+=(--generate-notes)
+          fi
+
+          gh release create "${release_args[@]}"

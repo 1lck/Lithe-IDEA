@@ -71,6 +71,8 @@ struct JavaProblemsView: View {
                 }
             } label: {
                 Image(systemName: "line.3.horizontal.decrease.circle")
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .litheIconButton()
             .help("Filter problems by severity")
@@ -140,6 +142,7 @@ struct JavaProblemsView: View {
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

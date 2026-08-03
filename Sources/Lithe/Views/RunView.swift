@@ -237,6 +237,7 @@ struct RunView: View {
             .font(.system(size: 12))
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(minHeight: 34)
             .background(isSelected ? LitheTheme.subtleSelection : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 4))

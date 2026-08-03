@@ -42,8 +42,7 @@ struct FindBarView: View {
             } label: {
                 Image(systemName: "chevron.up")
             }
-            .buttonStyle(.plain)
-            .lithePointer()
+            .litheIconButton()
             .foregroundStyle(LitheTheme.secondaryText)
             .disabled(model.findMatchCount == 0)
             .help("Previous match (Shift+Return)")
@@ -53,8 +52,7 @@ struct FindBarView: View {
             } label: {
                 Image(systemName: "chevron.down")
             }
-            .buttonStyle(.plain)
-            .lithePointer()
+            .litheIconButton()
             .foregroundStyle(LitheTheme.secondaryText)
             .disabled(model.findMatchCount == 0)
             .help("Next match (Return)")
@@ -64,8 +62,7 @@ struct FindBarView: View {
             } label: {
                 Image(systemName: "xmark")
             }
-            .buttonStyle(.plain)
-            .lithePointer()
+            .litheIconButton()
             .foregroundStyle(LitheTheme.secondaryText)
             .help("Close (Esc)")
         }

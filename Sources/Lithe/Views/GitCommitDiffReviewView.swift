@@ -149,6 +149,7 @@ struct GitCommitDiffReviewView: View {
                 .frame(height: 28)
                 .background(LitheTheme.raised.opacity(0.58))
                 .clipShape(RoundedRectangle(cornerRadius: 5))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .lithePointer()

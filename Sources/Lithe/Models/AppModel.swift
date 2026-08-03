@@ -104,8 +104,11 @@ final class AppModel: ObservableObject {
     private var externalRefreshGeneration = 0
     private var visibilityRulesRefreshTask: Task<Void, Never>?
     private var localHistorySeedTask: Task<Void, Never>?
+    private var workspaceSessionPersistenceTask: Task<Void, Never>?
     private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
     private var inlayHintTasks: [UUID: Task<Void, Never>] = [:]
+    private var pendingFileOpenRequests: [String: UUID] = [:]
+    private var latestFileOpenRequestID: UUID?
     private var pendingCloseQueue: [EditorDocument] = []
     private var pendingClosePreferredDocumentID: UUID?
     private var gitHistoryLimit = 300
@@ -148,6 +151,7 @@ final class AppModel: ObservableObject {
 
     deinit {
         doubleShiftDetector?.stop()
+        workspaceSessionPersistenceTask?.cancel()
     }
 
     private func reloadJavaRuntimeServices() {
@@ -221,6 +225,10 @@ final class AppModel: ObservableObject {
         if let previousWorkspaceURL = workspaceURL {
             persistWorkspaceSession(for: previousWorkspaceURL)
         }
+        workspaceSessionPersistenceTask?.cancel()
+        workspaceSessionPersistenceTask = nil
+        pendingFileOpenRequests.removeAll()
+        latestFileOpenRequestID = nil
         terminalSession.stop()
         projectRuntimeService.openProject(at: normalizedURL)
         mavenService.reset()
@@ -307,7 +315,7 @@ final class AppModel: ObservableObject {
             if snapshot.files.contains(where: { $0.pathExtension.lowercased() == "java" }) {
                 javaLanguageService.prepare(for: normalizedURL)
             }
-            restoreWorkspaceSession(for: normalizedURL, availableFiles: snapshot.files)
+            await restoreWorkspaceSession(for: normalizedURL, availableFiles: snapshot.files)
             await searchIndex.configure(at: normalizedURL)
             await searchIndex.update(files: snapshot.files)
             await refreshGit()
@@ -328,6 +336,10 @@ final class AppModel: ObservableObject {
     }
 
     func closeProject() {
+        workspaceSessionPersistenceTask?.cancel()
+        workspaceSessionPersistenceTask = nil
+        pendingFileOpenRequests.removeAll()
+        latestFileOpenRequestID = nil
         if let workspaceURL {
             persistWorkspaceSession(for: workspaceURL)
         }
@@ -436,18 +448,61 @@ final class AppModel: ObservableObject {
         selectedChange = nil
         closeBranchComparison()
         let normalizedURL = url.standardizedFileURL
+        Task { @MainActor [weak self] in
+            await self?.openFileAsync(
+                normalizedURL,
+                isReadOnly: isReadOnly,
+                displayPath: displayPath,
+                activateWhenReady: true
+            )
+        }
+    }
+
+    private func openFileAsync(
+        _ normalizedURL: URL,
+        isReadOnly: Bool,
+        displayPath: String?,
+        activateWhenReady: Bool
+    ) async {
         if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
-            activeDocumentID = existing.id
-            Task { await refreshCodeVision(for: existing.url) }
-            refreshJavaInlayHints(for: existing)
+            if activateWhenReady {
+                let requestID = UUID()
+                latestFileOpenRequestID = requestID
+                activeDocumentID = existing.id
+            }
+            if !isReadOnly {
+                Task { await refreshCodeVision(for: existing.url) }
+                refreshJavaInlayHints(for: existing)
+            }
             return
         }
 
-        guard WorkspaceScanner.isReadableTextFile(normalizedURL),
-              let text = try? String(contentsOf: normalizedURL, encoding: .utf8) else {
+        guard WorkspaceScanner.isReadableTextFile(normalizedURL) else {
             showNotification("This file cannot be displayed as text")
             return
         }
+
+        let requestID = UUID()
+        guard pendingFileOpenRequests[normalizedURL.path] == nil else { return }
+        pendingFileOpenRequests[normalizedURL.path] = requestID
+        if activateWhenReady {
+            latestFileOpenRequestID = requestID
+        }
+        let openingWorkspaceURL = workspaceURL
+        defer {
+            if pendingFileOpenRequests[normalizedURL.path] == requestID {
+                pendingFileOpenRequests[normalizedURL.path] = nil
+            }
+        }
+
+        let text = await Task.detached(priority: .userInitiated) {
+            try? String(contentsOf: normalizedURL, encoding: .utf8)
+        }.value
+        guard let text else {
+            showNotification("This file cannot be displayed as text")
+            return
+        }
+        guard workspaceURL == openingWorkspaceURL, openingWorkspaceURL != nil else { return }
 
         let document = EditorDocument(
             url: normalizedURL,
@@ -456,9 +511,12 @@ final class AppModel: ObservableObject {
             isReadOnly: isReadOnly,
             displayPath: displayPath
         )
+        guard !openDocuments.contains(where: { $0.url == normalizedURL }) else { return }
         openDocuments.append(document)
-        activeDocumentID = document.id
-        persistWorkspaceSession()
+        if activateWhenReady, latestFileOpenRequestID == requestID {
+            activeDocumentID = document.id
+        }
+        scheduleWorkspaceSessionPersistence()
         guard !document.isReadOnly else { return }
         Task { await refreshCodeVision(for: normalizedURL) }
         refreshJavaInlayHints(for: document)
@@ -2411,7 +2469,7 @@ final class AppModel: ObservableObject {
                 activeDocumentID = openDocuments.last?.id
             }
         }
-        persistWorkspaceSession()
+        scheduleWorkspaceSessionPersistence()
     }
 
     private func persistWorkspaceSession(for explicitWorkspaceURL: URL? = nil) {
@@ -2426,17 +2484,38 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func restoreWorkspaceSession(for workspaceURL: URL, availableFiles: [URL]) {
+    private func scheduleWorkspaceSessionPersistence() {
+        workspaceSessionPersistenceTask?.cancel()
+        workspaceSessionPersistenceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, let self else { return }
+            self.persistWorkspaceSession()
+        }
+    }
+
+    private func restoreWorkspaceSession(for workspaceURL: URL, availableFiles: [URL]) async {
         guard let session = WorkspaceSessionStore.load(for: workspaceURL) else { return }
         let availablePaths = Set(availableFiles.map { $0.standardizedFileURL.path })
         selectedSidebar = SidebarDestination(rawValue: session.selectedSidebar) ?? .project
 
-        for path in session.openPaths where availablePaths.contains(path) {
-            openFile(URL(fileURLWithPath: path))
+        let paths = session.openPaths.filter { availablePaths.contains($0) }
+        await withTaskGroup(of: Void.self) { group in
+            for path in paths {
+                group.addTask { [weak self] in
+                    await self?.openFileAsync(
+                        URL(fileURLWithPath: path),
+                        isReadOnly: false,
+                        displayPath: nil,
+                        activateWhenReady: false
+                    )
+                }
+            }
         }
         if let activePath = session.activePath,
            let document = openDocuments.first(where: { $0.url.standardizedFileURL.path == activePath }) {
             activeDocumentID = document.id
+        } else {
+            activeDocumentID = openDocuments.last?.id
         }
     }
 

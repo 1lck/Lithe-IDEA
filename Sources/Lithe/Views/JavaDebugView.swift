@@ -76,6 +76,8 @@ struct JavaDebugView: View {
                                 .font(.system(size: 8, weight: .bold))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .menuStyle(.borderlessButton)
                     .lithePointer()
@@ -495,6 +497,7 @@ struct JavaDebugView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
                 .frame(height: 30)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .lithePointer()
@@ -545,6 +548,7 @@ private struct JavaDebugVariableRow: View {
                 }
                 .padding(.leading, CGFloat(depth * 14) + 10)
                 .padding(.trailing, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(minHeight: 28)
                 .contentShape(Rectangle())
             }

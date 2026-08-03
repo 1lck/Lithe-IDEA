@@ -142,8 +142,7 @@ struct SearchEverywhereView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                 }
-                .buttonStyle(.plain)
-                .lithePointer()
+                .litheIconButton()
                 .foregroundStyle(LitheTheme.secondaryText)
             }
             searchOptionsMenu
@@ -161,6 +160,8 @@ struct SearchEverywhereView: View {
         } label: {
             Image(systemName: searchOptions == .default ? "slider.horizontal.3" : "slider.horizontal.3.circle.fill")
                 .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .lithePointer()

@@ -89,9 +89,11 @@ struct SettingsView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 32)
                     .background(selection == category ? LitheTheme.selection : .clear)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .lithePointer()

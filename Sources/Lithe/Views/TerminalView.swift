@@ -18,7 +18,10 @@ struct TerminalView: View {
             terminalCanvas
         }
         .background(Color(red: 0.071, green: 0.075, blue: 0.081))
-        .onAppear { isInputFocused = true }
+        .task {
+            await Task.yield()
+            requestInputFocus()
+        }
     }
 
     private var terminalToolbar: some View {
@@ -30,7 +33,7 @@ struct TerminalView: View {
         ) {
             Button {
                 session.restart()
-                isInputFocused = true
+                requestInputFocus()
             } label: {
                 Image(systemName: "plus")
             }
@@ -39,10 +42,10 @@ struct TerminalView: View {
 
             Menu {
                 ForEach(existingShells, id: \.self) { shell in
-                    Button(shellLabel(for: shell)) {
-                        session.restart(using: shell)
-                        isInputFocused = true
-                    }
+                Button(shellLabel(for: shell)) {
+                    session.restart(using: shell)
+                    requestInputFocus()
+                }
                 }
             } label: {
                 Image(systemName: "chevron.down")
@@ -51,6 +54,7 @@ struct TerminalView: View {
             .lithePointer()
             .menuIndicator(.hidden)
             .frame(width: 26, height: 28)
+            .contentShape(Rectangle())
             .foregroundStyle(LitheTheme.secondaryText)
             .help("Select shell")
 
@@ -65,6 +69,7 @@ struct TerminalView: View {
             .lithePointer()
             .menuIndicator(.hidden)
             .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
             .foregroundStyle(LitheTheme.secondaryText)
         }
     }
@@ -81,7 +86,7 @@ struct TerminalView: View {
                     .id("terminal-content")
             }
             .contentShape(Rectangle())
-            .onTapGesture { isInputFocused = true }
+            .onTapGesture { requestInputFocus() }
             .overlay(alignment: .topLeading) {
                 TextField("", text: $command)
                     .textFieldStyle(.plain)
@@ -90,6 +95,7 @@ struct TerminalView: View {
                     .frame(width: 1, height: 1)
                     .onSubmit(runCommand)
                     .onChange(of: session.isReady) {
+                        requestInputFocus()
                         if session.isReady, hasPendingSubmission {
                             runCommand()
                         }
@@ -149,6 +155,13 @@ struct TerminalView: View {
         if history.last != value { history.append(value) }
         historyIndex = nil
         command = ""
+    }
+
+    private func requestInputFocus() {
+        Task { @MainActor in
+            await Task.yield()
+            isInputFocused = true
+        }
     }
 
     private func moveHistory(by offset: Int) {

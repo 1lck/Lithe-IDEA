@@ -69,6 +69,7 @@ struct WelcomeView: View {
                 }
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: 34)
                 .contentShape(Rectangle())
             }
@@ -173,6 +174,7 @@ struct WelcomeView: View {
                     }
                     Spacer(minLength: 8)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -193,11 +195,14 @@ struct WelcomeView: View {
                 LitheSystemIcon(systemImage: "ellipsis")
                     .font(.system(size: 12, weight: .semibold))
                     .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
             .opacity(hoveredProjectID == project.id ? 1 : 0)
+            .allowsHitTesting(hoveredProjectID == project.id)
         }
         .padding(.horizontal, 12)
         .frame(height: 58)

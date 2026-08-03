@@ -32,8 +32,7 @@ struct SearchSidebarView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                     }
-                    .buttonStyle(.plain)
-                    .lithePointer()
+                    .litheIconButton()
                     .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Button(action: model.openProjectReplace) {
@@ -97,6 +96,7 @@ struct SearchSidebarView: View {
                                 .foregroundStyle(LitheTheme.primaryText)
                                 .padding(.horizontal, 11)
                                 .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -127,6 +127,8 @@ struct SearchSidebarView: View {
         } label: {
             Image(systemName: searchOptions == .default ? "slider.horizontal.3" : "slider.horizontal.3.circle.fill")
                 .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .lithePointer()

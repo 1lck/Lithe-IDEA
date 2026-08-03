@@ -6,6 +6,7 @@ struct CodeEditorView: NSViewRepresentable {
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
     @ObservedObject var debugService: JavaDebugService
+    var shouldFocus = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(document: document, model: model, debugService: debugService)
@@ -62,6 +63,9 @@ struct CodeEditorView: NSViewRepresentable {
         textView.insertionPointColor = .white
         textView.isEditable = !document.isReadOnly
         textView.isSelectable = true
+        textView.onWindowAttached = { [weak coordinator = context.coordinator] in
+            coordinator?.requestInitialFocusIfNeeded()
+        }
         textView.selectedTextAttributes = [
             .backgroundColor: NSColor(red: 0.16, green: 0.31, blue: 0.54, alpha: 1),
             .foregroundColor: NSColor.white
@@ -101,6 +105,8 @@ struct CodeEditorView: NSViewRepresentable {
         container.gutterWidthConstraint = gutterWidthConstraint
         context.coordinator.updateCodeVisionAndBlame()
         context.coordinator.updateDiagnostics()
+        context.coordinator.shouldFocus = shouldFocus
+        context.coordinator.requestInitialFocusIfNeeded()
         return container
     }
 
@@ -109,13 +115,19 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.document = document
         context.coordinator.model = model
         context.coordinator.debugService = debugService
+        context.coordinator.shouldFocus = shouldFocus
+        context.coordinator.requestInitialFocusIfNeeded()
         textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
         if let codeTextView = textView as? CodeTextView {
             codeTextView.indentationWidth = settings.tabWidth
         }
         textView.isEditable = !document.isReadOnly
         textView.isSelectable = true
-        if textView.string != document.text && !context.coordinator.isApplyingEditorChange {
+        // Keep IME marked text (for example, an active Chinese pinyin
+        // composition) in the NSTextView until the input method commits it.
+        if textView.string != document.text,
+           !textView.hasMarkedText(),
+           !context.coordinator.isApplyingEditorChange {
             let selection = textView.selectedRange()
             textView.string = document.text
             textView.setSelectedRange(NSRange(location: min(selection.location, document.text.utf16.count), length: 0))
@@ -143,6 +155,7 @@ struct CodeEditorView: NSViewRepresentable {
         var codeVisionOverlay: CodeVisionOverlayController?
         var inlayHintOverlay: JavaInlayHintOverlayController?
         var isApplyingEditorChange = false
+        var shouldFocus = true
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
@@ -154,6 +167,28 @@ struct CodeEditorView: NSViewRepresentable {
             self.debugService = debugService
             fileExtension = document.url.pathExtension
         }
+
+        func requestInitialFocusIfNeeded() {
+            guard shouldFocus,
+                  let textView,
+                  let document,
+                  let model,
+                  model.activeDocumentID == document.id,
+                  !hasRequestedInitialFocus else { return }
+            guard let window = textView.window else { return }
+
+            hasRequestedInitialFocus = true
+            DispatchQueue.main.async { [weak self, weak textView, weak window] in
+                guard let self,
+                      let textView,
+                      let window,
+                      self.shouldFocus,
+                      self.model?.activeDocumentID == self.document?.id else { return }
+                window.makeFirstResponder(textView)
+            }
+        }
+
+        private var hasRequestedInitialFocus = false
 
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
@@ -345,6 +380,7 @@ struct CodeEditorView: NSViewRepresentable {
 final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var indentationWidth = 4
     var isJavaNavigationEnabled = false
+    var onWindowAttached: (() -> Void)?
     var onNavigateToSymbol: ((Int, Int) -> Void)?
     var onGoToDefinition: (() -> Void)?
     var onGoToImplementation: (() -> Void)?
@@ -897,6 +933,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
             }
         }
         updateTrackingAreas()
+        onWindowAttached?()
     }
 
     override func flagsChanged(with event: NSEvent) {

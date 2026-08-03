@@ -82,6 +82,7 @@ struct ProjectSwitcherPopover: View {
             }
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 32)
             .contentShape(Rectangle())
             .litheRowHover(cornerRadius: 5)

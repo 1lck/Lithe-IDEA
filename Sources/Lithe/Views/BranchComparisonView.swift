@@ -108,6 +108,7 @@ struct BranchComparisonView: View {
                                     Spacer(minLength: 6)
                                 }
                                 .padding(.horizontal, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .frame(height: 39)
                                 .background(
                                     model.selectedBranchComparisonFile?.id == file.id

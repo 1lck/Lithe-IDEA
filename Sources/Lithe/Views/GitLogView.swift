@@ -281,10 +281,12 @@ struct GitLogView: View {
                 }
             } label: {
                 LitheIDEAIcon(resourcePath: "actions/more.svg", size: 15, fallbackSystemImage: "ellipsis")
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
             .lithePointer()
-            .frame(width: 26)
+            .frame(width: 28, height: 28)
             .help("Git tool window actions")
 
             Spacer(minLength: 12)
@@ -513,8 +515,7 @@ struct GitLogView: View {
                             Image(systemName: "xmark")
                                 .font(.system(size: 10, weight: .semibold))
                         }
-                        .buttonStyle(.plain)
-                        .lithePointer()
+                        .litheIconButton()
                         .foregroundStyle(LitheTheme.secondaryText)
                     }
                 }
