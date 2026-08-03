@@ -7,6 +7,7 @@ struct SettingsView: View {
         case general = "General"
         case editor = "Editor"
         case terminal = "Terminal"
+        case updates = "Updates"
 
         var id: String { rawValue }
         var icon: String {
@@ -15,12 +16,14 @@ struct SettingsView: View {
             case .general: "gearshape"
             case .editor: "textformat"
             case .terminal: "terminal"
+            case .updates: "arrow.down.circle"
             }
         }
     }
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
     @ObservedObject var projectRuntime: ProjectRuntimeService
     @State private var selection: Category = .general
@@ -119,6 +122,7 @@ struct SettingsView: View {
                 case .general: generalSettings
                 case .editor: editorSettings
                 case .terminal: terminalSettings
+                case .updates: updatesSettings
                 }
             }
             .padding(24)
@@ -365,6 +369,93 @@ struct SettingsView: View {
             Text("Used for new terminal sessions.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
+        }
+    }
+
+    private var updatesSettings: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            group("Application version") {
+                row("Current version") {
+                    Text(updateChecker.currentVersion)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .monospacedDigit()
+                }
+                Text("Lithe checks GitHub Releases for published updates.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            group("Update status") {
+                updateStatusDescription
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await updateChecker.checkForUpdates(manual: true) }
+                    } label: {
+                        Label(
+                            updateChecker.isChecking ? "Checking for updates…" : "Check for Updates",
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(LitheTheme.accent)
+                    .disabled(updateChecker.isBusy)
+                    .lithePointer()
+
+                    if case .available(let version, _) = updateChecker.status {
+                        Button {
+                            Task { await updateChecker.installAvailableUpdate() }
+                        } label: {
+                            Label("Update \(version)", systemImage: "arrow.down.circle.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(updateChecker.isBusy)
+                        .lithePointer()
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var updateStatusDescription: some View {
+        switch updateChecker.status {
+        case .idle:
+            Text("No update check has been performed yet.")
+                .foregroundStyle(LitheTheme.secondaryText)
+        case .checking:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Checking GitHub Releases…")
+            }
+            .foregroundStyle(LitheTheme.secondaryText)
+        case .available(let version, _):
+            Label("Version \(version) is available.", systemImage: "arrow.down.circle.fill")
+                .foregroundStyle(LitheTheme.accent)
+        case .downloading(let version):
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Downloading update \(version)…")
+            }
+            .foregroundStyle(LitheTheme.secondaryText)
+        case .installing(let version):
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Installing update \(version)…")
+            }
+            .foregroundStyle(LitheTheme.secondaryText)
+        case .upToDate(let version):
+            Label("Lithe is up to date at version \(version).", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(LitheTheme.success)
+        case .noRelease:
+            Text("No published release is available yet.")
+                .foregroundStyle(LitheTheme.secondaryText)
+        case .failed:
+            Label("Could not check for updates.", systemImage: "exclamationmark.triangle")
+                .foregroundStyle(LitheTheme.warning)
         }
     }
 

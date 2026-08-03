@@ -38,21 +38,32 @@ struct RootView: View {
             await updateChecker.checkForUpdates()
         }
         .alert(item: $updateChecker.notice) { notice in
-            if let downloadURL = notice.downloadURL {
+            switch notice.action {
+            case .install:
+                return Alert(
+                    title: Text(LocalizedStringKey(notice.title)),
+                    message: Text(LocalizedStringKey(notice.message)),
+                    primaryButton: .default(Text("Update")) {
+                        Task { await updateChecker.installAvailableUpdate() }
+                    },
+                    secondaryButton: .cancel()
+                )
+            case .open(let url):
                 return Alert(
                     title: Text(LocalizedStringKey(notice.title)),
                     message: Text(LocalizedStringKey(notice.message)),
                     primaryButton: .default(Text("Download")) {
-                        updateChecker.openRelease(downloadURL)
+                        updateChecker.openRelease(url)
                     },
                     secondaryButton: .cancel()
                 )
+            case .dismiss:
+                return Alert(
+                    title: Text(LocalizedStringKey(notice.title)),
+                    message: Text(LocalizedStringKey(notice.message)),
+                    dismissButton: .default(Text("OK"))
+                )
             }
-            return Alert(
-                title: Text(LocalizedStringKey(notice.title)),
-                message: Text(LocalizedStringKey(notice.message)),
-                dismissButton: .default(Text("OK"))
-            )
         }
     }
 }

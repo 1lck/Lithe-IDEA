@@ -146,7 +146,7 @@ Lithe 的信息架构和操作路径刻意贴近 IDEA：Project、Changes、Sear
 | 构建运行 | Maven 根项目、多模块、Profiles、Lifecycle、Build Output、Current File、Spring Boot 和 Maven Module |
 | Java Debug | 本地 JDWP、Maven/Spring Boot Debug、Remote JVM/Tomcat attach、断点、单步、线程和变量查询 |
 | 工作效率 | 项目级 Local History、内置终端、可拖拽工具窗口和分栏布局恢复 |
-| 更新 | 检查最新 GitHub Release，并打开下载页面进行手动更新 |
+| 更新 | 检查最新 GitHub Release，校验匹配的安装包，并在确认后覆盖当前 App |
 | 界面语言 | 默认英文，可在 Settings 中切换为简体中文 |
 
 ## 快速开始
@@ -188,24 +188,7 @@ open dist/Lithe.app
 
 ### 下载发布版本
 
-从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。如果某个版本提供独立架构安装包，M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。Lithe 可以检查是否有更新并打开下载页面，但当前更新方式是手动的：退出 Lithe，替换现有 App，然后重新打开。
-
-### 使用 Homebrew 安装
-
-Lithe 通过 Homebrew Cask 分发。Cask 定义保存在 `Casks/lithe.rb`；将这个文件发布到名为 `1lck/homebrew-lithe` 的 Tap 仓库后，用户即可使用下面的命令安装：
-
-```bash
-brew tap 1lck/lithe
-brew install --cask lithe
-```
-
-Tap 仓库中必须存在 `Casks/lithe.rb`。发布 Tap 前，可以在本地先运行下面的命令校验 Cask：
-
-```bash
-brew audit --cask --strict --online ./Casks/lithe.rb
-```
-
-发布新版本时，更新 Cask 中的 `version` 和 `sha256`，使其匹配 GitHub Release 的 DMG。当前 Cask 指向 Universal 版本 `v0.1.5`；如果后续只发布按架构区分的 DMG，需要使用 Homebrew 的 `arch arm: "arm64", intel: "x86_64"` 语法，并分别填写两个架构的 `sha256`。
+从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。如果某个版本提供独立架构安装包，M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。Lithe 也支持在应用内检查更新，下载匹配当前架构的安装包，覆盖当前 App 并自动重启。
 
 如果 macOS 阻止打开来自未识别开发者的 App，可以先右键点击 App 并选择 **打开**；也可以在尝试启动后进入 **系统设置 → 隐私与安全性 → 仍要打开**。
 

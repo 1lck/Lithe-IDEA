@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WelcomeView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var updateChecker: UpdateChecker
     @State private var projectFilter = ""
     @State private var hoveredProjectID: String?
     @FocusState private var searchFocused: Bool
@@ -33,9 +34,10 @@ struct WelcomeView: View {
                     Text("Lithe")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
-                    Text("0.1.0 · macOS")
+                    Text("\(updateChecker.currentVersion) · macOS")
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
+                    updatePrompt
                 }
             }
             .padding(.horizontal, 24)
@@ -81,6 +83,73 @@ struct WelcomeView: View {
         }
         .frame(width: 280)
         .background(LitheTheme.sidebar)
+    }
+
+    @ViewBuilder
+    private var updatePrompt: some View {
+        Group {
+            switch updateChecker.status {
+            case .available(let version, _):
+                Button {
+                    Task { await updateChecker.installAvailableUpdate() }
+                } label: {
+                    Label("Update to \(version)", systemImage: "arrow.down.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(LitheTheme.accent)
+            case .checking:
+                HStack(spacing: 5) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Checking for updates…")
+                }
+                .foregroundStyle(LitheTheme.secondaryText)
+            case .downloading(let version):
+                HStack(spacing: 5) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Downloading update \(version)…")
+                }
+                .foregroundStyle(LitheTheme.secondaryText)
+            case .installing(let version):
+                HStack(spacing: 5) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Installing update \(version)…")
+                }
+                .foregroundStyle(LitheTheme.secondaryText)
+            case .upToDate:
+                Button {
+                    checkForUpdates()
+                } label: {
+                    Label("Check for Updates", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(LitheTheme.secondaryText)
+            case .failed:
+                Button {
+                    checkForUpdates()
+                } label: {
+                    Label("Retry update check", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(LitheTheme.secondaryText)
+            case .idle, .noRelease:
+                Button {
+                    checkForUpdates()
+                } label: {
+                    Label("Check for Updates", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(LitheTheme.secondaryText)
+            }
+        }
+        .font(.system(size: 10.5, weight: .medium))
+        .lithePointer()
+    }
+
+    private func checkForUpdates() {
+        Task { await updateChecker.checkForUpdates(manual: true) }
     }
 
     private var projectsContent: some View {
