@@ -188,7 +188,7 @@ open dist/Lithe.app
 
 ### 下载发布版本
 
-从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载已发布版本。Lithe 可以检查是否有更新并打开下载页面，但当前更新方式是手动的：退出 Lithe，将新的 `Lithe.app` 替换到 `/Applications`，然后重新打开。
+从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。Lithe 可以检查是否有更新并打开下载页面，但当前更新方式是手动的：退出 Lithe，替换现有 App，然后重新打开。
 
 如果 macOS 阻止打开来自未识别开发者的 App，可以先右键点击 App 并选择 **打开**；也可以在尝试启动后进入 **系统设置 → 隐私与安全性 → 仍要打开**。
 

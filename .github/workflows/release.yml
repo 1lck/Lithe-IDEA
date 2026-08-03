@@ -59,14 +59,17 @@ jobs:
         run: |
           chmod +x scripts/package-app.sh
           ./scripts/package-app.sh
-          ditto -c -k --keepParent \
-            dist/Lithe.app \
-            "dist/Lithe-${LITHE_VERSION}.zip"
+          hdiutil create \
+            -volname "Lithe" \
+            -srcfolder dist/Lithe.app \
+            -ov \
+            -format UDZO \
+            "dist/Lithe-${LITHE_VERSION}.dmg"
           shasum -a 256 \
-            "dist/Lithe-${LITHE_VERSION}.zip" \
-            > "dist/Lithe-${LITHE_VERSION}.zip.sha256"
+            "dist/Lithe-${LITHE_VERSION}.dmg" \
+            > "dist/Lithe-${LITHE_VERSION}.dmg.sha256"
 
-      - name: Verify the bundle
+      - name: Verify the bundle and disk image
         env:
           LITHE_VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -77,7 +80,8 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleVersion" \
             dist/Lithe.app/Contents/Info.plist
-          test -s "dist/Lithe-${LITHE_VERSION}.zip"
+          hdiutil imageinfo "dist/Lithe-${LITHE_VERSION}.dmg" > /dev/null
+          test -s "dist/Lithe-${LITHE_VERSION}.dmg"
 
       - name: Create GitHub Release
         env:
@@ -86,8 +90,8 @@ jobs:
           LITHE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           gh release create "$RELEASE_TAG" \
-            "dist/Lithe-${LITHE_VERSION}.zip" \
-            "dist/Lithe-${LITHE_VERSION}.zip.sha256" \
+            "dist/Lithe-${LITHE_VERSION}.dmg" \
+            "dist/Lithe-${LITHE_VERSION}.dmg.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Lithe $RELEASE_TAG" \

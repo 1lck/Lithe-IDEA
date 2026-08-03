@@ -188,7 +188,7 @@ open dist/Lithe.app
 
 ### Download a release
 
-Download published versions from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). Lithe can check for a newer release and open the download page, but the current update flow is manual: quit Lithe, replace `Lithe.app` in `/Applications`, and reopen it.
+Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). Open the disk image, drag `Lithe.app` to `/Applications`, and launch it. Lithe can check for a newer release and open the download page, but the current update flow is manual: quit Lithe, replace the existing app, and reopen it.
 
 If macOS blocks an app from an unidentified developer, first try right-clicking the app and choosing **Open**. You can also use **System Settings → Privacy & Security → Open Anyway** after trying to launch it.
 
