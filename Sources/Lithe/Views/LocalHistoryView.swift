@@ -110,7 +110,7 @@ struct LocalHistoryView: View {
                                 model.selectLocalHistoryEntry(entry)
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(entry.reason.title)
+                                    Text(LocalizedStringKey(entry.reason.title))
                                         .font(.system(size: 12, weight: .medium))
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .lineLimit(1)
@@ -204,7 +204,7 @@ struct LocalHistoryView: View {
             Image(systemName: icon)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer()

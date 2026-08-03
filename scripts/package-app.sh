@@ -21,6 +21,11 @@ cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R "$ROOT_DIR/Resources/IDEAIcons" "$APP_DIR/Contents/Resources/IDEAIcons"
+for localization in en.lproj zh-Hans.lproj; do
+    if [[ -d "$ROOT_DIR/Resources/$localization" ]]; then
+        cp -R "$ROOT_DIR/Resources/$localization" "$APP_DIR/Contents/Resources/$localization"
+    fi
+done
 codesign --force --deep --sign - "$APP_DIR"
 
 echo "$APP_DIR"

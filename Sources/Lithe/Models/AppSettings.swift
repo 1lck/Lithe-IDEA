@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class AppSettings: ObservableObject {
     private enum Key {
+        static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
         static let tabWidth = "settings.tabWidth"
         static let showCodeVision = "settings.showCodeVision"
@@ -15,6 +16,7 @@ final class AppSettings: ObservableObject {
 
     private let defaults: UserDefaults
 
+    @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
     @Published var tabWidth: Int { didSet { defaults.set(tabWidth, forKey: Key.tabWidth) } }
     @Published var showCodeVision: Bool { didSet { defaults.set(showCodeVision, forKey: Key.showCodeVision) } }
@@ -38,6 +40,7 @@ final class AppSettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
         showCodeVision = defaults.object(forKey: Key.showCodeVision) as? Bool ?? true
@@ -60,6 +63,7 @@ final class AppSettings: ObservableObject {
     }
 
     func restoreDefaults() {
+        language = .english
         editorFontSize = 13
         tabWidth = 4
         showCodeVision = true
@@ -68,6 +72,24 @@ final class AppSettings: ObservableObject {
         terminalShell = .system
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
+    }
+}
+
+enum AppLanguage: String, CaseIterable, Identifiable {
+    case english = "en"
+    case simplifiedChinese = "zh-Hans"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .english: "English"
+        case .simplifiedChinese: "简体中文"
+        }
+    }
+
+    var locale: Locale {
+        Locale(identifier: rawValue)
     }
 }
 

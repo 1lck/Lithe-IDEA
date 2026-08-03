@@ -40,8 +40,8 @@ struct RootView: View {
         .alert(item: $updateChecker.notice) { notice in
             if let downloadURL = notice.downloadURL {
                 return Alert(
-                    title: Text(notice.title),
-                    message: Text(notice.message),
+                    title: Text(LocalizedStringKey(notice.title)),
+                    message: Text(LocalizedStringKey(notice.message)),
                     primaryButton: .default(Text("Download")) {
                         updateChecker.openRelease(downloadURL)
                     },
@@ -49,8 +49,8 @@ struct RootView: View {
                 )
             }
             return Alert(
-                title: Text(notice.title),
-                message: Text(notice.message),
+                title: Text(LocalizedStringKey(notice.title)),
+                message: Text(LocalizedStringKey(notice.message)),
                 dismissButton: .default(Text("OK"))
             )
         }

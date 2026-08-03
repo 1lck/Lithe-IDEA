@@ -110,7 +110,7 @@ final class AppModel: ObservableObject {
     private var pendingClosePreferredDocumentID: UUID?
     private var gitHistoryLimit = 300
     let projectRuntimeService: ProjectRuntimeService
-    let settings = AppSettings()
+    let settings: AppSettings
     let terminalSession = TerminalSession()
     let javaLanguageService: JavaLanguageService
     let javaImplementationMarkerService: JavaImplementationMarkerService
@@ -120,7 +120,8 @@ final class AppModel: ObservableObject {
     let searchIndex = WorkspaceSearchIndex()
     private var localHistoryService: LocalHistoryService?
 
-    init() {
+    init(settings: AppSettings) {
+        self.settings = settings
         let runtimeService = ProjectRuntimeService()
         projectRuntimeService = runtimeService
         mavenService = MavenService(runtimeService: runtimeService)

@@ -186,7 +186,7 @@ struct MavenView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 16)
-                Text(phase.title)
+                Text(LocalizedStringKey(phase.title))
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 LitheSystemIcon(systemImage: "play.fill")
@@ -234,12 +234,12 @@ struct MavenView: View {
                             .foregroundStyle(LitheTheme.accent)
                             .frame(width: 16)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(title)
+                            Text(LocalizedStringKey(title))
                                 .font(.system(size: 12))
                                 .foregroundStyle(LitheTheme.primaryText)
                                 .lineLimit(1)
                             if let subtitle, !subtitle.isEmpty {
-                                Text(subtitle)
+                                Text(LocalizedStringKey(subtitle))
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .lineLimit(1)

@@ -330,15 +330,15 @@ private struct ProjectItemNameDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
-                Text(message)
+                Text(LocalizedStringKey(message))
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
-            TextField(placeholder, text: $name)
+            TextField(LocalizedStringKey(placeholder), text: $name)
                 .textFieldStyle(.roundedBorder)
                 .focused($nameFieldFocused)
                 .onSubmit(submit)

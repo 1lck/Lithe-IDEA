@@ -207,7 +207,7 @@ struct BranchComparisonView: View {
             Image(systemName: icon)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             if let file = model.selectedBranchComparisonFile {

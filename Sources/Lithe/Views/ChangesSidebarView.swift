@@ -70,7 +70,7 @@ struct ChangesSidebarView: View {
                 Button {
                     selectedTab = tab
                 } label: {
-                    Text(tab.title)
+                    Text(LocalizedStringKey(tab.title))
                         .font(.system(size: 12.5, weight: tab == selectedTab ? .semibold : .regular))
                         .foregroundStyle(tab == selectedTab ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .padding(.horizontal, 10)
@@ -358,7 +358,7 @@ struct ChangesSidebarView: View {
                     Image(systemName: "square")
                         .font(.system(size: 16))
                         .foregroundStyle(LitheTheme.secondaryText)
-                    Text(title)
+                    Text(LocalizedStringKey(title))
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                     Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
@@ -407,7 +407,7 @@ struct ChangesSidebarView: View {
                         .frame(width: 17, height: 17)
                         .background(statusColor(change).opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: 3))
-                        .help(change.kind.title)
+                        .help(LocalizedStringKey(change.kind.title))
                     Text(changeDisplayName(change))
                         .font(.system(size: 12.5))
                         .foregroundStyle(fileNameColor(change))

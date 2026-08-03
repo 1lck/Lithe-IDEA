@@ -147,6 +147,7 @@ The cost of switching to Lithe is not learning another IDE. It is simply opening
 | Java Debug | Local JDWP, Maven/Spring Boot Debug, Remote JVM/Tomcat attach, breakpoints, stepping, threads, and variables |
 | Productivity | Project Local History, integrated terminal, resizable tool windows, and restored split layouts |
 | Updates | Checks the latest GitHub Release and opens the download page for manual updates |
+| Interface | English by default, with Simplified Chinese available from Settings |
 
 ## Quick Start
 

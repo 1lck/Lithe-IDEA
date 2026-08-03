@@ -149,7 +149,7 @@ struct JavaRunConfigurationEditorView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             content()
@@ -158,7 +158,7 @@ struct JavaRunConfigurationEditorView: View {
 
     private func summaryRow(title: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 120, alignment: .leading)
             Text(value)
@@ -176,10 +176,10 @@ struct JavaRunConfigurationEditorView: View {
         chooseDirectory: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 8) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 120, alignment: .leading)
-            TextField(placeholder, text: text)
+            TextField(LocalizedStringKey(placeholder), text: text)
                 .textFieldStyle(.roundedBorder)
             Button(action: chooseDirectory) {
                 LitheSystemIcon(systemImage: "folder")
@@ -196,10 +196,10 @@ struct JavaRunConfigurationEditorView: View {
         text: Binding<String>
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
-            TextField(placeholder, text: text)
+            TextField(LocalizedStringKey(placeholder), text: text)
                 .textFieldStyle(.roundedBorder)
         }
     }

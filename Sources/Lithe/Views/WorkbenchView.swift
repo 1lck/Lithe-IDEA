@@ -117,7 +117,7 @@ struct WorkbenchView: View {
         }
         .overlay(alignment: .bottom) {
             if let message = model.notificationMessage {
-                Text(message)
+                Text(LocalizedStringKey(message))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.primaryText)
                     .padding(.horizontal, 14)
@@ -336,7 +336,7 @@ struct WorkbenchView: View {
                         .buttonStyle(.plain)
                         .lithePointer()
                         .foregroundStyle(model.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                        .help(destination.title)
+                        .help(LocalizedStringKey(destination.title))
                     }
                 }
 
@@ -727,14 +727,14 @@ struct WorkbenchView: View {
                     LitheIcon(kind: iconKind, size: 12)
                         .opacity(isEmphasized ? 1 : 0.72)
                 }
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .lineLimit(1)
             }
             .foregroundStyle(isEmphasized ? LitheTheme.primaryText : LitheTheme.secondaryText)
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .help(title)
+        .help(LocalizedStringKey(title))
     }
 
     private var breadcrumbSeparator: some View {

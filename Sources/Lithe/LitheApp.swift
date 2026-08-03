@@ -2,15 +2,23 @@ import SwiftUI
 
 @main
 struct LitheApp: App {
-    @StateObject private var model = AppModel()
+    @StateObject private var settings: AppSettings
+    @StateObject private var model: AppModel
     @StateObject private var updateChecker = UpdateChecker()
+
+    init() {
+        let settings = AppSettings()
+        _settings = StateObject(wrappedValue: settings)
+        _model = StateObject(wrappedValue: AppModel(settings: settings))
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(model)
-                .environmentObject(model.settings)
+                .environmentObject(settings)
                 .environmentObject(updateChecker)
+                .environment(\.locale, settings.language.locale)
                 .frame(minWidth: 980, minHeight: 640)
                 .preferredColorScheme(.dark)
         }

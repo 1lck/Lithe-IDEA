@@ -30,7 +30,7 @@ struct JavaDebugView: View {
         VStack(spacing: 7) {
             Picker("Debug target", selection: $service.targetKind) {
                 ForEach(JavaDebugTargetKind.allCases) { target in
-                    Label(target.title, systemImage: target.systemImage)
+                    Label(LocalizedStringKey(target.title), systemImage: target.systemImage)
                         .tag(target)
                 }
             }
@@ -252,7 +252,7 @@ struct JavaDebugView: View {
 
             if let title = service.inspectionTitle {
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                     .padding(.horizontal, 12)
@@ -472,7 +472,7 @@ struct JavaDebugView: View {
 
     private func sectionHeader(_ title: String, count: Int?) -> some View {
         HStack {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer()
@@ -489,7 +489,7 @@ struct JavaDebugView: View {
 
     private func inspectButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon)
+            Label(LocalizedStringKey(title), systemImage: icon)
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)

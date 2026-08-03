@@ -95,7 +95,7 @@ struct SearchEverywhereView: View {
                 Button {
                     scope = item
                 } label: {
-                    Text(item.rawValue)
+                    Text(LocalizedStringKey(item.rawValue))
                         .font(.system(size: 12, weight: scope == item ? .semibold : .regular))
                         .foregroundStyle(scope == item ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .padding(.horizontal, 11)
@@ -253,7 +253,7 @@ struct SearchEverywhereView: View {
             Image(systemName: hasQuery ? "magnifyingglass" : "sparkle.magnifyingglass")
                 .font(.system(size: 24, weight: .light))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Text(text)
+            Text(LocalizedStringKey(text))
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
         }
@@ -262,7 +262,7 @@ struct SearchEverywhereView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         HStack(spacing: 6) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -327,17 +327,17 @@ struct SearchEverywhereView: View {
                     .foregroundStyle(LitheTheme.warning)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(action.title)
+                    Text(LocalizedStringKey(action.title))
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
-                    Text(action.subtitle)
+                    Text(LocalizedStringKey(action.subtitle))
                         .font(.system(size: 10))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 12)
                 HStack(spacing: 8) {
-                    Text(action.group.rawValue)
+                    Text(LocalizedStringKey(action.group.rawValue))
                         .font(.system(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                     if let keyEquivalent = action.keyEquivalent {

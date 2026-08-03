@@ -51,7 +51,7 @@ struct DiffReviewView: View {
             HStack(spacing: 4) {
                 Image(systemName: change.kind.symbol)
                     .font(.system(size: 8, weight: .bold))
-                Text(change.kind.title.uppercased())
+                Text(LocalizedStringKey(change.kind.title.uppercased()))
                     .font(.system(size: 8.5, weight: .bold))
             }
             .foregroundStyle(changeKindColor)
@@ -126,9 +126,9 @@ struct DiffReviewView: View {
                             }
                         } label: {
                             if model.gitDiffWhitespaceMode == mode {
-                                Label(mode.title, systemImage: "checkmark")
+                                Label(LocalizedStringKey(mode.title), systemImage: "checkmark")
                             } else {
-                                Text(mode.title)
+                                Text(LocalizedStringKey(mode.title))
                             }
                         }
                     }
@@ -208,7 +208,7 @@ struct DiffReviewView: View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
                 .font(.system(size: 11))
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: .medium))
                 .lineLimit(1)
         }
@@ -244,7 +244,7 @@ struct DiffReviewView: View {
             Image(systemName: systemImage)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)

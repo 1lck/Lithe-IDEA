@@ -41,11 +41,11 @@ struct LitheToolWindowHeader<Actions: View>: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             if let subtitle, !subtitle.isEmpty {
-                Text(subtitle)
+                Text(LocalizedStringKey(subtitle))
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)

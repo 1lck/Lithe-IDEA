@@ -91,7 +91,7 @@ struct GitCommitDiffReviewView: View {
         HStack(spacing: 4) {
             Image(systemName: context.kind.symbol)
                 .font(.system(size: 8, weight: .bold))
-            Text(context.kind.title.uppercased())
+            Text(LocalizedStringKey(context.kind.title.uppercased()))
                 .font(.system(size: 8.5, weight: .bold))
         }
         .foregroundStyle(changeKindColor)
@@ -180,7 +180,7 @@ struct GitCommitDiffReviewView: View {
             Image(systemName: "doc.text")
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(path)

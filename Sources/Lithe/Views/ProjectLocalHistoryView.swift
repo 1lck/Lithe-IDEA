@@ -116,7 +116,7 @@ struct ProjectLocalHistoryView: View {
                                         .lineLimit(1)
                                         .truncationMode(.middle)
                                     HStack(spacing: 6) {
-                                        Text(entry.reason.title)
+                                        Text(LocalizedStringKey(entry.reason.title))
                                         Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
                                         Text(ByteCountFormatter.string(fromByteCount: Int64(entry.byteCount), countStyle: .file))
                                     }
@@ -214,7 +214,7 @@ struct ProjectLocalHistoryView: View {
             Image(systemName: icon)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             if title == "Historical version",

@@ -147,6 +147,7 @@ Lithe 的信息架构和操作路径刻意贴近 IDEA：Project、Changes、Sear
 | Java Debug | 本地 JDWP、Maven/Spring Boot Debug、Remote JVM/Tomcat attach、断点、单步、线程和变量查询 |
 | 工作效率 | 项目级 Local History、内置终端、可拖拽工具窗口和分栏布局恢复 |
 | 更新 | 检查最新 GitHub Release，并打开下载页面进行手动更新 |
+| 界面语言 | 默认英文，可在 Settings 中切换为简体中文 |
 
 ## 快速开始
 

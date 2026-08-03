@@ -85,7 +85,7 @@ struct SettingsView: View {
                 } label: {
                     HStack(spacing: 9) {
                         Image(systemName: category.icon).frame(width: 18)
-                        Text(category.rawValue)
+                        Text(LocalizedStringKey(category.rawValue))
                         Spacer()
                     }
                     .padding(.horizontal, 10)
@@ -108,7 +108,7 @@ struct SettingsView: View {
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text(selection.rawValue)
+                Text(LocalizedStringKey(selection.rawValue))
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
 
@@ -163,7 +163,7 @@ struct SettingsView: View {
                         set: { projectRuntime.updateMavenHomeSelection($0) }
                     )) {
                         ForEach(MavenHomeSelection.allCases) { selection in
-                            Text(selection.title).tag(selection)
+                            Text(LocalizedStringKey(selection.title)).tag(selection)
                         }
                     }
                     .labelsHidden()
@@ -239,6 +239,20 @@ struct SettingsView: View {
 
     private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
+            group("Language") {
+                Picker("Language", selection: $settings.language) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.title).tag(language)
+                    }
+                }
+                .frame(maxWidth: 220, alignment: .leading)
+                .lithePointer()
+
+                Text("The interface language changes immediately. English is the default.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
             group("Files") {
                 Toggle("Save changed files automatically", isOn: $settings.autoSave)
                     .lithePointer()
@@ -332,7 +346,7 @@ struct SettingsView: View {
             row("Default shell") {
                 Picker("", selection: $settings.terminalShell) {
                     ForEach(TerminalShell.allCases) { shell in
-                        Text(shell.title).tag(shell)
+                        Text(LocalizedStringKey(shell.title)).tag(shell)
                     }
                 }
                 .labelsHidden()
@@ -354,7 +368,7 @@ struct SettingsView: View {
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             content()
@@ -370,7 +384,7 @@ struct SettingsView: View {
 
     private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         HStack {
-            Text(title)
+            Text(LocalizedStringKey(title))
             Spacer()
             content()
         }
@@ -384,11 +398,11 @@ struct SettingsView: View {
         options: [(String, String)]
     ) -> some View {
         HStack(spacing: 10) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 118, alignment: .leading)
             Picker("", selection: selection) {
-                Text(automaticTitle).tag("")
+                Text(LocalizedStringKey(automaticTitle)).tag("")
                 ForEach(options, id: \.0) { option in
                     Text(option.1).tag(option.0)
                 }
@@ -406,10 +420,10 @@ struct SettingsView: View {
         onCommit: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 8) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 118, alignment: .leading)
-            TextField(placeholder, text: text)
+            TextField(LocalizedStringKey(placeholder), text: text)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(onCommit)
             Button {
@@ -446,7 +460,7 @@ struct SettingsView: View {
 
     private func runtimeStatusRow(title: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 118, alignment: .leading)
             Text(value)

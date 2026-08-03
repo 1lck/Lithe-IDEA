@@ -63,7 +63,7 @@ struct ProjectSwitcherPopover: View {
     }
 
     private func sectionTitle(_ title: String) -> some View {
-        Text(title)
+        Text(LocalizedStringKey(title))
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText)
             .padding(.horizontal, 10)
@@ -76,7 +76,7 @@ struct ProjectSwitcherPopover: View {
                 LitheSystemIcon(systemImage: icon)
                     .font(.system(size: 16, weight: .regular))
                     .frame(width: 20)
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.system(size: 13, weight: .medium))
                 Spacer(minLength: 0)
             }

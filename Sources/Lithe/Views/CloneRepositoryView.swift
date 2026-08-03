@@ -152,7 +152,7 @@ struct CloneRepositoryView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             content()

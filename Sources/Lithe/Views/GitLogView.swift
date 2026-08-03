@@ -388,7 +388,7 @@ struct GitLogView: View {
                         .font(.system(size: 8, weight: .bold))
                         .frame(width: 10)
                     LitheSystemIcon(systemImage: icon, size: 14)
-                    Text(title)
+                    Text(LocalizedStringKey(title))
                         .font(GitVisual.section)
                 }
                 .foregroundStyle(LitheTheme.primaryText)
@@ -416,7 +416,7 @@ struct GitLogView: View {
                 LitheSystemIcon(systemImage: icon, size: 14)
                     .foregroundStyle(reference.kind == .tag ? LitheTheme.warning : LitheTheme.secondaryText)
                     .frame(width: 16)
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(GitVisual.body)
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
@@ -1015,7 +1015,7 @@ private struct GitBranchNameDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text(message)

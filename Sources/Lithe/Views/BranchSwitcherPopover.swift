@@ -136,7 +136,7 @@ struct BranchSwitcherPopover: View {
                                         .font(.system(size: 8, weight: .bold))
                                     Image(systemName: group.kind == .local ? "folder" : group.kind == .remote ? "network" : "tag")
                                         .font(.system(size: 11.5))
-                                    Text(group.title)
+                                    Text(LocalizedStringKey(group.title))
                                         .font(.system(size: 12, weight: .medium))
                                 }
                                 .foregroundStyle(LitheTheme.secondaryText)
@@ -169,7 +169,7 @@ struct BranchSwitcherPopover: View {
                     .font(.system(size: 12))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 18)
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.system(size: 13))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
