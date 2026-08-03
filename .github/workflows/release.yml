@@ -59,12 +59,8 @@ jobs:
         run: |
           chmod +x scripts/package-app.sh
           ./scripts/package-app.sh
-          hdiutil create \
-            -volname "Lithe" \
-            -srcfolder dist/Lithe.app \
-            -ov \
-            -format UDZO \
-            "dist/Lithe-${LITHE_VERSION}.dmg"
+          chmod +x scripts/create-dmg.sh
+          ./scripts/create-dmg.sh
           shasum -a 256 \
             "dist/Lithe-${LITHE_VERSION}.dmg" \
             > "dist/Lithe-${LITHE_VERSION}.dmg.sha256"
