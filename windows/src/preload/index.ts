@@ -107,6 +107,24 @@ const api = {
     ipcRenderer.invoke(IPC.PLUGIN_EXPORT_MARKET, kind, id, extra),
   pluginExportInstalled: (id: string) => ipcRenderer.invoke(IPC.PLUGIN_EXPORT_INSTALLED, id),
   pluginContributions: () => ipcRenderer.invoke(IPC.PLUGIN_CONTRIBUTIONS),
+  pluginWebviewUrl: (id: string, cwd?: string) =>
+    ipcRenderer.invoke(IPC.PLUGIN_WEBVIEW_URL, id, cwd),
+  pluginHostEnsure: (id: string, cwd?: string) =>
+    ipcRenderer.invoke(IPC.PLUGIN_HOST_ENSURE, id, cwd),
+  pluginHostPost: (id: string, message: unknown) =>
+    ipcRenderer.invoke(IPC.PLUGIN_HOST_POST, id, message),
+  pluginExecuteCommand: (id: string, commandId: string, args?: unknown[]) =>
+    ipcRenderer.invoke(IPC.PLUGIN_EXECUTE_COMMAND, id, commandId, args || []),
+  onPluginHostEvent: (cb: (payload: { pluginId: string; message: unknown }) => void) => {
+    const listener = (_event: unknown, payload: { pluginId: string; message: unknown }): void => cb(payload)
+    ipcRenderer.on(IPC.PLUGIN_HOST_EVENT, listener)
+    return () => ipcRenderer.removeListener(IPC.PLUGIN_HOST_EVENT, listener)
+  },
+  onPluginLitheAction: (cb: (payload: { pluginId: string; action: string; payload: unknown }) => void) => {
+    const listener = (_event: unknown, p: any): void => cb(p)
+    ipcRenderer.on('plugin:lithe-action', listener)
+    return () => ipcRenderer.removeListener('plugin:lithe-action', listener)
+  },
   pluginOpenFolder: () => ipcRenderer.invoke(IPC.PLUGIN_OPEN_FOLDER),
 
   // Utilities

@@ -47,16 +47,16 @@
   width: 42px;
   height: 42px;
   border-radius: 9px;
-  background: var(--lithe-accent);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
+  overflow: hidden;
   flex-shrink: 0;
+  background: transparent;
 }
-.welcome-logo-bracket { font-size: 12px; opacity: 0.7; }
-.welcome-logo-letter { font-size: 17px; }
+.welcome-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
 
 .welcome-brand-text h1 {
   margin: 0;

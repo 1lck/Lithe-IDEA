@@ -61,17 +61,19 @@
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  background: var(--lithe-accent);
-  color: #fff;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
   flex-shrink: 0;
-  letter-spacing: -0.04em;
+  background: transparent;
 }
-.tb-logo span { opacity: 0.7; font-size: 9px; }
+.tb-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
 .tb-project-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -217,10 +219,13 @@
   justify-content: center;
   color: var(--lithe-text-tertiary);
 }
-.activity-bar button svg {
+.activity-bar button svg,
+.activity-bar button img {
   width: 18px;
   height: 18px;
   stroke-width: 1.35;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 .activity-bar button:hover {
   color: var(--lithe-text-primary);
@@ -263,7 +268,6 @@
 }
 
 .workbench-sidebar {
-  width: 280px;
   flex-shrink: 0;
   background: var(--lithe-sidebar);
   border-radius: var(--lithe-island-radius);
@@ -276,6 +280,7 @@
   flex-shrink: 0;
   cursor: col-resize;
   position: relative;
+  touch-action: none;
 }
 .workspace-split::after {
   content: '';
@@ -286,9 +291,62 @@
   width: 2px;
   border-radius: 1px;
   background: transparent;
+  transition: background 0.12s ease;
 }
-.workspace-split:hover::after {
-  background: rgba(255, 255, 255, 0.12);
+.workspace-split:hover::after,
+.workspace-split:focus-visible::after,
+.workspace-split.is-active::after {
+  background: var(--lithe-accent);
+}
+.workspace-split:focus-visible {
+  outline: none;
+}
+
+/* Horizontal splitter — between workspace-top and bottom pane */
+.workspace-split-h {
+  height: 6px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  position: relative;
+  margin-top: calc(var(--lithe-island-pad) - 3px);
+  margin-bottom: calc(var(--lithe-island-pad) - 3px);
+  touch-action: none;
+}
+.workspace-split-h::after {
+  content: '';
+  position: absolute;
+  left: 20%;
+  right: 20%;
+  top: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.workspace-split-h:hover::after,
+.workspace-split-h:focus-visible::after,
+.workspace-split-h.is-active::after {
+  background: var(--lithe-accent);
+}
+.workspace-split-h:focus-visible {
+  outline: none;
+}
+
+/* While dragging a splitter: keep a global cursor, block text selection,
+   and stop plugin iframes from swallowing the mouse move events. */
+.workbench.is-resizing {
+  user-select: none;
+}
+.workbench.is-resizing-col,
+.workbench.is-resizing-col * {
+  cursor: col-resize !important;
+}
+.workbench.is-resizing-row,
+.workbench.is-resizing-row * {
+  cursor: row-resize !important;
+}
+.workbench.is-resizing iframe {
+  pointer-events: none;
 }
 
 .workbench-main {
@@ -334,9 +392,7 @@
 }
 
 .workbench-bottom {
-  height: 260px;
   flex-shrink: 0;
-  margin-top: var(--lithe-island-pad);
   background: var(--lithe-editor);
   border-radius: var(--lithe-island-radius);
   overflow: hidden;

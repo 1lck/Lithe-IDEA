@@ -17,8 +17,17 @@ import type {
   PluginContributions,
   PluginInfo,
   PluginKind,
-  PluginThemeContribution
+  PluginThemeContribution,
+  PluginViewContribution,
+  PluginViewTitleButton
 } from '@common/types'
+import { detectVscodeWebviewAssets, pluginSidebarUrl } from './pluginProtocol'
+import {
+  ensurePluginStaticServer,
+  pluginWebviewHttpUrl,
+  updatePluginStaticRoots
+} from './pluginStaticServer'
+import { executeExtensionCommand, getExtensionHost, postToExtensionHost, startExtensionHost } from './extensionHost'
 
 const execFileAsync = promisify(execFile)
 
@@ -30,8 +39,148 @@ const emptyContrib = (): PluginContributions => ({
   themes: [],
   commands: [],
   snippets: [],
-  languages: []
+  languages: [],
+  views: []
 })
+
+async function resolveIconDataUrl(absPath: string): Promise<string | undefined> {
+  try {
+    if (!(await pathExists(absPath))) return undefined
+    const ext = path.extname(absPath).toLowerCase()
+    const buf = await fsp.readFile(absPath)
+    const b64 = buf.toString('base64')
+    if (ext === '.svg') return `data:image/svg+xml;base64,${b64}`
+    if (ext === '.png') return `data:image/png;base64,${b64}`
+    if (ext === '.jpg' || ext === '.jpeg') return `data:image/jpeg;base64,${b64}`
+    if (ext === '.gif') return `data:image/gif;base64,${b64}`
+    if (ext === '.webp') return `data:image/webp;base64,${b64}`
+  } catch {
+    /* ignore */
+  }
+  return undefined
+}
+
+async function hydrateViewIcons(root: string, views: PluginViewContribution[]): Promise<void> {
+  for (const v of views) {
+    if (v.iconDataUrl || !v.iconPath) continue
+    const abs = path.isAbsolute(v.iconPath) ? v.iconPath : path.join(root, v.iconPath)
+    v.iconPath = abs
+    v.iconDataUrl = await resolveIconDataUrl(abs)
+  }
+}
+
+/**
+ * Parse `contributes.menus["view/title"]` + `contributes.commands` into the
+ * toolbar buttons VS Code would render in a view's header (Kilo Code's
+ * settings gear, history, marketplace, profile, +). These are attached to the
+ * matching activity-bar view so the renderer can draw them.
+ */
+async function attachTitleButtons(
+  root: string,
+  contributes: PluginContributions,
+  rawContributes: any,
+  nls: Record<string, string>,
+  pluginName: string
+): Promise<void> {
+  const menus = rawContributes?.menus?.['view/title']
+  if (!Array.isArray(menus) || !menus.length) return
+
+  const commands: any[] = Array.isArray(rawContributes?.commands) ? rawContributes.commands : []
+  const cmdById = new Map<string, any>()
+  for (const c of commands) if (c?.command) cmdById.set(String(c.command), c)
+
+  // Group buttons by the view they target (when == "view == <id>")
+  for (const view of contributes.views) {
+    const buttons: PluginViewTitleButton[] = []
+    for (const item of menus) {
+      if (!item?.command) continue
+      const when = String(item.when || '')
+      // Only include if the menu targets this view (or has no view constraint).
+      // Skip entries explicitly disabled via `false && ...`.
+      if (/^\s*false\b/.test(when)) continue
+      if (when && when.includes('view ==') && !when.includes(view.id)) continue
+      if (when && when.includes('view ==') === false && when.includes('view') ) {
+        // some use `activeViewlet` etc — skip unknown constraints for safety
+      }
+
+      const cmd = cmdById.get(String(item.command))
+      const title = resolveNls(cmd?.title || item.command, nls, String(item.command))
+      const iconRaw = cmd?.icon
+      let codicon: string | undefined
+      let iconDataUrl: string | undefined
+      if (typeof iconRaw === 'string') {
+        const m = iconRaw.match(/^\$\(([^)]+)\)$/)
+        if (m) codicon = m[1]
+        else iconDataUrl = await resolveIconDataUrl(path.isAbsolute(iconRaw) ? iconRaw : path.join(root, iconRaw))
+      } else if (iconRaw && typeof iconRaw === 'object') {
+        // { light, dark } — prefer dark
+        const p = iconRaw.dark || iconRaw.light
+        if (typeof p === 'string') {
+          iconDataUrl = await resolveIconDataUrl(path.isAbsolute(p) ? p : path.join(root, p))
+        }
+      }
+
+      const groupMatch = String(item.group || '').match(/@(\d+)/)
+      buttons.push({
+        command: String(item.command),
+        title,
+        codicon,
+        iconDataUrl,
+        order: groupMatch ? Number(groupMatch[1]) : 999
+      })
+    }
+    if (buttons.length) {
+      buttons.sort((a, b) => a.order - b.order)
+      view.titleButtons = buttons
+    }
+  }
+  void pluginName
+}
+
+/** Load VS Code package.nls.json (+ locale overlay). Keys are without % wrapping. */
+async function loadVscodeNls(root: string): Promise<Record<string, string>> {
+  const base = (await readJson<Record<string, string>>(path.join(root, 'package.nls.json'))) || {}
+  const locale = (app.getLocale?.() || Intl.DateTimeFormat().resolvedOptions().locale || 'en').replace(
+    /_/g,
+    '-'
+  )
+  const lang = locale.split('-')[0]?.toLowerCase() || 'en'
+  const region = locale.split('-')[1]?.toUpperCase() || ''
+
+  const candidates: string[] = []
+  if (lang === 'zh') {
+    if (region === 'TW' || region === 'HK' || region === 'MO') {
+      candidates.push('package.nls.zh-TW.json', 'package.nls.zh-CN.json')
+    } else {
+      candidates.push('package.nls.zh-CN.json', 'package.nls.zh-TW.json')
+    }
+  } else {
+    if (region) candidates.push(`package.nls.${lang}-${region}.json`)
+    candidates.push(`package.nls.${lang}.json`)
+  }
+
+  let overlay: Record<string, string> | null = null
+  for (const file of candidates) {
+    overlay = await readJson<Record<string, string>>(path.join(root, file))
+    if (overlay) break
+  }
+
+  return overlay ? { ...base, ...overlay } : base
+}
+
+/** Resolve `%key%` placeholders using package.nls dictionaries. */
+function resolveNls(raw: unknown, nls: Record<string, string>, fallback = ''): string {
+  if (raw == null) return fallback
+  const text = String(raw)
+  if (!text.includes('%')) return text || fallback
+  const resolved = text.replace(/%([^%]+)%/g, (_m, key: string) => {
+    const hit = nls[key]
+    return hit != null && hit !== '' ? hit : _m
+  })
+  // If still a bare %key%, fall back
+  if (/^%[^%]+%$/.test(resolved.trim())) return fallback || resolved
+  return resolved || fallback
+}
 
 function pluginsRoot(): string {
   return path.join(app.getPath('userData'), 'plugins')
@@ -139,8 +288,10 @@ async function parseVscodeExtension(root: string): Promise<Omit<PluginInfo, 'ena
   const pkg = await readJson<any>(pkgPath)
   if (!pkg || typeof pkg.name !== 'string') return null
 
+  const nls = await loadVscodeNls(root)
   const publisher = String(pkg.publisher || pkg.author?.name || 'unknown')
-  const name = String(pkg.displayName || pkg.name)
+  const name = resolveNls(pkg.displayName, nls, String(pkg.name))
+  const description = resolveNls(pkg.description, nls, '')
   const id = safeId(`${publisher}.${pkg.name}`)
   const contributes = emptyContrib()
   const c = pkg.contributes || {}
@@ -150,7 +301,7 @@ async function parseVscodeExtension(root: string): Promise<Omit<PluginInfo, 'ena
       if (!t?.path) continue
       contributes.themes.push({
         id: String(t.id || `${id}.theme.${contributes.themes.length}`),
-        label: String(t.label || t.id || 'Theme'),
+        label: resolveNls(t.label || t.id, nls, 'Theme'),
         path: path.join(root, t.path),
         uiTheme: t.uiTheme
       })
@@ -162,8 +313,8 @@ async function parseVscodeExtension(root: string): Promise<Omit<PluginInfo, 'ena
       if (!cmd?.command) continue
       contributes.commands.push({
         id: String(cmd.command),
-        title: String(cmd.title || cmd.command),
-        category: cmd.category ? String(cmd.category) : undefined
+        title: resolveNls(cmd.title || cmd.command, nls, String(cmd.command)),
+        category: cmd.category ? resolveNls(cmd.category, nls) : undefined
       })
     }
   }
@@ -184,25 +335,82 @@ async function parseVscodeExtension(root: string): Promise<Omit<PluginInfo, 'ena
     }
   }
 
+  // Activity-bar view containers → sidebar tool-window buttons
+  const activityBars = c.viewsContainers?.activitybar
+  if (Array.isArray(activityBars)) {
+    for (const container of activityBars) {
+      if (!container?.id) continue
+      const iconRaw = container.icon || container.darkIcon
+      const icon =
+        typeof iconRaw === 'string' && !iconRaw.startsWith('$') ? String(iconRaw) : undefined
+      contributes.views.push({
+        id: String(container.id),
+        title: resolveNls(container.title || container.id, nls, name),
+        iconPath: icon,
+        location: 'activitybar'
+      })
+    }
+  }
+  const panelContainers = c.viewsContainers?.panel
+  if (Array.isArray(panelContainers)) {
+    for (const container of panelContainers) {
+      if (!container?.id) continue
+      const iconRaw = container.icon || container.darkIcon
+      contributes.views.push({
+        id: String(container.id),
+        title: resolveNls(container.title || container.id, nls, name),
+        iconPath:
+          typeof iconRaw === 'string' && !iconRaw.startsWith('$') ? String(iconRaw) : undefined,
+        location: 'panel'
+      })
+    }
+  }
+
+  await hydrateViewIcons(root, contributes.views)
+
+  const hasWebviewUi = detectVscodeWebviewAssets(root)
+  if (hasWebviewUi) {
+    for (const v of contributes.views) {
+      if (v.location === 'activitybar') v.hasWebviewUi = true
+    }
+  }
+
+  // Attach view/title toolbar buttons (Kilo/Cline: settings, history, marketplace…)
+  await attachTitleButtons(root, contributes, c, nls, name)
+
   const hasRuntime =
     Boolean(pkg.main) || Boolean(pkg.browser) || Boolean(pkg.activationEvents?.length)
   const hasStatic =
-    contributes.themes.length + contributes.commands.length + contributes.snippets.length > 0
+    contributes.themes.length +
+      contributes.commands.length +
+      contributes.snippets.length +
+      contributes.views.length >
+    0
+
+  // Runtime UI plugins without declared viewsContainers still get a sidebar placeholder
+  if (contributes.views.length === 0 && hasRuntime) {
+    contributes.views.push({
+      id: `${id}.toolwindow`,
+      title: name,
+      location: 'activitybar',
+      synthetic: true
+    })
+  }
 
   let compatibility: PluginInfo['compatibility'] = 'metadata'
   let compatibilityNote =
-    'VS Code extension APIs are not fully hosted. Static contributions (themes, commands, snippets) can apply.'
+    'VS Code extension APIs are not fully hosted. Static contributions (themes, commands, snippets, views) can apply.'
   if (hasStatic && !hasRuntime) {
     compatibility = 'partial'
-    compatibilityNote = 'Static contributions supported (themes / commands / snippets).'
+    compatibilityNote = 'Static contributions supported (themes / commands / snippets / sidebar views).'
   } else if (hasStatic && hasRuntime) {
     compatibility = 'partial'
     compatibilityNote =
-      'Themes, commands, and snippets apply. Extension host JS (Language Servers, custom UI) is not executed.'
+      'Themes, commands, snippets and sidebar buttons apply. Extension host JS (Language Servers, custom webviews) is not executed.'
   } else if (hasRuntime) {
     compatibility = 'metadata'
     compatibilityNote =
-      'This extension requires the VS Code Extension Host. Installed for catalog / future host support.'
+      'This extension requires the VS Code Extension Host. A sidebar placeholder is shown; runtime UI is not hosted.'
   }
 
   return {
@@ -210,7 +418,7 @@ async function parseVscodeExtension(root: string): Promise<Omit<PluginInfo, 'ena
     name,
     version: String(pkg.version || '0.0.0'),
     kind: 'vscode',
-    description: String(pkg.description || ''),
+    description,
     publisher,
     path: root,
     compatibility,
@@ -294,6 +502,40 @@ async function parseIdeaPlugin(root: string): Promise<Omit<PluginInfo, 'enabled'
     }
   }
 
+  // <toolWindow id="..." anchor="left|right|bottom" icon="..." />
+  const toolWindowRe = /<toolWindow\b[^>]*\/?>/gi
+  let tw: RegExpExecArray | null
+  while ((tw = toolWindowRe.exec(xml))) {
+    const tag = tw[0]
+    const twId = extractXmlAttr(tag, 'id')
+    if (!twId) continue
+    const anchor = (extractXmlAttr(tag, 'anchor') || 'left').toLowerCase()
+    const icon = extractXmlAttr(tag, 'icon')
+    const text = extractXmlAttr(tag, 'text') || extractXmlAttr(tag, 'stripeText')
+    contributes.views.push({
+      id: twId,
+      title: text || twId,
+      iconPath: icon && !icon.startsWith('AllIcons') ? icon.replace(/^\//, '') : undefined,
+      location: anchor === 'bottom' ? 'panel' : 'activitybar'
+    })
+  }
+
+  await hydrateViewIcons(root, contributes.views)
+
+  // IDEA plugins without declared toolWindows still get a sidebar entry (skip pure color-scheme packs)
+  const themeOnly =
+    contributes.themes.length > 0 &&
+    contributes.commands.length === 0 &&
+    contributes.views.length === 0
+  if (contributes.views.length === 0 && !themeOnly) {
+    contributes.views.push({
+      id: `${safeId(id)}.toolwindow`,
+      title: name,
+      location: 'activitybar',
+      synthetic: true
+    })
+  }
+
   return {
     id: safeId(id),
     name,
@@ -304,8 +546,8 @@ async function parseIdeaPlugin(root: string): Promise<Omit<PluginInfo, 'enabled'
     path: root,
     compatibility: contributes.themes.length ? 'partial' : 'metadata',
     compatibilityNote: contributes.themes.length
-      ? 'Color schemes can apply. JVM plugin code requires the IntelliJ Platform and is not executed.'
-      : 'IDEA plugins are JVM-based. Lithe records metadata and actions; runtime code is not loaded.',
+      ? 'Color schemes can apply. Sidebar buttons are shown as placeholders; JVM UI is not executed.'
+      : 'IDEA plugins are JVM-based. Lithe shows sidebar placeholders from toolWindow metadata; runtime code is not loaded.',
     contributes
   }
 }
@@ -329,6 +571,16 @@ async function parseLithePlugin(root: string): Promise<Omit<PluginInfo, 'enabled
       category: c.category
     })
   }
+  for (const v of manifest.contributes?.views || []) {
+    if (!v?.id) continue
+    contributes.views.push({
+      id: String(v.id),
+      title: String(v.title || v.id),
+      iconPath: v.icon ? String(v.icon) : undefined,
+      location: v.location === 'panel' ? 'panel' : 'activitybar'
+    })
+  }
+  await hydrateViewIcons(root, contributes.views)
   return {
     id: safeId(String(manifest.id)),
     name: String(manifest.name || manifest.id),
@@ -367,7 +619,16 @@ async function listInstalled(): Promise<PluginInfo[]> {
   }
 
   out.sort((a, b) => a.name.localeCompare(b.name))
+  installedPathCache.clear()
+  for (const p of out) installedPathCache.set(p.id, p.path)
+  updatePluginStaticRoots(installedPathCache)
   return out
+}
+
+const installedPathCache = new Map<string, string>()
+
+export function getCachedPluginPath(pluginId: string): string | null {
+  return installedPathCache.get(pluginId) || null
 }
 
 async function rimraf(target: string): Promise<void> {
@@ -1030,11 +1291,15 @@ async function activeContributions(): Promise<{
   plugins: PluginInfo[]
   themes: Array<PluginThemeContribution & { pluginId: string; pluginName: string }>
   commands: Array<PluginCommandContribution & { pluginId: string; pluginName: string }>
+  views: Array<PluginViewContribution & { pluginId: string; pluginName: string; pluginKind: PluginKind }>
   themeContents: Record<string, unknown>
 }> {
   const plugins = (await listInstalled()).filter((p) => p.enabled)
   const themes: Array<PluginThemeContribution & { pluginId: string; pluginName: string }> = []
   const commands: Array<PluginCommandContribution & { pluginId: string; pluginName: string }> = []
+  const views: Array<
+    PluginViewContribution & { pluginId: string; pluginName: string; pluginKind: PluginKind }
+  > = []
   const themeContents: Record<string, unknown> = {}
 
   for (const p of plugins) {
@@ -1053,9 +1318,13 @@ async function activeContributions(): Promise<{
     for (const c of p.contributes.commands) {
       commands.push({ ...c, pluginId: p.id, pluginName: p.name })
     }
+    for (const v of p.contributes.views || []) {
+      if (v.location !== 'activitybar') continue
+      views.push({ ...v, pluginId: p.id, pluginName: p.name, pluginKind: p.kind })
+    }
   }
 
-  return { plugins, themes, commands, themeContents }
+  return { plugins, themes, commands, views, themeContents }
 }
 
 export function registerPluginHandlers(): void {
@@ -1174,9 +1443,95 @@ export function registerPluginHandlers(): void {
 
   ipcMain.handle(IPC.PLUGIN_CONTRIBUTIONS, async () => activeContributions())
 
+  ipcMain.handle(IPC.PLUGIN_WEBVIEW_URL, async (_e, pluginId: string, cwd?: string) => {
+    const list = await listInstalled()
+    const hit = list.find((p) => p.id === pluginId && p.enabled)
+    if (!hit) return { ok: false as const, error: 'Plugin not found' }
+    if (hit.kind !== 'vscode' || !detectVscodeWebviewAssets(hit.path)) {
+      return { ok: false as const, error: 'No webview UI assets in this plugin' }
+    }
+    await ensurePluginStaticServer()
+    updatePluginStaticRoots(installedPathCache)
+
+    // Try Extension Host before returning URL
+    let hostRunning = false
+    try {
+      const host = await startExtensionHost({
+        pluginId: hit.id,
+        extensionPath: hit.path,
+        cwd
+      })
+      hostRunning = host.status === 'running'
+    } catch (err: any) {
+      console.warn('[plugin] host ensure failed', err?.message || err)
+    }
+
+    let url = pluginWebviewHttpUrl(hit.id)
+    if (!url) {
+      url = pluginSidebarUrl(hit.id)
+    } else {
+      const qs = new URLSearchParams()
+      if (cwd) qs.set('cwd', cwd)
+      if (hostRunning) qs.set('host', '1')
+      // Cache-bust so a restarted host always serves its fresh resolved HTML
+      qs.set('t', String(Date.now()))
+      const q = qs.toString()
+      if (q) url += `?${q}`
+    }
+    const host = getExtensionHost(hit.id)
+    return {
+      ok: true as const,
+      url,
+      title: hit.name,
+      hostStatus: host?.status || 'idle',
+      hostError: host?.error
+    }
+  })
+
+  ipcMain.handle(IPC.PLUGIN_HOST_ENSURE, async (_e, pluginId: string, cwd?: string) => {
+    const list = await listInstalled()
+    const hit = list.find((p) => p.id === pluginId)
+    if (!hit) return { ok: false as const, error: 'Plugin not found' }
+    const host = await startExtensionHost({
+      pluginId: hit.id,
+      extensionPath: hit.path,
+      cwd
+    })
+    return {
+      ok: host.status === 'running',
+      status: host.status,
+      error: host.error,
+      viewType: host.viewType
+    }
+  })
+
+  ipcMain.handle(IPC.PLUGIN_HOST_POST, async (_e, pluginId: string, message: unknown) => {
+    return { ok: postToExtensionHost(pluginId, message) }
+  })
+
+  ipcMain.handle(
+    IPC.PLUGIN_EXECUTE_COMMAND,
+    async (_e, pluginId: string, commandId: string, args?: unknown[]) =>
+      executeExtensionCommand(pluginId, commandId, ...(Array.isArray(args) ? args : []))
+  )
+
   ipcMain.handle(IPC.PLUGIN_OPEN_FOLDER, async () => {
     await ensureDirs()
     await shell.openPath(installedRoot())
     return installedRoot()
   })
+}
+
+/** Resolve on-disk root for lithe-plugin:// protocol (enabled or not). */
+export async function resolveInstalledPluginPath(pluginId: string): Promise<string | null> {
+  const list = await listInstalled()
+  const hit = list.find((p) => p.id === pluginId)
+  return hit?.path || null
+}
+
+/** Snapshot of installed plugin id → path for the custom protocol handler. */
+export async function mapInstalledPluginPaths(): Promise<Map<string, string>> {
+  // listInstalled refreshes installedPathCache
+  await listInstalled()
+  return new Map(installedPathCache)
 }

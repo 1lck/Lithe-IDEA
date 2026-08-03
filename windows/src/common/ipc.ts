@@ -101,6 +101,17 @@ export const IPC = {
   PLUGIN_EXPORT_INSTALLED: 'plugin:export-installed',
   PLUGIN_CONTRIBUTIONS: 'plugin:contributions',
   PLUGIN_OPEN_FOLDER: 'plugin:open-folder',
+  PLUGIN_WEBVIEW_URL: 'plugin:webview-url',
+  PLUGIN_HOST_ENSURE: 'plugin:host-ensure',
+  PLUGIN_HOST_POST: 'plugin:host-post',
+  PLUGIN_HOST_EVENT: 'plugin:host-event',
+
+  // Plugin bridge: Extension Host → Renderer actions
+  PLUGIN_OPEN_FILE: 'plugin:open-file-in-editor',
+  PLUGIN_SHOW_DIFF: 'plugin:show-diff',
+  PLUGIN_TERMINAL_SEND: 'plugin:terminal-send',
+  /** Renderer → Extension Host: run a command registered by the plugin */
+  PLUGIN_EXECUTE_COMMAND: 'plugin:execute-command',
 
   // App
   APP_CHECK_UPDATE: 'app:check-update'

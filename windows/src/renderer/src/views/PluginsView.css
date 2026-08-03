@@ -263,7 +263,7 @@
 
 .plugins-contrib {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   margin-bottom: 18px;
 }
@@ -291,6 +291,13 @@
   flex-direction: column;
   gap: 6px;
   margin-bottom: 16px;
+}
+.plugins-view-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--lithe-text-secondary);
+  line-height: 1.55;
 }
 .plugins-theme-label {
   display: flex;

@@ -15,6 +15,7 @@ import { DiffReviewView, type DiffTarget } from '../components/DiffReviewView'
 import { MavenPanel } from '../components/MavenPanel'
 import { StructurePanel } from '../components/StructurePanel'
 import { ProblemsPanel } from '../components/ProblemsPanel'
+import { PluginToolWindowPanel } from '../components/PluginToolWindowPanel'
 import { ToolWindowHeader } from '../components/ToolWindowHeader'
 import { SettingsView } from './SettingsView'
 import { PluginsView } from './PluginsView'
@@ -24,6 +25,7 @@ import {
   loadRememberedThemeId,
   rememberActiveTheme
 } from '../plugins/applyPluginTheme'
+import appIcon from '../assets/AppIcon.png'
 import './WorkbenchView.css'
 
 interface EditorTab {
@@ -37,8 +39,29 @@ interface EditorTab {
   sizeLabel?: string
 }
 
-type SidebarTool = 'project' | 'git' | 'search' | 'structure' | 'maven' | 'problems'
+type BuiltinSidebar = 'project' | 'git' | 'search' | 'structure' | 'maven' | 'problems'
+type SidebarTool = BuiltinSidebar | `plugin:${string}`
 type BottomTool = 'terminal' | 'run' | 'history' | 'debug' | null
+
+interface PluginSidebarView {
+  key: string
+  viewId: string
+  title: string
+  pluginId: string
+  pluginName: string
+  pluginKind: string
+  iconDataUrl?: string
+  synthetic?: boolean
+  hasWebviewUi?: boolean
+  titleButtons?: Array<{ command: string; title: string; codicon?: string; iconDataUrl?: string; order: number }>
+}
+
+const PLUGIN_ICON = (
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="14" height="12" rx="1.5" />
+    <path d="M7 8h6M7 11h4" />
+  </svg>
+)
 
 interface Props {
   projectPath: string
@@ -46,7 +69,11 @@ interface Props {
   onOpenProject: (path: string) => void
 }
 
-const ACTIVITY: { id: SidebarTool; title: string; icon: JSX.Element }[] = [
+const SIDEBAR_MIN = 180
+const SIDEBAR_MAX = 600
+const BOTTOM_MIN = 120
+
+const ACTIVITY: { id: BuiltinSidebar; title: string; icon: JSX.Element }[] = [
   {
     id: 'project',
     title: 'Project',
@@ -123,6 +150,7 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
   const [pluginThemes, setPluginThemes] = useState<
     Array<{ id: string; label: string; pluginName: string }>
   >([])
+  const [pluginViews, setPluginViews] = useState<PluginSidebarView[]>([])
   const [serverUrl, setServerUrl] = useState<string | null>(null)
   const [servePort, setServePort] = useState(() => {
     const n = Number(localStorage.getItem('lithe.serve.port') || '5500')
@@ -130,6 +158,63 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
   })
   const [serveMenu, setServeMenu] = useState(false)
   const [terminalMounted, setTerminalMounted] = useState(false)
+
+  // Resizable panels — sidebar width & bottom pane height (persisted)
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const n = Number(localStorage.getItem('lithe.sidebar.width') || '280')
+    return Number.isFinite(n) ? Math.min(Math.max(n, SIDEBAR_MIN), SIDEBAR_MAX) : 280
+  })
+  const [bottomHeight, setBottomHeight] = useState(() => {
+    const n = Number(localStorage.getItem('lithe.bottom.height') || '260')
+    return Number.isFinite(n) ? Math.max(n, BOTTOM_MIN) : 260
+  })
+  const [resizing, setResizing] = useState<'col' | 'row' | null>(null)
+
+  const startSidebarResize = useCallback((e: React.MouseEvent): void => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = sidebarWidth
+    setResizing('col')
+    const onMove = (ev: MouseEvent): void => {
+      const next = Math.min(Math.max(startW + (ev.clientX - startX), SIDEBAR_MIN), SIDEBAR_MAX)
+      setSidebarWidth(next)
+    }
+    const onUp = (): void => {
+      setResizing(null)
+      setSidebarWidth((w) => {
+        localStorage.setItem('lithe.sidebar.width', String(w))
+        return w
+      })
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [sidebarWidth])
+
+  const startBottomResize = useCallback((e: React.MouseEvent): void => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = bottomHeight
+    setResizing('row')
+    const onMove = (ev: MouseEvent): void => {
+      const max = Math.max(window.innerHeight - 200, BOTTOM_MIN)
+      const next = Math.min(Math.max(startH + (startY - ev.clientY), BOTTOM_MIN), max)
+      setBottomHeight(next)
+    }
+    const onUp = (): void => {
+      setResizing(null)
+      setBottomHeight((h) => {
+        localStorage.setItem('lithe.bottom.height', String(h))
+        return h
+      })
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [bottomHeight])
+
 
   const activeTab = tabs.find((t) => t.id === activeTabId) || null
   const projectName = tree?.name || projectPath.split(/[\\/]/).filter(Boolean).pop() || 'Lithe'
@@ -198,6 +283,24 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
     return () => window.removeEventListener('lithe:server-changed', sync)
   }, [projectPath])
 
+  // Extension Host → Lithe action bridge (open file, diff, terminal)
+  useEffect(() => {
+    const off = (window.api as any).onPluginLitheAction?.((msg: any) => {
+      if (!msg) return
+      const { action, payload } = msg
+      if (action === 'openFile' && payload?.path) {
+        void openFile(payload.path, payload.line)
+      } else if (action === 'showDiff' && payload?.original && payload?.modified) {
+        setDiffTarget({ path: payload.modified, staged: false })
+      } else if (action === 'terminalSend' && payload?.text) {
+        setBottomTool('terminal')
+        // Terminal sendText is handled via the terminal panel itself once we have
+        // a proper bridge; for now just ensure the panel is visible.
+      }
+    })
+    return () => off?.()
+  }, [])
+
   const reloadPlugins = useCallback(async (): Promise<void> => {
     try {
       const contrib = await window.api.pluginContributions()
@@ -212,6 +315,23 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
       setPluginThemes(
         contrib.themes.map((t) => ({ id: t.id, label: t.label, pluginName: t.pluginName }))
       )
+      const nextViews: PluginSidebarView[] = (contrib.views || []).map((v) => ({
+        key: `plugin:${v.pluginId}:${v.id}`,
+        viewId: v.id,
+        title: v.title,
+        pluginId: v.pluginId,
+        pluginName: v.pluginName,
+        pluginKind: v.pluginKind,
+        iconDataUrl: v.iconDataUrl,
+        synthetic: v.synthetic,
+        hasWebviewUi: v.hasWebviewUi,
+        titleButtons: (v as any).titleButtons
+      }))
+      setPluginViews(nextViews)
+      setSidebarTool((cur) => {
+        if (!cur.startsWith('plugin:')) return cur
+        return nextViews.some((v) => v.key === cur) ? cur : 'project'
+      })
 
       const remembered = loadRememberedThemeId()
       if (remembered && contrib.themeContents[remembered]) {
@@ -364,7 +484,7 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
   }
 
   return (
-    <div className="workbench">
+    <div className={`workbench${resizing ? ` is-resizing is-resizing-${resizing}` : ''}`}>
       <header className="workbench-titlebar lithe-drag">
         <div className="tb-left lithe-no-drag">
           <div className="tb-anchor">
@@ -378,7 +498,7 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
               }}
             >
               <span className="tb-logo" aria-hidden="true">
-                <span>&lt;</span>L<span>&gt;</span>
+                <img src={appIcon} alt="" draggable={false} />
               </span>
               <span className="tb-project-name">{projectName}</span>
               <i className="tb-caret" />
@@ -489,6 +609,21 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
               {item.icon}
             </button>
           ))}
+          {pluginViews.map((view) => (
+            <button
+              key={view.key}
+              type="button"
+              className={sidebarTool === view.key ? 'active' : ''}
+              title={`${view.title} — ${view.pluginName}`}
+              onClick={() => setSidebarTool(view.key as SidebarTool)}
+            >
+              {view.iconDataUrl ? (
+                <img src={view.iconDataUrl} alt="" draggable={false} />
+              ) : (
+                PLUGIN_ICON
+              )}
+            </button>
+          ))}
           <button
             type="button"
             className={bottomTool === 'terminal' ? 'active' : ''}
@@ -517,7 +652,7 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
 
         <div className="workspace-islands">
           <div className="workspace-top">
-            <aside className="workbench-sidebar">
+            <aside className="workbench-sidebar" style={{ width: sidebarWidth }}>
               {sidebarTool === 'project' && (
                 <ProjectSidebar root={tree} onFileOpen={openFile} onTreeChanged={refreshTree} />
               )}
@@ -546,8 +681,54 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
               {sidebarTool === 'problems' && (
                 <ProblemsPanel onMinimize={() => setSidebarTool('project')} />
               )}
+              {sidebarTool.startsWith('plugin:') && (() => {
+                const view = pluginViews.find((v) => v.key === sidebarTool)
+                if (!view) return null
+                return (
+                  <PluginToolWindowPanel
+                    title={view.title}
+                    pluginName={view.pluginName}
+                    pluginKind={view.pluginKind}
+                    pluginId={view.pluginId}
+                    projectPath={projectPath}
+                    synthetic={view.synthetic}
+                    hasWebviewUi={view.hasWebviewUi}
+                    titleButtons={view.titleButtons}
+                    onMinimize={() => setSidebarTool('project')}
+                    onOpenPlugins={() => setPluginsOpen(true)}
+                  />
+                )
+              })()}
             </aside>
-            <div className="workspace-split" aria-hidden="true" />
+            <div
+              className={`workspace-split${resizing === 'col' ? ' is-active' : ''}`}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sidebar"
+              aria-valuenow={sidebarWidth}
+              aria-valuemin={SIDEBAR_MIN}
+              aria-valuemax={SIDEBAR_MAX}
+              tabIndex={0}
+              onMouseDown={startSidebarResize}
+              onDoubleClick={() => {
+                setSidebarWidth(280)
+                localStorage.setItem('lithe.sidebar.width', '280')
+              }}
+              onKeyDown={(e) => {
+                const step = e.shiftKey ? 40 : 12
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                  e.preventDefault()
+                  setSidebarWidth((w) => {
+                    const next = Math.min(
+                      Math.max(w + (e.key === 'ArrowRight' ? step : -step), SIDEBAR_MIN),
+                      SIDEBAR_MAX
+                    )
+                    localStorage.setItem('lithe.sidebar.width', String(next))
+                    return next
+                  })
+                }
+              }}
+            />
             <div className="workbench-main">
               {diffTarget ? (
                 <DiffReviewView
@@ -599,7 +780,42 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
           </div>
 
           {(bottomTool || terminalMounted) && (
-            <div className={`workbench-bottom${bottomTool ? '' : ' is-collapsed'}`}>
+            <>
+              {bottomTool && (
+                <div
+                  className={`workspace-split-h${resizing === 'row' ? ' is-active' : ''}`}
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label="Resize bottom panel"
+                  aria-valuenow={bottomHeight}
+                  aria-valuemin={BOTTOM_MIN}
+                  tabIndex={0}
+                  onMouseDown={startBottomResize}
+                  onDoubleClick={() => {
+                    setBottomHeight(260)
+                    localStorage.setItem('lithe.bottom.height', '260')
+                  }}
+                  onKeyDown={(e) => {
+                    const step = e.shiftKey ? 40 : 12
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setBottomHeight((h) => {
+                        const max = Math.max(window.innerHeight - 200, BOTTOM_MIN)
+                        const next = Math.min(
+                          Math.max(h + (e.key === 'ArrowUp' ? step : -step), BOTTOM_MIN),
+                          max
+                        )
+                        localStorage.setItem('lithe.bottom.height', String(next))
+                        return next
+                      })
+                    }
+                  }}
+                />
+              )}
+              <div
+                className={`workbench-bottom${bottomTool ? '' : ' is-collapsed'}`}
+                style={bottomTool ? { height: bottomHeight } : undefined}
+              >
               {terminalMounted && (
                 <div className={`bottom-pane${bottomTool === 'terminal' ? ' is-visible' : ''}`}>
                   <TerminalPanel cwd={projectPath} />
@@ -647,6 +863,7 @@ export function WorkbenchView({ projectPath, onCloseProject, onOpenProject }: Pr
                 </div>
               )}
             </div>
+            </>
           )}
         </div>
       </div>

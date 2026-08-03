@@ -126,11 +126,43 @@ export interface PluginSnippetContribution {
   path: string
 }
 
+/** A `contributes.menus["view/title"]` action rendered in the tool-window header. */
+export interface PluginViewTitleButton {
+  /** Command id to execute in the Extension Host */
+  command: string
+  /** Human label (from contributes.commands.title) */
+  title: string
+  /** `$(codicon-name)` extracted from contributes.commands.icon, when present */
+  codicon?: string
+  /** Data URL for a themed png/svg icon, when the icon is a file path */
+  iconDataUrl?: string
+  /** navigation@N ordering */
+  order: number
+}
+
+/** Activity-bar / tool-window contribution declared by a plugin (UI host is stubbed). */
+export interface PluginViewContribution {
+  id: string
+  title: string
+  /** Absolute path to icon asset when available */
+  iconPath?: string
+  /** Prefer data URL for renderer <img> */
+  iconDataUrl?: string
+  location: 'activitybar' | 'panel'
+  /** True when Lithe synthesized a placeholder because the plugin has no declared views */
+  synthetic?: boolean
+  /** VS Code webview-ui/build assets available — can host sidebar iframe */
+  hasWebviewUi?: boolean
+  /** Toolbar actions declared via contributes.menus["view/title"] */
+  titleButtons?: PluginViewTitleButton[]
+}
+
 export interface PluginContributions {
   themes: PluginThemeContribution[]
   commands: PluginCommandContribution[]
   snippets: PluginSnippetContribution[]
   languages: string[]
+  views: PluginViewContribution[]
 }
 
 export interface PluginInfo {

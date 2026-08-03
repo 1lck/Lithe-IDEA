@@ -103,8 +103,33 @@ interface LitheAPI {
     plugins: import('../common/types').PluginInfo[]
     themes: Array<import('../common/types').PluginThemeContribution & { pluginId: string; pluginName: string }>
     commands: Array<import('../common/types').PluginCommandContribution & { pluginId: string; pluginName: string }>
+    views: Array<
+      import('../common/types').PluginViewContribution & {
+        pluginId: string
+        pluginName: string
+        pluginKind: import('../common/types').PluginKind
+      }
+    >
     themeContents: Record<string, unknown>
   }>
+  pluginWebviewUrl: (
+    id: string,
+    cwd?: string
+  ) => Promise<{
+    ok: true
+    url: string
+    title: string
+    hostStatus?: string
+    hostError?: string
+  } | { ok: false; error?: string }>
+  pluginHostEnsure: (
+    id: string,
+    cwd?: string
+  ) => Promise<{ ok: boolean; status: string; error?: string; viewType?: string }>
+  pluginHostPost: (id: string, message: unknown) => Promise<{ ok: boolean }>
+  onPluginHostEvent: (
+    cb: (payload: { pluginId: string; message: unknown }) => void
+  ) => () => void
   pluginOpenFolder: () => Promise<string>
   removeAllListeners: (channel: string) => void
 }

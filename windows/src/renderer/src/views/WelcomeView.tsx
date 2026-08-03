@@ -3,6 +3,7 @@ import type { RecentProject } from '@common/types'
 import { SettingsView } from './SettingsView'
 import { PluginsView } from './PluginsView'
 import { CloneRepositoryView } from './CloneRepositoryView'
+import appIcon from '../assets/AppIcon.png'
 import './WelcomeView.css'
 
 interface Props {
@@ -53,9 +54,7 @@ export function WelcomeView({ recentProjects, onOpenProject, onRemoveRecent }: P
         <aside className="welcome-left">
           <div className="welcome-brand">
             <div className="welcome-logo" aria-hidden="true">
-              <span className="welcome-logo-bracket">&lt;</span>
-              <span className="welcome-logo-letter">L</span>
-              <span className="welcome-logo-bracket">&gt;</span>
+              <img src={appIcon} alt="" draggable={false} />
             </div>
             <div className="welcome-brand-text">
               <h1>Lithe</h1>

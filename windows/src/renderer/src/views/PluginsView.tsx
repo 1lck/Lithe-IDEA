@@ -379,7 +379,22 @@ export function PluginsView({ onClose, onPluginsChanged }: Props): JSX.Element {
                     <div><em>{selected.contributes.commands.length}</em> commands</div>
                     <div><em>{selected.contributes.snippets.length}</em> snippets</div>
                     <div><em>{selected.contributes.languages.length}</em> languages</div>
+                    <div><em>{selected.contributes.views?.length || 0}</em> sidebar views</div>
                   </div>
+                  {(selected.contributes.views?.length || 0) > 0 && (
+                    <div className="plugins-theme-list">
+                      <div className="plugins-theme-label">Sidebar / tool windows</div>
+                      <ul className="plugins-view-list">
+                        {(selected.contributes.views || []).map((v) => (
+                          <li key={v.id}>
+                            {v.title}
+                            {v.synthetic ? ' (placeholder)' : ''}
+                            {v.location === 'panel' ? ' · panel' : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {selected.contributes.themes.length > 0 && (
                     <div className="plugins-theme-list">
                       <div className="plugins-theme-label">Themes</div>

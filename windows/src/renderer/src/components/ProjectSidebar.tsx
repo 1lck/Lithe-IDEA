@@ -63,7 +63,7 @@ export function ProjectSidebar({ root, onFileOpen, onTreeChanged }: Props): JSX.
 
   if (!root) return <div className="sidebar-loading">Loading…</div>
 
-  const run = async (fn: () => Promise<void>): Promise<void> => {
+  const run = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
       await fn()
       onTreeChanged?.()

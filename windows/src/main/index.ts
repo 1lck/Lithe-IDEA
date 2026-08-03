@@ -9,7 +9,26 @@ import { registerJavaHandlers } from './services/javaService'
 import { registerSearchHandlers } from './services/searchService'
 import { registerLocalHistoryHandlers, registerSettingsHandlers } from './services/settingsService'
 import { registerLocalServerHandlers, stopLocalServerOnQuit } from './services/localServerService'
-import { registerPluginHandlers } from './services/pluginService'
+import {
+  getCachedPluginPath,
+  mapInstalledPluginPaths,
+  registerPluginHandlers
+} from './services/pluginService'
+import {
+  registerPluginProtocolHandler,
+  registerPluginProtocolScheme
+} from './services/pluginProtocol'
+import { ensurePluginStaticServer } from './services/pluginStaticServer'
+
+// Privileged custom scheme must be registered before app ready.
+registerPluginProtocolScheme()
+
+function appIconPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'icon.png')
+  }
+  return join(__dirname, '../../resources/icon.png')
+}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -26,9 +45,11 @@ function createWindow(): void {
       height: 40
     },
     backgroundColor: '#25282b',
+    icon: appIconPath(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      webviewTag: true
     }
   })
 
@@ -51,6 +72,8 @@ function createWindow(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.lithe.ide.windows')
 
+  registerPluginProtocolHandler((pluginId) => getCachedPluginPath(pluginId))
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
@@ -65,6 +88,9 @@ app.whenReady().then(() => {
   registerSettingsHandlers()
   registerLocalServerHandlers()
   registerPluginHandlers()
+
+  // Warm protocol path cache + static asset server for plugin webviews
+  void mapInstalledPluginPaths().then(() => ensurePluginStaticServer())
 
   createWindow()
 
