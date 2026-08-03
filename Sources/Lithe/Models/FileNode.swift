@@ -11,20 +11,6 @@ struct FileNode: Identifiable, Hashable, Sendable {
     var iconKind: LitheIconKind {
         LitheIcons.kind(for: url, isDirectory: isDirectory)
     }
-
-    @available(*, deprecated, message: "Use iconKind and LitheIcon instead")
-    var systemImage: String {
-        if isDirectory { return "folder" }
-        switch url.pathExtension.lowercased() {
-        case "swift": return "swift"
-        case "java", "kt", "kts": return "cup.and.saucer"
-        case "js", "jsx", "ts", "tsx": return "curlybraces"
-        case "json", "yml", "yaml", "xml", "toml": return "slider.horizontal.3"
-        case "md", "txt", "rst": return "doc.plaintext"
-        case "png", "jpg", "jpeg", "gif", "webp", "svg": return "photo"
-        default: return "doc"
-        }
-    }
 }
 
 struct WorkspaceSnapshot: Sendable {
@@ -68,15 +54,6 @@ enum SearchResultKind: String, Codable, Hashable, Sendable {
         case .content: "Matches"
         case .type: "Classes"
         case .symbol: "Symbols"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .file: "doc.text"
-        case .content: "text.magnifyingglass"
-        case .type: "curlybraces.square"
-        case .symbol: "function"
         }
     }
 }

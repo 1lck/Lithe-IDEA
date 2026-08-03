@@ -2,8 +2,7 @@ import AppKit
 import SwiftUI
 
 /// 项目树、标签页、面包屑和 Search Everywhere 共用的图标分类。
-/// 这里是唯一的分类入口，替代原先散在 FileNode.systemImage 和
-/// ProjectSidebarView.fileColor 的两套判断。
+/// 这里是唯一的文件图标分类入口，避免视图层重复判断文件类型。
 enum LitheIconKind: Hashable {
     // Java 符号
     case javaClass
