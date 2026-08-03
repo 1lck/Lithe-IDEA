@@ -1,0 +1,24 @@
+appId: com.lithe.ide.windows
+productName: Lithe
+directories:
+  buildResources: build
+npmRebuild: false
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.*'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Keep node-pty ConPTY prebuilds
+  - 'node_modules/node-pty/prebuilds/**'
+win:
+  executableName: Lithe
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: Lithe
+  uninstallDisplayName: Lithe
+  createDesktopShortcut: always

@@ -1,0 +1,251 @@
+/* Find in Files — tool-window search */
+
+.ss {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--lithe-sidebar);
+}
+
+.ss-header {
+  height: var(--lithe-tool-header-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lithe-text-tertiary);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--lithe-divider);
+  background: var(--lithe-tool-header);
+  flex-shrink: 0;
+}
+.ss-header-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lithe-text-tertiary);
+}
+.ss-header-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.ss-header-btn:hover,
+.ss-header-btn.active {
+  background: var(--lithe-selection-soft);
+  color: var(--lithe-accent);
+}
+
+.ss-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--lithe-divider);
+  flex-shrink: 0;
+}
+
+.ss-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ss-field-icon {
+  position: absolute;
+  left: 9px;
+  width: 13px;
+  height: 13px;
+  color: var(--lithe-text-tertiary);
+  pointer-events: none;
+}
+.ss-field input {
+  width: 100%;
+  height: 30px;
+  padding-left: 30px;
+  padding-right: 28px;
+  font-size: 12.5px;
+  background: var(--lithe-input-bg);
+}
+.ss-spinner {
+  position: absolute;
+  right: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--lithe-divider-strong);
+  border-top-color: var(--lithe-accent);
+  animation: ss-spin 0.7s linear infinite;
+}
+@keyframes ss-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ss-toggles {
+  display: flex;
+  gap: 4px;
+}
+.ss-toggles button {
+  min-width: 30px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-family: var(--lithe-code-font);
+  color: var(--lithe-text-tertiary);
+  border: 1px solid transparent;
+  background: transparent;
+}
+.ss-toggles button:hover {
+  background: var(--lithe-hover);
+  color: var(--lithe-text-primary);
+}
+.ss-toggles button.active {
+  color: var(--lithe-accent);
+  background: var(--lithe-selection-soft);
+  border-color: rgba(79, 148, 250, 0.28);
+}
+
+.ss-replace {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: lithe-fade-up 180ms var(--lithe-ease-out) both;
+}
+.ss-replace-btn {
+  height: 28px;
+  border-radius: var(--lithe-radius-md);
+  background: linear-gradient(180deg, #f0b24a, var(--lithe-warning));
+  color: #1a1204;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ss-replace-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+.ss-replace-btn:disabled {
+  opacity: 0.35;
+}
+
+.ss-meta {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: var(--lithe-text-tertiary);
+  border-bottom: 1px solid var(--lithe-divider);
+  background: rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.ss-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0 12px;
+}
+
+.ss-empty {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--lithe-text-tertiary);
+}
+
+.ss-file {
+  margin: 2px 0;
+}
+.ss-file-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 8px);
+  margin: 0 4px;
+  padding: 5px 8px;
+  text-align: left;
+  border-radius: 5px;
+  color: var(--lithe-text-primary);
+}
+.ss-file-head:hover {
+  background: var(--lithe-hover);
+}
+.ss-chevron {
+  width: 12px;
+  font-size: 10px;
+  color: var(--lithe-text-muted);
+  transition: transform 140ms var(--lithe-ease-out);
+  flex-shrink: 0;
+}
+.ss-chevron.open {
+  transform: rotate(90deg);
+}
+.ss-file-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ss-file-count {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--lithe-badge-bg);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--lithe-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ss-matches {
+  padding: 0 4px 4px 22px;
+}
+.ss-match {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  text-align: left;
+  border-radius: 5px;
+}
+.ss-match:hover {
+  background: var(--lithe-hover);
+}
+.ss-match-line {
+  flex-shrink: 0;
+  width: 28px;
+  font-family: var(--lithe-code-font);
+  font-size: 11px;
+  color: var(--lithe-text-muted);
+  text-align: right;
+}
+.ss-match-preview {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--lithe-code-font);
+  font-size: 12px;
+  color: var(--lithe-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ss-mark {
+  background: rgba(232, 161, 51, 0.38);
+  color: var(--lithe-text-primary);
+  border-radius: 2px;
+  padding: 0 1px;
+  font-weight: 600;
+}

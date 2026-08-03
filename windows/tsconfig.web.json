@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./out",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ESNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "@renderer/*": ["src/renderer/src/*"],
+      "@common/*": ["src/common/*"]
+    }
+  },
+  "include": ["src/renderer/src/**/*", "src/renderer/*.d.ts", "src/common/**/*", "src/preload/index.d.ts"]
+}

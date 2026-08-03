@@ -1,0 +1,73 @@
+.twh {
+  height: var(--lithe-tool-header-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px 0 12px;
+  background: var(--lithe-tool-header);
+  border-bottom: 1px solid var(--lithe-divider);
+}
+.twh-lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.twh-icon {
+  display: inline-flex;
+  color: var(--lithe-text-secondary);
+  flex-shrink: 0;
+}
+.twh-icon svg { width: 13px; height: 13px; }
+.twh-lead strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--lithe-text-primary);
+  letter-spacing: -0.01em;
+}
+.twh-sub {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--lithe-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.twh-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.twh-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lithe-text-tertiary);
+}
+.twh-btn:hover {
+  background: var(--lithe-hover);
+  color: var(--lithe-text-primary);
+}
+.twh-btn.is-active {
+  background: var(--lithe-selection-soft);
+  color: var(--lithe-accent);
+}
+.twh-chip {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 650;
+  font-family: var(--lithe-code-font);
+  color: var(--lithe-text-secondary);
+  background: var(--lithe-badge-bg);
+}
+.twh-chip.ok { color: var(--lithe-success); background: rgba(71, 184, 99, 0.15); }
+.twh-chip.err { color: var(--lithe-error); background: rgba(235, 84, 84, 0.15); }
+.twh-chip.run { color: var(--lithe-accent); background: rgba(79, 148, 250, 0.18); }

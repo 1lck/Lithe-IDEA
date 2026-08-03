@@ -1,0 +1,96 @@
+.local-history-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.lh-header {
+  height: var(--lithe-tool-header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lithe-text-tertiary);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--lithe-divider);
+  background: var(--lithe-tool-header);
+  flex-shrink: 0;
+}
+.lh-restore {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  background: var(--lithe-accent);
+  color: #fff;
+}
+.lh-restore:disabled { opacity: 0.45; }
+.lh-status {
+  padding: 6px 12px;
+  font-size: 11.5px;
+  color: var(--lithe-text-secondary);
+  background: rgba(53, 116, 240, 0.1);
+  border-bottom: 1px solid rgba(53, 116, 240, 0.2);
+}
+.lh-entry.active {
+  background: var(--lithe-selection-soft);
+  color: var(--lithe-text-primary);
+}
+.lh-empty.pad {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lh-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.lh-list {
+  width: 220px;
+  border-right: 1px solid var(--lithe-divider);
+  overflow-y: auto;
+  flex-shrink: 0;
+  background: var(--lithe-sidebar);
+  padding: 4px;
+}
+.lh-entry {
+  display: block;
+  width: calc(100% - 0px);
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--lithe-text-primary);
+  border-radius: var(--lithe-corner);
+  margin: 2px 0;
+}
+.lh-entry:hover {
+  background: var(--lithe-hover);
+}
+.lh-preview {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 14px;
+  margin: 0;
+  font-family: var(--lithe-code-font);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--lithe-text-primary);
+  background: var(--lithe-editor);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.lh-empty {
+  padding: 16px;
+  color: var(--lithe-text-tertiary);
+  font-size: 12px;
+}

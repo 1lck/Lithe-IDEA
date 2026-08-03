@@ -1,0 +1,222 @@
+/* Lithe — aligned to Sources/Lithe/Theme/LitheTheme.swift
+   Layered graphite New UI: window < sidebar < editor < titlebar/raised.
+   Floating tool islands (r=10) in a titlebar gutter. */
+
+:root {
+  --lithe-window: #1b1d20;
+  --lithe-titlebar: #25282b;
+  --lithe-tool-header: #1f2124;
+  --lithe-sidebar: #17181b;
+  --lithe-editor: #131416;
+  --lithe-raised: #2a2c30;
+  --lithe-elevated: #34373c;
+
+  --lithe-selection: #2b4a7d;
+  --lithe-selection-strong: #4f94fa;
+  --lithe-selection-soft: rgba(79, 148, 250, 0.18);
+  --lithe-subtle-selection: #34383c;
+  --lithe-hover: rgba(255, 255, 255, 0.055);
+  --lithe-hover-strong: rgba(255, 255, 255, 0.09);
+  --lithe-pressed: rgba(255, 255, 255, 0.095);
+
+  --lithe-active-tab: #25282b;
+  --lithe-tab-underline: #4f94fa;
+
+  --lithe-divider: rgba(255, 255, 255, 0.075);
+  --lithe-divider-strong: rgba(255, 255, 255, 0.13);
+  --lithe-panel-border: rgba(255, 255, 255, 0.13);
+
+  --lithe-input-bg: #111214;
+  --lithe-input-border: rgba(255, 255, 255, 0.12);
+  --lithe-input-focus: rgba(79, 148, 250, 0.85);
+  --lithe-input-focus-ring: rgba(79, 148, 250, 0.25);
+
+  --lithe-popup-bg: #222428;
+  --lithe-popup-shadow: rgba(0, 0, 0, 0.55);
+  --lithe-scrim: rgba(0, 0, 0, 0.38);
+  --lithe-badge-bg: rgba(255, 255, 255, 0.1);
+
+  --lithe-text-primary: rgba(255, 255, 255, 0.86);
+  --lithe-text-secondary: rgba(255, 255, 255, 0.5);
+  --lithe-text-tertiary: rgba(255, 255, 255, 0.34);
+  --lithe-text-muted: rgba(255, 255, 255, 0.28);
+
+  --lithe-accent: #4f94fa;
+  --lithe-accent-hover: #6aa4fb;
+  --lithe-accent-pressed: #3d7fd9;
+  --lithe-success: #47b863;
+  --lithe-warning: #e8a133;
+  --lithe-error: #eb5454;
+  --lithe-link: #6badff;
+
+  --lithe-guide: rgba(255, 255, 255, 0.085);
+  --lithe-active-guide: rgba(255, 255, 255, 0.24);
+
+  /* Metrics — LitheTheme.Metrics */
+  --lithe-row-h: 24px;
+  --lithe-tab-h: 34px;
+  --lithe-toolbar-h: 40px;
+  --lithe-titlebar-h: 40px;
+  --lithe-tool-header-h: 30px;
+  --lithe-tool-header-height: var(--lithe-tool-header-h);
+  --lithe-status-h: 24px;
+  --lithe-activity-w: 48px;
+  --lithe-island-pad: 6px;
+  --lithe-island-radius: 10px;
+  --lithe-radius-sm: 5px;
+  --lithe-radius-md: 6px;
+  --lithe-radius-lg: 8px;
+  --lithe-radius-xl: 10px;
+  --lithe-corner: var(--lithe-radius-sm);
+  --lithe-control-corner: var(--lithe-radius-md);
+  --lithe-popup-corner: var(--lithe-radius-xl);
+
+  --lithe-ui-font: 'IBM Plex Sans', 'Segoe UI Variable', 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei UI', sans-serif;
+  --lithe-display-font: var(--lithe-ui-font);
+  --lithe-code-font: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+
+  --lithe-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --lithe-ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
+
+  color-scheme: dark;
+}
+
+@keyframes lithe-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes lithe-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes lithe-scale-in {
+  from { opacity: 0; transform: scale(0.98) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+* { box-sizing: border-box; }
+*::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--lithe-window);
+  color: var(--lithe-text-primary);
+  font-family: var(--lithe-ui-font);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: default;
+  padding: 0;
+  transition: background 100ms ease, color 100ms ease, opacity 100ms ease;
+}
+button:disabled { opacity: 0.4; }
+
+input, textarea, select {
+  font: inherit;
+  color: var(--lithe-text-primary);
+  background: var(--lithe-input-bg);
+  border: 1px solid var(--lithe-input-border);
+  border-radius: var(--lithe-radius-sm);
+  padding: 5px 8px;
+  outline: none;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--lithe-input-focus);
+  box-shadow: 0 0 0 1px var(--lithe-input-focus-ring);
+}
+input::placeholder, textarea::placeholder { color: var(--lithe-text-tertiary); }
+select {
+  appearance: none;
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg width='10' height='10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 4l3 3 3-3' stroke='%23808080' stroke-width='1.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+
+::selection { background: var(--lithe-selection); color: #fff; }
+
+.lithe-drag { -webkit-app-region: drag; }
+.lithe-no-drag { -webkit-app-region: no-drag; }
+
+/* Shared tool-window header — LitheToolWindowHeader */
+.lithe-panel-header,
+.lithe-tool-header {
+  height: var(--lithe-tool-header-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 7px 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--lithe-text-primary);
+  border-bottom: 1px solid var(--lithe-divider);
+  background: var(--lithe-tool-header);
+  flex-shrink: 0;
+}
+.lithe-tool-header-sub {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--lithe-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lithe-tool-header-spacer { flex: 1; min-width: 12px; }
+.lithe-tool-header-min {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--lithe-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lithe-text-secondary);
+  font-size: 14px;
+  line-height: 1;
+}
+.lithe-tool-header-min:hover {
+  background: var(--lithe-hover);
+}
+
+.lithe-placeholder { display: flex; flex-direction: column; height: 100%; }
+.lithe-placeholder-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  color: var(--lithe-text-tertiary);
+  font-size: 12px;
+  background: var(--lithe-editor);
+}

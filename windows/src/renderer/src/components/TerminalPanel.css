@@ -1,0 +1,190 @@
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--lithe-editor);
+}
+
+.terminal-header {
+  height: var(--lithe-tool-header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--lithe-divider);
+  background: var(--lithe-tool-header);
+  flex-shrink: 0;
+}
+
+.terminal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.terminal-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lithe-text-secondary);
+  flex-shrink: 0;
+}
+
+.terminal-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--lithe-badge-bg);
+  color: var(--lithe-text-tertiary);
+  flex-shrink: 0;
+}
+.terminal-badge.ok {
+  color: var(--lithe-success);
+  background: rgba(73, 156, 84, 0.14);
+}
+
+.terminal-cwd {
+  font-family: var(--lithe-code-font);
+  font-size: 11px;
+  color: var(--lithe-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.terminal-port {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--lithe-divider-strong);
+  background: var(--lithe-editor);
+  color: var(--lithe-text-tertiary);
+  font-size: 11px;
+  font-family: var(--lithe-code-font);
+}
+.terminal-port input {
+  width: 52px;
+  height: 18px;
+  padding: 0 2px;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--lithe-text-primary);
+  font-family: var(--lithe-code-font);
+  font-size: 11px;
+  -moz-appearance: textfield;
+}
+.terminal-port input::-webkit-outer-spin-button,
+.terminal-port input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.terminal-action {
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--lithe-text-secondary);
+  border: 1px solid transparent;
+}
+.terminal-action:hover:not(:disabled) {
+  background: var(--lithe-hover);
+  color: var(--lithe-text-primary);
+}
+.terminal-action.primary {
+  color: #fff;
+  background: var(--lithe-success);
+  font-weight: 600;
+}
+.terminal-action.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  color: #fff;
+}
+.terminal-action.server-live {
+  color: var(--lithe-accent);
+  background: var(--lithe-selection-soft);
+  border-color: rgba(53, 116, 240, 0.28);
+  font-family: var(--lithe-code-font);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.terminal-action.danger { color: var(--lithe-error); }
+.terminal-action.danger:hover:not(:disabled) {
+  background: rgba(229, 72, 77, 0.12);
+}
+.terminal-action:disabled { opacity: 0.45; }
+
+.terminal-xterm {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 6px 6px;
+  overflow: hidden;
+  cursor: text;
+  outline: none;
+}
+.terminal-xterm .xterm {
+  height: 100%;
+  width: 100%;
+}
+.terminal-xterm .xterm-viewport {
+  overflow-y: auto !important;
+}
+.terminal-xterm .xterm textarea {
+  caret-color: transparent;
+}
+
+.terminal-ctx {
+  position: fixed;
+  z-index: 200;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--lithe-popup-bg);
+  border: 1px solid var(--lithe-panel-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.terminal-ctx button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--lithe-text-primary);
+  text-align: left;
+}
+.terminal-ctx button:hover:not(:disabled) {
+  background: var(--lithe-selection-soft);
+}
+.terminal-ctx button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.terminal-ctx kbd {
+  font-family: var(--lithe-ui-font);
+  font-size: 10px;
+  color: var(--lithe-text-tertiary);
+  font-weight: 500;
+}

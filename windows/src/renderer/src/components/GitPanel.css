@@ -1,0 +1,247 @@
+.git-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.git-tabs {
+  display: flex;
+  align-items: center;
+  height: var(--lithe-tool-header-height);
+  border-bottom: 1px solid var(--lithe-divider);
+  background: var(--lithe-tool-header);
+  padding: 0 8px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.git-tabs button {
+  padding: 4px 10px;
+  border-radius: var(--lithe-corner);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--lithe-text-secondary);
+}
+.git-tabs button:hover {
+  background: var(--lithe-hover);
+  color: var(--lithe-text-primary);
+}
+.git-tabs button.active {
+  background: var(--lithe-selection-soft);
+  color: var(--lithe-accent);
+}
+.git-branch {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lithe-accent);
+  font-family: var(--lithe-code-font);
+}
+.git-error {
+  padding: 16px;
+  color: var(--lithe-text-tertiary);
+  font-size: 12px;
+}
+.git-changes,
+.git-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.git-section-title {
+  padding: 8px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--lithe-text-tertiary);
+}
+.git-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  border-radius: var(--lithe-radius-sm);
+  margin: 0 4px;
+}
+.git-file:hover {
+  background: var(--lithe-hover);
+}
+.git-status-badge {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.st-modified { background: var(--lithe-warning); color: #1a1204; }
+.st-added { background: var(--lithe-success); color: #06140a; }
+.st-deleted { background: var(--lithe-error); color: #fff; }
+.st-renamed, .st-copied { background: var(--lithe-accent); color: #fff; }
+.git-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--lithe-text-primary);
+}
+.git-action {
+  color: var(--lithe-text-secondary);
+  font-size: 16px;
+  padding: 0 6px;
+  opacity: 0;
+  border-radius: 4px;
+}
+.git-file:hover .git-action {
+  opacity: 1;
+}
+.git-action:hover {
+  background: var(--lithe-hover-strong);
+  color: var(--lithe-text-primary);
+}
+.git-empty {
+  padding: 6px 12px;
+  color: var(--lithe-text-tertiary);
+  font-size: 11px;
+}
+.git-commit-box {
+  padding: 10px 12px;
+  border-top: 1px solid var(--lithe-divider);
+  margin-top: 8px;
+  background: var(--lithe-tool-header);
+}
+.git-commit-box textarea {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+  font-size: 12px;
+}
+.git-tabs button em {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--lithe-badge-bg);
+  color: var(--lithe-text-secondary);
+}
+.git-action.danger:hover {
+  color: var(--lithe-error);
+  background: rgba(229, 72, 77, 0.12);
+}
+.git-amend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--lithe-text-secondary);
+  user-select: none;
+}
+.git-amend input { accent-color: var(--lithe-accent); }
+.git-commit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.git-commit-btn {
+  flex: 1;
+  padding: 7px;
+  border-radius: var(--lithe-control-corner);
+  background: linear-gradient(180deg, var(--lithe-accent-hover), var(--lithe-accent));
+  color: white;
+  font-weight: 600;
+}
+.git-commit-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #7ab0fc, var(--lithe-accent-hover));
+}
+.git-commit-btn:disabled { opacity: 0.45; }
+.git-commit-btn.ghost {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  background: var(--lithe-raised);
+  border: 1px solid var(--lithe-divider-strong);
+  color: var(--lithe-text-primary);
+  font-weight: 550;
+}
+.git-commit-btn.ghost:hover:not(:disabled) { background: var(--lithe-elevated); }
+.git-stash-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  margin: 0 4px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--lithe-divider);
+  background: rgba(255, 255, 255, 0.02);
+}
+.git-stash-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.git-stash-main strong {
+  font-family: var(--lithe-code-font);
+  font-size: 11.5px;
+  color: var(--lithe-accent);
+}
+.git-stash-main span {
+  font-size: 12.5px;
+  color: var(--lithe-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-stash-main em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--lithe-text-tertiary);
+}
+.git-stash-actions {
+  display: flex;
+  gap: 4px;
+}
+.git-stash-actions .git-action {
+  opacity: 1;
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border: 1px solid var(--lithe-divider-strong);
+  background: var(--lithe-raised);
+}
+.git-log-entry {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--lithe-divider);
+}
+.git-log-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.git-log-hash {
+  font-family: var(--lithe-code-font);
+  font-size: 11px;
+  color: var(--lithe-warning);
+}
+.git-ref {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--lithe-badge-bg);
+  color: var(--lithe-accent);
+}
+.git-log-msg {
+  font-size: 12.5px;
+  color: var(--lithe-text-primary);
+  margin: 3px 0;
+}
+.git-log-meta {
+  font-size: 11px;
+  color: var(--lithe-text-tertiary);
+}
