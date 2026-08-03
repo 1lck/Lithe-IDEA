@@ -359,11 +359,11 @@ struct SettingsView: View {
                 .frame(width: 180)
                 .lithePointer()
                 .onChange(of: settings.terminalShell) {
-                    guard model.terminalSession.isRunning else { return }
+                    guard model.activeTerminalSession?.isRunning == true else { return }
                     let path = settings.terminalShellPath
                         ?? ProcessInfo.processInfo.environment["SHELL"]
                         ?? "/bin/zsh"
-                    model.terminalSession.restart(using: path)
+                    model.restartActiveTerminal(using: path)
                 }
             }
             Text("Used for new terminal sessions.")

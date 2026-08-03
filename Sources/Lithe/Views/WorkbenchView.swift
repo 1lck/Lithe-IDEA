@@ -588,8 +588,9 @@ struct WorkbenchView: View {
                     .padding(.horizontal, 6)
 
                     Group {
-                        if model.isTerminalVisible {
-                            TerminalView(session: model.terminalSession)
+                        if model.isTerminalVisible, let session = model.activeTerminalSession {
+                            TerminalView(session: session)
+                                .id(session.id)
                         } else if model.isReferencesVisible {
                             JavaReferencesView()
                         } else if model.isProblemsVisible {

@@ -34,6 +34,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var findMatchCount = 0
     @Published private(set) var currentFindMatchIndex = 0
     @Published var pendingCloseDocument: EditorDocument?
+    @Published private(set) var isPendingProjectClose = false
     @Published var projectItemEditRequest: ProjectItemEditRequest?
     @Published var pendingProjectItemDeletion: ProjectItemDeletionRequest?
     @Published private(set) var isPerformingProjectItemOperation = false
@@ -114,7 +115,8 @@ final class AppModel: ObservableObject {
     private var gitHistoryLimit = 300
     let projectRuntimeService: ProjectRuntimeService
     let settings: AppSettings
-    let terminalSession = TerminalSession()
+    @Published private(set) var terminalSessions: [TerminalSession] = []
+    @Published private(set) var activeTerminalSessionID: UUID?
     let javaLanguageService: JavaLanguageService
     let javaImplementationMarkerService: JavaImplementationMarkerService
     let mavenService: MavenService
@@ -229,7 +231,7 @@ final class AppModel: ObservableObject {
         workspaceSessionPersistenceTask = nil
         pendingFileOpenRequests.removeAll()
         latestFileOpenRequestID = nil
-        terminalSession.stop()
+        stopTerminalSessions()
         projectRuntimeService.openProject(at: normalizedURL)
         mavenService.reset()
         javaRunService.reset()
@@ -336,6 +338,24 @@ final class AppModel: ObservableObject {
     }
 
     func closeProject() {
+        guard workspaceURL != nil else { return }
+        let dirtyDocuments = openDocuments.filter(\.isDirty)
+        guard !dirtyDocuments.isEmpty else {
+            performCloseProject()
+            return
+        }
+
+        isPendingProjectClose = true
+        pendingCloseQueue = Array(dirtyDocuments.dropFirst())
+        pendingClosePreferredDocumentID = nil
+        pendingCloseDocument = dirtyDocuments[0]
+    }
+
+    private func performCloseProject() {
+        pendingCloseDocument = nil
+        pendingCloseQueue = []
+        pendingClosePreferredDocumentID = nil
+        isPendingProjectClose = false
         workspaceSessionPersistenceTask?.cancel()
         workspaceSessionPersistenceTask = nil
         pendingFileOpenRequests.removeAll()
@@ -400,7 +420,7 @@ final class AppModel: ObservableObject {
         isMavenVisible = false
         isRunVisible = false
         isDebugVisible = false
-        terminalSession.stop()
+        stopTerminalSessions()
         projectRuntimeService.closeProject()
         mavenService.reset()
         javaRunService.reset()
@@ -888,6 +908,7 @@ final class AppModel: ObservableObject {
     }
 
     func requestCloseDocument(_ document: EditorDocument) {
+        isPendingProjectClose = false
         pendingCloseQueue = []
         pendingClosePreferredDocumentID = nil
         if document.isDirty {
@@ -907,6 +928,8 @@ final class AppModel: ObservableObject {
         let targets = documents.filter { openIDs.contains($0.id) }
         guard !targets.isEmpty else { return }
 
+        isPendingProjectClose = false
+        pendingCloseDocument = nil
         pendingCloseQueue = []
         pendingClosePreferredDocumentID = preferredDocumentID
         let dirtyDocuments = targets.filter(\.isDirty)
@@ -940,7 +963,13 @@ final class AppModel: ObservableObject {
             pendingCloseQueue.removeFirst()
             pendingCloseDocument = nextDocument
         } else {
-            activatePreferredDocumentIfPossible()
+            if isPendingProjectClose {
+                isPendingProjectClose = false
+                pendingClosePreferredDocumentID = nil
+                performCloseProject()
+            } else {
+                activatePreferredDocumentIfPossible()
+            }
         }
     }
 
@@ -948,6 +977,25 @@ final class AppModel: ObservableObject {
         pendingCloseDocument = nil
         pendingCloseQueue = []
         pendingClosePreferredDocumentID = nil
+        isPendingProjectClose = false
+    }
+
+    var hasUnsavedDocuments: Bool {
+        openDocuments.contains(where: \.isDirty)
+    }
+
+    @discardableResult
+    func saveAllDocuments() -> Bool {
+        for document in openDocuments where document.isDirty {
+            do {
+                let previousText = document.savedText
+                try document.save()
+                recordSave(document, previousText: previousText)
+            } catch {
+                return false
+            }
+        }
+        return true
     }
 
     func saveActiveDocument() {
@@ -1567,9 +1615,76 @@ final class AppModel: ObservableObject {
         isMavenVisible = false
         isRunVisible = false
         isDebugVisible = false
-        if !terminalSession.isRunning, let workspaceURL {
-            terminalSession.start(in: workspaceURL, shellPath: settings.terminalShellPath)
+        if activeTerminalSession == nil {
+            createTerminalSession()
         }
+    }
+
+    var activeTerminalSession: TerminalSession? {
+        guard let activeTerminalSessionID else { return terminalSessions.first }
+        return terminalSessions.first { $0.id == activeTerminalSessionID }
+    }
+
+    func terminalTitle(for session: TerminalSession) -> String {
+        guard let index = terminalSessions.firstIndex(where: { $0.id == session.id }) else {
+            return "Local"
+        }
+        return index == 0 ? "Local" : "Local (\(index + 1))"
+    }
+
+    @discardableResult
+    func createTerminalSession(shellPath: String? = nil) -> TerminalSession? {
+        guard let workspaceURL else { return nil }
+        let session = TerminalSession()
+        session.start(in: workspaceURL, shellPath: shellPath ?? settings.terminalShellPath)
+        terminalSessions.append(session)
+        activeTerminalSessionID = session.id
+        isTerminalVisible = true
+        isGitLogVisible = false
+        isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+        isDebugVisible = false
+        return session
+    }
+
+    func selectTerminalSession(_ session: TerminalSession) {
+        guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
+        activeTerminalSessionID = session.id
+        isTerminalVisible = true
+    }
+
+    func closeTerminalSession(_ session: TerminalSession) {
+        guard let index = terminalSessions.firstIndex(where: { $0.id == session.id }) else { return }
+        let wasActive = activeTerminalSessionID == session.id
+        let replacement = terminalSessions.dropFirst(index + 1).first
+            ?? (index > 0 ? terminalSessions[index - 1] : nil)
+
+        session.stop()
+        terminalSessions.remove(at: index)
+
+        if wasActive {
+            activeTerminalSessionID = replacement?.id
+        }
+        if terminalSessions.isEmpty {
+            activeTerminalSessionID = nil
+            isTerminalVisible = false
+        }
+    }
+
+    func restartActiveTerminal() {
+        activeTerminalSession?.restart()
+    }
+
+    func restartActiveTerminal(using shellPath: String) {
+        activeTerminalSession?.restart(using: shellPath)
+    }
+
+    func stopTerminalSessions() {
+        terminalSessions.forEach { $0.stop() }
+        terminalSessions.removeAll()
+        activeTerminalSessionID = nil
     }
 
     func toggleMaven() {

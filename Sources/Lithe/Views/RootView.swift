@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct RootView: View {
@@ -15,6 +16,7 @@ struct RootView: View {
             }
         }
         .background(LitheTheme.window)
+        .background(WindowCloseGuard(model: model))
         .sheet(isPresented: $model.isSettingsPresented) {
             SettingsView(
                 settings: model.settings,
@@ -64,6 +66,49 @@ struct RootView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
+        }
+    }
+}
+
+private struct WindowCloseGuard: NSViewRepresentable {
+    let model: AppModel
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(model: model)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            context.coordinator.attach(to: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.model = model
+        DispatchQueue.main.async {
+            context.coordinator.attach(to: view.window)
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSWindowDelegate {
+        var model: AppModel
+        weak var window: NSWindow?
+
+        init(model: AppModel) {
+            self.model = model
+        }
+
+        func attach(to window: NSWindow?) {
+            guard let window, self.window !== window else { return }
+            self.window = window
+            window.delegate = self
+        }
+
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            LitheAppDelegate.confirmUnsavedDocuments(for: model)
         }
     }
 }

@@ -1,7 +1,9 @@
 import Foundation
 
 @MainActor
-final class TerminalSession: ObservableObject {
+final class TerminalSession: ObservableObject, Identifiable {
+    let id = UUID()
+
     @Published private(set) var output = ""
     @Published private(set) var isRunning = false
     @Published private(set) var isReady = false
@@ -12,17 +14,14 @@ final class TerminalSession: ObservableObject {
     private var outputPipe: Pipe?
     private var workspaceURL: URL?
     private var selectedShellPath: String?
-    private var startupBuffer = ""
-    private var didCompleteHandshake = false
+    private var terminalBuffer = TerminalBuffer()
     private let maximumOutputCharacters = 240_000
-    private let handshakeMarker = "__LITHE_READY__"
 
     func start(in workspaceURL: URL, shellPath: String? = nil) {
         stop()
         self.workspaceURL = workspaceURL
-        isReady = false
-        startupBuffer = ""
-        didCompleteHandshake = false
+        terminalBuffer.reset()
+        output = ""
 
         let shell = shellPath ?? selectedShellPath ?? ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         selectedShellPath = shell
@@ -43,12 +42,13 @@ final class TerminalSession: ObservableObject {
         environment["COLORTERM"] = "truecolor"
         process.environment = environment
 
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        outputPipe.fileHandleForReading.readabilityHandler = { [weak self, weak process] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
             let chunk = String(decoding: data, as: UTF8.self)
-            Task { @MainActor [weak self] in
-                self?.append(chunk)
+            Task { @MainActor [weak self, weak process] in
+                guard let self, let process, self.process === process else { return }
+                self.append(chunk)
             }
         }
         process.terminationHandler = { [weak self] terminatedProcess in
@@ -65,17 +65,9 @@ final class TerminalSession: ObservableObject {
             self.inputPipe = inputPipe
             self.outputPipe = outputPipe
             isRunning = true
-            Task { [weak self, weak process] in
-                try? await Task.sleep(for: .milliseconds(700))
-                guard let self, let process, self.process === process, process.isRunning else { return }
-                self.writeRaw("printf '__LITHE_%s__\\n' READY\n")
-                try? await Task.sleep(for: .milliseconds(1_300))
-                guard self.process === process, process.isRunning, !self.didCompleteHandshake else { return }
-                self.startupBuffer = ""
-                self.didCompleteHandshake = true
-                self.isReady = true
-                self.writeRaw("\n")
-            }
+            // The PTY can accept queued input while the shell startup files run.
+            // Avoid timing-based handshakes that can leak markers into the prompt.
+            isReady = true
         } catch {
             append("Unable to start terminal: \(error.localizedDescription)\n")
         }
@@ -92,8 +84,12 @@ final class TerminalSession: ObservableObject {
     }
 
     func send(_ command: String) {
+        sendInput(command + "\n")
+    }
+
+    func sendInput(_ input: String) {
         guard isRunning, isReady else { return }
-        writeRaw(command + "\n")
+        writeRaw(input)
     }
 
     func prepareForInput() {
@@ -106,6 +102,7 @@ final class TerminalSession: ObservableObject {
     }
 
     func clear() {
+        terminalBuffer.reset()
         output = ""
     }
 
@@ -121,30 +118,15 @@ final class TerminalSession: ObservableObject {
         outputPipe = nil
         isRunning = false
         isReady = false
-        startupBuffer = ""
-        didCompleteHandshake = false
     }
 
     private func append(_ chunk: String) {
-        guard !didCompleteHandshake else {
-            appendOutput(chunk)
-            return
-        }
-
-        startupBuffer.append(chunk)
-        guard let markerRange = startupBuffer.range(of: handshakeMarker) else { return }
-        let content = String(startupBuffer[markerRange.upperBound...])
-        startupBuffer = ""
-        didCompleteHandshake = true
-        isReady = true
-        appendOutput(content)
+        terminalBuffer.append(chunk)
+        output = terminalBuffer.render(maxCharacters: maximumOutputCharacters)
     }
 
     private func appendOutput(_ value: String) {
-        output.append(value)
-        if output.count > maximumOutputCharacters {
-            output.removeFirst(output.count - maximumOutputCharacters)
-        }
+        append(value)
     }
 
     private func writeRaw(_ value: String) {
@@ -156,4 +138,222 @@ final class TerminalSession: ObservableObject {
         }
     }
 
+}
+
+private struct TerminalBuffer {
+    private enum EscapeMode {
+        case normal
+        case escape
+        case csi
+        case osc
+        case oscEscape
+    }
+
+    private var lines: [[Character]] = [[]]
+    private var row = 0
+    private var column = 0
+    private var savedRow = 0
+    private var savedColumn = 0
+    private var escapeMode: EscapeMode = .normal
+    private var csiParameters = ""
+    private let maximumRows = 2_000
+
+    mutating func reset() {
+        lines = [[]]
+        row = 0
+        column = 0
+        savedRow = 0
+        savedColumn = 0
+        escapeMode = .normal
+        csiParameters = ""
+    }
+
+    mutating func append(_ value: String) {
+        for scalar in value.unicodeScalars {
+            consume(scalar)
+        }
+    }
+
+    func render(maxCharacters: Int) -> String {
+        let rendered = lines
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+        guard rendered.count > maxCharacters else { return rendered }
+        return String(rendered.suffix(maxCharacters))
+    }
+
+    private mutating func consume(_ scalar: Unicode.Scalar) {
+        switch escapeMode {
+        case .escape:
+            consumeEscape(scalar)
+        case .csi:
+            if (64...126).contains(scalar.value) {
+                handleCSI(final: scalar)
+                escapeMode = .normal
+                csiParameters = ""
+            } else {
+                csiParameters.unicodeScalars.append(scalar)
+            }
+        case .osc:
+            if scalar.value == 7 {
+                escapeMode = .normal
+            } else if scalar.value == 27 {
+                escapeMode = .oscEscape
+            }
+        case .oscEscape:
+            escapeMode = scalar == "\\" ? .normal : .osc
+        case .normal:
+            consumeText(scalar)
+        }
+    }
+
+    private mutating func consumeEscape(_ scalar: Unicode.Scalar) {
+        switch scalar {
+        case "[":
+            escapeMode = .csi
+            csiParameters = ""
+        case "]":
+            escapeMode = .osc
+        case "7":
+            savedRow = row
+            savedColumn = column
+            escapeMode = .normal
+        case "8":
+            row = savedRow
+            column = savedColumn
+            escapeMode = .normal
+        case "c":
+            reset()
+        default:
+            escapeMode = .normal
+        }
+    }
+
+    private mutating func consumeText(_ scalar: Unicode.Scalar) {
+        switch scalar.value {
+        case 0x1B:
+            escapeMode = .escape
+        case 8, 127:
+            column = max(0, column - 1)
+        case 9:
+            column = ((column / 8) + 1) * 8
+        case 10:
+            row += 1
+            column = 0
+            ensureRow()
+        case 13:
+            column = 0
+        case 0..<32:
+            break
+        default:
+            write(Character(String(scalar)))
+        }
+    }
+
+    private mutating func write(_ character: Character) {
+        ensureRow()
+        while lines[row].count < column {
+            lines[row].append(" ")
+        }
+        if column == lines[row].count {
+            lines[row].append(character)
+        } else {
+            lines[row][column] = character
+        }
+        column += 1
+        if column >= 240 {
+            column = 0
+            row += 1
+            ensureRow()
+        }
+    }
+
+    private mutating func ensureRow() {
+        while lines.count <= row {
+            lines.append([])
+        }
+        if lines.count > maximumRows {
+            let removeCount = lines.count - maximumRows
+            lines.removeFirst(removeCount)
+            row -= removeCount
+            savedRow = max(0, savedRow - removeCount)
+        }
+    }
+
+    private mutating func handleCSI(final: Unicode.Scalar) {
+        let values = csiParameters
+            .trimmingCharacters(in: CharacterSet(charactersIn: "? >"))
+            .split(separator: ";", omittingEmptySubsequences: false)
+            .map { Int($0) ?? 0 }
+        let first = values.first.flatMap { $0 == 0 ? nil : $0 } ?? 1
+
+        switch final {
+        case "A":
+            row = max(0, row - first)
+        case "B", "e":
+            row += first
+            ensureRow()
+        case "C", "a":
+            column += first
+        case "D":
+            column = max(0, column - first)
+        case "G":
+            column = max(0, first - 1)
+        case "d":
+            row = max(0, first - 1)
+            ensureRow()
+        case "H", "f":
+            row = max(0, (values.first ?? 1) - 1)
+            column = max(0, (values.dropFirst().first ?? 1) - 1)
+            ensureRow()
+        case "J":
+            eraseDisplay(mode: values.first ?? 0)
+        case "K":
+            eraseLine(mode: values.first ?? 0)
+        case "s":
+            savedRow = row
+            savedColumn = column
+        case "u":
+            row = savedRow
+            column = savedColumn
+            ensureRow()
+        default:
+            break
+        }
+    }
+
+    private mutating func eraseDisplay(mode: Int) {
+        switch mode {
+        case 2, 3:
+            reset()
+        case 1:
+            for index in 0...min(row, lines.count - 1) {
+                lines[index] = []
+            }
+            row = min(row, lines.count - 1)
+            column = 0
+        default:
+            guard row < lines.count else { return }
+            lines[row] = Array(lines[row].prefix(column))
+            if row + 1 < lines.count {
+                lines.removeSubrange((row + 1)..<lines.count)
+            }
+        }
+    }
+
+    private mutating func eraseLine(mode: Int) {
+        ensureRow()
+        switch mode {
+        case 1:
+            lines[row] = Array(lines[row].dropFirst(min(column, lines[row].count)))
+            column = 0
+        case 2:
+            lines[row] = []
+            column = 0
+        default:
+            if column < lines[row].count {
+                lines[row].removeSubrange(column..<lines[row].count)
+            }
+        }
+    }
 }

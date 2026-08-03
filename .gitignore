@@ -7,5 +7,6 @@ Fixtures/**/target/
 *.xcuserstate
 *.xcuserdata/
 design-qa-artifacts/
+docs/visual-qa/
 .reasonix/
 reasonix.toml

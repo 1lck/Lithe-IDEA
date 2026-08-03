@@ -1,7 +1,43 @@
+import AppKit
 import SwiftUI
+
+@MainActor
+final class LitheAppDelegate: NSObject, NSApplicationDelegate {
+    weak var model: AppModel?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model else { return .terminateNow }
+        return Self.confirmUnsavedDocuments(for: model) ? .terminateNow : .terminateCancel
+    }
+
+    static func confirmUnsavedDocuments(for model: AppModel) -> Bool {
+        guard model.hasUnsavedDocuments else { return true }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Save changes before quitting?"
+        alert.informativeText = model.openDocuments
+            .filter(\.isDirty)
+            .map(\.displayName)
+            .joined(separator: ", ")
+        alert.addButton(withTitle: "Save All")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return model.saveAllDocuments()
+        case .alertSecondButtonReturn:
+            return true
+        default:
+            return false
+        }
+    }
+}
 
 @main
 struct LitheApp: App {
+    @NSApplicationDelegateAdaptor(LitheAppDelegate.self) private var appDelegate
     @StateObject private var settings: AppSettings
     @StateObject private var model: AppModel
     @StateObject private var updateChecker = UpdateChecker()
@@ -9,7 +45,9 @@ struct LitheApp: App {
     init() {
         let settings = AppSettings()
         _settings = StateObject(wrappedValue: settings)
-        _model = StateObject(wrappedValue: AppModel(settings: settings))
+        let model = AppModel(settings: settings)
+        _model = StateObject(wrappedValue: model)
+        appDelegate.model = model
     }
 
     var body: some Scene {
