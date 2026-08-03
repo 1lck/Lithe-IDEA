@@ -3,14 +3,14 @@ import SwiftUI
 
 struct JavaRunConfigurationEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var service: JavaRunService
+    @ObservedObject var feature: JavaRunFeatureModel
     let configuration: JavaRunConfiguration
     @State private var options: JavaRunOptions
 
-    init(service: JavaRunService, configuration: JavaRunConfiguration) {
-        self.service = service
+    init(feature: JavaRunFeatureModel, configuration: JavaRunConfiguration) {
+        self.feature = feature
         self.configuration = configuration
-        _options = State(initialValue: service.options(for: configuration))
+        _options = State(initialValue: feature.options(for: configuration))
     }
 
     var body: some View {
@@ -23,7 +23,7 @@ struct JavaRunConfigurationEditorView: View {
                     configurationSummary
                     runtimeSection
                     argumentsSection
-                    if configuration.kind != .currentFile && !service.mavenProfiles.isEmpty {
+                    if configuration.kind != .currentFile && !feature.mavenProfiles.isEmpty {
                         profilesSection
                     }
                 }
@@ -33,8 +33,8 @@ struct JavaRunConfigurationEditorView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack {
                 Button("Reset") {
-                    service.resetOptions(for: configuration)
-                    options = service.options(for: configuration)
+                    feature.resetOptions(for: configuration)
+                    options = feature.options(for: configuration)
                 }
                 .buttonStyle(.borderless)
                 .lithePointer()
@@ -52,7 +52,7 @@ struct JavaRunConfigurationEditorView: View {
         .background(LitheTheme.window)
         .preferredColorScheme(.dark)
         .onChange(of: options) {
-            service.updateOptions(options, for: configuration)
+            feature.updateOptions(options, for: configuration)
         }
     }
 
@@ -131,7 +131,7 @@ struct JavaRunConfigurationEditorView: View {
 
     private var profilesSection: some View {
         section(title: "Active Maven Profiles") {
-            ForEach(service.mavenProfiles) { profile in
+            ForEach(feature.mavenProfiles) { profile in
                 Toggle(isOn: profileBinding(for: profile)) {
                     HStack(spacing: 0) {
                         Text(profile.id)

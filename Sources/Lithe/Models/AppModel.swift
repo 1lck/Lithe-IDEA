@@ -113,79 +113,46 @@ final class AppModel: ObservableObject {
     private var pendingCloseQueue: [EditorDocument] = []
     private var pendingClosePreferredDocumentID: UUID?
     private var gitHistoryLimit = 300
-    let projectRuntimeService: ProjectRuntimeService
-    let workspaceScanner: WorkspaceScanner
-    let fileOperations: any WorkspaceFileOperations
-    private let fileStorage: any FileStorage
+    private let services: AppServices
     let settings: AppSettings
+    let runtimeFeature: RuntimeSettingsFeatureModel
+    let mavenFeature: MavenFeatureModel
+    let runFeature: JavaRunFeatureModel
+    let debugFeature: JavaDebugFeatureModel
     @Published private(set) var terminalSessions: [TerminalSession] = []
     @Published private(set) var activeTerminalSessionID: UUID?
-    let javaLanguageService: JavaLanguageService
-    let javaImplementationMarkerService: JavaImplementationMarkerService
-    let mavenService: MavenService
-    let javaRunService: JavaRunService
-    let javaDebugService: JavaDebugService
-    private let gitService: GitService
-    let searchIndex: WorkspaceSearchIndex
     private var localHistoryService: LocalHistoryService?
-    private let recentProjectsStore: RecentProjectsStore
-    private let workspaceSessionStore: WorkspaceSessionStore
-    private let workbenchLayoutStore: WorkbenchLayoutStore
-    private let terminalFactory: () -> any TerminalTransport
+    private var projectRuntimeService: ProjectRuntimeService { services.projectRuntimeService }
+    private var workspaceScanner: WorkspaceScanner { services.workspaceScanner }
+    private var fileOperations: any WorkspaceFileOperations { services.fileOperations }
+    private var fileStorage: any FileStorage { services.fileStorage }
+    private var javaLanguageService: JavaLanguageService { services.javaLanguageService }
+    private var javaImplementationMarkerService: JavaImplementationMarkerService { services.javaImplementationMarkerService }
+    private var mavenService: MavenService { services.mavenService }
+    private var javaRunService: JavaRunService { services.javaRunService }
+    private var javaDebugService: JavaDebugService { services.javaDebugService }
+    private var gitService: GitService { services.gitService }
+    private var searchIndex: WorkspaceSearchIndex { services.searchIndex }
+    private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
+    private var workspaceSessionStore: WorkspaceSessionStore { services.workspaceSessionStore }
+    private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
+    private var terminalFactory: () -> any TerminalTransport { services.terminalFactory }
 
-    init(settings: AppSettings, store: any KeyValueStore) {
+    init(settings: AppSettings, services: AppServices) {
         self.settings = settings
-        let fileStorage = MacFileStorage()
-        self.fileStorage = fileStorage
-        searchIndex = WorkspaceSearchIndex(storage: fileStorage)
-        terminalFactory = { MacTerminalTransport() }
-        workspaceScanner = WorkspaceScanner(fileSystem: MacWorkspaceFileSystem())
-        fileOperations = MacWorkspaceFileOperations()
-        gitService = GitService(
-            commandRunner: MacGitCommandRunner(processRunner: MacProcessRunner()),
-            fileOperations: MacWorkspaceFileOperations()
-        )
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: MacRuntimeLocator(),
-            store: store
-        )
-        projectRuntimeService = runtimeService
-        mavenService = MavenService(
-            runtimeService: runtimeService,
-            process: MacStreamingProcess(),
-            projectScanner: MavenProjectScanner(storage: fileStorage)
-        )
-        javaRunService = JavaRunService(
-            runtimeService: runtimeService,
-            process: MacStreamingProcess(),
-            processFactory: { MacStreamingProcess() },
-            fileStorage: fileStorage,
-            preferences: store
-        )
-        javaDebugService = JavaDebugService(
-            runtimeService: runtimeService,
-            processFactory: { MacStreamingProcess() },
-            fileStorage: fileStorage
-        )
-        let languageService = JavaLanguageService(
-            runtimeService: runtimeService,
-            process: MacRawProcessSession(),
-            archiveReader: MacArchiveEntryReader(processRunner: MacProcessRunner()),
-            fileStorage: fileStorage
-        )
-        javaLanguageService = languageService
-        javaImplementationMarkerService = JavaImplementationMarkerService(languageService: languageService)
-        recentProjectsStore = RecentProjectsStore(store: store)
-        workspaceSessionStore = WorkspaceSessionStore(store: store)
-        workbenchLayoutStore = WorkbenchLayoutStore(store: store)
-        recentProjects = recentProjectsStore.load()
+        self.services = services
+        runtimeFeature = RuntimeSettingsFeatureModel(service: services.projectRuntimeService)
+        mavenFeature = MavenFeatureModel(service: services.mavenService)
+        runFeature = JavaRunFeatureModel(service: services.javaRunService)
+        debugFeature = JavaDebugFeatureModel(service: services.javaDebugService)
+        recentProjects = services.recentProjectsStore.load()
         settings.onFileVisibilityRulesChanged = { [weak self] in
             self?.applyVisibilityRules()
         }
         javaLanguageService.onDiagnostics = { [weak self] fileURL, diagnostics in
             self?.javaDiagnostics[fileURL.standardizedFileURL] = diagnostics
         }
-        runtimeService.onRuntimeChanged = { [weak self] in
+        projectRuntimeService.onRuntimeChanged = { [weak self] in
             self?.reloadJavaRuntimeServices()
         }
         doubleShiftDetector = DoubleShiftDetector { [weak self] in
@@ -212,6 +179,17 @@ final class AppModel: ObservableObject {
 
     var projectName: String {
         workspaceURL?.lastPathComponent ?? "Lithe"
+    }
+
+    var javaLanguageStatusMessage: String {
+        javaLanguageService.statusMessage
+    }
+
+    func implementationMarkers(
+        for document: EditorDocument,
+        candidates: [JavaImplementationMarker]
+    ) async -> [JavaImplementationMarker] {
+        await javaImplementationMarkerService.markers(for: document, candidates: candidates)
     }
 
     var activeDocument: EditorDocument? {
@@ -2758,7 +2736,7 @@ final class AppModel: ObservableObject {
         visibilityRules: FileVisibilityRules
     ) {
         directoryWatcher?.stop()
-        directoryWatcher = MacDirectoryWatcher(
+        directoryWatcher = services.directoryWatcherFactory.make(
             root: url,
             visibilityRules: visibilityRules
         ) { [weak self] paths in

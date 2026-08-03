@@ -23,7 +23,7 @@ struct JavaReferencesView: View {
             subtitle: "\(model.javaNavigationLocations.count) results",
             onMinimize: { model.closeJavaNavigationResults() }
         ) {
-            Text(LocalizedStringKey(model.javaLanguageService.statusMessage))
+            Text(LocalizedStringKey(model.javaLanguageStatusMessage))
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)

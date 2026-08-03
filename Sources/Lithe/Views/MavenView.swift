@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MavenView: View {
     @EnvironmentObject private var model: AppModel
-    @ObservedObject var service: MavenService
+    @ObservedObject var feature: MavenFeatureModel
     @State private var selectedModuleID: String?
     @State private var enabledProfiles: Set<String> = []
     @State private var expandedNodeIDs: Set<String> = []
@@ -11,11 +11,11 @@ struct MavenView: View {
         VStack(spacing: 0) {
             toolWindowHeader
 
-            if service.isLoadingProject {
+            if feature.isLoadingProject {
                 ProgressView("Scanning Maven project...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .foregroundStyle(LitheTheme.secondaryText)
-            } else if let project = service.project {
+            } else if let project = feature.project {
                 HStack(spacing: 0) {
                     projectPane(project)
                         .frame(width: 260)
@@ -32,7 +32,7 @@ struct MavenView: View {
                 resetTreeState()
             }
         }
-        .onChange(of: service.project?.id) {
+        .onChange(of: feature.project?.id) {
             resetTreeState()
         }
     }
@@ -42,17 +42,17 @@ struct MavenView: View {
             title: "Maven",
             systemImage: "shippingbox",
             ideaAssetPath: "maven/toolWindowMaven.svg",
-            subtitle: service.project?.displayName,
+            subtitle: feature.project?.displayName,
             onMinimize: { model.isMavenVisible = false }
         ) {
-            if let runningTitle = service.runningTitle {
+            if let runningTitle = feature.runningTitle {
                 ProgressView()
                     .controlSize(.mini)
                 Text(runningTitle)
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
-            } else if let exitCode = service.lastExitCode {
+            } else if let exitCode = feature.lastExitCode {
                 Label(
                     exitCode == 0 ? "Succeeded" : "Failed",
                     systemImage: exitCode == 0 ? "checkmark.circle.fill" : "xmark.circle.fill"
@@ -67,7 +67,7 @@ struct MavenView: View {
             .litheIconButton()
             .help("Reload Maven project")
 
-            if service.isRunning {
+            if feature.isRunning {
                 Button(action: model.stopMaven) {
                     Image(systemName: "stop.fill")
                 }
@@ -76,7 +76,7 @@ struct MavenView: View {
                 .help("Stop Maven task")
             }
 
-            Button(action: service.clearOutput) {
+            Button(action: feature.clearOutput) {
                 Image(systemName: "trash")
             }
             .litheIconButton()
@@ -87,7 +87,7 @@ struct MavenView: View {
 
     private func refreshProject() {
         guard let workspaceURL = model.workspaceURL else { return }
-        Task { await service.loadProject(at: workspaceURL) }
+        Task { await feature.loadProject(at: workspaceURL) }
     }
 
     private func projectPane(_ project: MavenProject) -> some View {
@@ -208,7 +208,7 @@ struct MavenView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .disabled(service.isRunning)
+        .disabled(feature.isRunning)
     }
 
     private func treeNode<Content: View>(
@@ -275,7 +275,7 @@ struct MavenView: View {
     }
 
     private var mavenSearchRoots: [URL] {
-        guard let project = service.project else { return [] }
+        guard let project = feature.project else { return [] }
         return [project.rootURL] + moduleURLs(project.modules)
     }
 
@@ -289,8 +289,8 @@ struct MavenView: View {
                 Text("Build Output")
                     .font(.system(size: 12.5, weight: .semibold))
                 Spacer()
-                if !service.issues.isEmpty {
-                    Label("\(service.issues.count)", systemImage: "exclamationmark.triangle.fill")
+                if !feature.issues.isEmpty {
+                    Label("\(feature.issues.count)", systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(LitheTheme.warning)
                 }
@@ -300,13 +300,13 @@ struct MavenView: View {
             .frame(height: 36)
             .background(LitheTheme.toolHeader)
 
-            if !service.issues.isEmpty {
+            if !feature.issues.isEmpty {
                 issueList
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
 
             OutputTextView(
-                output: service.output,
+                output: feature.output,
                 searchRoots: mavenSearchRoots,
                 emptyMessage: "Run a Maven lifecycle phase to see output."
             ) { url, line, column in
@@ -318,7 +318,7 @@ struct MavenView: View {
     private var issueList: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(service.issues) { issue in
+                ForEach(feature.issues) { issue in
                     Button {
                         model.openMavenIssue(issue)
                     } label: {
@@ -407,8 +407,8 @@ struct MavenView: View {
 
     private func resetTreeState() {
         selectedModuleID = nil
-        enabledProfiles = Set(service.project?.profiles.filter(\.isActiveByDefault).map(\.id) ?? [])
-        expandedNodeIDs = service.project.map { project in
+        enabledProfiles = Set(feature.project?.profiles.filter(\.isActiveByDefault).map(\.id) ?? [])
+        expandedNodeIDs = feature.project.map { project in
             var ids: Set<String> = [projectNodeID(project)]
             if !project.profiles.isEmpty {
                 ids.insert(profilesNodeID)

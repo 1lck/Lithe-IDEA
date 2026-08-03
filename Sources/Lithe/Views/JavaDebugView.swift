@@ -2,9 +2,14 @@ import SwiftUI
 
 struct JavaDebugView: View {
     @EnvironmentObject private var model: AppModel
-    @ObservedObject var service: JavaDebugService
-    @ObservedObject var runService: JavaRunService
+    @ObservedObject var service: JavaDebugFeatureModel
+    @ObservedObject var runService: JavaRunFeatureModel
     @State private var evaluateExpression = ""
+
+    init(feature: JavaDebugFeatureModel, runFeature: JavaRunFeatureModel) {
+        service = feature
+        runService = runFeature
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -519,7 +524,7 @@ struct JavaDebugView: View {
 }
 
 private struct JavaDebugVariableRow: View {
-    @ObservedObject var service: JavaDebugService
+    @ObservedObject var service: JavaDebugFeatureModel
     let variable: JavaDebugVariable
     let depth: Int
 

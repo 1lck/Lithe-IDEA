@@ -182,7 +182,7 @@ struct EditorAreaView: View {
             if let document {
                 CodeEditorView(
                     document: document,
-                    debugService: model.javaDebugService,
+                    debugService: model.debugFeature,
                     shouldFocus: !showsHeader && document.id == model.activeDocumentID
                 )
                     .id(document.id)
@@ -268,7 +268,7 @@ struct EditorAreaView: View {
         if let document = model.activeDocument {
             CodeEditorView(
                 document: document,
-                debugService: model.javaDebugService,
+                debugService: model.debugFeature,
                 shouldFocus: true
             )
                 .id(document.id)

@@ -5,7 +5,7 @@ struct CodeEditorView: NSViewRepresentable {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
-    @ObservedObject var debugService: JavaDebugService
+    @ObservedObject var debugService: JavaDebugFeatureModel
     var shouldFocus = true
 
     func makeCoordinator() -> Coordinator {
@@ -147,7 +147,7 @@ struct CodeEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         weak var document: EditorDocument?
         weak var model: AppModel?
-        weak var debugService: JavaDebugService?
+        weak var debugService: JavaDebugFeatureModel?
         let fileExtension: String
         weak var textView: NSTextView?
         weak var gutter: LineNumberGutterView?
@@ -161,7 +161,7 @@ struct CodeEditorView: NSViewRepresentable {
         var collapsedFoldIDs: Set<String> = []
         private var implementationValidationTask: Task<Void, Never>?
 
-        init(document: EditorDocument, model: AppModel, debugService: JavaDebugService) {
+        init(document: EditorDocument, model: AppModel, debugService: JavaDebugFeatureModel) {
             self.document = document
             self.model = model
             self.debugService = debugService
@@ -278,7 +278,7 @@ struct CodeEditorView: NSViewRepresentable {
                 guard let self,
                       let document,
                       let model else { return }
-                let markers = await model.javaImplementationMarkerService.markers(
+                let markers = await model.implementationMarkers(
                     for: document,
                     candidates: candidates
                 )

@@ -11,7 +11,7 @@ struct RootView: View {
                 WelcomeView()
             } else {
                 WorkbenchView()
-                    .environmentObject(model.javaRunService)
+                    .environmentObject(model.runFeature)
                     .ignoresSafeArea(.container, edges: .top)
             }
         }
@@ -20,7 +20,7 @@ struct RootView: View {
         .sheet(isPresented: $model.isSettingsPresented) {
             SettingsView(
                 settings: model.settings,
-                projectRuntime: model.projectRuntimeService
+                runtimeFeature: model.runtimeFeature
             )
                 .environmentObject(model)
         }

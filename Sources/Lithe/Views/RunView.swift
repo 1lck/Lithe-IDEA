@@ -2,22 +2,22 @@ import SwiftUI
 
 struct RunView: View {
     @EnvironmentObject private var model: AppModel
-    @ObservedObject var service: JavaRunService
+    @ObservedObject var feature: JavaRunFeatureModel
     @State private var selectedSessionID: String?
 
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
 
-            if !service.portConflicts.isEmpty {
+            if !feature.portConflicts.isEmpty {
                 portConflictBanner
                 Rectangle().fill(LitheTheme.warning.opacity(0.35)).frame(height: 1)
             }
 
-            if service.moduleSessions.isEmpty {
+            if feature.moduleSessions.isEmpty {
                 OutputTextView(
-                    output: service.output,
-                    searchRoots: service.sourceSearchRoots,
+                    output: feature.output,
+                    searchRoots: feature.sourceSearchRoots,
                     emptyMessage: "Run a configuration to see process output."
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
@@ -29,7 +29,7 @@ struct RunView: View {
                     Rectangle().fill(LitheTheme.divider).frame(width: 1)
                     OutputTextView(
                         output: selectedOutput,
-                        searchRoots: service.sourceSearchRoots,
+                        searchRoots: feature.sourceSearchRoots,
                         emptyMessage: "Select a run session to see process output."
                     ) { url, line, column in
                         model.openSourceLocation(url: url, line: line, column: column)
@@ -38,9 +38,9 @@ struct RunView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: service.moduleSessions) {
+        .onChange(of: feature.moduleSessions) {
             if let selectedSessionID,
-               !service.moduleSessions.contains(where: { $0.id == selectedSessionID }) {
+               !feature.moduleSessions.contains(where: { $0.id == selectedSessionID }) {
                 self.selectedSessionID = nil
             }
         }
@@ -51,34 +51,34 @@ struct RunView: View {
             title: "Run",
             systemImage: "play.rectangle",
             ideaAssetPath: "toolwindows/toolWindowRun.svg",
-            subtitle: selectedModuleSession?.title ?? service.runningTitle,
+            subtitle: selectedModuleSession?.title ?? feature.runningTitle,
             onMinimize: { model.isRunVisible = false }
         ) {
             if let session = selectedModuleSession {
                 sessionStatus(isRunning: session.isRunning, exitCode: session.exitCode)
-            } else if service.isLoadingProject {
+            } else if feature.isLoadingProject {
                 ProgressView()
                     .controlSize(.mini)
-            } else if service.isRunning {
+            } else if feature.isRunning {
                 Label("Running", systemImage: "circle.fill")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.success)
-            } else if let exitCode = service.lastExitCode {
+            } else if let exitCode = feature.lastExitCode {
                 sessionStatus(isRunning: false, exitCode: exitCode)
             }
 
             if hasModuleConfigurations {
                 Button {
-                    service.runAllModules()
-                    selectedSessionID = service.moduleSessions.first?.id
+                    feature.runAllModules()
+                    selectedSessionID = feature.moduleSessions.first?.id
                 } label: {
                     Image(systemName: "square.stack.3d.up.fill")
                 }
                 .litheIconButton()
                 .help("Run all Maven modules")
 
-                if service.moduleSessions.contains(where: \.isRunning) {
-                    Button(action: service.stopAllModules) {
+                if feature.moduleSessions.contains(where: \.isRunning) {
+                    Button(action: feature.stopAllModules) {
                         Image(systemName: "stop.circle")
                     }
                     .litheIconButton()
@@ -90,11 +90,11 @@ struct RunView: View {
             Button {
                 if let session = selectedModuleSession {
                     if session.isRunning {
-                        service.stopModule(session)
+                        feature.stopModule(session)
                     } else {
-                        service.restartModule(session)
+                        feature.restartModule(session)
                     }
-                } else if service.isRunning {
+                } else if feature.isRunning {
                     model.stopSelectedRun()
                 } else {
                     model.runSelectedConfiguration()
@@ -108,7 +108,7 @@ struct RunView: View {
 
             Button {
                 if let session = selectedModuleSession {
-                    service.restartModule(session)
+                    feature.restartModule(session)
                 } else {
                     model.restartSelectedRun()
                 }
@@ -116,14 +116,14 @@ struct RunView: View {
                 LitheSystemIcon(systemImage: "arrow.clockwise")
             }
             .litheIconButton()
-            .disabled(selectedModuleSession == nil && service.runningTitle == nil && service.lastExitCode == nil)
+            .disabled(selectedModuleSession == nil && feature.runningTitle == nil && feature.lastExitCode == nil)
             .help("Restart run")
 
             Button {
                 if let session = selectedModuleSession {
-                    service.clearModuleOutput(session)
+                    feature.clearModuleOutput(session)
                 } else {
-                    service.clearOutput()
+                    feature.clearOutput()
                 }
             } label: {
                 Image(systemName: "trash")
@@ -135,12 +135,12 @@ struct RunView: View {
     }
 
     private var hasModuleConfigurations: Bool {
-        service.configurations.contains(where: { $0.kind == .mavenModule })
+        feature.configurations.contains(where: { $0.kind == .mavenModule })
     }
 
     private var portConflictBanner: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(service.portConflicts) { conflict in
+            ForEach(feature.portConflicts) { conflict in
                 Label(conflict.title, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.warning)
@@ -155,15 +155,15 @@ struct RunView: View {
 
     private var selectedModuleSession: JavaRunSession? {
         guard let selectedSessionID else { return nil }
-        return service.moduleSessions.first(where: { $0.id == selectedSessionID })
+        return feature.moduleSessions.first(where: { $0.id == selectedSessionID })
     }
 
     private var selectedSessionIsRunning: Bool {
-        selectedModuleSession?.isRunning ?? service.isRunning
+        selectedModuleSession?.isRunning ?? feature.isRunning
     }
 
     private var selectedOutput: String {
-        selectedModuleSession?.output ?? service.output
+        selectedModuleSession?.output ?? feature.output
     }
 
     private var moduleSessionList: some View {
@@ -171,15 +171,15 @@ struct RunView: View {
             VStack(alignment: .leading, spacing: 2) {
                 sessionRow(
                     title: "Current run",
-                    subtitle: service.runningTitle ?? "Primary configuration",
-                    isRunning: service.isRunning,
-                    exitCode: service.lastExitCode,
+                    subtitle: feature.runningTitle ?? "Primary configuration",
+                    isRunning: feature.isRunning,
+                    exitCode: feature.lastExitCode,
                     isSelected: selectedSessionID == nil
                 ) {
                     selectedSessionID = nil
                 }
 
-                ForEach(service.moduleSessions) { session in
+                ForEach(feature.moduleSessions) { session in
                     sessionRow(
                         title: session.title,
                         subtitle: "Maven Module",

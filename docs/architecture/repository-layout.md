@@ -7,6 +7,9 @@ Lithe uses two independent platform implementations with a small set of shared c
 ```text
 Lithe-IDEA/
 ├── Sources/Lithe/          # macOS SwiftUI/AppKit application
+│   ├── Application/        # platform-neutral service graph and UI facades
+│   ├── Core/               # ports and pure domain logic
+│   └── Platform/MacOS/     # macOS composition root and adapters
 ├── Resources/              # macOS metadata, localization, and runtime assets
 ├── Package.swift           # macOS Swift package
 ├── windows/                # Windows Qt/C++ implementation

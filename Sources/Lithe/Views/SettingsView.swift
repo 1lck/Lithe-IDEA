@@ -25,13 +25,18 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
-    @ObservedObject var projectRuntime: ProjectRuntimeService
+    @ObservedObject var projectRuntime: RuntimeSettingsFeatureModel
     @State private var selection: Category = .general
     @State private var hiddenDirectoriesDraft = ""
     @State private var hiddenFilePatternsDraft = ""
     @State private var javaHomeDraft = ""
     @State private var mavenHomeDraft = ""
     @State private var mavenJavaHomeDraft = ""
+
+    init(settings: AppSettings, runtimeFeature: RuntimeSettingsFeatureModel) {
+        self.settings = settings
+        projectRuntime = runtimeFeature
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -231,7 +236,7 @@ struct SettingsView: View {
     }
 
     private var detectedMavenStatus: String {
-        guard let project = model.mavenService.project else {
+        guard let project = model.mavenFeature.project else {
             return projectRuntime.isDiscovering ? "Discovering Maven…" : "No Maven project detected"
         }
         if projectRuntime.settings.mavenHomeSelection == .wrapper {

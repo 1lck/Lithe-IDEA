@@ -46,7 +46,10 @@ struct LitheApp: App {
         let store = MacUserDefaultsStore()
         let settings = AppSettings(store: store)
         _settings = StateObject(wrappedValue: settings)
-        let model = AppModel(settings: settings, store: store)
+        let model = AppModel(
+            settings: settings,
+            services: MacServiceContainer(store: store).services
+        )
         _model = StateObject(wrappedValue: model)
         appDelegate.model = model
     }

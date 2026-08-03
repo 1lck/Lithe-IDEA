@@ -3,7 +3,7 @@ import SwiftUI
 struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
-    @EnvironmentObject private var runService: JavaRunService
+    @EnvironmentObject private var runFeature: JavaRunFeatureModel
     @State private var sidebarWidth: CGFloat = 320
     @State private var sidebarDragStart: CGFloat = 320
     @State private var topPaneHeight: CGFloat?
@@ -413,18 +413,18 @@ struct WorkbenchView: View {
         HStack(spacing: 3) {
             Picker(
                 selection: Binding(
-                    get: { runService.selectedConfigurationID },
-                    set: { runService.selectedConfigurationID = $0 }
+                    get: { runFeature.selectedConfigurationID },
+                    set: { runFeature.selectedConfigurationID = $0 }
                 )
             ) {
-                ForEach(runService.configurations) { configuration in
+                ForEach(runFeature.configurations) { configuration in
                     Label(configuration.name, systemImage: configuration.systemImage)
                         .tag(configuration.id)
                 }
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: runService.selectedConfiguration?.systemImage ?? "play.fill")
-                    Text(runService.selectedConfiguration?.name ?? "Current File")
+                    Image(systemName: runFeature.selectedConfiguration?.systemImage ?? "play.fill")
+                    Text(runFeature.selectedConfiguration?.name ?? "Current File")
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .bold))
@@ -446,22 +446,22 @@ struct WorkbenchView: View {
             .litheIconButton()
             .help("Edit run configuration")
             .popover(isPresented: $isRunConfigurationEditorPresented, arrowEdge: .bottom) {
-                if let configuration = runService.selectedConfiguration {
+                if let configuration = runFeature.selectedConfiguration {
                     JavaRunConfigurationEditorView(
-                        service: runService,
+                        feature: runFeature,
                         configuration: configuration
                     )
                 }
             }
 
             Button {
-                if runService.isRunning {
+                if runFeature.isRunning {
                     model.stopSelectedRun()
                 } else {
                     model.runSelectedConfiguration()
                 }
             } label: {
-                if runService.isRunning {
+                if runFeature.isRunning {
                     Image(systemName: "stop.fill")
                         .foregroundStyle(LitheTheme.warning)
                 } else {
@@ -469,7 +469,7 @@ struct WorkbenchView: View {
                 }
             }
             .litheIconButton()
-            .help(runService.isRunning ? "Stop" : "Run")
+            .help(runFeature.isRunning ? "Stop" : "Run")
         }
     }
 
@@ -597,13 +597,13 @@ struct WorkbenchView: View {
                             JavaProblemsView()
                         } else if model.isDebugVisible {
                             JavaDebugView(
-                                service: model.javaDebugService,
-                                runService: runService
+                                feature: model.debugFeature,
+                                runFeature: runFeature
                             )
                         } else if model.isRunVisible {
-                            RunView(service: runService)
+                            RunView(feature: runFeature)
                         } else if model.isMavenVisible {
-                            MavenView(service: model.mavenService)
+                            MavenView(feature: model.mavenFeature)
                         } else {
                             GitLogView()
                         }

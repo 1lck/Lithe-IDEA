@@ -9,6 +9,7 @@ and application workflows.
 ```text
 Sources/Lithe/Core/Ports/       Platform-neutral capability interfaces
 Sources/Lithe/Core/Terminal/    Pure terminal buffer and escape parsing
+Sources/Lithe/Application/      Platform-neutral service graph and UI feature facades
 Sources/Lithe/Platform/MacOS/  FSEvents, FileManager, Process, PTY, and shell adapters
 Sources/Lithe/Services/        Product workflows and domain orchestration
 Sources/Lithe/Models/           SwiftUI-facing application state
@@ -31,11 +32,18 @@ Current ports include:
 - `RuntimeLocator` for JDK/Maven discovery and executable selection;
 - `DirectoryChangeSource` for external file events.
 
-`AppModel` remains macOS presentation orchestration. It may own SwiftUI state,
-but it is also the composition root: it creates `Mac*` adapters and injects
-them into the workflow services. Services no longer construct `Process`,
-`Pipe`, `FileManager`, `UserDefaults`, shell transports, or runtime discovery
-directly.
+`AppServices` is the platform-neutral service graph. `MacServiceContainer`
+constructs it with macOS adapters; a Windows composition root will construct an
+equivalent graph with Windows adapters. `AppModel` owns macOS presentation
+state and application orchestration, but it no longer knows how to construct
+platform adapters. Its `MavenFeatureModel`, `JavaRunFeatureModel`,
+`JavaDebugFeatureModel`, and `RuntimeSettingsFeatureModel` projections are the
+only service-facing objects passed into the corresponding views.
+
+Services no longer construct `Process`, `Pipe`, `FileManager`, `UserDefaults`,
+shell transports, or runtime discovery directly. Views must not receive
+concrete workflow services; they receive an application model or UI feature
+model and send user actions through that boundary.
 
 The update checker remains deliberately macOS-owned under
 `Platform/MacOS/Updates/`, because DMG mounting, application replacement,
@@ -44,7 +52,8 @@ logic. Windows will provide a separate update implementation.
 
 Run `./scripts/verify-service-boundaries.sh` after service changes. The check
 guards the boundary against direct platform API or Mac adapter references being
-added back into `Core` or `Services`.
+added back into `Core` or `Services`, and prevents concrete workflow services
+from being passed directly into views.
 
 ## Migration Rule
 
