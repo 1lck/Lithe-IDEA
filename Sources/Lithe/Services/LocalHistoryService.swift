@@ -8,19 +8,19 @@ actor LocalHistoryService {
     private let workspaceURL: URL
     private var visibilityRules: FileVisibilityRules
     private let storageURL: URL
+    private let storage: any FileStorage
     private let encoder: JSONEncoder
     private let decoder = JSONDecoder()
 
     init(
         workspaceURL: URL,
-        visibilityRules: FileVisibilityRules = .default
+        visibilityRules: FileVisibilityRules = .default,
+        storage: any FileStorage
     ) {
         self.workspaceURL = workspaceURL.standardizedFileURL
         self.visibilityRules = visibilityRules
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? FileManager.default.temporaryDirectory
+        self.storage = storage
+        let applicationSupport = storage.applicationSupportDirectory()
         storageURL = applicationSupport
             .appendingPathComponent("Lithe", isDirectory: true)
             .appendingPathComponent("LocalHistory", isDirectory: true)
@@ -48,12 +48,12 @@ actor LocalHistoryService {
             relativeTo: workspaceURL,
             isDirectory: false
         ) else { return nil }
-        let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        guard values.isRegularFile == true,
-              let fileSize = values.fileSize,
+        guard let values = storage.metadata(for: fileURL),
+              values.isRegularFile,
+              let fileSize = values.byteCount,
               fileSize <= Self.maximumFileSize,
               WorkspaceScanner.isReadableTextFile(fileURL) else { return nil }
-        return try record(content: Data(contentsOf: fileURL), for: fileURL, reason: reason)
+        return try record(content: storage.readData(from: fileURL, options: []), for: fileURL, reason: reason)
     }
 
     @discardableResult
@@ -74,15 +74,11 @@ actor LocalHistoryService {
             isDirectory: false
         ) else { return [] }
         let directory = historyDirectory(for: fileURL)
-        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
-        return try FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
+        guard storage.fileExists(at: directory) else { return [] }
+        return storage.listDirectory(at: directory)
         .filter { $0.pathExtension == "json" }
         .compactMap { url in
-            guard let data = try? Data(contentsOf: url) else { return nil }
+            guard let data = try? storage.readData(from: url, options: []) else { return nil }
             return try? decoder.decode(LocalHistoryEntry.self, from: data)
         }
         .filter { $0.relativePath == relativePath(for: fileURL) }
@@ -90,18 +86,12 @@ actor LocalHistoryService {
     }
 
     func allEntries() throws -> [LocalHistoryEntry] {
-        guard FileManager.default.fileExists(atPath: storageURL.path) else { return [] }
-        let enumerator = FileManager.default.enumerator(
-            at: storageURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
         var entries: [LocalHistoryEntry] = []
-        while let metadataURL = enumerator?.nextObject() as? URL {
+        for metadataURL in filesRecursively(at: storageURL) where metadataURL.pathExtension == "json" {
             guard metadataURL.pathExtension == "json",
-                  let data = try? Data(contentsOf: metadataURL),
+                  let data = try? storage.readData(from: metadataURL, options: []),
                   let entry = try? decoder.decode(LocalHistoryEntry.self, from: data),
-                  FileManager.default.fileExists(atPath: entry.contentURL.path),
+                  storage.fileExists(at: entry.contentURL),
                   !visibilityRules.isHidden(
                       workspaceURL.appendingPathComponent(entry.relativePath),
                       relativeTo: workspaceURL,
@@ -116,24 +106,25 @@ actor LocalHistoryService {
     }
 
     func content(for entry: LocalHistoryEntry) throws -> String {
-        try String(contentsOf: entry.contentURL, encoding: .utf8)
+        let data = try storage.readData(from: entry.contentURL, options: [])
+        return String(decoding: data, as: UTF8.self)
     }
 
     func relocateHistory(from sourceURL: URL, to destinationURL: URL) throws {
         let sourceDirectory = historyDirectory(for: sourceURL)
-        guard FileManager.default.fileExists(atPath: sourceDirectory.path) else { return }
+        guard storage.fileExists(at: sourceDirectory) else { return }
         let destinationDirectory = historyDirectory(for: destinationURL)
-        try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+        try storage.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
 
         for entry in try entries(for: sourceURL) {
             let destinationContentURL = destinationDirectory.appendingPathComponent(entry.contentURL.lastPathComponent)
             let destinationMetadataURL = destinationDirectory
                 .appendingPathComponent(entry.id.uuidString)
                 .appendingPathExtension("json")
-            if FileManager.default.fileExists(atPath: destinationContentURL.path) {
-                try? FileManager.default.removeItem(at: destinationContentURL)
+            if storage.fileExists(at: destinationContentURL) {
+                try? storage.removeItem(at: destinationContentURL)
             }
-            try FileManager.default.moveItem(at: entry.contentURL, to: destinationContentURL)
+            try storage.moveItem(at: entry.contentURL, to: destinationContentURL)
             let relocatedEntry = LocalHistoryEntry(
                 id: entry.id,
                 timestamp: entry.timestamp,
@@ -142,12 +133,13 @@ actor LocalHistoryService {
                 contentURL: destinationContentURL,
                 byteCount: entry.byteCount
             )
-            try encoder.encode(relocatedEntry).write(to: destinationMetadataURL, options: .atomic)
-            try? FileManager.default.removeItem(
+            let metadata = try encoder.encode(relocatedEntry)
+            try storage.writeData(metadata, to: destinationMetadataURL, options: .atomic)
+            try? storage.removeItem(
                 at: sourceDirectory.appendingPathComponent(entry.id.uuidString).appendingPathExtension("json")
             )
         }
-        try? FileManager.default.removeItem(at: sourceDirectory)
+        try? storage.removeItem(at: sourceDirectory)
     }
 
     private func record(
@@ -164,9 +156,9 @@ actor LocalHistoryService {
               ) else { return nil }
 
         let directory = historyDirectory(for: fileURL)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try storage.createDirectory(at: directory, withIntermediateDirectories: true)
         if let latest = try entries(for: fileURL).first,
-           let latestData = try? Data(contentsOf: latest.contentURL),
+           let latestData = try? storage.readData(from: latest.contentURL, options: []),
            latestData == content {
             return nil
         }
@@ -182,8 +174,8 @@ actor LocalHistoryService {
             contentURL: contentURL,
             byteCount: content.count
         )
-        try content.write(to: contentURL, options: .atomic)
-        try encoder.encode(entry).write(to: metadataURL, options: .atomic)
+        try storage.writeData(content, to: contentURL, options: .atomic)
+        try storage.writeData(try encoder.encode(entry), to: metadataURL, options: .atomic)
         try trimEntries(for: fileURL)
         return entry
     }
@@ -191,29 +183,36 @@ actor LocalHistoryService {
     private func trimEntries(for fileURL: URL) throws {
         let excess = try entries(for: fileURL).dropFirst(Self.maximumEntriesPerFile)
         for entry in excess {
-            try? FileManager.default.removeItem(at: entry.contentURL)
-            try? FileManager.default.removeItem(
+            try? storage.removeItem(at: entry.contentURL)
+            try? storage.removeItem(
                 at: entry.contentURL.deletingPathExtension().appendingPathExtension("json")
             )
         }
     }
 
     private func pruneExpiredEntries() throws {
-        guard FileManager.default.fileExists(atPath: storageURL.path) else { return }
+        guard storage.fileExists(at: storageURL) else { return }
         let cutoff = Calendar.current.date(byAdding: .day, value: -Self.retentionDays, to: Date()) ?? .distantPast
-        let enumerator = FileManager.default.enumerator(
-            at: storageURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        while let metadataURL = enumerator?.nextObject() as? URL {
+        for metadataURL in filesRecursively(at: storageURL) where metadataURL.pathExtension == "json" {
             guard metadataURL.pathExtension == "json",
-                  let data = try? Data(contentsOf: metadataURL),
+                  let data = try? storage.readData(from: metadataURL, options: []),
                   let entry = try? decoder.decode(LocalHistoryEntry.self, from: data),
                   entry.timestamp < cutoff else { continue }
-            try? FileManager.default.removeItem(at: entry.contentURL)
-            try? FileManager.default.removeItem(at: metadataURL)
+            try? storage.removeItem(at: entry.contentURL)
+            try? storage.removeItem(at: metadataURL)
         }
+    }
+
+    private func filesRecursively(at directory: URL) -> [URL] {
+        var files: [URL] = []
+        for url in storage.listDirectory(at: directory) {
+            if storage.metadata(for: url)?.isDirectory == true {
+                files.append(contentsOf: filesRecursively(at: url))
+            } else {
+                files.append(url)
+            }
+        }
+        return files
     }
 
     private func historyDirectory(for fileURL: URL) -> URL {

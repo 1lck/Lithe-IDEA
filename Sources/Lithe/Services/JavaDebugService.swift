@@ -18,11 +18,8 @@ final class JavaDebugService: ObservableObject {
     @Published var remotePort = "5005"
     @Published var remoteJavaHomePath = ""
 
-    private var debuggeeProcess: Process?
-    private var debuggeeOutputPipe: Pipe?
-    private var jdbProcess: Process?
-    private var jdbInputPipe: Pipe?
-    private var jdbOutputPipe: Pipe?
+    private var debuggeeProcess: (any StreamingProcess)?
+    private var jdbProcess: (any StreamingProcess)?
     private var sessionID = UUID()
     private var debugClassName: String?
     private var activeJDBURL: URL?
@@ -32,9 +29,17 @@ final class JavaDebugService: ObservableObject {
     private var didBootstrap = false
     private let maximumOutputCharacters = 400_000
     private let runtimeService: ProjectRuntimeService
+    private let processFactory: () -> any StreamingProcess
+    private let fileStorage: any FileStorage
 
-    init(runtimeService: ProjectRuntimeService) {
+    init(
+        runtimeService: ProjectRuntimeService,
+        processFactory: @escaping () -> any StreamingProcess,
+        fileStorage: any FileStorage
+    ) {
         self.runtimeService = runtimeService
+        self.processFactory = processFactory
+        self.fileStorage = fileStorage
     }
 
     private enum InspectionKind {
@@ -301,20 +306,13 @@ final class JavaDebugService: ObservableObject {
 
     func stop() {
         sessionID = UUID()
-        debuggeeOutputPipe?.fileHandleForReading.readabilityHandler = nil
-        jdbOutputPipe?.fileHandleForReading.readabilityHandler = nil
         if let jdbProcess, jdbProcess.isRunning {
-            try? jdbInputPipe?.fileHandleForWriting.write(contentsOf: Data("quit\n".utf8))
-            jdbProcess.terminate()
+            try? jdbProcess.send(Data("quit\n".utf8))
+            jdbProcess.stop()
         }
-        if let debuggeeProcess, debuggeeProcess.isRunning {
-            debuggeeProcess.terminate()
-        }
+        debuggeeProcess?.stop()
         debuggeeProcess = nil
-        debuggeeOutputPipe = nil
         jdbProcess = nil
-        jdbInputPipe = nil
-        jdbOutputPipe = nil
         didBootstrap = false
         debugClassName = nil
         activeJDBURL = nil
@@ -401,38 +399,31 @@ final class JavaDebugService: ObservableObject {
         sessionID: UUID
     ) {
         activeJDBURL = jdbURL
-        let debuggee = Process()
-        let debuggeeOutput = Pipe()
-        debuggee.executableURL = executable
-        debuggee.arguments = arguments
-        debuggee.currentDirectoryURL = workingDirectory
-        debuggee.environment = environment
-        debuggee.standardOutput = debuggeeOutput
-        debuggee.standardError = debuggeeOutput
-        debuggeeOutput.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            let chunk = String(decoding: data, as: UTF8.self)
+        let debuggee = processFactory()
+        debuggee.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 self?.appendDebuggeeOutput(chunk, sessionID: sessionID)
             }
         }
-        debuggee.terminationHandler = { [weak self] process in
+        debuggee.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
                 guard let self, self.sessionID == sessionID else { return }
-                self.debuggeeOutputPipe?.fileHandleForReading.readabilityHandler = nil
                 if self.state != .failed {
-                    self.state = process.terminationStatus == 0 ? .finished : .failed
+                    self.state = exitCode == 0 ? .finished : .failed
                 }
-                self.append("[debuggee exited with code \(process.terminationStatus)]\n")
+                self.append("[debuggee exited with code \(exitCode)]\n")
             }
         }
 
         debuggeeProcess = debuggee
-        debuggeeOutputPipe = debuggeeOutput
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
         do {
-            try debuggee.run()
+            try debuggee.start(ProcessRequest(
+                executablePath: executable.path,
+                arguments: arguments,
+                workingDirectory: workingDirectory.path,
+                environment: environment
+            ))
         } catch {
             fail("Unable to start debuggee: \(error.localizedDescription)")
             return
@@ -458,41 +449,30 @@ final class JavaDebugService: ObservableObject {
         guard self.sessionID == sessionID,
               jdbProcess == nil else { return }
 
-        let jdb = Process()
-        let input = Pipe()
-        let output = Pipe()
-        jdb.executableURL = jdbURL
-        jdb.arguments = ["-J-Duser.language=en", "-J-Duser.country=US", "-attach", "\(host):\(port)"]
-        jdb.standardInput = input
-        jdb.standardOutput = output
-        jdb.standardError = output
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            let chunk = String(decoding: data, as: UTF8.self)
+        let jdb = processFactory()
+        jdb.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 self?.appendJDBOutput(chunk, sessionID: sessionID)
             }
         }
-        jdb.terminationHandler = { [weak self] process in
+        jdb.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
                 guard let self, self.sessionID == sessionID else { return }
-                self.jdbOutputPipe?.fileHandleForReading.readabilityHandler = nil
                 if self.state == .launching || self.state == .running {
                     self.state = .failed
-                    self.append("[jdb exited with code \(process.terminationStatus)]\n")
+                    self.append("[jdb exited with code \(exitCode)]\n")
                 }
                 self.jdbProcess = nil
-                self.jdbInputPipe = nil
-                self.jdbOutputPipe = nil
             }
         }
 
         jdbProcess = jdb
-        jdbInputPipe = input
-        jdbOutputPipe = output
         do {
-            try jdb.run()
+            try jdb.start(ProcessRequest(
+                executablePath: jdbURL.path,
+                arguments: ["-J-Duser.language=en", "-J-Duser.country=US", "-attach", "\(host):\(port)"],
+                keepsStandardInputOpen: true
+            ))
         } catch {
             fail("Unable to start jdb: \(error.localizedDescription)")
             return
@@ -775,9 +755,8 @@ final class JavaDebugService: ObservableObject {
     }
 
     private func send(_ command: String) {
-        guard let jdbInputPipe,
-              jdbProcess?.isRunning == true else { return }
-        try? jdbInputPipe.fileHandleForWriting.write(contentsOf: Data((command + "\n").utf8))
+        guard let jdbProcess, jdbProcess.isRunning else { return }
+        try? jdbProcess.send(Data((command + "\n").utf8))
     }
 
     private func append(_ value: String) {
@@ -790,7 +769,7 @@ final class JavaDebugService: ObservableObject {
     private func fail(_ message: String) {
         output = message + "\n"
         state = .failed
-        if let debuggeeProcess, debuggeeProcess.isRunning { debuggeeProcess.terminate() }
+        debuggeeProcess?.stop()
     }
 
     private func workingDirectory(_ path: String, fallback: URL, relativeTo projectURL: URL?) -> URL {
@@ -801,8 +780,7 @@ final class JavaDebugService: ObservableObject {
             ? URL(fileURLWithPath: expanded)
             : URL(fileURLWithPath: expanded, relativeTo: projectURL ?? fallback)
         ).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard fileStorage.metadata(for: url)?.isDirectory == true else {
             return fallback
         }
         return url

@@ -10,14 +10,30 @@ final class MavenService: ObservableObject {
     @Published private(set) var issues: [MavenBuildIssue] = []
     @Published private(set) var lastExitCode: Int32?
 
-    private var process: Process?
-    private var outputPipe: Pipe?
+    private let process: any StreamingProcess
+    private let projectScanner: MavenProjectScanner
     private var projectLoadID = UUID()
     private let maximumOutputCharacters = 500_000
     private let runtimeService: ProjectRuntimeService
 
-    init(runtimeService: ProjectRuntimeService) {
+    init(
+        runtimeService: ProjectRuntimeService,
+        process: any StreamingProcess,
+        projectScanner: MavenProjectScanner
+    ) {
         self.runtimeService = runtimeService
+        self.process = process
+        self.projectScanner = projectScanner
+        process.onOutput = { [weak self] chunk in
+            Task { @MainActor [weak self] in
+                self?.append(chunk)
+            }
+        }
+        process.onTermination = { [weak self] exitCode in
+            Task { @MainActor [weak self] in
+                self?.finishProcess(exitCode: exitCode)
+            }
+        }
     }
 
     func loadProject(at workspaceURL: URL) async {
@@ -25,8 +41,9 @@ final class MavenService: ObservableObject {
         projectLoadID = loadID
         isLoadingProject = true
         let rootURL = workspaceURL.standardizedFileURL
+        let projectScanner = projectScanner
         let scannedProject = await Task.detached(priority: .utility) {
-            MavenProjectScanner.scan(at: rootURL)
+            projectScanner.scan(at: rootURL)
         }.value
         guard !Task.isCancelled, projectLoadID == loadID else { return }
         project = scannedProject
@@ -50,12 +67,7 @@ final class MavenService: ObservableObject {
     }
 
     func stop() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
-        if let process, process.isRunning {
-            process.terminate()
-        }
-        process = nil
-        outputPipe = nil
+        process.stop()
         isRunning = false
         runningTitle = nil
     }
@@ -103,43 +115,14 @@ final class MavenService: ObservableObject {
         runningTitle = title
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
 
-        let process = Process()
-        let outputPipe = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.currentDirectoryURL = project.rootURL
-        process.environment = runtimeService.environment(for: .maven)
-
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            let chunk = String(decoding: data, as: UTF8.self)
-            Task { @MainActor [weak self] in
-                self?.append(chunk)
-            }
-        }
-        process.terminationHandler = { [weak self] terminatedProcess in
-            Task { @MainActor [weak self] in
-                guard let self, self.process === terminatedProcess else { return }
-                self.outputPipe?.fileHandleForReading.readabilityHandler = nil
-                self.isRunning = false
-                self.runningTitle = nil
-                self.lastExitCode = terminatedProcess.terminationStatus
-                self.issues = Self.parseIssues(in: self.output, projectRoot: project.rootURL)
-                self.process = nil
-                self.outputPipe = nil
-            }
-        }
-
-        self.process = process
-        self.outputPipe = outputPipe
         do {
-            try process.run()
+            try process.start(ProcessRequest(
+                executablePath: executable.path,
+                arguments: arguments,
+                workingDirectory: project.rootURL.path,
+                environment: runtimeService.environment(for: .maven)
+            ))
         } catch {
-            self.process = nil
-            self.outputPipe = nil
             append("Unable to start Maven: " + error.localizedDescription + "\n")
             isRunning = false
             runningTitle = nil
@@ -153,6 +136,14 @@ final class MavenService: ObservableObject {
                 message: error.localizedDescription
             )]
         }
+    }
+
+    private func finishProcess(exitCode: Int32) {
+        guard let project else { return }
+        isRunning = false
+        runningTitle = nil
+        lastExitCode = exitCode
+        issues = Self.parseIssues(in: output, projectRoot: project.rootURL)
     }
 
     private func append(_ value: String) {

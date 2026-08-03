@@ -98,7 +98,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var branchComparisonRows: [DiffRow] = []
     @Published private(set) var isLoadingBranchComparison = false
     @Published private(set) var isPerformingBranchOperation = false
-    private var directoryWatcher: DirectoryWatcher?
+    private var directoryWatcher: (any DirectoryChangeSource)?
     private var doubleShiftDetector: DoubleShiftDetector?
     private var refreshTask: Task<Void, Never>?
     private var pendingExternalPaths: Set<String> = []
@@ -114,6 +114,9 @@ final class AppModel: ObservableObject {
     private var pendingClosePreferredDocumentID: UUID?
     private var gitHistoryLimit = 300
     let projectRuntimeService: ProjectRuntimeService
+    let workspaceScanner: WorkspaceScanner
+    let fileOperations: any WorkspaceFileOperations
+    private let fileStorage: any FileStorage
     let settings: AppSettings
     @Published private(set) var terminalSessions: [TerminalSession] = []
     @Published private(set) var activeTerminalSessionID: UUID?
@@ -122,20 +125,60 @@ final class AppModel: ObservableObject {
     let mavenService: MavenService
     let javaRunService: JavaRunService
     let javaDebugService: JavaDebugService
-    let searchIndex = WorkspaceSearchIndex()
+    private let gitService: GitService
+    let searchIndex: WorkspaceSearchIndex
     private var localHistoryService: LocalHistoryService?
+    private let recentProjectsStore: RecentProjectsStore
+    private let workspaceSessionStore: WorkspaceSessionStore
+    private let workbenchLayoutStore: WorkbenchLayoutStore
+    private let terminalFactory: () -> any TerminalTransport
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings, store: any KeyValueStore) {
         self.settings = settings
-        let runtimeService = ProjectRuntimeService()
+        let fileStorage = MacFileStorage()
+        self.fileStorage = fileStorage
+        searchIndex = WorkspaceSearchIndex(storage: fileStorage)
+        terminalFactory = { MacTerminalTransport() }
+        workspaceScanner = WorkspaceScanner(fileSystem: MacWorkspaceFileSystem())
+        fileOperations = MacWorkspaceFileOperations()
+        gitService = GitService(
+            commandRunner: MacGitCommandRunner(processRunner: MacProcessRunner()),
+            fileOperations: MacWorkspaceFileOperations()
+        )
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: MacRuntimeLocator(),
+            store: store
+        )
         projectRuntimeService = runtimeService
-        mavenService = MavenService(runtimeService: runtimeService)
-        javaRunService = JavaRunService(runtimeService: runtimeService)
-        javaDebugService = JavaDebugService(runtimeService: runtimeService)
-        let languageService = JavaLanguageService(runtimeService: runtimeService)
+        mavenService = MavenService(
+            runtimeService: runtimeService,
+            process: MacStreamingProcess(),
+            projectScanner: MavenProjectScanner(storage: fileStorage)
+        )
+        javaRunService = JavaRunService(
+            runtimeService: runtimeService,
+            process: MacStreamingProcess(),
+            processFactory: { MacStreamingProcess() },
+            fileStorage: fileStorage,
+            preferences: store
+        )
+        javaDebugService = JavaDebugService(
+            runtimeService: runtimeService,
+            processFactory: { MacStreamingProcess() },
+            fileStorage: fileStorage
+        )
+        let languageService = JavaLanguageService(
+            runtimeService: runtimeService,
+            process: MacRawProcessSession(),
+            archiveReader: MacArchiveEntryReader(processRunner: MacProcessRunner()),
+            fileStorage: fileStorage
+        )
         javaLanguageService = languageService
         javaImplementationMarkerService = JavaImplementationMarkerService(languageService: languageService)
-        recentProjects = RecentProjectsStore.load()
+        recentProjectsStore = RecentProjectsStore(store: store)
+        workspaceSessionStore = WorkspaceSessionStore(store: store)
+        workbenchLayoutStore = WorkbenchLayoutStore(store: store)
+        recentProjects = recentProjectsStore.load()
         settings.onFileVisibilityRulesChanged = { [weak self] in
             self?.applyVisibilityRules()
         }
@@ -205,12 +248,12 @@ final class AppModel: ObservableObject {
         let normalizedRemote = remote.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedRemote.isEmpty else { return "Enter a repository URL" }
         guard !destination.path.isEmpty else { return "Choose a destination folder" }
-        guard !FileManager.default.fileExists(atPath: destination.path) else {
+        guard !fileOperations.fileExists(at: destination) else {
             return "The destination folder already exists"
         }
 
         isCloningRepository = true
-        let result = await GitService.cloneRepository(from: normalizedRemote, to: destination)
+        let result = await gitService.cloneRepository(from: normalizedRemote, to: destination)
         isCloningRepository = false
         guard result.succeeded else {
             return gitErrorMessage(from: result)
@@ -288,7 +331,8 @@ final class AppModel: ObservableObject {
         let visibilityRules = settings.fileVisibilityRules
         let historyService = LocalHistoryService(
             workspaceURL: normalizedURL,
-            visibilityRules: visibilityRules
+            visibilityRules: visibilityRules,
+            storage: fileStorage
         )
         localHistoryService = historyService
         selectedSidebar = .project
@@ -303,12 +347,13 @@ final class AppModel: ObservableObject {
         branchComparison = nil
         selectedBranchComparisonFile = nil
         branchComparisonRows = []
-        recentProjects = RecentProjectsStore.record(normalizedURL, in: recentProjects)
+        recentProjects = recentProjectsStore.record(normalizedURL, in: recentProjects)
         isLoadingWorkspace = true
+        let scanner = workspaceScanner
 
         Task {
             let snapshot = await Task.detached(priority: .userInitiated) {
-                WorkspaceScanner.snapshot(at: normalizedURL, rules: visibilityRules)
+                scanner.snapshot(at: normalizedURL, rules: visibilityRules)
             }.value
             guard workspaceURL == normalizedURL else { return }
             rootNode = snapshot.root
@@ -457,7 +502,15 @@ final class AppModel: ObservableObject {
     }
 
     func removeRecentProject(_ project: RecentProject) {
-        recentProjects = RecentProjectsStore.remove(project, from: recentProjects)
+        recentProjects = recentProjectsStore.remove(project, from: recentProjects)
+    }
+
+    func loadWorkbenchLayout(for workspaceURL: URL) -> WorkbenchLayout {
+        workbenchLayoutStore.load(for: workspaceURL)
+    }
+
+    func saveWorkbenchLayout(_ layout: WorkbenchLayout, for workspaceURL: URL) {
+        workbenchLayoutStore.save(layout, for: workspaceURL)
     }
 
     func openFile(
@@ -565,8 +618,9 @@ final class AppModel: ObservableObject {
         } else {
             isRefreshingWorkspace = true
         }
+        let scanner = workspaceScanner
         let snapshot = await Task.detached(priority: .userInitiated) {
-            WorkspaceScanner.snapshot(at: workspaceURL, rules: rules)
+            scanner.snapshot(at: workspaceURL, rules: rules)
         }.value
         guard self.workspaceURL == workspaceURL else {
             if isInitialLoad {
@@ -653,19 +707,22 @@ final class AppModel: ObservableObject {
             relocatedHistoryFiles = []
         }
 
+        let fileOperations = fileOperations
         let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
-            let manager = FileManager.default
-            guard !manager.fileExists(atPath: destination.path) else {
+            guard !fileOperations.fileExists(at: destination) else {
                 return "An item named '\(name)' already exists"
             }
             do {
                 switch request.kind {
                 case .createFile:
-                    try Data().write(to: destination, options: .withoutOverwriting)
+                    try fileOperations.createFile(at: destination)
                 case .createDirectory:
-                    try manager.createDirectory(at: destination, withIntermediateDirectories: false)
+                    try fileOperations.createDirectory(
+                        at: destination,
+                        withIntermediateDirectories: false
+                    )
                 case .rename:
-                    try manager.moveItem(at: request.targetURL, to: destination)
+                    try fileOperations.moveItem(at: request.targetURL, to: destination)
                 }
                 return nil
             } catch {
@@ -707,9 +764,10 @@ final class AppModel: ObservableObject {
               sourceURL.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
         isPerformingProjectItemOperation = true
         let destination = availableDuplicateURL(for: sourceURL)
+        let fileOperations = fileOperations
         let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
             do {
-                try FileManager.default.copyItem(at: sourceURL, to: destination)
+                try fileOperations.copyItem(at: sourceURL, to: destination)
                 return nil
             } catch {
                 return error.localizedDescription
@@ -746,13 +804,10 @@ final class AppModel: ObservableObject {
         pendingProjectItemDeletion = nil
         isPerformingProjectItemOperation = true
         await recordHistory(containedIn: request.url, reason: .beforeDelete)
+        let fileOperations = fileOperations
         let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
             do {
-                var resultingURL: NSURL?
-                try FileManager.default.trashItem(
-                    at: request.url,
-                    resultingItemURL: &resultingURL
-                )
+                try fileOperations.trashItem(at: request.url)
                 return nil
             } catch {
                 return error.localizedDescription
@@ -884,15 +939,15 @@ final class AppModel: ObservableObject {
                     for: targetURL,
                     reason: .restored
                 )
-            } else if FileManager.default.fileExists(atPath: targetURL.path) {
+            } else if fileOperations.fileExists(at: targetURL) {
                 _ = try? await localHistoryService.recordFile(at: targetURL, reason: .restored)
             }
 
-            try FileManager.default.createDirectory(
+            try fileOperations.createDirectory(
                 at: targetURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try restoredText.write(to: targetURL, atomically: true, encoding: .utf8)
+            try fileOperations.writeText(restoredText, to: targetURL)
 
             if let document = openDocuments.first(where: { $0.url == targetURL }) {
                 try document.reloadFromDisk()
@@ -1350,7 +1405,7 @@ final class AppModel: ObservableObject {
         isLoadingDiff = true
         let whitespace = gitDiffWhitespaceMode
         Task {
-            let document = await GitService.diffDocument(for: change, whitespace: whitespace)
+            let document = await gitService.diffDocument(for: change, whitespace: whitespace)
             guard selectedChange?.id == change.id else { return }
             diffRows = document.rows
             diffHunks = document.hunks
@@ -1362,7 +1417,7 @@ final class AppModel: ObservableObject {
         gitDiffWhitespaceMode = whitespace
         guard let selectedChange else { return }
         isLoadingDiff = true
-        let document = await GitService.diffDocument(for: selectedChange, whitespace: whitespace)
+        let document = await gitService.diffDocument(for: selectedChange, whitespace: whitespace)
         guard self.selectedChange?.id == selectedChange.id else { return }
         diffRows = document.rows
         diffHunks = document.hunks
@@ -1374,15 +1429,15 @@ final class AppModel: ObservableObject {
         isRefreshingGit = true
         defer { isRefreshingGit = false }
 
-        if let snapshot = await GitService.snapshot(for: workspaceURL) {
+        if let snapshot = await gitService.snapshot(for: workspaceURL) {
             gitRepositoryRoot = snapshot.repositoryRoot
             currentBranch = snapshot.branch
             gitChanges = snapshot.changes
-            gitStashes = await GitService.stashes(at: snapshot.repositoryRoot)
+            gitStashes = await gitService.stashes(at: snapshot.repositoryRoot)
             if let selectedChange,
                let updated = snapshot.changes.first(where: { $0.path == selectedChange.path }) {
                 self.selectedChange = updated
-                let document = await GitService.diffDocument(
+                let document = await gitService.diffDocument(
                     for: updated,
                     whitespace: gitDiffWhitespaceMode
                 )
@@ -1415,26 +1470,26 @@ final class AppModel: ObservableObject {
 
     func stageSelectedChange() async {
         guard let selectedChange else { return }
-        let result = await GitService.stage(selectedChange)
+        let result = await gitService.stage(selectedChange)
         showNotification(result.succeeded ? "Staged \(selectedChange.path)" : result.output)
         await refreshGit()
     }
 
     func unstageSelectedChange() async {
         guard let selectedChange else { return }
-        let result = await GitService.unstage(selectedChange)
+        let result = await gitService.unstage(selectedChange)
         showNotification(result.succeeded ? "Unstaged \(selectedChange.path)" : result.output)
         await refreshGit()
     }
 
     func stageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
-        let result = await GitService.stage(hunk: hunk, of: change)
+        let result = await gitService.stage(hunk: hunk, of: change)
         showNotification(result.succeeded ? "Staged a change block in \(change.path)" : result.output)
         await refreshGit()
     }
 
     func unstageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
-        let result = await GitService.unstage(hunk: hunk, of: change)
+        let result = await gitService.unstage(hunk: hunk, of: change)
         showNotification(result.succeeded ? "Unstaged a change block in \(change.path)" : result.output)
         await refreshGit()
     }
@@ -1446,7 +1501,7 @@ final class AppModel: ObservableObject {
     func confirmDiscardHunk() async {
         guard let request = pendingDiscardHunk else { return }
         pendingDiscardHunk = nil
-        let result = await GitService.discard(hunk: request.hunk, of: request.change)
+        let result = await gitService.discard(hunk: request.hunk, of: request.change)
         showNotification(result.succeeded ? "Discarded a change block in \(request.change.path)" : result.output)
         await refreshGit()
     }
@@ -1462,7 +1517,7 @@ final class AppModel: ObservableObject {
     func confirmDiscardChange() async {
         guard let change = pendingDiscardChange else { return }
         pendingDiscardChange = nil
-        let result = await GitService.discard(change)
+        let result = await gitService.discard(change)
         showNotification(result.succeeded ? "Discarded \(change.path)" : result.output)
         await refreshGit()
     }
@@ -1479,7 +1534,7 @@ final class AppModel: ObservableObject {
             return
         }
         isCommitting = true
-        let result = await GitService.commit(at: gitRepositoryRoot, message: message, amend: amendCommit)
+        let result = await gitService.commit(at: gitRepositoryRoot, message: message, amend: amendCommit)
         isCommitting = false
         if result.succeeded {
             commitMessage = ""
@@ -1504,7 +1559,7 @@ final class AppModel: ObservableObject {
         }
 
         isCommitting = true
-        let commitResult = await GitService.commit(
+        let commitResult = await gitService.commit(
             at: gitRepositoryRoot,
             message: message,
             amend: amendCommit
@@ -1525,7 +1580,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let pushResult = await GitService.push(currentReference, at: gitRepositoryRoot)
+        let pushResult = await gitService.push(currentReference, at: gitRepositoryRoot)
         isCommitting = false
         if pushResult.succeeded {
             showNotification("Committed and pushed \(currentReference.shortName)")
@@ -1537,7 +1592,7 @@ final class AppModel: ObservableObject {
 
     func toggleStaging(_ change: GitChange) async {
         selectedChange = change
-        let result = change.isStaged ? await GitService.unstage(change) : await GitService.stage(change)
+        let result = change.isStaged ? await gitService.unstage(change) : await gitService.stage(change)
         let verb = change.isStaged ? "Unstaged" : "Staged"
         showNotification(result.succeeded ? "\(verb) \(change.path)" : result.output)
         await refreshGit()
@@ -1545,7 +1600,7 @@ final class AppModel: ObservableObject {
 
     func stageAllChanges() async {
         guard let gitRepositoryRoot else { return }
-        let result = await GitService.stageAll(at: gitRepositoryRoot)
+        let result = await gitService.stageAll(at: gitRepositoryRoot)
         showNotification(result.succeeded ? "Staged all changes" : result.output)
         await refreshGit()
     }
@@ -1553,7 +1608,7 @@ final class AppModel: ObservableObject {
     func stashWorkingTree(message: String, includeUntracked: Bool) async {
         guard let gitRepositoryRoot else { return }
         isPerformingStashOperation = true
-        let result = await GitService.stash(
+        let result = await gitService.stash(
             message: message,
             includeUntracked: includeUntracked,
             at: gitRepositoryRoot
@@ -1571,8 +1626,8 @@ final class AppModel: ObservableObject {
         guard let gitRepositoryRoot else { return }
         isPerformingStashOperation = true
         let result = pop
-            ? await GitService.popStash(stash, at: gitRepositoryRoot)
-            : await GitService.applyStash(stash, at: gitRepositoryRoot)
+            ? await gitService.popStash(stash, at: gitRepositoryRoot)
+            : await gitService.applyStash(stash, at: gitRepositoryRoot)
         isPerformingStashOperation = false
         if result.succeeded {
             showNotification(pop ? "Popped \(stash.reference)" : "Applied \(stash.reference)")
@@ -1585,7 +1640,7 @@ final class AppModel: ObservableObject {
     func dropStash(_ stash: GitStash) async {
         guard let gitRepositoryRoot else { return }
         isPerformingStashOperation = true
-        let result = await GitService.dropStash(stash, at: gitRepositoryRoot)
+        let result = await gitService.dropStash(stash, at: gitRepositoryRoot)
         isPerformingStashOperation = false
         showNotification(result.succeeded ? "Dropped \(stash.reference)" : gitErrorMessage(from: result))
         await refreshGit()
@@ -1635,7 +1690,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func createTerminalSession(shellPath: String? = nil) -> TerminalSession? {
         guard let workspaceURL else { return nil }
-        let session = TerminalSession()
+        let session = TerminalSession(transport: terminalFactory())
         session.start(in: workspaceURL, shellPath: shellPath ?? settings.terminalShellPath)
         terminalSessions.append(session)
         activeTerminalSessionID = session.id
@@ -1735,7 +1790,7 @@ final class AppModel: ObservableObject {
 
     func openMavenIssue(_ issue: MavenBuildIssue) {
         guard let fileURL = issue.fileURL,
-              FileManager.default.fileExists(atPath: fileURL.path) else { return }
+              fileOperations.fileExists(at: fileURL) else { return }
         openFile(fileURL)
         editorNavigationTarget = EditorNavigationTarget(
             url: fileURL.standardizedFileURL,
@@ -1746,7 +1801,7 @@ final class AppModel: ObservableObject {
 
     /// 打开源码文件并定位到指定行/列(供构建输出、运行堆栈等可点击文本跳转)。
     func openSourceLocation(url: URL, line: Int, column: Int?) {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard fileOperations.fileExists(at: url) else { return }
         openFile(url)
         editorNavigationTarget = EditorNavigationTarget(
             url: url.standardizedFileURL,
@@ -1767,7 +1822,7 @@ final class AppModel: ObservableObject {
     }
 
     func openJavaDiagnostic(_ diagnostic: JavaDiagnostic) {
-        guard FileManager.default.fileExists(atPath: diagnostic.fileURL.path) else { return }
+        guard fileOperations.fileExists(at: diagnostic.fileURL) else { return }
         openFile(diagnostic.fileURL)
         editorNavigationTarget = EditorNavigationTarget(
             url: diagnostic.fileURL.standardizedFileURL,
@@ -2103,7 +2158,7 @@ final class AppModel: ObservableObject {
         guard let gitRepositoryRoot, !isLoadingGitHistory else { return }
         isLoadingGitHistory = true
         let previousCommitHash = selectedGitCommit?.hash
-        let snapshot = await GitService.history(
+        let snapshot = await gitService.history(
             at: gitRepositoryRoot,
             reference: selectedGitReference,
             limit: gitHistoryLimit
@@ -2144,7 +2199,7 @@ final class AppModel: ObservableObject {
         selectedGitCommit = commit
         selectedGitCommitFile = nil
         selectedGitCommitDiffContext = nil
-        let files = await GitService.files(in: commit, at: gitRepositoryRoot)
+        let files = await gitService.files(in: commit, at: gitRepositoryRoot)
         guard selectedGitCommit?.hash == commit.hash else { return }
         selectedGitCommitFiles = files
         selectedGitCommitFile = files.first
@@ -2167,8 +2222,9 @@ final class AppModel: ObservableObject {
         diffHunks = []
         isLoadingDiff = true
 
+        let gitService = self.gitService
         Task { [weak self] in
-            let document = await GitService.diffDocument(
+            let document = await gitService.diffDocument(
                 for: commit,
                 file: file,
                 at: gitRepositoryRoot
@@ -2195,11 +2251,12 @@ final class AppModel: ObservableObject {
               let document = openDocuments.first(where: { $0.url.standardizedFileURL == normalizedURL }),
               !document.isReadOnly,
               let gitRepositoryRoot else { return }
-        let blame = await GitService.blame(fileURL: normalizedURL, at: gitRepositoryRoot)
+        let blame = await gitService.blame(fileURL: normalizedURL, at: gitRepositoryRoot)
         let baseHints = await JavaCodeVisionService.hints(
             for: normalizedURL,
             projectFiles: projectFiles,
-            blameLines: blame
+            blameLines: blame,
+            storage: fileStorage
         )
         guard openDocuments.contains(where: { $0.url == normalizedURL }) else { return }
         let implementationCounts: [Int: Int]
@@ -2300,7 +2357,7 @@ final class AppModel: ObservableObject {
         if let existing = gitCommits.first(where: { $0.hash == hash }) {
             commit = existing
         } else {
-            commit = await GitService.commit(withHash: hash, at: gitRepositoryRoot)
+            commit = await gitService.commit(withHash: hash, at: gitRepositoryRoot)
         }
         if let commit {
             if !gitCommits.contains(where: { $0.hash == commit.hash }) {
@@ -2317,14 +2374,14 @@ final class AppModel: ObservableObject {
         activeDocumentID = nil
         isLoadingBranchComparison = true
         branchComparisonRows = []
-        let comparison = await GitService.comparisonWithWorkingTree(
+        let comparison = await gitService.comparisonWithWorkingTree(
             for: reference,
             at: gitRepositoryRoot
         )
         branchComparison = comparison
         selectedBranchComparisonFile = comparison.files.first
         if let firstFile = comparison.files.first {
-            branchComparisonRows = await GitService.diff(
+            branchComparisonRows = await gitService.diff(
                 for: firstFile,
                 against: reference,
                 at: gitRepositoryRoot
@@ -2338,7 +2395,7 @@ final class AppModel: ObservableObject {
         selectedBranchComparisonFile = file
         branchComparisonRows = []
         isLoadingBranchComparison = true
-        let rows = await GitService.diff(
+        let rows = await gitService.diff(
             for: file,
             against: comparison.reference,
             at: gitRepositoryRoot
@@ -2367,7 +2424,7 @@ final class AppModel: ObservableObject {
             return
         }
         isPerformingBranchOperation = true
-        let result = await GitService.createBranch(
+        let result = await gitService.createBranch(
             named: name,
             from: reference,
             checkout: checkout,
@@ -2391,7 +2448,7 @@ final class AppModel: ObservableObject {
             return
         }
         isPerformingBranchOperation = true
-        let result = await GitService.renameBranch(reference, to: name, at: gitRepositoryRoot)
+        let result = await gitService.renameBranch(reference, to: name, at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
@@ -2406,7 +2463,7 @@ final class AppModel: ObservableObject {
     func deleteBranch(_ reference: GitReference) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await GitService.deleteBranch(reference, at: gitRepositoryRoot)
+        let result = await gitService.deleteBranch(reference, at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         showNotification(result.succeeded ? "Deleted \(reference.shortName)" : gitErrorMessage(from: result))
         await refreshGit()
@@ -2415,7 +2472,7 @@ final class AppModel: ObservableObject {
     func mergeBranch(_ reference: GitReference) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await GitService.mergeBranch(reference, at: gitRepositoryRoot)
+        let result = await gitService.mergeBranch(reference, at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         showNotification(result.succeeded ? "Merged \(reference.shortName)" : gitErrorMessage(from: result))
         await refreshGit()
@@ -2424,7 +2481,7 @@ final class AppModel: ObservableObject {
     func rebaseCurrentBranch(onto reference: GitReference) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await GitService.rebaseCurrentBranch(onto: reference, at: gitRepositoryRoot)
+        let result = await gitService.rebaseCurrentBranch(onto: reference, at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         showNotification(result.succeeded ? "Rebased onto \(reference.shortName)" : gitErrorMessage(from: result))
         await refreshGit()
@@ -2436,7 +2493,7 @@ final class AppModel: ObservableObject {
             return
         }
         isPerformingBranchOperation = true
-        let result = await GitService.updateCurrentBranch(at: gitRepositoryRoot)
+        let result = await gitService.updateCurrentBranch(at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         showNotification(result.succeeded ? "Updated \(reference.shortName)" : gitErrorMessage(from: result))
         await refreshGit()
@@ -2445,7 +2502,7 @@ final class AppModel: ObservableObject {
     func fetchGit() async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await GitService.fetch(at: gitRepositoryRoot)
+        let result = await gitService.fetch(at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         showNotification(result.succeeded ? "Fetched Git remotes" : gitErrorMessage(from: result))
         await refreshGit()
@@ -2458,7 +2515,7 @@ final class AppModel: ObservableObject {
             return
         }
         isPerformingBranchOperation = true
-        let result = await GitService.checkout(reference, at: gitRepositoryRoot)
+        let result = await gitService.checkout(reference, at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
@@ -2473,7 +2530,7 @@ final class AppModel: ObservableObject {
     func checkoutRevision(_ rawRevision: String) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await GitService.checkoutRevision(rawRevision, at: gitRepositoryRoot)
+        let result = await gitService.checkoutRevision(rawRevision, at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
@@ -2488,7 +2545,7 @@ final class AppModel: ObservableObject {
     func cherryPick(_ commit: GitCommit) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await GitService.cherryPick(commit.hash, at: gitRepositoryRoot)
+        let result = await gitService.cherryPick(commit.hash, at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         showNotification(result.succeeded ? "Cherry-picked \(commit.shortHash)" : gitErrorMessage(from: result))
         await refreshGit()
@@ -2497,7 +2554,7 @@ final class AppModel: ObservableObject {
     func revert(_ commit: GitCommit) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await GitService.revert(commit.hash, at: gitRepositoryRoot)
+        let result = await gitService.revert(commit.hash, at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         showNotification(result.succeeded ? "Reverted \(commit.shortHash)" : gitErrorMessage(from: result))
         await refreshGit()
@@ -2506,7 +2563,7 @@ final class AppModel: ObservableObject {
     func resetCurrentBranch(to commit: GitCommit) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await GitService.resetCurrentBranch(
+        let result = await gitService.resetCurrentBranch(
             to: commit.hash,
             at: gitRepositoryRoot,
             mode: "--mixed"
@@ -2519,7 +2576,7 @@ final class AppModel: ObservableObject {
     func pushBranch(_ reference: GitReference) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await GitService.push(reference, at: gitRepositoryRoot)
+        let result = await gitService.push(reference, at: gitRepositoryRoot)
         isPerformingBranchOperation = false
         showNotification(result.succeeded ? "Pushed \(reference.shortName)" : gitErrorMessage(from: result))
         await refreshGit()
@@ -2589,7 +2646,7 @@ final class AppModel: ObservableObject {
 
     private func persistWorkspaceSession(for explicitWorkspaceURL: URL? = nil) {
         guard let targetURL = explicitWorkspaceURL ?? workspaceURL else { return }
-        WorkspaceSessionStore.save(
+        workspaceSessionStore.save(
             WorkspaceSession(
                 openPaths: openDocuments.map { $0.url.standardizedFileURL.path },
                 activePath: activeDocument?.url.standardizedFileURL.path,
@@ -2609,7 +2666,7 @@ final class AppModel: ObservableObject {
     }
 
     private func restoreWorkspaceSession(for workspaceURL: URL, availableFiles: [URL]) async {
-        guard let session = WorkspaceSessionStore.load(for: workspaceURL) else { return }
+        guard let session = workspaceSessionStore.load(for: workspaceURL) else { return }
         let availablePaths = Set(availableFiles.map { $0.standardizedFileURL.path })
         selectedSidebar = SidebarDestination(rawValue: session.selectedSidebar) ?? .project
 
@@ -2674,7 +2731,7 @@ final class AppModel: ObservableObject {
                 ? "\(baseName)\(suffix)"
                 : "\(baseName)\(suffix).\(fileExtension)"
             let candidate = parent.appendingPathComponent(name)
-            if !FileManager.default.fileExists(atPath: candidate.path) {
+            if !fileOperations.fileExists(at: candidate) {
                 return candidate
             }
             index += 1
@@ -2701,7 +2758,7 @@ final class AppModel: ObservableObject {
         visibilityRules: FileVisibilityRules
     ) {
         directoryWatcher?.stop()
-        directoryWatcher = DirectoryWatcher(
+        directoryWatcher = MacDirectoryWatcher(
             root: url,
             visibilityRules: visibilityRules
         ) { [weak self] paths in
@@ -2750,7 +2807,7 @@ final class AppModel: ObservableObject {
 
         if let localHistoryService {
             let changedFiles = changedURLs.filter { url in
-                FileManager.default.fileExists(atPath: url.path)
+                fileOperations.fileExists(at: url)
             }
             Task(priority: .utility) {
                 for fileURL in changedFiles {
@@ -2764,10 +2821,10 @@ final class AppModel: ObservableObject {
 
         let requiresWorkspaceSnapshot = changedURLs.contains { url in
             let wasKnownFile = projectFiles.contains { $0.standardizedFileURL.path == url.path }
-            guard FileManager.default.fileExists(atPath: url.path) else {
+            guard fileOperations.fileExists(at: url) else {
                 return wasKnownFile
             }
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            let isDirectory = fileOperations.isDirectory(at: url)
             return isDirectory || !wasKnownFile
         }
         if requiresWorkspaceSnapshot {

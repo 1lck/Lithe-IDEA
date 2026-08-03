@@ -2,10 +2,16 @@ import Foundation
 
 @main
 struct CoreVerification {
+    private static let gitService = GitService(
+        commandRunner: MacGitCommandRunner(processRunner: MacProcessRunner()),
+        fileOperations: MacWorkspaceFileOperations()
+    )
+
     static func main() async {
         verifyDiffParser()
         verifyVisibilityRules()
         verifyGitGraph()
+        verifyTerminalBuffer()
         verifyWhitespaceModes()
         verifySearchOptions()
         await verifyGitWhitespaceFiltering()
@@ -77,6 +83,16 @@ struct CoreVerification {
         require(GitDiffWhitespaceMode.ignoreAllWhitespace.title == "Ignore whitespace", "ignore label changed")
     }
 
+    private static func verifyTerminalBuffer() {
+        var buffer = TerminalBuffer()
+        buffer.append("hello\nworld")
+        require(buffer.render(maxCharacters: 100) == "hello\nworld", "terminal text should render in order")
+
+        buffer.reset()
+        buffer.append("before\u{1B}[2Jafter")
+        require(buffer.render(maxCharacters: 100) == "after", "terminal clear screen should reset the buffer")
+    }
+
     private static func verifySearchOptions() {
         let standard = ProjectSearchOptions.default
         require(standard.matches("Hello Lithe", query: "lithe"), "default search should ignore case")
@@ -135,8 +151,8 @@ struct CoreVerification {
                 indexStatus: " ",
                 workTreeStatus: "M"
             )
-            let normal = await GitService.diffDocument(for: change)
-            let ignored = await GitService.diffDocument(
+            let normal = await gitService.diffDocument(for: change)
+            let ignored = await gitService.diffDocument(
                 for: change,
                 whitespace: .ignoreAllWhitespace
             )
@@ -173,28 +189,28 @@ struct CoreVerification {
             )
             try "changed\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
-            let stashResult = await GitService.stash(
+            let stashResult = await gitService.stash(
                 message: "core verification",
                 includeUntracked: true,
                 at: root
             )
             require(stashResult.succeeded, "git stash failed")
-            let stashes = await GitService.stashes(at: root)
+            let stashes = await gitService.stashes(at: root)
             require(stashes.count == 1, "expected one stash")
             require(stashes[0].message.contains("core verification"), "stash message was not parsed")
             require(stashes[0].branch == "master" || stashes[0].branch == "main", "stash branch was not parsed")
             let baseAfterStash = try String(contentsOf: fileURL, encoding: .utf8)
             require(baseAfterStash == "base\n", "stash should restore the working tree")
 
-            let applyResult = await GitService.applyStash(stashes[0], at: root)
+            let applyResult = await gitService.applyStash(stashes[0], at: root)
             require(applyResult.succeeded, "git stash apply failed")
             let changedAfterApply = try String(contentsOf: fileURL, encoding: .utf8)
             require(changedAfterApply == "changed\n", "stash apply should restore file content")
             try "base\n".write(to: fileURL, atomically: true, encoding: .utf8)
-            let dropResult = await GitService.dropStash(stashes[0], at: root)
+            let dropResult = await gitService.dropStash(stashes[0], at: root)
             require(dropResult.succeeded, "git stash drop failed")
 
-            let cloneResult = await GitService.cloneRepository(from: root.path, to: clone)
+            let cloneResult = await gitService.cloneRepository(from: root.path, to: clone)
             require(cloneResult.succeeded, "git clone failed")
             require(
                 FileManager.default.fileExists(atPath: clone.appendingPathComponent(".git").path),

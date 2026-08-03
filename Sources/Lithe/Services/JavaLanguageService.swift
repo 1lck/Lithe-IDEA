@@ -26,10 +26,7 @@ final class JavaLanguageService: ObservableObject {
 
     var onDiagnostics: ((URL, [JavaDiagnostic]) -> Void)?
 
-    private var process: Process?
-    private var inputPipe: Pipe?
-    private var outputPipe: Pipe?
-    private var errorPipe: Pipe?
+    private let process: any RawProcessSession
     private var readBuffer = Data()
     private var nextRequestID = 1
     private var responseHandlers: [Int: (Result<Any, Error>) -> Void] = [:]
@@ -37,9 +34,34 @@ final class JavaLanguageService: ObservableObject {
     private var openedDocumentVersions: [String: Int] = [:]
     private var projectURL: URL?
     private let runtimeService: ProjectRuntimeService
+    private let archiveReader: any ArchiveEntryReader
+    private let fileStorage: any FileStorage
 
-    init(runtimeService: ProjectRuntimeService) {
+    init(
+        runtimeService: ProjectRuntimeService,
+        process: any RawProcessSession,
+        archiveReader: any ArchiveEntryReader,
+        fileStorage: any FileStorage
+    ) {
         self.runtimeService = runtimeService
+        self.process = process
+        self.archiveReader = archiveReader
+        self.fileStorage = fileStorage
+        process.onOutput = { [weak self] data in
+            Task { @MainActor [weak self] in
+                self?.receive(data)
+            }
+        }
+        process.onError = { _ in
+            // JDT LS writes normal JVM diagnostics to stderr. The adapter drains
+            // the stream without exposing it as navigation status.
+        }
+        process.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.process.isRunning == false else { return }
+                self.stop()
+            }
+        }
     }
 
     func configureProjectRoot(_ url: URL) {
@@ -188,11 +210,7 @@ final class JavaLanguageService: ObservableObject {
     }
 
     func stop() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
-        errorPipe?.fileHandleForReading.readabilityHandler = nil
-        if let process, process.isRunning {
-            process.terminate()
-        }
+        process.stop()
         let error = ServiceError.serverStopped
         for handler in responseHandlers.values {
             handler(.failure(error))
@@ -200,10 +218,6 @@ final class JavaLanguageService: ObservableObject {
         for handler in readyHandlers {
             handler(.failure(error))
         }
-        process = nil
-        inputPipe = nil
-        outputPipe = nil
-        errorPipe = nil
         responseHandlers = [:]
         readyHandlers = []
         openedDocumentVersions = [:]
@@ -225,7 +239,7 @@ final class JavaLanguageService: ObservableObject {
         readyHandlers.append(completion)
         guard !isStarting else { return }
 
-        guard let executableURL = Self.serverExecutableURL() else {
+        guard let executableURL = runtimeService.javaLanguageServerExecutable() else {
             finishStartup(.failure(ServiceError.serverNotInstalled))
             return
         }
@@ -235,11 +249,6 @@ final class JavaLanguageService: ObservableObject {
         isStarting = true
         statusMessage = "Starting Java language server..."
 
-        let process = Process()
-        let inputPipe = Pipe()
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.executableURL = executableURL
         var arguments: [String] = []
         if let javaExecutable = runtimeService.javaExecutableURL() {
             arguments.append(contentsOf: ["--java-executable", javaExecutable.path])
@@ -251,42 +260,16 @@ final class JavaLanguageService: ObservableObject {
             "--jvm-arg=-Xms256m",
             "--jvm-arg=-Xmx1024m"
         ])
-        arguments.append(contentsOf: ["-data", Self.dataDirectory(for: root).path])
-        process.arguments = arguments
-        process.currentDirectoryURL = root
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            Task { @MainActor [weak self] in
-                self?.receive(data)
-            }
-        }
-        errorPipe.fileHandleForReading.readabilityHandler = { handle in
-            // JDT LS writes JVM diagnostics and compatibility warnings to stderr
-            // during normal operation. Drain the pipe without exposing that noise
-            // as a user-facing navigation status.
-            _ = handle.availableData
-        }
-        process.terminationHandler = { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, self.process != nil else { return }
-                self.stop()
-            }
-        }
-
+        let dataDirectory = dataDirectory(for: root)
+        arguments.append(contentsOf: ["-data", dataDirectory.path])
         do {
-            try FileManager.default.createDirectory(
-                at: Self.dataDirectory(for: root),
-                withIntermediateDirectories: true
-            )
-            try process.run()
-            self.process = process
-            self.inputPipe = inputPipe
-            self.outputPipe = outputPipe
-            self.errorPipe = errorPipe
+            try fileStorage.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
+            try process.start(ProcessRequest(
+                executablePath: executableURL.path,
+                arguments: arguments,
+                workingDirectory: root.path,
+                keepsStandardInputOpen: true
+            ))
             initialize(root: root)
         } catch {
             finishStartup(.failure(error))
@@ -379,7 +362,7 @@ final class JavaLanguageService: ObservableObject {
         arguments: [Any],
         completion: @escaping (Result<Any, Error>) -> Void
     ) {
-        ensureReady(for: projectURL ?? FileManager.default.homeDirectoryForCurrentUser) { [weak self] result in
+        ensureReady(for: projectURL ?? fileStorage.homeDirectory()) { [weak self] result in
             guard let self else { return }
             switch result {
             case .failure(let error):
@@ -406,7 +389,7 @@ final class JavaLanguageService: ObservableObject {
               let body = try? JSONSerialization.data(withJSONObject: message) else { return }
         var framed = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
         framed.append(body)
-        try? inputPipe?.fileHandleForWriting.write(contentsOf: framed)
+        try? process.send(framed)
     }
 
     private func receive(_ data: Data) {
@@ -504,10 +487,10 @@ final class JavaLanguageService: ObservableObject {
     private func projectRoot(containing directory: URL) -> URL {
         var current = directory.standardizedFileURL
         while current.path != "/" {
-            if FileManager.default.fileExists(atPath: current.appendingPathComponent("pom.xml").path) ||
-                FileManager.default.fileExists(atPath: current.appendingPathComponent("build.gradle").path) ||
-                FileManager.default.fileExists(atPath: current.appendingPathComponent("build.gradle.kts").path) ||
-                FileManager.default.fileExists(atPath: current.appendingPathComponent(".git").path) {
+            if fileStorage.fileExists(at: current.appendingPathComponent("pom.xml")) ||
+                fileStorage.fileExists(at: current.appendingPathComponent("build.gradle")) ||
+                fileStorage.fileExists(at: current.appendingPathComponent("build.gradle.kts")) ||
+                fileStorage.fileExists(at: current.appendingPathComponent(".git")) {
                 return current
             }
             current.deleteLastPathComponent()
@@ -515,21 +498,10 @@ final class JavaLanguageService: ObservableObject {
         return projectURL ?? directory
     }
 
-    private static func serverExecutableURL() -> URL? {
-        let candidates = [
-            "/opt/homebrew/bin/jdtls",
-            "/usr/local/bin/jdtls",
-            "/usr/bin/jdtls"
-        ]
-        return candidates
-            .map(URL.init(fileURLWithPath:))
-            .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
-    }
-
-    private static func dataDirectory(for root: URL) -> URL {
+    private func dataDirectory(for root: URL) -> URL {
         let key = String(root.path.utf8.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1) }, radix: 16)
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Caches/Lithe/jdtls", isDirectory: true)
+        return fileStorage.cacheDirectory()
+            .appendingPathComponent("Lithe/jdtls", isDirectory: true)
             .appendingPathComponent(key, isDirectory: true)
     }
 
@@ -553,7 +525,7 @@ final class JavaLanguageService: ObservableObject {
             }
 
             if let source = jdkSource(for: location.url),
-               let sourceURL = Self.materializeLibrarySource(source, for: location.url) {
+               let sourceURL = materializeLibrarySource(source, for: location.url) {
                 let materialized = JavaNavigationLocation(
                     url: sourceURL,
                     line: location.line,
@@ -569,7 +541,7 @@ final class JavaLanguageService: ObservableObject {
                 switch result {
                 case .success(let value) where value is String:
                     let content = value as! String
-                    if let sourceURL = Self.materializeLibrarySource(content, for: location.url) {
+                    if let sourceURL = self.materializeLibrarySource(content, for: location.url) {
                         let materialized = JavaNavigationLocation(
                             url: sourceURL,
                             line: location.line,
@@ -675,9 +647,9 @@ final class JavaLanguageService: ObservableObject {
             javaHome.appendingPathComponent("src.zip")
         ]
         let entries = [entry, entry.hasPrefix("java.base/") ? String(entry.dropFirst("java.base/".count)) : "java.base/\(entry)"]
-        for archive in archives where FileManager.default.fileExists(atPath: archive.path) {
+        for archive in archives where fileStorage.fileExists(at: archive) {
             for candidate in entries where !candidate.isEmpty {
-                if let source = Self.readZipEntry(candidate, from: archive), !source.isEmpty {
+                if let source = readZipEntry(candidate, from: archive), !source.isEmpty {
                     return source
                 }
             }
@@ -696,36 +668,22 @@ final class JavaLanguageService: ObservableObject {
         return sourceComponents.joined(separator: "/")
     }
 
-    private static func readZipEntry(_ entry: String, from archive: URL) -> String? {
-        let output = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-p", archive.path, entry]
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        return String(data: data, encoding: .utf8)
+    private func readZipEntry(_ entry: String, from archive: URL) -> String? {
+        archiveReader.read(entry: entry, from: archive)
     }
 
-    private static func materializeLibrarySource(_ content: String, for uri: URL) -> URL? {
+    private func materializeLibrarySource(_ content: String, for uri: URL) -> URL? {
         guard !content.isEmpty else { return nil }
         let key = String(uri.absoluteString.utf8.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1) }, radix: 16)
         let baseName = uri.deletingPathExtension().lastPathComponent
             .replacingOccurrences(of: "[^A-Za-z0-9_$-]", with: "_", options: .regularExpression)
         let fileName = "\(baseName.isEmpty ? "JavaLibrary" : baseName)-\(key).java"
-        let directory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Caches/Lithe/java-sources", isDirectory: true)
+        let directory = fileStorage.cacheDirectory()
+            .appendingPathComponent("Lithe/java-sources", isDirectory: true)
         let destination = directory.appendingPathComponent(fileName)
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try content.write(to: destination, atomically: true, encoding: .utf8)
+            try fileStorage.createDirectory(at: directory, withIntermediateDirectories: true)
+            try fileStorage.writeData(Data(content.utf8), to: destination, options: [])
             return destination
         } catch {
             return nil
@@ -810,7 +768,7 @@ final class JavaLanguageService: ObservableObject {
         let sourcePath = (packageParts + [primaryType]).joined(separator: "/") + ".class"
         guard let uri = URL(string: "jdt://contents/java.base/\(sourcePath)"),
               let source = jdkSource(for: uri),
-              let sourceURL = Self.materializeLibrarySource(source, for: uri) else { return nil }
+              let sourceURL = materializeLibrarySource(source, for: uri) else { return nil }
 
         let declarationName: String
         let memberName: String?

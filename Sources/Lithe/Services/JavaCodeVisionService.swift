@@ -10,16 +10,21 @@ enum JavaCodeVisionService {
     static func hints(
         for fileURL: URL,
         projectFiles: [URL],
-        blameLines: [GitBlameLine]
+        blameLines: [GitBlameLine],
+        storage: any FileStorage
     ) async -> [JavaCodeVisionHint] {
         await Task.detached(priority: .utility) {
-            guard let source = try? String(contentsOf: fileURL, encoding: .utf8) else { return [] }
+            guard let sourceData = try? storage.readData(from: fileURL, options: []),
+                  let source = String(data: sourceData, encoding: .utf8) else { return [] }
             let declarations = declarations(in: source)
             guard !declarations.isEmpty else { return [] }
 
             let javaSources = projectFiles
                 .filter { $0.pathExtension.lowercased() == "java" }
-                .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
+                .compactMap { url -> String? in
+                    guard let data = try? storage.readData(from: url, options: []) else { return nil }
+                    return String(data: data, encoding: .utf8)
+                }
             let blameByLine = Dictionary(uniqueKeysWithValues: blameLines.map { ($0.line, $0) })
 
             return declarations.map { declaration in

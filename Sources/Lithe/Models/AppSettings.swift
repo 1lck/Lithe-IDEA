@@ -14,7 +14,7 @@ final class AppSettings: ObservableObject {
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
     }
 
-    private let defaults: UserDefaults
+    private let defaults: any KeyValueStore
 
     @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
@@ -38,8 +38,8 @@ final class AppSettings: ObservableObject {
 
     var onFileVisibilityRulesChanged: (() -> Void)?
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    init(store: any KeyValueStore) {
+        self.defaults = store
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4

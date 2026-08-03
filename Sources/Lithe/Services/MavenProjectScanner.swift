@@ -1,16 +1,22 @@
 import Foundation
 
-enum MavenProjectScanner {
-    static func scan(at workspaceURL: URL) -> MavenProject? {
+struct MavenProjectScanner: Sendable {
+    private let storage: any FileStorage
+
+    init(storage: any FileStorage) {
+        self.storage = storage
+    }
+
+    func scan(at workspaceURL: URL) -> MavenProject? {
         let rootURL = workspaceURL.standardizedFileURL
         let pomURL = rootURL.appendingPathComponent("pom.xml")
-        guard FileManager.default.fileExists(atPath: pomURL.path),
+        guard storage.fileExists(at: pomURL),
               let rootDescriptor = descriptor(at: pomURL) else {
             return nil
         }
 
         let modules = rootDescriptor.modulePaths.compactMap { rawPath -> MavenModule? in
-            let relativePath = normalizedRelativePath(rawPath)
+            let relativePath = Self.normalizedRelativePath(rawPath)
             guard !relativePath.isEmpty else { return nil }
             return module(at: rootURL, relativePath: relativePath, visitedPaths: [rootURL.path])
         }
@@ -28,7 +34,7 @@ enum MavenProjectScanner {
         )
     }
 
-    private static func module(
+    private func module(
         at rootURL: URL,
         relativePath: String,
         visitedPaths: Set<String>
@@ -39,7 +45,7 @@ enum MavenProjectScanner {
         let moduleDescriptor = descriptor(at: moduleURL.appendingPathComponent("pom.xml"))
         let nextVisitedPaths = visitedPaths.union([moduleURL.path])
         let childModules = moduleDescriptor?.modulePaths.compactMap { rawPath -> MavenModule? in
-            let childPath = normalizedRelativePath(rawPath)
+            let childPath = Self.normalizedRelativePath(rawPath)
             guard !childPath.isEmpty else { return nil }
             let childURL = moduleURL.appendingPathComponent(childPath).standardizedFileURL
             guard let childRelativePath = rootRelativePath(from: rootURL, to: childURL) else { return nil }
@@ -57,7 +63,7 @@ enum MavenProjectScanner {
         )
     }
 
-    private static func rootRelativePath(from rootURL: URL, to childURL: URL) -> String? {
+    private func rootRelativePath(from rootURL: URL, to childURL: URL) -> String? {
         let rootPath = rootURL.standardizedFileURL.path
         let childPath = childURL.standardizedFileURL.path
         guard childPath.hasPrefix(rootPath + "/") else { return nil }
@@ -68,16 +74,16 @@ enum MavenProjectScanner {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func hasMavenWrapper(at rootURL: URL) -> Bool {
+    private func hasMavenWrapper(at rootURL: URL) -> Bool {
         let wrapper = rootURL.appendingPathComponent("mvnw")
         let windowsWrapper = rootURL.appendingPathComponent("mvnw.cmd")
-        return FileManager.default.isExecutableFile(atPath: wrapper.path) ||
-            FileManager.default.fileExists(atPath: windowsWrapper.path)
+        return storage.isExecutable(at: wrapper) || storage.fileExists(at: windowsWrapper)
     }
 
-    private static func descriptor(at pomURL: URL) -> Descriptor? {
-        guard FileManager.default.fileExists(atPath: pomURL.path),
-              let parser = XMLParser(contentsOf: pomURL) else { return nil }
+    private func descriptor(at pomURL: URL) -> Descriptor? {
+        guard storage.fileExists(at: pomURL),
+              let data = try? storage.readData(from: pomURL, options: []) else { return nil }
+        let parser = XMLParser(data: data)
         let delegate = MavenXMLDelegate()
         parser.delegate = delegate
         guard parser.parse() else { return nil }

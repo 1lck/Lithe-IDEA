@@ -795,7 +795,7 @@ struct WorkbenchView: View {
 
     private func restoreLayout() {
         guard !didRestoreLayout, let workspaceURL = model.workspaceURL else { return }
-        let layout = WorkbenchLayoutStore.load(for: workspaceURL)
+        let layout = model.loadWorkbenchLayout(for: workspaceURL)
         sidebarWidth = CGFloat(layout.sidebarWidth)
         topPaneHeight = layout.topPaneHeight.map { CGFloat($0) }
         didRestoreLayout = true
@@ -803,7 +803,7 @@ struct WorkbenchView: View {
 
     private func saveLayout() {
         guard didRestoreLayout, let workspaceURL = model.workspaceURL else { return }
-        WorkbenchLayoutStore.save(
+        model.saveWorkbenchLayout(
             WorkbenchLayout(
                 sidebarWidth: Double(sidebarWidth),
                 topPaneHeight: topPaneHeight.map(Double.init)

@@ -1,7 +1,17 @@
 import Foundation
 
-enum GitService {
-    private static let reviewContextLines = "80"
+struct GitService: Sendable {
+    private let reviewContextLines = "80"
+    private let commandRunner: any GitCommandRunner
+    private let fileOperations: any WorkspaceFileOperations
+
+    init(
+        commandRunner: any GitCommandRunner,
+        fileOperations: any WorkspaceFileOperations
+    ) {
+        self.commandRunner = commandRunner
+        self.fileOperations = fileOperations
+    }
 
     struct CommandResult: Sendable {
         let output: String
@@ -10,7 +20,7 @@ enum GitService {
         var succeeded: Bool { exitCode == 0 }
     }
 
-    static func snapshot(for workspace: URL) async -> GitSnapshot? {
+    func snapshot(for workspace: URL) async -> GitSnapshot? {
         await Task.detached(priority: .utility) {
             guard let repositoryPath = run(at: workspace, arguments: ["rev-parse", "--show-toplevel"]).successfulOutput?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -31,11 +41,11 @@ enum GitService {
         }.value
     }
 
-    static func diff(for change: GitChange) async -> [DiffRow] {
+    func diff(for change: GitChange) async -> [DiffRow] {
         (await diffDocument(for: change)).rows
     }
 
-    static func diffDocument(
+    func diffDocument(
         for change: GitChange,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
     ) async -> DiffDocument {
@@ -44,13 +54,13 @@ enum GitService {
         }.value
     }
 
-    static func stage(_ change: GitChange) async -> CommandResult {
+    func stage(_ change: GitChange) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: change.repositoryRoot, arguments: ["add", "-A", "--"] + change.pathspecs)
         }.value
     }
 
-    static func unstage(_ change: GitChange) async -> CommandResult {
+    func unstage(_ change: GitChange) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             let restore = run(at: change.repositoryRoot, arguments: ["restore", "--staged", "--"] + change.pathspecs)
             if restore.succeeded { return restore }
@@ -58,11 +68,11 @@ enum GitService {
         }.value
     }
 
-    static func discard(_ change: GitChange) async -> CommandResult {
+    func discard(_ change: GitChange) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             if change.isUntracked {
                 do {
-                    try FileManager.default.removeItem(at: change.url)
+                    try fileOperations.removeItem(at: change.url)
                     return CommandResult(output: "", exitCode: 0)
                 } catch {
                     return CommandResult(output: error.localizedDescription, exitCode: 1)
@@ -72,11 +82,11 @@ enum GitService {
         }.value
     }
 
-    static func stage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
+    func stage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
         await apply(hunk.patch, at: change.repositoryRoot, arguments: ["apply", "--cached", "--whitespace=nowarn"])
     }
 
-    static func unstage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
+    func unstage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
         await apply(
             hunk.patch,
             at: change.repositoryRoot,
@@ -84,7 +94,7 @@ enum GitService {
         )
     }
 
-    static func discard(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
+    func discard(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
         await apply(
             hunk.patch,
             at: change.repositoryRoot,
@@ -92,7 +102,7 @@ enum GitService {
         )
     }
 
-    static func commit(at repositoryRoot: URL, message: String, amend: Bool = false) async -> CommandResult {
+    func commit(at repositoryRoot: URL, message: String, amend: Bool = false) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             var arguments = ["commit"]
             if amend { arguments.append("--amend") }
@@ -101,19 +111,19 @@ enum GitService {
         }.value
     }
 
-    static func cherryPick(_ hash: String, at repositoryRoot: URL) async -> CommandResult {
+    func cherryPick(_ hash: String, at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["cherry-pick", hash])
         }.value
     }
 
-    static func revert(_ hash: String, at repositoryRoot: URL) async -> CommandResult {
+    func revert(_ hash: String, at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["revert", "--no-edit", hash])
         }.value
     }
 
-    static func resetCurrentBranch(
+    func resetCurrentBranch(
         to hash: String,
         at repositoryRoot: URL,
         mode: String = "--mixed"
@@ -126,7 +136,7 @@ enum GitService {
         }.value
     }
 
-    static func history(
+    func history(
         at repositoryRoot: URL,
         reference: GitReference? = nil,
         limit: Int = 300
@@ -196,7 +206,7 @@ enum GitService {
         }.value
     }
 
-    static func files(in commit: GitCommit, at repositoryRoot: URL) async -> [GitCommitFile] {
+    func files(in commit: GitCommit, at repositoryRoot: URL) async -> [GitCommitFile] {
         await Task.detached(priority: .utility) {
             run(
                 at: repositoryRoot,
@@ -213,7 +223,7 @@ enum GitService {
         }.value
     }
 
-    static func diffDocument(
+    func diffDocument(
         for commit: GitCommit,
         file: GitCommitFile,
         at repositoryRoot: URL,
@@ -240,7 +250,7 @@ enum GitService {
         }.value
     }
 
-    static func blame(fileURL: URL, at repositoryRoot: URL) async -> [GitBlameLine] {
+    func blame(fileURL: URL, at repositoryRoot: URL) async -> [GitBlameLine] {
         await Task.detached(priority: .utility) {
             let rootPath = repositoryRoot.standardizedFileURL.path
             let filePath = fileURL.standardizedFileURL.path
@@ -287,7 +297,7 @@ enum GitService {
         }.value
     }
 
-    static func commit(withHash hash: String, at repositoryRoot: URL) async -> GitCommit? {
+    func commit(withHash hash: String, at repositoryRoot: URL) async -> GitCommit? {
         await Task.detached(priority: .utility) {
             let output = run(
                 at: repositoryRoot,
@@ -302,7 +312,7 @@ enum GitService {
         }.value
     }
 
-    static func comparisonWithWorkingTree(
+    func comparisonWithWorkingTree(
         for reference: GitReference,
         at repositoryRoot: URL
     ) async -> GitBranchComparison {
@@ -329,7 +339,7 @@ enum GitService {
         }.value
     }
 
-    static func diff(
+    func diff(
         for file: GitBranchComparisonFile,
         against reference: GitReference,
         at repositoryRoot: URL
@@ -346,7 +356,7 @@ enum GitService {
         }.value
     }
 
-    static func createBranch(
+    func createBranch(
         named name: String,
         from reference: GitReference,
         checkout: Bool,
@@ -362,7 +372,7 @@ enum GitService {
         }.value
     }
 
-    static func renameBranch(
+    func renameBranch(
         _ reference: GitReference,
         to newName: String,
         at repositoryRoot: URL
@@ -377,7 +387,7 @@ enum GitService {
         }.value
     }
 
-    static func deleteBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
+    func deleteBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             guard reference.kind == .local, !reference.isCurrent else {
                 return CommandResult(output: "Only a non-current local branch can be deleted", exitCode: 1)
@@ -386,7 +396,7 @@ enum GitService {
         }.value
     }
 
-    static func mergeBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
+    func mergeBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             guard !reference.isCurrent else {
                 return CommandResult(output: "The current branch cannot be merged into itself", exitCode: 1)
@@ -395,7 +405,7 @@ enum GitService {
         }.value
     }
 
-    static func rebaseCurrentBranch(onto reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
+    func rebaseCurrentBranch(onto reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             guard !reference.isCurrent else {
                 return CommandResult(output: "The current branch cannot be rebased onto itself", exitCode: 1)
@@ -404,19 +414,19 @@ enum GitService {
         }.value
     }
 
-    static func updateCurrentBranch(at repositoryRoot: URL) async -> CommandResult {
+    func updateCurrentBranch(at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["pull", "--ff-only"])
         }.value
     }
 
-    static func fetch(at repositoryRoot: URL) async -> CommandResult {
+    func fetch(at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["fetch", "--all", "--prune"])
         }.value
     }
 
-    static func checkout(
+    func checkout(
         _ reference: GitReference,
         at repositoryRoot: URL
     ) async -> CommandResult {
@@ -448,7 +458,7 @@ enum GitService {
         }.value
     }
 
-    static func checkoutRevision(
+    func checkoutRevision(
         _ rawRevision: String,
         at repositoryRoot: URL
     ) async -> CommandResult {
@@ -466,7 +476,7 @@ enum GitService {
         }.value
     }
 
-    static func push(
+    func push(
         _ reference: GitReference,
         at repositoryRoot: URL
     ) async -> CommandResult {
@@ -503,13 +513,13 @@ enum GitService {
         }.value
     }
 
-    static func cloneRepository(
+    func cloneRepository(
         from remote: String,
         to destination: URL
     ) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             let parent = destination.deletingLastPathComponent()
-            guard FileManager.default.fileExists(atPath: parent.path) else {
+            guard fileOperations.fileExists(at: parent) else {
                 return CommandResult(output: "The destination folder does not exist", exitCode: 1)
             }
             return run(
@@ -519,7 +529,7 @@ enum GitService {
         }.value
     }
 
-    static func stashes(at repositoryRoot: URL) async -> [GitStash] {
+    func stashes(at repositoryRoot: URL) async -> [GitStash] {
         await Task.detached(priority: .utility) {
             let output = run(
                 at: repositoryRoot,
@@ -574,7 +584,7 @@ enum GitService {
         }.value
     }
 
-    static func stash(
+    func stash(
         message: String,
         includeUntracked: Bool,
         at repositoryRoot: URL
@@ -592,31 +602,31 @@ enum GitService {
         }.value
     }
 
-    static func applyStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
+    func applyStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["stash", "apply", stash.reference])
         }.value
     }
 
-    static func popStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
+    func popStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["stash", "pop", stash.reference])
         }.value
     }
 
-    static func dropStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
+    func dropStash(_ stash: GitStash, at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["stash", "drop", stash.reference])
         }.value
     }
 
-    static func stageAll(at repositoryRoot: URL) async -> CommandResult {
+    func stageAll(at repositoryRoot: URL) async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             run(at: repositoryRoot, arguments: ["add", "--all"])
         }.value
     }
 
-    private static func parseStatus(_ output: String, root: URL) -> [GitChange] {
+    private func parseStatus(_ output: String, root: URL) -> [GitChange] {
         let fields = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
         var changes: [GitChange] = []
         var index = 0
@@ -645,7 +655,7 @@ enum GitService {
         .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
-    private static func parseCommit(_ rawLine: Substring) -> GitCommit? {
+    private func parseCommit(_ rawLine: Substring) -> GitCommit? {
         let columns = rawLine.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(String.init)
         guard columns.count >= 8 else { return nil }
         return GitCommit(
@@ -660,7 +670,7 @@ enum GitService {
         )
     }
 
-    private static func patch(
+    private func patch(
         for change: GitChange,
         whitespace: GitDiffWhitespaceMode
     ) -> String {
@@ -688,7 +698,7 @@ enum GitService {
         ).output
     }
 
-    private static func apply(
+    private func apply(
         _ patch: String,
         at directory: URL,
         arguments: [String]
@@ -698,36 +708,17 @@ enum GitService {
         }.value
     }
 
-    private static func run(
+    private func run(
         at directory: URL,
         arguments: [String],
         input: String? = nil
     ) -> CommandResult {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.currentDirectoryURL = directory
-        process.arguments = arguments
-        process.standardOutput = pipe
-        process.standardError = pipe
-        let inputPipe = input.map { _ in Pipe() }
-        process.standardInput = inputPipe
-
-        do {
-            try process.run()
-            if let input, let inputPipe {
-                inputPipe.fileHandleForWriting.write(Data(input.utf8))
-                inputPipe.fileHandleForWriting.closeFile()
-            }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return CommandResult(
-                output: String(data: data, encoding: .utf8) ?? "",
-                exitCode: process.terminationStatus
-            )
-        } catch {
-            return CommandResult(output: error.localizedDescription, exitCode: 1)
-        }
+        let result = commandRunner.run(
+            arguments: arguments,
+            workingDirectory: directory.path,
+            input: input
+        )
+        return CommandResult(output: result.output, exitCode: result.exitCode)
     }
 }
 

@@ -5,26 +5,31 @@ struct WorkbenchLayout: Codable, Sendable {
     let topPaneHeight: Double?
 }
 
-enum WorkbenchLayoutStore {
+struct WorkbenchLayoutStore {
     private static let keyPrefix = "lithe.workbench-layout."
     private static let defaultLayout = WorkbenchLayout(sidebarWidth: 320, topPaneHeight: nil)
+    private let store: any KeyValueStore
 
-    static func load(for workspaceURL: URL) -> WorkbenchLayout {
-        guard let data = UserDefaults.standard.data(forKey: key(for: workspaceURL)),
+    init(store: any KeyValueStore) {
+        self.store = store
+    }
+
+    func load(for workspaceURL: URL) -> WorkbenchLayout {
+        guard let data = store.data(forKey: key(for: workspaceURL)),
               let layout = try? JSONDecoder().decode(WorkbenchLayout.self, from: data),
               layout.sidebarWidth >= 220,
               layout.sidebarWidth <= 520 else {
-            return defaultLayout
+            return Self.defaultLayout
         }
         return layout
     }
 
-    static func save(_ layout: WorkbenchLayout, for workspaceURL: URL) {
+    func save(_ layout: WorkbenchLayout, for workspaceURL: URL) {
         guard let data = try? JSONEncoder().encode(layout) else { return }
-        UserDefaults.standard.set(data, forKey: key(for: workspaceURL))
+        store.set(data, forKey: key(for: workspaceURL))
     }
 
-    private static func key(for workspaceURL: URL) -> String {
-        keyPrefix + workspaceURL.standardizedFileURL.path
+    private func key(for workspaceURL: URL) -> String {
+        Self.keyPrefix + workspaceURL.standardizedFileURL.path
     }
 }

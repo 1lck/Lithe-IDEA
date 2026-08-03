@@ -1,7 +1,7 @@
 import CoreServices
 import Foundation
 
-final class DirectoryWatcher: @unchecked Sendable {
+final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
     private let root: URL
     private let visibilityRules: FileVisibilityRules
     private let queue = DispatchQueue(label: "app.lithe.file-events", qos: .utility)
@@ -30,7 +30,7 @@ final class DirectoryWatcher: @unchecked Sendable {
 
         let callback: FSEventStreamCallback = { _, info, eventCount, eventPaths, _, _ in
             guard let info, eventCount > 0 else { return }
-            let watcher = Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue()
+            let watcher = Unmanaged<MacDirectoryWatcher>.fromOpaque(info).takeUnretainedValue()
             let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] ?? []
             let visiblePaths = paths.filter { path in
                 !watcher.visibilityRules.isHiddenPath(
@@ -44,8 +44,8 @@ final class DirectoryWatcher: @unchecked Sendable {
 
         let flags = UInt32(
             kFSEventStreamCreateFlagUseCFTypes |
-            kFSEventStreamCreateFlagFileEvents |
-            kFSEventStreamCreateFlagWatchRoot
+                kFSEventStreamCreateFlagFileEvents |
+                kFSEventStreamCreateFlagWatchRoot
         )
         stream = FSEventStreamCreate(
             kCFAllocatorDefault,

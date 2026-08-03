@@ -14,21 +14,44 @@ final class JavaRunService: ObservableObject {
     @Published private(set) var moduleSessions: [JavaRunSession] = []
     @Published private(set) var portConflicts: [JavaRunPortConflict] = []
 
-    private var process: Process?
-    private var outputPipe: Pipe?
+    private let process: any StreamingProcess
+    private let processFactory: () -> any StreamingProcess
+    private let fileStorage: any FileStorage
+    private let preferences: any KeyValueStore
+    private let configurationScanner: JavaRunConfigurationScanner
     private var projectURL: URL?
     private var projectFiles: [URL] = []
     private var mavenProject: MavenProject?
     private var projectLoadID = UUID()
     private var lastRunConfiguration: JavaRunConfiguration?
     private var lastCurrentFileURL: URL?
-    private var moduleProcesses: [String: Process] = [:]
-    private var moduleOutputPipes: [String: Pipe] = [:]
+    private var moduleProcesses: [String: any StreamingProcess] = [:]
     private let maximumOutputCharacters = 500_000
     private let runtimeService: ProjectRuntimeService
 
-    init(runtimeService: ProjectRuntimeService) {
+    init(
+        runtimeService: ProjectRuntimeService,
+        process: any StreamingProcess,
+        processFactory: @escaping () -> any StreamingProcess,
+        fileStorage: any FileStorage,
+        preferences: any KeyValueStore
+    ) {
         self.runtimeService = runtimeService
+        self.process = process
+        self.processFactory = processFactory
+        self.fileStorage = fileStorage
+        self.preferences = preferences
+        self.configurationScanner = JavaRunConfigurationScanner(storage: fileStorage)
+        process.onOutput = { [weak self] chunk in
+            Task { @MainActor [weak self] in
+                self?.append(chunk)
+            }
+        }
+        process.onTermination = { [weak self] exitCode in
+            Task { @MainActor [weak self] in
+                self?.finishProcess(exitCode: exitCode)
+            }
+        }
     }
 
     var selectedConfiguration: JavaRunConfiguration? {
@@ -52,8 +75,9 @@ final class JavaRunService: ObservableObject {
         let loadID = UUID()
         projectLoadID = loadID
         isLoadingProject = true
+        let configurationScanner = configurationScanner
         let scannedConfigurations = await Task.detached(priority: .utility) {
-            JavaRunConfigurationScanner.scan(files: files, mavenProject: mavenProject)
+            configurationScanner.scan(files: files, mavenProject: mavenProject)
         }.value
         guard !Task.isCancelled, projectLoadID == loadID else { return }
         self.projectURL = projectURL.standardizedFileURL
@@ -189,45 +213,18 @@ final class JavaRunService: ObservableObject {
         isRunning = true
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
 
-        let process = Process()
-        let outputPipe = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.currentDirectoryURL = workingDirectory
         let processKind: ProjectRuntimeProcessKind = configuration.kind == .currentFile ? .java : .maven
-        process.environment = runtimeService.environment(
-            for: processKind,
-            javaHomeOverride: configuredJavaHome
-        )
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            let chunk = String(decoding: data, as: UTF8.self)
-            Task { @MainActor [weak self] in
-                self?.append(chunk)
-            }
-        }
-        process.terminationHandler = { [weak self] terminatedProcess in
-            Task { @MainActor [weak self] in
-                guard let self, self.process === terminatedProcess else { return }
-                self.outputPipe?.fileHandleForReading.readabilityHandler = nil
-                self.isRunning = false
-                self.runningTitle = nil
-                self.lastExitCode = terminatedProcess.terminationStatus
-                self.process = nil
-                self.outputPipe = nil
-            }
-        }
-
-        self.process = process
-        self.outputPipe = outputPipe
         do {
-            try process.run()
+            try process.start(ProcessRequest(
+                executablePath: executable.path,
+                arguments: arguments,
+                workingDirectory: workingDirectory.path,
+                environment: runtimeService.environment(
+                    for: processKind,
+                    javaHomeOverride: configuredJavaHome
+                )
+            ))
         } catch {
-            self.process = nil
-            self.outputPipe = nil
             fail("Unable to start " + configuration.name + ": " + error.localizedDescription)
         }
     }
@@ -278,12 +275,7 @@ final class JavaRunService: ObservableObject {
     }
 
     func stop() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
-        if let process, process.isRunning {
-            process.terminate()
-        }
-        process = nil
-        outputPipe = nil
+        process.stop()
         isRunning = false
         runningTitle = nil
     }
@@ -320,6 +312,12 @@ final class JavaRunService: ObservableObject {
         runningTitle = nil
     }
 
+    private func finishProcess(exitCode: Int32) {
+        isRunning = false
+        runningTitle = nil
+        lastExitCode = exitCode
+    }
+
     private func append(_ value: String) {
         output.append(value.replacingOccurrences(of: "\r", with: ""))
         if output.count > maximumOutputCharacters {
@@ -344,11 +342,7 @@ final class JavaRunService: ObservableObject {
         for root in candidateRoots {
             let classesURL = root.appendingPathComponent("target/classes", isDirectory: true)
             guard seenPaths.insert(classesURL.standardizedFileURL.path).inserted else { continue }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(
-                atPath: classesURL.path,
-                isDirectory: &isDirectory
-            ), isDirectory.boolValue else { continue }
+            guard fileStorage.metadata(for: classesURL)?.isDirectory == true else { continue }
             return classesURL.standardizedFileURL.path
         }
         return nil
@@ -418,42 +412,28 @@ final class JavaRunService: ObservableObject {
         )
         moduleSessions.append(session)
 
-        let process = Process()
-        let outputPipe = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.currentDirectoryURL = workingDirectory
-        process.environment = environment
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            let chunk = String(decoding: data, as: UTF8.self)
+        let process = processFactory()
+        process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 self?.appendModuleOutput(chunk, sessionID: configuration.id)
             }
         }
-        process.terminationHandler = { [weak self] terminatedProcess in
+        process.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
-                guard let self, self.moduleProcesses[configuration.id] === terminatedProcess else { return }
-                self.moduleOutputPipes[configuration.id]?.fileHandleForReading.readabilityHandler = nil
-                if let index = self.moduleSessions.firstIndex(where: { $0.id == configuration.id }) {
-                    self.moduleSessions[index].isRunning = false
-                    self.moduleSessions[index].exitCode = terminatedProcess.terminationStatus
-                }
-                self.moduleProcesses[configuration.id] = nil
-                self.moduleOutputPipes[configuration.id] = nil
+                self?.finishModule(sessionID: configuration.id, exitCode: exitCode)
             }
         }
 
         moduleProcesses[configuration.id] = process
-        moduleOutputPipes[configuration.id] = outputPipe
         do {
-            try process.run()
+            try process.start(ProcessRequest(
+                executablePath: executable.path,
+                arguments: arguments,
+                workingDirectory: workingDirectory.path,
+                environment: environment
+            ))
         } catch {
             moduleProcesses[configuration.id] = nil
-            moduleOutputPipes[configuration.id] = nil
             if let index = moduleSessions.firstIndex(where: { $0.id == configuration.id }) {
                 moduleSessions[index].isRunning = false
                 moduleSessions[index].exitCode = 1
@@ -466,15 +446,20 @@ final class JavaRunService: ObservableObject {
     }
 
     private func stopModule(sessionID: String) {
-        moduleOutputPipes[sessionID]?.fileHandleForReading.readabilityHandler = nil
-        if let process = moduleProcesses[sessionID], process.isRunning {
-            process.terminate()
-        }
+        moduleProcesses[sessionID]?.stop()
         moduleProcesses[sessionID] = nil
-        moduleOutputPipes[sessionID] = nil
         if let index = moduleSessions.firstIndex(where: { $0.id == sessionID }) {
             moduleSessions[index].isRunning = false
         }
+    }
+
+    private func finishModule(sessionID: String, exitCode: Int32) {
+        guard moduleProcesses[sessionID] != nil else { return }
+        if let index = moduleSessions.firstIndex(where: { $0.id == sessionID }) {
+            moduleSessions[index].isRunning = false
+            moduleSessions[index].exitCode = exitCode
+        }
+        moduleProcesses[sessionID] = nil
     }
 
     private func reconcileModuleSessions(validConfigurationIDs: Set<String>) {
@@ -534,7 +519,8 @@ final class JavaRunService: ObservableObject {
                   (name.hasSuffix(".properties") || name.hasSuffix(".yml") || name.hasSuffix(".yaml"))))
         }
         for fileURL in resourceFiles {
-            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8),
+            guard let data = try? fileStorage.readData(from: fileURL, options: []),
+                  let contents = String(data: data, encoding: .utf8),
                   let port = Self.port(inResource: contents, fileExtension: fileURL.pathExtension.lowercased()) else {
                 continue
             }
@@ -611,10 +597,7 @@ final class JavaRunService: ObservableObject {
             ? URL(fileURLWithPath: trimmed)
             : URL(fileURLWithPath: trimmed, relativeTo: projectURL ?? fallback)
         let standardized = url.standardizedFileURL
-        guard FileManager.default.fileExists(atPath: standardized.path) else { return fallback }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: standardized.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else { return fallback }
+        guard fileStorage.metadata(for: standardized)?.isDirectory == true else { return fallback }
         return standardized
     }
 
@@ -666,7 +649,7 @@ final class JavaRunService: ObservableObject {
 
     private func loadOptions(for configurationID: String) -> JavaRunOptions {
         guard let key = optionsKey(for: configurationID),
-              let data = UserDefaults.standard.data(forKey: key),
+              let data = preferences.data(forKey: key),
               let options = try? JSONDecoder().decode(JavaRunOptions.self, from: data) else {
             return JavaRunOptions()
         }
@@ -676,6 +659,6 @@ final class JavaRunService: ObservableObject {
     private func persist(_ options: JavaRunOptions, for configurationID: String) {
         guard let key = optionsKey(for: configurationID),
               let data = try? JSONEncoder().encode(options) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        preferences.set(data, forKey: key)
     }
 }

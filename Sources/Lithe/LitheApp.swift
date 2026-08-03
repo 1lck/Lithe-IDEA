@@ -43,9 +43,10 @@ struct LitheApp: App {
     @StateObject private var updateChecker = UpdateChecker()
 
     init() {
-        let settings = AppSettings()
+        let store = MacUserDefaultsStore()
+        let settings = AppSettings(store: store)
         _settings = StateObject(wrappedValue: settings)
-        let model = AppModel(settings: settings)
+        let model = AppModel(settings: settings, store: store)
         _model = StateObject(wrappedValue: model)
         appDelegate.model = model
     }

@@ -22,13 +22,18 @@ actor WorkspaceSearchIndex {
     private var rootURL: URL?
     private var entries: [String: IndexEntry] = [:]
     private var indexURL: URL?
+    private let storage: any FileStorage
+
+    init(storage: any FileStorage) {
+        self.storage = storage
+    }
 
     func configure(at rootURL: URL) {
         let normalizedRoot = rootURL.standardizedFileURL
         guard self.rootURL?.path != normalizedRoot.path else { return }
 
         self.rootURL = normalizedRoot
-        indexURL = Self.indexURL(for: normalizedRoot)
+        indexURL = Self.indexURL(for: normalizedRoot, storage: storage)
         entries = loadEntries(rootURL: normalizedRoot, indexURL: indexURL)
     }
 
@@ -185,10 +190,10 @@ actor WorkspaceSearchIndex {
 
         for fileURL in normalizedFiles {
             let relativePath = WorkspaceScanner.relativePath(for: fileURL, root: rootURL)
-            let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey])
-            let byteCount = values?.fileSize ?? 0
-            let modificationDate = values?.contentModificationDate
-            let isSearchable = values?.isRegularFile == true && WorkspaceScanner.isReadableTextFile(fileURL)
+            let metadata = storage.metadata(for: fileURL)
+            let byteCount = metadata?.byteCount ?? 0
+            let modificationDate = metadata?.modificationDate
+            let isSearchable = metadata?.isRegularFile == true && WorkspaceScanner.isReadableTextFile(fileURL)
             let existing = entries[relativePath]
             if let existing,
                existing.byteCount == byteCount,
@@ -258,13 +263,13 @@ actor WorkspaceSearchIndex {
 
     private func readText(at fileURL: URL, byteCount: Int) -> String? {
         guard byteCount <= Self.maximumIndexedFileSize,
-              let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else { return nil }
+              let data = try? storage.readData(from: fileURL, options: [.mappedIfSafe]) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
     private func loadEntries(rootURL: URL, indexURL: URL?) -> [String: IndexEntry] {
         guard let indexURL,
-              let data = try? Data(contentsOf: indexURL),
+              let data = try? storage.readData(from: indexURL, options: []),
               let persisted = try? JSONDecoder().decode(PersistedIndex.self, from: data),
               persisted.version == Self.indexVersion,
               persisted.rootPath == rootURL.path else { return [:] }
@@ -279,18 +284,15 @@ actor WorkspaceSearchIndex {
             entries: entries.values.sorted { $0.relativePath < $1.relativePath }
         )
         guard let data = try? JSONEncoder().encode(persisted) else { return }
-        try? FileManager.default.createDirectory(
+        try? storage.createDirectory(
             at: indexURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try? data.write(to: indexURL, options: .atomic)
+        try? storage.writeData(data, to: indexURL, options: .atomic)
     }
 
-    private static func indexURL(for rootURL: URL) -> URL {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? FileManager.default.temporaryDirectory
+    private static func indexURL(for rootURL: URL, storage: any FileStorage) -> URL {
+        let applicationSupport = storage.applicationSupportDirectory()
         return applicationSupport
             .appendingPathComponent("Lithe", isDirectory: true)
             .appendingPathComponent("SearchIndex", isDirectory: true)

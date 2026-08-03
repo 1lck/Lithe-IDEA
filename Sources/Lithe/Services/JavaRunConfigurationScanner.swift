@@ -1,21 +1,28 @@
 import Foundation
 
-enum JavaRunConfigurationScanner {
-    static func scan(
+struct JavaRunConfigurationScanner: Sendable {
+    private let storage: any FileStorage
+
+    init(storage: any FileStorage) {
+        self.storage = storage
+    }
+
+    func scan(
         files: [URL],
         mavenProject: MavenProject?
     ) -> [JavaRunConfiguration] {
         let mainClasses = files
             .filter { $0.pathExtension.lowercased() == "java" }
             .compactMap { fileURL -> JavaMainClass? in
-                guard let source = try? String(contentsOf: fileURL, encoding: .utf8),
-                      let mainClass = mainClass(in: source, fileURL: fileURL) else { return nil }
+                guard let data = try? storage.readData(from: fileURL, options: []),
+                      let source = String(data: data, encoding: .utf8),
+                      let mainClass = Self.mainClass(in: source, fileURL: fileURL) else { return nil }
                 return mainClass
             }
 
         var configurations: [JavaRunConfiguration] = []
         for mainClass in mainClasses where mainClass.isSpringBoot {
-            let modulePath = modulePath(for: mainClass.fileURL, in: mavenProject)
+            let modulePath = Self.modulePath(for: mainClass.fileURL, in: mavenProject)
             configurations.append(JavaRunConfiguration(
                 id: "spring:" + mainClass.qualifiedName,
                 name: mainClass.simpleName,
@@ -28,7 +35,7 @@ enum JavaRunConfigurationScanner {
         if let mavenProject {
             for module in mavenProject.allModules {
                 let moduleMainClass = mainClasses.first {
-                    isInside($0.fileURL, directory: module.url)
+                    Self.isInside($0.fileURL, directory: module.url)
                 }
                 configurations.append(JavaRunConfiguration(
                     id: "module:" + module.relativePath,
@@ -41,7 +48,7 @@ enum JavaRunConfigurationScanner {
         }
 
         return configurations.sorted {
-            if $0.kind != $1.kind { return kindOrder($0.kind) < kindOrder($1.kind) }
+            if $0.kind != $1.kind { return Self.kindOrder($0.kind) < Self.kindOrder($1.kind) }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     }

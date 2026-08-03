@@ -1,7 +1,13 @@
 import Foundation
 
-enum WorkspaceScanner {
-    static func snapshot(
+struct WorkspaceScanner: Sendable {
+    private let fileSystem: any WorkspaceFileSystem
+
+    init(fileSystem: any WorkspaceFileSystem) {
+        self.fileSystem = fileSystem
+    }
+
+    func snapshot(
         at rootURL: URL,
         rules: FileVisibilityRules = .default
     ) -> WorkspaceSnapshot {
@@ -13,85 +19,6 @@ enum WorkspaceScanner {
             workspaceRoot: rootURL
         )
         return WorkspaceSnapshot(root: root, files: indexedFiles)
-    }
-
-    static func searchableFiles(from files: [URL]) -> [URL] {
-        files.filter(isReadableTextFile)
-    }
-
-    static func search(query: String, root: URL, files: [URL], limit: Int = 200) -> [FileSearchResult] {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return [] }
-
-        let lowercasedQuery = normalized.lowercased()
-        var results: [FileSearchResult] = []
-
-        for file in files {
-            if results.count >= limit { break }
-            let relativePath = relativePath(for: file, root: root)
-            if relativePath.lowercased().contains(lowercasedQuery) {
-                results.append(FileSearchResult(url: file, line: nil, preview: relativePath))
-            }
-
-            guard results.count < limit,
-                  isReadableTextFile(file),
-                  let data = try? Data(contentsOf: file, options: [.mappedIfSafe]),
-                  data.count <= 2_000_000,
-                  let contents = String(data: data, encoding: .utf8) else { continue }
-
-            for (index, line) in contents.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
-                if line.localizedCaseInsensitiveContains(normalized) {
-                    results.append(FileSearchResult(
-                        url: file,
-                        line: index + 1,
-                        preview: line.trimmingCharacters(in: .whitespaces)
-                    ))
-                    if results.count >= limit { break }
-                }
-            }
-        }
-        return results
-    }
-
-    static func searchEverywhere(
-        query: String,
-        root: URL,
-        files: [URL],
-        fileLimit: Int = 50,
-        contentLimit: Int = 50
-    ) -> SearchEverywhereResults {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return SearchEverywhereResults(fileMatches: [], contentMatches: []) }
-
-        let lowercasedQuery = normalized.lowercased()
-        var fileMatches: [FileSearchResult] = []
-        var contentMatches: [FileSearchResult] = []
-        let searchable = files.filter(isReadableTextFile)
-
-        for file in searchable {
-            let relativePath = relativePath(for: file, root: root)
-            if fileMatches.count < fileLimit,
-               relativePath.lowercased().contains(lowercasedQuery) {
-                fileMatches.append(FileSearchResult(url: file, line: nil, preview: relativePath))
-            }
-
-            guard contentMatches.count < contentLimit,
-                  let data = try? Data(contentsOf: file, options: [.mappedIfSafe]),
-                  data.count <= 2_000_000,
-                  let contents = String(data: data, encoding: .utf8) else { continue }
-
-            for (index, line) in contents.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
-                if line.localizedCaseInsensitiveContains(normalized) {
-                    contentMatches.append(FileSearchResult(
-                        url: file,
-                        line: index + 1,
-                        preview: line.trimmingCharacters(in: .whitespaces)
-                    ))
-                    if contentMatches.count >= contentLimit { break }
-                }
-            }
-        }
-        return SearchEverywhereResults(fileMatches: fileMatches, contentMatches: contentMatches)
     }
 
     static func relativePath(for url: URL, root: URL) -> String {
@@ -110,40 +37,32 @@ enum WorkspaceScanner {
         return textExtensions.contains(url.pathExtension.lowercased()) || url.pathExtension.isEmpty
     }
 
-    private static func makeNode(
+    private func makeNode(
         at url: URL,
         indexedFiles: inout [URL],
         rules: FileVisibilityRules,
         workspaceRoot: URL
     ) -> FileNode {
-        var isDirectory: ObjCBool = false
-        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        let metadata = fileSystem.metadata(for: url)
 
-        guard isDirectory.boolValue else {
+        guard metadata.isDirectory else {
             indexedFiles.append(url)
             return FileNode(url: url, isDirectory: false, children: nil)
         }
 
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isHiddenKey]
-        let urls = (try? FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: keys,
-            options: []
-        )) ?? []
-
-        let visibleURLs = urls.filter { child in
-            let values = try? child.resourceValues(forKeys: Set(keys))
-            guard values?.isSymbolicLink != true else { return false }
+        let visibleURLs = fileSystem.contentsOfDirectory(at: url).filter { child in
+            let childMetadata = fileSystem.metadata(for: child)
+            guard !childMetadata.isSymbolicLink else { return false }
             return !rules.isHidden(
                 child,
                 relativeTo: workspaceRoot,
-                isDirectory: values?.isDirectory
+                isDirectory: childMetadata.isDirectory
             )
         }
 
         let sortedURLs = visibleURLs.sorted { lhs, rhs in
-            let leftDirectory = (try? lhs.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            let rightDirectory = (try? rhs.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            let leftDirectory = fileSystem.metadata(for: lhs).isDirectory
+            let rightDirectory = fileSystem.metadata(for: rhs).isDirectory
             if leftDirectory != rightDirectory { return leftDirectory }
             return lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent) == .orderedAscending
         }
