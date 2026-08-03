@@ -293,3 +293,7 @@ Lithe-IDEA/
 ## License
 
 Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
+
+## 友情链接
+
+- [LINUX DO](https://linux.do/) — 新的理想型社区

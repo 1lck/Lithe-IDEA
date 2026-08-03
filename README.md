@@ -293,3 +293,7 @@ If you want to contribute:
 ## License
 
 Lithe is licensed under the [Apache License 2.0](./LICENSE).
+
+## Friendly Links
+
+- [LINUX DO](https://linux.do/) — A new ideal community
