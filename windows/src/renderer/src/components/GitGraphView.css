@@ -1,0 +1,76 @@
+.git-graph {
+  display: flex;
+  flex-direction: column;
+}
+.gg-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 104px 122px;
+  align-items: center;
+  gap: 8px;
+  height: 39px;
+  padding: 0 10px 0 0;
+  text-align: left;
+  color: var(--lithe-text-primary);
+  border-bottom: 1px solid transparent;
+}
+.gg-row:hover { background: var(--lithe-hover); }
+.gg-row.active { background: var(--lithe-selection-soft); }
+.gg-rail {
+  display: flex;
+  justify-content: center;
+}
+.gg-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.gg-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.gg-chip {
+  font-style: normal;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg-chip.head { background: rgba(79, 148, 250, 0.2); color: var(--lithe-accent); }
+.gg-chip.branch { background: rgba(71, 184, 99, 0.18); color: var(--lithe-success); }
+.gg-chip.remote { background: rgba(64, 163, 245, 0.16); color: #7eb6f0; }
+.gg-chip.tag { background: rgba(232, 161, 51, 0.18); color: var(--lithe-warning); }
+.gg-subject {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg-author,
+.gg-date {
+  font-size: 11px;
+  color: var(--lithe-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg-date {
+  font-family: var(--lithe-code-font);
+  text-align: right;
+}
+.gg-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--lithe-text-tertiary);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .gg-row { grid-template-columns: 54px minmax(0, 1fr); }
+  .gg-author, .gg-date { display: none; }
+}

@@ -1,0 +1,123 @@
+.maven-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--lithe-sidebar);
+}
+.maven-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px 1fr;
+}
+.maven-tree {
+  border-right: 1px solid var(--lithe-divider);
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--lithe-sidebar);
+}
+.maven-root {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  text-align: left;
+  color: var(--lithe-text-primary);
+}
+.maven-root:hover { background: var(--lithe-hover); }
+.maven-root strong { font-size: 12.5px; font-weight: 600; }
+.maven-chev {
+  display: inline-block;
+  width: 10px;
+  color: var(--lithe-text-tertiary);
+  transition: transform 120ms ease;
+}
+.maven-chev.open { transform: rotate(90deg); }
+.maven-section {
+  margin-top: 10px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lithe-text-tertiary);
+}
+.maven-goal {
+  width: 100%;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: var(--lithe-text-primary);
+}
+.maven-goal:hover { background: var(--lithe-hover); }
+.maven-goal em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--lithe-accent);
+  opacity: 0;
+}
+.maven-goal:hover em { opacity: 1; }
+.maven-goal:disabled { opacity: 0.4; }
+.maven-mod {
+  margin: 4px 4px 8px;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--lithe-divider);
+  background: rgba(255, 255, 255, 0.02);
+}
+.maven-mod-name {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--lithe-text-primary);
+}
+.maven-mod-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.maven-mod-actions button {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  background: var(--lithe-raised);
+  border: 1px solid var(--lithe-divider-strong);
+  color: var(--lithe-text-secondary);
+}
+.maven-mod-actions button:hover:not(:disabled) {
+  color: var(--lithe-text-primary);
+  background: var(--lithe-elevated);
+}
+.maven-hint {
+  padding: 10px 8px;
+  font-size: 11.5px;
+  color: var(--lithe-warning);
+  line-height: 1.4;
+}
+.maven-out {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--lithe-editor);
+}
+.maven-out-head {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--lithe-text-tertiary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--lithe-divider);
+  background: var(--lithe-tool-header);
+}

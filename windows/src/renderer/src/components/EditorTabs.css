@@ -1,0 +1,75 @@
+.tabs-bar {
+  height: var(--lithe-tab-h);
+  display: flex;
+  align-items: stretch;
+  background: var(--lithe-sidebar);
+  border-bottom: 1px solid var(--lithe-divider);
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-shrink: 0;
+}
+.tabs-bar::-webkit-scrollbar { height: 0; }
+.tabs-bar.empty { display: none; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 6px;
+  cursor: default;
+  position: relative;
+  white-space: nowrap;
+  color: var(--lithe-text-tertiary);
+  font-size: 12.5px;
+  background: transparent;
+}
+.tab::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+}
+.tab:hover {
+  color: var(--lithe-text-primary);
+  background: var(--lithe-hover);
+}
+.tab.active {
+  color: var(--lithe-text-primary);
+  background: var(--lithe-active-tab);
+  font-weight: 500;
+}
+.tab.active::after {
+  background: var(--lithe-tab-underline);
+}
+.tab-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tab-dirty {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lithe-accent);
+  flex-shrink: 0;
+}
+.tab-close {
+  width: 16px;
+  height: 16px;
+  font-size: 13px;
+  border-radius: 3px;
+  color: var(--lithe-text-tertiary);
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tab:hover .tab-close,
+.tab.active .tab-close { opacity: 1; }
+.tab-close:hover {
+  background: var(--lithe-hover-strong);
+  color: var(--lithe-text-primary);
+}

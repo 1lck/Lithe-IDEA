@@ -9,6 +9,7 @@
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
+    <a href="./windows/README.md"><strong>Windows port</strong></a> ·
     <a href="#why-lithe">Why Lithe</a> ·
     <a href="#product-tour">Product Tour</a> ·
     <a href="#quick-start">Quick Start</a> ·

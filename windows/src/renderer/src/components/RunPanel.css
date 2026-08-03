@@ -1,0 +1,73 @@
+.run-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--lithe-window);
+}
+.run-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+}
+.run-config {
+  padding: 12px 14px;
+  border-right: 1px solid var(--lithe-divider);
+  overflow-y: auto;
+  background: var(--lithe-sidebar);
+}
+.run-config label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--lithe-text-secondary);
+  margin: 8px 0 4px;
+}
+.run-config select,
+.run-config input {
+  width: 100%;
+  font-size: 12px;
+}
+.run-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.run-btn {
+  padding: 7px 16px;
+  border-radius: var(--lithe-control-corner);
+  background: linear-gradient(180deg, #5ccd78, var(--lithe-success));
+  color: #06140a;
+  font-weight: 700;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(71, 184, 100, 0.25);
+}
+.run-btn:hover:not(:disabled) { filter: brightness(1.06); }
+.run-btn:disabled { opacity: 0.45; }
+.run-btn-secondary {
+  padding: 7px 12px;
+  border-radius: var(--lithe-control-corner);
+  background: transparent;
+  border: 1px solid var(--lithe-panel-border);
+  color: var(--lithe-text-primary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.run-btn-secondary:hover:not(:disabled) { background: var(--lithe-hover); }
+.run-btn-secondary:disabled { opacity: 0.45; }
+.run-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--lithe-text-tertiary);
+  font-family: var(--lithe-code-font);
+}
+
+@media (max-width: 900px) {
+  .run-body { grid-template-columns: 1fr; }
+  .run-config { border-right: none; border-bottom: 1px solid var(--lithe-divider); max-height: 40%; }
+}

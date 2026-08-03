@@ -1,0 +1,33 @@
+appId: com.lithe.ide.windows
+productName: Lithe
+directories:
+  buildResources: build
+npmRebuild: false
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.*'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Keep node-pty ConPTY prebuilds
+  - 'node_modules/node-pty/prebuilds/**'
+  # Keep ripgrep binary for extension host workspace search
+  - 'node_modules/@vscode/ripgrep/**'
+win:
+  executableName: Lithe
+  icon: resources/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: Lithe
+  uninstallDisplayName: Lithe
+  createDesktopShortcut: always
+  installerIcon: resources/icon.png
+  uninstallerIcon: resources/icon.png
+  installerHeaderIcon: resources/icon.png

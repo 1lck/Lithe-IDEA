@@ -10,3 +10,10 @@ design-qa-artifacts/
 docs/visual-qa/
 .reasonix/
 reasonix.toml
+
+# Windows Electron port
+windows/node_modules/
+windows/out/
+windows/dist/
+windows/build/
+windows/*.tsbuildinfo
