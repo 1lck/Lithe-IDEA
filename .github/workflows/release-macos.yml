@@ -1,4 +1,4 @@
-name: Release
+name: Release macOS
 
 on:
   push:
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   release:
-    name: Build and publish Lithe
+    name: Build and publish Lithe for macOS
     runs-on: macos-14
 
     steps:
