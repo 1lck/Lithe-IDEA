@@ -28,21 +28,30 @@ actor LocalHistoryService {
 
     func seed(files: [URL]) async {
         for fileURL in files where !Task.isCancelled {
-            _ = try? recordFile(at: fileURL, reason: .projectBaseline)
+            _ = try? recordFile(at: fileURL, reason: .projectBaseline, pruneExpired: false)
         }
     }
 
     @discardableResult
-    func recordFile(at fileURL: URL, reason: LocalHistoryReason) throws -> LocalHistoryEntry? {
+    func recordFile(
+        at fileURL: URL,
+        reason: LocalHistoryReason,
+        pruneExpired: Bool = true
+    ) throws -> LocalHistoryEntry? {
         guard let relativePath = relativePath(for: fileURL),
               WorkspaceTextFilePolicy.isReadableTextFile(fileURL) else { return nil }
-        return try record(relativePath: relativePath, reason: reason, content: nil)
+        return try record(
+            relativePath: relativePath,
+            reason: reason,
+            content: nil,
+            pruneExpired: pruneExpired
+        )
     }
 
     @discardableResult
     func record(text: String, for fileURL: URL, reason: LocalHistoryReason) throws -> LocalHistoryEntry? {
         guard let relativePath = relativePath(for: fileURL) else { return nil }
-        return try record(relativePath: relativePath, reason: reason, content: text)
+        return try record(relativePath: relativePath, reason: reason, content: text, pruneExpired: true)
     }
 
     func entries(for fileURL: URL) throws -> [LocalHistoryEntry] {
@@ -89,7 +98,8 @@ actor LocalHistoryService {
     private func record(
         relativePath: String,
         reason: LocalHistoryReason,
-        content: String?
+        content: String?,
+        pruneExpired: Bool
     ) throws -> LocalHistoryEntry? {
         guard let value = operations.record(
             at: workspaceURL,
@@ -97,6 +107,7 @@ actor LocalHistoryService {
             relativePath: relativePath,
             reason: reason,
             content: content,
+            pruneExpired: pruneExpired,
             visibilityRules: visibilityRules
         ) else { return nil }
         return makeEntry(value)

@@ -19,6 +19,8 @@ pub struct HistoryRecordRequest {
     pub reason: String,
     #[serde(default)]
     pub content: Option<String>,
+    #[serde(default = "default_prune_expired")]
+    pub prune_expired: bool,
     #[serde(default)]
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
@@ -134,7 +136,9 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
         serde_json::to_vec(&stored).expect("history metadata should encode"),
     )?;
     trim_entries(&directory, &storage);
-    prune_expired(&storage);
+    if request.prune_expired {
+        prune_expired(&storage);
+    }
     Ok(Some(stored.into_response()))
 }
 
@@ -273,6 +277,10 @@ fn read_entries(directory: &Path, storage: &Path) -> Vec<StoredEntry> {
             .then_with(|| right.id.cmp(&left.id))
     });
     entries
+}
+
+fn default_prune_expired() -> bool {
+    true
 }
 
 fn trim_entries(directory: &Path, storage: &Path) {

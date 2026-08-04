@@ -152,18 +152,26 @@ final class WorkspaceFeatureModel: ObservableObject {
             operations.snapshot(at: workspaceURL, visibilityRules: rules)
         }.value
 
-        defer {
+        guard isCurrent() else { return .stale }
+        guard let snapshot else {
             if isInitialLoad {
                 isLoadingWorkspace = false
             } else {
                 isRefreshingWorkspace = false
             }
+            return .unavailable
         }
-
-        guard isCurrent() else { return .stale }
-        guard let snapshot else { return .unavailable }
         rootNode = snapshot.root
         projectFiles = snapshot.files
+
+        // The tree is usable as soon as the shared snapshot is ready. Service
+        // preparation below may involve Git, Java, and local history work.
+        if isInitialLoad {
+            isLoadingWorkspace = false
+        } else {
+            isRefreshingWorkspace = false
+        }
+
         if !hasRestoredWorkspaceSession {
             if let restoreSession, let session = workspaceSessionStore.load(for: workspaceURL) {
                 await restoreSession(session, snapshot.files)

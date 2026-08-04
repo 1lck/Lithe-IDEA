@@ -27,6 +27,7 @@ final class ProjectHistoryFeatureModel: ObservableObject {
     private let fileStorage: any FileStorage
     private let localHistoryOperations: any LocalHistoryOperations
     private var localHistoryService: LocalHistoryService?
+    private var seedTask: Task<Void, Never>?
     private var workspaceURLProvider: () -> URL?
     private var projectFilesProvider: () -> [URL]
     private var documentsProvider: () -> [EditorDocument]
@@ -69,6 +70,8 @@ final class ProjectHistoryFeatureModel: ObservableObject {
     }
 
     func reset() {
+        seedTask?.cancel()
+        seedTask = nil
         localHistoryService = nil
         localHistoryRequest = nil
         localHistoryEntries = []
@@ -86,8 +89,12 @@ final class ProjectHistoryFeatureModel: ObservableObject {
         await localHistoryService?.updateVisibilityRules(rules)
     }
 
-    func seed(files: [URL]) async {
-        await localHistoryService?.seed(files: files)
+    func seed(files: [URL]) {
+        seedTask?.cancel()
+        guard let localHistoryService else { return }
+        seedTask = Task(priority: .utility) {
+            await localHistoryService.seed(files: files)
+        }
     }
 
     func recordSave(_ document: EditorDocument, previousText: String) {

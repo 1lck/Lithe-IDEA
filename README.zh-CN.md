@@ -301,6 +301,24 @@ macOS 与 Windows 使用独立运行时实现，目录归属和共享规则见[�
 
 Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
 
+## 贡献者
+
+感谢所有参与 Lithe 开发和改进的贡献者。
+
+<a href="https://github.com/1lck/Lithe-IDEA/graphs/contributors">
+  <img src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/contributors.svg" alt="贡献者" />
+</a>
+
+## Star History
+
+<a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+    <img alt="Star History 图表" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+  </picture>
+</a>
+
 ## 友情链接
 
 - [LINUX DO](https://linux.do/) — 新的理想型社区

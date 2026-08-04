@@ -196,7 +196,7 @@ final class AppModel: ObservableObject {
                 await self.refreshGit()
                 await self.javaFeature.loadProject(at: workspaceURL, files: snapshot.files)
                 if isInitialLoad {
-                    await self.projectHistoryFeature.seed(files: snapshot.files)
+                    self.projectHistoryFeature.seed(files: snapshot.files)
                 }
             }
         )

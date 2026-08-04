@@ -69,8 +69,17 @@ from being passed directly into views.
 The Rust core is the public application boundary for both platforms. Migrate one
 capability at a time, keep the existing Swift implementation as a fallback until
 the macOS behavior is verified, and add a shared fixture before exposing the
-capability to Windows. The current Rust boundary covers workspace snapshots,
-search, file read/write, and Git status. Diff operations, commit workflows,
-runtime services, Java language services, terminal sessions, and native UI
-capabilities remain behind the existing Swift ports until their behavior is
-covered by the same contract.
+capability to Windows.
+
+The current Rust boundary includes workspace snapshots and search,
+workspace-relative file operations, Git status/diff/apply/write/history and
+related models, Local History storage, Maven descriptor and diagnostic parsing,
+and Java source parsing and model operations. It owns deterministic parsing,
+validation, ordering, and JSON protocol behavior.
+
+The platform boundary remains responsible for filesystem watchers and native
+dialogs, Git executable discovery and credentials, JDK/Maven discovery, JDT LS,
+Java/Maven/Debug processes and transports, terminal sessions, native UI,
+installers, and updates. These services continue to use Swift ports on macOS
+and will use equivalent Windows adapters; they are not duplicated inside the
+Rust core.

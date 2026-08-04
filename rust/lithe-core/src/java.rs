@@ -473,7 +473,7 @@ fn brace_regions(source: &str) -> Vec<JavaFoldRegionResponse> {
 }
 
 fn classify(prefix: &str) -> String {
-    if Regex::new(r"\b(class|interface|enum|record)\b")
+    if Regex::new(r"\b(class|interface|enum|record|struct|protocol|extension|actor)\b")
         .expect("static Java type expression is valid")
         .is_match(prefix)
     {

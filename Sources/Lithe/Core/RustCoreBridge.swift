@@ -598,6 +598,7 @@ struct RustCoreBridge: Sendable {
         let path: String
         let reason: String
         let content: String?
+        let pruneExpired: Bool
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
     }
@@ -872,6 +873,7 @@ struct RustCoreBridge: Sendable {
         relativePath: String,
         reason: String,
         content: String?,
+        pruneExpired: Bool,
         hiddenDirectoryNames: [String],
         hiddenFilePatterns: [String]
     ) -> HistoryEntryPayload? {
@@ -883,6 +885,7 @@ struct RustCoreBridge: Sendable {
                 path: relativePath,
                 reason: reason,
                 content: content,
+                pruneExpired: pruneExpired,
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns
             )

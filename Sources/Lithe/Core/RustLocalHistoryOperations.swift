@@ -7,6 +7,7 @@ protocol LocalHistoryOperations: Sendable {
         relativePath: String,
         reason: LocalHistoryReason,
         content: String?,
+        pruneExpired: Bool,
         visibilityRules: FileVisibilityRules
     ) -> RustCoreBridge.HistoryEntryPayload?
 
@@ -38,6 +39,7 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
         relativePath: String,
         reason: LocalHistoryReason,
         content: String?,
+        pruneExpired: Bool,
         visibilityRules: FileVisibilityRules
     ) -> RustCoreBridge.HistoryEntryPayload? {
         core.historyRecord(
@@ -46,6 +48,7 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
             relativePath: relativePath,
             reason: reason.rawValue,
             content: content,
+            pruneExpired: pruneExpired,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns
         )

@@ -302,6 +302,24 @@ If you want to contribute:
 
 Lithe is licensed under the [Apache License 2.0](./LICENSE).
 
+## Contributors
+
+Thanks to everyone who contributes to Lithe.
+
+<a href="https://github.com/1lck/Lithe-IDEA/graphs/contributors">
+  <img src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/contributors.svg" alt="Contributors" />
+</a>
+
+## Star History
+
+<a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+    <img alt="Star History Chart" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+  </picture>
+</a>
+
 ## Friendly Links
 
 - [LINUX DO](https://linux.do/) — A new ideal community

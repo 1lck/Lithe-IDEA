@@ -1,6 +1,6 @@
 # Keep platform implementations independent
 
-Lithe uses two independent platform implementations with a small set of shared contracts. macOS remains the reference product and keeps its existing SwiftUI/AppKit architecture. Windows will reproduce the same product behavior with Qt Widgets and C++ without changing the macOS runtime.
+Lithe uses two independent platform implementations with a small set of shared contracts. macOS remains the reference product and keeps its existing SwiftUI/AppKit architecture. Windows is being developed as a separate Qt Widgets/C++ implementation without changing the macOS runtime.
 
 ## Use the current repository layout
 
@@ -17,9 +17,17 @@ Lithe-IDEA/
 ├── windows/                # Windows Qt/C++ implementation
 ├── shared/                 # Cross-platform contracts and acceptance fixtures
 ├── Fixtures/               # Existing reusable Java and Git fixtures
-├── scripts/                # macOS build and repository verification scripts
+├── scripts/                # build, packaging, and cross-platform verification scripts
 ├── docs/                   # Product, architecture, release, and QA documentation
 └── .github/workflows/      # Platform-specific CI and release workflows
+```
+
+The Windows implementation is split into explicit layers:
+
+```text
+windows/core/               C++ client for the Rust C ABI
+windows/adapters/           platform ports and Win32 adapters
+windows/qt/                 Qt Widgets workbench
 ```
 
 The macOS package stays at the repository root. Moving it under another application directory would change local commands, release automation, and existing documentation without improving the Windows boundary. Both macOS and Windows consume the Rust core through the same JSON C ABI.
@@ -38,7 +46,14 @@ Keep these areas platform-owned:
 | DMG installation and update | Windows installation and update |
 | macOS runtime discovery | Windows runtime discovery |
 
-Git, search, project scanning, and document writes are implemented in the Rust core first. Java, Maven, JDT LS, terminal sessions, file watching, and native runtime discovery remain platform-owned until their platform contracts are stable enough to migrate.
+The Rust core currently owns deterministic workspace traversal, search,
+workspace-relative file operations, Git models and mutations, history
+metadata, Maven descriptor/diagnostic parsing, and Java source parsing. The
+platform implementations still own filesystem watchers, native file dialogs,
+Git executable environment, JDK/Maven discovery, JDT LS and Java/Maven/Debug
+processes, terminal sessions, native UI, and installers or updates. See
+[`shared/contracts/application-boundary.md`](../../shared/contracts/application-boundary.md)
+for the cross-platform split.
 
 ## Keep generated files out of the repository
 

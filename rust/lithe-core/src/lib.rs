@@ -945,6 +945,27 @@ mod tests {
             structure_response["data"]["implementationMarkers"][0]["direction"],
             "down"
         );
+        let swift_structure = serde_json::json!({
+            "id": "swift-structure",
+            "command": "java.structure",
+            "payload": {
+                "source": "struct Demo {\n    func run() {\n        if ready {\n            work()\n        }\n    }\n}\n"
+            }
+        });
+        let swift_structure_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&swift_structure)
+                .expect("Swift structure request should encode"),
+        ))
+        .expect("Swift structure response should be JSON");
+        let swift_folds = swift_structure_response["data"]["foldRegions"]
+            .as_array()
+            .expect("Swift structure should return fold regions");
+        assert!(swift_folds.iter().any(|fold| {
+            fold["startLine"] == 0 && fold["endLine"] == 6 && fold["kind"] == "type"
+        }));
+        assert!(swift_folds.iter().any(|fold| {
+            fold["startLine"] == 1 && fold["endLine"] == 5 && fold["kind"] == "method"
+        }));
         let code_vision = serde_json::json!({
             "id": "java-vision",
             "command": "java.codeVision",

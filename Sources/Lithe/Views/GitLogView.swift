@@ -5,6 +5,7 @@ struct GitLogView: View {
     @State private var localExpanded = true
     @State private var remoteExpanded = true
     @State private var tagsExpanded = true
+    @State private var collapsedReferenceGroups: Set<String> = []
     @State private var collapsedFileGroups: Set<String> = []
     @State private var referencePaneWidth: CGFloat = 300
     @State private var referencePaneDragStart: CGFloat = 300
@@ -402,12 +403,62 @@ struct GitLogView: View {
             .lithePointer()
 
             if expanded.wrappedValue {
-                ForEach(references) { reference in
-                    referenceButton(reference, title: reference.shortName, icon: referenceIcon(reference))
-                        .padding(.leading, 18)
+                ForEach(GitReferenceTreeNode.build(from: references)) { node in
+                    referenceTreeNode(node, kind: kind, depth: 0)
                 }
             }
         }
+    }
+
+    private func referenceTreeNode(
+        _ node: GitReferenceTreeNode,
+        kind: GitReferenceKind,
+        depth: Int
+    ) -> AnyView {
+        AnyView(
+            VStack(alignment: .leading, spacing: 1) {
+                if let reference = node.reference {
+                    referenceButton(reference, title: node.name, icon: referenceIcon(reference))
+                        .padding(.leading, CGFloat(18 + depth * 18))
+                }
+
+                if !node.children.isEmpty {
+                    Button {
+                        let key = "\(kind.rawValue):\(node.path)"
+                        if collapsedReferenceGroups.contains(key) {
+                            collapsedReferenceGroups.remove(key)
+                        } else {
+                            collapsedReferenceGroups.insert(key)
+                        }
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: collapsedReferenceGroups.contains("\(kind.rawValue):\(node.path)") ? "chevron.right" : "chevron.down")
+                                .font(.system(size: 8, weight: .bold))
+                                .frame(width: 10)
+                            LitheSystemIcon(systemImage: "folder", size: 14)
+                            Text(node.name)
+                                .font(GitVisual.body)
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                        }
+                        .padding(.leading, CGFloat(18 + depth * 18))
+                        .padding(.trailing, 8)
+                        .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .litheRowHover(cornerRadius: 4)
+                    }
+                    .buttonStyle(.plain)
+                    .lithePointer()
+
+                    if !collapsedReferenceGroups.contains("\(kind.rawValue):\(node.path)") {
+                        ForEach(node.children) { child in
+                            referenceTreeNode(child, kind: kind, depth: depth + 1)
+                        }
+                    }
+                }
+            }
+        )
     }
 
     private func referenceButton(_ reference: GitReference, title: String, icon: String) -> some View {
@@ -895,6 +946,72 @@ struct GitLogView: View {
         }
         .buttonStyle(.plain)
         .lithePointer()
+    }
+}
+
+private struct GitReferenceTreeNode: Identifiable {
+    let path: String
+    let name: String
+    let reference: GitReference?
+    let children: [GitReferenceTreeNode]
+
+    var id: String { path }
+
+    static func build(from references: [GitReference]) -> [GitReferenceTreeNode] {
+        let root = MutableGitReferenceTreeNode(name: "", path: "")
+
+        for reference in references {
+            let components = reference.shortName
+                .split(separator: "/")
+                .map(String.init)
+            guard !components.isEmpty else { continue }
+
+            var node = root
+            var pathComponents: [String] = []
+            for component in components {
+                pathComponents.append(component)
+                if node.children[component] == nil {
+                    node.children[component] = MutableGitReferenceTreeNode(
+                        name: component,
+                        path: pathComponents.joined(separator: "/")
+                    )
+                }
+                node = node.children[component]!
+            }
+            node.reference = reference
+        }
+
+        return makeNodes(from: root)
+    }
+
+    private static func makeNodes(from node: MutableGitReferenceTreeNode) -> [GitReferenceTreeNode] {
+        node.children.values
+            .map { child in
+                GitReferenceTreeNode(
+                    path: child.path,
+                    name: child.name,
+                    reference: child.reference,
+                    children: makeNodes(from: child)
+                )
+            }
+            .sorted { lhs, rhs in
+                if (lhs.reference != nil) != (rhs.reference != nil) {
+                    return lhs.reference != nil
+                }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+    }
+}
+
+private final class MutableGitReferenceTreeNode {
+    let name: String
+    let path: String
+    var reference: GitReference?
+    var children: [String: MutableGitReferenceTreeNode] = [:]
+
+    init(name: String, path: String) {
+        self.name = name
+        self.path = path
     }
 }
 

@@ -45,6 +45,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.layoutManager?.delegate = textView
         textView.string = document.text
+        textView.rebuildLineIndex()
         textView.isRichText = false
         textView.importsGraphics = false
         textView.allowsUndo = true
@@ -130,6 +131,7 @@ struct CodeEditorView: NSViewRepresentable {
            !context.coordinator.isApplyingEditorChange {
             let selection = textView.selectedRange()
             textView.string = document.text
+            (textView as? CodeTextView)?.rebuildLineIndex()
             textView.setSelectedRange(NSRange(location: min(selection.location, document.text.utf16.count), length: 0))
             context.coordinator.highlight()
             (textView as? CodeTextView)?.updateEditorDecorations()
@@ -193,6 +195,7 @@ struct CodeEditorView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             guard document?.isReadOnly != true else { return }
+            (textView as? CodeTextView)?.rebuildLineIndex()
             isApplyingEditorChange = true
             document?.text = textView.string
             if let document {
@@ -225,7 +228,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func refreshFoldRegions(useDefaultImportFold: Bool) {
-            guard fileExtension.lowercased() == "java", let textView = textView as? CodeTextView else {
+            guard let textView = textView as? CodeTextView else {
                 foldRegions = []
                 collapsedFoldIDs = []
                 return
@@ -234,6 +237,7 @@ struct CodeEditorView: NSViewRepresentable {
             let availableIDs = Set(foldRegions.map(\.id))
             collapsedFoldIDs.formIntersection(availableIDs)
             if useDefaultImportFold,
+               fileExtension.lowercased() == "java",
                let imports = foldRegions.first(where: { $0.kind == .imports }) {
                 collapsedFoldIDs.insert(imports.id)
             }
@@ -377,6 +381,59 @@ struct CodeEditorView: NSViewRepresentable {
     }
 }
 
+private struct TextLineIndex {
+    let textLength: Int
+    let starts: [Int]
+
+    init(source: NSString) {
+        textLength = source.length
+        var starts = [0]
+        if source.length > 0 {
+            for index in 0..<source.length {
+                let character = source.character(at: index)
+                if character == 10 {
+                    starts.append(index + 1)
+                } else if character == 13,
+                          (index + 1 == source.length || source.character(at: index + 1) != 10) {
+                    starts.append(index + 1)
+                }
+            }
+        }
+        self.starts = starts
+    }
+
+    var lineCount: Int {
+        guard textLength > 0, starts.last == textLength else { return starts.count }
+        return max(1, starts.count - 1)
+    }
+
+    func characterOffset(forLine line: Int) -> Int {
+        starts[min(max(0, line), starts.count - 1)]
+    }
+
+    func lineNumber(at location: Int) -> Int {
+        let safeLocation = min(max(0, location), textLength)
+        var lowerBound = 0
+        var upperBound = starts.count
+        while lowerBound < upperBound {
+            let midpoint = (lowerBound + upperBound) / 2
+            if starts[midpoint] <= safeLocation {
+                lowerBound = midpoint + 1
+            } else {
+                upperBound = midpoint
+            }
+        }
+        return max(0, lowerBound - 1)
+    }
+
+    func lineRange(forLine line: Int) -> NSRange {
+        let safeLine = min(max(0, line), starts.count - 1)
+        let start = starts[safeLine]
+        let end = safeLine + 1 < starts.count ? starts[safeLine + 1] : textLength
+        return NSRange(location: start, length: max(0, end - start))
+    }
+}
+
 final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var indentationWidth = 4
     var isJavaNavigationEnabled = false
@@ -406,7 +463,25 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     private var fadedCodeRanges: [NSRange] = []
     private var linkRange: NSRange?
     private var trackingArea: NSTrackingArea?
+    private var hoveredFoldID: String?
+    private var lineIndex = TextLineIndex(source: "" as NSString)
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
+
+    func rebuildLineIndex() {
+        lineIndex = TextLineIndex(source: string as NSString)
+    }
+
+    func characterOffset(forLine targetLine: Int, in _: NSString) -> Int {
+        lineIndex.characterOffset(forLine: targetLine)
+    }
+
+    func lineNumber(at location: Int, in _: NSString) -> Int {
+        lineIndex.lineNumber(at: location)
+    }
+
+    func lineRange(forLine line: Int, in _: NSString) -> NSRange {
+        lineIndex.lineRange(forLine: line)
+    }
 
     func updateDiagnostics(_ diagnostics: [JavaDiagnostic]) {
         self.diagnostics = diagnostics
@@ -593,6 +668,10 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         foldRegions = regions
         collapsedFoldIDs = collapsedIDs
         onToggleFold = onToggle
+        if let hoveredFoldID,
+           !collapsedIDs.contains(hoveredFoldID) {
+            self.hoveredFoldID = nil
+        }
         applyFoldAttributes()
         applyUnusedCodeFade()
         applyCollapsedFoldForeground()
@@ -681,8 +760,8 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
             return NSLocationInRange(characterRange.location, region.hiddenRange)
         }) else { return false }
 
-        lineFragmentRect.pointee.size.height = 0.1
-        lineFragmentUsedRect.pointee.size.height = 0.1
+        lineFragmentRect.pointee.size.height = 0
+        lineFragmentUsedRect.pointee.size.height = 0
         baselineOffset.pointee = 0
         return true
     }
@@ -718,28 +797,48 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         let firstVisibleLine = lineNumber(at: firstVisibleCharacter, in: source)
         let lastVisibleLine = lineNumber(at: lastVisibleCharacter, in: source)
         let firstLine = max(0, firstVisibleLine - 200)
-        let lastLine = min(lineCount(in: source) - 1, lastVisibleLine + 200)
+        let lastLine = min(lineIndex.lineCount - 1, lastVisibleLine + 200)
         guard firstLine <= lastLine else { return }
 
         var indentations: [Int: Int] = [:]
-        var nonEmptyLines: [Int] = []
+        var blankLines: Set<Int> = []
         for line in firstLine...lastLine {
+            guard !isLineHiddenByCollapsedFold(line) else { continue }
             let indentation = leadingIndentationColumns(forLine: line, in: source)
             indentations[line] = indentation
-            if !lineIsBlank(line, in: source) {
-                nonEmptyLines.append(line)
+            if lineIsBlank(line, in: source) {
+                blankLines.insert(line)
             }
         }
 
         // Blank lines inherit the nearest non-empty line's indentation, so a
         // vertical guide continues through intentionally spaced-out code.
-        for line in firstLine...lastLine where lineIsBlank(line, in: source) {
-            let previous = nonEmptyLines.last(where: { $0 < line })
-            let next = nonEmptyLines.first(where: { $0 > line })
-            if let previous {
-                indentations[line] = indentations[previous] ?? 0
-            } else if let next {
-                indentations[line] = indentations[next] ?? 0
+        var previousNonEmpty: Int?
+        for line in firstLine...lastLine {
+            guard indentations[line] != nil else {
+                previousNonEmpty = nil
+                continue
+            }
+            if blankLines.contains(line) {
+                if let previousNonEmpty {
+                    indentations[line] = indentations[previousNonEmpty] ?? 0
+                }
+            } else {
+                previousNonEmpty = line
+            }
+        }
+        var nextNonEmpty: Int?
+        for line in stride(from: lastLine, through: firstLine, by: -1) {
+            guard indentations[line] != nil else {
+                nextNonEmpty = nil
+                continue
+            }
+            if blankLines.contains(line) {
+                if previousNonEmpty == nil, let nextNonEmpty {
+                    indentations[line] = indentations[nextNonEmpty] ?? 0
+                }
+            } else {
+                nextNonEmpty = line
             }
         }
 
@@ -772,6 +871,14 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
                     segmentStart = nil
                 }
             }
+        }
+    }
+
+    private func isLineHiddenByCollapsedFold(_ line: Int) -> Bool {
+        foldRegions.contains { region in
+            collapsedFoldIDs.contains(region.id) &&
+                line > region.startLine &&
+                line <= region.endLine
         }
     }
 
@@ -819,8 +926,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     }
 
     private func leadingIndentationColumns(forLine line: Int, in source: NSString) -> Int {
-        let lineStart = characterOffset(forLine: line, in: source)
-        let lineRange = source.lineRange(for: NSRange(location: min(lineStart, source.length), length: 0))
+        let lineRange = lineIndex.lineRange(forLine: line)
         var columns = 0
         for index in lineRange.location..<NSMaxRange(lineRange) {
             switch source.character(at: index) {
@@ -863,13 +969,17 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         for region in foldRegions where collapsedFoldIDs.contains(region.id) {
             guard let rect = foldSummaryRect(for: region), rect.intersects(dirtyRect) else { continue }
             let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
-            NSColor(white: 0.25, alpha: 0.78).setFill()
+            let isHovered = hoveredFoldID == region.id
+            NSColor(white: isHovered ? 0.34 : 0.25, alpha: isHovered ? 0.80 : 0.38).setFill()
             path.fill()
             ("…" as NSString).draw(
                 in: rect.offsetBy(dx: 0, dy: -1),
                 withAttributes: [
                     .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
-                    .foregroundColor: NSColor(white: 0.68, alpha: 1),
+                    .foregroundColor: NSColor(
+                        white: isHovered ? 0.90 : 0.68,
+                        alpha: isHovered ? 1 : 0.62
+                    ),
                     .paragraphStyle: centeredParagraphStyle
                 ]
             )
@@ -947,21 +1057,41 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         }
     }
 
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        updateFoldHover(at: convert(event.locationInWindow, from: nil))
+    }
+
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
+        let point = convert(event.locationInWindow, from: nil)
+        updateFoldHover(at: point)
         guard isJavaNavigationEnabled,
               hasNavigationModifier(event.modifierFlags) else { return }
-        updateLinkHighlight(at: convert(event.locationInWindow, from: nil))
+        updateLinkHighlight(at: point)
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
+        updateFoldHover(at: nil)
         clearLinkHighlight()
     }
 
     override func resignFirstResponder() -> Bool {
+        updateFoldHover(at: nil)
         clearLinkHighlight()
         return super.resignFirstResponder()
+    }
+
+    private func updateFoldHover(at point: NSPoint?) {
+        let nextID = point.flatMap { point in
+            foldRegions.first(where: {
+                collapsedFoldIDs.contains($0.id) && foldSummaryRect(for: $0)?.contains(point) == true
+            })?.id
+        }
+        guard hoveredFoldID != nextID else { return }
+        hoveredFoldID = nextID
+        needsDisplay = true
     }
 
     private func updateLinkHighlight(at point: NSPoint) {
@@ -1052,13 +1182,8 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     private func lineAndColumn(for location: Int) -> (line: Int, column: Int) {
         let source = string as NSString
         let safeLocation = min(max(0, location), source.length)
-        let prefix = source.substring(to: safeLocation) as NSString
-        var line = 0
-        var lineStart = 0
-        for index in 0..<prefix.length where prefix.character(at: index) == 10 {
-            line += 1
-            lineStart = index + 1
-        }
+        let line = lineIndex.lineNumber(at: safeLocation)
+        let lineStart = lineIndex.characterOffset(forLine: line)
         return (line, safeLocation - lineStart)
     }
 
@@ -1068,29 +1193,8 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         return style
     }
 
-    private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
-        var line = 0
-        var offset = 0
-        while line < targetLine, offset < source.length {
-            offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
-            line += 1
-        }
-        return offset
-    }
-
-    private func lineNumber(at location: Int, in source: NSString) -> Int {
-        let safeLocation = min(max(0, location), source.length)
-        guard safeLocation > 0 else { return 0 }
-        var result = 0
-        for index in 0..<safeLocation where source.character(at: index) == 10 {
-            result += 1
-        }
-        return result
-    }
-
     private func lineIsBlank(_ line: Int, in source: NSString) -> Bool {
-        let start = characterOffset(forLine: line, in: source)
-        let range = source.lineRange(for: NSRange(location: min(start, source.length), length: 0))
+        let range = lineIndex.lineRange(forLine: line)
         for index in range.location..<NSMaxRange(range) {
             let character = source.character(at: index)
             if character != 9, character != 10, character != 13, character != 32 {
@@ -1102,7 +1206,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
 
     private func diagnosticRange(for diagnostic: JavaDiagnostic, in source: NSString) -> NSRange? {
         guard source.length > 0 else { return nil }
-        let lastLine = max(0, lineCount(in: source) - 1)
+        let lastLine = max(0, lineIndex.lineCount - 1)
         let startLine = min(max(0, diagnostic.line), lastLine)
         let endLine = min(max(startLine, diagnostic.endLine), lastLine)
         let start = characterOffset(forLine: startLine, column: diagnostic.utf16Column, in: source)
@@ -1114,18 +1218,12 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
 
     private func characterOffset(forLine line: Int, column: Int, in source: NSString) -> Int {
         let lineStart = characterOffset(forLine: line, in: source)
-        let lineRange = source.lineRange(for: NSRange(location: min(lineStart, source.length), length: 0))
+        let lineRange = lineIndex.lineRange(forLine: line)
         return min(NSMaxRange(lineRange), lineStart + max(0, column))
     }
 
-    private func lineCount(in source: NSString) -> Int {
-        var count = 1
-        var offset = 0
-        while offset < source.length {
-            offset = NSMaxRange(source.lineRange(for: NSRange(location: offset, length: 0)))
-            if offset < source.length { count += 1 }
-        }
-        return count
+    func lineCount() -> Int {
+        lineIndex.lineCount
     }
 
     private func diagnosticColor(for severity: JavaDiagnosticSeverity) -> NSColor {
@@ -1375,8 +1473,26 @@ final class LineNumberGutterView: NSView {
     private var onSelectImplementation: ((JavaImplementationMarker) -> Void)?
     private var debugBreakpointLines: Set<Int> = []
     private var onToggleDebugBreakpoint: ((Int) -> Void)?
+    private var scrollRefreshScheduled = false
+    private var hoveredFoldID: String?
+    private var trackingArea: NSTrackingArea?
 
     override var isFlipped: Bool { true }
+
+    override func updateTrackingAreas() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+        super.updateTrackingAreas()
+    }
 
     func attach(textView: NSTextView, scrollView: NSScrollView) {
         self.textView = textView
@@ -1389,10 +1505,20 @@ final class LineNumberGutterView: NSView {
             object: scrollView.contentView,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.needsDisplay = true
-                self?.layoutBlameButtons()
+            Task { @MainActor [weak self] in
+                self?.scheduleScrollRefresh()
             }
+        }
+    }
+
+    private func scheduleScrollRefresh() {
+        guard !scrollRefreshScheduled else { return }
+        scrollRefreshScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.scrollRefreshScheduled = false
+            self.needsDisplay = true
+            self.layoutBlameButtons()
         }
     }
 
@@ -1431,6 +1557,10 @@ final class LineNumberGutterView: NSView {
         foldRegions = regions
         collapsedFoldIDs = collapsedIDs
         onToggleFold = onToggle
+        if let hoveredFoldID,
+           !regions.contains(where: { $0.id == hoveredFoldID }) {
+            self.hoveredFoldID = nil
+        }
         needsDisplay = true
     }
 
@@ -1475,6 +1605,9 @@ final class LineNumberGutterView: NSView {
     }
 
     private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
+        if let codeTextView = textView as? CodeTextView {
+            return codeTextView.characterOffset(forLine: targetLine, in: source)
+        }
         var line = 0
         var offset = 0
         while line < targetLine, offset < source.length {
@@ -1495,24 +1628,38 @@ final class LineNumberGutterView: NSView {
         dirtyRect.fill()
 
         let visibleRect = scrollView.documentVisibleRect
-        let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+        let textContainerVisibleRect = NSRect(
+            x: visibleRect.minX - textView.textContainerOrigin.x,
+            y: visibleRect.minY - textView.textContainerOrigin.y,
+            width: visibleRect.width,
+            height: visibleRect.height
+        )
+        let glyphRange = layoutManager.glyphRange(
+            forBoundingRect: textContainerVisibleRect,
+            in: textContainer
+        )
         guard layoutManager.numberOfGlyphs > 0 else {
             drawLineNumber(1, y: textView.textContainerInset.height)
             return
         }
 
         let text = textView.string as NSString
+        let codeTextView = textView as? CodeTextView
         let caret = min(textView.selectedRange().location, text.length)
-        let currentLine = text.substring(to: caret).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        let currentLine = codeTextView?.lineNumber(at: caret, in: text)
+            ?? text.substring(to: caret).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
         var glyphIndex = min(glyphRange.location, layoutManager.numberOfGlyphs - 1)
         let firstCharacter = layoutManager.characterIndexForGlyph(at: glyphIndex)
-        var lineNumber = text.substring(to: min(text.length, firstCharacter))
-            .reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
+        let firstLine = codeTextView?.lineNumber(at: firstCharacter, in: text)
+            ?? text.substring(to: min(text.length, firstCharacter))
+                .reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        var lineNumber = firstLine + 1
         let maxGlyph = min(NSMaxRange(glyphRange), layoutManager.numberOfGlyphs)
 
         while glyphIndex < maxGlyph {
             let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-            let lineRange = text.lineRange(for: NSRange(location: characterIndex, length: 0))
+            let lineRange = codeTextView?.lineRange(forLine: lineNumber - 1, in: text)
+                ?? text.lineRange(for: NSRange(location: characterIndex, length: 0))
             let lineGlyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
             let y = lineRect.minY + textView.textContainerOrigin.y - visibleRect.minY
@@ -1533,9 +1680,6 @@ final class LineNumberGutterView: NSView {
             if isBlameVisible, let blame = blameByLine[lineNumber - 1] {
                 drawBlame(blame, y: y + 1)
             }
-            if let region = foldRegions.first(where: { $0.startLine == lineNumber - 1 }) {
-                drawFoldIndicator(region, y: y, height: lineRect.height)
-            }
             if let marker = implementationMarkers.first(where: { $0.line == lineNumber - 1 }) {
                 drawImplementationMarker(marker, y: y, height: lineRect.height)
             }
@@ -1547,6 +1691,40 @@ final class LineNumberGutterView: NSView {
             let nextGlyph = NSMaxRange(lineGlyphRange)
             glyphIndex = nextGlyph > glyphIndex ? nextGlyph : glyphIndex + 1
             lineNumber += 1
+        }
+
+        drawFoldIndicators(
+            in: foldRegions,
+            source: text,
+            visibleRect: visibleRect,
+            layoutManager: layoutManager
+        )
+    }
+
+    private func drawFoldIndicators(
+        in regions: [JavaFoldRegion],
+        source: NSString,
+        visibleRect: NSRect,
+        layoutManager: NSLayoutManager
+    ) {
+        guard !regions.isEmpty else { return }
+        for region in regions {
+            let isHiddenByParent = regions.contains { parent in
+                parent.id != region.id &&
+                    collapsedFoldIDs.contains(parent.id) &&
+                    region.startLine > parent.startLine &&
+                    region.startLine <= parent.endLine
+            }
+            guard !isHiddenByParent else { continue }
+
+            let characterIndex = characterOffset(forLine: region.startLine, in: source)
+            guard characterIndex < source.length else { continue }
+            let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndex)
+            guard glyphIndex < layoutManager.numberOfGlyphs else { continue }
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            let y = lineRect.minY + (textView?.textContainerOrigin.y ?? 0) - visibleRect.minY
+            guard y + lineRect.height >= 0, y <= bounds.height else { continue }
+            drawFoldIndicator(region, y: y, height: max(lineRect.height, 16))
         }
     }
 
@@ -1561,18 +1739,34 @@ final class LineNumberGutterView: NSView {
     }
 
     private func drawFoldIndicator(_ region: JavaFoldRegion, y: CGFloat, height: CGFloat) {
-        let symbolName = collapsedFoldIDs.contains(region.id) ? "chevron.right" : "chevron.down"
-        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else { return }
-        let configuration = NSImage.SymbolConfiguration(pointSize: 8, weight: .semibold)
-        let configured = image.withSymbolConfiguration(configuration) ?? image
-        configured.isTemplate = true
-        NSColor(white: 0.46, alpha: 1).set()
-        configured.draw(
-            in: NSRect(x: 5, y: y + max(0, (height - 10) / 2), width: 10, height: 10),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1
-        )
+        let isHovered = hoveredFoldID == region.id
+        let centerY = y + height / 2
+        if isHovered {
+            let hoverRect = NSRect(
+                x: 1,
+                y: y + max(0, (height - 17) / 2),
+                width: 18,
+                height: 17
+            )
+            NSColor(white: 1, alpha: 0.07).setFill()
+            NSBezierPath(roundedRect: hoverRect, xRadius: 3, yRadius: 3).fill()
+        }
+        let path = NSBezierPath()
+        if collapsedFoldIDs.contains(region.id) {
+            path.move(to: NSPoint(x: 6, y: centerY - 4))
+            path.line(to: NSPoint(x: 11, y: centerY))
+            path.line(to: NSPoint(x: 6, y: centerY + 4))
+        } else {
+            path.move(to: NSPoint(x: 5, y: centerY - 2))
+            path.line(to: NSPoint(x: 9, y: centerY + 3))
+            path.line(to: NSPoint(x: 13, y: centerY - 2))
+        }
+        path.close()
+        NSColor(
+            white: isHovered ? 0.86 : 0.62,
+            alpha: isHovered ? 0.96 : 0.46
+        ).setFill()
+        path.fill()
     }
 
     private func drawImplementationMarker(_ marker: JavaImplementationMarker, y: CGFloat, height: CGFloat) {
@@ -1616,6 +1810,48 @@ final class LineNumberGutterView: NSView {
         )
     }
 
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        updateFoldHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateFoldHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        updateFoldHover(at: nil)
+    }
+
+    private func updateFoldHover(at point: NSPoint?) {
+        let nextID = point.flatMap { foldRegion(at: $0)?.id }
+        guard hoveredFoldID != nextID else { return }
+        hoveredFoldID = nextID
+        needsDisplay = true
+    }
+
+    private func foldRegion(at point: NSPoint) -> JavaFoldRegion? {
+        guard point.x <= 18,
+              let textView,
+              let scrollView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              layoutManager.numberOfGlyphs > 0 else { return nil }
+        let documentY = point.y + scrollView.documentVisibleRect.minY - textView.textContainerOrigin.y
+        let glyphIndex = layoutManager.glyphIndex(
+            for: NSPoint(x: textView.textContainerInset.width, y: documentY),
+            in: textContainer
+        )
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        let source = textView.string as NSString
+        let line = (textView as? CodeTextView)?.lineNumber(at: characterIndex, in: source)
+            ?? source.substring(to: min(characterIndex, source.length)).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        return foldRegions.first(where: { $0.startLine == line })
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard let textView,
               let scrollView,
@@ -1631,8 +1867,9 @@ final class LineNumberGutterView: NSView {
             in: textContainer
         )
         let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-        let prefix = (textView.string as NSString).substring(to: min(characterIndex, textView.string.utf16.count))
-        let line = prefix.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+        let source = textView.string as NSString
+        let line = (textView as? CodeTextView)?.lineNumber(at: characterIndex, in: source)
+            ?? source.substring(to: min(characterIndex, source.length)).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
         if point.x <= 16, let region = foldRegions.first(where: { $0.startLine == line }) {
             onToggleFold?(region)
         } else if point.x <= 34,
@@ -1731,6 +1968,9 @@ final class CodeVisionOverlayController {
     }
 
     private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
+        if let codeTextView = textView as? CodeTextView {
+            return codeTextView.characterOffset(forLine: targetLine, in: source)
+        }
         var line = 0
         var offset = 0
         while line < targetLine, offset < source.length {
@@ -1834,6 +2074,9 @@ final class JavaInlayHintOverlayController {
     }
 
     private func characterOffset(forLine targetLine: Int, in source: NSString) -> Int {
+        if let codeTextView = textView as? CodeTextView {
+            return codeTextView.characterOffset(forLine: targetLine, in: source)
+        }
         var line = 0
         var offset = 0
         while line < targetLine, offset < source.length {

@@ -2,7 +2,8 @@
 
 The application boundary describes product behavior that a SwiftUI/AppKit or
 Qt/Windows UI can consume. It does not describe widgets, threads, processes,
-or operating-system APIs.
+or operating-system APIs. It defines the cross-platform contract; current
+implementation progress is tracked in [`docs/开发进度.md`](../../docs/开发进度.md).
 
 ## Data Rules
 
@@ -18,12 +19,12 @@ or operating-system APIs.
 
 | Feature | Shared input/output | Platform-owned implementation |
 | --- | --- | --- |
-| Workspace | relative paths, file metadata, snapshot state | directory enumeration, hidden-file rules, watchers |
-| Documents | path, UTF-8 text, dirty state, save result | file handles, atomic writes, external-change notifications |
-| Search | query options, relative result paths, lines, symbols, replacement preview | indexing storage and file reads |
-| Git | changes, commits, branches, diffs, operation result | Git executable discovery, process and credential environment |
-| Runtime | selected Java/Maven settings, discovery result | JDK/Maven probing and executable paths |
-| Java/Maven | project model, structure, symbols, diagnostics, code vision, run/debug events | child processes, sockets, JDB/LSP transport |
+| Workspace | visible snapshot, relative paths, file metadata, deterministic ordering | workspace root selection, native dialogs, and watchers |
+| Documents | relative-path validation, UTF-8 read/write results, dirty/save state | native file integration and external-change notifications |
+| Search | query matching, deterministic result ordering, symbols, and replacement preview | workspace lifecycle and optional index persistence |
+| Git | changes, commits, branches, diffs, history, validation, and mutation results | Git executable discovery, credentials, process environment |
+| Runtime | selected Java/Maven settings and normalized discovery result | JDK/Maven probing and executable paths |
+| Java/Maven | Maven project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, and run-configuration detection | JDK/Maven discovery, JDT LS, Java/Maven child processes, sockets, JDB/LSP transport |
 | Run/Debug | configuration, lifecycle, output, diagnostics | child processes, sockets, JDB transport |
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |

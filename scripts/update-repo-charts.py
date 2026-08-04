@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""Generate README charts from GitHub API responses."""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import math
+from collections import Counter
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+CHART_WIDTH = 1200
+CHART_HEIGHT = 680
+PLOT_LEFT = 115
+PLOT_RIGHT = 1135
+PLOT_TOP = 92
+PLOT_BOTTOM = 545
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo", required=True, help="Repository name, for example 1lck/Lithe-IDEA")
+    parser.add_argument("--stargazers", type=Path, required=True)
+    parser.add_argument("--contributors", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    return parser.parse_args()
+
+
+def flatten_pages(payload: object) -> list[dict]:
+    if not isinstance(payload, list):
+        return []
+
+    if payload and all(isinstance(page, list) for page in payload):
+        return [item for page in payload for item in page if isinstance(item, dict)]
+
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def load_entries(path: Path) -> list[dict]:
+    with path.open(encoding="utf-8") as stream:
+        return flatten_pages(json.load(stream))
+
+
+def parse_starred_date(entry: dict) -> date | None:
+    raw_value = entry.get("starred_at")
+    if not isinstance(raw_value, str):
+        return None
+
+    try:
+        return datetime.fromisoformat(raw_value.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def add_query_parameter(url: str, key: str, value: str) -> str:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query[key] = value
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def nice_maximum(value: int) -> int:
+    if value <= 0:
+        return 1
+
+    exponent = 10 ** int(math.floor(math.log10(value)))
+    normalized = value / exponent
+    if normalized <= 1:
+        step = 1
+    elif normalized <= 2:
+        step = 2
+    elif normalized <= 5:
+        step = 5
+    else:
+        step = 10
+    return int(step * exponent)
+
+
+def format_number(value: int) -> str:
+    return f"{value:,}"
+
+
+def format_date(value: date) -> str:
+    return value.strftime("%b %d")
+
+
+def svg_text(x: float, y: float, value: str, **attributes: str) -> str:
+    rendered_attributes = " ".join(
+        f'{key.replace("_", "-")}="{html.escape(str(attribute), quote=True)}"'
+        for key, attribute in attributes.items()
+    )
+    return f'<text x="{x:.2f}" y="{y:.2f}" {rendered_attributes}>{html.escape(value)}</text>'
+
+
+def star_history_svg(repo: str, entries: list[dict], dark: bool) -> str:
+    counts = Counter(
+        starred_date
+        for entry in entries
+        if (starred_date := parse_starred_date(entry)) is not None
+    )
+
+    today = date.today()
+    if counts:
+        first_day = min(counts)
+        last_day = max(today, max(counts))
+    else:
+        first_day = today - timedelta(days=30)
+        last_day = today
+
+    span = max((last_day - first_day).days, 1)
+    cumulative = 0
+    points: list[tuple[date, int]] = []
+    current_day = first_day
+    while current_day <= last_day:
+        cumulative += counts[current_day]
+        points.append((current_day, cumulative))
+        current_day += timedelta(days=1)
+
+    maximum = nice_maximum(max(cumulative, 1))
+    plot_width = PLOT_RIGHT - PLOT_LEFT
+    plot_height = PLOT_BOTTOM - PLOT_TOP
+
+    def point_for(index: int, value: int) -> tuple[float, float]:
+        x = PLOT_LEFT + (index / span) * plot_width
+        y = PLOT_BOTTOM - (value / maximum) * plot_height
+        return x, y
+
+    path = " ".join(
+        ("M" if index == 0 else "L")
+        + f" {point_for(index, value)[0]:.2f},{point_for(index, value)[1]:.2f}"
+        for index, (_, value) in enumerate(points)
+    )
+
+    background = "#ffffff" if not dark else "#111827"
+    foreground = "#111111" if not dark else "#f3f4f6"
+    muted = "#4b5563" if not dark else "#d1d5db"
+    grid = "#d1d5db" if not dark else "#374151"
+    accent = "#e34b2d"
+    tick_count = 4
+    elements = [
+        f'<rect width="{CHART_WIDTH}" height="{CHART_HEIGHT}" fill="{background}"/>',
+        svg_text(600, 54, "Star History", text_anchor="middle", font_size="34", font_weight="700", fill=foreground),
+        f'<line x1="{PLOT_LEFT}" y1="{PLOT_BOTTOM}" x2="{PLOT_RIGHT}" y2="{PLOT_BOTTOM}" stroke="{foreground}" stroke-width="2"/>',
+        f'<line x1="{PLOT_LEFT}" y1="{PLOT_TOP}" x2="{PLOT_LEFT}" y2="{PLOT_BOTTOM}" stroke="{foreground}" stroke-width="2"/>',
+        svg_text(54, 325, "GitHub Stars", text_anchor="middle", transform="rotate(-90 54 325)", font_size="22", fill=foreground),
+        svg_text(625, 635, "Date", text_anchor="middle", font_size="22", fill=foreground),
+    ]
+
+    for tick in range(tick_count + 1):
+        value = int(maximum * tick / tick_count)
+        y = PLOT_BOTTOM - (tick / tick_count) * plot_height
+        elements.append(
+            f'<line x1="{PLOT_LEFT}" y1="{y:.2f}" x2="{PLOT_RIGHT}" y2="{y:.2f}" stroke="{grid}" stroke-width="1"/>'
+        )
+        elements.append(svg_text(PLOT_LEFT - 18, y + 7, format_number(value), text_anchor="end", font_size="18", fill=foreground))
+
+    label_indices = sorted({0, len(points) // 4, len(points) // 2, (len(points) * 3) // 4, len(points) - 1})
+    for index in label_indices:
+        x, _ = point_for(index, 0)
+        elements.append(svg_text(x, PLOT_BOTTOM + 40, format_date(points[index][0]), text_anchor="middle", font_size="18", fill=foreground))
+
+    elements.extend(
+        [
+            f'<path d="{path}" fill="none" stroke="{accent}" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>',
+            f'<rect x="{PLOT_LEFT + 20}" y="{PLOT_TOP + 18}" width="310" height="60" rx="12" fill="{background}" stroke="{foreground}" stroke-width="2"/>',
+            f'<rect x="{PLOT_LEFT + 38}" y="{PLOT_TOP + 39}" width="16" height="16" rx="3" fill="{accent}"/>',
+            svg_text(PLOT_LEFT + 68, PLOT_TOP + 55, repo, font_size="20", fill=foreground),
+        ]
+    )
+
+    return "\n".join(
+        [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CHART_WIDTH} {CHART_HEIGHT}" role="img" aria-label="Star history for {html.escape(repo, quote=True)}">',
+            f'<style>text {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }}</style>',
+            *elements,
+            "</svg>",
+        ]
+    )
+
+
+def contributor_color(login: str) -> str:
+    palette = ["#8b5cf6", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#ec4899"]
+    return palette[sum(ord(character) for character in login) % len(palette)]
+
+
+def contributor_svg(repo: str, entries: list[dict]) -> str:
+    contributors = entries[:100]
+    columns = 12
+    avatar_size = 68
+    gap = 14
+    margin = 28
+    rows = max(1, math.ceil(len(contributors) / columns))
+    width = margin * 2 + columns * avatar_size + (columns - 1) * gap
+    height = margin * 2 + rows * avatar_size + (rows - 1) * gap
+    elements = [
+        f'<rect width="{width}" height="{height}" fill="transparent"/>',
+        f'<title>Contributors to {html.escape(repo, quote=True)}</title>',
+    ]
+
+    for index, contributor in enumerate(contributors):
+        login = str(contributor.get("login") or "Anonymous contributor")
+        avatar_url = contributor.get("avatar_url")
+        profile_url = contributor.get("html_url") or f"https://github.com/{login}"
+        x = margin + (index % columns) * (avatar_size + gap)
+        y = margin + (index // columns) * (avatar_size + gap)
+        clip_id = f"avatar-{index}"
+        contributions = contributor.get("contributions", 0)
+        label = f"{login} ({contributions} contributions)"
+        elements.append(f'<clipPath id="{clip_id}"><circle cx="{x + avatar_size / 2}" cy="{y + avatar_size / 2}" r="{avatar_size / 2 - 2}"/></clipPath>')
+        elements.append(f'<a href="{html.escape(str(profile_url), quote=True)}">')
+        if isinstance(avatar_url, str) and avatar_url:
+            elements.append(
+                f'<image href="{html.escape(add_query_parameter(avatar_url, "s", "136"), quote=True)}" x="{x}" y="{y}" width="{avatar_size}" height="{avatar_size}" preserveAspectRatio="xMidYMid slice" clip-path="url(#{clip_id})"/>'
+            )
+        else:
+            elements.append(f'<circle cx="{x + avatar_size / 2}" cy="{y + avatar_size / 2}" r="{avatar_size / 2 - 2}" fill="{contributor_color(login)}"/>')
+            elements.append(svg_text(x + avatar_size / 2, y + avatar_size / 2 + 7, login[:1].upper(), text_anchor="middle", font_size="28", font_weight="700", fill="#ffffff"))
+        elements.append(f'<circle cx="{x + avatar_size / 2}" cy="{y + avatar_size / 2}" r="{avatar_size / 2 - 2}" fill="none" stroke="#9ca3af" stroke-width="2"/>')
+        elements.append(f'<title>{html.escape(label)}</title>')
+        elements.append("</a>")
+
+    return "\n".join(
+        [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" role="img" aria-label="Contributors to {html.escape(repo, quote=True)}">',
+            '<style>text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }</style>',
+            *elements,
+            "</svg>",
+        ]
+    )
+
+
+def main() -> None:
+    arguments = parse_args()
+    arguments.output.mkdir(parents=True, exist_ok=True)
+    stargazers = load_entries(arguments.stargazers)
+    contributors = load_entries(arguments.contributors)
+    (arguments.output / "star-history-light.svg").write_text(star_history_svg(arguments.repo, stargazers, dark=False), encoding="utf-8")
+    (arguments.output / "star-history-dark.svg").write_text(star_history_svg(arguments.repo, stargazers, dark=True), encoding="utf-8")
+    (arguments.output / "contributors.svg").write_text(contributor_svg(arguments.repo, contributors), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

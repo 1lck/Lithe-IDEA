@@ -1,0 +1,78 @@
+name: Update README charts
+
+on:
+  schedule:
+    # GitHub Actions cron uses UTC. This runs at 09:17 Beijing time.
+    - cron: "17 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-repo-charts
+  cancel-in-progress: true
+
+env:
+  ASSETS_BRANCH: chart-assets
+
+jobs:
+  update:
+    if: github.repository == '1lck/Lithe-IDEA'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Collect repository data
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/repo-charts"
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github.star+json" \
+            "repos/${GITHUB_REPOSITORY}/stargazers?per_page=100" \
+            > "$RUNNER_TEMP/repo-charts/stargazers.json"
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/contributors?per_page=100" \
+            > "$RUNNER_TEMP/repo-charts/contributors.json"
+
+      - name: Generate SVG charts
+        run: |
+          set -euo pipefail
+          python3 scripts/update-repo-charts.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --stargazers "$RUNNER_TEMP/repo-charts/stargazers.json" \
+            --contributors "$RUNNER_TEMP/repo-charts/contributors.json" \
+            --output "$RUNNER_TEMP/repo-charts/assets"
+          test -s "$RUNNER_TEMP/repo-charts/assets/star-history-light.svg"
+          test -s "$RUNNER_TEMP/repo-charts/assets/star-history-dark.svg"
+          test -s "$RUNNER_TEMP/repo-charts/assets/contributors.svg"
+
+      - name: Publish chart assets
+        run: |
+          set -euo pipefail
+          asset_repo="$RUNNER_TEMP/chart-assets-repo"
+          git init --quiet "$asset_repo"
+          git -C "$asset_repo" remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+
+          if git -C "$asset_repo" -c http.extraheader="AUTHORIZATION: bearer ${GH_TOKEN}" fetch --quiet --depth=1 origin "$ASSETS_BRANCH"; then
+            git -C "$asset_repo" checkout --quiet -B "$ASSETS_BRANCH" FETCH_HEAD
+          else
+            git -C "$asset_repo" checkout --quiet --orphan "$ASSETS_BRANCH"
+          fi
+
+          cp "$RUNNER_TEMP/repo-charts/assets/"*.svg "$asset_repo/"
+          git -C "$asset_repo" add contributors.svg star-history-light.svg star-history-dark.svg
+
+          if git -C "$asset_repo" diff --cached --quiet; then
+            echo "Chart assets are unchanged."
+            exit 0
+          fi
+
+          git -C "$asset_repo" config user.name "github-actions[bot]"
+          git -C "$asset_repo" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$asset_repo" commit --quiet -m "docs: refresh README charts"
+          git -C "$asset_repo" -c http.extraheader="AUTHORIZATION: bearer ${GH_TOKEN}" push --quiet --force origin "HEAD:${ASSETS_BRANCH}"
