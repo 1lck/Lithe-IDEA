@@ -56,9 +56,9 @@ jobs:
           set -euo pipefail
           asset_repo="$RUNNER_TEMP/chart-assets-repo"
           git init --quiet "$asset_repo"
-          git -C "$asset_repo" remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$asset_repo" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          if git -C "$asset_repo" -c http.extraheader="AUTHORIZATION: bearer ${GH_TOKEN}" fetch --quiet --depth=1 origin "$ASSETS_BRANCH"; then
+          if git -C "$asset_repo" fetch --quiet --depth=1 origin "$ASSETS_BRANCH"; then
             git -C "$asset_repo" checkout --quiet -B "$ASSETS_BRANCH" FETCH_HEAD
           else
             git -C "$asset_repo" checkout --quiet --orphan "$ASSETS_BRANCH"
@@ -75,4 +75,4 @@ jobs:
           git -C "$asset_repo" config user.name "github-actions[bot]"
           git -C "$asset_repo" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C "$asset_repo" commit --quiet -m "docs: refresh README charts"
-          git -C "$asset_repo" -c http.extraheader="AUTHORIZATION: bearer ${GH_TOKEN}" push --quiet --force origin "HEAD:${ASSETS_BRANCH}"
+          git -C "$asset_repo" push --quiet --force origin "HEAD:${ASSETS_BRANCH}"
