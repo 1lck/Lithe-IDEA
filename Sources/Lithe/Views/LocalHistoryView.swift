@@ -183,7 +183,8 @@ struct LocalHistoryView: View {
                                             kind: row.kind,
                                             fileExtension: request.fileURL.pathExtension,
                                             highlightsWords: true,
-                                            isSelectedDifference: false
+                                            isSelectedDifference: false,
+                                            contentWidth: width
                                         )
                                     }
                                 }

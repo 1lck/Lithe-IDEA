@@ -104,11 +104,23 @@ struct WelcomeView: View {
                     Text("Checking for updates…")
                 }
                 .foregroundStyle(LitheTheme.secondaryText)
-            case .downloading(let version):
-                HStack(spacing: 5) {
-                    ProgressView()
-                        .controlSize(.small)
+            case .downloading(let version, let progress):
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        if let fractionCompleted = progress.fractionCompleted {
+                            ProgressView(value: fractionCompleted)
+                                .frame(width: 92)
+                            Text("\(progress.percentage ?? 0)%")
+                                .monospacedDigit()
+                        } else {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Preparing…")
+                        }
+                    }
                     Text("Downloading update \(version)…")
+                    Text(progress.byteCountDescription)
+                        .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 .foregroundStyle(LitheTheme.secondaryText)
             case .installing(let version):

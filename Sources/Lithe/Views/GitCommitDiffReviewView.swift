@@ -217,7 +217,7 @@ struct GitCommitDiffReviewView: View {
 
                         LazyVStack(spacing: 0) {
                             ForEach(model.diffRows, id: \.id) { row in
-                                diffRowView(for: row)
+                                diffRowView(for: row, contentWidth: contentWidth)
                             }
                         }
                         .textSelection(.enabled)
@@ -232,7 +232,7 @@ struct GitCommitDiffReviewView: View {
     }
 
     @ViewBuilder
-    private func diffRowView(for row: DiffRow) -> some View {
+    private func diffRowView(for row: DiffRow, contentWidth: CGFloat) -> some View {
         let differenceIndex = differenceIndexByRow[row.id]
         if context.kind == .added || context.kind == .deleted {
             SingleFileDiffRowView(
@@ -246,10 +246,11 @@ struct GitCommitDiffReviewView: View {
             DiffRowView(
                 row: row,
                 kind: row.kind,
-                fileExtension: context.url.pathExtension,
-                highlightsWords: highlightsWords,
-                isSelectedDifference: differenceIndex == selectedDifferenceIndex
-            )
+                                fileExtension: context.url.pathExtension,
+                                highlightsWords: highlightsWords,
+                                isSelectedDifference: differenceIndex == selectedDifferenceIndex,
+                                contentWidth: contentWidth
+                            )
             .id(row.id)
         }
     }

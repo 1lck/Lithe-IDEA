@@ -1017,6 +1017,10 @@ final class AppModel: ObservableObject {
         gitFeature.requestDiscardSelectedChange()
     }
 
+    func requestDiscardChange(_ change: GitChange) {
+        gitFeature.requestDiscardChange(change)
+    }
+
     func confirmDiscardChange() async {
         await gitFeature.confirmDiscardChange()
     }

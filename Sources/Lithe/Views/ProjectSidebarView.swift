@@ -25,6 +25,7 @@ struct ProjectSidebarView: View {
                             FileNodeRow(
                                 node: root,
                                 depth: 0,
+                                availableWidth: geometry.size.width,
                                 expandedDirectoryPaths: $expandedDirectoryPaths
                             )
                         }
@@ -131,8 +132,13 @@ private struct FileNodeRow: View {
     @EnvironmentObject private var model: AppModel
     let node: FileNode
     let depth: Int
+    let availableWidth: CGFloat
     @Binding var expandedDirectoryPaths: Set<String>
     @State private var resolvedJavaIconKind: LitheIconKind?
+
+    private var rowWidth: CGFloat {
+        max(availableWidth, CGFloat(depth * 14 + 8 + 180))
+    }
 
     private var isExpanded: Bool {
         expandedDirectoryPaths.contains(node.url.path)
@@ -146,6 +152,7 @@ private struct FileNodeRow: View {
                     FileNodeRow(
                         node: child,
                         depth: depth + 1,
+                        availableWidth: availableWidth,
                         expandedDirectoryPaths: $expandedDirectoryPaths
                     )
                 }
@@ -169,15 +176,18 @@ private struct FileNodeRow: View {
                     .frame(width: 10)
                     .foregroundStyle(LitheTheme.secondaryText)
                 LitheIcon(kind: node.iconKind, size: 14)
+                    .frame(width: 14, height: 14)
                 Text(node.name)
                     .font(.system(size: 12.5, weight: depth == 0 ? .semibold : .regular))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .layoutPriority(1)
+                Spacer(minLength: 0)
             }
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: rowWidth, alignment: .leading)
             .frame(height: 25)
             .contentShape(Rectangle())
             .litheRowHover(cornerRadius: 4)
@@ -200,11 +210,12 @@ private struct FileNodeRow: View {
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .layoutPriority(1)
                 Spacer(minLength: 4)
             }
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: rowWidth, alignment: .leading)
             .frame(height: 25)
             .contentShape(Rectangle())
             .litheRowHover(

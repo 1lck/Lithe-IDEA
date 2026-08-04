@@ -43,17 +43,53 @@ struct UpdateNotice: Identifiable {
     let action: UpdateNoticeAction
 }
 
+struct UpdatePrompt: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+    let releaseURL: URL
+}
+
 enum UpdateNoticeAction {
     case install
     case open(URL)
     case dismiss
 }
 
+struct UpdateDownloadProgress: Equatable, Sendable {
+    let downloadedBytes: Int64
+    let totalBytes: Int64?
+
+    static let initial = UpdateDownloadProgress(downloadedBytes: 0, totalBytes: nil)
+
+    var fractionCompleted: Double? {
+        guard let totalBytes, totalBytes > 0 else { return nil }
+        return min(max(Double(downloadedBytes) / Double(totalBytes), 0), 1)
+    }
+
+    var percentage: Int? {
+        guard let fractionCompleted else { return nil }
+        return Int((fractionCompleted * 100).rounded())
+    }
+
+    var byteCountDescription: String {
+        let downloaded = ByteCountFormatter.string(
+            fromByteCount: downloadedBytes,
+            countStyle: .file
+        )
+        guard let totalBytes else {
+            return downloaded
+        }
+        let total = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+        return "\(downloaded) / \(total)"
+    }
+}
+
 enum UpdateStatus: Equatable {
     case idle
     case checking
     case available(version: String, url: URL)
-    case downloading(version: String)
+    case downloading(version: String, progress: UpdateDownloadProgress)
     case installing(version: String)
     case upToDate(version: String)
     case noRelease
@@ -65,6 +101,7 @@ final class UpdateChecker: ObservableObject {
     @Published private(set) var isChecking = false
     @Published private(set) var isInstalling = false
     @Published var notice: UpdateNotice?
+    @Published private(set) var updatePrompt: UpdatePrompt?
     @Published private(set) var status: UpdateStatus = .idle
 
     private static let latestReleaseURL = URL(string: "https://api.github.com/repos/1lck/Lithe-IDEA/releases/latest")!
@@ -87,6 +124,7 @@ final class UpdateChecker: ObservableObject {
         isChecking = true
         status = .checking
         latestRelease = nil
+        updatePrompt = nil
         if manual { notice = nil }
         defer { isChecking = false }
 
@@ -104,10 +142,10 @@ final class UpdateChecker: ObservableObject {
             if isNewer(release.displayVersion, than: currentVersion) {
                 latestRelease = release
                 status = .available(version: release.displayVersion, url: release.htmlURL)
-                notice = UpdateNotice(
+                updatePrompt = UpdatePrompt(
                     title: "Lithe \(release.displayVersion) is available",
                     message: "Lithe will download the update and restart after replacing the current app.",
-                    action: .install
+                    releaseURL: release.htmlURL
                 )
             } else if manual {
                 status = .upToDate(version: currentVersion)
@@ -146,16 +184,29 @@ final class UpdateChecker: ObservableObject {
               case .available(let version, _) = status else { return }
 
         isInstalling = true
-        status = .downloading(version: version)
+        status = .downloading(version: version, progress: .initial)
+        updatePrompt = nil
         notice = nil
         defer { isInstalling = false }
 
         do {
             let asset = try updateAsset(for: release)
             let downloadedURL: URL
+            let updateChecker = self
             do {
-                (downloadedURL, _) = try await URLSession.shared.download(from: asset.browserDownloadURL)
+                downloadedURL = try await Self.downloadUpdate(
+                    from: asset.browserDownloadURL,
+                    userAgent: "Lithe/\(currentVersion)",
+                    progress: { progress in
+                        await MainActor.run {
+                            updateChecker.status = .downloading(version: version, progress: progress)
+                        }
+                    }
+                )
             } catch {
+                if error is UpdateCheckError {
+                    throw error
+                }
                 throw UpdateCheckError.downloadFailed
             }
 
@@ -172,10 +223,93 @@ final class UpdateChecker: ObservableObject {
         }
     }
 
+    private nonisolated static func downloadUpdate(
+        from url: URL,
+        userAgent: String,
+        progress: @escaping @Sendable (UpdateDownloadProgress) async -> Void
+    ) async throws -> URL {
+        var request = URLRequest(url: url)
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await URLSession.shared.bytes(for: request)
+        } catch {
+            throw UpdateCheckError.downloadFailed
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw UpdateCheckError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw UpdateCheckError.httpStatus(httpResponse.statusCode)
+        }
+
+        let totalBytes = response.expectedContentLength > 0
+            ? response.expectedContentLength
+            : nil
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-update-\(UUID().uuidString).dmg")
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+
+        do {
+            let handle = try FileHandle(forWritingTo: destination)
+            defer { try? handle.close() }
+
+            var buffer = Data()
+            buffer.reserveCapacity(64 * 1024)
+            var downloadedBytes: Int64 = 0
+            var lastProgressUpdate = Date.distantPast
+
+            for try await byte in bytes {
+                buffer.append(byte)
+                downloadedBytes += 1
+
+                if buffer.count >= 64 * 1024 {
+                    try handle.write(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                    let now = Date()
+                    if now.timeIntervalSince(lastProgressUpdate) >= 0.05 {
+                        lastProgressUpdate = now
+                        await progress(
+                            UpdateDownloadProgress(
+                                downloadedBytes: downloadedBytes,
+                                totalBytes: totalBytes
+                            )
+                        )
+                    }
+                }
+            }
+
+            if !buffer.isEmpty {
+                try handle.write(contentsOf: buffer)
+            }
+            await progress(
+                UpdateDownloadProgress(
+                    downloadedBytes: downloadedBytes,
+                    totalBytes: totalBytes
+                )
+            )
+            return destination
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            if error is UpdateCheckError {
+                throw error
+            }
+            throw UpdateCheckError.downloadFailed
+        }
+    }
+
     func openRelease(_ url: URL?) {
         guard let url else { return }
         notice = nil
+        updatePrompt = nil
         NSWorkspace.shared.open(url)
+    }
+
+    func dismissUpdatePrompt() {
+        updatePrompt = nil
     }
 
     private static let releasePageURL = URL(string: "https://github.com/1lck/Lithe-IDEA/releases/latest")!

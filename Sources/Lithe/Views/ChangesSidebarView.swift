@@ -435,6 +435,63 @@ struct ChangesSidebarView: View {
         .frame(height: 30)
         .background(model.selectedChange?.id == change.id ? LitheTheme.subtleSelection : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contextMenu {
+            changeContextMenu(for: change)
+        }
+    }
+
+    @ViewBuilder
+    private func changeContextMenu(for change: GitChange) -> some View {
+        if change.kind != .deleted {
+            Button("Open") {
+                model.openFile(change.url, displayPath: change.path)
+            }
+        }
+
+        Button("Show Diff") {
+            model.selectChange(change)
+        }
+
+        Divider()
+
+        if change.isStaged {
+            Button("Unstage") {
+                Task { await model.toggleStaging(change) }
+            }
+        } else {
+            Button("Stage File") {
+                Task { await model.toggleStaging(change) }
+            }
+        }
+
+        if change.hasWorkingTreeChange {
+            Button("Discard Changes", role: .destructive) {
+                model.requestDiscardChange(change)
+            }
+        }
+
+        Divider()
+
+        Button("Local History…") {
+            model.showLocalHistory(for: change.url)
+        }
+        .disabled(change.kind == .deleted)
+
+        Button("Show in Finder") {
+            let url = change.kind == .deleted
+                ? change.url.deletingLastPathComponent()
+                : change.url
+            model.revealProjectItemInFinder(url)
+        }
+
+        Menu("Copy Path / Reference") {
+            Button("Copy Path") {
+                model.copyProjectItemPath(change.url, relative: false)
+            }
+            Button("Copy Relative Path") {
+                model.copyProjectItemPath(change.url, relative: true)
+            }
+        }
     }
 
     private var commitArea: some View {

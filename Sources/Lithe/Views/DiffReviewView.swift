@@ -293,20 +293,21 @@ struct DiffReviewView: View {
                     )
 
                     ZStack(alignment: .topLeading) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(model.diffRows, id: \DiffRow.id) { row in
+                                diffRowView(for: row, contentWidth: contentWidth)
+                            }
+                        }
+                        .textSelection(.enabled)
+
                         if !usesSingleFileDiff {
                             DiffConnectorOverlay(
                                 rows: model.diffRows,
                                 kinds: kinds,
-                                contentWidth: contentWidth
+                                contentWidth: contentWidth,
+                                compactsOneSidedRows: true
                             )
                         }
-
-                        LazyVStack(spacing: 0) {
-                            ForEach(model.diffRows, id: \DiffRow.id) { row in
-                                diffRowView(for: row)
-                            }
-                        }
-                        .textSelection(.enabled)
                     }
                     .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
                 }
@@ -318,7 +319,7 @@ struct DiffReviewView: View {
     }
 
     @ViewBuilder
-    private func diffRowView(for row: DiffRow) -> some View {
+    private func diffRowView(for row: DiffRow, contentWidth: CGFloat) -> some View {
         let kind = effectiveKind(for: row)
         let differenceIndex = differenceIndexByRow[row.id]
         if usesSingleFileDiff {
@@ -342,7 +343,9 @@ struct DiffReviewView: View {
                 highlightsWords: highlightsWords,
                 isSelectedDifference: differenceIndex == selectedDifferenceIndex,
                 isSearchMatch: diffSearchMatches.contains(row.id),
-                isCurrentSearchMatch: row.id == selectedDiffSearchRowID
+                isCurrentSearchMatch: row.id == selectedDiffSearchRowID,
+                compactsOneSidedRows: true,
+                contentWidth: contentWidth
             )
             .overlay(alignment: .topTrailing) {
                 hunkActions(for: row)
@@ -561,7 +564,7 @@ struct DiffReviewView: View {
                     .foregroundStyle(isSelected ? LitheTheme.accent : LitheTheme.secondaryText)
             }
         }
-        .frame(width: 34)
+        .frame(width: DiffLayoutMetrics.centerGutterWidth)
     }
 
     private func centerSymbol(for kind: DiffRowKind) -> String {
@@ -685,6 +688,8 @@ struct DiffRowView: View {
     let isSelectedDifference: Bool
     let isSearchMatch: Bool
     let isCurrentSearchMatch: Bool
+    let compactsOneSidedRows: Bool
+    let contentWidth: CGFloat
 
     init(
         row: DiffRow,
@@ -693,7 +698,9 @@ struct DiffRowView: View {
         highlightsWords: Bool,
         isSelectedDifference: Bool,
         isSearchMatch: Bool = false,
-        isCurrentSearchMatch: Bool = false
+        isCurrentSearchMatch: Bool = false,
+        compactsOneSidedRows: Bool = false,
+        contentWidth: CGFloat = 980
     ) {
         self.row = row
         self.kind = kind
@@ -702,6 +709,8 @@ struct DiffRowView: View {
         self.isSelectedDifference = isSelectedDifference
         self.isSearchMatch = isSearchMatch
         self.isCurrentSearchMatch = isCurrentSearchMatch
+        self.compactsOneSidedRows = compactsOneSidedRows
+        self.contentWidth = contentWidth
     }
 
     var body: some View {
@@ -722,9 +731,23 @@ struct DiffRowView: View {
             .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {
-                diffCell(number: row.oldLine, text: row.left, otherText: row.right, side: .left)
+                diffCell(
+                    number: row.oldLine,
+                    text: row.left,
+                    otherText: row.right,
+                    side: .left,
+                    isCompacted: compactedSide == .left,
+                    width: paneWidth
+                )
                 centerGutter
-                diffCell(number: row.newLine, text: row.right, otherText: row.left, side: .right)
+                diffCell(
+                    number: row.newLine,
+                    text: row.right,
+                    otherText: row.left,
+                    side: .right,
+                    isCompacted: compactedSide == .right,
+                    width: paneWidth
+                )
             }
             .frame(height: 24)
             .frame(maxWidth: .infinity)
@@ -734,40 +757,76 @@ struct DiffRowView: View {
                 }
             }
             .overlay(searchMatchOverlay)
+            .animation(.easeInOut(duration: 0.22), value: compactedSide)
         }
     }
 
-    private func diffCell(number: Int?, text: String?, otherText: String?, side: DiffSide) -> some View {
-        HStack(spacing: 0) {
-            Text(number.map(String.init) ?? "")
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(lineNumberColor(side: side))
-                .frame(width: 47, alignment: .trailing)
-                .padding(.trailing, 8)
-                .frame(maxHeight: .infinity)
-                .background(LitheTheme.window.opacity(0.62))
+    private var paneWidth: CGFloat {
+        max(0, (contentWidth - DiffLayoutMetrics.centerGutterWidth) / 2)
+    }
 
-            Rectangle()
-                .fill(changeMarkerColor(side: side, hasText: text != nil))
-                .frame(width: 3)
-
-            Text(
-                DiffSyntaxHighlighter.styled(
-                    text ?? "",
-                    comparing: otherText,
-                    fileExtension: fileExtension,
-                    side: side,
-                    highlightsWords: highlightsWords && kind == .changed
-                )
-            )
-            .font(.system(size: 12.5, design: .monospaced))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 8)
+    private var compactedSide: DiffSide? {
+        guard compactsOneSidedRows else { return nil }
+        switch kind {
+        case .addition where row.left == nil && row.right != nil:
+            return .left
+        case .removal where row.left != nil && row.right == nil:
+            return .right
+        default:
+            return nil
         }
-        .background(backgroundColor(side: side, hasText: text != nil))
-        .frame(maxWidth: .infinity)
+    }
+
+    private func diffCell(
+        number: Int?,
+        text: String?,
+        otherText: String?,
+        side: DiffSide,
+        isCompacted: Bool,
+        width: CGFloat
+    ) -> some View {
+        HStack(spacing: 0) {
+            if isCompacted {
+                Spacer(minLength: 0)
+            } else {
+                Text(number.map(String.init) ?? "")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(lineNumberColor(side: side))
+                    .frame(width: 47, alignment: .trailing)
+                    .padding(.trailing, 8)
+                    .frame(maxHeight: .infinity)
+                    .background(LitheTheme.window.opacity(0.62))
+
+                Rectangle()
+                    .fill(changeMarkerColor(side: side, hasText: text != nil))
+                    .frame(width: 3)
+
+                Text(
+                    DiffSyntaxHighlighter.styled(
+                        text ?? "",
+                        comparing: otherText,
+                        fileExtension: fileExtension,
+                        side: side,
+                        highlightsWords: highlightsWords && kind == .changed
+                    )
+                )
+                .font(.system(size: 12.5, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+            }
+        }
+        .frame(width: width, alignment: .leading)
+        .background(cellBackground(side: side, hasText: text != nil, isCompacted: isCompacted))
+        .overlay(alignment: side == .left ? .trailing : .leading) {
+            if isCompacted {
+                Rectangle()
+                    .fill(compactMarkerColor(side: side).opacity(0.9))
+                    .frame(width: 2)
+                    .padding(.vertical, 2)
+            }
+        }
         .clipped()
     }
 
@@ -781,7 +840,7 @@ struct DiffRowView: View {
                     .foregroundStyle(isSelectedDifference ? LitheTheme.accent : LitheTheme.secondaryText)
             }
         }
-        .frame(width: 34)
+        .frame(width: DiffLayoutMetrics.centerGutterWidth)
     }
 
     private var centerSymbol: String {
@@ -811,6 +870,24 @@ struct DiffRowView: View {
                 : .clear
         default:
             return .clear
+        }
+    }
+
+    private func cellBackground(side: DiffSide, hasText: Bool, isCompacted: Bool) -> AnyShapeStyle {
+        if isCompacted {
+            return AnyShapeStyle(Color.clear)
+        }
+        return AnyShapeStyle(backgroundColor(side: side, hasText: hasText))
+    }
+
+    private func compactMarkerColor(side: DiffSide) -> Color {
+        switch kind {
+        case .addition where side == .left:
+            return LitheTheme.success
+        case .removal where side == .right:
+            return LitheTheme.error
+        default:
+            return LitheTheme.secondaryText
         }
     }
 
@@ -848,6 +925,7 @@ struct DiffRowView: View {
 enum DiffLayoutMetrics {
     static let rowHeight: CGFloat = 24
     static let informationRowHeight: CGFloat = 27
+    static let centerGutterWidth: CGFloat = 34
 
     static func rowHeight(for kind: DiffRowKind) -> CGFloat {
         kind == .information ? informationRowHeight : rowHeight
@@ -864,49 +942,79 @@ struct DiffConnectorOverlay: View {
     let rows: [DiffRow]
     let kinds: [DiffRowKind]
     let contentWidth: CGFloat
-    let gutterWidth: CGFloat = 34
+    let compactsOneSidedRows: Bool
+
+    init(
+        rows: [DiffRow],
+        kinds: [DiffRowKind],
+        contentWidth: CGFloat,
+        compactsOneSidedRows: Bool = false
+    ) {
+        self.rows = rows
+        self.kinds = kinds
+        self.contentWidth = contentWidth
+        self.compactsOneSidedRows = compactsOneSidedRows
+    }
 
     var body: some View {
         Canvas { context, _ in
+            let gutterWidth = DiffLayoutMetrics.centerGutterWidth
             guard contentWidth > gutterWidth else { return }
             let blocks = differenceBlocks()
             let paneWidth = (contentWidth - gutterWidth) / 2
-            let gutterStart = paneWidth
-            let gutterEnd = paneWidth + gutterWidth
+            let standardGutterStart = paneWidth
+            let standardGutterEnd = paneWidth + gutterWidth
 
             for block in blocks {
                 let top = yPosition(forRow: block.start)
                 let bottom = yPosition(forRow: block.end)
                 guard bottom > top else { continue }
 
+                let isCompactAddition = compactsOneSidedRows && block.hasRightText && !block.hasLeftText
+                let isCompactRemoval = compactsOneSidedRows && block.hasLeftText && !block.hasRightText
+                let gutterStart: CGFloat
+                let gutterEnd: CGFloat
+                if isCompactAddition {
+                    gutterStart = paneWidth - 1
+                    gutterEnd = standardGutterEnd + 1
+                } else if isCompactRemoval {
+                    gutterStart = standardGutterStart - 1
+                    gutterEnd = standardGutterEnd + 1
+                } else {
+                    gutterStart = standardGutterStart
+                    gutterEnd = standardGutterEnd
+                }
+
                 if block.hasRightText {
                     let path = rightConnectorPath(
                         gutterStart: gutterStart,
                         gutterEnd: gutterEnd,
                         top: top,
-                        bottom: bottom
+                        bottom: bottom,
+                        isCompact: isCompactAddition
                     )
                     context.fill(
                         path,
-                        with: .color(LitheTheme.success.opacity(block.hasLeftText ? 0.19 : 0.23))
+                        with: .color(LitheTheme.success.opacity(isCompactAddition ? 0.08 : (block.hasLeftText ? 0.19 : 0.23)))
                     )
                     context.stroke(
                         path,
-                        with: .color(LitheTheme.success.opacity(0.34)),
-                        style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+                        with: .color(LitheTheme.success.opacity(isCompactAddition ? 0.58 : 0.34)),
+                        style: StrokeStyle(lineWidth: isCompactAddition ? 1.15 : 1, lineCap: .round, lineJoin: .round)
                     )
                 } else if block.hasLeftText {
                     let path = leftConnectorPath(
                         gutterStart: gutterStart,
                         gutterEnd: gutterEnd,
                         top: top,
-                        bottom: bottom
+                        bottom: bottom,
+                        isCompact: isCompactRemoval
                     )
-                    context.fill(path, with: .color(LitheTheme.error.opacity(0.21)))
+                    context.fill(path, with: .color(LitheTheme.error.opacity(isCompactRemoval ? 0.08 : 0.21)))
                     context.stroke(
                         path,
-                        with: .color(LitheTheme.error.opacity(0.32)),
-                        style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+                        with: .color(LitheTheme.error.opacity(isCompactRemoval ? 0.54 : 0.32)),
+                        style: StrokeStyle(lineWidth: isCompactRemoval ? 1.15 : 1, lineCap: .round, lineJoin: .round)
                     )
                 }
             }
@@ -929,30 +1037,53 @@ struct DiffConnectorOverlay: View {
     private func differenceBlocks() -> [DifferenceBlock] {
         guard !rows.isEmpty else { return [] }
         var blocks: [DifferenceBlock] = []
-        var start: Int?
-        let lastRowIndex = rows.index(before: rows.endIndex)
+        var blockStart: Int?
+        var blockHasLeftText = false
+        var blockHasRightText = false
+
+        func appendBlock(endingAt end: Int) {
+            guard let blockStart else { return }
+            blocks.append(
+                DifferenceBlock(
+                    start: blockStart,
+                    end: end,
+                    hasLeftText: blockHasLeftText,
+                    hasRightText: blockHasRightText
+                )
+            )
+        }
 
         for index in rows.indices {
             let isDifference = index < kinds.count && kinds[index].isDifference
-            if isDifference, start == nil {
-                start = index
+            if !isDifference {
+                if blockStart != nil {
+                    appendBlock(endingAt: index)
+                    blockStart = nil
+                    blockHasLeftText = false
+                    blockHasRightText = false
+                }
+                continue
             }
 
-            let isLastRow = index == lastRowIndex
-            if !isDifference || isLastRow, let blockStart = start {
-                let blockEnd = isDifference && isLastRow ? index + 1 : index
-                let blockRows = rows[blockStart..<blockEnd]
-                blocks.append(
-                    DifferenceBlock(
-                        start: blockStart,
-                        end: blockEnd,
-                        hasLeftText: blockRows.contains { $0.left != nil },
-                        hasRightText: blockRows.contains { $0.right != nil }
-                    )
-                )
-                start = nil
+            let hasLeftText = rows[index].left != nil
+            let hasRightText = rows[index].right != nil
+            if blockStart == nil {
+                blockStart = index
+                blockHasLeftText = hasLeftText
+                blockHasRightText = hasRightText
+            } else if compactsOneSidedRows,
+                      (hasLeftText != blockHasLeftText || hasRightText != blockHasRightText) {
+                appendBlock(endingAt: index)
+                blockStart = index
+                blockHasLeftText = hasLeftText
+                blockHasRightText = hasRightText
+            } else {
+                blockHasLeftText = blockHasLeftText || hasLeftText
+                blockHasRightText = blockHasRightText || hasRightText
             }
         }
+
+        appendBlock(endingAt: rows.count)
         return blocks
     }
 
@@ -968,12 +1099,13 @@ struct DiffConnectorOverlay: View {
         gutterStart: CGFloat,
         gutterEnd: CGFloat,
         top: CGFloat,
-        bottom: CGFloat
+        bottom: CGFloat,
+        isCompact: Bool
     ) -> Path {
         let height = bottom - top
         let curveDepth = min(18, max(5, height * 0.18))
-        let innerTop = gutterStart + 7
-        let innerMiddle = gutterStart + 19
+        let innerTop = isCompact ? max(0, gutterStart - 2) : gutterStart + 7
+        let innerMiddle = isCompact ? gutterStart + 10 : gutterStart + 19
         let outer = gutterEnd + 1
         var path = Path()
 
@@ -1004,12 +1136,13 @@ struct DiffConnectorOverlay: View {
         gutterStart: CGFloat,
         gutterEnd: CGFloat,
         top: CGFloat,
-        bottom: CGFloat
+        bottom: CGFloat,
+        isCompact: Bool
     ) -> Path {
         let height = bottom - top
         let curveDepth = min(18, max(5, height * 0.18))
-        let innerTop = gutterEnd - 7
-        let innerMiddle = gutterEnd - 19
+        let innerTop = isCompact ? gutterEnd + 2 : gutterEnd - 7
+        let innerMiddle = isCompact ? gutterEnd - 10 : gutterEnd - 19
         let outer = gutterStart - 1
         var path = Path()
 

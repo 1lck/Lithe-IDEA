@@ -191,7 +191,8 @@ struct ProjectLocalHistoryView: View {
                                         kind: row.kind,
                                         fileExtension: selectedFileExtension,
                                         highlightsWords: true,
-                                        isSelectedDifference: false
+                                        isSelectedDifference: false,
+                                        contentWidth: contentWidth
                                     )
                                 }
                             }

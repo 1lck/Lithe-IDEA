@@ -10,6 +10,10 @@
 "Current version" = "当前版本";
 "Lithe checks GitHub Releases for published updates." = "Lithe 会检查 GitHub Releases 中发布的更新。";
 "Update status" = "更新状态";
+"Update Available" = "有可用更新";
+"Update Now" = "立即更新";
+"Open Release Page" = "打开 Release 页面";
+"Later" = "稍后";
 "No update check has been performed yet." = "尚未执行更新检查。";
 "Checking for updates…" = "正在检查更新…";
 "Checking GitHub Releases…" = "正在检查 GitHub Releases…";
@@ -181,6 +185,7 @@
 "Select a history entry" = "选择一条历史记录";
 "Select a project history entry" = "选择一条项目历史记录";
 "Diff" = "Diff";
+"Show Diff" = "显示 Diff";
 "Changed Files" = "已更改文件";
 "No differences" = "没有差异";
 "No textual diff available" = "没有可用的文本 Diff";
@@ -478,6 +483,7 @@
 "The current file will be saved to Local History before it is replaced." = "替换当前文件前，会将其保存到本地历史。";
 "Filter problems by severity" = "按严重级别筛选问题";
 "Discard Changes" = "丢弃更改";
+"Copy Path / Reference" = "复制路径 / 引用";
 "This action cannot be undone by Lithe." = "此操作无法在 Lithe 中撤销。";
 "Discard Block" = "丢弃代码块";
 "This sends the current branch to its configured remote." = "这会将当前分支推送到已配置的远程仓库。";

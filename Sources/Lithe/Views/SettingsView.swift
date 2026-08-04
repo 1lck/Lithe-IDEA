@@ -438,11 +438,27 @@ struct SettingsView: View {
         case .available(let version, _):
             Label("Version \(version) is available.", systemImage: "arrow.down.circle.fill")
                 .foregroundStyle(LitheTheme.accent)
-        case .downloading(let version):
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
+        case .downloading(let version, let progress):
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    if let fractionCompleted = progress.fractionCompleted {
+                        ProgressView(value: fractionCompleted)
+                            .frame(maxWidth: .infinity)
+                        Text("\(progress.percentage ?? 0)%")
+                            .monospacedDigit()
+                            .frame(width: 38, alignment: .trailing)
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                        Text("Preparing…")
+                            .frame(width: 58, alignment: .trailing)
+                    }
+                }
                 Text("Downloading update \(version)…")
+                    .font(LitheTheme.smallFont)
+                Text(progress.byteCountDescription)
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.tertiaryText)
             }
             .foregroundStyle(LitheTheme.secondaryText)
         case .installing(let version):

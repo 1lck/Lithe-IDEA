@@ -5,6 +5,16 @@ import Testing
 @Suite("Lithe core logic")
 struct LitheCoreLogicTests {
     @Test
+    func updateDownloadProgressReportsKnownAndUnknownTotals() {
+        let progress = UpdateDownloadProgress(downloadedBytes: 512, totalBytes: 2_048)
+
+        #expect(progress.fractionCompleted == 0.25)
+        #expect(progress.percentage == 25)
+        #expect(UpdateDownloadProgress.initial.fractionCompleted == nil)
+        #expect(UpdateDownloadProgress.initial.percentage == nil)
+    }
+
+    @Test
     func textFilePolicyRecognizesMarkdownAndExtensionlessFiles() {
         #expect(WorkspaceTextFilePolicy.isReadableTextFile(URL(fileURLWithPath: "/tmp/README.MD")))
         #expect(WorkspaceTextFilePolicy.isReadableTextFile(URL(fileURLWithPath: "/tmp/Makefile")))

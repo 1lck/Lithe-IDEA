@@ -218,7 +218,16 @@ final class GitFeatureModel: ObservableObject {
     }
 
     func requestDiscardSelectedChange() {
-        pendingDiscardChange = selectedChange
+        requestDiscardChange(selectedChange)
+    }
+
+    /// Opens the existing discard confirmation for a specific row.
+    ///
+    /// Context-menu actions can be invoked before the row has finished
+    /// becoming the selected change, so they must not rely on
+    /// `selectedChange` being up to date.
+    func requestDiscardChange(_ change: GitChange?) {
+        pendingDiscardChange = change
     }
 
     func confirmDiscardChange() async {

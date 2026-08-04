@@ -4,6 +4,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var updateChecker: UpdateChecker
+    @State private var didStartAutomaticUpdateCheck = false
 
     var body: some View {
         Group {
@@ -36,9 +37,6 @@ struct RootView: View {
             ProjectLocalHistoryView(request: request)
                 .environmentObject(model)
         }
-        .task {
-            await updateChecker.checkForUpdates()
-        }
         .alert(item: $updateChecker.notice) { notice in
             switch notice.action {
             case .install:
@@ -67,6 +65,43 @@ struct RootView: View {
                 )
             }
         }
+        .confirmationDialog(
+            updateChecker.updatePrompt?.title ?? "Update Available",
+            isPresented: updatePromptPresented,
+            titleVisibility: .visible
+        ) {
+            if let prompt = updateChecker.updatePrompt {
+                Button("Update Now") {
+                    Task { await updateChecker.installAvailableUpdate() }
+                }
+                Button("Open Release Page") {
+                    updateChecker.openRelease(prompt.releaseURL)
+                }
+                Button("Later", role: .cancel) {
+                    updateChecker.dismissUpdatePrompt()
+                }
+            }
+        } message: {
+            if let prompt = updateChecker.updatePrompt {
+                Text(LocalizedStringKey(prompt.message))
+            }
+        }
+        .task {
+            guard !didStartAutomaticUpdateCheck else { return }
+            didStartAutomaticUpdateCheck = true
+            await updateChecker.checkForUpdates()
+        }
+    }
+
+    private var updatePromptPresented: Binding<Bool> {
+        Binding(
+            get: { updateChecker.updatePrompt != nil },
+            set: { isPresented in
+                if !isPresented {
+                    updateChecker.dismissUpdatePrompt()
+                }
+            }
+        )
     }
 }
 
