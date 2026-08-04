@@ -1,0 +1,63 @@
+name: Feature request / 功能建议
+description: Suggest an improvement or a new capability / 建议改进现有能力或增加新功能
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping shape Lithe.
+        感谢你参与 Lithe 的功能设计。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve / 要解决的问题
+      description: What workflow is difficult or missing today? / 当前哪个工作流不方便，或缺少什么能力？
+      placeholder: Describe the user problem and its impact. / 请描述用户遇到的问题及其影响。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution / 建议方案
+      description: Describe the behavior or workflow you would like to see. / 请描述希望看到的行为或操作流程。
+      placeholder: |
+        I would like Lithe to ...
+        我希望 Lithe 能够……
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Target platform / 目标平台
+      options:
+        - macOS
+        - Windows
+        - Cross-platform / 跨平台
+        - Other / 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / 已考虑的替代方案
+      description: Mention workarounds or how other tools handle this, if relevant. / 如有相关信息，请说明当前的替代做法或其他工具的处理方式。
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context / 补充信息
+      description: Add examples, screenshots, links, or implementation context. / 可附上示例、截图、链接或实现背景。
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist / 提交前检查
+      options:
+        - label: I searched existing issues for duplicates. / 我已搜索现有 Issue，确认没有重复建议。
+          required: true
