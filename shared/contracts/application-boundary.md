@@ -3,7 +3,8 @@
 The application boundary describes product behavior that a SwiftUI/AppKit or
 Qt/Windows UI can consume. It does not describe widgets, threads, processes,
 or operating-system APIs. It defines the cross-platform contract; current
-implementation progress is tracked in [`docs/开发进度.md`](../../docs/开发进度.md).
+product scope and setup are documented in [`README.md`](../../README.md); the
+verification scripts are the executable source of boundary checks.
 
 ## Data Rules
 
