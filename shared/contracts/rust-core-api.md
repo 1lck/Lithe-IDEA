@@ -6,6 +6,7 @@ Qt/C++. Both bindings call the same C ABI:
 ```c
 const char *lithe_core_version(void);
 char *lithe_core_execute_json(const char *request);
+int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
 ```
 
@@ -23,10 +24,19 @@ Every request has this shape:
 ```json
 {
   "id": "request-id",
+  "operationId": "operation-id",
+  "timeoutMilliseconds": 30000,
   "command": "workspace.search",
   "payload": {}
 }
 ```
+
+`operationId` is optional for compatibility and defaults to `id` when `id` is
+present. `timeoutMilliseconds` is optional; a positive value starts a
+cooperative deadline. `lithe_core_cancel` is thread-safe and returns `1` when
+the operation is active. Cancellation and deadlines are checked at command
+boundaries, workspace traversal points, and Git process waits. They return
+`cancelled` or `timed_out` in the standard error envelope.
 
 Successful responses contain `ok: true` and `data`. Failed responses contain a
 stable error code and a user-facing message:
@@ -49,9 +59,33 @@ stable error code and a user-facing message:
 | `core.ping` | Verify the ABI and protocol version |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths |
 | `workspace.search` | Search visible file names and UTF-8 text files |
+| `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
+| `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
 | `file.read` | Read a UTF-8 file using a workspace-relative path |
 | `file.write` | Write a UTF-8 file using a workspace-relative path |
+| `history.record` | Store a versioned text snapshot and metadata |
+| `history.entries` | List valid history entries for one file or a workspace |
+| `history.content` | Read a stored history snapshot by relative storage path |
+| `history.relocate` | Move a file's history records after a rename |
+| `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
+| `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
+| `java.runConfigurations` | Scan Java sources for main classes and return Maven/Spring run configurations |
+| `java.codeVision` | Return Java declaration usage counts for editor code vision |
+| `java.className` | Resolve a Java source package and simple name into a runtime class name |
+| `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
+| `java.serverPort` | Parse Spring server port settings from properties or YAML text |
+| `java.structure` | Parse Java editor structure, implementation candidates, and fallback inlay hints |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
+| `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
+| `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
+| `git.apply` | Apply a patch in `stage`, `unstage`, or `discard` mode |
+| `git.history` | Return deterministic refs, commits, parent hashes, decorations, and pagination state |
+| `git.commit` | Return one structured commit by revision |
+| `git.commitFiles` | Return files changed by one commit |
+| `git.comparison` | Return files changed between a reference and the working tree |
+| `git.stashes` | Return structured stash references and messages |
+| `git.blame` | Return structured line blame metadata |
 
 Workspace paths in responses are relative and use `/` separators. Line numbers
 are one-based. `git.status.repositoryRoot` may be an absolute path when the
@@ -63,7 +97,103 @@ Java processes, and runtime discovery remain platform adapters.
 The protocol version is currently `1`. Add a fixture under `shared/fixtures/`
 before changing a response shape or search rule.
 
+`git.command` accepts `{ "root": string, "arguments": string[], "input": string? }`.
+Arguments are passed directly to the Git executable without a shell. A
+successful process launch returns `{ "output": string, "exitCode": number }`
+even when Git exits non-zero; process-start and workspace failures use the
+standard error envelope.
+
+`git.write` accepts a typed mutation request. Its required `operation` values are
+`stage`, `unstage`, `discard`, `stageAll`, `commit`, `cherryPick`, `revert`,
+`reset`, `createBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
+`fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
+`stashApply`, `stashPop`, and `stashDrop`. Optional fields are `paths`,
+`reference`, `referenceKind`, `revision`, `name`, `message`, `remote`,
+`destination`, `mode`, `includeUntracked`, `checkout`, and `amend`.
+
+The core validates pathspecs, revisions, branch names, references, reset modes,
+stash references, and operation-specific required fields before invoking Git.
+Successful process launch returns `{ "output": string, "exitCode": number }`
+even when Git exits non-zero. Invalid arguments use the standard
+`invalid_request` error envelope. `checkout` uses `referenceKind` values
+`local`, `remote`, or `tag`; `clone` uses `remote` as its source and
+`destination` as its target path.
+
+`git.diff` accepts `root`, `pathspecs`, optional `reference` or `commit`,
+`staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],
+"hunks": [] }`. Rows contain one-based `oldLine`/`newLine` values where
+available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
+`removal`, or `information`), and an optional `hunkID`. Hunk entries contain
+their header, structured rows, and the patch text needed for partial apply.
+`git.apply` accepts `root`, `patch`, and `mode`; it returns `{ "output": string,
+"exitCode": number }`. Pathspecs must be workspace-relative and must not
+contain absolute paths or `..` components.
+
+`git.history` accepts `root`, an optional full `reference`, and `limit` (the
+core clamps it to `1...5000`). It returns `references`, `commits`, and
+`hasMore`; commit parents are explicit so clients can render merge topology
+without re-parsing Git output.
+
+`git.commit` accepts `root` and a revision, returning one `commit` object.
+`git.blame` accepts `root` and a workspace-relative `path`; its line numbers
+are one-based and author timestamps are Unix seconds.
+
 `workspace.search` accepts `maxResults` for a total result cap. Callers that
 need separate buckets may also provide `maxFileResults` and
 `maxContentResults`; each category is capped independently and the total cap
 still applies.
+
+`workspace.searchEverywhere` uses the same query options and visibility fields,
+and additionally accepts `maxSymbolResults`. Results are ordered as file,
+type, symbol, and content matches. Java type and method results include a
+one-based line, `symbolName`, and the matching source line in `preview`.
+
+`workspace.replacePreview` accepts `root`, `query`, `replacement`, the same
+query options, optional workspace-relative `paths`, optional `textOverrides`
+keyed by relative path, and visibility fields. It returns `{ "files": [] }`
+where each file contains replacement matches and the complete
+`replacementText` to write. The command never writes files; callers can record
+history before using `file.write` for the selected files.
+
+The `history.*` commands accept an adapter-selected `storageRoot`; history
+metadata never stores an absolute workspace or storage path. `history.record`
+accepts `workspaceRoot`, a relative `path`, a `reason`, and optional UTF-8
+`content`; when content is omitted the core reads the workspace file. Records
+are versioned, de-duplicated against the latest snapshot, capped at 100 entries
+per file, and pruned after 30 days. Invalid metadata and missing snapshot files
+are ignored. `history.entries` returns Unix-second timestamps and relative
+`contentPath` values. `history.content` rejects traversal, and
+`history.relocate` updates metadata and storage paths at the command boundary.
+
+`maven.scan` accepts `{ "root": string }` and returns `null` when the root does
+not contain a readable `pom.xml`. A project response contains `groupId`,
+`artifactId`, `version`, `packaging`, recursive `modules`, `profiles`, and
+`hasWrapper`. Module paths are workspace-relative and use `/` separators.
+Malformed XML returns `parse_failed`.
+
+`maven.diagnostics` accepts `{ "root": string, "output": string }` and returns
+`{ "issues": [] }`. Diagnostic paths may be absolute or workspace-relative;
+the response preserves the path text, uses one-based line and column values,
+and normalizes severity to `error` or `warning`. Duplicate issue lines are
+removed deterministically.
+
+`java.runConfigurations` accepts `{ "root": string, "paths": string[],
+"modulePaths": string[] }`. Paths are relative Java files. The response
+contains detected `mainClasses` and deterministic `configurations`; process
+launching remains a platform adapter responsibility.
+
+`java.codeVision` accepts a workspace root, a target Java path, and Java source
+paths. It returns declaration locations and usage counts; Git blame attribution
+is joined by the UI from the shared Git result. `java.className` accepts Java
+source text and a file simple name and returns the fully qualified runtime class
+name.
+
+`java.sourceDefinition` accepts `source`, `declarationName`, and an optional
+`memberName`, returning zero-based `line` and UTF-16 `utf16Column` or `null`
+when no declaration is found.
+
+`java.structure` accepts Java `source` and optional `declarationSources`. It
+returns `foldRegions`, `implementationMarkers`, and `inlayHints`. Line numbers
+are zero-based because these values are editor offsets; UTF-16 columns and
+hidden ranges match the native text editor coordinate system. The parser is
+platform-independent and does not start a Java process or contact JDT.

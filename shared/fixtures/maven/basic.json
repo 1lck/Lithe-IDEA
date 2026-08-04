@@ -1,0 +1,30 @@
+{
+  "name": "recursive Maven project scan",
+  "request": {
+    "command": "maven.scan",
+    "payload": {
+      "root": "/workspace"
+    }
+  },
+  "expected": {
+    "artifactId": "demo",
+    "packaging": "pom",
+    "modules": [
+      {
+        "relativePath": "module-a",
+        "modules": [
+          {
+            "relativePath": "module-a/module-b"
+          }
+        ]
+      }
+    ],
+    "profiles": [
+      {
+        "id": "dev",
+        "isActiveByDefault": true
+      }
+    ],
+    "hasWrapper": true
+  }
+}

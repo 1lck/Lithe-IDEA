@@ -20,12 +20,20 @@ or operating-system APIs.
 | --- | --- | --- |
 | Workspace | relative paths, file metadata, snapshot state | directory enumeration, hidden-file rules, watchers |
 | Documents | path, UTF-8 text, dirty state, save result | file handles, atomic writes, external-change notifications |
-| Search | query options, relative result paths, lines, symbols | indexing storage and file reads |
+| Search | query options, relative result paths, lines, symbols, replacement preview | indexing storage and file reads |
 | Git | changes, commits, branches, diffs, operation result | Git executable discovery, process and credential environment |
 | Runtime | selected Java/Maven settings, discovery result | JDK/Maven probing and executable paths |
+| Java/Maven | project model, structure, symbols, diagnostics, code vision, run/debug events | child processes, sockets, JDB/LSP transport |
 | Run/Debug | configuration, lifecycle, output, diagnostics | child processes, sockets, JDB transport |
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
+
+Process-backed features use the shared request fields `operationID` and
+optional `timeoutMilliseconds`. Adapters emit lifecycle states `starting`,
+`running`, `stopping`, `finished`, and `failed`; `operationID` lets the UI
+ignore stale termination events after a restart. `stop()` is the cancellation
+operation and must terminate the platform process without changing feature
+state owned by another operation.
 
 ## Error Codes
 
@@ -40,6 +48,7 @@ Use stable categories rather than platform error strings:
 - `process_failed`
 - `parse_failed`
 - `cancelled`
+- `timed_out`
 - `unknown`
 
 ## UI Boundary

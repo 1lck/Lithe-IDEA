@@ -12,6 +12,7 @@ pub enum ErrorCode {
     ProcessFailed,
     ParseFailed,
     Cancelled,
+    TimedOut,
     Unknown,
 }
 
@@ -48,4 +49,16 @@ impl From<std::io::Error> for CoreError {
         };
         Self::new(code, error.to_string())
     }
+}
+
+/// Workspace-relative paths use `/` in the shared contract even when the
+/// caller is running on Windows. Validate both separator conventions so a
+/// Windows-shaped path cannot bypass checks on another host.
+pub fn invalid_relative_path(value: &str) -> bool {
+    let normalized = value.replace('\\', "/");
+    normalized.is_empty()
+        || normalized.starts_with('/')
+        || normalized.contains(':')
+        || normalized.contains('\0')
+        || normalized.split('/').any(|component| component == "..")
 }

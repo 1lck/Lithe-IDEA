@@ -1,0 +1,37 @@
+{
+  "name": "advanced-search-and-replacement",
+  "workspace": "fixture-project",
+  "files": [
+    {
+      "path": "src/main/java/com/example/UserService.java",
+      "content": "class UserService {\n    void loadUser() {}\n}\n"
+    }
+  ],
+  "searchEverywhere": {
+    "request": {
+      "query": "UserService",
+      "caseSensitive": true,
+      "wholeWords": true,
+      "regularExpression": false
+    },
+    "expectedKinds": ["file", "type", "content"]
+  },
+  "replacementPreview": {
+    "request": {
+      "query": "load",
+      "replacement": "fetch",
+      "caseSensitive": false,
+      "wholeWords": false,
+      "regularExpression": false,
+      "paths": ["src/main/java/com/example/UserService.java"]
+    },
+    "expected": {
+      "path": "src/main/java/com/example/UserService.java",
+      "line": 2,
+      "before": "    void loadUser() {}",
+      "after": "    void fetchUser() {}",
+      "occurrenceCount": 1,
+      "replacementText": "class UserService {\n    void fetchUser() {}\n}\n"
+    }
+  }
+}

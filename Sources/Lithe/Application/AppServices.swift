@@ -12,10 +12,11 @@ protocol DirectoryWatcherFactory {
 /// Platform composition roots construct this graph with their own adapters.
 @MainActor
 final class AppServices {
-    let rustCore: RustCoreBridge
+    let workspaceOperations: any WorkspaceOperations
+    let localHistoryOperations: any LocalHistoryOperations
+    let javaMavenOperations: any JavaMavenOperations
     let store: any KeyValueStore
     let fileStorage: any FileStorage
-    let workspaceScanner: WorkspaceScanner
     let fileOperations: any WorkspaceFileOperations
     let projectRuntimeService: ProjectRuntimeService
     let javaLanguageService: JavaLanguageService
@@ -24,7 +25,6 @@ final class AppServices {
     let javaRunService: JavaRunService
     let javaDebugService: JavaDebugService
     let gitService: GitService
-    let searchIndex: WorkspaceSearchIndex
     let recentProjectsStore: RecentProjectsStore
     let workspaceSessionStore: WorkspaceSessionStore
     let workbenchLayoutStore: WorkbenchLayoutStore
@@ -34,10 +34,11 @@ final class AppServices {
     let shortcutDetectorFactory: any ShortcutDetectorFactory
 
     init(
-        rustCore: RustCoreBridge,
+        workspaceOperations: any WorkspaceOperations,
+        localHistoryOperations: any LocalHistoryOperations,
+        javaMavenOperations: any JavaMavenOperations,
         store: any KeyValueStore,
         fileStorage: any FileStorage,
-        workspaceScanner: WorkspaceScanner,
         fileOperations: any WorkspaceFileOperations,
         projectRuntimeService: ProjectRuntimeService,
         javaLanguageService: JavaLanguageService,
@@ -46,7 +47,6 @@ final class AppServices {
         javaRunService: JavaRunService,
         javaDebugService: JavaDebugService,
         gitService: GitService,
-        searchIndex: WorkspaceSearchIndex,
         recentProjectsStore: RecentProjectsStore,
         workspaceSessionStore: WorkspaceSessionStore,
         workbenchLayoutStore: WorkbenchLayoutStore,
@@ -55,10 +55,11 @@ final class AppServices {
         platformUI: any PlatformUI,
         shortcutDetectorFactory: any ShortcutDetectorFactory
     ) {
-        self.rustCore = rustCore
+        self.workspaceOperations = workspaceOperations
+        self.localHistoryOperations = localHistoryOperations
+        self.javaMavenOperations = javaMavenOperations
         self.store = store
         self.fileStorage = fileStorage
-        self.workspaceScanner = workspaceScanner
         self.fileOperations = fileOperations
         self.projectRuntimeService = projectRuntimeService
         self.javaLanguageService = javaLanguageService
@@ -67,7 +68,6 @@ final class AppServices {
         self.javaRunService = javaRunService
         self.javaDebugService = javaDebugService
         self.gitService = gitService
-        self.searchIndex = searchIndex
         self.recentProjectsStore = recentProjectsStore
         self.workspaceSessionStore = workspaceSessionStore
         self.workbenchLayoutStore = workbenchLayoutStore

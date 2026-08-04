@@ -31,6 +31,8 @@ final class MavenFeatureModel: ObservableObject {
         service.run(phase: phase, module: module, profiles: profiles)
     }
 
+    func reset() { service.reset() }
+
     func stop() {
         service.stop()
     }
@@ -38,6 +40,7 @@ final class MavenFeatureModel: ObservableObject {
     func clearOutput() {
         service.clearOutput()
     }
+
 }
 
 /// UI-facing projection for Java run configurations and process sessions.
@@ -112,6 +115,20 @@ final class JavaRunFeatureModel: ObservableObject {
     func clearOutput() {
         service.clearOutput()
     }
+
+    func loadProject(
+        at workspaceURL: URL,
+        files: [URL],
+        mavenProject: MavenProject?
+    ) async {
+        await service.loadProject(at: workspaceURL, files: files, mavenProject: mavenProject)
+    }
+
+    func select(_ configuration: JavaRunConfiguration) { service.select(configuration) }
+    func runSelected(currentFileURL: URL?) { service.runSelected(currentFileURL: currentFileURL) }
+    func restart() { service.restart() }
+    func stop() { service.stop() }
+    func reset() { service.reset() }
 }
 
 /// UI-facing projection for Java debugger state and commands.
@@ -192,6 +209,28 @@ final class JavaDebugFeatureModel: ObservableObject {
     func evaluate(_ expression: String) { service.evaluate(expression) }
     func toggleVariable(_ variable: JavaDebugVariable) { service.toggleVariable(variable) }
     func clearOutput() { service.clearOutput() }
+
+    func reset() { service.reset() }
+    func start(
+        fileURL: URL,
+        sourceText: String,
+        projectURL: URL?,
+        options: JavaRunOptions
+    ) { service.start(fileURL: fileURL, sourceText: sourceText, projectURL: projectURL, options: options) }
+    func startMaven(
+        configuration: JavaRunConfiguration,
+        project: MavenProject,
+        projectURL: URL,
+        options: JavaRunOptions
+    ) { service.startMaven(configuration: configuration, project: project, projectURL: projectURL, options: options) }
+    func attachRemote() { service.attachRemote() }
+    func toggleBreakpoint(fileURL: URL, line: Int, className: String) {
+        service.toggleBreakpoint(fileURL: fileURL, line: line, className: className)
+    }
+    func className(for fileURL: URL, sourceText: String) -> String {
+        service.className(for: fileURL, sourceText: sourceText)
+    }
+    func stop() { service.stop() }
 }
 
 /// UI-facing projection for project runtime settings and discovery.
@@ -219,6 +258,10 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
             self.isDiscovering = self.service.isDiscovering
         }
     }
+
+    func openProject(at url: URL) { service.openProject(at: url) }
+    func closeProject() { service.closeProject() }
+    func setOnRuntimeChanged(_ handler: @escaping () -> Void) { service.onRuntimeChanged = handler }
 
     func updateJavaHomePath(_ path: String) { service.updateJavaHomePath(path) }
     func updateMavenHomeSelection(_ selection: MavenHomeSelection) { service.updateMavenHomeSelection(selection) }

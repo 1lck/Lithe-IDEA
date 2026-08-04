@@ -25,21 +25,26 @@ final class JavaDebugService: ObservableObject {
     private var activeJDBURL: URL?
     private var activeJDBHost = "127.0.0.1"
     private var launchesDebuggee = false
+    private var debuggeeOperationID: String?
+    private var jdbOperationID: String?
     @Published private(set) var runningTargetTitle: String?
     private var didBootstrap = false
     private let maximumOutputCharacters = 400_000
     private let runtimeService: ProjectRuntimeService
     private let processFactory: () -> any StreamingProcess
     private let fileStorage: any FileStorage
+    private let javaMavenOperations: any JavaMavenOperations
 
     init(
         runtimeService: ProjectRuntimeService,
         processFactory: @escaping () -> any StreamingProcess,
-        fileStorage: any FileStorage
+        fileStorage: any FileStorage,
+        javaMavenOperations: any JavaMavenOperations
     ) {
         self.runtimeService = runtimeService
         self.processFactory = processFactory
         self.fileStorage = fileStorage
+        self.javaMavenOperations = javaMavenOperations
     }
 
     private enum InspectionKind {
@@ -74,7 +79,7 @@ final class JavaDebugService: ObservableObject {
             title: fileURL.lastPathComponent,
             launchesDebuggee: true
         )
-        debugClassName = Self.className(for: fileURL, sourceText: sourceText)
+        debugClassName = className(for: fileURL, sourceText: sourceText)
         var arguments = [
             "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:\(debugPort)",
             "-Duser.language=en",
@@ -313,6 +318,8 @@ final class JavaDebugService: ObservableObject {
         debuggeeProcess?.stop()
         debuggeeProcess = nil
         jdbProcess = nil
+        debuggeeOperationID = nil
+        jdbOperationID = nil
         didBootstrap = false
         debugClassName = nil
         activeJDBURL = nil
@@ -341,20 +348,9 @@ final class JavaDebugService: ObservableObject {
         remoteJavaHomePath = ""
     }
 
-    static func className(for fileURL: URL, sourceText: String) -> String {
-        let packagePattern = #"(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;"#
-        let packageName: String? = if let expression = try? NSRegularExpression(pattern: packagePattern),
-                                      let match = expression.firstMatch(
-                                          in: sourceText,
-                                          range: NSRange(sourceText.startIndex..<sourceText.endIndex, in: sourceText)
-                                      ),
-                                      let range = Range(match.range(at: 1), in: sourceText) {
-            String(sourceText[range])
-        } else {
-            nil
-        }
+    func className(for fileURL: URL, sourceText: String) -> String {
         let simpleName = fileURL.deletingPathExtension().lastPathComponent
-        return packageName.map { "\($0).\(simpleName)" } ?? simpleName
+        return javaMavenOperations.className(source: sourceText, simpleName: simpleName) ?? simpleName
     }
 
     private static func nextPort() -> Int {
@@ -414,11 +410,19 @@ final class JavaDebugService: ObservableObject {
                 self.append("[debuggee exited with code \(exitCode)]\n")
             }
         }
+        let operationID = UUID().uuidString
+        debuggeeOperationID = operationID
+        debuggee.onStateChange = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.consumeLifecycle(event, sessionID: sessionID, process: .debuggee)
+            }
+        }
 
         debuggeeProcess = debuggee
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
         do {
             try debuggee.start(ProcessRequest(
+                operationID: operationID,
                 executablePath: executable.path,
                 arguments: arguments,
                 workingDirectory: workingDirectory.path,
@@ -465,10 +469,18 @@ final class JavaDebugService: ObservableObject {
                 self.jdbProcess = nil
             }
         }
+        let operationID = UUID().uuidString
+        jdbOperationID = operationID
+        jdb.onStateChange = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.consumeLifecycle(event, sessionID: sessionID, process: .jdb)
+            }
+        }
 
         jdbProcess = jdb
         do {
             try jdb.start(ProcessRequest(
+                operationID: operationID,
                 executablePath: jdbURL.path,
                 arguments: ["-J-Duser.language=en", "-J-Duser.country=US", "-attach", "\(host):\(port)"],
                 keepsStandardInputOpen: true
@@ -770,6 +782,36 @@ final class JavaDebugService: ObservableObject {
         output = message + "\n"
         state = .failed
         debuggeeProcess?.stop()
+    }
+
+    private enum ProcessKind: Equatable {
+        case debuggee
+        case jdb
+    }
+
+    private func consumeLifecycle(
+        _ event: ProcessLifecycleEvent,
+        sessionID: UUID,
+        process: ProcessKind
+    ) {
+        guard self.sessionID == sessionID else { return }
+        let expectedID = process == .debuggee ? debuggeeOperationID : jdbOperationID
+        guard event.operationID == expectedID else { return }
+        switch event.state {
+        case .starting:
+            state = .launching
+        case .running:
+            if process == .jdb, didBootstrap { state = launchesDebuggee ? .running : .paused }
+        case .stopping:
+            break
+        case .finished:
+            break
+        case .failed:
+            state = .failed
+            if let message = event.message, !message.isEmpty {
+                append("[" + (process == .jdb ? "jdb" : "debuggee") + ": " + message + "]\n")
+            }
+        }
     }
 
     private func workingDirectory(_ path: String, fallback: URL, relativeTo projectURL: URL?) -> URL {

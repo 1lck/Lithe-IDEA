@@ -1,8 +1,7 @@
 import Foundation
 
-/// Resolves the lightweight regex candidates from JavaEditorStructureService
-/// through JDT LS. The editor can therefore keep its fast first pass while
-/// only drawing markers that represent a real implementation relationship.
+/// Resolves Core-produced Java implementation candidates through JDT LS. The
+/// editor only draws markers that represent a real implementation relationship.
 @MainActor
 final class JavaImplementationMarkerService: @unchecked Sendable {
     private struct CacheEntry {

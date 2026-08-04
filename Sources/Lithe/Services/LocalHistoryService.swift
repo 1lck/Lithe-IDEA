@@ -1,33 +1,25 @@
 import Foundation
 
 actor LocalHistoryService {
-    static let maximumFileSize = 2 * 1_024 * 1_024
-    static let retentionDays = 30
-    static let maximumEntriesPerFile = 100
-
     private let workspaceURL: URL
     private var visibilityRules: FileVisibilityRules
     private let storageURL: URL
-    private let storage: any FileStorage
-    private let encoder: JSONEncoder
-    private let decoder = JSONDecoder()
+    private let operations: any LocalHistoryOperations
 
     init(
         workspaceURL: URL,
         visibilityRules: FileVisibilityRules = .default,
-        storage: any FileStorage
+        storage: any FileStorage,
+        operations: any LocalHistoryOperations
     ) {
         self.workspaceURL = workspaceURL.standardizedFileURL
         self.visibilityRules = visibilityRules
-        self.storage = storage
+        self.operations = operations
         let applicationSupport = storage.applicationSupportDirectory()
         storageURL = applicationSupport
             .appendingPathComponent("Lithe", isDirectory: true)
             .appendingPathComponent("LocalHistory", isDirectory: true)
             .appendingPathComponent(Self.stableIdentifier(for: workspaceURL.path), isDirectory: true)
-        encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        decoder.dateDecodingStrategy = .iso8601
     }
 
     func updateVisibilityRules(_ rules: FileVisibilityRules) {
@@ -38,198 +30,102 @@ actor LocalHistoryService {
         for fileURL in files where !Task.isCancelled {
             _ = try? recordFile(at: fileURL, reason: .projectBaseline)
         }
-        try? pruneExpiredEntries()
     }
 
     @discardableResult
     func recordFile(at fileURL: URL, reason: LocalHistoryReason) throws -> LocalHistoryEntry? {
-        guard !visibilityRules.isHidden(
-            fileURL,
-            relativeTo: workspaceURL,
-            isDirectory: false
-        ) else { return nil }
-        guard let values = storage.metadata(for: fileURL),
-              values.isRegularFile,
-              let fileSize = values.byteCount,
-              fileSize <= Self.maximumFileSize,
-              WorkspaceScanner.isReadableTextFile(fileURL) else { return nil }
-        return try record(content: storage.readData(from: fileURL, options: []), for: fileURL, reason: reason)
+        guard let relativePath = relativePath(for: fileURL),
+              WorkspaceTextFilePolicy.isReadableTextFile(fileURL) else { return nil }
+        return try record(relativePath: relativePath, reason: reason, content: nil)
     }
 
     @discardableResult
     func record(text: String, for fileURL: URL, reason: LocalHistoryReason) throws -> LocalHistoryEntry? {
-        guard !visibilityRules.isHidden(
-            fileURL,
-            relativeTo: workspaceURL,
-            isDirectory: false
-        ) else { return nil }
-        guard let data = text.data(using: .utf8), data.count <= Self.maximumFileSize else { return nil }
-        return try record(content: data, for: fileURL, reason: reason)
+        guard let relativePath = relativePath(for: fileURL) else { return nil }
+        return try record(relativePath: relativePath, reason: reason, content: text)
     }
 
     func entries(for fileURL: URL) throws -> [LocalHistoryEntry] {
-        guard !visibilityRules.isHidden(
-            fileURL,
-            relativeTo: workspaceURL,
-            isDirectory: false
-        ) else { return [] }
-        let directory = historyDirectory(for: fileURL)
-        guard storage.fileExists(at: directory) else { return [] }
-        return storage.listDirectory(at: directory)
-        .filter { $0.pathExtension == "json" }
-        .compactMap { url in
-            guard let data = try? storage.readData(from: url, options: []) else { return nil }
-            return try? decoder.decode(LocalHistoryEntry.self, from: data)
-        }
-        .filter { $0.relativePath == relativePath(for: fileURL) }
-        .sorted { $0.timestamp > $1.timestamp }
+        guard let relativePath = relativePath(for: fileURL) else { return [] }
+        guard let values = operations.entries(
+            at: workspaceURL,
+            storageURL: storageURL,
+            relativePath: relativePath,
+            visibilityRules: visibilityRules
+        ) else { throw LocalHistoryError.coreUnavailable }
+        return values.compactMap { makeEntry($0) }
     }
 
     func allEntries() throws -> [LocalHistoryEntry] {
-        var entries: [LocalHistoryEntry] = []
-        for metadataURL in filesRecursively(at: storageURL) where metadataURL.pathExtension == "json" {
-            guard metadataURL.pathExtension == "json",
-                  let data = try? storage.readData(from: metadataURL, options: []),
-                  let entry = try? decoder.decode(LocalHistoryEntry.self, from: data),
-                  storage.fileExists(at: entry.contentURL),
-                  !visibilityRules.isHidden(
-                      workspaceURL.appendingPathComponent(entry.relativePath),
-                      relativeTo: workspaceURL,
-                      isDirectory: false
-                  ) else { continue }
-            entries.append(entry)
-        }
-        return entries.sorted {
-            if $0.timestamp != $1.timestamp { return $0.timestamp > $1.timestamp }
-            return $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending
-        }
+        guard let values = operations.entries(
+            at: workspaceURL,
+            storageURL: storageURL,
+            relativePath: nil,
+            visibilityRules: visibilityRules
+        ) else { throw LocalHistoryError.coreUnavailable }
+        return values.compactMap { makeEntry($0) }
     }
 
     func content(for entry: LocalHistoryEntry) throws -> String {
-        let data = try storage.readData(from: entry.contentURL, options: [])
-        return String(decoding: data, as: UTF8.self)
+        guard let contentPath = relativeStoragePath(for: entry.contentURL),
+              let value = operations.content(at: storageURL, contentPath: contentPath) else {
+            throw LocalHistoryError.contentUnavailable
+        }
+        return value
     }
 
     func relocateHistory(from sourceURL: URL, to destinationURL: URL) throws {
-        let sourceDirectory = historyDirectory(for: sourceURL)
-        guard storage.fileExists(at: sourceDirectory) else { return }
-        let destinationDirectory = historyDirectory(for: destinationURL)
-        try storage.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-
-        for entry in try entries(for: sourceURL) {
-            let destinationContentURL = destinationDirectory.appendingPathComponent(entry.contentURL.lastPathComponent)
-            let destinationMetadataURL = destinationDirectory
-                .appendingPathComponent(entry.id.uuidString)
-                .appendingPathExtension("json")
-            if storage.fileExists(at: destinationContentURL) {
-                try? storage.removeItem(at: destinationContentURL)
-            }
-            try storage.moveItem(at: entry.contentURL, to: destinationContentURL)
-            let relocatedEntry = LocalHistoryEntry(
-                id: entry.id,
-                timestamp: entry.timestamp,
-                relativePath: relativePath(for: destinationURL),
-                reason: entry.reason,
-                contentURL: destinationContentURL,
-                byteCount: entry.byteCount
-            )
-            let metadata = try encoder.encode(relocatedEntry)
-            try storage.writeData(metadata, to: destinationMetadataURL, options: .atomic)
-            try? storage.removeItem(
-                at: sourceDirectory.appendingPathComponent(entry.id.uuidString).appendingPathExtension("json")
-            )
+        guard let sourcePath = relativePath(for: sourceURL),
+              let destinationPath = relativePath(for: destinationURL),
+              operations.relocate(
+                  at: storageURL,
+                  sourcePath: sourcePath,
+                  destinationPath: destinationPath
+              ) else {
+            throw LocalHistoryError.coreUnavailable
         }
-        try? storage.removeItem(at: sourceDirectory)
     }
 
     private func record(
-        content: Data,
-        for fileURL: URL,
-        reason: LocalHistoryReason
+        relativePath: String,
+        reason: LocalHistoryReason,
+        content: String?
     ) throws -> LocalHistoryEntry? {
-        guard content.count <= Self.maximumFileSize,
-              isInsideWorkspace(fileURL),
-              !visibilityRules.isHidden(
-                  fileURL,
-                  relativeTo: workspaceURL,
-                  isDirectory: false
-              ) else { return nil }
-
-        let directory = historyDirectory(for: fileURL)
-        try storage.createDirectory(at: directory, withIntermediateDirectories: true)
-        if let latest = try entries(for: fileURL).first,
-           let latestData = try? storage.readData(from: latest.contentURL, options: []),
-           latestData == content {
-            return nil
-        }
-
-        let id = UUID()
-        let contentURL = directory.appendingPathComponent("\(id.uuidString).snapshot")
-        let metadataURL = directory.appendingPathComponent("\(id.uuidString).json")
-        let entry = LocalHistoryEntry(
-            id: id,
-            timestamp: Date(),
-            relativePath: relativePath(for: fileURL),
+        guard let value = operations.record(
+            at: workspaceURL,
+            storageURL: storageURL,
+            relativePath: relativePath,
             reason: reason,
-            contentURL: contentURL,
-            byteCount: content.count
+            content: content,
+            visibilityRules: visibilityRules
+        ) else { return nil }
+        return makeEntry(value)
+    }
+
+    private func makeEntry(_ value: RustCoreBridge.HistoryEntryPayload) -> LocalHistoryEntry? {
+        guard let id = UUID(uuidString: value.id) else { return nil }
+        return LocalHistoryEntry(
+            id: id,
+            timestamp: Date(timeIntervalSince1970: TimeInterval(value.timestamp)),
+            relativePath: value.relativePath,
+            reason: LocalHistoryReason(rawValue: value.reason) ?? .saved,
+            contentURL: storageURL.appendingPathComponent(value.contentPath),
+            byteCount: value.byteCount
         )
-        try storage.writeData(content, to: contentURL, options: .atomic)
-        try storage.writeData(try encoder.encode(entry), to: metadataURL, options: .atomic)
-        try trimEntries(for: fileURL)
-        return entry
     }
 
-    private func trimEntries(for fileURL: URL) throws {
-        let excess = try entries(for: fileURL).dropFirst(Self.maximumEntriesPerFile)
-        for entry in excess {
-            try? storage.removeItem(at: entry.contentURL)
-            try? storage.removeItem(
-                at: entry.contentURL.deletingPathExtension().appendingPathExtension("json")
-            )
-        }
-    }
-
-    private func pruneExpiredEntries() throws {
-        guard storage.fileExists(at: storageURL) else { return }
-        let cutoff = Calendar.current.date(byAdding: .day, value: -Self.retentionDays, to: Date()) ?? .distantPast
-        for metadataURL in filesRecursively(at: storageURL) where metadataURL.pathExtension == "json" {
-            guard metadataURL.pathExtension == "json",
-                  let data = try? storage.readData(from: metadataURL, options: []),
-                  let entry = try? decoder.decode(LocalHistoryEntry.self, from: data),
-                  entry.timestamp < cutoff else { continue }
-            try? storage.removeItem(at: entry.contentURL)
-            try? storage.removeItem(at: metadataURL)
-        }
-    }
-
-    private func filesRecursively(at directory: URL) -> [URL] {
-        var files: [URL] = []
-        for url in storage.listDirectory(at: directory) {
-            if storage.metadata(for: url)?.isDirectory == true {
-                files.append(contentsOf: filesRecursively(at: url))
-            } else {
-                files.append(url)
-            }
-        }
-        return files
-    }
-
-    private func historyDirectory(for fileURL: URL) -> URL {
-        storageURL.appendingPathComponent(Self.stableIdentifier(for: relativePath(for: fileURL)), isDirectory: true)
-    }
-
-    private func relativePath(for fileURL: URL) -> String {
-        let root = workspaceURL.path
+    private func relativePath(for fileURL: URL) -> String? {
+        let rootPath = workspaceURL.standardizedFileURL.path
         let path = fileURL.standardizedFileURL.path
-        guard path.hasPrefix(root + "/") else { return fileURL.lastPathComponent }
-        return String(path.dropFirst(root.count + 1))
+        guard path.hasPrefix(rootPath + "/") else { return nil }
+        return String(path.dropFirst(rootPath.count + 1))
     }
 
-    private func isInsideWorkspace(_ fileURL: URL) -> Bool {
-        let root = workspaceURL.path
+    private func relativeStoragePath(for fileURL: URL) -> String? {
+        let rootPath = storageURL.standardizedFileURL.path
         let path = fileURL.standardizedFileURL.path
-        return path == root || path.hasPrefix(root + "/")
+        guard path.hasPrefix(rootPath + "/") else { return nil }
+        return String(path.dropFirst(rootPath.count + 1))
     }
 
     private static func stableIdentifier(for value: String) -> String {
@@ -240,4 +136,9 @@ actor LocalHistoryService {
         }
         return String(hash, radix: 16)
     }
+}
+
+private enum LocalHistoryError: Error {
+    case coreUnavailable
+    case contentUnavailable
 }

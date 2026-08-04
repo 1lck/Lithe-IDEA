@@ -1,0 +1,28 @@
+{
+  "name": "Maven compiler diagnostics",
+  "request": {
+    "command": "maven.diagnostics",
+    "payload": {
+      "root": "/workspace",
+      "output": "[ERROR] src/main/java/App.java:[12,4] cannot find symbol\n[WARNING] src/main/java/App.java:[4] unused import\n"
+    }
+  },
+  "expected": {
+    "issues": [
+      {
+        "path": "src/main/java/App.java",
+        "line": 12,
+        "column": 4,
+        "severity": "error",
+        "message": "cannot find symbol"
+      },
+      {
+        "path": "src/main/java/App.java",
+        "line": 4,
+        "column": null,
+        "severity": "warning",
+        "message": "unused import"
+      }
+    ]
+  }
+}

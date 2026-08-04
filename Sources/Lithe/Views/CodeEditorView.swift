@@ -230,7 +230,7 @@ struct CodeEditorView: NSViewRepresentable {
                 collapsedFoldIDs = []
                 return
             }
-            foldRegions = JavaEditorStructureService.foldRegions(in: textView.string)
+            foldRegions = model?.javaStructure(source: textView.string)?.foldRegions ?? []
             let availableIDs = Set(foldRegions.map(\.id))
             collapsedFoldIDs.formIntersection(availableIDs)
             if useDefaultImportFold,
@@ -272,7 +272,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard let document,
                   fileExtension.lowercased() == "java",
                   let model else { return }
-            let candidates = JavaEditorStructureService.implementationMarkers(in: document.text)
+            let candidates = model.javaStructure(source: document.text)?.implementationMarkers ?? []
             guard !candidates.isEmpty else { return }
             implementationValidationTask = Task { @MainActor [weak self, weak document, weak model] in
                 guard let self,

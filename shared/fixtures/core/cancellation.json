@@ -1,0 +1,20 @@
+{
+  "protocolVersion": 1,
+  "request": {
+    "id": "fixture-request",
+    "operationId": "fixture-operation",
+    "timeoutMilliseconds": 250,
+    "command": "workspace.search",
+    "payload": {}
+  },
+  "expectedErrors": [
+    {
+      "code": "cancelled",
+      "message": "Operation was cancelled"
+    },
+    {
+      "code": "timed_out",
+      "message": "Operation timed out"
+    }
+  ]
+}

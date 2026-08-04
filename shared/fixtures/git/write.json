@@ -1,0 +1,57 @@
+{
+  "protocolVersion": 1,
+  "operations": [
+    {
+      "operation": "stage",
+      "payload": {
+        "paths": ["src/Main.java"]
+      }
+    },
+    {
+      "operation": "commit",
+      "payload": {
+        "message": "Add Main",
+        "amend": false
+      }
+    },
+    {
+      "operation": "createBranch",
+      "payload": {
+        "reference": "refs/heads/main",
+        "name": "feature/core",
+        "checkout": true
+      }
+    },
+    {
+      "operation": "checkout",
+      "payload": {
+        "reference": "refs/heads/main",
+        "referenceKind": "local"
+      }
+    },
+    {
+      "operation": "stashPush",
+      "payload": {
+        "message": "Save work",
+        "includeUntracked": true
+      }
+    }
+  ],
+  "invalidRequests": [
+    {
+      "operation": "reset",
+      "payload": {
+        "revision": "HEAD",
+        "mode": "--invalid"
+      },
+      "errorCode": "invalid_request"
+    },
+    {
+      "operation": "stage",
+      "payload": {
+        "paths": ["../outside.txt"]
+      },
+      "errorCode": "invalid_request"
+    }
+  ]
+}
