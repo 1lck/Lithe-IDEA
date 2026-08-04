@@ -11,19 +11,20 @@ final class MavenService: ObservableObject {
     @Published private(set) var lastExitCode: Int32?
 
     private let process: any StreamingProcess
-    private let projectScanner: MavenProjectScanner
+    private let javaMavenOperations: any JavaMavenOperations
     private var projectLoadID = UUID()
     private let maximumOutputCharacters = 500_000
     private let runtimeService: ProjectRuntimeService
+    private var activeOperationID: String?
 
     init(
         runtimeService: ProjectRuntimeService,
         process: any StreamingProcess,
-        projectScanner: MavenProjectScanner
+        javaMavenOperations: any JavaMavenOperations
     ) {
         self.runtimeService = runtimeService
         self.process = process
-        self.projectScanner = projectScanner
+        self.javaMavenOperations = javaMavenOperations
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 self?.append(chunk)
@@ -34,6 +35,11 @@ final class MavenService: ObservableObject {
                 self?.finishProcess(exitCode: exitCode)
             }
         }
+        process.onStateChange = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.consumeLifecycle(event)
+            }
+        }
     }
 
     func loadProject(at workspaceURL: URL) async {
@@ -41,9 +47,9 @@ final class MavenService: ObservableObject {
         projectLoadID = loadID
         isLoadingProject = true
         let rootURL = workspaceURL.standardizedFileURL
-        let projectScanner = projectScanner
+        let javaMavenOperations = javaMavenOperations
         let scannedProject = await Task.detached(priority: .utility) {
-            projectScanner.scan(at: rootURL)
+            javaMavenOperations.scanMavenProject(at: rootURL)
         }.value
         guard !Task.isCancelled, projectLoadID == loadID else { return }
         project = scannedProject
@@ -70,6 +76,7 @@ final class MavenService: ObservableObject {
         process.stop()
         isRunning = false
         runningTitle = nil
+        activeOperationID = nil
     }
 
     func reset() {
@@ -115,8 +122,11 @@ final class MavenService: ObservableObject {
         runningTitle = title
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
 
+        let operationID = UUID().uuidString
+        activeOperationID = operationID
         do {
             try process.start(ProcessRequest(
+                operationID: operationID,
                 executablePath: executable.path,
                 arguments: arguments,
                 workingDirectory: project.rootURL.path,
@@ -143,7 +153,26 @@ final class MavenService: ObservableObject {
         isRunning = false
         runningTitle = nil
         lastExitCode = exitCode
-        issues = Self.parseIssues(in: output, projectRoot: project.rootURL)
+        issues = javaMavenOperations.mavenDiagnostics(output: output, projectRoot: project.rootURL)
+        activeOperationID = nil
+    }
+
+    private func consumeLifecycle(_ event: ProcessLifecycleEvent) {
+        guard event.operationID == activeOperationID else { return }
+        switch event.state {
+        case .starting, .running:
+            isRunning = true
+        case .stopping:
+            isRunning = false
+        case .failed:
+            isRunning = false
+            runningTitle = nil
+            if let message = event.message, !message.isEmpty {
+                append("Unable to run Maven: " + message + "\n")
+            }
+        case .finished:
+            break
+        }
     }
 
     private func append(_ value: String) {
@@ -158,42 +187,4 @@ final class MavenService: ObservableObject {
         return phase.title + " · " + target
     }
 
-    private static func parseIssues(in output: String, projectRoot: URL) -> [MavenBuildIssue] {
-        let pattern = #"\[(ERROR|WARNING)\]\s+(.*?):\[(\d+)(?:,(\d+))?\]\s+(.*)"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
-        var issues: [MavenBuildIssue] = []
-
-        for line in output.split(separator: "\n", omittingEmptySubsequences: true).map(String.init) {
-            let range = NSRange(line.startIndex..<line.endIndex, in: line)
-            guard let match = expression.firstMatch(in: line, range: range), match.numberOfRanges == 6 else { continue }
-            func capture(_ index: Int) -> String? {
-                let range = match.range(at: index)
-                guard range.location != NSNotFound, let swiftRange = Range(range, in: line) else { return nil }
-                return String(line[swiftRange])
-            }
-            guard let severityValue = capture(1),
-                  let path = capture(2),
-                  let lineNumber = capture(3).flatMap(Int.init),
-                  let message = capture(5) else { continue }
-            let column = capture(4).flatMap(Int.init)
-            let fileURL: URL
-            if path.hasPrefix("/") {
-                fileURL = URL(fileURLWithPath: path)
-            } else {
-                fileURL = projectRoot.appendingPathComponent(path).standardizedFileURL
-            }
-            let severity: MavenIssueSeverity = severityValue == "ERROR" ? .error : .warning
-            let id = fileURL.path + ":" + String(lineNumber) + ":" + String(column ?? 0) + ":" + message
-            guard !issues.contains(where: { $0.id == id }) else { continue }
-            issues.append(MavenBuildIssue(
-                id: id,
-                fileURL: fileURL,
-                line: lineNumber,
-                column: column,
-                severity: severity,
-                message: message
-            ))
-        }
-        return issues
-    }
 }

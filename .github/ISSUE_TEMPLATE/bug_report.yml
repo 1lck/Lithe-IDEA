@@ -1,0 +1,102 @@
+name: Bug report / 问题报告
+description: Report a reproducible problem in Lithe / 报告可复现的问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem.
+        感谢你帮助改进 Lithe。请尽量提供完整的复现信息。
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform / 平台
+      options:
+        - macOS
+        - Windows
+        - Other / 其他
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Lithe version / Lithe 版本
+      description: Include the release version or commit SHA. / 请填写发布版本或 commit SHA。
+      placeholder: "For example: 0.1.7 or 4df498e"
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: OS and architecture / 操作系统与架构
+      description: Include the OS version and CPU architecture. / 请填写操作系统版本和 CPU 架构。
+      placeholder: "For example: macOS 15.6, Apple Silicon"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 环境信息
+      description: Include relevant JDK, Maven, JDT LS, Rust, or Qt versions. / 请填写相关的 JDK、Maven、JDT LS、Rust 或 Qt 版本。
+      placeholder: |
+        JDK:
+        Maven:
+        JDT LS:
+        Other:
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: List the smallest reliable sequence of steps. / 请列出最小且稳定的复现步骤。
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+      placeholder: Describe what should have happened. / 请描述预期结果。
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+      placeholder: Describe what happened instead. Include error messages if available. / 请描述实际结果，并附上错误信息。
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or diagnostic output / 日志或诊断输出
+      description: Paste relevant output between code fences. Remove secrets and personal data. / 请用代码块粘贴相关输出，并移除敏感信息和个人数据。
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings / 截图或录屏
+      description: Add visual evidence when it helps explain the problem. / 如有帮助，请附上截图或录屏。
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist / 提交前检查
+      options:
+        - label: I searched existing issues for duplicates. / 我已搜索现有 Issue，确认没有重复报告。
+          required: true
+        - label: I removed secrets and personal data from the report. / 我已从报告中移除敏感信息和个人数据。
+          required: true

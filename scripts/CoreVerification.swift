@@ -2,11 +2,6 @@ import Foundation
 
 @main
 struct CoreVerification {
-    private static let gitService = GitService(
-        commandRunner: MacGitCommandRunner(processRunner: MacProcessRunner()),
-        fileOperations: MacWorkspaceFileOperations()
-    )
-
     static func main() async {
         verifySharedContractFixtures()
         verifyDiffParser()
@@ -15,9 +10,7 @@ struct CoreVerification {
         verifyTerminalBuffer()
         verifyWhitespaceModes()
         verifySearchOptions()
-        await verifyGitWhitespaceFiltering()
-        await verifyGitStashAndClone()
-        print("Core verification passed: shared fixtures, diff, visibility, graph, search options, whitespace modes, stash, clone, and Git filtering")
+        print("Core verification passed: shared fixtures, diff, visibility, graph, search options, and whitespace modes")
     }
 
     private struct SearchFixture: Decodable {
@@ -230,120 +223,6 @@ struct CoreVerification {
         require(regularExpression.matches("UserService42", query: "UserService\\d+"), "regex search should match a pattern")
     }
 
-    private static func verifyGitWhitespaceFiltering() async {
-        let root = URL(fileURLWithPath: "/tmp/lithe-core-verification-\(UUID().uuidString)")
-        do {
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            let fileURL = root.appendingPathComponent("sample.txt")
-            try "alpha\n".write(to: fileURL, atomically: true, encoding: .utf8)
-            require(runCommand(at: root, arguments: ["init", "-q"]).succeeded, "git init failed")
-            require(
-                runCommand(
-                    at: root,
-                    arguments: [
-                        "-c", "user.name=Lithe Verification",
-                        "-c", "user.email=verification@example.com",
-                        "add", "sample.txt"
-                    ]
-                ).succeeded,
-                "git add failed"
-            )
-            require(
-                runCommand(
-                    at: root,
-                    arguments: [
-                        "-c", "user.name=Lithe Verification",
-                        "-c", "user.email=verification@example.com",
-                        "commit", "-qm", "initial"
-                    ]
-                ).succeeded,
-                "git commit failed"
-            )
-            try " alpha \n".write(to: fileURL, atomically: true, encoding: .utf8)
-
-            let change = GitChange(
-                repositoryRoot: root,
-                path: "sample.txt",
-                originalPath: nil,
-                indexStatus: " ",
-                workTreeStatus: "M"
-            )
-            let normal = await gitService.diffDocument(for: change)
-            let ignored = await gitService.diffDocument(
-                for: change,
-                whitespace: .ignoreAllWhitespace
-            )
-            require(normal.rows.contains { isDifference($0.kind) }, "normal diff should contain a change")
-            require(
-                !ignored.rows.contains { isDifference($0.kind) },
-                "whitespace-only diff should disappear when filtering whitespace"
-            )
-        } catch {
-            require(false, "Git whitespace verification failed: \(error.localizedDescription)")
-        }
-        try? FileManager.default.removeItem(at: root)
-    }
-
-    private static func verifyGitStashAndClone() async {
-        let root = URL(fileURLWithPath: "/tmp/lithe-git-verification-\(UUID().uuidString)")
-        let clone = root.deletingLastPathComponent().appendingPathComponent("lithe-git-clone-\(UUID().uuidString)")
-        do {
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            let fileURL = root.appendingPathComponent("README.md")
-            try "base\n".write(to: fileURL, atomically: true, encoding: .utf8)
-            require(runCommand(at: root, arguments: ["init", "-q"]).succeeded, "stash repo init failed")
-            require(runCommand(at: root, arguments: ["add", "README.md"]).succeeded, "stash add failed")
-            require(
-                runCommand(
-                    at: root,
-                    arguments: [
-                        "-c", "user.name=Lithe Verification",
-                        "-c", "user.email=verification@example.com",
-                        "commit", "-qm", "initial"
-                    ]
-                ).succeeded,
-                "stash commit failed"
-            )
-            try "changed\n".write(to: fileURL, atomically: true, encoding: .utf8)
-
-            let stashResult = await gitService.stash(
-                message: "core verification",
-                includeUntracked: true,
-                at: root
-            )
-            require(stashResult.succeeded, "git stash failed")
-            let stashes = await gitService.stashes(at: root)
-            require(stashes.count == 1, "expected one stash")
-            require(stashes[0].message.contains("core verification"), "stash message was not parsed")
-            require(stashes[0].branch == "master" || stashes[0].branch == "main", "stash branch was not parsed")
-            let baseAfterStash = try String(contentsOf: fileURL, encoding: .utf8)
-            require(baseAfterStash == "base\n", "stash should restore the working tree")
-
-            let applyResult = await gitService.applyStash(stashes[0], at: root)
-            require(applyResult.succeeded, "git stash apply failed")
-            let changedAfterApply = try String(contentsOf: fileURL, encoding: .utf8)
-            require(changedAfterApply == "changed\n", "stash apply should restore file content")
-            try "base\n".write(to: fileURL, atomically: true, encoding: .utf8)
-            let dropResult = await gitService.dropStash(stashes[0], at: root)
-            require(dropResult.succeeded, "git stash drop failed")
-
-            let cloneResult = await gitService.cloneRepository(from: root.path, to: clone)
-            require(cloneResult.succeeded, "git clone failed")
-            require(
-                FileManager.default.fileExists(atPath: clone.appendingPathComponent(".git").path),
-                "cloned repository should contain .git"
-            )
-            require(
-                FileManager.default.fileExists(atPath: clone.appendingPathComponent("README.md").path),
-                "cloned repository should contain committed files"
-            )
-        } catch {
-            require(false, "Git stash/clone verification failed: \(error.localizedDescription)")
-        }
-        try? FileManager.default.removeItem(at: root)
-        try? FileManager.default.removeItem(at: clone)
-    }
-
     private static func commit(
         hash: String,
         parents: [String],
@@ -360,39 +239,6 @@ struct CoreVerification {
             subject: subject,
             decorations: decorations
         )
-    }
-
-    private static func runCommand(
-        at directory: URL,
-        arguments: [String]
-    ) -> (output: String, succeeded: Bool) {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.currentDirectoryURL = directory
-        process.arguments = arguments
-        process.standardOutput = pipe
-        process.standardError = pipe
-        do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return (
-                String(data: data, encoding: .utf8) ?? "",
-                process.terminationStatus == 0
-            )
-        } catch {
-            return (error.localizedDescription, false)
-        }
-    }
-
-    private static func isDifference(_ kind: DiffRowKind) -> Bool {
-        switch kind {
-        case .changed, .addition, .removal:
-            return true
-        case .context, .information:
-            return false
-        }
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {

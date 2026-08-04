@@ -20,6 +20,10 @@ pub enum ResponseData {
 }
 
 impl CoreResponse {
+    pub fn is_success(&self) -> bool {
+        self.ok
+    }
+
     pub fn success(id: Option<String>, data: impl Into<Value>) -> Self {
         Self {
             id,
@@ -75,6 +79,29 @@ pub struct SearchResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReplacementMatch {
+    pub line: usize,
+    pub before: String,
+    pub after: String,
+    pub occurrence_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacementFile {
+    pub path: String,
+    pub matches: Vec<ReplacementMatch>,
+    pub replacement_text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacementPreviewResponse {
+    pub files: Vec<ReplacementFile>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileReadResponse {
     pub path: String,
     pub text: String,
@@ -85,6 +112,164 @@ pub struct FileReadResponse {
 pub struct FileWriteResponse {
     pub path: String,
     pub bytes_written: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntryResponse {
+    pub id: String,
+    pub timestamp: i64,
+    pub relative_path: String,
+    pub reason: String,
+    pub content_path: String,
+    pub byte_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntriesResponse {
+    pub entries: Vec<HistoryEntryResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenProfileResponse {
+    pub id: String,
+    pub is_active_by_default: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenModuleResponse {
+    pub relative_path: String,
+    pub group_id: Option<String>,
+    pub artifact_id: String,
+    pub version: Option<String>,
+    pub packaging: String,
+    pub modules: Vec<MavenModuleResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenScanResponse {
+    pub group_id: Option<String>,
+    pub artifact_id: String,
+    pub version: Option<String>,
+    pub packaging: String,
+    pub modules: Vec<MavenModuleResponse>,
+    pub profiles: Vec<MavenProfileResponse>,
+    pub has_wrapper: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenDiagnosticResponse {
+    pub path: String,
+    pub line: usize,
+    pub column: Option<usize>,
+    pub severity: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenDiagnosticsResponse {
+    pub issues: Vec<MavenDiagnosticResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaMainClassResponse {
+    pub path: String,
+    pub qualified_name: String,
+    pub simple_name: String,
+    pub is_spring_boot: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaRunConfigurationResponse {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub module_path: Option<String>,
+    pub main_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaRunConfigurationsResponse {
+    pub main_classes: Vec<JavaMainClassResponse>,
+    pub configurations: Vec<JavaRunConfigurationResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaCodeVisionHintResponse {
+    pub line: usize,
+    pub utf16_column: usize,
+    pub symbol: String,
+    pub usage_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaCodeVisionResponse {
+    pub hints: Vec<JavaCodeVisionHintResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaClassNameResponse {
+    pub class_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaSourceDefinitionResponse {
+    pub line: usize,
+    pub utf16_column: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaServerPortResponse {
+    pub port: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaFoldRegionResponse {
+    pub kind: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub hidden_start: usize,
+    pub hidden_length: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaImplementationMarkerResponse {
+    pub line: usize,
+    pub utf16_column: usize,
+    pub implementation_count: usize,
+    pub direction: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaInlayHintResponse {
+    pub line: usize,
+    pub utf16_column: usize,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaStructureResponse {
+    pub fold_regions: Vec<JavaFoldRegionResponse>,
+    pub implementation_markers: Vec<JavaImplementationMarkerResponse>,
+    pub inlay_hints: Vec<JavaInlayHintResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,4 +290,118 @@ pub struct GitStatusResponse {
     pub repository_root: Option<String>,
     pub branch: Option<String>,
     pub changes: Vec<GitChange>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitReferenceResponse {
+    pub full_name: String,
+    pub short_name: String,
+    pub kind: String,
+    pub is_current: bool,
+    pub upstream_short_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitResponse {
+    pub hash: String,
+    pub short_hash: String,
+    pub parent_hashes: Vec<String>,
+    pub author_name: String,
+    pub author_email: String,
+    pub date: String,
+    pub subject: String,
+    pub decorations: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHistoryResponse {
+    pub references: Vec<GitReferenceResponse>,
+    pub commits: Vec<GitCommitResponse>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitLookupResponse {
+    pub commit: GitCommitResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFileResponse {
+    pub status: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFilesResponse {
+    pub files: Vec<GitFileResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitComparisonResponse {
+    pub files: Vec<GitFileResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStashResponse {
+    pub reference: String,
+    pub message: String,
+    pub branch: Option<String>,
+    pub date: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStashesResponse {
+    pub stashes: Vec<GitStashResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBlameLineResponse {
+    pub line: usize,
+    pub commit_hash: String,
+    pub author_name: String,
+    pub author_time: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBlameResponse {
+    pub lines: Vec<GitBlameLineResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffRowResponse {
+    pub old_line: Option<usize>,
+    pub new_line: Option<usize>,
+    pub left: Option<String>,
+    pub right: Option<String>,
+    pub kind: String,
+    pub hunk_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffHunkResponse {
+    pub id: String,
+    pub header: String,
+    pub rows: Vec<GitDiffRowResponse>,
+    pub patch: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffResponse {
+    pub patch: String,
+    pub rows: Vec<GitDiffRowResponse>,
+    pub hunks: Vec<GitDiffHunkResponse>,
 }

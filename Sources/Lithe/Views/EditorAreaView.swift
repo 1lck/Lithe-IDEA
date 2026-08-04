@@ -1,9 +1,35 @@
 import SwiftUI
 
+private enum MarkdownViewMode: String, CaseIterable, Identifiable, Equatable {
+    case editor
+    case split
+    case preview
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .editor: "Editor"
+        case .split: "Editor and Preview"
+        case .preview: "Preview"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .editor: "pencil.line"
+        case .split: "rectangle.split.2x1"
+        case .preview: "doc.richtext"
+        }
+    }
+}
+
 struct EditorAreaView: View {
     @EnvironmentObject private var model: AppModel
     @State private var hoveredTabID: UUID?
     @State private var splitDocumentID: UUID?
+    @State private var markdownViewModes: [UUID: MarkdownViewMode] = [:]
+    @State private var hoveredMarkdownMode: MarkdownViewMode?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -37,6 +63,7 @@ struct EditorAreaView: View {
             if let splitDocumentID, !ids.contains(splitDocumentID) {
                 self.splitDocumentID = nil
             }
+            markdownViewModes = markdownViewModes.filter { ids.contains($0.key) }
         }
     }
 
@@ -68,64 +95,137 @@ struct EditorAreaView: View {
     }
 
     private var editorTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(Array(model.openDocuments.enumerated()), id: \.element.id) { index, document in
-                    HStack(spacing: 0) {
-                        Button {
-                            model.activeDocumentID = document.id
-                        } label: {
-                            HStack(spacing: 7) {
-                                LitheIcon(
-                                    kind: LitheIcons.kind(for: document.url, isDirectory: false),
-                                    size: 13
-                                )
-                                Text(document.displayName)
-                                    .font(.system(size: 12.5))
-                                    .lineLimit(1)
-                                if document.isDirty {
-                                    Circle()
-                                        .fill(LitheTheme.primaryText)
-                                        .frame(width: 6, height: 6)
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(Array(model.openDocuments.enumerated()), id: \.element.id) { index, document in
+                        HStack(spacing: 0) {
+                            Button {
+                                model.activeDocumentID = document.id
+                            } label: {
+                                HStack(spacing: 7) {
+                                    LitheIcon(
+                                        kind: LitheIcons.kind(for: document.url, isDirectory: false),
+                                        size: 13
+                                    )
+                                    Text(document.displayName)
+                                        .font(.system(size: 12.5))
+                                        .lineLimit(1)
+                                    if document.isDirty {
+                                        Circle()
+                                            .fill(LitheTheme.primaryText)
+                                            .frame(width: 6, height: 6)
+                                    }
                                 }
+                                .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                                .padding(.leading, 11)
+                                .frame(height: LitheTheme.Metrics.tabHeight)
+                                .contentShape(Rectangle())
                             }
-                            .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                            .padding(.leading, 11)
-                            .frame(height: LitheTheme.Metrics.tabHeight)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .lithePointer()
+                            .buttonStyle(.plain)
+                            .lithePointer()
 
-                        Button {
-                            model.requestCloseDocument(document)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .semibold))
+                            Button {
+                                model.requestCloseDocument(document)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 9, weight: .semibold))
+                            }
+                            .litheIconButton()
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .opacity(model.activeDocumentID == document.id || hoveredTabID == document.id ? 1 : 0)
+                            .allowsHitTesting(model.activeDocumentID == document.id || hoveredTabID == document.id)
+                            .padding(.trailing, 4)
                         }
-                        .litheIconButton()
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .opacity(model.activeDocumentID == document.id || hoveredTabID == document.id ? 1 : 0)
-                        .allowsHitTesting(model.activeDocumentID == document.id || hoveredTabID == document.id)
-                        .padding(.trailing, 4)
-                    }
-                    .background(model.activeDocumentID == document.id ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
-                    .overlay(alignment: .bottom) {
-                        if model.activeDocumentID == document.id {
-                            Rectangle().fill(LitheTheme.accent).frame(height: 2)
+                        .background(model.activeDocumentID == document.id ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
+                        .overlay(alignment: .bottom) {
+                            if model.activeDocumentID == document.id {
+                                Rectangle().fill(LitheTheme.accent).frame(height: 2)
+                            }
                         }
-                    }
-                    .contextMenu {
-                        editorTabContextMenu(for: document, at: index)
-                    }
-                    .onHover { isHovering in
-                        hoveredTabID = isHovering ? document.id : nil
+                        .contextMenu {
+                            editorTabContextMenu(for: document, at: index)
+                        }
+                        .onHover { isHovering in
+                            hoveredTabID = isHovering ? document.id : nil
+                        }
                     }
                 }
+            }
+            .frame(maxWidth: .infinity)
+
+            if let document = model.activeDocument,
+               isMarkdownFile(document),
+               splitDocumentID == nil {
+                markdownModePicker
             }
         }
         .frame(height: LitheTheme.Metrics.tabHeight)
         .background(LitheTheme.sidebar)
+    }
+
+    private var markdownModePicker: some View {
+        HStack(spacing: 1) {
+            ForEach(MarkdownViewMode.allCases) { mode in
+                let isSelected = selectedMarkdownMode == mode
+                let isHovered = hoveredMarkdownMode == mode
+
+                Button {
+                    selectMarkdownMode(mode)
+                } label: {
+                    Image(systemName: mode.symbolName)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(isSelected || isHovered ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                        .frame(width: 29, height: 20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(
+                                    isSelected
+                                        ? LitheTheme.selection.opacity(0.82)
+                                        : (isHovered ? LitheTheme.hoverBackground : .clear)
+                                )
+                        )
+                        .opacity(isSelected || isHovered ? 1 : 0.72)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help(mode.title)
+                .onHover { isHovering in
+                    if isHovering {
+                        hoveredMarkdownMode = mode
+                    } else if hoveredMarkdownMode == mode {
+                        hoveredMarkdownMode = nil
+                    }
+                }
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                .fill(LitheTheme.inputBackground)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                .stroke(LitheTheme.divider, lineWidth: 1)
+        }
+        .frame(width: 104, height: 26)
+        .padding(.horizontal, 7)
+        .animation(.easeOut(duration: 0.12), value: hoveredMarkdownMode)
+    }
+
+    private var selectedMarkdownMode: MarkdownViewMode {
+        guard let document = model.activeDocument else { return .editor }
+        return markdownViewModes[document.id] ?? .editor
+    }
+
+    private func selectMarkdownMode(_ mode: MarkdownViewMode) {
+        guard let document = model.activeDocument else { return }
+        markdownViewModes[document.id] = mode
+    }
+
+    private func isMarkdownFile(_ document: EditorDocument) -> Bool {
+        ["md", "markdown"].contains(document.url.pathExtension.lowercased())
     }
 
     private var editorWorkspace: some View {
@@ -266,24 +366,51 @@ struct EditorAreaView: View {
     @ViewBuilder
     private var activeEditor: some View {
         if let document = model.activeDocument {
-            CodeEditorView(
-                document: document,
-                debugService: model.debugFeature,
-                shouldFocus: true
-            )
-                .id(document.id)
-                .clipped()
-                .overlay(alignment: .top) {
-                    if model.isFindBarVisible {
-                        FindBarView()
-                            .padding(.top, 10)
-                            .padding(.horizontal, 12)
-                            .transition(.move(edge: .top).combined(with: .opacity))
+            if isMarkdownFile(document) {
+                switch markdownViewModes[document.id] ?? .editor {
+                case .editor:
+                    editorWithFindBar(document)
+                case .split:
+                    HStack(spacing: 0) {
+                        editorWithFindBar(document)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        Rectangle()
+                            .fill(LitheTheme.divider)
+                            .frame(width: 1)
+                        MarkdownPreviewView(document: document)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
+                case .preview:
+                    MarkdownPreviewView(document: document)
                 }
+            } else {
+                editorWithFindBar(document)
+            }
         } else {
             emptyState
         }
+    }
+
+    private func editorWithFindBar(_ document: EditorDocument) -> some View {
+        codeEditor(document)
+            .overlay(alignment: .top) {
+                if model.isFindBarVisible {
+                    FindBarView()
+                        .padding(.top, 10)
+                        .padding(.horizontal, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+    }
+
+    private func codeEditor(_ document: EditorDocument) -> some View {
+        CodeEditorView(
+            document: document,
+            debugService: model.debugFeature,
+            shouldFocus: true
+        )
+        .id(document.id)
+        .clipped()
     }
 
     private var emptyState: some View {

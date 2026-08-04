@@ -155,6 +155,7 @@ Lithe 的信息架构和操作路径刻意贴近 IDEA：Project、Changes、Sear
 
 - macOS 14 或更高版本
 - Swift 6.2 或更高版本
+- 运行 `swift test` 需要完整 Xcode；基础 SwiftPM 构建只需要 Command Line Tools
 - Java 项目功能需要 JDK；建议使用 JDK 17 或 JDK 21
 - Java 语义导航需要 Eclipse JDT LS
 - Maven 项目需要项目自带 `mvnw`，或系统中可用的 Maven
@@ -203,15 +204,21 @@ open "/Applications/Lithe.app"
 
 ### 检查核心功能
 
-项目提供不依赖 UI 的核心检查脚本：
+项目提供 Swift 单测和不依赖 UI 的核心检查脚本：
 
 ```bash
+swift test --disable-sandbox
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
+./scripts/verify-service-boundaries.sh
+./scripts/verify-shared-contracts.sh
+./scripts/verify-windows-boundaries.sh
 ./scripts/verify-rust-core.sh
 ```
 
-它们会覆盖 Diff、文件可见性、搜索匹配、Git Graph、空白过滤、stash、clone 以及真实 Merge/Tag/Remote 引用布局。
+它们会覆盖文档状态、文件可见性、Markdown 块、Diff、搜索匹配、Git
+Graph、空白过滤、stash、clone、真实 Merge/Tag/Remote 引用布局、服务边界、
+共享 fixtures 和 Rust Core ABI。
 
 ## 配置 Java 与 Maven
 
@@ -238,25 +245,32 @@ Current File 使用 Java source-file mode，适合快速运行单文件示例；
 ## 技术架构
 
 ```text
-SwiftUI Workbench
-├── Welcome / Recent Projects
-├── Project / Changes / Search
-├── Editor Tabs / Diff Review
-└── Run / Debug / Maven / Terminal
+SwiftUI / AppKit Views
           ↓
-AppKit NSTextView     FSEvents       System Git       JDT LS
-原生文本编辑          外部变化       Git 审查         Java 语义服务
+AppModel：UI 状态和页面导航
+          ↓
+Application Feature Models + AppServices
+      ┌───┴──────────────────┐
+      ↓                      ↓
+Rust Core operations     macOS ports/adapters
+      ↓                      ↓
+Rust Core + JSON C ABI   FSEvents / Process / PTY / 原生 UI
 ```
 
 项目使用 Swift Package Manager，不依赖第三方 Swift Package：
 
 ```text
 Sources/Lithe/
-├── Models/       工作区、编辑器、Git、Java 与运行配置模型
-├── Services/     文件扫描、搜索、Git、Maven、Java、Local History
-├── Theme/        Lithe 视觉令牌和图标
+├── Application/  Workspace、Document、Git、Search、Java、Terminal 和 History 功能
+├── Core/         Ports、Rust operations 和纯终端基础能力
+├── Models/       UI-facing 模型和值类型
+├── Platform/     macOS 组合根和原生适配器
+├── Services/     工作流编排和进程生命周期
 └── Views/        Welcome、Workbench、Editor、Diff 和工具窗口
 ```
+
+Windows 应用在 `windows/qt`、`windows/core` 和 `windows/adapters` 下使用对应
+的原生层，只依赖 Rust Core 契约，不引用 Swift 类型。
 
 ## 当前状态
 
@@ -264,9 +278,10 @@ Lithe 目前处于积极开发阶段，已经形成从打开项目、阅读代�
 
 | 状态 | 范围 |
 | --- | --- |
-| 当前可用 | Welcome、项目树、编辑器、搜索、外部变化、Git/Diff、Local History、终端、Maven、基础 Run/Debug |
-| 正在完善 | Java 导航边界、Current File 跨文件运行和大项目性能 |
-| 计划中 | 自动化测试、更多 Java 工作流和动态交互细节 |
+| 当前可用 | Welcome、项目树、编辑器、搜索、外部变化、Git/Diff、Local History、终端、Maven、Java 导航和基础 Run/Debug |
+| 已在本机验证 | 7 个 Swift 单测、15 个 Rust Core 测试、服务/共享/Windows 边界和 Rust C ABI bridge |
+| 正在完善 | Java 导航边界、Current File 跨文件运行、deployment target 一致性和大项目性能 |
+| 开发中 | Windows 工具链、Qt 工作流覆盖、打包、安装和更新能力 |
 
 ## 项目结构
 
@@ -276,7 +291,7 @@ Lithe-IDEA/
 ├── Sources/LitheRustCore/  # macOS 侧 Rust Core C bridge
 ├── Resources/              # macOS 元数据、本地化和运行时资源
 ├── rust/                   # 跨平台 Rust Core 与 C ABI
-├── windows/                # 独立 Windows 实现（计划中）
+├── windows/                # 独立 Windows Qt/C++ 实现（开发中）
 ├── shared/                 # 跨平台契约和验收材料
 ├── Fixtures/               # 共享 Maven / Spring Boot 和 Git 夹具
 ├── scripts/                # 构建、打包和核心检查脚本
@@ -293,13 +308,31 @@ macOS 与 Windows 使用独立运行时实现，目录归属和共享规则见[�
 如果你想参与 Lithe，建议按下面的顺序开始：
 
 1. 先了解上面的功能范围和设计边界。
-2. 使用 `./scripts/verify-core.sh` 和 `./scripts/verify-git-graph.sh` 验证核心逻辑。
+2. 使用 `swift test --disable-sandbox` 和边界/Core 验证脚本检查改动。
 3. 在真实 Java/Maven 项目上验证 UI 和运行时行为，再提交功能改动。
 4. 提交改动时说明验证方式和已知限制。
 
 ## License
 
 Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
+
+## 贡献者
+
+感谢所有参与 Lithe 开发和改进的贡献者。
+
+<a href="https://github.com/1lck/Lithe-IDEA/graphs/contributors">
+  <img src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/contributors.svg" alt="贡献者" />
+</a>
+
+## Star History
+
+<a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+    <img alt="Star History 图表" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+  </picture>
+</a>
 
 ## 友情链接
 

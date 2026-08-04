@@ -5,6 +5,7 @@ protocol RawProcessSession: AnyObject, Sendable {
     var onOutput: (@Sendable (Data) -> Void)? { get set }
     var onError: (@Sendable (Data) -> Void)? { get set }
     var onTermination: (@Sendable (Int32) -> Void)? { get set }
+    var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)? { get set }
 
     func start(_ request: ProcessRequest) throws
     func send(_ input: Data) throws

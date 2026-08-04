@@ -24,6 +24,8 @@ final class MacServiceContainer {
     let services: AppServices
 
     init(store: any KeyValueStore) {
+        let rustCore = RustCoreBridge()
+        let javaMavenOperations = RustJavaMavenOperations(core: rustCore)
         let fileStorage = MacFileStorage()
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
@@ -35,39 +37,42 @@ final class MacServiceContainer {
             runtimeService: runtimeService,
             process: MacRawProcessSession(),
             archiveReader: MacArchiveEntryReader(processRunner: processRunner),
-            fileStorage: fileStorage
+            fileStorage: fileStorage,
+            javaMavenOperations: javaMavenOperations
         )
 
-        let workspaceScanner = WorkspaceScanner(fileSystem: MacWorkspaceFileSystem())
         let mavenService = MavenService(
             runtimeService: runtimeService,
             process: MacStreamingProcess(),
-            projectScanner: MavenProjectScanner(storage: fileStorage)
+            javaMavenOperations: javaMavenOperations
         )
         let javaRunService = JavaRunService(
             runtimeService: runtimeService,
             process: MacStreamingProcess(),
             processFactory: { MacStreamingProcess() },
             fileStorage: fileStorage,
-            preferences: store
+            preferences: store,
+            javaMavenOperations: javaMavenOperations
         )
         let javaDebugService = JavaDebugService(
             runtimeService: runtimeService,
             processFactory: { MacStreamingProcess() },
-            fileStorage: fileStorage
+            fileStorage: fileStorage,
+            javaMavenOperations: javaMavenOperations
         )
         let javaImplementationMarkerService = JavaImplementationMarkerService(
             languageService: languageService
         )
-        let gitService = GitService(
-            commandRunner: MacGitCommandRunner(processRunner: processRunner),
-            fileOperations: fileOperations
-        )
+        let gitOperations = RustGitOperations(core: rustCore)
+        let workspaceOperations = RustWorkspaceOperations(core: rustCore)
+        let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
+        let gitService = GitService(operations: gitOperations)
         services = AppServices(
-            rustCore: RustCoreBridge(),
+            workspaceOperations: workspaceOperations,
+            localHistoryOperations: localHistoryOperations,
+            javaMavenOperations: javaMavenOperations,
             store: store,
             fileStorage: fileStorage,
-            workspaceScanner: workspaceScanner,
             fileOperations: fileOperations,
             projectRuntimeService: runtimeService,
             javaLanguageService: languageService,
@@ -76,7 +81,6 @@ final class MacServiceContainer {
             javaRunService: javaRunService,
             javaDebugService: javaDebugService,
             gitService: gitService,
-            searchIndex: WorkspaceSearchIndex(storage: fileStorage),
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),

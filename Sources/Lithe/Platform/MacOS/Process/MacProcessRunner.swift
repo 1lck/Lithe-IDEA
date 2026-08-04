@@ -5,6 +5,15 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
         let process = Process()
         let outputPipe = Pipe()
         let inputPipe = request.standardInput.map { _ in Pipe() }
+        let outputLock = NSLock()
+        var output = Data()
+        outputPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            outputLock.lock()
+            output.append(data)
+            outputLock.unlock()
+        }
 
         process.executableURL = URL(fileURLWithPath: request.executablePath)
         process.arguments = request.arguments
@@ -24,35 +33,32 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
                 try inputPipe.fileHandleForWriting.write(contentsOf: input)
                 try inputPipe.fileHandleForWriting.close()
             }
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let deadline = request.timeoutMilliseconds.map {
+                Date().addingTimeInterval(TimeInterval($0) / 1000)
+            }
+            var timedOut = false
+            while process.isRunning {
+                if let deadline, Date() >= deadline {
+                    timedOut = true
+                    process.terminate()
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
             process.waitUntilExit()
+            outputPipe.fileHandleForReading.readabilityHandler = nil
+            let remaining = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            output.append(remaining)
+            let data = output
+            outputLock.unlock()
             return ProcessResult(
                 output: String(data: data, encoding: .utf8) ?? "",
-                exitCode: process.terminationStatus
+                exitCode: timedOut ? 124 : process.terminationStatus
             )
         } catch {
+            outputPipe.fileHandleForReading.readabilityHandler = nil
             return ProcessResult(output: error.localizedDescription, exitCode: 1)
         }
-    }
-}
-
-final class MacGitCommandRunner: GitCommandRunner, @unchecked Sendable {
-    private let processRunner: any ProcessRunner
-
-    init(processRunner: any ProcessRunner = MacProcessRunner()) {
-        self.processRunner = processRunner
-    }
-
-    func run(
-        arguments: [String],
-        workingDirectory: String,
-        input: String?
-    ) -> ProcessResult {
-        processRunner.run(ProcessRequest(
-            executablePath: "/usr/bin/git",
-            arguments: arguments,
-            workingDirectory: workingDirectory,
-            standardInput: input.map { Data($0.utf8) }
-        ))
     }
 }

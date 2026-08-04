@@ -18,7 +18,7 @@ final class JavaRunService: ObservableObject {
     private let processFactory: () -> any StreamingProcess
     private let fileStorage: any FileStorage
     private let preferences: any KeyValueStore
-    private let configurationScanner: JavaRunConfigurationScanner
+    private let javaMavenOperations: any JavaMavenOperations
     private var projectURL: URL?
     private var projectFiles: [URL] = []
     private var mavenProject: MavenProject?
@@ -26,6 +26,8 @@ final class JavaRunService: ObservableObject {
     private var lastRunConfiguration: JavaRunConfiguration?
     private var lastCurrentFileURL: URL?
     private var moduleProcesses: [String: any StreamingProcess] = [:]
+    private var activeOperationID: String?
+    private var moduleOperationIDs: [String: String] = [:]
     private let maximumOutputCharacters = 500_000
     private let runtimeService: ProjectRuntimeService
 
@@ -34,14 +36,15 @@ final class JavaRunService: ObservableObject {
         process: any StreamingProcess,
         processFactory: @escaping () -> any StreamingProcess,
         fileStorage: any FileStorage,
-        preferences: any KeyValueStore
+        preferences: any KeyValueStore,
+        javaMavenOperations: any JavaMavenOperations
     ) {
         self.runtimeService = runtimeService
         self.process = process
         self.processFactory = processFactory
         self.fileStorage = fileStorage
         self.preferences = preferences
-        self.configurationScanner = JavaRunConfigurationScanner(storage: fileStorage)
+        self.javaMavenOperations = javaMavenOperations
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 self?.append(chunk)
@@ -50,6 +53,11 @@ final class JavaRunService: ObservableObject {
         process.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
                 self?.finishProcess(exitCode: exitCode)
+            }
+        }
+        process.onStateChange = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.consumeLifecycle(event)
             }
         }
     }
@@ -75,9 +83,13 @@ final class JavaRunService: ObservableObject {
         let loadID = UUID()
         projectLoadID = loadID
         isLoadingProject = true
-        let configurationScanner = configurationScanner
+        let javaMavenOperations = javaMavenOperations
         let scannedConfigurations = await Task.detached(priority: .utility) {
-            configurationScanner.scan(files: files, mavenProject: mavenProject)
+            javaMavenOperations.scanRunConfigurations(
+                at: projectURL,
+                files: files,
+                mavenProject: mavenProject
+            )
         }.value
         guard !Task.isCancelled, projectLoadID == loadID else { return }
         self.projectURL = projectURL.standardizedFileURL
@@ -214,8 +226,11 @@ final class JavaRunService: ObservableObject {
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
 
         let processKind: ProjectRuntimeProcessKind = configuration.kind == .currentFile ? .java : .maven
+        let operationID = UUID().uuidString
+        activeOperationID = operationID
         do {
             try process.start(ProcessRequest(
+                operationID: operationID,
                 executablePath: executable.path,
                 arguments: arguments,
                 workingDirectory: workingDirectory.path,
@@ -278,6 +293,7 @@ final class JavaRunService: ObservableObject {
         process.stop()
         isRunning = false
         runningTitle = nil
+        activeOperationID = nil
     }
 
     func reset() {
@@ -316,6 +332,24 @@ final class JavaRunService: ObservableObject {
         isRunning = false
         runningTitle = nil
         lastExitCode = exitCode
+        activeOperationID = nil
+    }
+
+    private func consumeLifecycle(_ event: ProcessLifecycleEvent) {
+        guard event.operationID == activeOperationID else { return }
+        switch event.state {
+        case .starting, .running:
+            isRunning = true
+        case .stopping, .finished:
+            isRunning = false
+        case .failed:
+            isRunning = false
+            runningTitle = nil
+            lastExitCode = event.exitCode ?? 1
+            if let message = event.message, !message.isEmpty {
+                append("Unable to run: " + message + "\n")
+            }
+        }
     }
 
     private func append(_ value: String) {
@@ -423,10 +457,18 @@ final class JavaRunService: ObservableObject {
                 self?.finishModule(sessionID: configuration.id, exitCode: exitCode)
             }
         }
+        let operationID = UUID().uuidString
+        process.onStateChange = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.consumeModuleLifecycle(event, sessionID: configuration.id)
+            }
+        }
 
         moduleProcesses[configuration.id] = process
+        moduleOperationIDs[configuration.id] = operationID
         do {
             try process.start(ProcessRequest(
+                operationID: operationID,
                 executablePath: executable.path,
                 arguments: arguments,
                 workingDirectory: workingDirectory.path,
@@ -434,6 +476,7 @@ final class JavaRunService: ObservableObject {
             ))
         } catch {
             moduleProcesses[configuration.id] = nil
+            moduleOperationIDs[configuration.id] = nil
             if let index = moduleSessions.firstIndex(where: { $0.id == configuration.id }) {
                 moduleSessions[index].isRunning = false
                 moduleSessions[index].exitCode = 1
@@ -448,6 +491,7 @@ final class JavaRunService: ObservableObject {
     private func stopModule(sessionID: String) {
         moduleProcesses[sessionID]?.stop()
         moduleProcesses[sessionID] = nil
+        moduleOperationIDs[sessionID] = nil
         if let index = moduleSessions.firstIndex(where: { $0.id == sessionID }) {
             moduleSessions[index].isRunning = false
         }
@@ -460,6 +504,29 @@ final class JavaRunService: ObservableObject {
             moduleSessions[index].exitCode = exitCode
         }
         moduleProcesses[sessionID] = nil
+        moduleOperationIDs[sessionID] = nil
+    }
+
+    private func consumeModuleLifecycle(_ event: ProcessLifecycleEvent, sessionID: String) {
+        guard event.operationID == moduleOperationIDs[sessionID] else { return }
+        switch event.state {
+        case .starting, .running:
+            if let index = moduleSessions.firstIndex(where: { $0.id == sessionID }) {
+                moduleSessions[index].isRunning = true
+            }
+        case .stopping, .finished:
+            if let index = moduleSessions.firstIndex(where: { $0.id == sessionID }) {
+                moduleSessions[index].isRunning = false
+            }
+        case .failed:
+            if let index = moduleSessions.firstIndex(where: { $0.id == sessionID }) {
+                moduleSessions[index].isRunning = false
+                moduleSessions[index].exitCode = event.exitCode ?? 1
+                if let message = event.message, !message.isEmpty {
+                    appendModuleOutput(message + "\n", sessionID: sessionID)
+                }
+            }
+        }
     }
 
     private func reconcileModuleSessions(validConfigurationIDs: Set<String>) {
@@ -521,7 +588,10 @@ final class JavaRunService: ObservableObject {
         for fileURL in resourceFiles {
             guard let data = try? fileStorage.readData(from: fileURL, options: []),
                   let contents = String(data: data, encoding: .utf8),
-                  let port = Self.port(inResource: contents, fileExtension: fileURL.pathExtension.lowercased()) else {
+                  let port = javaMavenOperations.serverPort(
+                      content: contents,
+                      fileExtension: fileURL.pathExtension.lowercased()
+                  ) else {
                 continue
             }
             return port
@@ -545,43 +615,6 @@ final class JavaRunService: ObservableObject {
             }
         }
         return nil
-    }
-
-    private static func port(inResource contents: String, fileExtension: String) -> Int? {
-        if fileExtension == "properties" {
-            let pattern = #"(?m)^\s*server\.port\s*[:=]\s*(\d+)\s*$"#
-            return firstInteger(pattern: pattern, in: contents)
-        }
-
-        var inServerSection = false
-        for line in contents.split(separator: "\n", omittingEmptySubsequences: false) {
-            let value = String(line)
-            if value.first(where: { !$0.isWhitespace }) == "#" { continue }
-            if value.range(of: #"^\s*server\s*:\s*$"#, options: .regularExpression) != nil {
-                inServerSection = true
-                continue
-            }
-            if inServerSection,
-               let match = value.range(of: #"^\s{2,}port\s*:\s*(\d+)\s*$"#, options: .regularExpression) {
-                let matched = String(value[match])
-                return firstInteger(pattern: #"(\d+)"#, in: matched)
-            }
-            if !value.hasPrefix(" ") && !value.hasPrefix("\t") && !value.trimmingCharacters(in: .whitespaces).isEmpty {
-                inServerSection = false
-            }
-        }
-        return firstInteger(pattern: #"(?m)^\s*server\.port\s*:\s*(\d+)\s*$"#, in: contents)
-    }
-
-    private static func firstInteger(pattern: String, in input: String) -> Int? {
-        guard let expression = try? NSRegularExpression(pattern: pattern),
-              let match = expression.firstMatch(
-                in: input,
-                range: NSRange(input.startIndex..<input.endIndex, in: input)
-              ),
-              match.numberOfRanges > 1,
-              let range = Range(match.range(at: 1), in: input) else { return nil }
-        return Int(input[range])
     }
 
     private static func isInside(_ fileURL: URL, directory: URL) -> Bool {

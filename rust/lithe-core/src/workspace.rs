@@ -1,12 +1,13 @@
-use crate::error::{CoreError, ErrorCode};
+use crate::error::{invalid_relative_path, CoreError, ErrorCode};
 use crate::model::{
-    FileReadResponse, FileWriteResponse, SearchMatch, SearchResponse, WorkspaceNode,
-    WorkspaceSnapshotResponse,
+    FileReadResponse, FileWriteResponse, ReplacementPreviewResponse, SearchMatch, SearchResponse,
+    WorkspaceNode, WorkspaceSnapshotResponse,
 };
 use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     ".git",
@@ -35,7 +36,7 @@ pub struct WorkspaceSnapshotRequest {
     pub hidden_file_patterns: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchRequest {
     pub root: String,
@@ -52,6 +53,30 @@ pub struct SearchRequest {
     pub max_file_results: Option<usize>,
     #[serde(default)]
     pub max_content_results: Option<usize>,
+    #[serde(default)]
+    pub max_symbol_results: Option<usize>,
+    #[serde(default)]
+    pub hidden_directory_names: Vec<String>,
+    #[serde(default)]
+    pub hidden_file_patterns: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacementPreviewRequest {
+    pub root: String,
+    pub query: String,
+    pub replacement: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
+    #[serde(default)]
+    pub whole_words: bool,
+    #[serde(default)]
+    pub regular_expression: bool,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub text_overrides: HashMap<String, String>,
     #[serde(default)]
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
@@ -112,6 +137,7 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     let mut file_matches = 0;
 
     for path in &snapshot.files {
+        crate::cancellation::check()?;
         if matches.len() >= limit || file_matches >= file_limit {
             break;
         }
@@ -129,6 +155,7 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
 
     let mut content_matches = 0;
     for path in &snapshot.files {
+        crate::cancellation::check()?;
         if matches.len() >= limit || content_matches >= content_limit {
             break;
         }
@@ -148,6 +175,7 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
             Err(_) => continue,
         };
         for (index, line) in text.split('\n').enumerate() {
+            crate::cancellation::check()?;
             if matcher.matches(line) {
                 matches.push(SearchMatch {
                     kind: "content".to_string(),
@@ -165,6 +193,138 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     }
 
     Ok(SearchResponse { matches })
+}
+
+pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreError> {
+    let root = existing_root(&request.root)?;
+    let response = search(request.clone())?;
+    let query = request.query.trim().to_string();
+    if query.is_empty() {
+        return Ok(response);
+    }
+
+    let snapshot = snapshot(WorkspaceSnapshotRequest {
+        root: root.to_string_lossy().into_owned(),
+        hidden_directory_names: request.hidden_directory_names,
+        hidden_file_patterns: request.hidden_file_patterns,
+    })?;
+    let matcher = Matcher::new(
+        &query,
+        request.case_sensitive,
+        request.whole_words,
+        request.regular_expression,
+    )?;
+    let symbol_limit = request.max_symbol_results.unwrap_or(50).min(50);
+    let mut types = Vec::new();
+    let mut symbols = Vec::new();
+    for path in snapshot.files {
+        crate::cancellation::check()?;
+        if types.len() >= symbol_limit && symbols.len() >= symbol_limit {
+            break;
+        }
+        if !path.to_lowercase().ends_with(".java") {
+            continue;
+        }
+        let file = root.join(&path);
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
+        for symbol in java_symbols(&path, &text) {
+            crate::cancellation::check()?;
+            if !matcher.matches(&symbol.name) {
+                continue;
+            }
+            let result = SearchMatch {
+                kind: symbol.kind,
+                path: path.clone(),
+                line: Some(symbol.line),
+                preview: symbol.signature,
+                symbol_name: Some(symbol.name),
+            };
+            if result.kind == "type" {
+                if types.len() < symbol_limit {
+                    types.push(result);
+                }
+            } else if symbols.len() < symbol_limit {
+                symbols.push(result);
+            }
+        }
+    }
+
+    let (file_matches, other_matches): (Vec<_>, Vec<_>) = response
+        .matches
+        .into_iter()
+        .partition(|value| value.kind == "file");
+    let mut matches = Vec::new();
+    matches.extend(file_matches);
+    matches.extend(types);
+    matches.extend(symbols);
+    matches.extend(other_matches);
+    let total_limit = request.max_results.max(1).min(10_000);
+    matches.truncate(total_limit);
+    Ok(SearchResponse { matches })
+}
+
+pub fn replace_preview(
+    request: ReplacementPreviewRequest,
+) -> Result<ReplacementPreviewResponse, CoreError> {
+    let root = existing_root(&request.root)?;
+    let query = request.query.trim().to_string();
+    if query.is_empty() {
+        return Ok(ReplacementPreviewResponse { files: Vec::new() });
+    }
+    let matcher = Matcher::new(
+        &query,
+        request.case_sensitive,
+        request.whole_words,
+        request.regular_expression,
+    )?;
+    let paths = if request.paths.is_empty() {
+        snapshot(WorkspaceSnapshotRequest {
+            root: root.to_string_lossy().into_owned(),
+            hidden_directory_names: request.hidden_directory_names,
+            hidden_file_patterns: request.hidden_file_patterns,
+        })?
+        .files
+    } else {
+        request.paths
+    };
+    let mut files = Vec::new();
+    for path in paths {
+        crate::cancellation::check()?;
+        let relative = safe_relative_path_string(&path)?;
+        let file = root.join(&relative);
+        let text = request
+            .text_overrides
+            .get(&relative)
+            .cloned()
+            .or_else(|| read_searchable_text(&file));
+        let Some(text) = text else { continue };
+        let mut matches = Vec::new();
+        let mut replaced_lines = Vec::new();
+        for (index, line) in text.split('\n').enumerate() {
+            crate::cancellation::check()?;
+            let (after, occurrence_count) = matcher.replace(line, &request.replacement);
+            replaced_lines.push(after.clone());
+            if occurrence_count > 0 {
+                matches.push(crate::model::ReplacementMatch {
+                    line: index + 1,
+                    before: line.to_string(),
+                    after,
+                    occurrence_count,
+                });
+            }
+        }
+        if !matches.is_empty() {
+            files.push(crate::model::ReplacementFile {
+                path: relative,
+                matches,
+                replacement_text: replaced_lines.join("\n"),
+            });
+        }
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(ReplacementPreviewResponse { files })
 }
 
 pub fn read_file(request: FileReadRequest) -> Result<FileReadResponse, CoreError> {
@@ -247,6 +407,7 @@ fn scan_node(
     rules: &VisibilityRules,
     files: &mut Vec<String>,
 ) -> Result<WorkspaceNode, CoreError> {
+    crate::cancellation::check()?;
     let metadata = fs::symlink_metadata(path)?;
     let relative = relative_path(path, root);
     let name = path
@@ -298,15 +459,18 @@ fn scan_node(
         })
     });
 
-    let children = children
-        .into_iter()
-        .filter_map(|(child_path, _)| scan_node(&child_path, root, rules, files).ok())
-        .collect();
+    let mut visible_children = Vec::new();
+    for (child_path, _) in children {
+        crate::cancellation::check()?;
+        if let Ok(child) = scan_node(&child_path, root, rules, files) {
+            visible_children.push(child);
+        }
+    }
     Ok(WorkspaceNode {
         path: relative,
         name,
         is_directory: true,
-        children: Some(children),
+        children: Some(visible_children),
     })
 }
 
@@ -325,11 +489,7 @@ fn existing_root(value: &str) -> Result<PathBuf, CoreError> {
 
 fn safe_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError> {
     let relative = Path::new(value);
-    if relative.is_absolute()
-        || relative
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
+    if relative.is_absolute() || invalid_relative_path(value) {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Path must be relative to the workspace",
@@ -348,11 +508,7 @@ fn safe_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError> {
 
 fn writable_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError> {
     let relative = Path::new(value);
-    if relative.is_absolute()
-        || relative
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
+    if relative.is_absolute() || invalid_relative_path(value) {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Path must be relative to the workspace",
@@ -506,6 +662,151 @@ impl Matcher {
             !before.is_some_and(is_word_character) && !after.is_some_and(is_word_character)
         })
     }
+
+    fn replace(&self, text: &str, replacement: &str) -> (String, usize) {
+        if let Some(regex) = &self.regex {
+            let count = regex.find_iter(text).count();
+            return (regex.replace_all(text, replacement).into_owned(), count);
+        }
+        let haystack = if self.case_sensitive {
+            text.to_string()
+        } else {
+            text.to_lowercase()
+        };
+        let needle = if self.case_sensitive {
+            self.plain_query.clone()
+        } else {
+            self.plain_query.to_lowercase()
+        };
+        if needle.is_empty() {
+            return (text.to_string(), 0);
+        }
+        let ranges = haystack
+            .match_indices(&needle)
+            .filter_map(|(start, matched)| {
+                let end = start + matched.len();
+                if self.whole_words {
+                    let before = haystack[..start].chars().next_back();
+                    let after = haystack[end..].chars().next();
+                    if before.is_some_and(is_word_character) || after.is_some_and(is_word_character)
+                    {
+                        return None;
+                    }
+                }
+                Some((start, end))
+            })
+            .collect::<Vec<_>>();
+        if ranges.is_empty() {
+            return (text.to_string(), 0);
+        }
+        let mut result = String::with_capacity(text.len());
+        let mut cursor = 0;
+        for (start, end) in &ranges {
+            result.push_str(&text[cursor..*start]);
+            result.push_str(replacement);
+            cursor = *end;
+        }
+        result.push_str(&text[cursor..]);
+        (result, ranges.len())
+    }
+}
+
+struct JavaSymbol {
+    name: String,
+    kind: String,
+    line: usize,
+    signature: String,
+}
+
+fn java_symbols(path: &str, source: &str) -> Vec<JavaSymbol> {
+    if !path.to_lowercase().ends_with(".java") {
+        return Vec::new();
+    }
+    let type_pattern = Regex::new(
+        r"(?m)^[ \t]*(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed)\s+)*(class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+    );
+    let method_pattern = Regex::new(
+        r"(?m)^[ \t]*(?:(?:public|protected|private|static|final|abstract|synchronized|native|default|strictfp)\s+)*(?:<[^>\n]+>\s+)?(?:[A-Za-z_$][A-Za-z0-9_$<>,.?\[\]]*\s+)+([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^;\n{}]*\)",
+    );
+    let mut symbols = Vec::new();
+    if let Ok(expression) = type_pattern {
+        for captures in expression.captures_iter(source) {
+            let Some(name) = captures.get(2) else {
+                continue;
+            };
+            let start = captures
+                .get(0)
+                .map(|value| value.start())
+                .unwrap_or(name.start());
+            symbols.push(JavaSymbol {
+                name: name.as_str().to_string(),
+                kind: "type".to_string(),
+                line: line_number(source, start),
+                signature: line_signature(source, start),
+            });
+        }
+    }
+    if let Ok(expression) = method_pattern {
+        for captures in expression.captures_iter(source) {
+            let Some(name) = captures.get(1) else {
+                continue;
+            };
+            let start = captures
+                .get(0)
+                .map(|value| value.start())
+                .unwrap_or(name.start());
+            symbols.push(JavaSymbol {
+                name: name.as_str().to_string(),
+                kind: "symbol".to_string(),
+                line: line_number(source, start),
+                signature: line_signature(source, start),
+            });
+        }
+    }
+    symbols.sort_by(|left, right| {
+        left.line
+            .cmp(&right.line)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    symbols
+}
+
+fn line_number(source: &str, byte_offset: usize) -> usize {
+    source[..byte_offset.min(source.len())]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1
+}
+
+fn line_signature(source: &str, byte_offset: usize) -> String {
+    let start = source[..byte_offset.min(source.len())]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let end = source[byte_offset.min(source.len())..]
+        .find('\n')
+        .map(|index| byte_offset.min(source.len()) + index)
+        .unwrap_or(source.len());
+    source[start..end].trim().to_string()
+}
+
+fn safe_relative_path_string(value: &str) -> Result<String, CoreError> {
+    let path = Path::new(value);
+    if path.is_absolute() || invalid_relative_path(value) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Path must be relative to the workspace",
+        ));
+    }
+    Ok(value.replace('\\', "/").trim_matches('/').to_string())
+}
+
+fn read_searchable_text(path: &Path) -> Option<String> {
+    if !is_readable_text_file(path) || fs::metadata(path).ok()?.len() > MAX_FILE_SIZE {
+        return None;
+    }
+    fs::read_to_string(path).ok()
 }
 
 fn is_word_character(character: char) -> bool {

@@ -155,6 +155,7 @@ The cost of switching to Lithe is not learning another IDE. It is simply opening
 
 - macOS 14 or later
 - Swift 6.2 or later
+- Full Xcode for `swift test`; Command Line Tools are enough for basic SwiftPM builds
 - A JDK for Java features; JDK 17 or JDK 21 is recommended
 - Eclipse JDT LS for Java semantic navigation
 - A project `mvnw` or a system Maven installation for Maven projects
@@ -204,15 +205,22 @@ This removes macOS's downloaded-file quarantine marker for that app. It does not
 
 ### Check the core workflows
 
-The repository includes UI-independent checks for the core logic:
+The repository includes Swift unit tests and UI-independent checks for the core
+logic:
 
 ```bash
+swift test --disable-sandbox
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
+./scripts/verify-service-boundaries.sh
+./scripts/verify-shared-contracts.sh
+./scripts/verify-windows-boundaries.sh
 ./scripts/verify-rust-core.sh
 ```
 
-These cover Diff, file visibility, search matching, Git Graph, whitespace filtering, stash, clone, real Merge/Tag/Remote reference layouts, and the Rust Core ABI.
+These cover document state, file visibility, Markdown blocks, Diff, search
+matching, Git Graph, whitespace filtering, stash, clone, real Merge/Tag/Remote
+reference layouts, service boundaries, shared fixtures, and the Rust Core ABI.
 
 ## Configure Java and Maven
 
@@ -239,25 +247,34 @@ Current File uses Java source-file mode and is intended for quick single-file ex
 ## Technical architecture
 
 ```text
-SwiftUI Workbench
-├── Welcome / Recent Projects
-├── Project / Changes / Search
-├── Editor Tabs / Diff Review
-└── Run / Debug / Maven / Terminal
+SwiftUI / AppKit Views
           ↓
-AppKit NSTextView     FSEvents       System Git       JDT LS
-Native text editing   File changes   Git review       Java semantics
+AppModel: UI state and navigation
+          ↓
+Application Feature Models + AppServices
+      ┌───┴──────────────────┐
+      ↓                      ↓
+Rust Core operations     macOS ports/adapters
+      ↓                      ↓
+Rust Core + JSON C ABI   FSEvents / Process / PTY / native UI
 ```
 
-Lithe uses Swift Package Manager and has no third-party Swift Package dependencies:
+Lithe uses Swift Package Manager and has no third-party Swift Package
+dependencies:
 
 ```text
 Sources/Lithe/
-├── Models/       Workspace, editor, Git, Java, and run configuration models
-├── Services/     Scanning, search, Git, Maven, Java, and Local History
-├── Theme/        Lithe visual tokens and icons
+├── Application/  Workspace, Document, Git, Search, Java, Terminal, and History features
+├── Core/         Ports, Rust operations, and pure terminal primitives
+├── Models/       UI-facing models and value types
+├── Platform/     macOS composition root and native adapters
+├── Services/     Workflow orchestration and process-backed lifecycles
 └── Views/        Welcome, Workbench, Editor, Diff, and tool windows
 ```
+
+The Windows application has matching native layers under `windows/qt`,
+`windows/core`, and `windows/adapters`. It consumes the Rust Core contract and
+does not reference Swift types.
 
 ## Current status
 
@@ -265,9 +282,10 @@ Lithe is in active development. The core loop from opening a project to reading 
 
 | Status | Scope |
 | --- | --- |
-| Available now | Welcome, project tree, editor, search, external changes, Git/Diff, Local History, terminal, Maven, and basic Run/Debug |
-| Being refined | Java navigation edges, cross-file Current File execution, and large-project performance |
-| Planned | Automated tests, more Java workflows, and further interaction polish |
+| Available now | Welcome, project tree, editor, search, external changes, Git/Diff, Local History, terminal, Maven, Java navigation, and basic Run/Debug |
+| Verified locally | 7 Swift unit tests, 15 Rust Core tests, service/shared/Windows boundary checks, and Rust C ABI bridge verification |
+| Being refined | Java navigation edges, cross-file Current File execution, deployment-target consistency, and large-project performance |
+| In progress | Windows toolchain, Qt workflow coverage, packaging, and installer/update behavior |
 
 ## Project structure
 
@@ -277,7 +295,7 @@ Lithe-IDEA/
 ├── Sources/LitheRustCore/  # macOS C bridge for the Rust Core
 ├── Resources/              # macOS metadata, localization, and runtime assets
 ├── rust/                   # Shared Rust Core and C ABI
-├── windows/                # Independent Windows implementation (planned)
+├── windows/                # Independent Windows Qt/C++ implementation in progress
 ├── shared/                 # Cross-platform contracts and acceptance material
 ├── Fixtures/               # Shared Maven / Spring Boot and Git fixtures
 ├── scripts/                # Build, packaging, and core check scripts
@@ -294,13 +312,31 @@ The macOS and Windows applications use independent runtime implementations. See 
 If you want to contribute:
 
 1. Start with the feature scope and design boundaries above.
-2. Run `./scripts/verify-core.sh` and `./scripts/verify-git-graph.sh`.
+2. Run `swift test --disable-sandbox` and the boundary/Core verification scripts.
 3. Test UI and runtime behavior in a real Java/Maven project.
 4. Include the verification steps and known limitations with your change.
 
 ## License
 
 Lithe is licensed under the [Apache License 2.0](./LICENSE).
+
+## Contributors
+
+Thanks to everyone who contributes to Lithe.
+
+<a href="https://github.com/1lck/Lithe-IDEA/graphs/contributors">
+  <img src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/contributors.svg" alt="Contributors" />
+</a>
+
+## Star History
+
+<a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+    <img alt="Star History Chart" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
+  </picture>
+</a>
 
 ## Friendly Links
 

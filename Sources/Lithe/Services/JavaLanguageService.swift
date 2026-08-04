@@ -36,17 +36,21 @@ final class JavaLanguageService: ObservableObject {
     private let runtimeService: ProjectRuntimeService
     private let archiveReader: any ArchiveEntryReader
     private let fileStorage: any FileStorage
+    private let javaMavenOperations: any JavaMavenOperations
+    private var activeOperationID: String?
 
     init(
         runtimeService: ProjectRuntimeService,
         process: any RawProcessSession,
         archiveReader: any ArchiveEntryReader,
-        fileStorage: any FileStorage
+        fileStorage: any FileStorage,
+        javaMavenOperations: any JavaMavenOperations
     ) {
         self.runtimeService = runtimeService
         self.process = process
         self.archiveReader = archiveReader
         self.fileStorage = fileStorage
+        self.javaMavenOperations = javaMavenOperations
         process.onOutput = { [weak self] data in
             Task { @MainActor [weak self] in
                 self?.receive(data)
@@ -60,6 +64,11 @@ final class JavaLanguageService: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, self.process.isRunning == false else { return }
                 self.stop()
+            }
+        }
+        process.onStateChange = { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.consumeLifecycle(event)
             }
         }
     }
@@ -226,6 +235,7 @@ final class JavaLanguageService: ObservableObject {
         isStarting = false
         isReady = false
         statusMessage = "Java navigation is idle"
+        activeOperationID = nil
     }
 
     private func ensureReady(
@@ -262,9 +272,12 @@ final class JavaLanguageService: ObservableObject {
         ])
         let dataDirectory = dataDirectory(for: root)
         arguments.append(contentsOf: ["-data", dataDirectory.path])
+        let operationID = UUID().uuidString
+        activeOperationID = operationID
         do {
             try fileStorage.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
             try process.start(ProcessRequest(
+                operationID: operationID,
                 executablePath: executableURL.path,
                 arguments: arguments,
                 workingDirectory: root.path,
@@ -273,6 +286,24 @@ final class JavaLanguageService: ObservableObject {
             initialize(root: root)
         } catch {
             finishStartup(.failure(error))
+        }
+    }
+
+    private func consumeLifecycle(_ event: ProcessLifecycleEvent) {
+        guard event.operationID == activeOperationID else { return }
+        switch event.state {
+        case .starting:
+            isStarting = true
+        case .running:
+            isStarting = true
+        case .stopping:
+            statusMessage = event.message ?? "Stopping Java language server..."
+        case .finished:
+            break
+        case .failed:
+            isStarting = false
+            isReady = false
+            statusMessage = event.message ?? "Java language server failed to start"
         }
     }
 
@@ -786,65 +817,18 @@ final class JavaLanguageService: ObservableObject {
             memberName = nil
         }
 
-        let position = Self.sourceDefinitionPosition(
-            in: source,
-            declarationName: declarationName,
-            memberName: memberName
-        ) ?? (0, 0)
+        let position = javaMavenOperations.sourceDefinition(
+                source: source,
+                declarationName: declarationName,
+                memberName: memberName
+            ) ?? (line: 0, utf16Column: 0)
         return JavaNavigationLocation(
             url: sourceURL,
-            line: position.0,
-            utf16Column: position.1,
+            line: position.line,
+            utf16Column: position.utf16Column,
             isReadOnly: true,
             displayPath: Self.displayPath(for: uri)
         )
-    }
-
-    private static func sourceDefinitionPosition(
-        in source: String,
-        declarationName: String,
-        memberName: String?
-    ) -> (Int, Int)? {
-        let lines = source.components(separatedBy: .newlines)
-        if let memberName {
-            let escapedMember = NSRegularExpression.escapedPattern(for: memberName)
-            let methodPattern = "\\b\(escapedMember)\\s*\\("
-            if let expression = try? NSRegularExpression(pattern: methodPattern) {
-                for (lineNumber, line) in lines.enumerated() {
-                    let range = NSRange(location: 0, length: (line as NSString).length)
-                    guard let match = expression.firstMatch(in: line, range: range) else { continue }
-                    let prefix = (line as NSString).substring(to: match.range.location)
-                    let trimmed = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.hasPrefix("*") && !trimmed.hasPrefix("//"),
-                          !trimmed.contains("#"),
-                          !trimmed.hasSuffix(".") else { continue }
-                    return (lineNumber, match.range.location)
-                }
-            }
-
-            let fieldPattern = "\\b\(escapedMember)\\s*(?:=|;)"
-            if let expression = try? NSRegularExpression(pattern: fieldPattern) {
-                for (lineNumber, line) in lines.enumerated() {
-                    let range = NSRange(location: 0, length: (line as NSString).length)
-                    if let match = expression.firstMatch(in: line, range: range) {
-                        return (lineNumber, match.range.location)
-                    }
-                }
-            }
-        }
-
-        let declarationPattern = "\\b(?:class|interface|enum|record)\\s+\(NSRegularExpression.escapedPattern(for: declarationName))\\b"
-        if let expression = try? NSRegularExpression(pattern: declarationPattern) {
-            for (lineNumber, line) in lines.enumerated() {
-                let range = NSRange(location: 0, length: (line as NSString).length)
-                guard expression.firstMatch(in: line, range: range) != nil else { continue }
-                let nameRange = (line as NSString).range(of: declarationName)
-                if nameRange.location != NSNotFound {
-                    return (lineNumber, nameRange.location)
-                }
-            }
-        }
-        return nil
     }
 
     private static func parseWorkspaceSymbols(_ value: Any) -> [JavaWorkspaceSymbol] {

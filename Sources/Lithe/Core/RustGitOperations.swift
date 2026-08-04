@@ -1,0 +1,312 @@
+import Foundation
+
+/// Typed Git operations exposed by Rust Core.
+///
+/// This is the migration seam for GitService. The Swift service can continue
+/// to translate Rust payloads into SwiftUI-facing models while Git execution
+/// and patch application remain shared and platform-neutral.
+struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
+    let core: RustCoreBridge
+
+    func run(
+        arguments: [String],
+        workingDirectory: String,
+        input: String?
+    ) -> ProcessResult {
+        switch core.gitCommandResult(
+            at: URL(fileURLWithPath: workingDirectory),
+            arguments: arguments,
+            input: input
+        ) {
+        case .success(let response):
+            return ProcessResult(output: response.output, exitCode: response.exitCode)
+        case .failure(let error):
+            return ProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
+    private func write(
+        at rootURL: URL,
+        operation: String,
+        paths: [String] = [],
+        reference: String? = nil,
+        referenceKind: GitReferenceKind? = nil,
+        revision: String? = nil,
+        name: String? = nil,
+        message: String? = nil,
+        remote: String? = nil,
+        destination: URL? = nil,
+        mode: String? = nil,
+        includeUntracked: Bool = false,
+        checkout: Bool = false,
+        amend: Bool = false
+    ) -> ProcessResult? {
+        switch core.gitWriteResult(
+            at: rootURL,
+            operation: operation,
+            paths: paths,
+            reference: reference,
+            referenceKind: referenceKind?.rawValue,
+            revision: revision,
+            name: name,
+            message: message,
+            remote: remote,
+            destination: destination?.path,
+            mode: mode,
+            includeUntracked: includeUntracked,
+            checkout: checkout,
+            amend: amend
+        ) {
+        case .success(let response):
+            return ProcessResult(output: response.output, exitCode: response.exitCode)
+        case .failure(let error):
+            return ProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
+    func stage(_ change: GitChange) -> ProcessResult? {
+        write(at: change.repositoryRoot, operation: "stage", paths: change.pathspecs)
+    }
+
+    func unstage(_ change: GitChange) -> ProcessResult? {
+        write(at: change.repositoryRoot, operation: "unstage", paths: change.pathspecs)
+    }
+
+    func discard(_ change: GitChange) -> ProcessResult? {
+        return write(at: change.repositoryRoot, operation: "discard", paths: change.pathspecs)
+    }
+
+    func commit(at rootURL: URL, message: String, amend: Bool) -> ProcessResult? {
+        write(at: rootURL, operation: "commit", message: message, amend: amend)
+    }
+
+    func cherryPick(_ hash: String, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "cherryPick", revision: hash)
+    }
+
+    func revert(_ hash: String, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "revert", revision: hash)
+    }
+
+    func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "reset", revision: hash, mode: mode)
+    }
+
+    func createBranch(named name: String, from reference: GitReference, checkout: Bool, at rootURL: URL) -> ProcessResult? {
+        write(
+            at: rootURL,
+            operation: "createBranch",
+            reference: reference.fullName,
+            name: name,
+            checkout: checkout
+        )
+    }
+
+    func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "renameBranch", reference: reference.fullName, name: name)
+    }
+
+    func deleteBranch(_ reference: GitReference, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "deleteBranch", reference: reference.fullName)
+    }
+
+    func mergeBranch(_ reference: GitReference, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "merge", reference: reference.fullName)
+    }
+
+    func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "rebase", reference: reference.fullName)
+    }
+
+    func updateCurrentBranch(at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "pull")
+    }
+
+    func fetch(at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "fetch")
+    }
+
+    func checkout(_ reference: GitReference, at rootURL: URL) -> ProcessResult? {
+        write(
+            at: rootURL,
+            operation: "checkout",
+            reference: reference.fullName,
+            referenceKind: reference.kind
+        )
+    }
+
+    func checkoutRevision(_ revision: String, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "checkoutRevision", revision: revision)
+    }
+
+    func push(_ reference: GitReference, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "push", reference: reference.fullName)
+    }
+
+    func cloneRepository(from remote: String, to destination: URL) -> ProcessResult? {
+        write(
+            at: destination.deletingLastPathComponent(),
+            operation: "clone",
+            remote: remote,
+            destination: destination
+        )
+    }
+
+    func stash(message: String, includeUntracked: Bool, at rootURL: URL) -> ProcessResult? {
+        write(
+            at: rootURL,
+            operation: "stashPush",
+            message: message,
+            includeUntracked: includeUntracked
+        )
+    }
+
+    func applyStash(_ stash: GitStash, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "stashApply", reference: stash.reference)
+    }
+
+    func popStash(_ stash: GitStash, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "stashPop", reference: stash.reference)
+    }
+
+    func dropStash(_ stash: GitStash, at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "stashDrop", reference: stash.reference)
+    }
+
+    func stageAll(at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "stageAll")
+    }
+
+    func snapshot(at rootURL: URL) -> GitSnapshot? {
+        core.gitStatus(at: rootURL)?.makeSnapshot(at: rootURL)
+    }
+
+    func diffPatch(
+        at rootURL: URL,
+        pathspecs: [String],
+        staged: Bool,
+        untracked: Bool,
+        whitespace: GitDiffWhitespaceMode
+    ) -> String? {
+        core.gitDiff(
+            at: rootURL,
+            pathspecs: pathspecs,
+            staged: staged,
+            untracked: untracked,
+            ignoreAllWhitespace: whitespace == .ignoreAllWhitespace
+        )?.patch
+    }
+
+    func diffDocument(
+        at rootURL: URL,
+        pathspecs: [String],
+        staged: Bool,
+        untracked: Bool,
+        whitespace: GitDiffWhitespaceMode
+    ) -> DiffDocument? {
+        core.gitDiff(
+            at: rootURL,
+            pathspecs: pathspecs,
+            staged: staged,
+            untracked: untracked,
+            ignoreAllWhitespace: whitespace == .ignoreAllWhitespace
+        )?.makeDocument()
+    }
+
+    func commitDiffDocument(
+        at rootURL: URL,
+        commit: String,
+        pathspecs: [String],
+        whitespace: GitDiffWhitespaceMode
+    ) -> DiffDocument? {
+        core.gitDiff(
+            at: rootURL,
+            pathspecs: pathspecs,
+            commit: commit,
+            staged: false,
+            untracked: false,
+            ignoreAllWhitespace: whitespace == .ignoreAllWhitespace
+        )?.makeDocument()
+    }
+
+    func comparisonDiffDocument(
+        at rootURL: URL,
+        reference: String,
+        pathspecs: [String],
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) -> DiffDocument? {
+        core.gitDiff(
+            at: rootURL,
+            pathspecs: pathspecs,
+            reference: reference,
+            staged: false,
+            untracked: false,
+            ignoreAllWhitespace: whitespace == .ignoreAllWhitespace
+        )?.makeDocument()
+    }
+
+    func applyPatch(
+        _ patch: String,
+        at rootURL: URL,
+        mode: String
+    ) -> ProcessResult? {
+        switch core.gitApplyResult(at: rootURL, patch: patch, mode: mode) {
+        case .success(let response):
+            return ProcessResult(output: response.output, exitCode: response.exitCode)
+        case .failure(let error):
+            return ProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
+    func history(
+        at rootURL: URL,
+        reference: GitReference?,
+        limit: Int
+    ) -> GitHistorySnapshot? {
+        core.gitHistory(
+            at: rootURL,
+            reference: reference?.fullName,
+            limit: limit
+        )?.makeSnapshot()
+    }
+
+    func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
+        core.gitCommitFiles(at: rootURL, commit: commit.hash)?.files.map { file in
+            GitCommitFile(status: file.status, path: file.path)
+        }
+    }
+
+    func commit(at rootURL: URL, hash: String) -> GitCommit? {
+        core.gitCommit(at: rootURL, commit: hash)?.makeModel()
+    }
+
+    func comparison(
+        for reference: GitReference,
+        at rootURL: URL
+    ) -> GitBranchComparison? {
+        guard let payload = core.gitComparison(at: rootURL, reference: reference.fullName) else {
+            return nil
+        }
+        return GitBranchComparison(
+            reference: reference,
+            files: payload.files.map { file in
+                GitBranchComparisonFile(status: file.status, path: file.path)
+            }
+        )
+    }
+
+    func stashes(at rootURL: URL) -> [GitStash]? {
+        core.gitStashes(at: rootURL)?.stashes.map { stash in
+            GitStash(
+                reference: stash.reference,
+                message: stash.message,
+                branch: stash.branch,
+                date: stash.date
+            )
+        }
+    }
+
+    func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? {
+        core.gitBlame(at: rootURL, relativePath: relativePath)?.makeModels()
+    }
+}

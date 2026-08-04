@@ -1,0 +1,27 @@
+{
+  "name": "Java structure and run configuration scan",
+  "requests": [
+    {
+      "command": "java.runConfigurations",
+      "payload": {
+        "paths": ["src/main/java/com/example/App.java"],
+        "modulePaths": ["src"]
+      },
+      "expected": {
+        "mainClass": "com.example.App",
+        "kind": "springBoot",
+        "modulePath": "src"
+      }
+    },
+    {
+      "command": "java.structure",
+      "payload": {
+        "source": "import a.A;\nimport b.B;\ninterface Service {}\n"
+      },
+      "expected": {
+        "foldKind": "imports",
+        "implementationDirection": "down"
+      }
+    }
+  ]
+}
