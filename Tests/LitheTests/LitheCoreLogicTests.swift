@@ -118,6 +118,36 @@ struct LitheCoreLogicTests {
         #expect(language == "swift")
         #expect(text == "print(\"hello\")")
     }
+
+    @Test
+    func gitCommitFileTreePreservesHierarchyAndCompactsSingleChildPaths() {
+        let tree = GitCommitFileTreeNode.build(
+            from: [
+                GitCommitFile(status: "M", path: "README.md"),
+                GitCommitFile(status: "M", path: "docs/README.md"),
+                GitCommitFile(status: "M", path: "docs/architecture/repository-layout.md"),
+                GitCommitFile(status: "A", path: "src/main/java/example/App.java"),
+                GitCommitFile(status: "A", path: "service/Service.java"),
+                GitCommitFile(status: "A", path: "service/impl/ServiceImpl.java")
+            ],
+            rootName: "Lithe-IDEA"
+        )
+
+        #expect(tree.name == "Lithe-IDEA")
+        #expect(tree.fileCount == 6)
+        #expect(tree.files.map(\.path) == ["README.md"])
+        #expect(tree.directories.map(\.name) == ["docs", "service", "src/main/java/example"])
+
+        let docs = tree.directories[0]
+        #expect(docs.fileCount == 2)
+        #expect(docs.files.map(\.path) == ["docs/README.md"])
+        #expect(docs.directories.map(\.name) == ["architecture"])
+
+        let service = tree.directories[1]
+        #expect(service.fileCount == 2)
+        #expect(service.files.map(\.path) == ["service/Service.java"])
+        #expect(service.directories.map(\.name) == ["impl"])
+    }
 }
 
 @Suite("Editor documents")

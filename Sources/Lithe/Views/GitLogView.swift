@@ -752,44 +752,8 @@ struct GitLogView: View {
                 GeometryReader { geometry in
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(commitFileGroups) { group in
-                                Button {
-                                    if collapsedFileGroups.contains(group.path) {
-                                        collapsedFileGroups.remove(group.path)
-                                    } else {
-                                        collapsedFileGroups.insert(group.path)
-                                    }
-                                } label: {
-                                    HStack(spacing: 7) {
-                                        Image(systemName: collapsedFileGroups.contains(group.path) ? "chevron.right" : "chevron.down")
-                                            .font(.system(size: 8, weight: .bold))
-                                            .frame(width: 10)
-                                            .foregroundStyle(LitheTheme.secondaryText)
-                                        LitheSystemIcon(systemImage: "folder")
-                                            .frame(width: 14, height: 14)
-                                            .foregroundStyle(LitheTheme.secondaryText)
-                                        Text(group.displayName)
-                                            .font(GitVisual.bodyMedium)
-                                            .foregroundStyle(LitheTheme.primaryText)
-                                            .lineLimit(1)
-                                        Text(group.files.count == 1 ? "1 file" : "\(group.files.count) files")
-                                            .font(GitVisual.meta)
-                                            .foregroundStyle(LitheTheme.secondaryText)
-                                        Spacer(minLength: 8)
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
-                                    .contentShape(Rectangle())
-                                    .litheRowHover(cornerRadius: 4)
-                                }
-                                .buttonStyle(.plain)
-                                .lithePointer()
-
-                                if !collapsedFileGroups.contains(group.path) {
-                                    ForEach(group.files) { file in
-                                        commitFileRow(file)
-                                    }
-                                }
+                            ForEach(visibleCommitFileTreeItems) { item in
+                                commitFileTreeItemRow(item)
                             }
                         }
                         .padding(.vertical, 5)
@@ -859,18 +823,97 @@ struct GitLogView: View {
         return Set(filteredCommits.map(\.hash))
     }
 
-    private var commitFileGroups: [GitCommitFileGroup] {
-        let groups = Dictionary(grouping: model.selectedGitCommitFiles) { file in
-            (file.path as NSString).deletingLastPathComponent
-        }
-        return groups.map { path, files in
-            GitCommitFileGroup(
-                path: path,
-                displayName: path.isEmpty ? model.projectName : path,
-                files: files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    private var commitFileTree: GitCommitFileTreeNode {
+        GitCommitFileTreeNode.build(
+            from: model.selectedGitCommitFiles,
+            rootName: model.projectName
+        )
+    }
+
+    private var visibleCommitFileTreeItems: [GitCommitFileTreeItem] {
+        var items: [GitCommitFileTreeItem] = []
+        appendVisibleCommitFileTreeItems(
+            for: commitFileTree,
+            depth: 0,
+            into: &items
+        )
+        return items
+    }
+
+    private func appendVisibleCommitFileTreeItems(
+        for node: GitCommitFileTreeNode,
+        depth: Int,
+        into items: inout [GitCommitFileTreeItem]
+    ) {
+        items.append(.folder(node, depth: depth))
+        guard !collapsedFileGroups.contains(node.id) else { return }
+
+        for directory in node.directories {
+            appendVisibleCommitFileTreeItems(
+                for: directory,
+                depth: depth + 1,
+                into: &items
             )
         }
-        .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        for file in node.files {
+            items.append(.file(file, depth: depth + 1))
+        }
+    }
+
+    @ViewBuilder
+    private func commitFileTreeItemRow(_ item: GitCommitFileTreeItem) -> some View {
+        switch item {
+        case let .folder(node, depth):
+            let isCollapsed = collapsedFileGroups.contains(node.id)
+            Button {
+                if isCollapsed {
+                    collapsedFileGroups.remove(node.id)
+                } else {
+                    collapsedFileGroups.insert(node.id)
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .frame(width: 10)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    LitheSystemIcon(systemImage: "folder")
+                        .frame(width: 14, height: 14)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    Text(node.name)
+                        .font(GitVisual.bodyMedium)
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                    Text(node.fileCount == 1 ? "1 file" : "\(node.fileCount) files")
+                        .font(GitVisual.meta)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    if depth == 0, let rootPath = commitFileRootSubtitle {
+                        Text(rootPath)
+                            .font(GitVisual.meta)
+                            .foregroundStyle(LitheTheme.secondaryText.opacity(0.76))
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                }
+                .padding(.leading, 8 + CGFloat(depth * 16))
+                .padding(.trailing, 8)
+                .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
+                .contentShape(Rectangle())
+                .litheRowHover(cornerRadius: 4)
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+
+        case let .file(file, depth):
+            commitFileRow(file, depth: depth)
+        }
+    }
+
+    private var commitFileRootSubtitle: String? {
+        guard let root = model.gitRepositoryRoot else { return nil }
+        let components = root.pathComponents.filter { $0 != "/" }
+        guard components.count >= 2 else { return nil }
+        return components.suffix(2).joined(separator: "/")
     }
 
     private var currentReference: GitReference? {
@@ -916,7 +959,7 @@ struct GitLogView: View {
         min(max(value, minimum), maximum)
     }
 
-    private func commitFileRow(_ file: GitCommitFile) -> some View {
+    private func commitFileRow(_ file: GitCommitFile, depth: Int) -> some View {
         Button {
             model.showGitCommitDiff(for: file)
         } label: {
@@ -934,7 +977,7 @@ struct GitLogView: View {
                     .lineLimit(1)
                 Spacer(minLength: 8)
             }
-            .padding(.leading, 30)
+            .padding(.leading, 30 + CGFloat(max(depth - 1, 0) * 16))
             .padding(.trailing, 8)
             .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
             .litheRowHover(
@@ -1015,12 +1058,16 @@ private final class MutableGitReferenceTreeNode {
     }
 }
 
-private struct GitCommitFileGroup: Identifiable {
-    let path: String
-    let displayName: String
-    let files: [GitCommitFile]
+private enum GitCommitFileTreeItem: Identifiable {
+    case folder(GitCommitFileTreeNode, depth: Int)
+    case file(GitCommitFile, depth: Int)
 
-    var id: String { path }
+    var id: String {
+        switch self {
+        case let .folder(node, _): "folder:\(node.id)"
+        case let .file(file, _): "file:\(file.id)"
+        }
+    }
 }
 
 private enum GitCommitOperationKind {

@@ -51,6 +51,88 @@ struct GitCommitFile: Identifiable, Hashable, Sendable {
     var id: String { "\(status):\(path)" }
 }
 
+struct GitCommitFileTreeNode: Identifiable, Sendable {
+    let path: String
+    let name: String
+    let directories: [GitCommitFileTreeNode]
+    let files: [GitCommitFile]
+
+    var id: String { path.isEmpty ? "." : path }
+
+    var fileCount: Int {
+        files.count + directories.reduce(0) { $0 + $1.fileCount }
+    }
+
+    static func build(from files: [GitCommitFile], rootName: String) -> GitCommitFileTreeNode {
+        let root = MutableGitCommitFileTreeNode(name: rootName, path: "")
+
+        for file in files {
+            let components = file.path
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .map(String.init)
+            guard !components.isEmpty else {
+                root.files.append(file)
+                continue
+            }
+
+            var node = root
+            var pathComponents: [String] = []
+            for component in components.dropLast() {
+                pathComponents.append(component)
+                let path = pathComponents.joined(separator: "/")
+                if node.directories[component] == nil {
+                    node.directories[component] = MutableGitCommitFileTreeNode(
+                        name: component,
+                        path: path
+                    )
+                }
+                node = node.directories[component]!
+            }
+            node.files.append(file)
+        }
+
+        return makeNode(from: root, isRoot: true)
+    }
+
+    private static func makeNode(
+        from node: MutableGitCommitFileTreeNode,
+        isRoot: Bool = false
+    ) -> GitCommitFileTreeNode {
+        let result = GitCommitFileTreeNode(
+            path: node.path,
+            name: node.name,
+            directories: node.directories.values
+                .map { makeNode(from: $0) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+            files: node.files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        )
+
+        guard !isRoot, result.files.isEmpty, result.directories.count == 1,
+              let child = result.directories.first else {
+            return result
+        }
+
+        return GitCommitFileTreeNode(
+            path: child.path,
+            name: "\(result.name)/\(child.name)",
+            directories: child.directories,
+            files: child.files
+        )
+    }
+}
+
+private final class MutableGitCommitFileTreeNode {
+    let path: String
+    let name: String
+    var directories: [String: MutableGitCommitFileTreeNode] = [:]
+    var files: [GitCommitFile] = []
+
+    init(name: String, path: String) {
+        self.name = name
+        self.path = path
+    }
+}
+
 /// Read-only diff context for a file changed by a historical commit.
 struct GitCommitDiffContext: Identifiable, Hashable, Sendable {
     let repositoryRoot: URL
