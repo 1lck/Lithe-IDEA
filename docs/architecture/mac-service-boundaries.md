@@ -1,85 +1,98 @@
 # macOS Service Boundaries
 
-The macOS implementation is being separated around a Rust application core. The
-Swift ports remain useful for capabilities that are genuinely macOS-owned, while
-the Rust core owns behavior that the future Windows UI must consume unchanged.
+The macOS application uses a stable Rust Core boundary and a native adapter
+layer. SwiftUI and AppKit render the product, application feature models own UI
+state transitions, and macOS adapters provide capabilities that cannot be
+shared with Windows.
 
-## Layers
+## Runtime graph
 
 ```text
-Sources/Lithe/Core/Ports/       Platform-neutral capability interfaces
-Sources/Lithe/Core/Terminal/    Pure terminal buffer and escape parsing
-Sources/Lithe/Application/      Platform-neutral service graph and UI feature facades
-Sources/Lithe/Platform/MacOS/  FSEvents, FileManager, Process, PTY, and shell adapters
-Sources/Lithe/Services/        Product workflows and domain orchestration
-Sources/Lithe/Models/           SwiftUI-facing application state
-Sources/Lithe/Views/            SwiftUI/AppKit presentation
-rust/lithe-core/                Cross-platform commands, models, errors, and events
-Sources/LitheRustCore/          C ABI bridge used by the Swift application
+SwiftUI / AppKit Views
+          ↓
+AppModel: UI state, navigation, feature composition
+          ↓
+Application Feature Models
+          ↓
+AppServices + Swift Services
+     ┌────┴───────────────┐
+     ↓                    ↓
+Rust operations       macOS ports/adapters
+     ↓                    ↓
+Rust Core + JSON C ABI  FileSystem / FSEvents / Process / PTY / UI
 ```
 
-Core ports must not import SwiftUI, AppKit, CoreServices, or use `Process` and
-`Pipe` directly. macOS implementations belong under `Platform/MacOS`.
+`MacServiceContainer` is the macOS composition root. It creates the Rust Core
+bridge, Rust-backed workspace/Git/history/Java operations, Swift services, and
+macOS adapters, then injects them into `AppServices`. A future Windows
+composition root must construct the same application-facing ports with Windows
+implementations.
 
-Current ports include:
+## Source ownership
 
-- `ProcessRunner` for synchronous commands such as Git and runtime probes;
-- `StreamingProcess` for text-output Java, Maven, and debug processes;
-- `RawProcessSession` for byte-oriented LSP traffic;
-- `TerminalTransport` for shell sessions and PTY behavior;
-- `WorkspaceFileSystem` and `WorkspaceFileOperations` for workspace I/O;
-- `FileStorage` for search index and Local History persistence;
-- `KeyValueStore` for preferences and project/workbench state;
-- `ArchiveEntryReader` for JDK source archive lookup;
-- `RuntimeLocator` for JDK/Maven discovery and executable selection;
-- `DirectoryChangeSource` for external file events.
-- `PlatformUI` for directory picking, file-browser reveal, and clipboard access;
-- `ShortcutDetector` for native shortcut monitoring.
+| Directory | Responsibility |
+| --- | --- |
+| `Sources/Lithe/Views/` | SwiftUI/AppKit presentation, input, navigation destinations, and view-local rendering. |
+| `Sources/Lithe/Models/` | UI-facing models and value types. `AppModel` is the observable aggregate, not the platform composition root. |
+| `Sources/Lithe/Application/` | Workspace, Document, Git, Search, Java, Terminal, Project History, and UI Feature Models. These coordinate state and user actions. |
+| `Sources/Lithe/Services/` | Product workflow orchestration. Git, workspace, search, and history use Rust operations; Java LSP and Maven/Run/Debug process lifecycles remain Swift workflows behind ports. |
+| `Sources/Lithe/Core/Ports/` | Platform-neutral interfaces for process, terminal, storage, runtime discovery, file operations, watchers, and native UI capabilities. |
+| `Sources/Lithe/Core/Rust*` | Typed operations and model conversion for the shared Rust JSON contract. |
+| `Sources/Lithe/Platform/MacOS/` | FSEvents, file operations, persistence, process sessions, PTY, runtime discovery, native UI, shortcuts, and updates. |
+| `rust/lithe-core/` | Shared commands, validation, parsing, ordering, Git operations, history, and JSON/C ABI. |
 
-`AppServices` is the platform-neutral service graph. `MacServiceContainer`
-constructs it with macOS adapters; a Windows composition root will construct an
-equivalent graph with Windows adapters. `AppModel` owns macOS presentation
-state and application orchestration, but it no longer knows how to construct
-platform adapters. Its `MavenFeatureModel`, `JavaRunFeatureModel`,
-`JavaDebugFeatureModel`, and `RuntimeSettingsFeatureModel` projections are the
-only service-facing objects passed into the corresponding views.
+## Rules
 
-Services no longer construct `Process`, `Pipe`, `FileManager`, `UserDefaults`,
-shell transports, or runtime discovery directly. Views must not receive
-concrete workflow services; they receive an application model or UI feature
-model and send user actions through that boundary.
+Core ports and application code must not import SwiftUI, AppKit, CoreServices,
+or concrete `Mac*` types. They must not construct `Process`, `Pipe`,
+`FileManager`, `UserDefaults`, or `FileHandle` directly.
 
-Small native interactions used by application workflows also go through ports:
-`AppModel` must not import AppKit or call `NSOpenPanel`, `NSWorkspace`,
-`NSPasteboard`, or `NSEvent` directly. The macOS implementations live under
-`Platform/MacOS/UI/`.
+Services must receive those capabilities through ports. A Service may own a
+workflow state machine, such as the JDT LS protocol or Maven/Debug lifecycle,
+but it must not decide how the operating system starts, watches, stores, or
+terminates the underlying resource.
 
-The update checker remains deliberately macOS-owned under
-`Platform/MacOS/Updates/`, because DMG mounting, application replacement,
-`NSWorkspace`, and privileged installation are not cross-platform service
-logic. Windows will provide a separate update implementation.
+Views receive `AppModel` or a dedicated UI Feature Model. They must not receive
+concrete workflow services, call the Rust C ABI directly, or construct platform
+adapters.
 
-Run `./scripts/verify-service-boundaries.sh` after service changes. The check
-guards the boundary against direct platform API or Mac adapter references being
-added back into `Core` or `Services`, and prevents concrete workflow services
-from being passed directly into views.
+The Rust Core owns deterministic cross-platform behavior:
 
-## Migration Rule
+- workspace snapshots, UTF-8 file reads/writes, search, and replacement preview;
+- Git status, Diff, History, Blame, Stash, branch operations, remote sync,
+  Clone, Commit, and patch application;
+- Local History metadata and snapshot operations;
+- Maven descriptor and diagnostic parsing;
+- Java source structure, code vision, class-name, and run-configuration parsing;
+- request envelopes, cancellation, deadlines, error codes, validation, and
+  stable JSON ordering.
 
-The Rust core is the public application boundary for both platforms. Migrate one
-capability at a time, keep the existing Swift implementation as a fallback until
-the macOS behavior is verified, and add a shared fixture before exposing the
-capability to Windows.
+macOS owns the platform side of these capabilities:
 
-The current Rust boundary includes workspace snapshots and search,
-workspace-relative file operations, Git status/diff/apply/write/history and
-related models, Local History storage, Maven descriptor and diagnostic parsing,
-and Java source parsing and model operations. It owns deterministic parsing,
-validation, ordering, and JSON protocol behavior.
+- workspace selection, FSEvents, atomic/native file operations, permissions,
+  persistence location, and Finder integration;
+- JDK/Maven/JDT LS discovery and process sessions;
+- Java/Maven/Debug process transports, terminal PTY, shell, signals, and
+  native handles;
+- native window, menu, clipboard, shortcut, installer, and update behavior.
 
-The platform boundary remains responsible for filesystem watchers and native
-dialogs, Git executable discovery and credentials, JDK/Maven discovery, JDT LS,
-Java/Maven/Debug processes and transports, terminal sessions, native UI,
-installers, and updates. These services continue to use Swift ports on macOS
-and will use equivalent Windows adapters; they are not duplicated inside the
-Rust core.
+## Verification
+
+Run this check after changing an application boundary:
+
+```bash
+scripts/verify-service-boundaries.sh
+```
+
+The script rejects platform imports and concrete adapter references in Core and
+Services, direct workflow-service dependencies in Views, platform composition
+in `AppModel`, and an oversized UI aggregate. Shared JSON behavior is checked
+with `scripts/verify-shared-contracts.sh` and `scripts/verify-rust-core.sh`.
+
+## Remaining migration work
+
+The current boundary is usable and enforced, but it is not a claim that every
+workflow has moved into Rust. Java LSP protocol state, Maven execution, Java
+Run/Debug sessions, and terminal session state are still Swift application
+workflows using platform ports. Their data models and lifecycle events should
+be promoted into shared contracts before Windows implements equivalent UI.

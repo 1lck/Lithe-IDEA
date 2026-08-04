@@ -74,7 +74,7 @@ stable error code and a user-facing message:
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
-| `java.structure` | Parse Java editor structure, implementation candidates, and fallback inlay hints |
+| `java.structure` | Parse Java editor structure, implementation candidates, and inlay hints |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |

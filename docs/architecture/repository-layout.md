@@ -1,68 +1,74 @@
-# Keep platform implementations independent
+# Repository Layout and Sharing Rules
 
-Lithe uses two independent platform implementations with a small set of shared contracts. macOS remains the reference product and keeps its existing SwiftUI/AppKit architecture. Windows is being developed as a separate Qt Widgets/C++ implementation without changing the macOS runtime.
+Lithe contains two independent platform applications connected by a small set
+of shared contracts. macOS is the current reference product. Windows is a
+Qt/C++ implementation in progress; it must not import Swift source or depend
+on macOS types.
 
-## Use the current repository layout
+## Top-level layout
 
 ```text
 Lithe-IDEA/
 ├── Sources/Lithe/          # macOS SwiftUI/AppKit application
-│   ├── Application/        # platform-neutral service graph and UI facades
-│   ├── Core/               # ports and pure domain logic
-│   └── Platform/MacOS/     # macOS composition root and adapters
-├── Resources/              # macOS metadata, localization, and runtime assets
-├── Package.swift           # macOS Swift package
-├── rust/                   # Rust shared application core and C ABI
-├── Sources/LitheRustCore/  # Swift Package C bridge for the Rust library
-├── windows/                # Windows Qt/C++ implementation
-├── shared/                 # Cross-platform contracts and acceptance fixtures
-├── Fixtures/               # Existing reusable Java and Git fixtures
-├── scripts/                # build, packaging, and cross-platform verification scripts
-├── docs/                   # Product, architecture, release, and QA documentation
-└── .github/workflows/      # Platform-specific CI and release workflows
+│   ├── Application/        # feature models and application service graph
+│   ├── Core/               # ports, Rust operations, and terminal primitives
+│   ├── Models/             # UI-facing models and value types
+│   ├── Platform/MacOS/     # macOS composition root and adapters
+│   ├── Services/           # workflow orchestration
+│   └── Views/              # SwiftUI/AppKit presentation
+├── Sources/LitheRustCore/  # Swift Package C bridge declarations
+├── Tests/LitheTests/       # Swift Testing unit tests
+├── rust/lithe-core/        # shared Rust commands, models, and C ABI
+├── windows/                # C++ CoreClient, Win32 adapters, and Qt UI
+├── shared/                 # contracts and cross-platform fixtures
+├── Fixtures/               # reusable Java, Maven, Spring Boot, and Git data
+├── scripts/                # build, packaging, fixture, and verification tools
+├── docs/                   # product, architecture, release, and QA docs
+├── Resources/              # macOS metadata, icons, localization, and assets
+└── Package.swift           # macOS Swift Package Manager definition
 ```
 
-The Windows implementation is split into explicit layers:
+## Platform layers
+
+The macOS package is intentionally kept at the repository root so existing
+SwiftPM, release, and preview commands remain stable:
 
 ```text
-windows/core/               C++ client for the Rust C ABI
-windows/adapters/           platform ports and Win32 adapters
-windows/qt/                 Qt Widgets workbench
+SwiftUI/AppKit → AppModel → Application Feature Models → AppServices
+                                      ├── Rust Core operations
+                                      └── macOS ports and adapters
 ```
 
-The macOS package stays at the repository root. Moving it under another application directory would change local commands, release automation, and existing documentation without improving the Windows boundary. Both macOS and Windows consume the Rust core through the same JSON C ABI.
+The Windows implementation has the corresponding native layers:
 
-## Share contracts before code
+```text
+windows/qt/       Qt Widgets workbench and UI state
+windows/core/     C++ client for the Rust JSON C ABI
+windows/adapters/ Win32 file, watcher, process, terminal, runtime, and storage adapters
+```
 
-Add content to `shared/` only when both platforms consume the same stable input or expected output. Prefer schemas, fixtures, command names, error categories, and acceptance cases.
+Both platforms consume `rust/lithe-core` through the same JSON envelope and
+command names. Shared behavior belongs in `shared/contracts/` and should have
+a fixture under `shared/fixtures/` before the second platform relies on it.
 
-Keep these areas platform-owned:
+## Ownership rules
 
-| macOS | Windows |
+| Shared Rust Core | Platform-owned adapters |
 | --- | --- |
-| SwiftUI/AppKit views and state | Qt Widgets views and state |
-| FSEvents | `ReadDirectoryChangesW` |
-| macOS PTY and shell handling | ConPTY and Windows shell handling |
-| DMG installation and update | Windows installation and update |
-| macOS runtime discovery | Windows runtime discovery |
+| Workspace traversal and search rules | Root selection and directory watching |
+| UTF-8 file command validation and results | Native file APIs, permissions, and persistence paths |
+| Git models, validation, parsing, and mutations | Executable environment and credentials |
+| History metadata and snapshot rules | History storage location and file movement |
+| Maven and Java source parsing | JDK/Maven/JDT LS discovery and child processes |
+| Error codes, cancellation, deadlines, and JSON envelope | PTY/ConPTY, signals, handles, and native UI |
 
-The Rust core currently owns deterministic workspace traversal, search,
-workspace-relative file operations, Git models and mutations, history
-metadata, Maven descriptor/diagnostic parsing, and Java source parsing. The
-platform implementations still own filesystem watchers, native file dialogs,
-Git executable environment, JDK/Maven discovery, JDT LS and Java/Maven/Debug
-processes, terminal sessions, native UI, and installers or updates. See
-[`shared/contracts/application-boundary.md`](../../shared/contracts/application-boundary.md)
-for the cross-platform split.
+The UI must depend on feature models and shared models, not on a concrete
+adapter. Core and Services must remain free of AppKit, SwiftUI, Win32, Qt,
+`Process`, and direct platform file APIs.
 
-## Keep generated files out of the repository
+## Repository hygiene
 
-The following directories are local outputs and can be recreated:
-
-- `.build/` and `.swiftpm/`;
-- `dist/`;
-- `Fixtures/**/target/`;
-- `DerivedData/`;
-- untracked visual QA artifacts.
-
-Keep only the screenshots referenced by the public README files. Keep source assets, fixture metadata, release notes, and verification scripts even when the running application does not load them directly.
+Do not commit generated outputs such as `.build/`, `.swiftpm/`, `dist/`,
+`DerivedData/`, fixture build directories, or local IDE configuration. Keep
+release notes, contract fixtures, verification scripts, and the screenshots
+referenced by the public README files.
