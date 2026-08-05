@@ -8,6 +8,8 @@
 "Updates" = "更新";
 "Application version" = "应用版本";
 "Current version" = "当前版本";
+"Current application memory: %@\nAverage since launch: %@" = "当前应用内存：%@\n启动以来平均：%@";
+"avg" = "平均";
 "Lithe checks GitHub Releases for published updates." = "Lithe 会检查 GitHub Releases 中发布的更新。";
 "Update status" = "更新状态";
 "Update Available" = "有可用更新";

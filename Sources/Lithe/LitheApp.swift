@@ -40,6 +40,7 @@ struct LitheApp: App {
     @NSApplicationDelegateAdaptor(LitheAppDelegate.self) private var appDelegate
     @StateObject private var settings: AppSettings
     @StateObject private var model: AppModel
+    @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
     @StateObject private var updateChecker = UpdateChecker()
 
     init() {
@@ -51,6 +52,7 @@ struct LitheApp: App {
             services: MacServiceContainer(store: store).services
         )
         _model = StateObject(wrappedValue: model)
+        _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor())
         appDelegate.model = model
     }
 
@@ -59,10 +61,14 @@ struct LitheApp: App {
             RootView()
                 .environmentObject(model)
                 .environmentObject(settings)
+                .environmentObject(memoryUsageMonitor)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
                 .frame(minWidth: 980, minHeight: 640)
                 .preferredColorScheme(.dark)
+                .task {
+                    memoryUsageMonitor.start()
+                }
         }
         .defaultSize(width: 1440, height: 900)
         .windowStyle(.hiddenTitleBar)

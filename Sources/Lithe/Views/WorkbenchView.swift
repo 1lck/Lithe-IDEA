@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var memoryUsageMonitor: MemoryUsageMonitor
     @EnvironmentObject private var runFeature: JavaRunFeatureModel
     @State private var sidebarWidth: CGFloat = 320
     @State private var sidebarDragStart: CGFloat = 320
@@ -760,6 +761,7 @@ struct WorkbenchView: View {
             .litheIconButton()
             .disabled(model.activeDocument?.isReadOnly == true)
             .help(model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save")
+            memoryStatus
             gitStatus
         }
     }
@@ -767,6 +769,7 @@ struct WorkbenchView: View {
     private var compactStatusItems: some View {
         HStack(spacing: 10) {
             caretPosition
+            memoryStatus
             gitStatus
         }
     }
@@ -785,6 +788,26 @@ struct WorkbenchView: View {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
         }
+    }
+
+    private var memoryStatus: some View {
+        Label {
+            HStack(spacing: 4) {
+                Text(memoryUsageMonitor.currentText)
+                Text("·")
+                Text("avg")
+                Text(memoryUsageMonitor.averageText)
+            }
+            .monospacedDigit()
+        } icon: {
+            Image(systemName: "memorychip")
+        }
+        .help(
+            Text(
+                "Current application memory: \(memoryUsageMonitor.currentText)\n" +
+                "Average since launch: \(memoryUsageMonitor.averageText)"
+            )
+        )
     }
 
     private var projectInitials: String {
