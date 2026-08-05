@@ -17,6 +17,7 @@ permissions:
 jobs:
   release:
     name: Build and publish Lithe for macOS
+    if: github.actor == github.repository_owner
     runs-on: macos-14
     permissions:
       contents: write
