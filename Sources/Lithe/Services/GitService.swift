@@ -11,6 +11,14 @@ protocol GitOperations: Sendable {
         whitespace: GitDiffWhitespaceMode
     ) -> DiffDocument?
 
+    func diffPatch(
+        at rootURL: URL,
+        pathspecs: [String],
+        staged: Bool,
+        untracked: Bool,
+        whitespace: GitDiffWhitespaceMode
+    ) -> String?
+
     func commitDiffDocument(
         at rootURL: URL,
         commit: String,
@@ -105,6 +113,38 @@ struct GitService: Sendable {
                 whitespace: whitespace
             )
         } ?? DiffDocument(rows: [], hunks: [])
+    }
+
+    func diffPatch(
+        for change: GitChange,
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) async -> String {
+        await read {
+            $0.diffPatch(
+                at: change.repositoryRoot,
+                pathspecs: change.pathspecs,
+                staged: !change.hasWorkingTreeChange,
+                untracked: change.isUntracked,
+                whitespace: whitespace
+            )
+        } ?? ""
+    }
+
+    /// Returns exactly what Git would include for this file in the next
+    /// commit, even when the file also has unstaged working-tree changes.
+    func stagedDiffPatch(
+        for change: GitChange,
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) async -> String {
+        await read {
+            $0.diffPatch(
+                at: change.repositoryRoot,
+                pathspecs: change.pathspecs,
+                staged: true,
+                untracked: false,
+                whitespace: whitespace
+            )
+        } ?? ""
     }
 
     func stage(_ change: GitChange) async -> CommandResult {

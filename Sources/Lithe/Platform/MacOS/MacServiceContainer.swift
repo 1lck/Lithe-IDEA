@@ -67,6 +67,21 @@ final class MacServiceContainer {
         let workspaceOperations = RustWorkspaceOperations(core: rustCore)
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
         let gitService = GitService(operations: gitOperations)
+        let secureStore = MacLocalSecretStore()
+        let codexConfigurationSource = MacCodexConfigurationSource()
+        let claudeConfigurationSource = MacClaudeConfigurationSource()
+        let aiConfigurationSources: [any AIConfigurationSource] = [
+            codexConfigurationSource,
+            claudeConfigurationSource
+        ]
+        let credentialResolver = MacAIProviderCredentialResolver(
+            localStore: secureStore,
+            configurationSources: aiConfigurationSources
+        )
+        let commitMessageGenerator = CommitMessageGenerationService(
+            transport: MacURLSessionTransport(),
+            credentialResolver: credentialResolver
+        )
         services = AppServices(
             workspaceOperations: workspaceOperations,
             localHistoryOperations: localHistoryOperations,
@@ -81,6 +96,10 @@ final class MacServiceContainer {
             javaRunService: javaRunService,
             javaDebugService: javaDebugService,
             gitService: gitService,
+            commitMessageGenerator: commitMessageGenerator,
+            secureStore: secureStore,
+            credentialResolver: credentialResolver,
+            aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),

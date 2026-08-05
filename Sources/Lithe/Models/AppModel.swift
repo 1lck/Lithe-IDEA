@@ -32,8 +32,11 @@ final class AppModel: ObservableObject {
         workspaceFeature.isPerformingProjectItemOperation
     }
     @Published var notificationMessage: String?
+    @Published private(set) var detectedAIConfigurations: [AIConfigurationSnapshot] = []
     @Published var commitMessage = ""
     @Published var amendCommit = false
+    @Published private(set) var isGeneratingCommitMessage = false
+    @Published private(set) var pendingGeneratedCommitMessage: String?
     @Published var isGitLogVisible = false
     @Published var isTerminalVisible = false
     @Published var isReferencesVisible = false
@@ -70,6 +73,14 @@ final class AppModel: ObservableObject {
     private var searchFeatureObservation: AnyCancellable?
     private var terminalFeatureObservation: AnyCancellable?
     private var projectHistoryFeatureObservation: AnyCancellable?
+
+    var detectedCodexConfiguration: CodexConfigurationSnapshot? {
+        detectedAIConfigurations.first { $0.source == .codex }
+    }
+
+    var detectedClaudeConfiguration: AIConfigurationSnapshot? {
+        detectedAIConfigurations.first { $0.source == .claude }
+    }
     private var gitFeatureObservation: AnyCancellable?
     private var documentFeatureObservation: AnyCancellable?
     private var javaFeatureObservation: AnyCancellable?
@@ -271,6 +282,25 @@ final class AppModel: ObservableObject {
         settings.onFileVisibilityRulesChanged = { [weak self] in
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
+        }
+        detectedAIConfigurations = loadAIConfigurations()
+        let activeProviderHasAPIKey = settings.activeCommitMessageProvider
+            .flatMap { services.credentialResolver.readAPIKey(for: $0) }
+            .map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
+        let activeProviderSource = settings.activeCommitMessageProvider?.credentialSource.configurationSource
+        let needsConfigurationImport = activeProviderSource != nil && !activeProviderHasAPIKey
+        let codexConfiguration = detectedAIConfigurations.first { $0.source == .codex }
+        let shouldImportCodex = !settings.commitMessageAI.codexImportCompleted && codexConfiguration != nil
+        let configurationToImport = activeProviderSource.flatMap { source in
+            detectedAIConfigurations.first { $0.source == source }
+        }
+        if let configuration = (needsConfigurationImport ? configurationToImport : nil) ?? (shouldImportCodex ? codexConfiguration : nil) {
+            let provider = settings.importAIConfiguration(configuration)
+            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+        } else if settings.commitMessageAI.providers.isEmpty,
+                  let configuration = detectedAIConfigurations.first {
+            let provider = settings.importAIConfiguration(configuration)
+            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
         }
         runtimeFeature.setOnRuntimeChanged { [weak self] in
             self?.reloadJavaRuntimeServices()
@@ -1041,6 +1071,187 @@ final class AppModel: ObservableObject {
             commitMessage = ""
             amendCommit = false
         }
+    }
+
+    func generateCommitMessage() async {
+        guard !isGeneratingCommitMessage else { return }
+        let stagedChanges = gitFeature.gitChanges.filter(\.isStaged)
+        guard !stagedChanges.isEmpty else {
+            showNotification("Stage at least one file first")
+            return
+        }
+
+        let stagedChangeIDs = Set(stagedChanges.map(\.id))
+        isGeneratingCommitMessage = true
+        pendingGeneratedCommitMessage = nil
+        defer { isGeneratingCommitMessage = false }
+
+        do {
+            refreshAIConfigurations()
+            guard let input = await gitFeature.stagedCommitMessageInput() else {
+                throw CommitMessageGenerationError.emptyDiff
+            }
+            let generated = try await services.commitMessageGenerator.generate(
+                input: input,
+                settings: settings.commitMessageAI
+            )
+            let currentStagedChangeIDs = Set(
+                gitFeature.gitChanges.filter(\.isStaged).map(\.id)
+            )
+            guard currentStagedChangeIDs == stagedChangeIDs else {
+                showNotification("Staged files changed before generation finished")
+                return
+            }
+
+            if commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                commitMessage = generated
+                showNotification("Commit message generated")
+            } else {
+                pendingGeneratedCommitMessage = generated
+            }
+        } catch {
+            showNotification(error.localizedDescription)
+        }
+    }
+
+    func applyPendingGeneratedCommitMessage() {
+        guard let pendingGeneratedCommitMessage else { return }
+        commitMessage = pendingGeneratedCommitMessage
+        self.pendingGeneratedCommitMessage = nil
+        showNotification("Commit message replaced")
+    }
+
+    func discardPendingGeneratedCommitMessage() {
+        pendingGeneratedCommitMessage = nil
+    }
+
+    @discardableResult
+    func refreshAIConfigurations() -> Bool {
+        let configurations = loadAIConfigurations()
+        detectedAIConfigurations = configurations
+
+        guard let activeProvider = settings.activeCommitMessageProvider,
+              let source = configurationSource(for: activeProvider),
+              let configuration = configurations.first(where: { $0.source == source }) else {
+            return !configurations.isEmpty
+        }
+
+        updateImportedProvider(from: configuration)
+        return true
+    }
+
+    @discardableResult
+    func refreshCodexConfiguration() -> Bool {
+        refreshAIConfigurations()
+        return detectedCodexConfiguration != nil
+    }
+
+    @discardableResult
+    func importAIConfiguration(_ configuration: AIConfigurationSnapshot) -> Bool {
+        let provider = settings.importAIConfiguration(configuration)
+        try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+        detectedAIConfigurations.removeAll { $0.source == configuration.source }
+        detectedAIConfigurations.append(configuration)
+        showNotification("\(configuration.source.title) configuration imported")
+        return true
+    }
+
+    @discardableResult
+    func importCodexConfiguration() -> Bool {
+        guard let codexConfiguration = loadAIConfigurations().first(where: { $0.source == .codex }) else {
+            detectedAIConfigurations.removeAll { $0.source == .codex }
+            showNotification("No Codex configuration was found")
+            return false
+        }
+        return importAIConfiguration(codexConfiguration)
+    }
+
+    var activeCommitMessageAPIKey: String {
+        guard let provider = settings.activeCommitMessageProvider else { return "" }
+        return services.credentialResolver.readAPIKey(for: provider) ?? ""
+    }
+
+    var activeCommitMessageCredentialIsConfigurationManaged: Bool {
+        guard let provider = settings.activeCommitMessageProvider else { return false }
+        return configurationSource(for: provider) != nil
+    }
+
+    var activeCommitMessageConfigurationSourceTitle: String? {
+        settings.activeCommitMessageProvider
+            .flatMap(configurationSource(for:))?
+            .title
+    }
+
+    var activeCommitMessageConfigurationSourceDescription: String? {
+        settings.activeCommitMessageProvider
+            .flatMap(configurationSource(for:))?
+            .settingsDescription
+    }
+
+    var activeCommitMessageCredentialIsCodexManaged: Bool {
+        activeCommitMessageCredentialIsConfigurationManaged
+    }
+
+    func saveActiveCommitMessageAPIKey(_ value: String) {
+        guard let provider = settings.activeCommitMessageProvider else { return }
+        if activeCommitMessageCredentialIsConfigurationManaged {
+            let source = activeCommitMessageConfigurationSourceTitle ?? "AI"
+            showNotification("API key is managed by \(source) configuration")
+            return
+        }
+        do {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                try services.secureStore.delete(key: provider.apiKeyIdentifier)
+            } else {
+                try services.secureStore.write(trimmed, key: provider.apiKeyIdentifier)
+            }
+            showNotification("API key saved locally")
+        } catch {
+            showNotification(error.localizedDescription)
+        }
+    }
+
+    private func loadAIConfigurations() -> [AIConfigurationSnapshot] {
+        services.aiConfigurationSources.compactMap { $0.load() }
+    }
+
+    private func configurationSource(
+        for provider: AIProviderProfile
+    ) -> AIConfigurationSourceKind? {
+        if let source = provider.credentialSource.configurationSource {
+            return source
+        }
+        if provider.apiKeyIdentifier == "lithe.codex.imported.apiKey" {
+            return .codex
+        }
+        if provider.apiKeyIdentifier == "lithe.claude.imported.apiKey" {
+            return .claude
+        }
+        return nil
+    }
+
+    private func updateImportedProvider(from configuration: AIConfigurationSnapshot) {
+        guard let activeProvider = settings.activeCommitMessageProvider,
+              configurationSource(for: activeProvider) == configuration.source else {
+            return
+        }
+
+        settings.updateActiveCommitMessageProvider { provider in
+            provider.name = configuration.providerName.isEmpty
+                ? "\(configuration.source.title) (imported)"
+                : "\(configuration.source.title) · \(configuration.providerName)"
+            provider.endpoint = configuration.endpoint
+            provider.model = configuration.model
+            provider.apiProtocol = configuration.apiProtocol
+            provider.authentication = configuration.authentication
+            provider.requiresAPIKey = configuration.requiresAPIKey
+            provider.apiKeyIdentifier = "lithe.\(configuration.source.rawValue).imported.apiKey"
+            provider.credentialSource = configuration.source.credentialSource
+        }
+        try? services.secureStore.delete(
+            key: "lithe.\(configuration.source.rawValue).imported.apiKey"
+        )
     }
 
     func toggleStaging(_ change: GitChange) async {

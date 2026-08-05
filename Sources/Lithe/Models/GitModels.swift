@@ -301,8 +301,15 @@ struct DiffHunk: Identifiable, Sendable {
 }
 
 struct DiffDocument: Sendable {
+    let patch: String
     let rows: [DiffRow]
     let hunks: [DiffHunk]
+
+    init(patch: String = "", rows: [DiffRow], hunks: [DiffHunk]) {
+        self.patch = patch
+        self.rows = rows
+        self.hunks = hunks
+    }
 }
 
 struct DiffHunkRequest: Identifiable {

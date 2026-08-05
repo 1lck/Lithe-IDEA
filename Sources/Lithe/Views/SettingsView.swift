@@ -7,6 +7,7 @@ struct SettingsView: View {
         case general = "General"
         case editor = "Editor"
         case terminal = "Terminal"
+        case ai = "AI & Commit"
         case updates = "Updates"
 
         var id: String { rawValue }
@@ -16,12 +17,14 @@ struct SettingsView: View {
             case .general: "gearshape"
             case .editor: "textformat"
             case .terminal: "terminal"
+            case .ai: "wand.and.stars"
             case .updates: "arrow.down.circle"
             }
         }
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
@@ -32,6 +35,8 @@ struct SettingsView: View {
     @State private var javaHomeDraft = ""
     @State private var mavenHomeDraft = ""
     @State private var mavenJavaHomeDraft = ""
+    @State private var aiAPIKeyDraft = ""
+    @State private var isFormatPickerPresented = false
 
     init(settings: AppSettings, runtimeFeature: RuntimeSettingsFeatureModel) {
         self.settings = settings
@@ -56,12 +61,15 @@ struct SettingsView: View {
         .onAppear {
             syncVisibilityDrafts()
             syncRuntimeDrafts()
+            model.refreshAIConfigurations()
+            syncAIProviderDraft()
         }
         .onChange(of: settings.hiddenDirectoryNames) { syncVisibilityDrafts() }
         .onChange(of: settings.hiddenFilePatterns) { syncVisibilityDrafts() }
         .onChange(of: projectRuntime.settings.javaHomePath) { javaHomeDraft = projectRuntime.settings.javaHomePath }
         .onChange(of: projectRuntime.settings.mavenHomePath) { mavenHomeDraft = projectRuntime.settings.mavenHomePath }
         .onChange(of: projectRuntime.settings.mavenJavaHomePath) { mavenJavaHomeDraft = projectRuntime.settings.mavenJavaHomePath }
+        .onChange(of: settings.commitMessageAI.activeProviderID) { syncAIProviderDraft() }
         .onDisappear(perform: commitRuntimeDrafts)
     }
 
@@ -127,6 +135,7 @@ struct SettingsView: View {
                 case .general: generalSettings
                 case .editor: editorSettings
                 case .terminal: terminalSettings
+                case .ai: aiSettings
                 case .updates: updatesSettings
                 }
             }
@@ -253,7 +262,7 @@ struct SettingsView: View {
             group("Language") {
                 Picker("Language", selection: $settings.language) {
                     ForEach(AppLanguage.allCases) { language in
-                        Text(language.title).tag(language)
+                        Text(LocalizedStringKey(language.title)).tag(language)
                     }
                 }
                 .frame(maxWidth: 220, alignment: .leading)
@@ -374,6 +383,441 @@ struct SettingsView: View {
             Text("Used for new terminal sessions.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
+        }
+    }
+
+    private var aiSettings: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            group("AI provider") {
+                if settings.commitMessageAI.providers.isEmpty {
+                    Text("No AI provider is configured yet.")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                } else {
+                    Picker("Profile", selection: Binding(
+                        get: { settings.commitMessageAI.activeProviderID ?? settings.commitMessageAI.providers[0].id },
+                        set: { settings.selectCommitMessageProvider($0) }
+                    )) {
+                        ForEach(settings.commitMessageAI.providers) { provider in
+                            Text(provider.name.isEmpty ? "Unnamed provider" : provider.name)
+                                .tag(provider.id)
+                        }
+                    }
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .lithePointer()
+
+                    HStack(spacing: 8) {
+                        Button("Add Provider") {
+                            settings.addCommitMessageProvider()
+                            syncAIProviderDraft()
+                        }
+                        .buttonStyle(.bordered)
+                        .lithePointer()
+
+                        Button("Remove") {
+                            settings.removeActiveCommitMessageProvider()
+                            syncAIProviderDraft()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(settings.activeCommitMessageProvider == nil)
+                        .lithePointer()
+                    }
+                }
+
+                if settings.activeCommitMessageProvider != nil {
+                    TextField("Provider name", text: activeProviderTextBinding(\.name))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                    Picker("API protocol", selection: activeProviderProtocolBinding()) {
+                        ForEach(CommitMessageAPIProtocol.allCases) { apiProtocol in
+                            Text(LocalizedStringKey(apiProtocol.title)).tag(apiProtocol)
+                        }
+                    }
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .lithePointer()
+                    .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                    TextField("API URL", text: activeProviderTextBinding(\.endpoint))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                    if settings.activeCommitMessageProvider?.usesInsecureHTTP == true {
+                        Toggle(
+                            "Allow insecure HTTP",
+                            isOn: activeProviderBoolBinding(\.allowsInsecureHTTP)
+                        )
+                        .lithePointer()
+                        Label(
+                            settings.activeCommitMessageProvider?.allowsInsecureHTTP == true
+                                ? "HTTP sends the API credential without encryption. Use only a trusted endpoint."
+                                : "HTTP is blocked until you explicitly allow it for this provider.",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.warning)
+                    }
+                    TextField("Model", text: activeProviderTextBinding(\.model))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+
+                    HStack(spacing: 8) {
+                        SecureField("API key or token", text: $aiAPIKeyDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        Button("Save Key") {
+                            model.saveActiveCommitMessageAPIKey(aiAPIKeyDraft)
+                        }
+                        .buttonStyle(.bordered)
+                        .lithePointer()
+                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                    }
+
+                    Toggle("Provider requires an API key", isOn: activeProviderBoolBinding(\.requiresAPIKey))
+                        .lithePointer()
+                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+
+                    if model.activeCommitMessageCredentialIsConfigurationManaged,
+                       let description = model.activeCommitMessageConfigurationSourceDescription {
+                        Text(LocalizedStringKey(description))
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
+                }
+
+                if !model.detectedAIConfigurations.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(model.detectedAIConfigurations) { configuration in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(LitheTheme.success)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(LocalizedStringKey(configuration.source.detectedTitle))
+                                        .font(.system(size: 12, weight: .medium))
+                                    Text("\(configuration.model) · \(configuration.endpoint)")
+                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .foregroundStyle(LitheTheme.secondaryText)
+                                        .lineLimit(2)
+                                    Text(LocalizedStringKey(
+                                        configuration.hasCredential
+                                            ? configuration.source.credentialAvailableTitle
+                                            : configuration.source.noCredentialTitle
+                                    ))
+                                    .font(LitheTheme.smallFont)
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                }
+                                Spacer()
+                                Button(LocalizedStringKey(configuration.source.importTitle)) {
+                                    if model.importAIConfiguration(configuration) {
+                                        syncAIProviderDraft()
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(LitheTheme.accent)
+                                .lithePointer()
+                            }
+                            .padding(10)
+                            .background(LitheTheme.inputBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: 5))
+                        }
+
+                        HStack {
+                            Spacer()
+                            Button {
+                                reloadAIConfigurations()
+                            } label: {
+                                Label("Reload AI configurations", systemImage: "arrow.clockwise")
+                            }
+                            .buttonStyle(.bordered)
+                            .lithePointer()
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Lithe looks for Codex and Claude configuration files on this Mac.")
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        Button {
+                            reloadAIConfigurations()
+                        } label: {
+                            Label("Reload AI configurations", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .lithePointer()
+                    }
+                }
+
+                if !model.activeCommitMessageCredentialIsConfigurationManaged {
+                    Text("API keys are stored in Lithe's local application data and are never written to Lithe settings.")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+            }
+
+            group("Commit message generation") {
+                Picker("Reasoning effort", selection: $settings.commitMessageAI.reasoningEffort) {
+                    ForEach(CommitMessageReasoningEffort.allCases) { effort in
+                        Text(LocalizedStringKey(effort.title)).tag(effort)
+                    }
+                }
+                .frame(maxWidth: 230, alignment: .leading)
+                .lithePointer()
+
+                Picker("Output language", selection: $settings.commitMessageAI.language) {
+                    ForEach(CommitMessageLanguage.allCases) { language in
+                        Text(LocalizedStringKey(language.title)).tag(language)
+                    }
+                }
+                .frame(maxWidth: 230, alignment: .leading)
+                .lithePointer()
+
+                formatPicker
+
+                Toggle("Include a short body when useful", isOn: $settings.commitMessageAI.includeBody)
+                    .lithePointer()
+
+                row("Subject maximum length") {
+                    Stepper(value: $settings.commitMessageAI.subjectMaximumLength, in: 40...120, step: 4) {
+                        Text("\(settings.commitMessageAI.subjectMaximumLength) ") + Text("chars")
+                            .monospacedDigit()
+                    }
+                    .lithePointer()
+                }
+
+                row("Diff character limit") {
+                    Stepper(value: $settings.commitMessageAI.maximumDiffCharacters, in: 8_000...120_000, step: 4_000) {
+                        Text("\(settings.commitMessageAI.maximumDiffCharacters)")
+                            .monospacedDigit()
+                    }
+                    .lithePointer()
+                }
+
+                if settings.commitMessageAI.format == .custom {
+                    Text("Custom instructions")
+                        .font(.system(size: 11.5, weight: .medium))
+                    TextEditor(text: $settings.commitMessageAI.customInstructions)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(height: 92)
+                        .padding(5)
+                        .background(LitheTheme.inputBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                        }
+                }
+
+                Text("Low effort and a small output limit are recommended for fast commit-message generation.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+        }
+    }
+
+    private var formatPicker: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("Format")
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(width: 118, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    toggleFormatPicker()
+                } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: settings.commitMessageAI.format.icon)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(LitheTheme.accent)
+                            .frame(width: 18)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(LocalizedStringKey(settings.commitMessageAI.format.title))
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundStyle(LitheTheme.primaryText)
+                            Text(LocalizedStringKey(settings.commitMessageAI.format.description))
+                                .font(LitheTheme.smallFont)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .rotationEffect(.degrees(isFormatPickerPresented ? 180 : 0))
+                            .animation(formatPickerAnimation, value: isFormatPickerPresented)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    .background(isFormatPickerPresented ? LitheTheme.inputBackground.opacity(0.9) : LitheTheme.inputBackground)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                            .stroke(
+                                isFormatPickerPresented ? LitheTheme.inputFocusBorder : LitheTheme.inputBorder,
+                                lineWidth: 1
+                            )
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .popover(isPresented: $isFormatPickerPresented, arrowEdge: .bottom) {
+                    formatPickerPopover
+                }
+
+                formatExample
+            }
+            .frame(maxWidth: 420, alignment: .leading)
+        }
+    }
+
+    private var formatPickerPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Choose a commit format")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(LitheTheme.primaryText)
+                    Text("Each built-in preset includes a preview of the generated message.")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    isFormatPickerPresented = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .litheIconButton()
+                .help("Close")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(height: 1)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 4) {
+                    ForEach(CommitMessageFormat.builtInCases) { format in
+                        formatOption(format)
+                    }
+
+                    Rectangle()
+                        .fill(LitheTheme.divider)
+                        .frame(height: 1)
+                        .padding(.vertical, 4)
+
+                    formatOption(.custom)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 360)
+        }
+        .frame(width: 430)
+        .lithePopupChrome(cornerRadius: 8)
+    }
+
+    private func formatOption(_ format: CommitMessageFormat) -> some View {
+        let isSelected = settings.commitMessageAI.format == format
+
+        return Button {
+            selectFormat(format)
+        } label: {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: format.icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isSelected ? LitheTheme.accent : LitheTheme.secondaryText)
+                    .frame(width: 18, height: 18)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(LocalizedStringKey(format.title))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(LitheTheme.primaryText)
+                        Spacer(minLength: 0)
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(LitheTheme.accent)
+                        }
+                    }
+
+                    Text(LocalizedStringKey(format.description))
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+
+                    if format != .custom {
+                        Text(LocalizedStringKey(format.example))
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                            .lineLimit(format == .descriptive ? 3 : 2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .litheRowHover(
+            isActive: isSelected,
+            cornerRadius: 5,
+            activeBackground: LitheTheme.subtleSelection
+        )
+        .lithePointer()
+    }
+
+    @ViewBuilder
+    private var formatExample: some View {
+        if settings.commitMessageAI.format != .custom {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Example")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+
+                Text(LocalizedStringKey(settings.commitMessageAI.format.example))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(settings.commitMessageAI.format == .descriptive ? 4 : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(LitheTheme.inputBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                    }
+                    .id(settings.commitMessageAI.format)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .animation(formatPickerAnimation, value: settings.commitMessageAI.format)
+            }
+        }
+    }
+
+    private var formatPickerAnimation: Animation? {
+        accessibilityReduceMotion ? nil : .easeOut(duration: 0.18)
+    }
+
+    private func toggleFormatPicker() {
+        withAnimation(formatPickerAnimation) {
+            isFormatPickerPresented.toggle()
+        }
+    }
+
+    private func selectFormat(_ format: CommitMessageFormat) {
+        withAnimation(formatPickerAnimation) {
+            settings.commitMessageAI.format = format
+            isFormatPickerPresented = false
         }
     }
 
@@ -558,6 +1002,52 @@ struct SettingsView: View {
         javaHomeDraft = projectRuntime.settings.javaHomePath
         mavenHomeDraft = projectRuntime.settings.mavenHomePath
         mavenJavaHomeDraft = projectRuntime.settings.mavenJavaHomePath
+    }
+
+    private func syncAIProviderDraft() {
+        aiAPIKeyDraft = model.activeCommitMessageAPIKey
+    }
+
+    private func reloadAIConfigurations() {
+        model.refreshAIConfigurations()
+        syncAIProviderDraft()
+    }
+
+    private func activeProviderTextBinding(
+        _ keyPath: WritableKeyPath<AIProviderProfile, String>
+    ) -> Binding<String> {
+        Binding(
+            get: { settings.activeCommitMessageProvider?[keyPath: keyPath] ?? "" },
+            set: { value in
+                settings.updateActiveCommitMessageProvider { provider in
+                    provider[keyPath: keyPath] = value
+                }
+            }
+        )
+    }
+
+    private func activeProviderProtocolBinding() -> Binding<CommitMessageAPIProtocol> {
+        Binding(
+            get: { settings.activeCommitMessageProvider?.apiProtocol ?? .responses },
+            set: { value in
+                settings.updateActiveCommitMessageProvider { provider in
+                    provider.apiProtocol = value
+                }
+            }
+        )
+    }
+
+    private func activeProviderBoolBinding(
+        _ keyPath: WritableKeyPath<AIProviderProfile, Bool>
+    ) -> Binding<Bool> {
+        Binding(
+            get: { settings.activeCommitMessageProvider?[keyPath: keyPath] ?? true },
+            set: { value in
+                settings.updateActiveCommitMessageProvider { provider in
+                    provider[keyPath: keyPath] = value
+                }
+            }
+        )
     }
 
     private func commitRuntimeDrafts() {

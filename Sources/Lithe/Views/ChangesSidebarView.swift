@@ -62,6 +62,25 @@ struct ChangesSidebarView: View {
         } message: {
             Text("The staged changes will be committed and the current branch will be pushed to its configured remote.")
         }
+        .confirmationDialog(
+            "Replace current commit message?",
+            isPresented: Binding(
+                get: { model.pendingGeneratedCommitMessage != nil },
+                set: { if !$0 { model.discardPendingGeneratedCommitMessage() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Replace") {
+                model.applyPendingGeneratedCommitMessage()
+            }
+            .lithePointer()
+            Button("Keep Current", role: .cancel) {
+                model.discardPendingGeneratedCommitMessage()
+            }
+            .lithePointer()
+        } message: {
+            Text("The generated message will replace the text currently in the editor.")
+        }
     }
 
     private var tabHeader: some View {
@@ -504,6 +523,33 @@ struct ChangesSidebarView: View {
                 Image(systemName: "clock")
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
+                Button {
+                    Task { await model.generateCommitMessage() }
+                } label: {
+                    HStack(spacing: 4) {
+                        if model.isGeneratingCommitMessage {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "wand.and.stars")
+                        }
+                        Text("AI")
+                    }
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .padding(.horizontal, 7)
+                    .frame(height: 24)
+                    .background(LitheTheme.raised.opacity(0.72))
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .disabled(
+                    stagedChanges.isEmpty ||
+                        model.isLoadingDiff ||
+                        model.isGeneratingCommitMessage
+                )
+                .help("Generate a commit message from staged diffs")
                 Text("\(stagedChanges.count) staged")
                     .font(.system(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)

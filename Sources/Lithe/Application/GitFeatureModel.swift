@@ -11,6 +11,7 @@ final class GitFeatureModel: ObservableObject {
     @Published private(set) var gitRepositoryRoot: URL?
     @Published private(set) var currentBranch = "No Git"
     @Published var selectedChange: GitChange?
+    @Published private(set) var selectedDiffPatch = ""
     @Published private(set) var diffRows: [DiffRow] = []
     @Published private(set) var diffHunks: [DiffHunk] = []
     @Published var gitDiffWhitespaceMode = GitDiffWhitespaceMode.doNotIgnore
@@ -71,6 +72,7 @@ final class GitFeatureModel: ObservableObject {
         gitRepositoryRoot = nil
         currentBranch = "No Git"
         selectedChange = nil
+        selectedDiffPatch = ""
         diffRows = []
         diffHunks = []
         gitDiffWhitespaceMode = .doNotIgnore
@@ -122,10 +124,12 @@ final class GitFeatureModel: ObservableObject {
                     for: updated,
                     whitespace: gitDiffWhitespaceMode
                 )
+                selectedDiffPatch = document.patch
                 diffRows = document.rows
                 diffHunks = document.hunks
             } else if selectedChange != nil {
                 self.selectedChange = nil
+                selectedDiffPatch = ""
                 diffRows = []
                 diffHunks = []
                 isLoadingDiff = false
@@ -136,6 +140,7 @@ final class GitFeatureModel: ObservableObject {
             gitChanges = []
             gitStashes = []
             selectedChange = nil
+            selectedDiffPatch = ""
             diffRows = []
             diffHunks = []
             isLoadingDiff = false
@@ -151,6 +156,7 @@ final class GitFeatureModel: ObservableObject {
         closeBranchComparison()
         selectedGitCommitDiffContext = nil
         selectedChange = change
+        selectedDiffPatch = ""
         diffRows = []
         diffHunks = []
         isLoadingDiff = true
@@ -159,6 +165,7 @@ final class GitFeatureModel: ObservableObject {
             whitespace: gitDiffWhitespaceMode
         )
         guard selectedChange?.id == change.id else { return }
+        selectedDiffPatch = document.patch
         diffRows = document.rows
         diffHunks = document.hunks
         isLoadingDiff = false
@@ -170,9 +177,50 @@ final class GitFeatureModel: ObservableObject {
         isLoadingDiff = true
         let document = await service.diffDocument(for: selectedChange, whitespace: whitespace)
         guard self.selectedChange?.id == selectedChange.id else { return }
+        selectedDiffPatch = document.patch
         diffRows = document.rows
         diffHunks = document.hunks
         isLoadingDiff = false
+    }
+
+    func commitMessageInput(for change: GitChange) async -> CommitMessageInput {
+        let patch: String
+        if selectedChange?.id == change.id, !selectedDiffPatch.isEmpty {
+            patch = selectedDiffPatch
+        } else {
+            patch = await service.diffPatch(for: change, whitespace: gitDiffWhitespaceMode)
+        }
+        return CommitMessageInput(path: change.path, changeKind: change.kind, diff: patch)
+    }
+
+    /// Builds the input for the commit editor from the index snapshot. This
+    /// deliberately bypasses the selected file's working-tree diff so a file
+    /// with both staged and unstaged edits is represented correctly.
+    func stagedCommitMessageInput() async -> CommitMessageInput? {
+        let stagedChanges = gitChanges.filter(\.isStaged)
+        guard !stagedChanges.isEmpty else { return nil }
+
+        var files: [CommitMessageFileInput] = []
+        files.reserveCapacity(stagedChanges.count)
+        for change in stagedChanges {
+            let patch = await service.stagedDiffPatch(
+                for: change,
+                whitespace: gitDiffWhitespaceMode
+            )
+            guard !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            files.append(
+                CommitMessageFileInput(
+                    path: change.path,
+                    changeKind: change.kind,
+                    diff: patch
+                )
+            )
+        }
+
+        guard !files.isEmpty else { return nil }
+        return CommitMessageInput(files: files)
     }
 
     func stageSelectedChange() async {
@@ -430,6 +478,7 @@ final class GitFeatureModel: ObservableObject {
         )
         closeBranchComparison()
         selectedChange = nil
+        selectedDiffPatch = ""
         selectedGitCommitFile = file
         selectedGitCommitDiffContext = context
         diffRows = []
@@ -450,6 +499,7 @@ final class GitFeatureModel: ObservableObject {
     func closeGitCommitDiff() {
         selectedGitCommitDiffContext = nil
         selectedGitCommitFile = nil
+        selectedDiffPatch = ""
         diffRows = []
         diffHunks = []
         isLoadingDiff = false
@@ -484,6 +534,7 @@ final class GitFeatureModel: ObservableObject {
         guard let gitRepositoryRoot else { return }
         selectedGitCommitDiffContext = nil
         selectedChange = nil
+        selectedDiffPatch = ""
         isLoadingBranchComparison = true
         branchComparisonRows = []
         let comparison = await service.comparisonWithWorkingTree(

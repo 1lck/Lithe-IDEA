@@ -12,6 +12,7 @@ final class AppSettings: ObservableObject {
         static let terminalShell = "settings.terminalShell"
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
+        static let commitMessageAI = "settings.commitMessageAI"
     }
 
     private let defaults: any KeyValueStore
@@ -35,6 +36,9 @@ final class AppSettings: ObservableObject {
             onFileVisibilityRulesChanged?()
         }
     }
+    @Published var commitMessageAI: CommitMessageAISettings {
+        didSet { saveCommitMessageAI() }
+    }
 
     var onFileVisibilityRulesChanged: (() -> Void)?
 
@@ -51,6 +55,12 @@ final class AppSettings: ObservableObject {
             ?? FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
             ?? FileVisibilityRules.default.hiddenFilePatterns
+        if let data = defaults.data(forKey: Key.commitMessageAI),
+           let saved = try? JSONDecoder().decode(CommitMessageAISettings.self, from: data) {
+            commitMessageAI = saved
+        } else {
+            commitMessageAI = .default
+        }
     }
 
     var terminalShellPath: String? { terminalShell.path }
@@ -72,6 +82,92 @@ final class AppSettings: ObservableObject {
         terminalShell = .system
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
+        commitMessageAI = .default
+    }
+
+    var activeCommitMessageProvider: AIProviderProfile? {
+        commitMessageAI.activeProvider
+    }
+
+    func updateActiveCommitMessageProvider(_ update: (inout AIProviderProfile) -> Void) {
+        var value = commitMessageAI
+        value.updateActiveProvider(update)
+        commitMessageAI = value
+    }
+
+    func selectCommitMessageProvider(_ id: UUID?) {
+        var value = commitMessageAI
+        value.selectProvider(id)
+        commitMessageAI = value
+    }
+
+    func addCommitMessageProvider() {
+        var value = commitMessageAI
+        _ = value.addProvider()
+        value.codexImportCompleted = true
+        commitMessageAI = value
+    }
+
+    func removeActiveCommitMessageProvider() {
+        var value = commitMessageAI
+        value.removeActiveProvider()
+        commitMessageAI = value
+    }
+
+    @discardableResult
+    func importAIConfiguration(
+        _ snapshot: AIConfigurationSnapshot
+    ) -> AIProviderProfile {
+        let importedKeyIdentifier = "lithe.(snapshot.source.rawValue).imported.apiKey"
+        let credentialSource = snapshot.source.credentialSource
+        let existing = commitMessageAI.providers.first {
+            $0.apiKeyIdentifier == importedKeyIdentifier || $0.credentialSource == credentialSource
+        }
+        let provider = AIProviderProfile(
+            id: existing?.id ?? UUID(),
+            name: snapshot.providerName.isEmpty
+                ? "\(snapshot.source.title) (imported)"
+                : "\(snapshot.source.title) · \(snapshot.providerName)",
+            endpoint: snapshot.endpoint,
+            model: snapshot.model,
+            apiProtocol: snapshot.apiProtocol,
+            authentication: snapshot.authentication,
+            allowsInsecureHTTP: existing?.allowsInsecureHTTP ?? false,
+            apiKeyIdentifier: importedKeyIdentifier,
+            requiresAPIKey: snapshot.requiresAPIKey,
+            credentialSource: credentialSource
+        )
+
+        var value = commitMessageAI
+        value.providers.removeAll {
+            $0.apiKeyIdentifier == importedKeyIdentifier || $0.credentialSource == credentialSource
+        }
+        value.providers.insert(provider, at: 0)
+        value.activeProviderID = provider.id
+        value.codexImportCompleted = true
+
+        // Codex's reasoning setting is useful as a source hint, but commit
+        // messages default to low effort because this is a latency-sensitive
+        // one-shot task. Users can select any supported effort in Settings.
+        if let importedEffort = snapshot.reasoningEffort,
+           importedEffort != .max,
+           value.reasoningEffort == .low {
+            value.reasoningEffort = importedEffort
+        }
+        commitMessageAI = value
+        return provider
+    }
+
+    @discardableResult
+    func importCodexConfiguration(
+        _ snapshot: CodexConfigurationSnapshot
+    ) -> AIProviderProfile {
+        importAIConfiguration(snapshot)
+    }
+
+    private func saveCommitMessageAI() {
+        guard let data = try? JSONEncoder().encode(commitMessageAI) else { return }
+        defaults.set(data, forKey: Key.commitMessageAI)
     }
 }
 

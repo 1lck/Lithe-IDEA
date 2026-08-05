@@ -25,6 +25,10 @@ final class AppServices {
     let javaRunService: JavaRunService
     let javaDebugService: JavaDebugService
     let gitService: GitService
+    let commitMessageGenerator: CommitMessageGenerationService
+    let secureStore: any SecureStore
+    let credentialResolver: any AIProviderCredentialResolver
+    let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
     let workspaceSessionStore: WorkspaceSessionStore
     let workbenchLayoutStore: WorkbenchLayoutStore
@@ -47,6 +51,10 @@ final class AppServices {
         javaRunService: JavaRunService,
         javaDebugService: JavaDebugService,
         gitService: GitService,
+        commitMessageGenerator: CommitMessageGenerationService,
+        secureStore: any SecureStore,
+        credentialResolver: any AIProviderCredentialResolver,
+        aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
         workspaceSessionStore: WorkspaceSessionStore,
         workbenchLayoutStore: WorkbenchLayoutStore,
@@ -68,6 +76,10 @@ final class AppServices {
         self.javaRunService = javaRunService
         self.javaDebugService = javaDebugService
         self.gitService = gitService
+        self.commitMessageGenerator = commitMessageGenerator
+        self.secureStore = secureStore
+        self.credentialResolver = credentialResolver
+        self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore
         self.workspaceSessionStore = workspaceSessionStore
         self.workbenchLayoutStore = workbenchLayoutStore

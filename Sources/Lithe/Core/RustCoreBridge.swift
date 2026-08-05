@@ -375,6 +375,7 @@ struct RustCoreBridge: Sendable {
 
         func makeDocument() -> DiffDocument {
             DiffDocument(
+                patch: patch,
                 rows: rows.map { $0.makeModel() },
                 hunks: hunks.map { hunk in
                     DiffHunk(
