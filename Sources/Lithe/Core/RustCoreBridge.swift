@@ -564,6 +564,7 @@ struct RustCoreBridge: Sendable {
         let maxFileResults: Int?
         let maxContentResults: Int?
         let maxSymbolResults: Int?
+        let fileMask: String
         let hiddenDirectoryNames: [String]
         let hiddenFilePatterns: [String]
     }
@@ -575,6 +576,8 @@ struct RustCoreBridge: Sendable {
         let caseSensitive: Bool
         let wholeWords: Bool
         let regularExpression: Bool
+        let preserveCase: Bool
+        let fileMask: String
         let paths: [String]
         let textOverrides: [String: String]
         let hiddenDirectoryNames: [String]
@@ -772,6 +775,7 @@ struct RustCoreBridge: Sendable {
         maxFileResults: Int? = nil,
         maxContentResults: Int? = nil,
         maxSymbolResults: Int? = nil,
+        fileMask: String = "",
         hiddenDirectoryNames: [String] = [],
         hiddenFilePatterns: [String] = []
     ) -> SearchResponsePayload? {
@@ -787,6 +791,7 @@ struct RustCoreBridge: Sendable {
                 maxFileResults: maxFileResults,
                 maxContentResults: maxContentResults,
                 maxSymbolResults: maxSymbolResults,
+                fileMask: fileMask,
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns
             )
@@ -803,6 +808,7 @@ struct RustCoreBridge: Sendable {
         maxFileResults: Int? = nil,
         maxContentResults: Int? = nil,
         maxSymbolResults: Int? = 50,
+        fileMask: String = "",
         hiddenDirectoryNames: [String] = [],
         hiddenFilePatterns: [String] = []
     ) -> SearchResponsePayload? {
@@ -818,6 +824,7 @@ struct RustCoreBridge: Sendable {
                 maxFileResults: maxFileResults,
                 maxContentResults: maxContentResults,
                 maxSymbolResults: maxSymbolResults,
+                fileMask: fileMask,
                 hiddenDirectoryNames: hiddenDirectoryNames,
                 hiddenFilePatterns: hiddenFilePatterns
             )
@@ -831,6 +838,8 @@ struct RustCoreBridge: Sendable {
         caseSensitive: Bool = false,
         wholeWords: Bool = false,
         regularExpression: Bool = false,
+        preserveCase: Bool = false,
+        fileMask: String = "",
         paths: [String] = [],
         textOverrides: [String: String] = [:],
         hiddenDirectoryNames: [String] = [],
@@ -845,6 +854,8 @@ struct RustCoreBridge: Sendable {
                 caseSensitive: caseSensitive,
                 wholeWords: wholeWords,
                 regularExpression: regularExpression,
+                preserveCase: preserveCase,
+                fileMask: fileMask,
                 paths: paths,
                 textOverrides: textOverrides,
                 hiddenDirectoryNames: hiddenDirectoryNames,

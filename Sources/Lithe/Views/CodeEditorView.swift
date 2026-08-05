@@ -364,6 +364,7 @@ struct CodeEditorView: NSViewRepresentable {
         func updateCaret() {
             guard let textView, let document else { return }
             let text = textView.string as NSString
+            updateSelectedText(in: text, range: textView.selectedRange())
             let location = min(textView.selectedRange().location, text.length)
             let prefix = text.substring(to: location) as NSString
             var line = 0
@@ -377,6 +378,21 @@ struct CodeEditorView: NSViewRepresentable {
                 line: line,
                 utf16Column: location - lineStart
             )
+        }
+
+        /// 只取单行、非空白的选区作为预填词；跨行选择在 IDEA 里也不会填进查询框。
+        private func updateSelectedText(in text: NSString, range: NSRange) {
+            guard range.length > 0, NSMaxRange(range) <= text.length else {
+                model?.editorSelectedText = ""
+                return
+            }
+            let selected = text.substring(with: range)
+            guard !selected.contains("\n"),
+                  !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                model?.editorSelectedText = ""
+                return
+            }
+            model?.editorSelectedText = selected
         }
     }
 }

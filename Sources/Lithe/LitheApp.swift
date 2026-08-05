@@ -112,8 +112,9 @@ struct LitheApp: App {
                 Button("Search Everywhere…") {
                     model.toggleSearchEverywhere()
                 }
-                // 保留双 Shift 入口，同时提供一个可见且可测试的菜单快捷键。
-                .keyboardShortcut("a", modifiers: [.command, .shift])
+                // 双 Shift 是主入口。IntelliJ 的 ⇧⌘A 是 Find Action，
+                // 这里不再占用它，改用 ⇧⌘O（Go to File 家族）作为可见的菜单快捷键。
+                .keyboardShortcut("o", modifiers: [.command, .shift])
                 .disabled(model.workspaceURL == nil)
 
                 Divider()
@@ -158,10 +159,16 @@ struct LitheApp: App {
 
                 Divider()
 
-                Button("Search in Project") {
-                    model.selectedSidebar = .search
+                Button("Find in Files…") {
+                    model.openProjectSearch()
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(model.workspaceURL == nil)
+
+                Button("Replace in Files…") {
+                    model.openProjectReplace()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
                 .disabled(model.workspaceURL == nil)
             }
 

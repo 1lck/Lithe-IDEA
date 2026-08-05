@@ -227,6 +227,95 @@ mod tests {
     }
 
     #[test]
+    fn file_mask_limits_search_to_matching_extensions() {
+        let root = temporary_root("file-mask");
+        fs::create_dir_all(root.join("src")).expect("fixture directory should be creatable");
+        fs::write(root.join("src/Service.java"), "int total = 1;\n")
+            .expect("java fixture should be writable");
+        fs::write(root.join("src/notes.txt"), "int total = 2;\n")
+            .expect("text fixture should be writable");
+
+        let search = |mask: &str| -> Vec<String> {
+            let request = serde_json::json!({
+                "id": "mask",
+                "command": "workspace.search",
+                "payload": {
+                    "root": root,
+                    "query": "total",
+                    "fileMask": mask
+                }
+            });
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::to_string(&request).expect("search request should encode"),
+            ))
+            .expect("search response should be JSON");
+            assert_eq!(response["ok"], true);
+            response["data"]["matches"]
+                .as_array()
+                .expect("matches should be an array")
+                .iter()
+                .map(|value| value["path"].as_str().unwrap_or_default().to_string())
+                .collect()
+        };
+
+        let unfiltered = search("");
+        assert!(unfiltered.iter().any(|path| path.ends_with("Service.java")));
+        assert!(unfiltered.iter().any(|path| path.ends_with("notes.txt")));
+
+        let java_only = search("*.java");
+        assert!(java_only.iter().any(|path| path.ends_with("Service.java")));
+        assert!(!java_only.iter().any(|path| path.ends_with("notes.txt")));
+
+        // 多个掩码取并集，且容忍逗号后的空格。
+        let both = search("*.java, *.txt");
+        assert!(both.iter().any(|path| path.ends_with("Service.java")));
+        assert!(both.iter().any(|path| path.ends_with("notes.txt")));
+
+        fs::remove_dir_all(root).expect("temporary fixture should be removable");
+    }
+
+    #[test]
+    fn preserve_case_matches_original_occurrence_shape() {
+        let root = temporary_root("preserve-case");
+        fs::create_dir_all(&root).expect("fixture directory should be creatable");
+        let relative = "Sample.java";
+        fs::write(
+            root.join(relative),
+            "fooBar FooBar FOOBAR fooBar();\n",
+        )
+        .expect("fixture should be writable");
+
+        let replace = |preserve_case: bool| -> String {
+            let request = serde_json::json!({
+                "id": "preserve",
+                "command": "workspace.replacePreview",
+                "payload": {
+                    "root": root,
+                    "query": "fooBar",
+                    "replacement": "bazQux",
+                    "caseSensitive": false,
+                    "preserveCase": preserve_case,
+                    "paths": [relative]
+                }
+            });
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::to_string(&request).expect("replace request should encode"),
+            ))
+            .expect("replace response should be JSON");
+            assert_eq!(response["ok"], true);
+            response["data"]["files"][0]["matches"][0]["after"]
+                .as_str()
+                .expect("after text should be a string")
+                .to_string()
+        };
+
+        assert_eq!(replace(false), "bazQux bazQux bazQux bazQux();");
+        assert_eq!(replace(true), "bazQux BazQux BAZQUX bazQux();");
+
+        fs::remove_dir_all(root).expect("temporary fixture should be removable");
+    }
+
+    #[test]
     fn local_history_records_deduplicates_lists_and_relocates() {
         let root = temporary_root("history");
         fs::create_dir_all(&root).expect("history workspace should be creatable");

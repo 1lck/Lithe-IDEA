@@ -15,7 +15,13 @@ final class AppModel: ObservableObject {
     @Published var isProjectReplaceVisible = false
     @Published var projectReplaceQuery = ""
     @Published var projectReplaceText = ""
+    /// Replace in Project 面板的搜索选项（Preserve Case、文件掩码等）。
+    @Published var projectReplaceOptions = ProjectSearchOptions.default
     @Published var selectedProjectReplacementPaths: Set<String> = []
+    /// 编辑器当前选中的单行文本，供 Find/Replace in Files 预填查询词。
+    @Published var editorSelectedText = ""
+    /// 递增令牌：搜索侧栏观察它来把焦点移回输入框。
+    @Published private(set) var searchSidebarFocusRequest = 0
     @Published var isFindBarVisible = false
     @Published var findBarQuery = ""
     @Published private(set) var findMatchCount = 0
@@ -866,15 +872,32 @@ final class AppModel: ObservableObject {
         )
     }
 
+    /// Find in Files：切到搜索侧栏，预填当前选区并把焦点交给输入框。
+    func openProjectSearch() {
+        guard workspaceURL != nil else { return }
+        if !editorSelectedText.isEmpty {
+            searchQuery = editorSelectedText
+        }
+        selectedSidebar = .search
+        searchSidebarFocusRequest += 1
+    }
+
     func clearProjectReplacementPreview() {
         searchFeature.clearProjectReplacementPreview()
         selectedProjectReplacementPaths = []
     }
 
-    func openProjectReplace() {
+    /// 打开 Replace in Project。传入侧栏当前选项可让查询条件延续，避免重填。
+    func openProjectReplace(inheriting options: ProjectSearchOptions? = nil) {
         guard workspaceURL != nil else { return }
+        if !editorSelectedText.isEmpty {
+            searchQuery = editorSelectedText
+        }
         projectReplaceQuery = searchQuery
         projectReplaceText = ""
+        if let options {
+            projectReplaceOptions = options
+        }
         searchFeature.clearProjectReplacementPreview()
         selectedProjectReplacementPaths = []
         isProjectReplaceVisible = true
@@ -896,6 +919,7 @@ final class AppModel: ObservableObject {
             replacement: replacement,
             paths: paths,
             textOverrides: overrides,
+            options: projectReplaceOptions,
             visibilityRules: rules,
             isCurrent: { [weak self] in
                 self?.workspaceURL == rootURL && self?.projectReplaceQuery == query

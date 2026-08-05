@@ -30,6 +30,9 @@ struct ProjectReplaceView: View {
         .onChange(of: model.projectReplaceText) {
             clearPreview()
         }
+        .onChange(of: model.projectReplaceOptions) {
+            clearPreview()
+        }
     }
 
     private var header: some View {
@@ -65,6 +68,27 @@ struct ProjectReplaceView: View {
                     .textFieldStyle(.plain)
                     .litheSearchField()
             }
+
+            HStack(spacing: 14) {
+                Toggle("Match Case", isOn: $model.projectReplaceOptions.caseSensitive)
+                    .lithePointer()
+                Toggle("Whole Words", isOn: $model.projectReplaceOptions.wholeWords)
+                    .lithePointer()
+                Toggle("Regex", isOn: $model.projectReplaceOptions.regularExpression)
+                    .lithePointer()
+                Toggle("Preserve Case", isOn: $model.projectReplaceOptions.preserveCase)
+                    .lithePointer()
+                    .disabled(model.projectReplaceOptions.caseSensitive)
+                    .help("Match the original casing of each hit: fooBar → bazQux, FooBar → BazQux, FOOBAR → BAZQUX.")
+
+                TextField("File mask", text: $model.projectReplaceOptions.fileMask)
+                    .textFieldStyle(.plain)
+                    .litheSearchField()
+                    .frame(maxWidth: 190)
+                    .help("Comma-separated glob patterns, e.g. *.java, *.kt")
+            }
+            .font(.system(size: 11.5))
+            .foregroundStyle(LitheTheme.secondaryText)
 
             HStack(spacing: 8) {
                 Button {

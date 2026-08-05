@@ -60,6 +60,7 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             caseSensitive: options.caseSensitive,
             wholeWords: options.wholeWords,
             regularExpression: options.regularExpression,
+            fileMask: options.fileMask,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns
         )?.makeResults(at: rootURL)
@@ -81,6 +82,7 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             maxFileResults: 50,
             maxContentResults: 50,
             maxSymbolResults: 50,
+            fileMask: options.fileMask,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns
         )?.makeEverywhereResults(at: rootURL)
@@ -102,6 +104,8 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             caseSensitive: options.caseSensitive,
             wholeWords: options.wholeWords,
             regularExpression: options.regularExpression,
+            preserveCase: options.preserveCase,
+            fileMask: options.fileMask,
             paths: paths,
             textOverrides: textOverrides,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,

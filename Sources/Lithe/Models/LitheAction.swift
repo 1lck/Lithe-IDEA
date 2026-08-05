@@ -139,11 +139,18 @@ enum LitheActionRegistry {
             ) { model.toggleDebug() },
             LitheAction(
                 id: "search-in-project",
-                title: "Search in Project",
+                title: "Find in Files",
                 subtitle: "Search text across the workspace",
                 group: .navigation,
                 keyEquivalent: "⇧⌘F"
-            ) { model.selectedSidebar = .search },
+            ) { model.openProjectSearch() },
+            LitheAction(
+                id: "replace-in-project",
+                title: "Replace in Files",
+                subtitle: "Replace text across the workspace",
+                group: .navigation,
+                keyEquivalent: "⇧⌘R"
+            ) { model.openProjectReplace() },
             LitheAction(
                 id: "find-in-file",
                 title: "Find in File",

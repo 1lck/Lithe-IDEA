@@ -7,13 +7,18 @@ struct ProjectSearchOptions: Hashable, Sendable {
     var caseSensitive = false
     var wholeWords = false
     var regularExpression = false
+    /// 替换时让结果沿用命中处的大小写形态（fooBar/FooBar/FOOBAR）。
+    var preserveCase = false
+    /// 逗号分隔的 glob 掩码，如 `*.java, *.kt`；为空表示不过滤。
+    var fileMask = ""
 
     static let `default` = ProjectSearchOptions()
 
     var cacheKey: String {
-        [caseSensitive, wholeWords, regularExpression]
+        let flags = [caseSensitive, wholeWords, regularExpression, preserveCase]
             .map { $0 ? "1" : "0" }
             .joined()
+        return "\(flags)|\(fileMask)"
     }
 
     func matches(_ text: String, query: String) -> Bool {

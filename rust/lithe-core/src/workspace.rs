@@ -59,6 +59,9 @@ pub struct SearchRequest {
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
     pub hidden_file_patterns: Vec<String>,
+    /// 逗号分隔的文件掩码，如 `*.java, *.kt`。空串表示不过滤。
+    #[serde(default)]
+    pub file_mask: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,6 +76,11 @@ pub struct ReplacementPreviewRequest {
     pub whole_words: bool,
     #[serde(default)]
     pub regular_expression: bool,
+    /// 保留原命中的大小写形态：全大写、首字母大写、其余照抄替换串。
+    #[serde(default)]
+    pub preserve_case: bool,
+    #[serde(default)]
+    pub file_mask: String,
     #[serde(default)]
     pub paths: Vec<String>,
     #[serde(default)]
@@ -130,6 +138,7 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
         request.whole_words,
         request.regular_expression,
     )?;
+    let masks = parse_file_mask(&request.file_mask);
     let limit = request.max_results.max(1).min(10_000);
     let file_limit = request.max_file_results.unwrap_or(limit).min(limit);
     let content_limit = request.max_content_results.unwrap_or(limit).min(limit);
@@ -140,6 +149,9 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
         crate::cancellation::check()?;
         if matches.len() >= limit || file_matches >= file_limit {
             break;
+        }
+        if !file_mask_allows(&masks, path) {
+            continue;
         }
         if matcher.matches(path) {
             matches.push(SearchMatch {
@@ -158,6 +170,9 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
         crate::cancellation::check()?;
         if matches.len() >= limit || content_matches >= content_limit {
             break;
+        }
+        if !file_mask_allows(&masks, path) {
+            continue;
         }
         let file = root.join(path);
         if !is_readable_text_file(&file) {
@@ -289,10 +304,14 @@ pub fn replace_preview(
     } else {
         request.paths
     };
+    let masks = parse_file_mask(&request.file_mask);
     let mut files = Vec::new();
     for path in paths {
         crate::cancellation::check()?;
         let relative = safe_relative_path_string(&path)?;
+        if !file_mask_allows(&masks, &relative) {
+            continue;
+        }
         let file = root.join(&relative);
         let text = request
             .text_overrides
@@ -304,7 +323,11 @@ pub fn replace_preview(
         let mut replaced_lines = Vec::new();
         for (index, line) in text.split('\n').enumerate() {
             crate::cancellation::check()?;
-            let (after, occurrence_count) = matcher.replace(line, &request.replacement);
+            let (after, occurrence_count) = matcher.replace_with_options(
+                line,
+                &request.replacement,
+                request.preserve_case,
+            );
             replaced_lines.push(after.clone());
             if occurrence_count > 0 {
                 matches.push(crate::model::ReplacementMatch {
@@ -573,6 +596,61 @@ fn normalize(values: Vec<String>) -> Vec<String> {
     result
 }
 
+/// 按原命中文本的大小写形态改写替换串，对齐 IDEA 的 Preserve Case：
+/// 全大写命中 -> 替换串全大写；首字母大写 -> 替换串首字母大写；
+/// 其余形态（含 camelCase、混合大小写）照抄替换串。
+fn apply_case_pattern(matched: &str, replacement: &str) -> String {
+    let letters = matched.chars().filter(|value| value.is_alphabetic());
+    let mut has_lower = false;
+    let mut has_upper = false;
+    for letter in letters {
+        if letter.is_lowercase() {
+            has_lower = true;
+        } else if letter.is_uppercase() {
+            has_upper = true;
+        }
+    }
+    // 没有字母可参考时无从判断形态，照抄。
+    if !has_lower && !has_upper {
+        return replacement.to_string();
+    }
+    // 多于一个字母的全大写才算 SCREAMING_CASE，避免把单字母 "F" 误判。
+    let letter_count = matched.chars().filter(|value| value.is_alphabetic()).count();
+    if has_upper && !has_lower && letter_count > 1 {
+        return replacement.to_uppercase();
+    }
+    let first_is_upper = matched
+        .chars()
+        .find(|value| value.is_alphabetic())
+        .is_some_and(char::is_uppercase);
+    if first_is_upper {
+        let mut characters = replacement.chars();
+        return match characters.next() {
+            Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
+            None => String::new(),
+        };
+    }
+    replacement.to_string()
+}
+
+/// 把 `*.java, *.kt` 这样的掩码串拆成一组模式；空串返回空表示不过滤。
+fn parse_file_mask(mask: &str) -> Vec<String> {
+    mask.split(',')
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+        .map(|part| part.to_string())
+        .collect()
+}
+
+/// 掩码只针对文件名比对，任一模式命中即通过。
+fn file_mask_allows(masks: &[String], path: &str) -> bool {
+    if masks.is_empty() {
+        return true;
+    }
+    let name = path.rsplit('/').next().unwrap_or(path);
+    masks.iter().any(|mask| glob_matches(mask, name))
+}
+
 fn glob_matches(pattern: &str, value: &str) -> bool {
     let pattern = pattern.to_lowercase().chars().collect::<Vec<_>>();
     let value = value.to_lowercase().chars().collect::<Vec<_>>();
@@ -663,7 +741,14 @@ impl Matcher {
         })
     }
 
-    fn replace(&self, text: &str, replacement: &str) -> (String, usize) {
+    /// `preserve_case` 只作用于字面量替换；正则替换保持原样，
+    /// 因为替换串里可能含 `$1` 之类的捕获引用，改写大小写会破坏语义。
+    fn replace_with_options(
+        &self,
+        text: &str,
+        replacement: &str,
+        preserve_case: bool,
+    ) -> (String, usize) {
         if let Some(regex) = &self.regex {
             let count = regex.find_iter(text).count();
             return (regex.replace_all(text, replacement).into_owned(), count);
@@ -703,7 +788,11 @@ impl Matcher {
         let mut cursor = 0;
         for (start, end) in &ranges {
             result.push_str(&text[cursor..*start]);
-            result.push_str(replacement);
+            if preserve_case {
+                result.push_str(&apply_case_pattern(&text[*start..*end], replacement));
+            } else {
+                result.push_str(replacement);
+            }
             cursor = *end;
         }
         result.push_str(&text[cursor..]);

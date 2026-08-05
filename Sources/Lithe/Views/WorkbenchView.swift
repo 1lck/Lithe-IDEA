@@ -138,6 +138,11 @@ struct WorkbenchView: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: model.isSearchEverywhereVisible)
+        // Replace in Files 挂在工作台层：搜索侧栏未打开时快捷键也能直接弹出。
+        .sheet(isPresented: $model.isProjectReplaceVisible) {
+            ProjectReplaceView()
+                .environmentObject(model)
+        }
         .onAppear {
             restoreLayout()
         }

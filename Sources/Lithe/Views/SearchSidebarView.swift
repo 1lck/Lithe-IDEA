@@ -35,7 +35,9 @@ struct SearchSidebarView: View {
                     .litheIconButton()
                     .foregroundStyle(LitheTheme.secondaryText)
                 }
-                Button(action: model.openProjectReplace) {
+                Button {
+                    model.openProjectReplace(inheriting: searchOptions)
+                } label: {
                     Image(systemName: "arrow.left.arrow.right")
                 }
                 .litheIconButton()
@@ -52,7 +54,11 @@ struct SearchSidebarView: View {
                     .stroke(LitheTheme.inputBorder, lineWidth: 1)
             }
             .padding(.horizontal, 10)
-            .padding(.bottom, 10)
+            .padding(.bottom, 6)
+
+            fileMaskField
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
@@ -113,9 +119,37 @@ struct SearchSidebarView: View {
             await model.searchProject(options: searchOptions)
         }
         .onAppear { searchFocused = true }
-        .sheet(isPresented: $model.isProjectReplaceVisible) {
-            ProjectReplaceView()
-                .environmentObject(model)
+        // 侧栏已经打开时再次按 Cmd+Shift+F，靠令牌变化把焦点移回输入框。
+        .onChange(of: model.searchSidebarFocusRequest) { searchFocused = true }
+    }
+
+    private var fileMaskField: some View {
+        HStack(spacing: 7) {
+            LitheSystemIcon(systemImage: "line.3.horizontal.decrease")
+                .foregroundStyle(
+                    searchOptions.fileMask.isEmpty ? LitheTheme.secondaryText : LitheTheme.accent
+                )
+            TextField("File mask, e.g. *.java, *.kt", text: $searchOptions.fileMask)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .help("Comma-separated glob patterns. Empty searches every file.")
+            if !searchOptions.fileMask.isEmpty {
+                Button {
+                    searchOptions.fileMask = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .litheIconButton()
+                .foregroundStyle(LitheTheme.secondaryText)
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 28)
+        .background(LitheTheme.inputBackground)
+        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                .stroke(LitheTheme.inputBorder, lineWidth: 1)
         }
     }
 
