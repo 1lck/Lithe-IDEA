@@ -94,6 +94,20 @@ Lithe 需要 macOS 14 或更高版本。Java 项目功能需要 JDK，推荐使�
 
 从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。如果该版本提供独立架构安装包，M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。
 
+也可以使用项目自建的 Homebrew Tap 安装 Lithe。Tap 会校验 Release 的 SHA256，并在安装完成后清除应用的 macOS quarantine 标记：
+
+```bash
+brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
+brew install --cask 1lck/lithe/lithe
+```
+
+升级 Lithe：
+
+```bash
+brew update
+brew upgrade --cask lithe
+```
+
 如果 macOS 阻止打开来自未识别开发者的 App，右键点击 App 并选择 **打开**，或前往 **系统设置 → 隐私与安全性 → 仍要打开**。仅在确认 App 来自 Lithe 官方 GitHub Release 时，也可以运行：
 
 ```bash

@@ -18,6 +18,9 @@ jobs:
   release:
     name: Build and publish Lithe for macOS
     runs-on: macos-14
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - name: Check out source
@@ -117,3 +120,57 @@ jobs:
           fi
 
           gh release create "${release_args[@]}"
+
+  update-cask:
+    name: Update Homebrew Cask
+    needs: release
+    runs-on: macos-14
+
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download release checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          LITHE_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          checksum_dir="$RUNNER_TEMP/lithe-release"
+          mkdir -p "$checksum_dir"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "*.dmg.sha256" \
+            --dir "$checksum_dir"
+          echo "CHECKSUM_DIR=$checksum_dir" >> "$GITHUB_ENV"
+
+      - name: Update the Cask metadata
+        env:
+          LITHE_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          arm_sha=$(awk 'NR == 1 { print $1 }' "$CHECKSUM_DIR/Lithe-${LITHE_VERSION}-arm64.dmg.sha256")
+          intel_sha=$(awk 'NR == 1 { print $1 }' "$CHECKSUM_DIR/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256")
+          LITHE_ARM64_SHA256="$arm_sha" \
+          LITHE_X86_64_SHA256="$intel_sha" \
+          ruby scripts/update-homebrew-cask.rb
+
+      - name: Validate the Cask
+        run: |
+          brew tap 1lck/lithe "$GITHUB_WORKSPACE"
+          brew style --cask 1lck/lithe/lithe
+          brew audit --cask --online 1lck/lithe/lithe
+
+      - name: Commit and push the Cask update
+        env:
+          LITHE_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/lithe.rb
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "lithe ${LITHE_VERSION}"
+          git push origin HEAD:main

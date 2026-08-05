@@ -94,6 +94,20 @@ Lithe requires macOS 14 or later. Java project features require a JDK; JDK 17 or
 
 Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). If a release provides architecture-specific installers, choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. Open the disk image, drag `Lithe.app` into `/Applications`, and launch it.
 
+Install Lithe with the project Homebrew tap. The tap verifies the release checksum and clears the macOS quarantine attribute after installation:
+
+```bash
+brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
+brew install --cask 1lck/lithe/lithe
+```
+
+Update it with:
+
+```bash
+brew update
+brew upgrade --cask lithe
+```
+
 If macOS blocks an app from an unidentified developer, right-click the app and select **Open**, or go to **System Settings → Privacy & Security → Open Anyway**. Only after confirming that the app came from an official Lithe GitHub Release, you can also run:
 
 ```bash
