@@ -9,6 +9,8 @@
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
+    <a href="#特别鸣谢">特别鸣谢</a> ·
+    <a href="#赞助商">赞助商</a> ·
     <a href="#为什么需要-lithe">为什么需要 Lithe</a> ·
     <a href="#产品截图">产品截图</a> ·
     <a href="#快速开始">快速开始</a> ·
@@ -44,6 +46,45 @@
 <p align="center">
   <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="96%" alt="Lithe Java 编辑器和项目树">
 </p>
+
+## ⭐ 特别鸣谢
+
+<p align="center">
+  <a href="https://linux.do/">
+    <img src="./docs/assets/special-thanks/linux-do.png" width="78%" alt="LINUX DO">
+  </a>
+</p>
+
+<p align="center">
+  <strong>关于 AI 的一切，欢迎前往 LINUX DO！祝社区越来越好～</strong>
+</p>
+
+## ❤️ 赞助商
+
+<table>
+  <tr>
+    <td width="240" align="center">
+      <a href="https://shu26.cfd/">
+        <img src="./docs/assets/sponsors/code-go.png" width="180" alt="Code GO">
+      </a>
+    </td>
+    <td>
+      <strong>Code GO</strong> 提供 Claude 系列模型的中转支持，并支持 Lithe 的开发。感谢 Code GO 对本项目的支持！<br><br>
+      <a href="https://shu26.cfd/">访问 Code GO</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="240" align="center">
+      <a href="https://codezsy.com">
+        <img src="./docs/assets/sponsors/codez.png" width="180" alt="CodeZ 中转站">
+      </a>
+    </td>
+    <td>
+      <strong>CodeZ</strong> 提供 GPT 系列模型的中转支持，并支持 Lithe 的开发。感谢 CodeZ 对本项目的支持！<br><br>
+      <a href="https://codezsy.com">访问 CodeZ</a>
+    </td>
+  </tr>
+</table>
 
 ## 为什么需要 Lithe
 
@@ -324,33 +365,6 @@ Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
   <img src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/contributors.svg" alt="贡献者" />
 </a>
 
-## ❤️ 赞助商
-
-<table>
-  <tr>
-    <td width="240" align="center">
-      <a href="https://shu26.cfd/">
-        <img src="./docs/assets/sponsors/code-go.png" width="180" alt="Code GO">
-      </a>
-    </td>
-    <td>
-      <strong>Code GO</strong> 提供 Claude 系列模型的中转支持，并支持 Lithe 的开发。感谢 Code GO 对本项目的支持！<br><br>
-      <a href="https://shu26.cfd/">访问 Code GO</a>
-    </td>
-  </tr>
-  <tr>
-    <td width="240" align="center">
-      <a href="https://codezsy.com">
-        <img src="./docs/assets/sponsors/codez.png" width="180" alt="CodeZ 中转站">
-      </a>
-    </td>
-    <td>
-      <strong>CodeZ</strong> 提供 GPT 系列模型的中转支持，并支持 Lithe 的开发。感谢 CodeZ 对本项目的支持！<br><br>
-      <a href="https://codezsy.com">访问 CodeZ</a>
-    </td>
-  </tr>
-</table>
-
 ## Star History
 
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
@@ -360,7 +374,3 @@ Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
     <img alt="Star History 图表" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
   </picture>
 </a>
-
-## 友情链接
-
-- [LINUX DO](https://linux.do/) — 新的理想型社区
