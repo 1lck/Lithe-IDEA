@@ -324,6 +324,33 @@ Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
   <img src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/contributors.svg" alt="贡献者" />
 </a>
 
+## ❤️ 赞助商
+
+<table>
+  <tr>
+    <td width="240" align="center">
+      <a href="https://shu26.cfd/">
+        <img src="./docs/assets/sponsors/code-go.png" width="180" alt="Code GO">
+      </a>
+    </td>
+    <td>
+      <strong>Code GO</strong> 提供 Claude 系列模型的中转支持，并支持 Lithe 的开发。感谢 Code GO 对本项目的支持！<br><br>
+      <a href="https://shu26.cfd/">访问 Code GO</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="240" align="center">
+      <a href="https://codezsy.com">
+        <img src="./docs/assets/sponsors/codez.png" width="180" alt="CodeZ 中转站">
+      </a>
+    </td>
+    <td>
+      <strong>CodeZ</strong> 提供 GPT 系列模型的中转支持，并支持 Lithe 的开发。感谢 CodeZ 对本项目的支持！<br><br>
+      <a href="https://codezsy.com">访问 CodeZ</a>
+    </td>
+  </tr>
+</table>
+
 ## Star History
 
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">

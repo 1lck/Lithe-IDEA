@@ -328,6 +328,33 @@ Thanks to everyone who contributes to Lithe.
   <img src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/contributors.svg" alt="Contributors" />
 </a>
 
+## ❤️ Sponsors
+
+<table>
+  <tr>
+    <td width="240" align="center">
+      <a href="https://shu26.cfd/">
+        <img src="./docs/assets/sponsors/code-go.png" width="180" alt="Code GO">
+      </a>
+    </td>
+    <td>
+      <strong>Code GO</strong> provides relay access to Claude models and supports the development of Lithe. Thank you to Code GO for supporting this project!<br><br>
+      <a href="https://shu26.cfd/">Visit Code GO</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="240" align="center">
+      <a href="https://codezsy.com">
+        <img src="./docs/assets/sponsors/codez.png" width="180" alt="CodeZ relay service">
+      </a>
+    </td>
+    <td>
+      <strong>CodeZ</strong> provides relay access to GPT-family models and supports the development of Lithe. Thank you to CodeZ for supporting this project!<br><br>
+      <a href="https://codezsy.com">Visit CodeZ</a>
+    </td>
+  </tr>
+</table>
+
 ## Star History
 
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
