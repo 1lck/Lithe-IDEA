@@ -30,7 +30,13 @@ fi
 RUST_BUILD_ARGS=()
 if [[ "$CONFIGURATION" == "release" ]]; then
     RUST_BUILD_ARGS+=(--release)
-    SWIFT_CONFIGURATION_ARGS=(--configuration release)
+    # Swift 6.2 can crash while emitting round-trip debug types for the
+    # optimized DiffSplitLayout.plan function on the macOS release runner.
+    SWIFT_CONFIGURATION_ARGS=(
+        --configuration release
+        -Xswiftc -Xfrontend
+        -Xswiftc -disable-round-trip-debug-types
+    )
 else
     RUST_BUILD_ARGS+=(--debug)
     SWIFT_CONFIGURATION_ARGS=()
