@@ -168,39 +168,10 @@ struct ProjectLocalHistoryView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                GeometryReader { geometry in
-                    let contentWidth = max(900, geometry.size.width)
-                    let kinds = model.projectLocalHistoryDiffRows.map(\.kind)
-                    let contentHeight = max(
-                        DiffLayoutMetrics.contentHeight(rows: model.projectLocalHistoryDiffRows, kinds: kinds),
-                        geometry.size.height
-                    )
-
-                    ScrollView([.vertical, .horizontal]) {
-                        ZStack(alignment: .topLeading) {
-                            DiffConnectorOverlay(
-                                rows: model.projectLocalHistoryDiffRows,
-                                kinds: kinds,
-                                contentWidth: contentWidth
-                            )
-
-                            LazyVStack(spacing: 0) {
-                                ForEach(model.projectLocalHistoryDiffRows) { row in
-                                    DiffRowView(
-                                        row: row,
-                                        kind: row.kind,
-                                        fileExtension: selectedFileExtension,
-                                        highlightsWords: true,
-                                        isSelectedDifference: false,
-                                        contentWidth: contentWidth
-                                    )
-                                }
-                            }
-                            .textSelection(.enabled)
-                        }
-                        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
-                    }
-                }
+                DiffPaneView(
+                    rows: model.projectLocalHistoryDiffRows,
+                    fileExtension: selectedFileExtension
+                )
             }
         }
         .background(LitheTheme.editor)

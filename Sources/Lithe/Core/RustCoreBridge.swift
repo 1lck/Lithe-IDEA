@@ -340,14 +340,15 @@ struct RustCoreBridge: Sendable {
             let kind: String
             let hunkID: String?
 
-            func makeModel() -> DiffRow {
+            func makeModel(sequence: Int) -> DiffRow {
                 DiffRow(
                     oldLine: oldLine,
                     newLine: newLine,
                     left: left,
                     right: right,
                     kind: Self.makeKind(kind),
-                    hunkID: hunkID
+                    hunkID: hunkID,
+                    sequence: sequence
                 )
             }
 
@@ -365,7 +366,6 @@ struct RustCoreBridge: Sendable {
         struct Hunk: Decodable, Sendable {
             let id: String
             let header: String
-            let rows: [Row]
             let patch: String
         }
 
@@ -376,12 +376,11 @@ struct RustCoreBridge: Sendable {
         func makeDocument() -> DiffDocument {
             DiffDocument(
                 patch: patch,
-                rows: rows.map { $0.makeModel() },
+                rows: rows.enumerated().map { $0.element.makeModel(sequence: $0.offset) },
                 hunks: hunks.map { hunk in
                     DiffHunk(
                         id: hunk.id,
                         header: hunk.header,
-                        rows: hunk.rows.map { $0.makeModel() },
                         patch: hunk.patch
                     )
                 }

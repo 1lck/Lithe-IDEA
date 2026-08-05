@@ -5,9 +5,13 @@ struct DiffReviewView: View {
     let change: GitChange
 
     @State private var highlightsWords = true
+    @State private var collapsesUnchangedRegions = true
+    @State private var expandedCollapseRegionIDs: Set<String> = []
     @State private var selectedDifferenceIndex = 0
     @State private var diffSearchQuery = ""
     @State private var selectedDiffSearchIndex = 0
+    /// Row a diff-map tick last jumped to, pinned open so the fold cannot hide it.
+    @State private var mapTargetRowID: DiffRowID?
     @FocusState private var diffSearchFocused: Bool
 
     var body: some View {
@@ -33,6 +37,12 @@ struct DiffReviewView: View {
         .onChange(of: model.diffRows.count) { _, _ in
             selectedDifferenceIndex = 0
             selectedDiffSearchIndex = 0
+            expandedCollapseRegionIDs.removeAll()
+            mapTargetRowID = nil
+        }
+        .onChange(of: change.id) { _, _ in
+            expandedCollapseRegionIDs.removeAll()
+            mapTargetRowID = nil
         }
         .onChange(of: diffSearchQuery) { _, _ in
             selectedDiffSearchIndex = 0
@@ -151,6 +161,23 @@ struct DiffReviewView: View {
                 .buttonStyle(.plain)
                 .lithePointer()
                 .help(highlightsWords ? "Disable word-level highlights" : "Enable word-level highlights")
+
+                Button {
+                    collapsesUnchangedRegions.toggle()
+                    expandedCollapseRegionIDs.removeAll()
+                } label: {
+                    toolbarLabel(
+                        "Collapse unchanged",
+                        systemImage: collapsesUnchangedRegions ? "checkmark.square.fill" : "square"
+                    )
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help(
+                    collapsesUnchangedRegions
+                        ? "Show all unchanged lines"
+                        : "Collapse long unchanged regions"
+                )
 
                 toolbarDivider
 
@@ -281,29 +308,69 @@ struct DiffReviewView: View {
     }
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
+        HStack(spacing: 0) {
+            diffCanvas(proxy: proxy)
+            Rectangle().fill(LitheTheme.divider).frame(width: 1)
+            DiffMapView(rows: model.diffRows) { rowID in
+                // The tick may sit inside a fold, so pin it open first.
+                mapTargetRowID = rowID
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    proxy.scrollTo(rowID, anchor: .center)
+                }
+            }
+        }
+    }
+
+    private func diffCanvas(proxy: ScrollViewProxy) -> some View {
         GeometryReader { geometry in
-            let contentWidth = max(usesSingleFileDiff ? 680 : 980, geometry.size.width)
+            let contentWidth = DiffLayoutMetrics.contentWidth(
+                rows: model.diffRows,
+                viewportWidth: geometry.size.width,
+                minimumWidth: usesSingleFileDiff ? 680 : 980,
+                paneCount: usesSingleFileDiff ? 1 : 2
+            )
 
             ScrollView(.horizontal) {
                 ScrollView(.vertical) {
                     let kinds = model.diffRows.map(effectiveKind)
+                    let indexByRow = differenceIndexByRow
+                    let displayRows = collapsePlan(kinds: kinds)
+                    let layoutRows = displayRows.map(\.layoutRow)
+                    let layoutKinds = displayRows.map { displayRow in
+                        switch displayRow {
+                        case let .row(_, index): return kinds[index]
+                        case .collapsed: return DiffRowKind.information
+                        }
+                    }
                     let contentHeight = max(
-                        DiffLayoutMetrics.contentHeight(rows: model.diffRows, kinds: kinds),
+                        DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds),
                         geometry.size.height
                     )
 
                     ZStack(alignment: .topLeading) {
                         LazyVStack(spacing: 0) {
-                            ForEach(model.diffRows, id: \DiffRow.id) { row in
-                                diffRowView(for: row, contentWidth: contentWidth)
+                            ForEach(displayRows) { displayRow in
+                                switch displayRow {
+                                case let .row(row, index):
+                                    diffRowView(
+                                        for: row,
+                                        kind: kinds[index],
+                                        differenceIndex: indexByRow[row.id],
+                                        contentWidth: contentWidth
+                                    )
+                                case let .collapsed(region):
+                                    DiffCollapsedBandView(region: region, contentWidth: contentWidth) {
+                                        expandedCollapseRegionIDs.insert(region.id)
+                                    }
+                                }
                             }
                         }
                         .textSelection(.enabled)
 
                         if !usesSingleFileDiff {
                             DiffConnectorOverlay(
-                                rows: model.diffRows,
-                                kinds: kinds,
+                                rows: layoutRows,
+                                kinds: layoutKinds,
                                 contentWidth: contentWidth,
                                 compactsOneSidedRows: true
                             )
@@ -318,10 +385,35 @@ struct DiffReviewView: View {
         }
     }
 
+    /// Folds long unchanged runs, but pins open any region holding the current
+    /// search hit or the selected difference so navigation targets stay rendered.
+    private func collapsePlan(kinds: [DiffRowKind]) -> [DiffDisplayRow] {
+        guard collapsesUnchangedRegions else {
+            return model.diffRows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
+        }
+
+        var pinned = Set(diffSearchMatches)
+        if let selectedDiffSearchRowID {
+            pinned.insert(selectedDiffSearchRowID)
+        }
+        if let mapTargetRowID {
+            pinned.insert(mapTargetRowID)
+        }
+
+        return DiffCollapse.plan(
+            rows: model.diffRows,
+            expandedRegionIDs: expandedCollapseRegionIDs,
+            pinnedRowIDs: pinned
+        )
+    }
+
     @ViewBuilder
-    private func diffRowView(for row: DiffRow, contentWidth: CGFloat) -> some View {
-        let kind = effectiveKind(for: row)
-        let differenceIndex = differenceIndexByRow[row.id]
+    private func diffRowView(
+        for row: DiffRow,
+        kind: DiffRowKind,
+        differenceIndex: Int?,
+        contentWidth: CGFloat
+    ) -> some View {
         if usesSingleFileDiff {
             SingleFileDiffRowView(
                 row: row,
@@ -354,8 +446,8 @@ struct DiffReviewView: View {
         }
     }
 
-    private var differenceStarts: [UUID] {
-        var result: [UUID] = []
+    private var differenceStarts: [DiffRowID] {
+        var result: [DiffRowID] = []
         var insideDifference = false
         for row in model.diffRows {
             let isDifference = effectiveKind(for: row).isDifference
@@ -417,17 +509,17 @@ struct DiffReviewView: View {
         .onAppear { diffSearchFocused = false }
     }
 
-    private var diffSearchMatches: [UUID] {
+    private var diffSearchMatches: [DiffRowID] {
         let query = diffSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
         let foldedQuery = query.localizedLowercase
         return model.diffRows.compactMap { row in
-            let texts = [row.left, row.right].compactMap { $0 }
+            let texts = [row.left, row.rightText].compactMap { $0 }
             return texts.contains(where: { $0.localizedLowercase.contains(foldedQuery) }) ? row.id : nil
         }
     }
 
-    private var selectedDiffSearchRowID: UUID? {
+    private var selectedDiffSearchRowID: DiffRowID? {
         guard !diffSearchMatches.isEmpty else { return nil }
         let index = min(max(selectedDiffSearchIndex, 0), diffSearchMatches.count - 1)
         return diffSearchMatches[index]
@@ -467,8 +559,8 @@ struct DiffReviewView: View {
         change.kind == .added || change.kind == .deleted
     }
 
-    private var differenceIndexByRow: [UUID: Int] {
-        var result: [UUID: Int] = [:]
+    private var differenceIndexByRow: [DiffRowID: Int] {
+        var result: [DiffRowID: Int] = [:]
         var currentIndex = -1
         var insideDifference = false
         for row in model.diffRows {
@@ -488,7 +580,7 @@ struct DiffReviewView: View {
         guard model.gitDiffWhitespaceMode == .ignoreAllWhitespace,
               row.kind == .changed,
               let left = row.left,
-              let right = row.right,
+              let right = row.rightText,
               normalizedWhitespace(left) == normalizedWhitespace(right) else {
             return row.kind
         }
@@ -624,14 +716,17 @@ struct SingleFileDiffRowView: View {
                 Text(lineNumber.map(String.init) ?? "")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(changeColor.opacity(0.82))
-                    .frame(width: 55, alignment: .trailing)
-                    .padding(.trailing, 9)
+                    .frame(
+                        width: DiffLayoutMetrics.singlePaneLineNumberColumnWidth,
+                        alignment: .trailing
+                    )
+                    .padding(.trailing, DiffLayoutMetrics.singlePaneLineNumberTrailingPadding)
                     .frame(maxHeight: .infinity)
                     .background(changeColor.opacity(0.13))
 
                 Rectangle()
                     .fill(changeColor.opacity(0.82))
-                    .frame(width: 3)
+                    .frame(width: DiffLayoutMetrics.changeMarkerWidth)
 
                 Text(
                     DiffSyntaxHighlighter.styled(
@@ -642,10 +737,10 @@ struct SingleFileDiffRowView: View {
                         highlightsWords: false
                     )
                 )
-                .font(.system(size: 12.5, design: .monospaced))
+                .font(.system(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, DiffLayoutMetrics.singlePaneTextHorizontalPadding)
             }
             .frame(height: 24)
             .frame(maxWidth: .infinity)
@@ -668,7 +763,7 @@ struct SingleFileDiffRowView: View {
     }
 
     private var lineText: String {
-        (isAddition ? row.right : row.left) ?? ""
+        (isAddition ? row.rightText : row.left) ?? ""
     }
 
     private var lineNumber: Int? {
@@ -734,7 +829,7 @@ struct DiffRowView: View {
                 diffCell(
                     number: row.oldLine,
                     text: row.left,
-                    otherText: row.right,
+                    otherText: row.rightText,
                     side: .left,
                     isCompacted: compactedSide == .left,
                     width: paneWidth
@@ -742,7 +837,7 @@ struct DiffRowView: View {
                 centerGutter
                 diffCell(
                     number: row.newLine,
-                    text: row.right,
+                    text: row.rightText,
                     otherText: row.left,
                     side: .right,
                     isCompacted: compactedSide == .right,
@@ -768,9 +863,9 @@ struct DiffRowView: View {
     private var compactedSide: DiffSide? {
         guard compactsOneSidedRows else { return nil }
         switch kind {
-        case .addition where row.left == nil && row.right != nil:
+        case .addition where row.left == nil && row.rightText != nil:
             return .left
-        case .removal where row.left != nil && row.right == nil:
+        case .removal where row.left != nil && row.rightText == nil:
             return .right
         default:
             return nil
@@ -792,14 +887,14 @@ struct DiffRowView: View {
                 Text(number.map(String.init) ?? "")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(lineNumberColor(side: side))
-                    .frame(width: 47, alignment: .trailing)
-                    .padding(.trailing, 8)
+                    .frame(width: DiffLayoutMetrics.lineNumberColumnWidth, alignment: .trailing)
+                    .padding(.trailing, DiffLayoutMetrics.lineNumberTrailingPadding)
                     .frame(maxHeight: .infinity)
                     .background(LitheTheme.window.opacity(0.62))
 
                 Rectangle()
                     .fill(changeMarkerColor(side: side, hasText: text != nil))
-                    .frame(width: 3)
+                    .frame(width: DiffLayoutMetrics.changeMarkerWidth)
 
                 Text(
                     DiffSyntaxHighlighter.styled(
@@ -810,11 +905,11 @@ struct DiffRowView: View {
                         highlightsWords: highlightsWords && kind == .changed
                     )
                 )
-                .font(.system(size: 12.5, design: .monospaced))
+                .font(.system(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, DiffLayoutMetrics.textHorizontalPadding)
             }
         }
         .frame(width: width, alignment: .leading)
@@ -927,6 +1022,38 @@ enum DiffLayoutMetrics {
     static let informationRowHeight: CGFloat = 27
     static let centerGutterWidth: CGFloat = 34
 
+    /// Fixed chrome ahead of the text in a single pane: line-number column,
+    /// its trailing padding, the change marker bar, and the text insets.
+    static let lineNumberColumnWidth: CGFloat = 47
+    static let lineNumberTrailingPadding: CGFloat = 8
+    static let changeMarkerWidth: CGFloat = 3
+    static let textHorizontalPadding: CGFloat = 8
+    static let textFontSize: CGFloat = 12.5
+
+    static var paneChromeWidth: CGFloat {
+        lineNumberColumnWidth + lineNumberTrailingPadding + changeMarkerWidth
+            + textHorizontalPadding * 2
+    }
+
+    /// `SingleFileDiffRowView` uses a wider line-number column and text inset
+    /// than the two-pane rows, so it needs its own chrome measurement.
+    static let singlePaneLineNumberColumnWidth: CGFloat = 55
+    static let singlePaneLineNumberTrailingPadding: CGFloat = 9
+    static let singlePaneTextHorizontalPadding: CGFloat = 10
+
+    static var singlePaneChromeWidth: CGFloat {
+        singlePaneLineNumberColumnWidth + singlePaneLineNumberTrailingPadding
+            + changeMarkerWidth + singlePaneTextHorizontalPadding * 2
+    }
+
+    /// Advance of one character in the diff's monospaced font. Measured once
+    /// because every glyph in a monospaced face shares the same advance.
+    static let characterWidth: CGFloat = {
+        let font = NSFont.monospacedSystemFont(ofSize: textFontSize, weight: .regular)
+        let width = NSAttributedString(string: "0", attributes: [.font: font]).size().width
+        return width > 0 ? width : textFontSize * 0.6
+    }()
+
     static func rowHeight(for kind: DiffRowKind) -> CGFloat {
         kind == .information ? informationRowHeight : rowHeight
     }
@@ -935,6 +1062,38 @@ enum DiffLayoutMetrics {
         zip(rows, kinds).reduce(0) { height, pair in
             height + rowHeight(for: pair.1)
         }
+    }
+
+    /// Longest rendered line in either pane, in characters. Tabs count as four
+    /// columns so tab-indented sources are not under-measured.
+    static func longestLineLength(rows: [DiffRow]) -> Int {
+        rows.reduce(0) { longest, row in
+            max(longest, max(displayLength(row.left), displayLength(row.rightText)))
+        }
+    }
+
+    private static func displayLength(_ text: String?) -> Int {
+        guard let text else { return 0 }
+        return text.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
+    }
+
+    /// Content width that lets the longest line scroll fully into view.
+    ///
+    /// Replaces the previous `max(fixedMinimum, viewportWidth)`, which never
+    /// exceeded the viewport on wide windows and so left long lines truncated
+    /// with no way to reach them.
+    static func contentWidth(
+        rows: [DiffRow],
+        viewportWidth: CGFloat,
+        minimumWidth: CGFloat,
+        paneCount: Int
+    ) -> CGFloat {
+        let panes = CGFloat(max(1, paneCount))
+        let textWidth = CGFloat(longestLineLength(rows: rows)) * characterWidth
+        let chrome = paneCount > 1 ? paneChromeWidth : singlePaneChromeWidth
+        let gutter = paneCount > 1 ? centerGutterWidth : 0
+        let measured = (chrome + textWidth) * panes + gutter
+        return max(minimumWidth, viewportWidth, measured)
     }
 }
 
@@ -1066,7 +1225,7 @@ struct DiffConnectorOverlay: View {
             }
 
             let hasLeftText = rows[index].left != nil
-            let hasRightText = rows[index].right != nil
+            let hasRightText = rows[index].rightText != nil
             if blockStart == nil {
                 blockStart = index
                 blockHasLeftText = hasLeftText

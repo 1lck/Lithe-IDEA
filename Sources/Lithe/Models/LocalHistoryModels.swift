@@ -68,8 +68,9 @@ enum LocalHistoryDiffBuilder {
                     oldLine: oldIndex + 1,
                     newLine: currentIndex + 1,
                     left: oldLines[oldIndex],
-                    right: currentLines[currentIndex],
-                    kind: .context
+                    right: nil,
+                    kind: .context,
+                    sequence: rows.count
                 ))
                 oldIndex += 1
                 currentIndex += 1
@@ -86,8 +87,7 @@ enum LocalHistoryDiffBuilder {
                 inserted.append((currentIndex + 1, currentLines[currentIndex]))
                 currentIndex += 1
             }
-            let count = max(removed.count, inserted.count)
-            if count == 0 {
+            if removed.isEmpty, inserted.isEmpty {
                 if oldIndex < oldLines.count {
                     removals.insert(oldIndex)
                 } else if currentIndex < currentLines.count {
@@ -95,15 +95,22 @@ enum LocalHistoryDiffBuilder {
                 }
                 continue
             }
-            for index in 0..<count {
-                let left = index < removed.count ? removed[index] : nil
-                let right = index < inserted.count ? inserted[index] : nil
+            // Pair by similarity so an unrelated delete and insert do not render
+            // as one bogus modification. Shared with the Rust diff path.
+            let pairs = DiffPairing.pairs(
+                removed: removed.map(\.1),
+                added: inserted.map(\.1)
+            )
+            for (leftIndex, rightIndex) in pairs {
+                let left = leftIndex.map { removed[$0] }
+                let right = rightIndex.map { inserted[$0] }
                 rows.append(DiffRow(
                     oldLine: left?.0,
                     newLine: right?.0,
                     left: left?.1,
                     right: right?.1,
-                    kind: left != nil && right != nil ? .changed : (left != nil ? .removal : .addition)
+                    kind: left != nil && right != nil ? .changed : (left != nil ? .removal : .addition),
+                    sequence: rows.count
                 ))
             }
         }

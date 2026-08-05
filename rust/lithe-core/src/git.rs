@@ -1133,16 +1133,146 @@ struct DiffHunkRecord {
     lines: Vec<String>,
 }
 
+/// Largest `removed.len() * added.len()` product we will align. Beyond this the
+/// quadratic table costs more than the pairing is worth, so we fall back to
+/// positional pairing.
+const MAX_ALIGNMENT_CELLS: usize = 4096;
+
+/// Minimum Dice coefficient for two lines to be considered a modification of
+/// each other rather than an unrelated delete plus insert.
+const MIN_PAIR_SIMILARITY: f32 = 0.5;
+
+/// Character-bigram Dice coefficient over the trimmed lines, in [0, 1].
+///
+/// Bigrams tolerate the reindentation and small edits that dominate real diffs,
+/// where a prefix/suffix comparison would score a mid-line change at zero.
+fn line_similarity(left: &str, right: &str) -> f32 {
+    let left = left.trim();
+    let right = right.trim();
+    if left == right {
+        return 1.0;
+    }
+    if left.is_empty() || right.is_empty() {
+        return 0.0;
+    }
+
+    let bigrams = |text: &str| -> Vec<[char; 2]> {
+        let chars: Vec<char> = text.chars().collect();
+        if chars.len() < 2 {
+            // Treat a single character as one bigram against itself so short
+            // lines can still match rather than always scoring zero.
+            return vec![[chars[0], chars[0]]];
+        }
+        chars.windows(2).map(|pair| [pair[0], pair[1]]).collect()
+    };
+
+    let left_bigrams = bigrams(left);
+    let mut right_bigrams = bigrams(right);
+    let total = left_bigrams.len() + right_bigrams.len();
+
+    // Multiset intersection: each right bigram is consumed by at most one match.
+    let mut shared = 0usize;
+    for bigram in &left_bigrams {
+        if let Some(position) = right_bigrams.iter().position(|other| other == bigram) {
+            right_bigrams.swap_remove(position);
+            shared += 1;
+        }
+    }
+
+    (2 * shared) as f32 / total as f32
+}
+
+/// Pairs removals with additions, then emits one row per pair.
+///
+/// Positional pairing forced `removed[i]` onto `added[i]` regardless of content,
+/// so deleting 3 lines and adding 5 unrelated ones produced three bogus
+/// "changed" rows. This aligns the two blocks by similarity instead, keeping the
+/// matching non-crossing so line numbers stay monotonic in the rendered list.
+fn pair_diff_entries(removed: &[DiffEntry], added: &[DiffEntry]) -> Vec<(Option<usize>, Option<usize>)> {
+    let rows = removed.len();
+    let columns = added.len();
+
+    // A lone removal against a lone addition has no competing alignment, so it
+    // reads as a modification however dissimilar the two lines are. Applying the
+    // similarity floor here would split every single-line edit into a delete
+    // plus an insert.
+    if rows == 1 && columns == 1 {
+        return vec![(Some(0), Some(0))];
+    }
+
+    if rows == 0 || columns == 0 || rows * columns > MAX_ALIGNMENT_CELLS {
+        return (0..rows.max(columns))
+            .map(|index| {
+                (
+                    if index < rows { Some(index) } else { None },
+                    if index < columns { Some(index) } else { None },
+                )
+            })
+            .collect();
+    }
+
+    // score[i][j] = best total similarity aligning removed[i..] with added[j..].
+    let mut score = vec![vec![0f32; columns + 1]; rows + 1];
+    for i in (0..rows).rev() {
+        for j in (0..columns).rev() {
+            let skip_removal = score[i + 1][j];
+            let skip_addition = score[i][j + 1];
+            let best_skip = skip_removal.max(skip_addition);
+
+            let similarity = line_similarity(&removed[i].text, &added[j].text);
+            let paired = if similarity >= MIN_PAIR_SIMILARITY {
+                similarity + score[i + 1][j + 1]
+            } else {
+                f32::NEG_INFINITY
+            };
+
+            score[i][j] = paired.max(best_skip);
+        }
+    }
+
+    let mut pairs = Vec::with_capacity(rows.max(columns));
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < rows && j < columns {
+        let similarity = line_similarity(&removed[i].text, &added[j].text);
+        let paired = if similarity >= MIN_PAIR_SIMILARITY {
+            similarity + score[i + 1][j + 1]
+        } else {
+            f32::NEG_INFINITY
+        };
+
+        if paired >= score[i + 1][j] && paired >= score[i][j + 1] {
+            pairs.push((Some(i), Some(j)));
+            i += 1;
+            j += 1;
+        } else if score[i + 1][j] >= score[i][j + 1] {
+            pairs.push((Some(i), None));
+            i += 1;
+        } else {
+            pairs.push((None, Some(j)));
+            j += 1;
+        }
+    }
+    while i < rows {
+        pairs.push((Some(i), None));
+        i += 1;
+    }
+    while j < columns {
+        pairs.push((None, Some(j)));
+        j += 1;
+    }
+
+    pairs
+}
+
 fn flush_diff_changes(
     rows: &mut Vec<GitDiffRowResponse>,
     removed: &mut Vec<DiffEntry>,
     added: &mut Vec<DiffEntry>,
     hunk_id: Option<&str>,
 ) {
-    let count = removed.len().max(added.len());
-    for index in 0..count {
-        let left = removed.get(index);
-        let right = added.get(index);
+    for (left_index, right_index) in pair_diff_entries(removed, added) {
+        let left = left_index.map(|index| &removed[index]);
+        let right = right_index.map(|index| &added[index]);
         let kind = match (left.is_some(), right.is_some()) {
             (true, true) => "changed",
             (true, false) => "removal",
@@ -1221,7 +1351,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
                 old_line: None,
                 new_line: None,
                 left: Some(line.to_string()),
-                right: Some(line.to_string()),
+                right: None,
                 kind: "information".to_string(),
                 hunk_id: Some(hunk_id),
             });
@@ -1254,12 +1384,11 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
             let hunk_id = current_hunk_id.as_deref();
             flush_diff_changes(&mut rows, &mut removed, &mut added, hunk_id);
             current_hunk_lines.push(line.to_string());
-            let text = line.chars().skip(1).collect::<String>();
             rows.push(GitDiffRowResponse {
                 old_line: Some(old_line),
                 new_line: Some(new_line),
-                left: Some(text.clone()),
-                right: Some(text),
+                left: Some(line.chars().skip(1).collect::<String>()),
+                right: None,
                 kind: "context".to_string(),
                 hunk_id: current_hunk_id.clone(),
             });
@@ -1284,16 +1413,10 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
     let hunks = hunk_records
         .into_iter()
         .map(|record| {
-            let hunk_id = record.id.clone();
             let patch = record.lines.join("\n") + if has_trailing_newline { "\n" } else { "" };
             GitDiffHunkResponse {
                 id: record.id,
                 header: record.header,
-                rows: rows
-                    .iter()
-                    .filter(|row| row.hunk_id.as_deref() == Some(hunk_id.as_str()))
-                    .cloned()
-                    .collect(),
                 patch,
             }
         })
@@ -1414,8 +1537,84 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_diff;
+    use super::{line_similarity, pair_diff_entries, parse_diff, DiffEntry, MAX_ALIGNMENT_CELLS};
     use serde_json::Value;
+
+    fn entries(texts: &[&str]) -> Vec<DiffEntry> {
+        texts
+            .iter()
+            .enumerate()
+            .map(|(index, text)| DiffEntry {
+                number: index + 1,
+                text: (*text).to_string(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn similar_lines_pair_even_when_positions_differ() {
+        let removed = entries(&["let total = compute(a, b);"]);
+        let added = entries(&[
+            "// recompute the total",
+            "let total = compute(a, b, c);",
+        ]);
+
+        // Positional pairing would have matched the comment to the statement.
+        assert_eq!(
+            pair_diff_entries(&removed, &added),
+            vec![(None, Some(0)), (Some(0), Some(1))]
+        );
+    }
+
+    #[test]
+    fn unrelated_lines_stay_separate_deletions_and_insertions() {
+        let removed = entries(&["import Foundation", "import AppKit"]);
+        let added = entries(&["let x = 1", "let y = 2", "let z = 3"]);
+
+        // Nothing clears the similarity floor, so no row is labelled "changed".
+        let pairs = pair_diff_entries(&removed, &added);
+        assert!(pairs
+            .iter()
+            .all(|(left, right)| left.is_none() || right.is_none()));
+        assert_eq!(pairs.len(), 5);
+    }
+
+    #[test]
+    fn pairing_keeps_line_numbers_monotonic() {
+        let removed = entries(&["alpha one", "beta two", "gamma three"]);
+        let added = entries(&["gamma three!", "alpha one!", "beta two!"]);
+
+        // A crossing match would scramble line numbers in the rendered list.
+        let pairs = pair_diff_entries(&removed, &added);
+        let matched: Vec<(usize, usize)> = pairs
+            .iter()
+            .filter_map(|(left, right)| left.zip(*right))
+            .collect();
+        assert!(matched.windows(2).all(|pair| pair[0].0 < pair[1].0 && pair[0].1 < pair[1].1));
+    }
+
+    #[test]
+    fn oversized_blocks_fall_back_to_positional_pairing() {
+        let text: Vec<String> = (0..(MAX_ALIGNMENT_CELLS + 1))
+            .map(|index| format!("line {index}"))
+            .collect();
+        let refs: Vec<&str> = text.iter().map(String::as_str).collect();
+        let removed = entries(&refs);
+        let added = entries(&refs[..2]);
+
+        let pairs = pair_diff_entries(&removed, &added);
+        assert_eq!(pairs.len(), removed.len());
+        assert_eq!(pairs[0], (Some(0), Some(0)));
+        assert_eq!(pairs[1], (Some(1), Some(1)));
+        assert_eq!(pairs[2], (Some(2), None));
+    }
+
+    #[test]
+    fn similarity_scores_reindentation_as_a_near_match() {
+        let score = line_similarity("    return value", "\t\treturn value");
+        assert_eq!(score, 1.0);
+        assert_eq!(line_similarity("abc", ""), 0.0);
+    }
 
     #[test]
     fn structured_diff_matches_shared_fixture() {

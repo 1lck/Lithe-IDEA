@@ -123,8 +123,11 @@ even when Git exits non-zero. Invalid arguments use the standard
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],
 "hunks": [] }`. Rows contain one-based `oldLine`/`newLine` values where
 available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
-`removal`, or `information`), and an optional `hunkID`. Hunk entries contain
-their header, structured rows, and the patch text needed for partial apply.
+`removal`, or `information`), and an optional `hunkID`. For `context` and
+`information` rows both sides carry identical text, so `right` is omitted and
+clients must fall back to `left`. Hunk entries contain their header and the
+patch text needed for partial apply; rows are not duplicated per hunk, so
+clients group `rows` by `hunkID` instead.
 `git.apply` accepts `root`, `patch`, and `mode`; it returns `{ "output": string,
 "exitCode": number }`. Pathspecs must be workspace-relative and must not
 contain absolute paths or `..` components.

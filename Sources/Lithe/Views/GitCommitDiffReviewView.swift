@@ -196,9 +196,15 @@ struct GitCommitDiffReviewView: View {
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
         GeometryReader { geometry in
-            let contentWidth = max(context.kind == .added || context.kind == .deleted ? 680 : 980, geometry.size.width)
+            let usesSinglePane = context.kind == .added || context.kind == .deleted
+            let contentWidth = DiffLayoutMetrics.contentWidth(
+                rows: model.diffRows,
+                viewportWidth: geometry.size.width,
+                minimumWidth: usesSinglePane ? 680 : 980,
+                paneCount: usesSinglePane ? 1 : 2
+            )
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 ScrollView(.vertical) {
                     let kinds = model.diffRows.map(\.kind)
                     let contentHeight = max(
@@ -255,8 +261,8 @@ struct GitCommitDiffReviewView: View {
         }
     }
 
-    private var differenceStarts: [UUID] {
-        var result: [UUID] = []
+    private var differenceStarts: [DiffRowID] {
+        var result: [DiffRowID] = []
         var insideDifference = false
         for row in model.diffRows {
             let isDifference = row.kind.isCommitDifference
@@ -268,8 +274,8 @@ struct GitCommitDiffReviewView: View {
         return result
     }
 
-    private var differenceIndexByRow: [UUID: Int] {
-        var result: [UUID: Int] = [:]
+    private var differenceIndexByRow: [DiffRowID: Int] {
+        var result: [DiffRowID: Int] = [:]
         var currentIndex = -1
         var insideDifference = false
         for row in model.diffRows {

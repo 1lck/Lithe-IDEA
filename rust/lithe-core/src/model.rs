@@ -384,6 +384,9 @@ pub struct GitDiffRowResponse {
     pub old_line: Option<usize>,
     pub new_line: Option<usize>,
     pub left: Option<String>,
+    /// Omitted for `context` and `information` rows, whose two sides always
+    /// hold identical text; clients fall back to `left` in that case.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub right: Option<String>,
     pub kind: String,
     pub hunk_id: Option<String>,
@@ -394,7 +397,6 @@ pub struct GitDiffRowResponse {
 pub struct GitDiffHunkResponse {
     pub id: String,
     pub header: String,
-    pub rows: Vec<GitDiffRowResponse>,
     pub patch: String,
 }
 

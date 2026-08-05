@@ -160,41 +160,11 @@ struct LocalHistoryView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                GeometryReader { geometry in
-                    let width = max(860, geometry.size.width)
-                    let kinds = model.localHistoryDiffRows.map(\.kind)
-                    let contentHeight = max(
-                        DiffLayoutMetrics.contentHeight(rows: model.localHistoryDiffRows, kinds: kinds),
-                        geometry.size.height
-                    )
-                    ScrollView(.horizontal) {
-                        ScrollView(.vertical) {
-                            ZStack(alignment: .topLeading) {
-                                DiffConnectorOverlay(
-                                    rows: model.localHistoryDiffRows,
-                                    kinds: kinds,
-                                    contentWidth: width
-                                )
-
-                                LazyVStack(spacing: 0) {
-                                    ForEach(model.localHistoryDiffRows) { row in
-                                        DiffRowView(
-                                            row: row,
-                                            kind: row.kind,
-                                            fileExtension: request.fileURL.pathExtension,
-                                            highlightsWords: true,
-                                            isSelectedDifference: false,
-                                            contentWidth: width
-                                        )
-                                    }
-                                }
-                                .textSelection(.enabled)
-                            }
-                            .frame(width: width, height: contentHeight, alignment: .topLeading)
-                        }
-                        .frame(width: width, height: geometry.size.height, alignment: .topLeading)
-                    }
-                }
+                DiffPaneView(
+                    rows: model.localHistoryDiffRows,
+                    fileExtension: request.fileURL.pathExtension,
+                    minimumWidth: 860
+                )
             }
         }
         .background(LitheTheme.editor)

@@ -152,39 +152,10 @@ struct BranchComparisonView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                GeometryReader { geometry in
-                    let contentWidth = max(900, geometry.size.width)
-                    let kinds = model.branchComparisonRows.map(\.kind)
-                    let contentHeight = max(
-                        DiffLayoutMetrics.contentHeight(rows: model.branchComparisonRows, kinds: kinds),
-                        geometry.size.height
-                    )
-
-                    ScrollView([.vertical, .horizontal]) {
-                        ZStack(alignment: .topLeading) {
-                            DiffConnectorOverlay(
-                                rows: model.branchComparisonRows,
-                                kinds: kinds,
-                                contentWidth: contentWidth
-                            )
-
-                            LazyVStack(spacing: 0) {
-                                ForEach(model.branchComparisonRows) { row in
-                                    DiffRowView(
-                                        row: row,
-                                        kind: row.kind,
-                                        fileExtension: selectedFileExtension,
-                                        highlightsWords: true,
-                                        isSelectedDifference: false,
-                                        contentWidth: contentWidth
-                                    )
-                                }
-                            }
-                            .textSelection(.enabled)
-                        }
-                        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
-                    }
-                }
+                DiffPaneView(
+                    rows: model.branchComparisonRows,
+                    fileExtension: selectedFileExtension
+                )
             }
         }
         .background(LitheTheme.editor)

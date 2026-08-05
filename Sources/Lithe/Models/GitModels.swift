@@ -267,13 +267,32 @@ enum DiffRowKind: Sendable, Equatable {
 }
 
 struct DiffRow: Identifiable, Sendable {
-    let id: UUID
+    /// Derived from the row's hunk and line numbers rather than a fresh UUID so
+    /// that re-parsing the same diff keeps scroll position and difference
+    /// selection stable across refreshes.
+    let id: DiffRowID
     let oldLine: Int?
     let newLine: Int?
+    /// Text of the left (old) side. For `context` and `information` rows this is
+    /// the text of both sides; see `rightText`.
     let left: String?
-    let right: String?
+    /// Text of the right (new) side, stored only when it differs from `left`.
+    /// Prefer `rightText`, which folds in the shared-text cases.
+    let storedRight: String?
     let kind: DiffRowKind
     let hunkID: String?
+
+    /// Right-side text with the shared-text fallback applied. `context` and
+    /// `information` rows hold identical text on both sides, so the parser only
+    /// keeps one copy.
+    var rightText: String? {
+        switch kind {
+        case .context, .information:
+            return storedRight ?? left
+        case .changed, .addition, .removal:
+            return storedRight
+        }
+    }
 
     init(
         oldLine: Int?,
@@ -281,22 +300,37 @@ struct DiffRow: Identifiable, Sendable {
         left: String?,
         right: String?,
         kind: DiffRowKind,
-        hunkID: String? = nil
+        hunkID: String? = nil,
+        sequence: Int = 0
     ) {
-        self.id = UUID()
+        self.id = DiffRowID(hunkID: hunkID, oldLine: oldLine, newLine: newLine, sequence: sequence)
         self.oldLine = oldLine
         self.newLine = newLine
         self.left = left
-        self.right = right
+        switch kind {
+        case .context, .information:
+            // Both sides carry the same text; drop the duplicate copy.
+            self.storedRight = nil
+        case .changed, .addition, .removal:
+            self.storedRight = right
+        }
         self.kind = kind
         self.hunkID = hunkID
     }
 }
 
+/// Stable, value-derived row identity. `sequence` disambiguates rows that share
+/// a hunk and line numbers, such as consecutive one-sided rows.
+struct DiffRowID: Hashable, Sendable {
+    let hunkID: String?
+    let oldLine: Int?
+    let newLine: Int?
+    let sequence: Int
+}
+
 struct DiffHunk: Identifiable, Sendable {
     let id: String
     let header: String
-    let rows: [DiffRow]
     let patch: String
 }
 
@@ -340,6 +374,9 @@ enum DiffParser {
         var fileHeaderLines: [String] = []
         var hunkRecords: [(id: String, header: String, lines: [String])] = []
         var hunkIndex = 0
+        // Monotonic per-document counter that keeps DiffRowID unique even when
+        // rows share a hunk and line numbers.
+        var rowSequence = 0
         let hasTrailingNewline = patch.hasSuffix("\n")
         var patchLines = patch.components(separatedBy: "\n")
         if hasTrailingNewline {
@@ -366,8 +403,10 @@ enum DiffParser {
                     left: left?.text,
                     right: right?.text,
                     kind: kind,
-                    hunkID: currentHunkID
+                    hunkID: currentHunkID,
+                    sequence: rowSequence
                 ))
+                rowSequence += 1
             }
             removed.removeAll(keepingCapacity: true)
             added.removeAll(keepingCapacity: true)
@@ -402,10 +441,12 @@ enum DiffParser {
                     oldLine: nil,
                     newLine: nil,
                     left: line,
-                    right: line,
+                    right: nil,
                     kind: .information,
-                    hunkID: hunkID
+                    hunkID: hunkID,
+                    sequence: rowSequence
                 ))
+                rowSequence += 1
             } else if line.hasPrefix("diff --git"), currentHunkID != nil {
                 finishHunk()
                 fileHeaderLines = [line]
@@ -422,15 +463,16 @@ enum DiffParser {
             } else if line.hasPrefix(" ") {
                 flushChanges()
                 currentHunkLines.append(line)
-                let text = String(line.dropFirst())
                 rows.append(DiffRow(
                     oldLine: oldLine,
                     newLine: newLine,
-                    left: text,
-                    right: text,
+                    left: String(line.dropFirst()),
+                    right: nil,
                     kind: .context,
-                    hunkID: currentHunkID
+                    hunkID: currentHunkID,
+                    sequence: rowSequence
                 ))
+                rowSequence += 1
                 oldLine += 1
                 newLine += 1
             } else if line.hasPrefix("\\ No newline") {
@@ -446,7 +488,6 @@ enum DiffParser {
             return DiffHunk(
                 id: record.id,
                 header: record.header,
-                rows: rows.filter { $0.hunkID == record.id },
                 patch: patchText
             )
         }

@@ -146,7 +146,14 @@ struct CoreVerification {
         require(document.rows.first?.kind == .information, "expected hunk header row")
         require(document.rows.contains { $0.kind == .changed }, "expected changed row")
         require(document.rows.contains { $0.kind == .addition }, "expected added row")
-        require(document.hunks.first?.rows.count == document.rows.count, "hunk rows must match document rows")
+        require(
+            document.rows.allSatisfy { $0.hunkID == document.hunks.first?.id },
+            "every row must belong to the single parsed hunk"
+        )
+        require(
+            document.rows.first { $0.kind == .context }?.rightText != nil,
+            "context rows must expose shared text on the right side"
+        )
     }
 
     private static func verifyVisibilityRules() {
