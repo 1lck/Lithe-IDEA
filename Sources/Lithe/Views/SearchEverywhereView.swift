@@ -29,10 +29,11 @@ struct SearchEverywhereView: View {
     private var visibleItems: [SearchItem] {
         switch scope {
         case .all:
+            // 对齐 IDEA：默认视图按“名字”找（文件、类、符号、Action），
+            // 正文命中只在 Text 标签页出现，避免与 Find in Files 的结果重叠。
             return results(in: model.searchEverywhereResults.fileMatches)
                 + results(in: model.searchEverywhereResults.classMatches)
                 + results(in: model.searchEverywhereResults.symbolMatches)
-                + results(in: model.searchEverywhereResults.contentMatches)
                 + model.searchEverywhereResults.actionMatches.map(SearchItem.action)
         case .classes:
             return results(in: model.searchEverywhereResults.classMatches)
@@ -45,6 +46,13 @@ struct SearchEverywhereView: View {
         case .actions:
             return model.searchEverywhereResults.actionMatches.map(SearchItem.action)
         }
+    }
+
+    /// `.all` 分组渲染里 Action 行的起始索引，必须与 `visibleItems` 的排列保持一致。
+    private var nameMatchCount: Int {
+        model.searchEverywhereResults.fileMatches.count
+            + model.searchEverywhereResults.classMatches.count
+            + model.searchEverywhereResults.symbolMatches.count
     }
 
     private var hasQuery: Bool {
@@ -205,20 +213,12 @@ struct SearchEverywhereView: View {
             offset: model.searchEverywhereResults.fileMatches.count + model.searchEverywhereResults.classMatches.count,
             showsLine: true
         )
-        groupedSection(
-            "Text",
-            results: model.searchEverywhereResults.contentMatches,
-            offset: model.searchEverywhereResults.fileMatches.count
-                + model.searchEverywhereResults.classMatches.count
-                + model.searchEverywhereResults.symbolMatches.count,
-            showsLine: true
-        )
         if !model.searchEverywhereResults.actionMatches.isEmpty {
             sectionHeader("Actions")
             ForEach(Array(model.searchEverywhereResults.actionMatches.enumerated()), id: \.offset) { index, action in
                 actionRow(
                     action,
-                    index: model.searchEverywhereResults.allMatches.count + index
+                    index: nameMatchCount + index
                 )
             }
         }
