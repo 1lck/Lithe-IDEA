@@ -183,9 +183,9 @@ swift test --disable-sandbox
 
 <table>
   <tr>
-    <td width="240" align="center">
+    <td width="112" align="center">
       <a href="https://shu26.cfd/">
-        <img src="./docs/assets/sponsors/code-go.png" width="120" alt="Code GO">
+        <img src="./docs/assets/sponsors/code-go.png" width="64" alt="Code GO">
       </a>
     </td>
     <td>
@@ -193,9 +193,9 @@ swift test --disable-sandbox
     </td>
   </tr>
   <tr>
-    <td width="240" align="center">
+    <td width="112" align="center">
       <a href="https://codezsy.com">
-        <img src="./docs/assets/sponsors/codez.png" width="120" alt="CodeZ 中转站">
+        <img src="./docs/assets/sponsors/codez.png" width="64" alt="CodeZ 中转站">
       </a>
     </td>
     <td>
@@ -203,9 +203,9 @@ swift test --disable-sandbox
     </td>
   </tr>
   <tr>
-    <td width="240" align="center">
+    <td width="112" align="center">
       <a href="https://www.fastaitoken.com/">
-        <img src="./docs/assets/sponsors/fastai.png" width="120" alt="FastAI">
+        <img src="./docs/assets/sponsors/fastai.png" width="64" alt="FastAI">
       </a>
     </td>
     <td>
