@@ -10,6 +10,12 @@
 "Current version" = "当前版本";
 "Current application memory: %@\nAverage since launch: %@" = "当前应用内存：%@\n启动以来平均：%@";
 "avg" = "平均";
+"Application Memory" = "应用内存";
+"Current" = "当前占用";
+"Average since launch" = "启动以来平均";
+"Peak this run" = "本次运行峰值";
+"Sample interval" = "采样间隔";
+"Resident memory of the Lithe process" = "Lithe 进程的常驻内存";
 "Lithe checks GitHub Releases for published updates." = "Lithe 会检查 GitHub Releases 中发布的更新。";
 "Update status" = "更新状态";
 "Update Available" = "有可用更新";

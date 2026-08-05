@@ -7,14 +7,18 @@ import Foundation
 final class MemoryUsageMonitor: ObservableObject {
     @Published private(set) var currentBytes: UInt64?
     @Published private(set) var averageBytes: UInt64?
+    @Published private(set) var peakBytes: UInt64?
+    @Published private(set) var elapsedTime: TimeInterval = 0
 
     private let sampleInterval: TimeInterval
+    private let startedAt: Date
     private var sampleTimer: Timer?
     private var sampleCount: UInt64 = 0
     private var totalSampledBytes: UInt64 = 0
 
     init(sampleInterval: TimeInterval = 1.0) {
         self.sampleInterval = sampleInterval
+        startedAt = Date()
     }
 
     deinit {
@@ -40,10 +44,40 @@ final class MemoryUsageMonitor: ObservableObject {
         formatted(averageBytes)
     }
 
+    var peakText: String {
+        formatted(peakBytes)
+    }
+
+    var runtimeText: String {
+        let totalSeconds = max(0, Int(elapsedTime.rounded(.down)))
+        let hours = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        if minutes > 0 {
+            return "\(minutes)m \(seconds)s"
+        }
+        return "\(seconds)s"
+    }
+
+    var samplingIntervalText: String {
+        if sampleInterval.rounded() == sampleInterval {
+            return "\(Int(sampleInterval))s"
+        }
+        return String(format: "%.1fs", sampleInterval)
+    }
+
     private func sample() {
+        elapsedTime = max(0, Date().timeIntervalSince(startedAt))
         guard let bytes = Self.currentResidentMemoryBytes() else { return }
 
         currentBytes = bytes
+        if bytes > (peakBytes ?? 0) {
+            peakBytes = bytes
+        }
         sampleCount += 1
         totalSampledBytes += bytes
         averageBytes = totalSampledBytes / sampleCount
