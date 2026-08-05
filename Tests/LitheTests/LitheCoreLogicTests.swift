@@ -444,6 +444,92 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func workspaceTreeCompactsMiddlePackagesOnlyUnderSourceRoots() throws {
+        // 目录树按 Rust core 实际发出的 JSON 形状构造，避免测试绕过解码路径。
+        func dir(_ path: String, _ children: String...) -> String {
+            let name = (path as NSString).lastPathComponent
+            let list = children.joined(separator: ",")
+            return "{\"path\":\"\(path)\",\"name\":\"\(name)\",\"isDirectory\":true,\"children\":[\(list)]}"
+        }
+        func file(_ path: String) -> String {
+            let name = (path as NSString).lastPathComponent
+            return "{\"path\":\"\(path)\",\"name\":\"\(name)\",\"isDirectory\":false}"
+        }
+
+        let aiPackage = dir(
+            "src/main/java/com",
+            dir(
+                "src/main/java/com/alibaba",
+                dir(
+                    "src/main/java/com/alibaba/nacos",
+                    dir(
+                        "src/main/java/com/alibaba/nacos/ai",
+                        file("src/main/java/com/alibaba/nacos/ai/App.java"),
+                        dir("src/main/java/com/alibaba/nacos/ai/config")
+                    )
+                )
+            )
+        )
+        // 有文件就不是空中间包，不该被压缩。
+        let soloPackage = dir(
+            "src/main/java/solo",
+            file("src/main/java/solo/Solo.java"),
+            dir("src/main/java/solo/inner")
+        )
+        let sourceTree = dir(
+            "src",
+            dir(
+                "src/main",
+                dir("src/main/java", aiPackage, soloPackage),
+                dir("src/main/resources", dir("src/main/resources/META-INF"))
+            )
+        )
+        // 源码根之外的单子目录链保持原样。
+        let docsTree = dir("docs", dir("docs/guide"))
+        let json = "{\"root\":\(dir("", sourceTree, docsTree)),\"files\":[]}"
+
+        let payload = try JSONDecoder().decode(
+            RustCoreBridge.WorkspaceSnapshotPayload.self,
+            from: Data(json.utf8)
+        )
+        let root = URL(fileURLWithPath: "/tmp/lithe-workspace-tree")
+        let tree = payload.makeSnapshot(at: root).root
+
+        func child(_ node: FileNode, _ name: String) throws -> FileNode {
+            let match = node.children?.first { $0.name == name }
+            return try #require(match, "missing child '\(name)' in \(node.name)")
+        }
+
+        let javaRoot = try child(child(child(tree, "src"), "main"), "java")
+        #expect(javaRoot.iconKind == .sourceFolder)
+
+        // com/alibaba/nacos/ai 压缩成一行，url 仍指向最深的真实目录。
+        let compacted = try child(javaRoot, "com.alibaba.nacos.ai")
+        #expect(compacted.iconKind == .packageFolder)
+        #expect(compacted.url.lastPathComponent == "ai")
+        #expect(compacted.collapsedAncestorPaths.map { ($0 as NSString).lastPathComponent }
+            == ["com", "alibaba", "nacos"])
+        #expect(compacted.children?.map(\.name).sorted() == ["App.java", "config"])
+        #expect(try child(compacted, "config").iconKind == .packageFolder)
+
+        // 含文件的目录不是空中间包，不压缩。
+        let solo = try child(javaRoot, "solo")
+        #expect(solo.collapsedAncestorPaths.isEmpty)
+        #expect(try child(solo, "inner").iconKind == .packageFolder)
+
+        // 资源根用资源图标；META-INF 名字不是合法包名，保持普通文件夹。
+        let resources = try child(child(child(tree, "src"), "main"), "resources")
+        #expect(resources.iconKind == .resourceFolder)
+        #expect(try child(resources, "META-INF").iconKind == .folder)
+
+        // 源码根之外不压缩，也不用包图标。
+        let docs = try child(tree, "docs")
+        #expect(docs.iconKind == .folder)
+        #expect(docs.collapsedAncestorPaths.isEmpty)
+        #expect(try child(docs, "guide").iconKind == .folder)
+    }
+
+    @Test
     func gitCommitFileTreePreservesHierarchyAndCompactsSingleChildPaths() {
         let tree = GitCommitFileTreeNode.build(
             from: [

@@ -166,8 +166,11 @@ private struct FileNodeRow: View {
         Button {
             if isExpanded {
                 expandedDirectoryPaths.remove(node.url.path)
+                node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.remove($0) }
             } else {
                 expandedDirectoryPaths.insert(node.url.path)
+                // 被压缩掉的中间包也要标记为展开，否则再次折叠时状态残留。
+                node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.insert($0) }
             }
         } label: {
             HStack(spacing: 6) {

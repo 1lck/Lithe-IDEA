@@ -147,8 +147,8 @@ enum LitheIcons {
     private static let resourceDirectoryNames: Set<String> = ["resources", "res", "webapp", "static"]
     private static let sourceDirectoryNames: Set<String> = ["java", "kotlin", "scala", "groovy"]
 
-    static func kind(for url: URL, isDirectory: Bool) -> LitheIconKind {
-        if isDirectory { return directoryKind(for: url) }
+    static func kind(for url: URL, isDirectory: Bool, isInsideSourceRoot: Bool = false) -> LitheIconKind {
+        if isDirectory { return directoryKind(for: url, isInsideSourceRoot: isInsideSourceRoot) }
         return fileKind(for: url)
     }
 
@@ -156,17 +156,45 @@ enum LitheIcons {
         ideaAssetPathsBySystemImage[systemImage]
     }
 
-    private static func directoryKind(for url: URL) -> LitheIconKind {
+    /// src/main/java、src/test/kotlin 之类的源码根。资源根同样按这个布局
+    /// 判断，避免把任意一个叫 resources 的目录标成资源根。
+    static func isSourceRootDirectory(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        guard sourceDirectoryNames.contains(name) || resourceDirectoryNames.contains(name) else {
+            return false
+        }
+        let parent = url.deletingLastPathComponent().lastPathComponent.lowercased()
+        return parent == "main" || parent == "test"
+    }
+
+    private static func directoryKind(for url: URL, isInsideSourceRoot: Bool) -> LitheIconKind {
         let name = url.lastPathComponent
         if excludedDirectoryNames.contains(name.lowercased()) { return .excludedFolder }
 
+        let lowercased = name.lowercased()
         let parent = url.deletingLastPathComponent().lastPathComponent.lowercased()
-        // src/main/java、src/test/kotlin 之类的源码根
-        if sourceDirectoryNames.contains(name.lowercased()), parent == "main" || parent == "test" {
+        let isStandardLayoutRoot = parent == "main" || parent == "test"
+
+        if sourceDirectoryNames.contains(lowercased), isStandardLayoutRoot {
             return .sourceFolder
         }
-        if resourceDirectoryNames.contains(name.lowercased()) { return .resourceFolder }
+        if resourceDirectoryNames.contains(lowercased), isStandardLayoutRoot {
+            return .resourceFolder
+        }
+        // 源码根之下、名字是合法包名的目录才是包。IDEA 的
+        // JavaDirectoryIconProvider.isValidPackage 同样要求名字合法，
+        // 所以 META-INF 这种带连字符的目录仍然是普通文件夹。
+        if isInsideSourceRoot, isValidPackageName(name) { return .packageFolder }
         return .folder
+    }
+
+    /// Java 包名段：首字符是字母或下划线，其余是字母、数字或下划线。
+    static func isValidPackageName(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first else { return false }
+        guard CharacterSet.letters.contains(first) || first == "_" else { return false }
+        return name.unicodeScalars.allSatisfy {
+            CharacterSet.alphanumerics.contains($0) || $0 == "_"
+        }
     }
 
     private static func fileKind(for url: URL) -> LitheIconKind {

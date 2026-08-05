@@ -1322,11 +1322,47 @@ struct RustCoreBridge: Sendable {
 
 private extension RustCoreBridge.WorkspaceNodePayload {
     func makeFileNode(at rootURL: URL) -> FileNode {
+        makeFileNode(at: rootURL, insideSourceRoot: false)
+    }
+
+    /// 把只含单个子目录的中间包压缩成一行（IDEA 的 Compact Middle Packages）。
+    /// 规则对齐 TreeViewUtil.isEmptyMiddlePackage：唯一的子节点是目录、且当前
+    /// 目录下没有文件时才压缩。只在源码根之下压缩，src/main/java 之外的目录树
+    /// 保持原样，否则普通项目里任意的单层目录也会被合并，反而更难看懂。
+    private func makeFileNode(at rootURL: URL, insideSourceRoot: Bool) -> FileNode {
         let url = path.isEmpty ? rootURL : rootURL.appendingPathComponent(path)
+
+        guard isDirectory else {
+            return FileNode(url: url, isDirectory: false, children: nil)
+        }
+
+        let selfIsSourceRoot = LitheIcons.isSourceRootDirectory(url)
+        let childrenInsideSourceRoot = insideSourceRoot || selfIsSourceRoot
+
+        // 源码根本身不参与压缩，从它的子目录开始。
+        var collapsed: [String] = []
+        var node = self
+        var nodeURL = url
+        if insideSourceRoot {
+            while let kids = node.children,
+                  kids.count == 1,
+                  let only = kids.first,
+                  only.isDirectory,
+                  LitheIcons.isValidPackageName(only.name) {
+                collapsed.append(nodeURL.path)
+                node = only
+                nodeURL = rootURL.appendingPathComponent(only.path)
+            }
+        }
+
         return FileNode(
-            url: url,
-            isDirectory: isDirectory,
-            children: children?.map { $0.makeFileNode(at: rootURL) }
+            url: nodeURL,
+            isDirectory: true,
+            children: node.children?.map {
+                $0.makeFileNode(at: rootURL, insideSourceRoot: childrenInsideSourceRoot)
+            },
+            collapsedAncestorPaths: collapsed,
+            isInsideSourceRoot: insideSourceRoot
         )
     }
 }

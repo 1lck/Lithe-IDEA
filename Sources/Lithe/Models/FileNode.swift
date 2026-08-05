@@ -4,12 +4,37 @@ struct FileNode: Identifiable, Hashable, Sendable {
     let url: URL
     let isDirectory: Bool
     let children: [FileNode]?
+    /// 被压缩的中间包所对应的目录（不含本节点自身）。展开/折叠时需要
+    /// 一并处理，否则父目录的展开状态会和显示的行对不上。
+    let collapsedAncestorPaths: [String]
+    /// 该目录是否位于源码根之下，决定用包图标还是普通文件夹图标。
+    let isInsideSourceRoot: Bool
+
+    init(
+        url: URL,
+        isDirectory: Bool,
+        children: [FileNode]?,
+        collapsedAncestorPaths: [String] = [],
+        isInsideSourceRoot: Bool = false
+    ) {
+        self.url = url
+        self.isDirectory = isDirectory
+        self.children = children
+        self.collapsedAncestorPaths = collapsedAncestorPaths
+        self.isInsideSourceRoot = isInsideSourceRoot
+    }
 
     var id: String { url.path }
-    var name: String { url.lastPathComponent }
+
+    /// 压缩中间包后显示的名字，例如 com.alibaba.nacos.ai。
+    var name: String {
+        guard !collapsedAncestorPaths.isEmpty else { return url.lastPathComponent }
+        let names = collapsedAncestorPaths.map { ($0 as NSString).lastPathComponent }
+        return (names + [url.lastPathComponent]).joined(separator: ".")
+    }
 
     var iconKind: LitheIconKind {
-        LitheIcons.kind(for: url, isDirectory: isDirectory)
+        LitheIcons.kind(for: url, isDirectory: isDirectory, isInsideSourceRoot: isInsideSourceRoot)
     }
 }
 
