@@ -185,34 +185,31 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
   <tr>
     <td width="240" align="center">
       <a href="https://shu26.cfd/">
-        <img src="./docs/assets/sponsors/code-go.png" width="180" alt="Code GO">
+        <img src="./docs/assets/sponsors/code-go.png" width="120" alt="Code GO">
       </a>
     </td>
     <td>
-      <strong>Code GO</strong> provides relay access to Claude models and supports the development of Lithe. Thank you to Code GO for supporting this project!<br><br>
-      <a href="https://shu26.cfd/">Visit Code GO</a>
+      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> provides relay access to Claude models and supports the development of Lithe. Thank you to Code GO for supporting this project!
     </td>
   </tr>
   <tr>
     <td width="240" align="center">
       <a href="https://codezsy.com">
-        <img src="./docs/assets/sponsors/codez.png" width="180" alt="CodeZ relay service">
+        <img src="./docs/assets/sponsors/codez.png" width="120" alt="CodeZ relay service">
       </a>
     </td>
     <td>
-      <strong>CodeZ</strong> provides relay access to GPT-family models and supports the development of Lithe. Thank you to CodeZ for supporting this project!<br><br>
-      <a href="https://codezsy.com">Visit CodeZ</a>
+      <a href="https://codezsy.com"><strong>CodeZ</strong></a> provides relay access to GPT-family models and supports the development of Lithe. Thank you to CodeZ for supporting this project!
     </td>
   </tr>
   <tr>
     <td width="240" align="center">
       <a href="https://www.fastaitoken.com/">
-        <img src="./docs/assets/sponsors/fastai.png" width="48" alt="FastAI">
+        <img src="./docs/assets/sponsors/fastai.png" width="120" alt="FastAI">
       </a>
     </td>
     <td>
-      <strong>FastAI</strong> provides access to large language models and supports the development of Lithe. Thank you to FastAI for supporting this project!<br><br>
-      <a href="https://www.fastaitoken.com/">Visit FastAI</a>
+      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> provides access to large language models and supports the development of Lithe. Thank you to FastAI for supporting this project!
     </td>
   </tr>
 </table>

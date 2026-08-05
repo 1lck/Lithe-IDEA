@@ -185,34 +185,31 @@ swift test --disable-sandbox
   <tr>
     <td width="240" align="center">
       <a href="https://shu26.cfd/">
-        <img src="./docs/assets/sponsors/code-go.png" width="180" alt="Code GO">
+        <img src="./docs/assets/sponsors/code-go.png" width="120" alt="Code GO">
       </a>
     </td>
     <td>
-      <strong>Code GO</strong> 提供 Claude 系列模型的中转支持，并支持 Lithe 的开发。感谢 Code GO 对本项目的支持！<br><br>
-      <a href="https://shu26.cfd/">访问 Code GO</a>
+      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> 提供 Claude 系列模型的中转支持，并支持 Lithe 的开发。感谢 Code GO 对本项目的支持！
     </td>
   </tr>
   <tr>
     <td width="240" align="center">
       <a href="https://codezsy.com">
-        <img src="./docs/assets/sponsors/codez.png" width="180" alt="CodeZ 中转站">
+        <img src="./docs/assets/sponsors/codez.png" width="120" alt="CodeZ 中转站">
       </a>
     </td>
     <td>
-      <strong>CodeZ</strong> 提供 GPT 系列模型的中转支持，并支持 Lithe 的开发。感谢 CodeZ 对本项目的支持！<br><br>
-      <a href="https://codezsy.com">访问 CodeZ</a>
+      <a href="https://codezsy.com"><strong>CodeZ</strong></a> 提供 GPT 系列模型的中转支持，并支持 Lithe 的开发。感谢 CodeZ 对本项目的支持！
     </td>
   </tr>
   <tr>
     <td width="240" align="center">
       <a href="https://www.fastaitoken.com/">
-        <img src="./docs/assets/sponsors/fastai.png" width="48" alt="FastAI">
+        <img src="./docs/assets/sponsors/fastai.png" width="120" alt="FastAI">
       </a>
     </td>
     <td>
-      <strong>FastAI</strong> 提供大模型服务支持，并助力 Lithe 的开发。感谢 FastAI 对本项目的支持！<br><br>
-      <a href="https://www.fastaitoken.com/">访问 FastAI</a>
+      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> 提供大模型服务支持，并助力 Lithe 的开发。感谢 FastAI 对本项目的支持！
     </td>
   </tr>
 </table>
