@@ -2,6 +2,7 @@
 .build/
 rust/target/
 .swiftpm/
+.idea/
 DerivedData/
 dist/
 Fixtures/**/target/
