@@ -18,8 +18,9 @@
 <line x1="115" y1="92.00" x2="1135" y2="92.00" stroke="#374151" stroke-width="1"/>
 <text x="97.00" y="99.00" text-anchor="end" font-size="18" fill="#f3f4f6">100</text>
 <text x="115.00" y="585.00" text-anchor="middle" font-size="18" fill="#f3f4f6">Aug 03</text>
-<text x="1135.00" y="585.00" text-anchor="middle" font-size="18" fill="#f3f4f6">Aug 04</text>
-<path d="M 115.00,259.61 L 1135.00,236.96" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="625.00" y="585.00" text-anchor="middle" font-size="18" fill="#f3f4f6">Aug 04</text>
+<text x="1135.00" y="585.00" text-anchor="middle" font-size="18" fill="#f3f4f6">Aug 05</text>
+<path d="M 115.00,259.61 L 625.00,227.90 L 1135.00,218.84" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
 <rect x="135" y="110" width="310" height="60" rx="12" fill="#111827" stroke="#f3f4f6" stroke-width="2"/>
 <rect x="153" y="131" width="16" height="16" rx="3" fill="#e34b2d"/>
 <text x="183.00" y="147.00" font-size="20" fill="#f3f4f6">1lck/Lithe-IDEA</text>
