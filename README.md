@@ -9,12 +9,12 @@
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
-    <a href="#special-thanks">Special Thanks</a> ·
-    <a href="#sponsors">Sponsors</a> ·
-    <a href="#why-lithe">Why Lithe</a> ·
-    <a href="#product-tour">Product Tour</a> ·
-    <a href="#quick-start">Quick Start</a> ·
-    <a href="#lithe-vs-intellij-idea">Lithe vs IDEA</a>
+    <a href="#core-capabilities">Core capabilities</a> ·
+    <a href="#product-tour">Product tour</a> ·
+    <a href="#use-lithe">Use Lithe</a> ·
+    <a href="#architecture">Architecture</a> ·
+    <a href="#develop-lithe">Develop Lithe</a> ·
+    <a href="#contact-us">Contact us</a>
   </p>
 
   <p>
@@ -47,19 +47,139 @@
   <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="96%" alt="Lithe Java editor and project tree">
 </p>
 
-## ⭐ Special Thanks
+## About Lithe
+
+Lithe is a native macOS IDE built for AI-assisted development. It preserves the project browsing, editing, search, code navigation, Git, run, and debug workflows familiar to IntelliJ IDEA users while starting Java language services, terminals, Maven, and debug processes only when needed.
+
+When an external AI tool changes a project, Lithe helps you locate the affected code, run the project, review the diff, and decide which changes to stage, undo, or commit.
+
+> **A familiar IDE core with a lighter resource footprint.**
+
+## Core capabilities
+
+| Workflow | What Lithe provides |
+| --- | --- |
+| Project browsing | Welcome screen, recent projects, file tree, file type icons, path breadcrumbs, and workspace restoration |
+| Code reading | Native multi-tab editor, basic Java highlighting, code folding, line numbers, saves, and dirty-state tracking |
+| Java navigation | Eclipse JDT LS definitions, references, implementations, workspace symbols, and live diagnostics |
+| Search | File name, path, full text, Search Everywhere, case/word/regex matching, and project replace |
+| External changes | FSEvents watching, create/delete/update refreshes, and disk-versus-editor conflict prompts |
+| Git review | Changes, side-by-side diff, diff search, hunk-level stage/revert, commit, shelf, branches, and Git graph |
+| Build and run | Maven roots, multimodule projects, profiles, lifecycle, build output, current file, Spring Boot, and Maven module |
+| Java debug | Local JDWP, Maven/Spring Boot debug, remote JVM/Tomcat attach, breakpoints, stepping, threads, and variables |
+| Productivity | Project-level local history, built-in terminal, draggable tool windows, and restored split layouts |
+| Updates | GitHub Release checks, matching artifact validation, confirmed replacement, and restart |
+| Interface language | English by default with Simplified Chinese available in Settings |
+
+## Product tour
 
 <p align="center">
-  <a href="https://linux.do/">
-    <img src="./docs/assets/special-thanks/linux-do.png" width="78%" alt="LINUX DO">
-  </a>
+  <img src="./docs/visual-qa/00-welcome-projects.png" width="49%" alt="Welcome screen and recent projects">
+  <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="49%" alt="Java editor and project tree">
 </p>
 
 <p align="center">
-  <strong>For all things AI, head to LINUX DO! Wishing the community ever greater success~</strong>
+  <img src="./docs/visual-qa/09-search-everywhere-results.png" width="49%" alt="Search Everywhere">
+  <img src="./docs/visual-qa/13-spring-boot-usages.png" width="49%" alt="JDT LS Java usages">
 </p>
 
-## ❤️ Sponsors
+<p align="center">
+  <img src="./docs/visual-qa/08-git-diff-green-state.png" width="49%" alt="Git diff review">
+  <img src="./docs/visual-qa/14-spring-boot-run-configuration.png" width="49%" alt="Spring Boot run configuration">
+</p>
+
+## Use Lithe
+
+Lithe requires macOS 14 or later. Java project features require a JDK; JDK 17 or JDK 21 is recommended. Semantic navigation requires Eclipse JDT LS. Maven projects need either a project `mvnw` or a system Maven installation.
+
+Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). If a release provides architecture-specific installers, choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. Open the disk image, drag `Lithe.app` into `/Applications`, and launch it.
+
+If macOS blocks an app from an unidentified developer, right-click the app and select **Open**, or go to **System Settings → Privacy & Security → Open Anyway**. Only after confirming that the app came from an official Lithe GitHub Release, you can also run:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Lithe.app"
+open "/Applications/Lithe.app"
+```
+
+Install JDT LS with Homebrew:
+
+```bash
+brew install jdtls
+```
+
+After opening a project, use **Settings → Project** to configure the project JDK, Maven, and the JDK used by Maven. Lithe also detects Java and Maven from common system locations.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    CORE["Shared Rust Core<br/>JSON C ABI and shared contracts"]
+
+    subgraph MACOS["macOS · Available"]
+        MUI["SwiftUI / AppKit Views"] --> MAPP["AppModel · Feature models · AppServices"]
+        MAPP --> MADAPTERS["Native macOS adapters"]
+        MADAPTERS --> MNATIVE["FSEvents · Process · PTY · Native UI"]
+    end
+
+    MAPP --> CORE
+
+    subgraph WINDOWS["Windows · In development"]
+        WUI["Qt Widgets Workbench<br/>Foundation available"] --> WAPP["C++ application workflows<br/>To be completed"]
+        WAPP --> WCLIENT["C++ CoreClient<br/>Foundation available"]
+        WAPP --> WADAPTERS["Win32 adapters<br/>Foundation available"]
+        WADAPTERS --> WNATIVE["Win32 · ConPTY · File watching"]
+        WAPP -.-> WPARITY["Full feature parity<br/>Planned"]
+        WCLIENT -.-> WPACKAGE["Rust library integration and packaging<br/>Planned"]
+        WNATIVE -.-> WBUILD["Native Windows build and validation<br/>To be completed"]
+        WUI -.-> WSHIP["Installer · Updates<br/>Planned"]
+    end
+
+    WCLIENT --> CORE
+
+    classDef planned fill:#fff3cd,stroke:#d97706,stroke-width:2px,stroke-dasharray:6 4,color:#111827
+    class WAPP,WPARITY,WPACKAGE,WBUILD,WSHIP planned
+```
+
+## Develop Lithe
+
+Development requires Swift 6.2 or later. Running the complete test suite requires Xcode; basic SwiftPM builds only need Command Line Tools.
+
+Run the development build from the repository root:
+
+```bash
+./scripts/preview.sh
+```
+
+The script builds and links Rust Core before launching the macOS app. To validate only the Swift source, run:
+
+```bash
+swift run --disable-sandbox Lithe
+```
+
+Build an app bundle:
+
+```bash
+./scripts/package-app.sh
+open dist/Lithe.app
+```
+
+Before submitting a change, run:
+
+```bash
+swift test --disable-sandbox
+./scripts/verify-core.sh
+./scripts/verify-git-graph.sh
+./scripts/verify-service-boundaries.sh
+./scripts/verify-shared-contracts.sh
+./scripts/verify-windows-boundaries.sh
+./scripts/verify-rust-core.sh
+```
+
+See [Repository layout and shared boundaries](./docs/architecture/repository-layout.md) for directory ownership, cross-platform boundaries, and sharing rules. Include your verification steps and known limitations when submitting a change.
+
+## Project support
+
+### ❤️ Sponsors
 
 <table>
   <tr>
@@ -84,290 +204,42 @@
       <a href="https://codezsy.com">Visit CodeZ</a>
     </td>
   </tr>
+  <tr>
+    <td width="240" align="center">
+      <a href="https://www.fastaitoken.com/">
+        <img src="./docs/assets/sponsors/fastai.png" width="48" alt="FastAI">
+      </a>
+    </td>
+    <td>
+      <strong>FastAI</strong> provides access to large language models and supports the development of Lithe. Thank you to FastAI for supporting this project!<br><br>
+      <a href="https://www.fastaitoken.com/">Visit FastAI</a>
+    </td>
+  </tr>
 </table>
 
-## Why Lithe
-
-Most developers do not need to learn another way to work. They need the familiar core of an IDE—project browsing, an editor, search, navigation, Git, Run, and Debug—without carrying the full resource footprint of a large IDE for every task.
-
-Lithe is built around that idea: reproduce the core IDE workflow in a native macOS application, keep the interaction model familiar to IntelliJ IDEA users, and keep heavyweight services out of memory until they are needed.
-
-The goal is not to build a smaller-looking editor. It is to provide a practical, lightweight alternative for the everyday IDE loop: open a project, read and edit code, search and navigate, run it, inspect the result, and review Git changes.
-
-> **The familiar IDE core, with a lighter footprint.**
-
-AI-assisted development is one of Lithe's most important use cases. When an external AI tool changes a project, Lithe is ready to observe the changes, navigate the affected Java code, run the project, inspect the Diff, and let people decide what to keep.
-
-```text
-Open a project
-      ↓
-Browse / Edit / Search / Navigate
-      ↓
-Run / Maven / Debug
-      ↓
-Review Git changes → Stage, undo, or commit
-      ↓
-Optional: inspect changes made by an external AI tool
-```
-
-You do not need to uninstall IntelliJ IDEA or learn a completely new interaction model. Lithe is designed to be a lighter alternative for the core daily workflow, while IDEA remains available for advanced coding and its broader ecosystem.
-
-## Lithe vs IntelliJ IDEA
-
-Lithe aims to replace the core everyday IDE loop with a lighter native application, not every advanced capability in IntelliJ IDEA.
-
-| Area | IntelliJ IDEA | Lithe |
-| --- | --- | --- |
-| Primary role | Full Java and multi-language IDE | Lightweight IDEA-style IDE for core daily workflows |
-| Deep coding | Complete completion, refactoring, plugins, and project tooling | Focused on reading and small manual corrections |
-| External AI changes | Possible inside a full IDE workflow | External change detection, conflict prompts, Diff, and Local History are first-class |
-| Git workflow | Broad version-control capabilities | Centered on Changes, side-by-side Diff, hunk actions, and accept/undo decisions |
-| Java support | Full Java project experience | Eclipse JDT LS navigation, diagnostics, and basic Debug |
-| Startup and resources | Broader IDE platform | Native SwiftUI/AppKit with Java services and processes started on demand |
-| Familiarity | The established IDEA workflow | Keeps the Project, Changes, Search, Editor, and Diff habits IDEA users already know |
-
-### Core workflows Lithe can replace
-
-- Open a Java project, browse its files, edit a small piece of code, and save it.
-- Search the project, navigate Java definitions and usages, and inspect diagnostics.
-- Run Maven, Spring Boot, or a Java file and inspect the result.
-- Review Git changes, then stage, undo, commit, or apply an individual hunk.
-- Inspect and validate changes made by an external AI tool without changing your familiar IDE habits.
-
-### Moments IDEA is still the better tool
-
-Deep completion, complex refactoring, automatic imports, a broad plugin ecosystem, multi-language projects, test trees, and coverage remain IDEA strengths. Lithe is not asking you to give those up; it provides a lower-overhead alternative for the core IDE loop and makes AI-assisted changes easier to inspect.
-
-## Performance and familiar workflow
-
-### Native, lightweight, and on demand
-
-Lithe is built with SwiftUI and AppKit. It does not embed Chromium or maintain a full IDE-scale resident project model:
-
-- The Java language service starts when a Java project needs it.
-- Terminal, Maven, Run, and Debug processes start when you use them.
-- Search uses a lightweight disk index, while Local History stores snapshots on disk instead of keeping history text resident in memory.
-- Closing a project stops file watchers, language services, terminal sessions, and Run/Debug processes.
-
-The current physical-footprint baseline on the development machine is about **44 MB** for an idle Welcome window, **58 MB** for the Lithe process with a Java project open, and **282 MB** for the on-demand JDT LS process. That makes the observed idle Java-project total about **340 MB**; JDT LS is reported separately because it is stopped when the project closes, but it is still part of the user's real resource cost. These are development baselines, not a substitute for future stress testing across larger projects. The main Lithe process remains targeted below **150 MB**.
-
-### No new IDE habits to learn
-
-Lithe follows the IDEA-shaped workflow: Project, Changes, Search, Editor, Diff, Maven, Run, and Debug have corresponding entry points. Familiar actions such as `⌘F` file search, `⌘B` navigation to usages, and double-Shift Search Everywhere remain available.
-
-The cost of switching to Lithe is not learning another IDE. It is simply opening a workbench with the same familiar concepts and a smaller memory footprint.
-
-## Product Tour
+### ⭐ Special thanks
 
 <p align="center">
-  <img src="./docs/visual-qa/00-welcome-projects.png" width="49%" alt="Welcome and recent projects">
-  <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="49%" alt="Java editor and project tree">
+  <a href="https://linux.do/">
+    <img src="./docs/assets/special-thanks/linux-do.png" width="78%" alt="LINUX DO">
+  </a>
 </p>
 
 <p align="center">
-  <img src="./docs/visual-qa/09-search-everywhere-results.png" width="49%" alt="Search Everywhere">
-  <img src="./docs/visual-qa/13-spring-boot-usages.png" width="49%" alt="Java usages from JDT LS">
+  <strong>For all things AI, head to LINUX DO. Wishing the community ever greater success.</strong>
 </p>
 
-<p align="center">
-  <img src="./docs/visual-qa/08-git-diff-green-state.png" width="49%" alt="Git diff review">
-  <img src="./docs/visual-qa/14-spring-boot-run-configuration.png" width="49%" alt="Spring Boot run configuration">
-</p>
+### Contributors
 
-## Features
-
-| Workflow | What Lithe provides |
-| --- | --- |
-| Project browsing | Welcome Screen, recent projects, file tree, file icons, breadcrumbs, and workspace state restoration |
-| Code reading | Multi-tab native editor, Java syntax highlighting, code folding, line numbers, saving, and dirty-file state |
-| Java navigation | Eclipse JDT LS definitions, usages, implementations, workspace symbols, and live diagnostics |
-| Search | File name, path, full-text, Search Everywhere, case/whole-word/regex matching, and project replacement |
-| External changes | FSEvents monitoring, file refresh, and conflict prompts between disk and unsaved editor content |
-| Git review | Changes, side-by-side Diff, Diff search, hunk staging/undo, Commit, Shelf, branches, and Git Graph |
-| Build and Run | Maven roots, modules, Profiles, Lifecycle, Build Output, Current File, Spring Boot, and Maven Module configurations |
-| Java Debug | Local JDWP, Maven/Spring Boot Debug, Remote JVM/Tomcat attach, breakpoints, stepping, threads, and variables |
-| Productivity | Project Local History, integrated terminal, resizable tool windows, and restored split layouts |
-| Updates | Checks the latest GitHub Release, verifies the matching package, and replaces the app after confirmation |
-| Interface | English by default, with Simplified Chinese available from Settings |
-
-## Quick Start
-
-### Requirements
-
-- macOS 14 or later
-- Swift 6.2 or later
-- Full Xcode for `swift test`; Command Line Tools are enough for basic SwiftPM builds
-- A JDK for Java features; JDK 17 or JDK 21 is recommended
-- Eclipse JDT LS for Java semantic navigation
-- A project `mvnw` or a system Maven installation for Maven projects
-
-Install JDT LS with Homebrew:
-
-```bash
-brew install jdtls
-```
-
-### Run the development build
-
-From the project root:
-
-```bash
-./scripts/preview.sh
-```
-
-This builds and links the Rust Core before launching the macOS app. To validate
-the Swift sources without linking Rust, you can also run:
-
-```bash
-swift run --disable-sandbox Lithe
-```
-
-### Build an App Bundle
-
-```bash
-./scripts/package-app.sh
-open dist/Lithe.app
-```
-
-### Download a release
-
-Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). When a release provides separate installers, choose `arm64` for Apple Silicon Macs (M1 and later) or `x86_64` for Intel Macs. Open the disk image, drag `Lithe.app` to `/Applications`, and launch it. Lithe can also check for a newer release in the app, download the matching package, replace the current app, and restart automatically.
-
-If macOS blocks an app from an unidentified developer, first try right-clicking the app and choosing **Open**. You can also use **System Settings → Privacy & Security → Open Anyway** after trying to launch it.
-
-Only if the app came from the official Lithe GitHub Release, and macOS still blocks it, run:
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/Lithe.app"
-open "/Applications/Lithe.app"
-```
-
-This removes macOS's downloaded-file quarantine marker for that app. It does not install updates automatically or disable Gatekeeper system-wide.
-
-### Check the core workflows
-
-The repository includes Swift unit tests and UI-independent checks for the core
-logic:
-
-```bash
-swift test --disable-sandbox
-./scripts/verify-core.sh
-./scripts/verify-git-graph.sh
-./scripts/verify-service-boundaries.sh
-./scripts/verify-shared-contracts.sh
-./scripts/verify-windows-boundaries.sh
-./scripts/verify-rust-core.sh
-```
-
-These cover document state, file visibility, Markdown blocks, Diff, search
-matching, Git Graph, whitespace filtering, stash, clone, real Merge/Tag/Remote
-reference layouts, service boundaries, shared fixtures, and the Rust Core ABI.
-
-## Configure Java and Maven
-
-After opening a project, use **Settings → Project** to configure:
-
-- Project JDK
-- Maven Wrapper, system Maven, or a custom Maven Home
-- The JDK used by Maven
-
-Lithe discovers installed JDKs by probing `JAVA_HOME`, macOS `java_home`, standard JDK locations, and Homebrew JDKs; Maven is discovered from a project `mvnw`, `MAVEN_HOME`, `PATH`, and standard Homebrew/system locations. The selected runtime is stored per project in local application settings, so machine-specific paths do not enter the repository. These settings are shared by Current File, Maven, Spring Boot, Maven Module, Debug, and JDT LS. A run configuration can still override the project JDK with **JDK Home**.
-
-## Design boundaries
-
-Lithe currently focuses on reading, running, and reviewing Java projects on macOS. It does not include:
-
-- AI model calls, Agent sessions, or chat UI
-- LSP and code intelligence for languages other than Java
-- Traditional completion, automatic imports, quick fixes, or safe rename
-- Test discovery, test trees, coverage, or a full test runner
-- Three-way merge conflict resolution, multi-root workspaces, or a plugin marketplace
-
-Current File uses Java source-file mode and is intended for quick single-file examples. For code that depends on other project sources, use a Maven Module or Spring Boot run configuration.
-
-## Technical architecture
-
-```text
-SwiftUI / AppKit Views
-          ↓
-AppModel: UI state and navigation
-          ↓
-Application Feature Models + AppServices
-      ┌───┴──────────────────┐
-      ↓                      ↓
-Rust Core operations     macOS ports/adapters
-      ↓                      ↓
-Rust Core + JSON C ABI   FSEvents / Process / PTY / native UI
-```
-
-Lithe uses Swift Package Manager and has no third-party Swift Package
-dependencies:
-
-```text
-Sources/Lithe/
-├── Application/  Workspace, Document, Git, Search, Java, Terminal, and History features
-├── Core/         Ports, Rust operations, and pure terminal primitives
-├── Models/       UI-facing models and value types
-├── Platform/     macOS composition root and native adapters
-├── Services/     Workflow orchestration and process-backed lifecycles
-└── Views/        Welcome, Workbench, Editor, Diff, and tool windows
-```
-
-The Windows application has matching native layers under `windows/qt`,
-`windows/core`, and `windows/adapters`. It consumes the Rust Core contract and
-does not reference Swift types.
-
-## Current status
-
-Lithe is in active development. The core loop from opening a project to reading changes, running Java/Maven, reviewing a Diff, and making a Git decision is in place.
-
-| Status | Scope |
-| --- | --- |
-| Available now | Welcome, project tree, editor, search, external changes, Git/Diff, Local History, terminal, Maven, Java navigation, and basic Run/Debug |
-| Verified locally | 7 Swift unit tests, 15 Rust Core tests, service/shared/Windows boundary checks, and Rust C ABI bridge verification |
-| Being refined | Java navigation edges, cross-file Current File execution, deployment-target consistency, and large-project performance |
-| In progress | Windows toolchain, Qt workflow coverage, packaging, and installer/update behavior |
-
-## Project structure
-
-```text
-Lithe-IDEA/
-├── Sources/Lithe/          # Current macOS SwiftUI / AppKit source
-├── Sources/LitheRustCore/  # macOS C bridge for the Rust Core
-├── Resources/              # macOS metadata, localization, and runtime assets
-├── rust/                   # Shared Rust Core and C ABI
-├── windows/                # Independent Windows Qt/C++ implementation in progress
-├── shared/                 # Cross-platform contracts and acceptance material
-├── Fixtures/               # Shared Maven / Spring Boot and Git fixtures
-├── scripts/                # Build, packaging, and core check scripts
-├── docs/                   # Product, architecture, release, and QA documentation
-├── Package.swift           # Current macOS package
-├── README.md               # English README
-└── README.zh-CN.md         # Simplified Chinese README
-```
-
-The macOS and Windows applications use independent runtime implementations. See the [repository layout and sharing rules](./docs/architecture/repository-layout.md).
-
-## Contributing
-
-If you want to contribute:
-
-1. Start with the feature scope and design boundaries above.
-2. Run `swift test --disable-sandbox` and the boundary/Core verification scripts.
-3. Test UI and runtime behavior in a real Java/Maven project.
-4. Include the verification steps and known limitations with your change.
-
-## License
-
-Lithe is licensed under the [Apache License 2.0](./LICENSE).
-
-## Contributors
-
-Thanks to everyone who contributes to Lithe.
+Thank you to everyone who contributes to and improves Lithe.
 
 <a href="https://github.com/1lck/Lithe-IDEA/graphs/contributors">
-  <img src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/contributors.svg" alt="Contributors" />
+  <img src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/contributors.svg" alt="Contributors">
 </a>
+
+### License
+
+Lithe is licensed under the [Apache License 2.0](./LICENSE).
 
 ## Star History
 
@@ -378,3 +250,18 @@ Thanks to everyone who contributes to Lithe.
     <img alt="Star History Chart" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
   </picture>
 </a>
+
+## Contact us
+
+Join the Lithe-IDEA community group to discuss the project and share feedback, or contact the author directly.
+
+<table align="center">
+  <tr>
+    <td align="center"><strong>Join the community group</strong></td>
+    <td align="center"><strong>Contact the author</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/assets/contact/lithe-group.png" width="320" alt="Lithe-IDEA community group QR code"></td>
+    <td align="center"><img src="./docs/assets/contact/wechat.png" width="320" alt="Author WeChat QR code"></td>
+  </tr>
+</table>
