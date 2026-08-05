@@ -12,12 +12,14 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     name: Build and publish Lithe for macOS
     runs-on: macos-14
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -125,6 +127,9 @@ jobs:
     name: Update Homebrew Cask
     needs: release
     runs-on: macos-14
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
       - name: Check out the default branch
@@ -162,15 +167,38 @@ jobs:
           brew style --cask 1lck/lithe/lithe
           brew audit --cask --online 1lck/lithe/lithe
 
-      - name: Commit and push the Cask update
+      - name: Create or update the Cask pull request
         env:
+          GH_TOKEN: ${{ github.token }}
           LITHE_VERSION: ${{ needs.release.outputs.version }}
         run: |
+          branch="automation/homebrew-cask-v${LITHE_VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
           git add Casks/lithe.rb
           if git diff --cached --quiet; then
             exit 0
           fi
           git commit -m "lithe ${LITHE_VERSION}"
-          git push origin HEAD:main
+          git fetch origin "$branch" || true
+          git push --force-with-lease origin "HEAD:refs/heads/$branch"
+
+          existing_pr=$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head "$branch" \
+            --state open \
+            --json url \
+            --jq '.[0].url // empty')
+          if [[ -n "$existing_pr" ]]; then
+            echo "Updated existing pull request: $existing_pr"
+            exit 0
+          fi
+
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head "$branch" \
+            --title "lithe ${LITHE_VERSION}" \
+            --body "Automated Homebrew Cask metadata update for Lithe ${LITHE_VERSION}."

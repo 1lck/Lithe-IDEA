@@ -11,15 +11,13 @@ abort "Invalid arm64 SHA256" unless arm_sha.match?(/\A[0-9a-f]{64}\z/)
 abort "Invalid x86_64 SHA256" unless intel_sha.match?(/\A[0-9a-f]{64}\z/)
 
 contents = File.read(cask_path)
-updated = contents.sub(/^  version "[^"]+"$/, %(  version "#{version}"))
-abort "Could not update the Cask version" if updated == contents
+version_pattern = /^  version "[^"]+"$/
+abort "Could not find the Cask version" unless contents.match?(version_pattern)
+updated = contents.sub(version_pattern, %(  version "#{version}"))
 
 sha_pattern = /^  sha256 arm:\s+"[0-9a-f]{64}",\n         intel:\s+"[0-9a-f]{64}"$/
-replacement = <<~RUBY.chomp
-  sha256 arm:   "#{arm_sha}",
-         intel: "#{intel_sha}"
-RUBY
+abort "Could not find the Cask checksums" unless updated.match?(sha_pattern)
+replacement = %(  sha256 arm:   "#{arm_sha}",\n         intel: "#{intel_sha}")
 updated_again = updated.sub(sha_pattern, replacement)
-abort "Could not update the Cask checksums" if updated_again == updated
 
-File.write(cask_path, updated_again)
+File.write(cask_path, updated_again) if updated_again != contents
