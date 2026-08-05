@@ -15,15 +15,33 @@ enum LitheIconKind: Hashable {
     // 其他语言
     case swiftSource
     case kotlinSource
+    case rustSource
+    case goSource
+    case pythonSource
+    case rubySource
+    case scalaSource
+    case groovySource
+    case phpSource
+    case cSource
+    case cHeader
+    case cppSource
+    case csharpSource
     case scriptSource
+    case javaScript
+    case css
+    case html
 
     // 配置与数据
     case maven
     case gradle
     case xml
     case properties
+    case editorConfig
     case yaml
     case json
+    case toml
+    case csv
+    case docker
     case database
     case gitignore
 
@@ -53,23 +71,46 @@ enum LitheIcons {
         .javaInterface: "nodes/interface.svg",
         .javaEnum: "nodes/enum.svg",
         .javaRecord: "nodes/record.svg",
-        .javaAnnotation: "nodes/annotationtype.svg",
+        .javaAnnotation: "nodes/annotation.svg",
         .javaGeneric: "fileTypes/java.svg",
-        .scriptSource: "fileTypes/javaScript.svg",
+        .swiftSource: "fileTypes/swiftLang.svg",
+        .kotlinSource: "fileTypes/kotlin.svg",
+        .rustSource: "fileTypes/rust.svg",
+        .goSource: "fileTypes/go.svg",
+        .pythonSource: "fileTypes/python.svg",
+        .rubySource: "fileTypes/ruby.svg",
+        .scalaSource: "fileTypes/scala.svg",
+        .groovySource: "fileTypes/groovy.svg",
+        .phpSource: "fileTypes/php.svg",
+        .cSource: "fileTypes/c.svg",
+        .cHeader: "fileTypes/h.svg",
+        .cppSource: "fileTypes/cpp.svg",
+        .csharpSource: "fileTypes/csharp.svg",
+        .scriptSource: "fileTypes/shell.svg",
+        .javaScript: "fileTypes/javaScript.svg",
+        .css: "fileTypes/css.svg",
+        .html: "fileTypes/html.svg",
         .maven: "maven/mavenProject.svg",
+        .gradle: "fileTypes/gradle.svg",
         .xml: "fileTypes/xml.svg",
         .properties: "fileTypes/properties.svg",
+        .editorConfig: "fileTypes/editorConfig.svg",
         .yaml: "fileTypes/yaml.svg",
         .json: "fileTypes/json.svg",
-        .markdown: "fileTypes/text.svg",
+        .toml: "fileTypes/toml.svg",
+        .csv: "fileTypes/csv.svg",
+        .docker: "fileTypes/docker.svg",
+        .database: "fileTypes/sql.svg",
+        .markdown: "fileTypes/markdown.svg",
         .plainText: "fileTypes/text.svg",
         .image: "fileTypes/image.svg",
-        .binary: "fileTypes/binaryData.svg",
+        .binary: "fileTypes/archive.svg",
         .generic: "fileTypes/unknown.svg",
         .folder: "nodes/folder.svg",
-        .sourceFolder: "nodes/javaModule.svg",
-        .resourceFolder: "nodes/webFolder.svg",
-        .moduleFolder: "nodes/javaModule.svg",
+        .sourceFolder: "nodes/sourceRoot.svg",
+        .resourceFolder: "nodes/resourcesRoot.svg",
+        .excludedFolder: "nodes/excludeRoot.svg",
+        .moduleFolder: "nodes/moduleJava.svg",
         .packageFolder: "nodes/package.svg"
     ]
 
@@ -90,7 +131,12 @@ enum LitheIcons {
         "ladybug": "toolwindows/toolWindowDebugger.svg",
         "exclamationmark.triangle": "toolwindows/toolWindowProblems.svg",
         "ellipsis": "actions/more.svg",
-        "ellipsis.vertical": "actions/more.svg"
+        "ellipsis.vertical": "actions/moreVertical.svg",
+        "magnifyingglass.circle": "toolwindows/toolWindowFind.svg",
+        "list.bullet.indent": "toolwindows/toolWindowStructure.svg",
+        "arrow.triangle.branch": "toolwindows/toolWindowVcs.svg",
+        "checkmark.circle": "vcs/commit.svg",
+        "plusminus": "vcs/diff.svg"
     ]
 
     /// 排除目录名：这些目录在 IDEA 里显示为橙色（构建产物）。
@@ -128,13 +174,34 @@ enum LitheIcons {
         if name == "pom.xml" { return .maven }
         if name == ".gitignore" || name == ".gitattributes" || name == ".dockerignore" { return .gitignore }
         if name == ".classpath" || name == ".project" || name == ".factorypath" { return .xml }
+        if name == ".editorconfig" { return .editorConfig }
+        if name == "dockerfile" || name.hasPrefix("dockerfile.") { return .docker }
+        // build.gradle.kts 是构建脚本，扩展名 kts 会被 Kotlin 抢走。
+        if name.hasSuffix(".gradle.kts") { return .gradle }
+        // .env.local、.env.production 的扩展名不是 env。
+        if name == ".env" || name.hasPrefix(".env.") { return .properties }
 
         switch url.pathExtension.lowercased() {
         case "java": return .javaGeneric
         case "class", "jar": return .binary
         case "swift": return .swiftSource
         case "kt", "kts": return .kotlinSource
-        case "js", "jsx", "ts", "tsx", "sh", "zsh", "bash", "rb", "py": return .scriptSource
+        case "rs": return .rustSource
+        case "go": return .goSource
+        case "py", "pyw", "pyi": return .pythonSource
+        case "rb", "rake", "gemspec": return .rubySource
+        case "scala", "sc": return .scalaSource
+        case "groovy": return .groovySource
+        case "php", "phtml": return .phpSource
+        case "c", "m": return .cSource
+        case "h", "hh", "hpp", "hxx": return .cHeader
+        case "cpp", "cc", "cxx", "mm": return .cppSource
+        case "cs": return .csharpSource
+        case "js", "jsx", "mjs", "cjs", "ts", "tsx": return .javaScript
+        case "sh", "zsh", "bash", "fish": return .scriptSource
+        case "css", "scss", "sass", "less": return .css
+        case "html", "htm", "xhtml", "vue", "svelte": return .html
+        case "toml": return .toml
         case "gradle": return .gradle
         case "xml", "xsd", "wsdl", "pom": return .xml
         case "properties", "ini", "cfg", "conf", "env": return .properties
@@ -142,7 +209,8 @@ enum LitheIcons {
         case "json", "json5": return .json
         case "db", "sqlite", "sqlite3", "sql", "mv": return .database
         case "md", "markdown", "rst", "adoc": return .markdown
-        case "txt", "log", "csv", "tsv": return .plainText
+        case "txt", "log": return .plainText
+        case "csv", "tsv": return .csv
         case "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "tiff": return .image
         case "zip", "gz", "tar", "so", "dylib", "dll", "icns", "pdf", "woff", "woff2", "ttf", "otf": return .binary
         default: return .generic
@@ -243,14 +311,32 @@ enum LitheIcons {
 
         case .swiftSource: .document(accent: Color(red: 0.94, green: 0.44, blue: 0.24), mark: .letter("S"))
         case .kotlinSource: .document(accent: Color(red: 0.63, green: 0.42, blue: 0.90), mark: .letter("K"))
+        case .rustSource: .document(accent: Color(red: 0.78, green: 0.49, blue: 0.33), mark: .letter("R"))
+        case .goSource: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .letter("G"))
+        case .pythonSource: .document(accent: Color(red: 0.95, green: 0.77, blue: 0.36), mark: .letter("P"))
+        case .rubySource: .document(accent: Color(red: 0.86, green: 0.36, blue: 0.36), mark: .letter("R"))
+        case .scalaSource: .document(accent: Color(red: 0.86, green: 0.36, blue: 0.36), mark: .letter("S"))
+        case .groovySource: .document(accent: Color(red: 0.34, green: 0.59, blue: 0.36), mark: .letter("G"))
+        case .phpSource: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .letter("P"))
+        case .cSource: .document(accent: Color(red: 0.71, green: 0.54, blue: 0.93), mark: .letter("C"))
+        case .cHeader: .document(accent: Color(red: 0.78, green: 0.49, blue: 0.33), mark: .letter("h"))
+        case .cppSource: .document(accent: Color(red: 0.71, green: 0.54, blue: 0.93), mark: .letter("C"))
+        case .csharpSource: .document(accent: Color(red: 0.37, green: 0.68, blue: 0.40), mark: .letter("C"))
         case .scriptSource: .document(accent: Color(red: 0.85, green: 0.76, blue: 0.32), mark: .braces)
+        case .javaScript: .document(accent: Color(red: 0.95, green: 0.77, blue: 0.36), mark: .letter("J"))
+        case .css: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .letter("C"))
+        case .html: .document(accent: Color(red: 0.34, green: 0.59, blue: 0.36), mark: .angleBrackets)
 
         case .maven: .document(accent: Color(red: 0.36, green: 0.60, blue: 0.90), mark: .letter("m"))
         case .gradle: .document(accent: Color(red: 0.30, green: 0.66, blue: 0.68), mark: .letter("G"))
         case .xml: .document(accent: Color(red: 0.72, green: 0.55, blue: 0.88), mark: .angleBrackets)
         case .properties: .document(accent: Color(red: 0.60, green: 0.64, blue: 0.72), mark: .lines)
+        case .editorConfig: .document(accent: Color(red: 0.60, green: 0.64, blue: 0.72), mark: .lines)
         case .yaml: .document(accent: Color(red: 0.55, green: 0.72, blue: 0.55), mark: .lines)
         case .json: .document(accent: Color(red: 0.82, green: 0.70, blue: 0.36), mark: .braces)
+        case .toml: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .lines)
+        case .csv: .document(accent: Color(red: 0.34, green: 0.59, blue: 0.36), mark: .lines)
+        case .docker: .document(accent: Color(red: 0.33, green: 0.54, blue: 0.97), mark: .none)
         case .database: .document(accent: Color(red: 0.52, green: 0.68, blue: 0.84), mark: .cylinder)
         case .gitignore: .document(accent: Color(red: 0.85, green: 0.44, blue: 0.32), mark: .lines)
 

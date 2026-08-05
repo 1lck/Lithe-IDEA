@@ -1,10 +1,4 @@
-<!-- Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file. -->
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <g fill="none" fill-rule="evenodd">
-    <polygon fill="#F26522" fill-opacity=".7" points="1 16 16 16 16 9 1 9"/>
-    <polygon fill="#9AA7B0" fill-opacity=".8" points="7 1 3 5 7 5"/>
-    <polygon fill="#9AA7B0" fill-opacity=".8" points="8 1 8 6 3 6 3 8 13 8 13 1"/>
-    <polygon fill="#231F20" fill-opacity=".7" points="3 13 3 12 6 10 6 11 3.8 12.5 6 14 6 15"/>
-    <polygon fill="#231F20" fill-opacity=".7" points="8 14 10.2 12.5 8 11 8 10 11 12 11 13 8 15"/>
-  </g>
+<!-- Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license. -->
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M10.0775 2.44037C10.1656 2.12093 9.97809 1.79054 9.65866 1.70242C9.33922 1.6143 9.00882 1.80182 8.9207 2.12126L5.76529 13.5596C5.67717 13.8791 5.86469 14.2095 6.18412 14.2976C6.50356 14.3857 6.83396 14.1982 6.92208 13.8788L10.0775 2.44037ZM5.41281 4.66699C5.61982 4.92575 5.57786 5.30332 5.31911 5.51033L1.96049 8.19723L5.31911 10.8841C5.57786 11.0911 5.61982 11.4687 5.41281 11.7275C5.20581 11.9862 4.82823 12.0282 4.56947 11.8212L0.625202 8.66575L0.0395508 8.19723L0.625202 7.7287L4.56947 4.57329C4.82823 4.36628 5.20581 4.40823 5.41281 4.66699ZM10.5872 11.7275C10.3802 11.4687 10.4222 11.0911 10.6809 10.8841L14.0395 8.19725L10.6809 5.51035C10.4222 5.30334 10.3802 4.92577 10.5872 4.66701C10.7942 4.40825 11.1718 4.3663 11.4305 4.57331L15.3748 7.72872L15.9605 8.19725L15.3748 8.66577L11.4305 11.8212C11.1718 12.0282 10.7942 11.9862 10.5872 11.7275Z" fill="#C77D55"/>
 </svg>
