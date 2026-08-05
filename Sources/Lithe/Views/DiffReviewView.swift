@@ -330,33 +330,31 @@ struct DiffReviewView: View {
                 paneCount: usesSingleFileDiff ? 1 : 2
             )
 
-            ScrollView(.horizontal) {
-                ScrollView(.vertical) {
-                    let kinds = model.diffRows.map(effectiveKind)
-                    let indexByRow = differenceIndexByRow
-                    let displayRows = collapsePlan(kinds: kinds)
-                    let layoutRows = displayRows.map(\.layoutRow)
-                    let layoutKinds = displayRows.map { displayRow in
-                        switch displayRow {
-                        case let .row(_, index): return kinds[index]
-                        case .collapsed: return DiffRowKind.information
-                        }
-                    }
-                    let contentHeight = max(
-                        DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds),
-                        geometry.size.height
-                    )
+            let kinds = model.diffRows.map(effectiveKind)
+            let indexByRow = differenceIndexByRow
+            let displayRows = collapsePlan(kinds: kinds)
+            let layoutRows = displayRows.map(\.layoutRow)
+            let layoutKinds = displayRows.map { displayRow in
+                switch displayRow {
+                case let .row(_, index): return kinds[index]
+                case .collapsed: return DiffRowKind.information
+                }
+            }
 
-                    ZStack(alignment: .topLeading) {
+            if usesSingleFileDiff {
+                ScrollView(.horizontal) {
+                    ScrollView(.vertical) {
+                        let contentHeight = max(
+                            DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds),
+                            geometry.size.height
+                        )
                         LazyVStack(spacing: 0) {
                             ForEach(displayRows) { displayRow in
                                 switch displayRow {
-                                case let .row(row, index):
-                                    diffRowView(
+                                case let .row(row, _):
+                                    singleFileDiffRowView(
                                         for: row,
-                                        kind: kinds[index],
-                                        differenceIndex: indexByRow[row.id],
-                                        contentWidth: contentWidth
+                                        differenceIndex: indexByRow[row.id]
                                     )
                                 case let .collapsed(region):
                                     DiffCollapsedBandView(region: region, contentWidth: contentWidth) {
@@ -366,22 +364,40 @@ struct DiffReviewView: View {
                             }
                         }
                         .textSelection(.enabled)
-
-                        if !usesSingleFileDiff {
-                            DiffConnectorOverlay(
-                                rows: layoutRows,
-                                kinds: layoutKinds,
-                                contentWidth: contentWidth,
-                                compactsOneSidedRows: true
-                            )
-                        }
+                        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
                     }
-                    .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
+                    .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
                 }
-                .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                .background(LitheTheme.editor)
+            } else {
+                DiffSplitPaneView(
+                    displayRows: displayRows,
+                    kinds: layoutKinds,
+                    fileExtension: change.url.pathExtension,
+                    contentWidth: contentWidth,
+                    viewportWidth: geometry.size.width,
+                    minimumHeight: geometry.size.height,
+                    highlightsWords: highlightsWords,
+                    selectedRowIDs: Set(indexByRow.compactMap { entry in
+                        entry.value == selectedDifferenceIndex ? entry.key : nil
+                    }),
+                    searchMatchIDs: Set(diffSearchMatches),
+                    currentSearchMatchID: selectedDiffSearchRowID,
+                    onExpand: { region in
+                        expandedCollapseRegionIDs.insert(region.id)
+                    }
+                ) { row, side in
+                    switch side {
+                    case .left:
+                        EmptyView()
+                    case .right:
+                        hunkActions(for: row)
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .background(LitheTheme.editor)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-            .background(LitheTheme.editor)
         }
     }
 
@@ -408,42 +424,22 @@ struct DiffReviewView: View {
     }
 
     @ViewBuilder
-    private func diffRowView(
+    private func singleFileDiffRowView(
         for row: DiffRow,
-        kind: DiffRowKind,
-        differenceIndex: Int?,
-        contentWidth: CGFloat
+        differenceIndex: Int?
     ) -> some View {
-        if usesSingleFileDiff {
-            SingleFileDiffRowView(
-                row: row,
-                changeKind: change.kind,
-                fileExtension: change.url.pathExtension,
-                isSelectedDifference: differenceIndex == selectedDifferenceIndex,
-                isSearchMatch: diffSearchMatches.contains(row.id),
-                isCurrentSearchMatch: row.id == selectedDiffSearchRowID
-            )
-            .overlay(alignment: .topTrailing) {
-                hunkActions(for: row)
-            }
-            .id(row.id)
-        } else {
-            DiffRowView(
-                row: row,
-                kind: kind,
-                fileExtension: change.url.pathExtension,
-                highlightsWords: highlightsWords,
-                isSelectedDifference: differenceIndex == selectedDifferenceIndex,
-                isSearchMatch: diffSearchMatches.contains(row.id),
-                isCurrentSearchMatch: row.id == selectedDiffSearchRowID,
-                compactsOneSidedRows: true,
-                contentWidth: contentWidth
-            )
-            .overlay(alignment: .topTrailing) {
-                hunkActions(for: row)
-            }
-            .id(row.id)
+        SingleFileDiffRowView(
+            row: row,
+            changeKind: change.kind,
+            fileExtension: change.url.pathExtension,
+            isSelectedDifference: differenceIndex == selectedDifferenceIndex,
+            isSearchMatch: diffSearchMatches.contains(row.id),
+            isCurrentSearchMatch: row.id == selectedDiffSearchRowID
+        )
+        .overlay(alignment: .topTrailing) {
+            hunkActions(for: row)
         }
+        .id(row.id)
     }
 
     private var differenceStarts: [DiffRowID] {
@@ -1371,7 +1367,7 @@ private struct DiffHunkActionsView: View {
     }
 }
 
-private enum DiffSide {
+enum DiffSide {
     case left
     case right
 }
@@ -1385,7 +1381,7 @@ private extension DiffRowKind {
     }
 }
 
-private enum DiffSyntaxHighlighter {
+enum DiffSyntaxHighlighter {
     private struct Token {
         let text: String
         let color: Color

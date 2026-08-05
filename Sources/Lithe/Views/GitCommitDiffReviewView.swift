@@ -204,36 +204,46 @@ struct GitCommitDiffReviewView: View {
                 paneCount: usesSinglePane ? 1 : 2
             )
 
-            ScrollView(.horizontal) {
-                ScrollView(.vertical) {
-                    let kinds = model.diffRows.map(\.kind)
-                    let contentHeight = max(
-                        DiffLayoutMetrics.contentHeight(rows: model.diffRows, kinds: kinds),
-                        geometry.size.height
-                    )
-
-                    ZStack(alignment: .topLeading) {
-                        if context.kind != .added && context.kind != .deleted {
-                            DiffConnectorOverlay(
-                                rows: model.diffRows,
-                                kinds: kinds,
-                                contentWidth: contentWidth
-                            )
-                        }
-
+            let kinds = model.diffRows.map(\.kind)
+            if usesSinglePane {
+                ScrollView(.horizontal) {
+                    ScrollView(.vertical) {
+                        let contentHeight = max(
+                            DiffLayoutMetrics.contentHeight(rows: model.diffRows, kinds: kinds),
+                            geometry.size.height
+                        )
                         LazyVStack(spacing: 0) {
                             ForEach(model.diffRows, id: \.id) { row in
                                 diffRowView(for: row, contentWidth: contentWidth)
                             }
                         }
                         .textSelection(.enabled)
+                        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
                     }
-                    .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
+                    .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
                 }
-                .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                .background(LitheTheme.editor)
+            } else {
+                let displayRows = model.diffRows.enumerated().map {
+                    DiffDisplayRow.row($0.element, index: $0.offset)
+                }
+                DiffSplitPaneView(
+                    displayRows: displayRows,
+                    kinds: kinds,
+                    fileExtension: context.url.pathExtension,
+                    contentWidth: contentWidth,
+                    viewportWidth: geometry.size.width,
+                    minimumHeight: geometry.size.height,
+                    highlightsWords: highlightsWords,
+                    selectedRowIDs: Set(differenceIndexByRow.compactMap { entry in
+                        entry.value == selectedDifferenceIndex ? entry.key : nil
+                    }),
+                    onExpand: { _ in }
+                )
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .background(LitheTheme.editor)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-            .background(LitheTheme.editor)
         }
     }
 
@@ -247,16 +257,6 @@ struct GitCommitDiffReviewView: View {
                 fileExtension: context.url.pathExtension,
                 isSelectedDifference: differenceIndex == selectedDifferenceIndex
             )
-            .id(row.id)
-        } else {
-            DiffRowView(
-                row: row,
-                kind: row.kind,
-                                fileExtension: context.url.pathExtension,
-                                highlightsWords: highlightsWords,
-                                isSelectedDifference: differenceIndex == selectedDifferenceIndex,
-                                contentWidth: contentWidth
-                            )
             .id(row.id)
         }
     }

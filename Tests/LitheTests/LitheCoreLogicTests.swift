@@ -166,6 +166,64 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func splitDiffLayoutKeepsBothCodeStreamsDenseAcrossInsertionsAndDeletions() {
+        let insertionRows = [
+            DiffRow(oldLine: 1, newLine: 1, left: "before", right: nil, kind: .context, sequence: 0),
+            DiffRow(oldLine: nil, newLine: 2, left: nil, right: "added 1", kind: .addition, sequence: 1),
+            DiffRow(oldLine: nil, newLine: 3, left: nil, right: "added 2", kind: .addition, sequence: 2),
+            DiffRow(oldLine: nil, newLine: 4, left: nil, right: "added 3", kind: .addition, sequence: 3),
+            DiffRow(oldLine: 2, newLine: 5, left: "after", right: nil, kind: .context, sequence: 4)
+        ]
+        let insertionDisplay = insertionRows.enumerated().map {
+            DiffDisplayRow.row($0.element, index: $0.offset)
+        }
+        let insertion = DiffSplitLayout.plan(
+            displayRows: insertionDisplay,
+            kinds: insertionRows.map(\.kind)
+        )
+
+        // The old side advances directly from `before` to `after`; it does not
+        // receive three synthetic blank rows to match the new side.
+        #expect(insertion.leftItems.map(\.top) == [0, 24])
+        #expect(insertion.rightItems.map(\.top) == [0, 24, 48, 72, 96])
+        #expect(insertion.leftHeight == 48)
+        #expect(insertion.rightHeight == 120)
+        #expect(insertion.transitions.count == 1)
+        #expect(insertion.transitions[0].isAddition)
+        #expect(insertion.transitions[0].leftRange == 24...24)
+        #expect(insertion.transitions[0].rightRange == 24...96)
+
+        let removalRows = insertionRows.map { row in
+            switch row.kind {
+            case .addition:
+                return DiffRow(
+                    oldLine: row.newLine,
+                    newLine: nil,
+                    left: row.rightText,
+                    right: nil,
+                    kind: .removal,
+                    sequence: row.id.sequence
+                )
+            default:
+                return row
+            }
+        }
+        let removal = DiffSplitLayout.plan(
+            displayRows: removalRows.enumerated().map {
+                DiffDisplayRow.row($0.element, index: $0.offset)
+            },
+            kinds: removalRows.map(\.kind)
+        )
+
+        #expect(removal.leftItems.map(\.top) == [0, 24, 48, 72, 96])
+        #expect(removal.rightItems.map(\.top) == [0, 24])
+        #expect(removal.transitions.count == 1)
+        #expect(removal.transitions[0].isRemoval)
+        #expect(removal.transitions[0].leftRange == 24...96)
+        #expect(removal.transitions[0].rightRange == 24...24)
+    }
+
+    @Test
     func diffCollapseFoldsLongUnchangedRunsAndKeepsSurroundingContext() {
         var rows: [DiffRow] = []
         for line in 1...40 {
