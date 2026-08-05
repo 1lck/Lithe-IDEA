@@ -1188,7 +1188,10 @@ fn line_similarity(left: &str, right: &str) -> f32 {
 /// so deleting 3 lines and adding 5 unrelated ones produced three bogus
 /// "changed" rows. This aligns the two blocks by similarity instead, keeping the
 /// matching non-crossing so line numbers stay monotonic in the rendered list.
-fn pair_diff_entries(removed: &[DiffEntry], added: &[DiffEntry]) -> Vec<(Option<usize>, Option<usize>)> {
+fn pair_diff_entries(
+    removed: &[DiffEntry],
+    added: &[DiffEntry],
+) -> Vec<(Option<usize>, Option<usize>)> {
     let rows = removed.len();
     let columns = added.len();
 
@@ -1554,10 +1557,7 @@ mod tests {
     #[test]
     fn similar_lines_pair_even_when_positions_differ() {
         let removed = entries(&["let total = compute(a, b);"]);
-        let added = entries(&[
-            "// recompute the total",
-            "let total = compute(a, b, c);",
-        ]);
+        let added = entries(&["// recompute the total", "let total = compute(a, b, c);"]);
 
         // Positional pairing would have matched the comment to the statement.
         assert_eq!(
@@ -1590,7 +1590,9 @@ mod tests {
             .iter()
             .filter_map(|(left, right)| left.zip(*right))
             .collect();
-        assert!(matched.windows(2).all(|pair| pair[0].0 < pair[1].0 && pair[0].1 < pair[1].1));
+        assert!(matched
+            .windows(2)
+            .all(|pair| pair[0].0 < pair[1].0 && pair[0].1 < pair[1].1));
     }
 
     #[test]
