@@ -323,11 +323,8 @@ pub fn replace_preview(
         let mut replaced_lines = Vec::new();
         for (index, line) in text.split('\n').enumerate() {
             crate::cancellation::check()?;
-            let (after, occurrence_count) = matcher.replace_with_options(
-                line,
-                &request.replacement,
-                request.preserve_case,
-            );
+            let (after, occurrence_count) =
+                matcher.replace_with_options(line, &request.replacement, request.preserve_case);
             replaced_lines.push(after.clone());
             if occurrence_count > 0 {
                 matches.push(crate::model::ReplacementMatch {
@@ -615,7 +612,10 @@ fn apply_case_pattern(matched: &str, replacement: &str) -> String {
         return replacement.to_string();
     }
     // 多于一个字母的全大写才算 SCREAMING_CASE，避免把单字母 "F" 误判。
-    let letter_count = matched.chars().filter(|value| value.is_alphabetic()).count();
+    let letter_count = matched
+        .chars()
+        .filter(|value| value.is_alphabetic())
+        .count();
     if has_upper && !has_lower && letter_count > 1 {
         return replacement.to_uppercase();
     }

@@ -306,11 +306,8 @@ mod tests {
         let root = temporary_root("preserve-case");
         fs::create_dir_all(&root).expect("fixture directory should be creatable");
         let relative = "Sample.java";
-        fs::write(
-            root.join(relative),
-            "fooBar FooBar FOOBAR fooBar();\n",
-        )
-        .expect("fixture should be writable");
+        fs::write(root.join(relative), "fooBar FooBar FOOBAR fooBar();\n")
+            .expect("fixture should be writable");
 
         let replace = |preserve_case: bool| -> String {
             let request = serde_json::json!({
