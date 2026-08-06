@@ -9,7 +9,7 @@
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
-    <a href="#core-capabilities">Core capabilities</a> ·
+    <a href="#core-features">Core features</a> ·
     <a href="#product-tour">Product tour</a> ·
     <a href="#use-lithe">Use Lithe</a> ·
     <a href="#architecture">Architecture</a> ·
@@ -55,37 +55,51 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
 
 > **A familiar IDE core with a lighter resource footprint.**
 
-## Core capabilities
+## Core features
 
-| Workflow | What Lithe provides |
-| --- | --- |
-| Project browsing | Welcome screen, recent projects, file tree, file type icons, path breadcrumbs, and workspace restoration |
-| Code reading | Native multi-tab editor, basic Java highlighting, code folding, line numbers, saves, and dirty-state tracking |
-| Java navigation | Eclipse JDT LS definitions, references, implementations, workspace symbols, and live diagnostics |
-| Search | File name, path, full text, Search Everywhere, case/word/regex matching, and project replace |
-| External changes | FSEvents watching, create/delete/update refreshes, and disk-versus-editor conflict prompts |
-| Git review | Changes, side-by-side diff, diff search, hunk-level stage/revert, commit, shelf, branches, and Git graph |
-| Build and run | Maven roots, multimodule projects, profiles, lifecycle, build output, current file, Spring Boot, and Maven module |
-| Java debug | Local JDWP, Maven/Spring Boot debug, remote JVM/Tomcat attach, breakpoints, stepping, threads, and variables |
-| Productivity | Project-level local history, built-in terminal, draggable tool windows, and restored split layouts |
-| Updates | GitHub Release checks, matching artifact validation, confirmed replacement, and restart |
-| Interface language | English by default with Simplified Chinese available in Settings |
+1. Built for Spring Boot projects and Java development.
+2. Maven management, breakpoint debugging, and custom run configurations.
+3. Git management and side-by-side diff review.
+4. Double-Shift search and `Command + Shift + F` project-wide search.
+5. Code navigation and reference lookup.
+6. Local snapshot history.
+7. Multiple projects open within the app.
+8. Multiple files open independently in the same window.
+9. AI-generated commit messages with customizable formats.
+10. Rich Markdown rendering consistent with Yuque syntax.
+11. Local application memory usage monitoring.
+12. One-command installation and updates through Homebrew.
+13. One-click in-app updates and installation.
+14. Ongoing bug fixes and user experience improvements.
 
 ## Product tour
 
 <p align="center">
-  <img src="./docs/visual-qa/00-welcome-projects.png" width="49%" alt="Welcome screen and recent projects">
-  <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="49%" alt="Java editor and project tree">
+  <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="Double-Shift Search Everywhere">
+  <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F project-wide search and replace">
 </p>
 
 <p align="center">
-  <img src="./docs/visual-qa/09-search-everywhere-results.png" width="49%" alt="Search Everywhere">
-  <img src="./docs/visual-qa/13-spring-boot-usages.png" width="49%" alt="JDT LS Java usages">
+  <img src="./docs/assets/screenshots/git-diff-review.png" width="96%" alt="Side-by-side Git diff review">
 </p>
 
 <p align="center">
-  <img src="./docs/visual-qa/08-git-diff-green-state.png" width="49%" alt="Git diff review">
-  <img src="./docs/visual-qa/14-spring-boot-run-configuration.png" width="49%" alt="Spring Boot run configuration">
+  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="Import AI provider settings from local tools">
+  <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="Customize AI commit message formats">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/ai-commit-message.png" width="96%" alt="Generate commit messages with AI">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/markdown-mermaid-preview.png" width="49%" alt="Markdown Mermaid rendering and live preview">
+  <img src="./docs/assets/screenshots/markdown-rich-preview.png" width="49%" alt="Rich Markdown rendering and live preview">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/memory-monitor-annotated.png" width="49%" alt="Low memory footprint and in-app memory monitoring">
+  <img src="./docs/assets/screenshots/memory-monitor.png" width="49%" alt="Application memory usage details">
 </p>
 
 ## Use Lithe
