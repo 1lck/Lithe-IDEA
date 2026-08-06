@@ -10,6 +10,9 @@ let package = Package(
     products: [
         .executable(name: "Lithe", targets: ["Lithe"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.15.0")
+    ],
     targets: [
         .target(
             name: "LitheRustCore",
@@ -18,7 +21,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "Lithe",
-            dependencies: ["LitheRustCore"],
+            dependencies: [
+                "LitheRustCore",
+                .product(name: "SwiftTerm", package: "SwiftTerm")
+            ],
             path: "Sources/Lithe",
             resources: [
                 .copy("Resources/MarkdownPreview")

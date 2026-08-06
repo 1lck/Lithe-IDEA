@@ -1,12 +1,105 @@
+import AppKit
 import Foundation
+import SwiftTerm
 
-final class MacTerminalTransport: TerminalTransport, @unchecked Sendable {
-    var onOutput: (@Sendable (String) -> Void)?
-    var onTermination: (@Sendable () -> Void)?
+/// SwiftTerm's default link handler opens URLs in the system. Lithe needs the
+/// link event so workspace-relative paths can open in its own editor instead.
+final class LitheTerminalView: LocalProcessTerminalView {
+    var onOpenLink: ((String, [String: String]) -> Void)?
 
-    private var process: Process?
-    private var inputPipe: Pipe?
-    private var outputPipe: Pipe?
+    override func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {
+        onOpenLink?(link, params)
+    }
+}
+
+/// Owns one persistent SwiftTerm surface and the local PTY process connected to it.
+/// The surface intentionally lives with the session instead of the SwiftUI view so
+/// switching terminal tabs or hiding the tool window does not reset a TUI screen.
+@MainActor
+final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency LocalProcessTerminalViewDelegate {
+    let view: LitheTerminalView
+
+    var onTermination: ((Int32?) -> Void)?
+    var onTitle: ((String) -> Void)?
+    var onDirectoryUpdate: ((String?) -> Void)?
+    var onLink: ((String, [String: String]) -> Void)?
+
+    private var selectedShellPath: String?
+    private var suppressNextTermination = false
+
+    var isRunning: Bool {
+        view.process.running
+    }
+
+    var shellName: String {
+        guard let selectedShellPath else { return "Shell" }
+        return URL(fileURLWithPath: selectedShellPath).lastPathComponent
+    }
+
+    var nativeView: AnyObject { view }
+
+    override init() {
+        view = LitheTerminalView(frame: .zero)
+        super.init()
+
+        view.processDelegate = self
+        view.onOpenLink = { [weak self] link, params in
+            self?.onLink?(link, params)
+        }
+        view.font = Self.preferredTerminalFont()
+        view.nativeBackgroundColor = NSColor(
+            calibratedRed: 0.071,
+            green: 0.075,
+            blue: 0.081,
+            alpha: 1
+        )
+        view.nativeForegroundColor = NSColor(
+            calibratedRed: 0.86,
+            green: 0.87,
+            blue: 0.89,
+            alpha: 1
+        )
+        view.caretColor = NSColor(
+            calibratedRed: 0.35,
+            green: 0.67,
+            blue: 0.98,
+            alpha: 1
+        )
+        view.selectedTextBackgroundColor = NSColor(
+            calibratedRed: 0.16,
+            green: 0.31,
+            blue: 0.48,
+            alpha: 1
+        )
+        view.allowMouseReporting = true
+        view.linkReporting = .implicit
+        view.linkHighlightMode = .hoverWithModifier
+
+        var options = view.terminal.options
+        options.termName = "xterm-256color"
+        options.scrollback = 2_000
+        view.terminal.options = options
+        view.terminal.setup(isReset: false)
+    }
+
+    private static func preferredTerminalFont() -> NSFont {
+        let size: CGFloat = 12.5
+        let fontNames = [
+            "MesloLGS Nerd Font Mono",
+            "JetBrainsMono Nerd Font Mono",
+            "Hack Nerd Font Mono",
+            "FiraCode Nerd Font Mono",
+            "IosevkaTerm Nerd Font Mono",
+            "Menlo"
+        ]
+
+        for name in fontNames {
+            if let font = NSFont(name: name, size: size) {
+                return font
+            }
+        }
+        return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
 
     func defaultShellPath() -> String {
         ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
@@ -22,56 +115,77 @@ final class MacTerminalTransport: TerminalTransport, @unchecked Sendable {
         environment: [String: String]
     ) throws {
         stop()
+        suppressNextTermination = false
+        selectedShellPath = shellPath
 
-        let process = Process()
-        let inputPipe = Pipe()
-        let outputPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
-        process.arguments = ["-q", "/dev/null", shellPath, "-l"]
-        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        process.environment = environment
+        view.terminal.resetToInitialState()
+        var options = view.terminal.options
+        options.termName = environment["TERM"] ?? "xterm-256color"
+        view.terminal.options = options
+        view.terminal.setup(isReset: false)
 
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self, weak process] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            guard let self, let process, self.process === process else { return }
-            self.onOutput?(String(decoding: data, as: UTF8.self))
-        }
-        process.terminationHandler = { [weak self] terminatedProcess in
-            guard let self, self.process === terminatedProcess else { return }
-            self.outputPipe?.fileHandleForReading.readabilityHandler = nil
-            self.process = nil
-            self.inputPipe = nil
-            self.outputPipe = nil
-            self.onTermination?()
+        let environmentArray = environment.keys.sorted().map { key in
+            "\(key)=\(environment[key] ?? "")"
         }
 
-        try process.run()
-        self.process = process
-        self.inputPipe = inputPipe
-        self.outputPipe = outputPipe
+        view.startProcess(
+            executable: shellPath,
+            args: ["-l"],
+            environment: environmentArray,
+            currentDirectory: workingDirectory
+        )
+
+        guard view.process.running else {
+            throw NSError(
+                domain: "Lithe.Terminal",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Unable to start \(shellPath)"
+                ]
+            )
+        }
     }
 
     func send(_ input: Data) throws {
-        try inputPipe?.fileHandleForWriting.write(contentsOf: input)
+        guard view.process.running else { return }
+        view.process.send(data: Array(input)[...])
     }
 
     func interrupt() throws {
-        try send(Data([0x03]))
+        guard view.process.running else { return }
+        view.process.send(data: [UInt8(0x03)][...])
+    }
+
+    func focus() {
+        guard let window = view.window else { return }
+        window.makeFirstResponder(view)
+    }
+
+    func clear() {
+        view.terminal.resetToInitialState()
     }
 
     func stop() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
-        if let process, process.isRunning {
-            process.terminate()
+        guard view.process.running else { return }
+        suppressNextTermination = true
+        view.terminate()
+    }
+
+    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
+
+    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+        onTitle?(title)
+    }
+
+    func hostCurrentDirectoryUpdate(source: SwiftTerm.TerminalView, directory: String?) {
+        onDirectoryUpdate?(directory)
+    }
+
+    func processTerminated(source: SwiftTerm.TerminalView, exitCode: Int32?) {
+        if suppressNextTermination {
+            suppressNextTermination = false
+            return
         }
-        try? inputPipe?.fileHandleForWriting.close()
-        try? outputPipe?.fileHandleForReading.close()
-        process = nil
-        inputPipe = nil
-        outputPipe = nil
+        onTermination?(exitCode)
     }
 }

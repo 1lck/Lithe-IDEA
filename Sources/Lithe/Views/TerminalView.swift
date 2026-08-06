@@ -4,9 +4,7 @@ import SwiftUI
 struct TerminalView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var session: TerminalSession
-    @State private var isInputFocused = false
     @State private var focusRequestID = 0
-    @State private var isCursorVisible = true
 
     private let availableShells = ["/bin/zsh", "/bin/bash", "/opt/homebrew/bin/bash", "/opt/homebrew/bin/pwsh"]
 
@@ -18,14 +16,6 @@ struct TerminalView: View {
         .background(Color(red: 0.071, green: 0.075, blue: 0.081))
         .task(id: session.id) {
             requestInputFocus()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(530))
-                guard !Task.isCancelled else { return }
-                isCursorVisible.toggle()
-            }
-        }
-        .onChange(of: isInputFocused) {
-            isCursorVisible = true
         }
     }
 
@@ -47,6 +37,8 @@ struct TerminalView: View {
                 .padding(.horizontal, 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            terminalStatus
 
             Button {
                 model.createTerminalSession()
@@ -114,6 +106,41 @@ struct TerminalView: View {
         }
     }
 
+    private var terminalStatus: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(session.isRunning ? Color.green : LitheTheme.secondaryText)
+                    .frame(width: 6, height: 6)
+
+                Text(session.displayTitle)
+                    .lineLimit(1)
+
+                if let directory = session.displayDirectory {
+                    Text(directory)
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .lineLimit(1)
+                }
+
+                if let exitCode = session.lastExitCode {
+                    Text("Exit \(exitCode)")
+                        .foregroundStyle(exitCode == 0 ? Color.green : Color.orange)
+                }
+
+                if let elapsed = session.elapsedDescription(at: context.date) {
+                    Text(elapsed)
+                        .monospacedDigit()
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                }
+            }
+            .font(.system(size: 10.5, weight: .medium))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .lineLimit(1)
+            .frame(maxWidth: 240, alignment: .trailing)
+            .help("Command-click a file path or URL to open it")
+        }
+    }
+
     private func terminalTab(_ terminalSession: TerminalSession) -> some View {
         let isActive = model.activeTerminalSessionID == terminalSession.id
             || (model.activeTerminalSessionID == nil && model.terminalSessions.first?.id == terminalSession.id)
@@ -154,42 +181,20 @@ struct TerminalView: View {
     }
 
     private var terminalCanvas: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                Text(renderedTerminal)
-                    .font(.custom("Menlo", size: 12.5))
-                    .lineSpacing(2)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                    .id("terminal-content")
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { requestInputFocus() }
-            .overlay(alignment: .topLeading) {
-                TerminalInputAnchor(
-                    isFocused: $isInputFocused,
-                    focusRequestID: focusRequestID,
-                    onInput: session.sendInput
+        Group {
+            if let nativeView = session.nativeView as? NSView {
+                SwiftTermSurface(
+                    nativeView: nativeView,
+                    focusRequestID: focusRequestID
                 )
-                .frame(width: 1, height: 1)
-            }
-            .onChange(of: session.output) {
-                proxy.scrollTo("terminal-content", anchor: .bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            } else {
+                Color(red: 0.071, green: 0.075, blue: 0.081)
             }
         }
         .background(Color(red: 0.071, green: 0.075, blue: 0.081))
-    }
-
-    private var renderedTerminal: AttributedString {
-        var rendered = ANSIOutputRenderer.render(session.output, fontSize: 12.5)
-
-        if isInputFocused && isCursorVisible {
-            var cursor = AttributedString("|")
-            cursor.foregroundColor = Color(red: 0.78, green: 0.80, blue: 0.82)
-            rendered.append(cursor)
-        }
-        return rendered
     }
 
     private var existingShells: [String] {
@@ -204,117 +209,32 @@ struct TerminalView: View {
     private func requestInputFocus() {
         guard session.isRunning else { return }
         focusRequestID &+= 1
+        session.focus()
     }
 }
 
-private struct TerminalInputAnchor: NSViewRepresentable {
-    @Binding var isFocused: Bool
+private struct SwiftTermSurface: NSViewRepresentable {
+    let nativeView: NSView
     let focusRequestID: Int
-    let onInput: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(
-            isFocused: $isFocused,
-            onInput: onInput
-        )
+        Coordinator()
     }
 
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
-        field.delegate = context.coordinator
-        field.isBordered = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.textColor = .clear
-        field.alphaValue = 0.01
-        field.font = .monospacedSystemFont(ofSize: 12.5, weight: .regular)
-        field.usesSingleLineMode = true
-        field.lineBreakMode = .byClipping
-        field.isEditable = true
-        field.isSelectable = true
-        return field
+    func makeNSView(context: Context) -> NSView {
+        nativeView
     }
 
-    func updateNSView(_ field: NSTextField, context: Context) {
-        context.coordinator.isFocused = $isFocused
-        context.coordinator.onInput = onInput
-
+    func updateNSView(_ view: NSView, context: Context) {
         guard context.coordinator.lastFocusRequestID != focusRequestID else { return }
         context.coordinator.lastFocusRequestID = focusRequestID
         DispatchQueue.main.async {
-            guard let window = field.window, window.firstResponder !== field else { return }
-            window.makeFirstResponder(field)
+            guard let window = view.window, window.firstResponder !== view else { return }
+            window.makeFirstResponder(view)
         }
     }
 
-    @MainActor
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var isFocused: Binding<Bool>
-        var onInput: (String) -> Void
+    final class Coordinator: NSObject {
         var lastFocusRequestID = -1
-        private var isClearingInput = false
-
-        init(
-            isFocused: Binding<Bool>,
-            onInput: @escaping (String) -> Void
-        ) {
-            self.isFocused = isFocused
-            self.onInput = onInput
-        }
-
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            isFocused.wrappedValue = true
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            isFocused.wrappedValue = false
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            let hasMarkedText = (field.currentEditor() as? NSTextView)?.hasMarkedText() ?? false
-            guard !isClearingInput, !hasMarkedText else { return }
-            let value = field.stringValue
-            guard !value.isEmpty else { return }
-            isClearingInput = true
-            field.stringValue = ""
-            isClearingInput = false
-            onInput(value)
-        }
-
-        func control(
-            _ control: NSControl,
-            textView: NSTextView,
-            doCommandBy commandSelector: Selector
-        ) -> Bool {
-            switch NSStringFromSelector(commandSelector) {
-            case "insertNewline:", "insertNewlineIgnoringFieldEditor:":
-                onInput("\r")
-                return true
-            case "insertTab:", "insertTabIgnoringFieldEditor:":
-                onInput("\t")
-                return true
-            case "moveUp:":
-                onInput("\u{1b}[A")
-                return true
-            case "moveDown:":
-                onInput("\u{1b}[B")
-                return true
-            case "moveLeft:":
-                onInput("\u{1b}[D")
-                return true
-            case "moveRight:":
-                onInput("\u{1b}[C")
-                return true
-            case "deleteBackward:":
-                onInput("\u{7f}")
-                return true
-            case "deleteForward:":
-                onInput("\u{1b}[3~")
-                return true
-            default:
-                return false
-            }
-        }
     }
 }
