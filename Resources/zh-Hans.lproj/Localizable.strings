@@ -459,6 +459,8 @@
 "Matches" = "匹配项";
 "Classes" = "类";
 "Symbols" = "符号";
+"Actions" = "操作";
+"Text" = "文本";
 "Added" = "新增";
 "Modified" = "修改";
 "Deleted" = "删除";
@@ -583,7 +585,7 @@
 "2 spaces" = "2 个空格";
 "4 spaces" = "4 个空格";
 "8 spaces" = "8 个空格";
-"Search files, classes, symbols, text or actions" = "搜索文件、类、符号、文本或操作";
+"Type / to see commands" = "输入 / 查看命令";
 "Match Case" = "区分大小写";
 "Whole Words" = "全字匹配";
 "Regular Expression" = "正则表达式";
@@ -613,6 +615,9 @@
 "No matches in Symbols" = "符号中没有匹配项";
 "No matches in Text" = "文本中没有匹配项";
 "No matches in Actions" = "操作中没有匹配项";
+"Include non-project items" = "包含非项目文件";
+"Not available yet: dependencies are not indexed" = "尚不可用：依赖尚未建立索引";
+"… more" = "… 更多";
 "Use a valid file or directory name" = "请输入有效的文件或目录名称";
 "Save or discard unsaved files before deleting this item" = "删除此项目之前，请先保存或丢弃未保存的文件";
 "Local History is available for text files" = "本地历史仅适用于文本文件";

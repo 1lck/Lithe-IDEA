@@ -91,6 +91,9 @@ struct SearchSymbol: Codable, Hashable, Sendable {
 }
 
 struct SearchEverywhereResults: @unchecked Sendable {
+    /// 后端一次最多返回这么多命中；命中数顶到上限时 UI 提示还有更多。
+    static let matchLimit = 200
+
     let fileMatches: [FileSearchResult]
     let classMatches: [FileSearchResult]
     let symbolMatches: [FileSearchResult]

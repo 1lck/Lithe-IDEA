@@ -78,7 +78,7 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             caseSensitive: options.caseSensitive,
             wholeWords: options.wholeWords,
             regularExpression: options.regularExpression,
-            maxResults: 200,
+            maxResults: SearchEverywhereResults.matchLimit,
             maxFileResults: 50,
             maxContentResults: 50,
             maxSymbolResults: 50,
