@@ -66,6 +66,8 @@ final class MacServiceContainer {
         let gitOperations = RustGitOperations(core: rustCore)
         let workspaceOperations = RustWorkspaceOperations(core: rustCore)
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
+        let markdownRenderer = RustMarkdownRendering(core: rustCore)
+        let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)
         let gitService = GitService(operations: gitOperations)
         let secureStore = MacLocalSecretStore()
         let codexConfigurationSource = MacCodexConfigurationSource()
@@ -86,6 +88,8 @@ final class MacServiceContainer {
             workspaceOperations: workspaceOperations,
             localHistoryOperations: localHistoryOperations,
             javaMavenOperations: javaMavenOperations,
+            markdownRenderer: markdownRenderer,
+            markdownImageImporter: markdownImageImporter,
             store: store,
             fileStorage: fileStorage,
             fileOperations: fileOperations,

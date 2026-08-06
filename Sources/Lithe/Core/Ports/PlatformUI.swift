@@ -7,6 +7,7 @@ protocol PlatformUI: AnyObject {
     func chooseDirectory(title: String, prompt: String) -> URL?
     func revealInFileBrowser(_ url: URL)
     func copyToClipboard(_ value: String)
+    func markdownImageFromClipboard() -> MarkdownImageSource?
 }
 
 protocol ShortcutDetector: AnyObject {

@@ -7,9 +7,15 @@ struct CodeEditorView: NSViewRepresentable {
     @ObservedObject var document: EditorDocument
     @ObservedObject var debugService: JavaDebugFeatureModel
     var shouldFocus = true
+    var markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(document: document, model: model, debugService: debugService)
+        Coordinator(
+            document: document,
+            model: model,
+            debugService: debugService,
+            markdownScrollPosition: markdownScrollPosition
+        )
     }
 
     func makeNSView(context: Context) -> EditorContainerView {
@@ -88,13 +94,18 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onFindStateChange = { [weak model] index, count in
             model?.updateFindState(currentIndex: index, count: count)
         }
+        textView.onPasteImage = { [weak coordinator = context.coordinator] in
+            coordinator?.pasteMarkdownImage() ?? false
+        }
 
         scrollView.documentView = textView
         gutter.attach(textView: textView, scrollView: scrollView)
+        context.coordinator.attachMarkdownScrollSync(to: scrollView)
 
         context.coordinator.textView = textView
         context.coordinator.gutter = gutter
         context.coordinator.container = container
+        context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
         context.coordinator.inlayHintOverlay = JavaInlayHintOverlayController(textView: textView)
         context.coordinator.highlight()
@@ -117,6 +128,11 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.model = model
         context.coordinator.debugService = debugService
         context.coordinator.shouldFocus = shouldFocus
+        context.coordinator.markdownScrollPosition = markdownScrollPosition
+        if let scrollView = container.scrollView {
+            context.coordinator.attachMarkdownScrollSync(to: scrollView)
+            context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
+        }
         context.coordinator.requestInitialFocusIfNeeded()
         textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
         if let codeTextView = textView as? CodeTextView {
@@ -143,6 +159,7 @@ struct CodeEditorView: NSViewRepresentable {
         if let codeTextView = textView as? CodeTextView {
             codeTextView.syncFindState(isVisible: model.isFindBarVisible, query: model.findBarQuery)
         }
+        context.coordinator.applySynchronizedMarkdownScrollIfNeeded(to: container.scrollView)
     }
 
     @MainActor
@@ -158,16 +175,115 @@ struct CodeEditorView: NSViewRepresentable {
         var inlayHintOverlay: JavaInlayHintOverlayController?
         var isApplyingEditorChange = false
         var shouldFocus = true
+        var markdownScrollPosition: Binding<MarkdownScrollPosition>?
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
         private var implementationValidationTask: Task<Void, Never>?
+        private var markdownImagePasteMonitor: Any?
+        private weak var markdownScrollView: NSScrollView?
+        private var markdownScrollObserver: NSObjectProtocol?
+        private var isApplyingSynchronizedMarkdownScroll = false
+        private var lastObservedMarkdownScrollRevision: UInt64?
 
-        init(document: EditorDocument, model: AppModel, debugService: JavaDebugFeatureModel) {
+        init(
+            document: EditorDocument,
+            model: AppModel,
+            debugService: JavaDebugFeatureModel,
+            markdownScrollPosition: Binding<MarkdownScrollPosition>?
+        ) {
             self.document = document
             self.model = model
             self.debugService = debugService
+            self.markdownScrollPosition = markdownScrollPosition
             fileExtension = document.url.pathExtension
+        }
+
+        deinit {
+            if let markdownImagePasteMonitor {
+                NSEvent.removeMonitor(markdownImagePasteMonitor)
+            }
+            if let markdownScrollObserver {
+                NotificationCenter.default.removeObserver(markdownScrollObserver)
+            }
+        }
+
+        func attachMarkdownImagePasteMonitor(to scrollView: NSScrollView) {
+            guard markdownImagePasteMonitor == nil,
+                  ["md", "markdown"].contains(fileExtension.lowercased()) else { return }
+            markdownImagePasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+                [weak self, weak scrollView] event in
+                let shouldConsume = MainActor.assumeIsolated {
+                    guard let self,
+                          let scrollView,
+                          CodeTextView.isStandardPasteShortcut(event),
+                          event.window === scrollView.window,
+                          self.model?.activeDocumentID == self.document?.id else {
+                        return false
+                    }
+
+                    let editorHasFocus = scrollView.window?.firstResponder === self.textView
+                    let mouseLocation = scrollView.convert(
+                        scrollView.window?.mouseLocationOutsideOfEventStream ?? .zero,
+                        from: nil
+                    )
+                    guard editorHasFocus || scrollView.bounds.contains(mouseLocation) else {
+                        return false
+                    }
+                    return self.pasteMarkdownImage()
+                }
+                return shouldConsume ? nil : event
+            }
+        }
+
+        func attachMarkdownScrollSync(to scrollView: NSScrollView) {
+            guard markdownScrollPosition != nil, markdownScrollObserver == nil else { return }
+            markdownScrollView = scrollView
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            markdownScrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.reportMarkdownEditorScroll()
+                }
+            }
+        }
+
+        func applySynchronizedMarkdownScrollIfNeeded(to scrollView: NSScrollView?) {
+            guard let position = markdownScrollPosition?.wrappedValue,
+                  position.revision != lastObservedMarkdownScrollRevision else { return }
+            lastObservedMarkdownScrollRevision = position.revision
+            guard position.source == .preview, let scrollView else { return }
+
+            let contentHeight = Double(scrollView.documentView?.frame.height ?? 0)
+            let viewportHeight = Double(scrollView.contentView.bounds.height)
+            let y = MarkdownScrollMetrics.offset(
+                ratio: position.ratio,
+                contentHeight: contentHeight,
+                viewportHeight: viewportHeight
+            )
+            isApplyingSynchronizedMarkdownScroll = true
+            scrollView.contentView.scroll(
+                to: NSPoint(x: scrollView.contentView.bounds.minX, y: y)
+            )
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            isApplyingSynchronizedMarkdownScroll = false
+        }
+
+        private func reportMarkdownEditorScroll() {
+            guard !isApplyingSynchronizedMarkdownScroll,
+                  let scrollView = markdownScrollView,
+                  var position = markdownScrollPosition?.wrappedValue else { return }
+            let ratio = MarkdownScrollMetrics.ratio(
+                offset: Double(scrollView.contentView.bounds.minY),
+                contentHeight: Double(scrollView.documentView?.frame.height ?? 0),
+                viewportHeight: Double(scrollView.contentView.bounds.height)
+            )
+            guard position.update(ratio: ratio, source: .editor) else { return }
+            lastObservedMarkdownScrollRevision = position.revision
+            markdownScrollPosition?.wrappedValue = position
         }
 
         func requestInitialFocusIfNeeded() {
@@ -191,6 +307,55 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         private var hasRequestedInitialFocus = false
+
+        func pasteMarkdownImage() -> Bool {
+            guard let document, let model, let textView,
+                  let source = model.markdownImageFromClipboard() else { return false }
+            guard ["md", "markdown"].contains(document.url.pathExtension.lowercased()) else {
+                model.showNotification("Images can only be pasted into Markdown documents")
+                return true
+            }
+            guard !document.isReadOnly, textView.isEditable else {
+                model.showNotification("This Markdown document is read-only")
+                return true
+            }
+
+            let originalText = textView.string
+            let originalSelection = textView.selectedRange()
+            Task { @MainActor [weak self, weak document, weak model] in
+                guard let self, let document, let model else { return }
+                do {
+                    let result = try await model.importMarkdownImage(source, for: document)
+                    guard self.document?.id == document.id,
+                          let textView = self.textView,
+                          textView.isEditable else { return }
+                    let currentLength = (textView.string as NSString).length
+                    let replacementRange: NSRange
+                    if textView.string == originalText,
+                       originalSelection.location != NSNotFound,
+                       NSMaxRange(originalSelection) <= currentLength {
+                        replacementRange = originalSelection
+                    } else {
+                        let selection = textView.selectedRange()
+                        replacementRange = selection.location == NSNotFound
+                            ? NSRange(location: currentLength, length: 0)
+                            : selection
+                    }
+                    let insertion = MarkdownImageInsertion.blockText(
+                        reference: result.markdownReference,
+                        in: textView.string,
+                        replacing: replacementRange
+                    )
+                    textView.insertText(insertion, replacementRange: replacementRange)
+                    textView.scrollRangeToVisible(textView.selectedRange())
+                    textView.window?.makeFirstResponder(textView)
+                    model.showNotification("Saved image to \(result.relativePath)")
+                } catch {
+                    model.showNotification("Could not paste image: \(error.localizedDescription)")
+                }
+            }
+            return true
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
@@ -462,6 +627,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var onFindNextRequested: (() -> Void)?
     var onFindPreviousRequested: (() -> Void)?
     var onFindStateChange: ((Int, Int) -> Void)?
+    var onPasteImage: (() -> Bool)?
 
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
@@ -482,6 +648,25 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     private var hoveredFoldID: String?
     private var lineIndex = TextLineIndex(source: "" as NSString)
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
+
+    override func paste(_ sender: Any?) {
+        if onPasteImage?() == true { return }
+        super.paste(sender)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if Self.isStandardPasteShortcut(event), onPasteImage?() == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    static func isStandardPasteShortcut(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return event.type == .keyDown
+            && modifiers == .command
+            && event.charactersIgnoringModifiers?.lowercased() == "v"
+    }
 
     func rebuildLineIndex() {
         lineIndex = TextLineIndex(source: string as NSString)

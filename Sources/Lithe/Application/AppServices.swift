@@ -15,6 +15,8 @@ final class AppServices {
     let workspaceOperations: any WorkspaceOperations
     let localHistoryOperations: any LocalHistoryOperations
     let javaMavenOperations: any JavaMavenOperations
+    let markdownRenderer: any MarkdownRendering
+    let markdownImageImporter: any MarkdownImageImporting
     let store: any KeyValueStore
     let fileStorage: any FileStorage
     let fileOperations: any WorkspaceFileOperations
@@ -41,6 +43,8 @@ final class AppServices {
         workspaceOperations: any WorkspaceOperations,
         localHistoryOperations: any LocalHistoryOperations,
         javaMavenOperations: any JavaMavenOperations,
+        markdownRenderer: any MarkdownRendering,
+        markdownImageImporter: any MarkdownImageImporting,
         store: any KeyValueStore,
         fileStorage: any FileStorage,
         fileOperations: any WorkspaceFileOperations,
@@ -66,6 +70,8 @@ final class AppServices {
         self.workspaceOperations = workspaceOperations
         self.localHistoryOperations = localHistoryOperations
         self.javaMavenOperations = javaMavenOperations
+        self.markdownRenderer = markdownRenderer
+        self.markdownImageImporter = markdownImageImporter
         self.store = store
         self.fileStorage = fileStorage
         self.fileOperations = fileOperations

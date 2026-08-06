@@ -45,6 +45,16 @@ else
     fi
     cp "$arch_binary" "$APP_DIR/Contents/MacOS/Lithe"
 fi
+if [[ "$ARCH" == "universal" ]]; then
+    resource_bundle="$ROOT_DIR/.build/$ARM64_TRIPLE/release/Lithe_Lithe.bundle"
+else
+    resource_bundle="$ROOT_DIR/.build/$ARCH-apple-macosx/release/Lithe_Lithe.bundle"
+fi
+if [[ ! -d "$resource_bundle" ]]; then
+    print -u2 -- "Missing SwiftPM resource bundle: $resource_bundle"
+    exit 1
+fi
+cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/Lithe_Lithe.bundle"
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"

@@ -20,6 +20,9 @@ let package = Package(
             name: "Lithe",
             dependencies: ["LitheRustCore"],
             path: "Sources/Lithe",
+            resources: [
+                .copy("Resources/MarkdownPreview")
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ]

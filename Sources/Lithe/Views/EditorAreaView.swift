@@ -29,6 +29,7 @@ struct EditorAreaView: View {
     @State private var hoveredTabID: UUID?
     @State private var splitDocumentID: UUID?
     @State private var markdownViewModes: [UUID: MarkdownViewMode] = [:]
+    @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var hoveredMarkdownMode: MarkdownViewMode?
 
     var body: some View {
@@ -64,6 +65,7 @@ struct EditorAreaView: View {
                 self.splitDocumentID = nil
             }
             markdownViewModes = markdownViewModes.filter { ids.contains($0.key) }
+            markdownScrollPositions = markdownScrollPositions.filter { ids.contains($0.key) }
         }
     }
 
@@ -371,13 +373,17 @@ struct EditorAreaView: View {
                 case .editor:
                     editorWithFindBar(document)
                 case .split:
+                    let scrollPosition = markdownScrollPosition(for: document)
                     HStack(spacing: 0) {
-                        editorWithFindBar(document)
+                        editorWithFindBar(document, markdownScrollPosition: scrollPosition)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         Rectangle()
                             .fill(LitheTheme.divider)
                             .frame(width: 1)
-                        MarkdownPreviewView(document: document)
+                        MarkdownPreviewView(
+                            document: document,
+                            scrollPosition: scrollPosition
+                        )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 case .preview:
@@ -391,8 +397,11 @@ struct EditorAreaView: View {
         }
     }
 
-    private func editorWithFindBar(_ document: EditorDocument) -> some View {
-        codeEditor(document)
+    private func editorWithFindBar(
+        _ document: EditorDocument,
+        markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
+    ) -> some View {
+        codeEditor(document, markdownScrollPosition: markdownScrollPosition)
             .overlay(alignment: .top) {
                 if model.isFindBarVisible {
                     FindBarView()
@@ -403,14 +412,25 @@ struct EditorAreaView: View {
             }
     }
 
-    private func codeEditor(_ document: EditorDocument) -> some View {
+    private func codeEditor(
+        _ document: EditorDocument,
+        markdownScrollPosition: Binding<MarkdownScrollPosition>? = nil
+    ) -> some View {
         CodeEditorView(
             document: document,
             debugService: model.debugFeature,
-            shouldFocus: true
+            shouldFocus: true,
+            markdownScrollPosition: markdownScrollPosition
         )
         .id(document.id)
         .clipped()
+    }
+
+    private func markdownScrollPosition(for document: EditorDocument) -> Binding<MarkdownScrollPosition> {
+        Binding(
+            get: { markdownScrollPositions[document.id] ?? MarkdownScrollPosition() },
+            set: { markdownScrollPositions[document.id] = $0 }
+        )
     }
 
     private var emptyState: some View {

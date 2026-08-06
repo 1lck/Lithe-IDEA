@@ -161,6 +161,10 @@ struct RustCoreBridge: Sendable {
         let relocated: Bool
     }
 
+    struct MarkdownRenderPayload: Decodable, Sendable {
+        let html: String
+    }
+
     struct MavenScanPayload: Decodable, Sendable {
         struct Profile: Decodable, Sendable {
             let id: String
@@ -627,6 +631,10 @@ struct RustCoreBridge: Sendable {
 
     private struct MavenScanRequest: Encodable {
         let root: String
+    }
+
+    private struct MarkdownRenderRequest: Encodable {
+        let source: String
     }
 
     private struct MavenDiagnosticsRequest: Encodable {
@@ -1253,6 +1261,13 @@ struct RustCoreBridge: Sendable {
                 root: rootURL.standardizedFileURL.path,
                 path: relativePath
             )
+        )
+    }
+
+    func markdownRender(_ source: String) -> Result<MarkdownRenderPayload, CoreCallError> {
+        executeResult(
+            command: "markdown.render",
+            payload: MarkdownRenderRequest(source: source)
         )
     }
 

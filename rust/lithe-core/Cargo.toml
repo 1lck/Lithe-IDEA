@@ -9,6 +9,8 @@ description = "Cross-platform application core for Lithe"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
+ammonia = "4.1.4"
+comrak = { version = "0.54.0", default-features = false, features = ["shortcodes"] }
 regex = "1.11"
 quick-xml = "0.37"
 serde = { version = "1.0", features = ["derive"] }
