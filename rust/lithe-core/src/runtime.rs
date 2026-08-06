@@ -12,6 +12,7 @@ use crate::java::{
     JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
     JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest,
 };
+use crate::markdown::MarkdownRenderRequest;
 use crate::maven::{MavenDiagnosticsRequest, MavenScanRequest};
 use crate::model::CoreResponse;
 use crate::workspace::{
@@ -245,6 +246,19 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Maven diagnostics should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::MarkdownRender => {
+            match serde_json::from_value::<MarkdownRenderRequest>(parsed.payload).map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid Markdown render request")
+                    .with_details(error.to_string())
+            }) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::markdown::render(request))
+                        .expect("Markdown render response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

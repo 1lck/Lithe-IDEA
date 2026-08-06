@@ -6,6 +6,7 @@ mod ffi;
 mod git;
 mod history;
 mod java;
+mod markdown;
 mod maven;
 mod model;
 mod runtime;
@@ -55,6 +56,32 @@ mod tests {
         assert_eq!(response["ok"], true);
         assert_eq!(response["data"]["protocolVersion"], 1);
         assert_eq!(response["data"]["coreVersion"], "0.1.0");
+    }
+
+    #[test]
+    fn markdown_render_command_returns_sanitized_html() {
+        let request = serde_json::json!({
+            "id": "markdown-1",
+            "command": "markdown.render",
+            "payload": {
+                "source": "# Preview\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n```plantuml\nAlice -> Bob\n```\n\n<script>alert(1)</script>"
+            }
+        });
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("Markdown request should encode"),
+        ))
+        .expect("Markdown response should be JSON");
+
+        assert_eq!(response["id"], "markdown-1");
+        assert_eq!(response["ok"], true);
+        let html = response["data"]["html"]
+            .as_str()
+            .expect("Markdown response should contain HTML");
+        assert!(html.contains("<table"));
+        assert!(html.contains("language-plantuml"));
+        assert!(html.contains("Alice -&gt; Bob"));
+        assert!(!html.contains("<script"));
+        assert!(!html.contains("alert(1)"));
     }
 
     #[test]

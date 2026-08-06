@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Lithe
@@ -401,46 +402,344 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func markdownParserBuildsPreviewBlocks() {
-        let blocks = MarkdownBlockParser.parse("""
-        # Title
+    func markdownPreviewUsesAdaptiveDebouncingAndDecodesCorePayload() throws {
+        #expect(MarkdownPreviewDebounce.nanoseconds(forByteCount: 1_000) == 120_000_000)
+        #expect(MarkdownPreviewDebounce.nanoseconds(forByteCount: 20_000) == 220_000_000)
+        #expect(MarkdownPreviewDebounce.nanoseconds(forByteCount: 200_000) == 360_000_000)
 
-        A **paragraph** with a [link](https://example.com).
+        let payload = try JSONDecoder().decode(
+            RustCoreBridge.MarkdownRenderPayload.self,
+            from: Data(#"{"html":"<h1>Preview</h1>"}"#.utf8)
+        )
+        #expect(payload.html == "<h1>Preview</h1>")
+    }
 
-        - One
-        - Two
+    @Test
+    func markdownPreviewResourcesAreBundledAndPlantUMLFree() throws {
+        let templateURL = try #require(MarkdownPreviewResources.templateURL)
+        let directoryURL = try #require(MarkdownPreviewResources.directoryURL)
+        #expect(FileManager.default.fileExists(atPath: templateURL.path))
+        #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("preview.js").path))
+        #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("vendor/katex.min.js").path))
+        #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("vendor/mermaid.min.js").path))
 
-        ```swift
-        print("hello")
-        ```
-        """)
+        let template = try String(contentsOf: templateURL, encoding: .utf8)
+        let runtime = try String(
+            contentsOf: directoryURL.appendingPathComponent("preview.js"),
+            encoding: .utf8
+        )
+        #expect(!template.lowercased().contains("plantuml"))
+        #expect(!runtime.lowercased().contains("plantuml"))
+        #expect(!template.contains("script src=\"http"))
+        #expect(template.contains("connect-src 'none'"))
+    }
 
-        #expect(blocks.count == 4)
-        guard case let .heading(level, text) = blocks[0] else {
-            Issue.record("Expected a heading block")
+    @Test
+    func markdownAssetResolverStaysInsideWorkspaceAndRejectsSymlinkEscapes() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-markdown-assets-\(UUID().uuidString)", isDirectory: true)
+        let workspace = temporaryRoot.appendingPathComponent("workspace", isDirectory: true)
+        let documents = workspace.appendingPathComponent("docs", isDirectory: true)
+        let assets = workspace.appendingPathComponent("assets", isDirectory: true)
+        let outside = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        try fileManager.createDirectory(at: documents, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: assets, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+
+        let image = assets.appendingPathComponent("preview.png")
+        let secret = outside.appendingPathComponent("secret.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: image)
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: secret)
+        try fileManager.createSymbolicLink(
+            at: workspace.appendingPathComponent("escaped.png"),
+            withDestinationURL: secret
+        )
+        let document = documents.appendingPathComponent("guide.md")
+
+        func request(scope: String, path: String) throws -> URL {
+            var components = URLComponents()
+            components.scheme = MarkdownPreviewAssetResolver.scheme
+            components.host = scope
+            components.queryItems = [URLQueryItem(name: "path", value: path)]
+            return try #require(components.url)
+        }
+
+        #expect(
+            MarkdownPreviewAssetResolver.resolve(
+                requestURL: try request(scope: "document", path: "../assets/preview.png"),
+                documentURL: document,
+                workspaceURL: workspace
+            ) == image.standardizedFileURL
+        )
+        #expect(
+            MarkdownPreviewAssetResolver.resolve(
+                requestURL: try request(scope: "workspace", path: "assets/preview.png"),
+                documentURL: document,
+                workspaceURL: workspace
+            ) == image.standardizedFileURL
+        )
+        #expect(
+            MarkdownPreviewAssetResolver.resolve(
+                requestURL: try request(scope: "document", path: "../../outside/secret.png"),
+                documentURL: document,
+                workspaceURL: workspace
+            ) == nil
+        )
+        #expect(
+            MarkdownPreviewAssetResolver.resolve(
+                requestURL: try request(scope: "workspace", path: "escaped.png"),
+                documentURL: document,
+                workspaceURL: workspace
+            ) == nil
+        )
+    }
+
+    @Test
+    func markdownImageImportStoresAssetsAndAvoidsFilenameCollisions() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-markdown-image-import-\(UUID().uuidString)", isDirectory: true)
+        let workspace = temporaryRoot.appendingPathComponent("workspace", isDirectory: true)
+        let documents = workspace.appendingPathComponent("docs", isDirectory: true)
+        let document = documents.appendingPathComponent("guide.md")
+        try fileManager.createDirectory(at: documents, withIntermediateDirectories: true)
+        try "# Guide".write(to: document, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+
+        let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A])
+        let importer = MarkdownImageImportService(storage: MacFileStorage())
+        let source = MarkdownImageSource.encoded(
+            data: imageData,
+            format: .png,
+            suggestedName: "Screen Shot (Final)"
+        )
+        let first = try await importer.importImage(
+            source,
+            forDocumentAt: document,
+            workspaceRoot: workspace
+        )
+        let second = try await importer.importImage(
+            source,
+            forDocumentAt: document,
+            workspaceRoot: workspace
+        )
+
+        #expect(first.relativePath == "assets/screen-shot-final.png")
+        #expect(first.markdownReference == "![screen shot final](assets/screen-shot-final.png)")
+        #expect(second.relativePath == "assets/screen-shot-final-2.png")
+        #expect(try Data(contentsOf: first.fileURL) == imageData)
+        #expect(try Data(contentsOf: second.fileURL) == imageData)
+    }
+
+    @Test
+    func markdownImageImportRejectsAssetSymlinkOutsideWorkspace() async throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-markdown-image-symlink-\(UUID().uuidString)", isDirectory: true)
+        let workspace = temporaryRoot.appendingPathComponent("workspace", isDirectory: true)
+        let documents = workspace.appendingPathComponent("docs", isDirectory: true)
+        let outside = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        let document = documents.appendingPathComponent("guide.md")
+        try fileManager.createDirectory(at: documents, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outside, withIntermediateDirectories: true)
+        try "# Guide".write(to: document, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(
+            at: documents.appendingPathComponent("assets", isDirectory: true),
+            withDestinationURL: outside
+        )
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+
+        let importer = MarkdownImageImportService(storage: MacFileStorage())
+        await #expect(throws: MarkdownImageImportError.destinationOutsideWorkspace) {
+            try await importer.importImage(
+                .encoded(data: Data([1, 2, 3]), format: .png, suggestedName: nil),
+                forDocumentAt: document,
+                workspaceRoot: workspace
+            )
+        }
+    }
+
+    @Test
+    func markdownClipboardReaderRecognizesPNGData() throws {
+        let pasteboard = NSPasteboard(name: .init("lithe-markdown-image-\(UUID().uuidString)"))
+        let imageData = Data([0x89, 0x50, 0x4E, 0x47])
+        pasteboard.clearContents()
+        pasteboard.setData(imageData, forType: .png)
+        defer { pasteboard.clearContents() }
+
+        let source = try #require(MarkdownClipboardImageReader.read(from: pasteboard))
+        guard case let .encoded(data, format, suggestedName) = source else {
+            Issue.record("Expected encoded PNG clipboard data")
             return
         }
-        #expect(level == 1)
-        #expect(text == "Title")
+        #expect(data == imageData)
+        #expect(format == .png)
+        #expect(suggestedName == nil)
+    }
 
-        guard case let .paragraph(text) = blocks[1] else {
-            Issue.record("Expected a paragraph block")
+    @Test
+    func markdownClipboardReaderRecognizesQtScreenshotPNGData() throws {
+        let pasteboard = NSPasteboard(name: .init("lithe-markdown-qt-image-\(UUID().uuidString)"))
+        let imageData = Data([0x89, 0x50, 0x4E, 0x47])
+        let qtPNGType = NSPasteboard.PasteboardType("com.trolltech.anymime.image--png")
+        pasteboard.clearContents()
+        pasteboard.setData(imageData, forType: qtPNGType)
+        defer { pasteboard.clearContents() }
+
+        let source = try #require(MarkdownClipboardImageReader.read(from: pasteboard))
+        guard case let .encoded(data, format, suggestedName) = source else {
+            Issue.record("Expected encoded Qt PNG clipboard data")
             return
         }
-        #expect(text.contains("**paragraph**"))
+        #expect(data == imageData)
+        #expect(format == .png)
+        #expect(suggestedName == nil)
+    }
 
-        guard case let .unorderedList(items) = blocks[2] else {
-            Issue.record("Expected an unordered list block")
+    @Test
+    func markdownClipboardReaderRecognizesFinderImageFile() throws {
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Lithe Screenshot \(UUID().uuidString).png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+
+        let pasteboard = NSPasteboard(name: .init("lithe-markdown-file-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.writeObjects([imageURL as NSURL])
+        defer { pasteboard.clearContents() }
+
+        let source = try #require(MarkdownClipboardImageReader.read(from: pasteboard))
+        guard case let .file(url, format) = source else {
+            Issue.record("Expected a Finder image file URL")
             return
         }
-        #expect(items == ["One", "Two"])
+        #expect(url == imageURL)
+        #expect(format == .png)
+    }
 
-        guard case let .code(language, text) = blocks[3] else {
-            Issue.record("Expected a code block")
-            return
+    @Test
+    @MainActor
+    func codeEditorInterceptsHandledImagePaste() {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "before"
+        var handled = false
+        textView.onPasteImage = {
+            handled = true
+            return true
         }
-        #expect(language == "swift")
-        #expect(text == "print(\"hello\")")
+
+        textView.paste(nil)
+
+        #expect(handled)
+        #expect(textView.string == "before")
+    }
+
+    @Test
+    @MainActor
+    func codeEditorInterceptsCommandVPasteBeforeMenuRouting() throws {
+        let textView = CodeTextView(frame: .zero)
+        var handled = false
+        textView.onPasteImage = {
+            handled = true
+            return true
+        }
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: .command,
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "v",
+                charactersIgnoringModifiers: "v",
+                isARepeat: false,
+                keyCode: 9
+            )
+        )
+
+        #expect(textView.performKeyEquivalent(with: event))
+        #expect(handled)
+    }
+
+    @Test
+    func markdownImageInsertionSeparatesTheReferenceFromRawHTML() {
+        let source = "<table>\n</table>\n"
+        let reference = "![pasted image](assets/pasted-image.png)"
+        let insertion = MarkdownImageInsertion.blockText(
+            reference: reference,
+            in: source,
+            replacing: NSRange(location: (source as NSString).length, length: 0)
+        )
+
+        #expect(insertion == "\n\(reference)")
+        #expect(source + insertion == "<table>\n</table>\n\n\(reference)")
+    }
+
+    @Test
+    func markdownImageInsertionCreatesABlockInsideParagraphText() {
+        let source = "beforeafter"
+        let reference = "![diagram](assets/diagram.png)"
+        let insertion = MarkdownImageInsertion.blockText(
+            reference: reference,
+            in: source,
+            replacing: NSRange(location: 6, length: 0)
+        )
+
+        #expect(insertion == "\n\n\(reference)\n\n")
+        #expect(
+            (source as NSString).replacingCharacters(
+                in: NSRange(location: 6, length: 0),
+                with: insertion
+            ) == "before\n\n\(reference)\n\nafter"
+        )
+    }
+
+    @Test
+    func markdownImageInsertionReusesExistingBlankLines() {
+        let source = "before\n\n\n\nafter"
+        let reference = "![diagram](assets/diagram.png)"
+        let insertion = MarkdownImageInsertion.blockText(
+            reference: reference,
+            in: source,
+            replacing: NSRange(location: 8, length: 0)
+        )
+
+        #expect(insertion == reference)
+    }
+
+    @Test
+    func markdownScrollPositionClampsAndTracksItsControllingPane() {
+        var position = MarkdownScrollPosition()
+
+        let acceptedEditorUpdate = position.update(ratio: 1.4, source: .editor)
+        #expect(acceptedEditorUpdate)
+        #expect(position.ratio == 1)
+        #expect(position.source == .editor)
+        let ignoredDuplicateUpdate = position.update(ratio: 0.9999, source: .editor)
+        #expect(!ignoredDuplicateUpdate)
+        let acceptedPreviewUpdate = position.update(ratio: 1, source: .preview)
+        #expect(acceptedPreviewUpdate)
+        #expect(position.source == .preview)
+        #expect(position.revision == 2)
+
+        #expect(
+            MarkdownScrollMetrics.ratio(
+                offset: 450,
+                contentHeight: 1_000,
+                viewportHeight: 100
+            ) == 0.5
+        )
+        #expect(
+            MarkdownScrollMetrics.offset(
+                ratio: 0.5,
+                contentHeight: 1_000,
+                viewportHeight: 100
+            ) == 450
+        )
+        #expect(MarkdownScrollMetrics.ratio(offset: 20, contentHeight: 100, viewportHeight: 100) == 0)
     }
 
     @Test

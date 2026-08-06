@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:,">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: http: https: lithe-resource:; media-src 'self' data: http: https: lithe-resource:; connect-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; base-uri 'none'; form-action 'none'">
+  <link rel="stylesheet" href="vendor/katex.min.css">
+  <link rel="stylesheet" href="preview.css">
+  <script defer src="vendor/highlight.min.js"></script>
+  <script defer src="vendor/katex.min.js"></script>
+  <script defer src="vendor/mermaid.min.js"></script>
+  <script defer src="vendor/d3.min.js"></script>
+  <script defer src="vendor/markmap-lib.min.js"></script>
+  <script defer src="vendor/markmap-view.min.js"></script>
+  <script defer src="preview.js"></script>
+  <title>Markdown Preview</title>
+</head>
+<body>
+  <button id="toc-toggle" class="toc-toggle" type="button" aria-label="Table of contents" aria-expanded="false" hidden>☰</button>
+  <aside id="toc" class="toc" aria-label="Table of contents" hidden>
+    <div class="toc-heading">On this page</div>
+    <nav id="toc-list"></nav>
+  </aside>
+  <main id="content" class="markdown-body" aria-live="polite"></main>
+  <div id="image-viewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="Image preview" hidden>
+    <button id="image-close" class="image-close" type="button" aria-label="Close image preview">×</button>
+    <img id="image-full" alt="">
+  </div>
+</body>
+</html>
