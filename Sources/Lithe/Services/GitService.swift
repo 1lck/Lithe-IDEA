@@ -63,9 +63,26 @@ protocol GitOperations: Sendable {
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> ProcessResult?
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> ProcessResult?
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> ProcessResult?
-    func updateCurrentBranch(at rootURL: URL) -> ProcessResult?
+    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> ProcessResult?
+    func pullPreflight(at rootURL: URL) -> GitPullPreflightState?
+    func conflictMarkerPaths(at rootURL: URL) -> [String]
+    func integrationPreflight(
+        for target: GitIntegrationTarget,
+        operation: GitIntegrationOperation,
+        at rootURL: URL
+    ) -> GitIntegrationPreflightState?
     func fetch(at rootURL: URL) -> ProcessResult?
-    func checkout(_ reference: GitReference, at rootURL: URL) -> ProcessResult?
+    func checkout(
+        _ reference: GitReference,
+        at rootURL: URL,
+        force: Bool,
+        autoStash: Bool
+    ) -> ProcessResult?
+    func checkoutBlockingPaths(for reference: GitReference, at rootURL: URL) -> [String]
+    func operationState(at rootURL: URL) -> GitOperationState?
+    func continueOperation(at rootURL: URL) -> ProcessResult?
+    func abortOperation(at rootURL: URL) -> ProcessResult?
+    func skipOperationStep(at rootURL: URL) -> ProcessResult?
     func checkoutRevision(_ revision: String, at rootURL: URL) -> ProcessResult?
     func push(_ reference: GitReference, at rootURL: URL) -> ProcessResult?
     func cloneRepository(from remote: String, to destination: URL) -> ProcessResult?
@@ -295,16 +312,67 @@ struct GitService: Sendable {
         await command { $0.rebaseCurrentBranch(onto: reference, at: repositoryRoot) }
     }
 
-    func updateCurrentBranch(at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.updateCurrentBranch(at: repositoryRoot) }
+    func updateCurrentBranch(
+        at repositoryRoot: URL,
+        strategy: GitPullStrategy = .ffOnly
+    ) async -> CommandResult {
+        await command { $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy) }
+    }
+
+    func pullPreflight(at repositoryRoot: URL) async -> GitPullPreflightState? {
+        await read { $0.pullPreflight(at: repositoryRoot) }
+    }
+
+    func conflictMarkerPaths(at repositoryRoot: URL) async -> [String] {
+        await read { $0.conflictMarkerPaths(at: repositoryRoot) } ?? []
+    }
+
+    func integrationPreflight(
+        for target: GitIntegrationTarget,
+        operation: GitIntegrationOperation,
+        at repositoryRoot: URL
+    ) async -> GitIntegrationPreflightState? {
+        await read {
+            $0.integrationPreflight(for: target, operation: operation, at: repositoryRoot)
+        }
     }
 
     func fetch(at repositoryRoot: URL) async -> CommandResult {
         await command { $0.fetch(at: repositoryRoot) }
     }
 
-    func checkout(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.checkout(reference, at: repositoryRoot) }
+    func checkout(
+        _ reference: GitReference,
+        at repositoryRoot: URL,
+        force: Bool = false,
+        autoStash: Bool = false
+    ) async -> CommandResult {
+        await command {
+            $0.checkout(reference, at: repositoryRoot, force: force, autoStash: autoStash)
+        }
+    }
+
+    /// Working-tree paths that would block checking out `reference`, empty when the switch is clean.
+    func checkoutBlockingPaths(for reference: GitReference, at repositoryRoot: URL) async -> [String] {
+        await read { $0.checkoutBlockingPaths(for: reference, at: repositoryRoot) } ?? []
+    }
+
+    /// The half-finished merge, rebase, cherry-pick, or revert Git is sitting in,
+    /// or nil when the repository is in its normal state.
+    func operationState(at repositoryRoot: URL) async -> GitOperationState? {
+        await read(priority: .utility) { $0.operationState(at: repositoryRoot) }
+    }
+
+    func continueOperation(at repositoryRoot: URL) async -> CommandResult {
+        await command { $0.continueOperation(at: repositoryRoot) }
+    }
+
+    func abortOperation(at repositoryRoot: URL) async -> CommandResult {
+        await command { $0.abortOperation(at: repositoryRoot) }
+    }
+
+    func skipOperationStep(at repositoryRoot: URL) async -> CommandResult {
+        await command { $0.skipOperationStep(at: repositoryRoot) }
     }
 
     func checkoutRevision(_ revision: String, at repositoryRoot: URL) async -> CommandResult {

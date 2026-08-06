@@ -630,6 +630,7 @@ struct DiffReviewView: View {
         case .deleted: .red.opacity(0.86)
         case .moved: LitheTheme.accent
         case .copied: Color(red: 0.46, green: 0.72, blue: 0.92)
+        case .conflicted: .red
         }
     }
 

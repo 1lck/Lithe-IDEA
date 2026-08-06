@@ -39,7 +39,9 @@ struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
         mode: String? = nil,
         includeUntracked: Bool = false,
         checkout: Bool = false,
-        amend: Bool = false
+        amend: Bool = false,
+        force: Bool = false,
+        autoStash: Bool = false
     ) -> ProcessResult? {
         switch core.gitWriteResult(
             at: rootURL,
@@ -55,7 +57,9 @@ struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
             mode: mode,
             includeUntracked: includeUntracked,
             checkout: checkout,
-            amend: amend
+            amend: amend,
+            force: force,
+            autoStash: autoStash
         ) {
         case .success(let response):
             return ProcessResult(output: response.output, exitCode: response.exitCode)
@@ -118,21 +122,93 @@ struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
         write(at: rootURL, operation: "rebase", reference: reference.fullName)
     }
 
-    func updateCurrentBranch(at rootURL: URL) -> ProcessResult? {
-        write(at: rootURL, operation: "pull")
+    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy = .ffOnly) -> ProcessResult? {
+        write(at: rootURL, operation: "pull", mode: strategy.rawValue)
+    }
+
+    /// Staged files still containing conflict markers.
+    func conflictMarkerPaths(at rootURL: URL) -> [String] {
+        core.gitConflictMarkerPaths(at: rootURL)?.paths ?? []
+    }
+
+    /// Reports what would stop an integration, so the caller can ask before failing.
+    func integrationPreflight(
+        for target: GitIntegrationTarget,
+        operation: GitIntegrationOperation,
+        at rootURL: URL
+    ) -> GitIntegrationPreflightState? {
+        guard let payload = core.gitIntegrationPreflight(
+            at: rootURL,
+            reference: target.revision,
+            operation: operation.rawValue
+        ) else { return nil }
+        return GitIntegrationPreflightState(
+            blockingPaths: payload.blockingPaths,
+            blocksEntirely: payload.blocksEntirely
+        )
+    }
+
+    /// Reports whether a pull can fast-forward, so the caller can ask before failing.
+    func pullPreflight(at rootURL: URL) -> GitPullPreflightState? {
+        guard let payload = core.gitPullPreflight(at: rootURL) else { return nil }
+        return GitPullPreflightState(
+            upstream: payload.upstream,
+            ahead: payload.ahead,
+            behind: payload.behind,
+            diverged: payload.diverged,
+            hasLocalChanges: payload.hasLocalChanges
+        )
     }
 
     func fetch(at rootURL: URL) -> ProcessResult? {
         write(at: rootURL, operation: "fetch")
     }
 
-    func checkout(_ reference: GitReference, at rootURL: URL) -> ProcessResult? {
+    func checkout(
+        _ reference: GitReference,
+        at rootURL: URL,
+        force: Bool = false,
+        autoStash: Bool = false
+    ) -> ProcessResult? {
         write(
             at: rootURL,
             operation: "checkout",
             reference: reference.fullName,
-            referenceKind: reference.kind
+            referenceKind: reference.kind,
+            force: force,
+            autoStash: autoStash
         )
+    }
+
+    /// Returns the working-tree paths that would block checking out `reference`.
+    func checkoutBlockingPaths(for reference: GitReference, at rootURL: URL) -> [String] {
+        core.gitCheckoutPreflight(at: rootURL, reference: reference.fullName)?.blockingPaths ?? []
+    }
+
+    func operationState(at rootURL: URL) -> GitOperationState? {
+        guard let payload = core.gitOperationState(at: rootURL),
+              // Rust reports an idle repository as an empty kind rather than an
+              // absent payload; only a recognised kind is an operation in progress.
+              let kind = GitOperationKind(rawValue: payload.kind) else { return nil }
+        return GitOperationState(
+            kind: kind,
+            reference: payload.reference,
+            step: payload.step,
+            total: payload.total,
+            conflictedPaths: payload.conflictedPaths
+        )
+    }
+
+    func continueOperation(at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "operationContinue")
+    }
+
+    func abortOperation(at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "operationAbort")
+    }
+
+    func skipOperationStep(at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "operationSkip")
     }
 
     func checkoutRevision(_ revision: String, at rootURL: URL) -> ProcessResult? {
