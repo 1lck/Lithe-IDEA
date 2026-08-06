@@ -998,4 +998,138 @@ struct EditorDocumentTests {
                 > SearchRelevance.score(content, query: "DeviceHandler")
         )
     }
+
+    @Test
+    @MainActor
+    func terminalSessionKeepsNativeSurfaceAndOwnsLifecycle() {
+        let transport = TestTerminalTransport()
+        let factory: @MainActor () -> any TerminalTransport = { transport }
+        let feature = TerminalFeatureModel(terminalFactory: factory)
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-tests")
+
+        let session = feature.createSession(in: workspace, shellPath: "/bin/zsh")
+        let nativeViewID = ObjectIdentifier(transport.nativeView)
+
+        #expect(session.isRunning)
+        #expect(session.isReady)
+        #expect(session.shellName == "zsh")
+        #expect(ObjectIdentifier(session.nativeView) == nativeViewID)
+        #expect(transport.startRequests == ["/bin/zsh"])
+
+        feature.closeSession(session)
+
+        #expect(!session.isRunning)
+        #expect(transport.stopCount == 1)
+        #expect(feature.terminalSessions.isEmpty)
+        #expect(feature.activeTerminalSessionID == nil)
+    }
+
+    @Test
+    @MainActor
+    func terminalSessionRestartUsesExistingSurfaceAndSelectedShell() {
+        let transport = TestTerminalTransport()
+        let factory: @MainActor () -> any TerminalTransport = { transport }
+        let feature = TerminalFeatureModel(terminalFactory: factory)
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-tests")
+        let session = feature.createSession(in: workspace, shellPath: "/bin/bash")
+        let nativeViewID = ObjectIdentifier(session.nativeView)
+        session.restart(using: "/bin/zsh")
+
+        #expect(session.isRunning)
+        #expect(session.shellName == "zsh")
+        #expect(ObjectIdentifier(session.nativeView) == nativeViewID)
+        #expect(transport.startRequests == ["/bin/bash", "/bin/zsh"])
+        #expect(transport.stopCount == 1)
+    }
+
+    @Test
+    func terminalLinkResolverResolvesWorkspacePathAndLocation() {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-link-tests")
+        let sourceURL = workspace.appendingPathComponent("Sources/App.swift")
+        let fileManager = FileManager.default
+        try? fileManager.createDirectory(
+            at: sourceURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: workspace) }
+        fileManager.createFile(atPath: sourceURL.path, contents: Data())
+
+        let target = TerminalLinkResolver.resolve(
+            "Sources/App.swift:12:4",
+            relativeTo: workspace
+        )
+
+        #expect(target == .file(
+            TerminalLinkLocation(url: sourceURL.standardizedFileURL, line: 12, column: 4)
+        ))
+    }
+
+    @Test
+    func terminalLinkResolverKeepsExternalURLsAsExternalTargets() {
+        let target = TerminalLinkResolver.resolve(
+            "https://example.com/docs",
+            relativeTo: URL(fileURLWithPath: "/tmp")
+        )
+
+        #expect(target == .external(URL(string: "https://example.com/docs")!))
+    }
+
+    @Test
+    @MainActor
+    func terminalSessionPublishesTitleDirectoryAndExitState() {
+        let transport = TestTerminalTransport()
+        let session = TerminalSession(transport: transport)
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-tests")
+        session.start(in: workspace, shellPath: "/bin/zsh")
+        transport.onTitle?("codex")
+        transport.onDirectoryUpdate?(workspace.appendingPathComponent("Sources").path)
+        transport.onTermination?(7)
+
+        #expect(session.displayTitle == "codex")
+        #expect(session.currentDirectory?.path == workspace.appendingPathComponent("Sources").path)
+        #expect(session.lastExitCode == 7)
+        #expect(!session.isRunning)
+        #expect(session.elapsedDescription(at: Date().addingTimeInterval(1)) != nil)
+    }
+}
+
+@MainActor
+private final class TestTerminalTransport: TerminalTransport {
+    let nativeView: AnyObject = NSView(frame: .zero)
+    var isRunning = false
+    var shellName = "Shell"
+    var onTermination: ((Int32?) -> Void)?
+    var onTitle: ((String) -> Void)?
+    var onDirectoryUpdate: ((String?) -> Void)?
+    var onLink: ((String, [String: String]) -> Void)?
+    var startRequests: [String] = []
+    var stopCount = 0
+
+    func defaultShellPath() -> String { "/bin/zsh" }
+
+    func defaultEnvironment() -> [String: String] { [:] }
+
+    func start(
+        workingDirectory: String,
+        shellPath: String,
+        environment: [String: String]
+    ) throws {
+        startRequests.append(shellPath)
+        shellName = URL(fileURLWithPath: shellPath).lastPathComponent
+        isRunning = true
+    }
+
+    func send(_ input: Data) throws {}
+
+    func interrupt() throws {}
+
+    func focus() {}
+
+    func clear() {}
+
+    func stop() {
+        guard isRunning else { return }
+        stopCount += 1
+        isRunning = false
+    }
 }

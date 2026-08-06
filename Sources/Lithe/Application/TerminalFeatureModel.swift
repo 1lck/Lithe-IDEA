@@ -20,6 +20,9 @@ final class TerminalFeatureModel: ObservableObject {
     }
 
     func terminalTitle(for session: TerminalSession) -> String {
+        if let processTitle = session.processTitle, !processTitle.isEmpty {
+            return processTitle
+        }
         guard let index = terminalSessions.firstIndex(where: { $0.id == session.id }) else {
             return "Local"
         }

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -1219,6 +1220,7 @@ final class AppModel: ObservableObject {
             in: workspaceURL,
             shellPath: shellPath ?? settings.terminalShellPath
         )
+        configureTerminalSession(session)
         isTerminalVisible = true
         isGitLogVisible = false
         isReferencesVisible = false
@@ -1227,6 +1229,52 @@ final class AppModel: ObservableObject {
         isRunVisible = false
         isDebugVisible = false
         return session
+    }
+
+    private func configureTerminalSession(_ session: TerminalSession) {
+        let sessionID = session.id
+        session.onLink = { [weak self] link, params in
+            self?.openTerminalLink(link, params: params, sessionID: sessionID)
+        }
+    }
+
+    private func openTerminalLink(
+        _ link: String,
+        params: [String: String],
+        sessionID: UUID
+    ) {
+        guard let session = terminalSessions.first(where: { $0.id == sessionID }),
+              let fallbackDirectory = session.currentDirectory ?? workspaceURL else {
+            return
+        }
+
+        switch TerminalLinkResolver.resolve(link, relativeTo: fallbackDirectory) {
+        case .file(let location):
+            guard let workspaceURL else {
+                NSWorkspace.shared.open(location.url)
+                return
+            }
+            if isFile(location.url, inside: workspaceURL) {
+                openSourceLocation(
+                    url: location.url,
+                    line: location.line ?? 1,
+                    column: location.column
+                )
+            } else {
+                NSWorkspace.shared.open(location.url)
+            }
+        case .external(let url):
+            NSWorkspace.shared.open(url)
+        case nil:
+            return
+        }
+    }
+
+    private func isFile(_ fileURL: URL, inside directoryURL: URL) -> Bool {
+        let filePath = fileURL.standardizedFileURL.path
+        let directoryPath = directoryURL.standardizedFileURL.path
+        guard filePath != directoryPath else { return true }
+        return filePath.hasPrefix(directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/")
     }
 
     func selectTerminalSession(_ session: TerminalSession) {

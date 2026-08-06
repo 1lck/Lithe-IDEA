@@ -10,6 +10,10 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         return Self.confirmUnsavedDocuments(for: model) ? .terminateNow : .terminateCancel
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.stopTerminalSessions()
+    }
+
     static func confirmUnsavedDocuments(for model: AppModel) -> Bool {
         guard model.hasUnsavedDocuments else { return true }
 
