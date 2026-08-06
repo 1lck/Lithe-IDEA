@@ -15,6 +15,8 @@ extension AppModel {
     var gitChanges: [GitChange] { gitFeature.gitChanges }
     var gitStashes: [GitStash] { gitFeature.gitStashes }
     var isPerformingStashOperation: Bool { gitFeature.isPerformingStashOperation }
+    var gitOperationState: GitOperationState? { gitFeature.gitOperationState }
+    var isResolvingGitOperation: Bool { gitFeature.isResolvingGitOperation }
     var gitRepositoryRoot: URL? { gitFeature.gitRepositoryRoot }
     var currentBranch: String { gitFeature.currentBranch }
     var selectedChange: GitChange? {
@@ -36,6 +38,20 @@ extension AppModel {
     var pendingDiscardHunk: DiffHunkRequest? {
         get { gitFeature.pendingDiscardHunk }
         set { gitFeature.pendingDiscardHunk = newValue }
+    }
+    var pendingCheckoutConflict: GitCheckoutConflictRequest? {
+        get { gitFeature.pendingCheckoutConflict }
+        set { gitFeature.pendingCheckoutConflict = newValue }
+    }
+
+    var pendingPullStrategy: GitPullStrategyRequest? {
+        get { gitFeature.pendingPullStrategy }
+        set { gitFeature.pendingPullStrategy = newValue }
+    }
+
+    var pendingIntegrationConflict: GitIntegrationConflictRequest? {
+        get { gitFeature.pendingIntegrationConflict }
+        set { gitFeature.pendingIntegrationConflict = newValue }
     }
     var isCommitting: Bool { gitFeature.isCommitting }
     var gitBlameLines: [URL: [GitBlameLine]] { gitFeature.gitBlameLines }

@@ -19,6 +19,12 @@ final class GitFeatureModel: ObservableObject {
     @Published private(set) var isRefreshingGit = false
     @Published var pendingDiscardChange: GitChange?
     @Published var pendingDiscardHunk: DiffHunkRequest?
+    @Published var pendingCheckoutConflict: GitCheckoutConflictRequest?
+    @Published var pendingPullStrategy: GitPullStrategyRequest?
+    @Published var pendingIntegrationConflict: GitIntegrationConflictRequest?
+    /// Set whenever Git is mid-merge, mid-rebase, mid-cherry-pick, or mid-revert.
+    @Published var gitOperationState: GitOperationState?
+    @Published var isResolvingGitOperation = false
     @Published private(set) var isCommitting = false
     @Published private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published private(set) var gitReferences: [GitReference] = []
@@ -68,6 +74,9 @@ final class GitFeatureModel: ObservableObject {
     func reset() {
         gitChanges = []
         gitStashes = []
+        gitOperationState = nil
+        pendingPullStrategy = nil
+        pendingIntegrationConflict = nil
         isPerformingStashOperation = false
         gitRepositoryRoot = nil
         currentBranch = "No Git"
@@ -99,6 +108,7 @@ final class GitFeatureModel: ObservableObject {
         isLoadingBranchComparison = false
         isPerformingBranchOperation = false
         isCloningRepository = false
+        isResolvingGitOperation = false
     }
 
     func refreshGit() async {
@@ -116,6 +126,7 @@ final class GitFeatureModel: ObservableObject {
             currentBranch = snapshot.branch
             gitChanges = snapshot.changes
             gitStashes = await service.stashes(at: snapshot.repositoryRoot)
+            gitOperationState = await service.operationState(at: snapshot.repositoryRoot)
 
             if let selectedChange,
                let updated = snapshot.changes.first(where: { $0.path == selectedChange.path }) {
@@ -139,6 +150,7 @@ final class GitFeatureModel: ObservableObject {
             currentBranch = "No Git"
             gitChanges = []
             gitStashes = []
+            gitOperationState = nil
             selectedChange = nil
             selectedDiffPatch = ""
             diffRows = []
@@ -290,7 +302,33 @@ final class GitFeatureModel: ObservableObject {
         pendingDiscardChange = nil
     }
 
-    @discardableResult
+    /// Paths still holding conflict markers. Committing during a merge or rebase
+    /// would finish that operation, so an unresolved file has to stop the commit
+    /// rather than be recorded with its `<<<<<<<` markers intact.
+    private var conflictedPaths: [String] {
+        gitChanges.filter(\.isConflicted).map(\.path)
+    }
+
+    private func blockCommitWhenConflicted() -> Bool {
+        let paths = conflictedPaths
+        guard !paths.isEmpty else { return false }
+        notify?("Resolve the conflicts first: \(paths.joined(separator: ", "))")
+        return true
+    }
+
+    /// Refuses a commit whose staged content still carries conflict markers.
+    ///
+    /// Separate from `blockCommitWhenConflicted`: Git stops marking a file as
+    /// conflicted the moment it is staged, so a user who stages before deleting the
+    /// `<<<<<<<` lines would otherwise commit them. This reads the staged blobs.
+    private func blockCommitWhenMarkersRemain() async -> Bool {
+        guard let gitRepositoryRoot else { return false }
+        let paths = await service.conflictMarkerPaths(at: gitRepositoryRoot)
+        guard !paths.isEmpty else { return false }
+        notify?("Conflict markers remain in: \(paths.joined(separator: ", "))")
+        return true
+    }
+
     func commitStagedChanges(message rawMessage: String, amend: Bool) async -> Bool {
         guard let gitRepositoryRoot else { return false }
         let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -298,6 +336,8 @@ final class GitFeatureModel: ObservableObject {
             notify?("Enter a commit message")
             return false
         }
+        guard !blockCommitWhenConflicted() else { return false }
+        guard await !blockCommitWhenMarkersRemain() else { return false }
 
         isCommitting = true
         let result = await service.commit(at: gitRepositoryRoot, message: message, amend: amend)
@@ -323,6 +363,8 @@ final class GitFeatureModel: ObservableObject {
             notify?("Stage at least one change before committing")
             return false
         }
+        guard !blockCommitWhenConflicted() else { return false }
+        guard await !blockCommitWhenMarkersRemain() else { return false }
 
         isCommitting = true
         let commitResult = await service.commit(
@@ -630,22 +672,182 @@ final class GitFeatureModel: ObservableObject {
         await refreshGit()
     }
 
-    func mergeBranch(_ reference: GitReference) async {
-        guard let gitRepositoryRoot else { return }
-        isPerformingBranchOperation = true
-        let result = await service.mergeBranch(reference, at: gitRepositoryRoot)
-        isPerformingBranchOperation = false
-        notify?(result.succeeded ? "Merged \(reference.shortName)" : trimmedMessage(result))
+    /// Records the merge or rebase commit Git is waiting on once its conflicts are
+    /// resolved. Rust refuses while any file is still conflicted, so the failure
+    /// message names what is left.
+    func continueGitOperation() async {
+        await resolveGitOperation { await service.continueOperation(at: $0) }
+    }
+
+    /// Throws away the in-progress operation and restores the pre-operation state.
+    func abortGitOperation() async {
+        await resolveGitOperation { await service.abortOperation(at: $0) }
+    }
+
+    /// Drops the commit currently being replayed. Rebase only.
+    func skipGitOperationStep() async {
+        await resolveGitOperation { await service.skipOperationStep(at: $0) }
+    }
+
+    private func resolveGitOperation(
+        _ operation: (URL) async -> GitService.CommandResult
+    ) async {
+        guard let gitRepositoryRoot, !isResolvingGitOperation else { return }
+        isResolvingGitOperation = true
+        let result = await operation(gitRepositoryRoot)
+        isResolvingGitOperation = false
+        // Refresh either way: a rejected continue leaves the operation in place,
+        // but a partial resolution may still have changed the conflict list.
         await refreshGit()
+        if !result.succeeded {
+            notify?(trimmedMessage(result))
+        } else if gitOperationState == nil {
+            notify?("Git operation finished")
+        }
+    }
+
+    func mergeBranch(_ reference: GitReference) async {
+        await startIntegration(.reference(reference), operation: .merge)
     }
 
     func rebaseCurrentBranch(onto reference: GitReference) async {
+        await startIntegration(.reference(reference), operation: .rebase)
+    }
+
+    /// Checks whether uncommitted changes would stop the operation before running
+    /// it, so the user gets a choice instead of Git's localized refusal.
+    private func startIntegration(
+        _ target: GitIntegrationTarget,
+        operation: GitIntegrationOperation
+    ) async {
+        guard let gitRepositoryRoot else { return }
+        let preflight = await service.integrationPreflight(
+            for: target,
+            operation: operation,
+            at: gitRepositoryRoot
+        )
+        if let preflight, !preflight.isClear {
+            pendingIntegrationConflict = GitIntegrationConflictRequest(
+                target: target,
+                operation: operation,
+                blockingPaths: preflight.blockingPaths,
+                blocksEntirely: preflight.blocksEntirely
+            )
+            return
+        }
+        await runIntegration(target, operation: operation)
+    }
+
+    /// Stashes the blocking changes, runs the operation, then restores them.
+    ///
+    /// The stash is left alone when the operation stops on a conflict: popping into
+    /// a half-finished merge would tangle the user's own edits with the conflict
+    /// markers they still have to resolve.
+    func resolveIntegrationConflict(_ request: GitIntegrationConflictRequest) async {
+        pendingIntegrationConflict = nil
+        guard let gitRepositoryRoot else { return }
+
+        isPerformingBranchOperation = true
+        let stashMessage = "Lithe auto-stash before \(request.operation.rawValue)"
+        let stashed = await service.stash(
+            message: stashMessage,
+            includeUntracked: false,
+            at: gitRepositoryRoot
+        )
+        guard stashed.succeeded else {
+            isPerformingBranchOperation = false
+            notify?(trimmedMessage(stashed))
+            return
+        }
+        isPerformingBranchOperation = false
+
+        await runIntegration(request.target, operation: request.operation)
+
+        if let state = gitOperationState, state.hasConflicts {
+            notify?("Your changes stay stashed until the \(request.operation.title.lowercased()) is finished")
+            return
+        }
+        // Find our own entry rather than assuming stash@{0}: the operation may have
+        // created entries of its own, and popping the wrong one is unrecoverable.
+        // `runIntegration` refreshed already, so `gitStashes` reflects the new entry.
+        guard let entry = gitStashes.first(where: { $0.message.contains(stashMessage) }) else {
+            notify?("Could not find the stashed changes to restore")
+            return
+        }
+        isPerformingBranchOperation = true
+        let restored = await service.popStash(entry, at: gitRepositoryRoot)
+        isPerformingBranchOperation = false
+        if !restored.succeeded {
+            notify?("Restoring your changes failed: \(trimmedMessage(restored))")
+        }
+        await refreshGit()
+    }
+
+    func cancelIntegrationConflict() {
+        pendingIntegrationConflict = nil
+    }
+
+    private func runIntegration(
+        _ target: GitIntegrationTarget,
+        operation: GitIntegrationOperation
+    ) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await service.rebaseCurrentBranch(onto: reference, at: gitRepositoryRoot)
+        let result: GitService.CommandResult
+        let success: String
+        let name = target.displayName
+        switch operation {
+        case .merge:
+            result = await service.mergeBranch(reference(from: target), at: gitRepositoryRoot)
+            success = "Merged \(name)"
+        case .rebase:
+            result = await service.rebaseCurrentBranch(
+                onto: reference(from: target),
+                at: gitRepositoryRoot
+            )
+            success = "Rebased onto \(name)"
+        case .cherryPick:
+            result = await service.cherryPick(target.revision, at: gitRepositoryRoot)
+            success = "Cherry-picked \(name)"
+        case .revert:
+            result = await service.revert(target.revision, at: gitRepositoryRoot)
+            success = "Reverted \(name)"
+        }
         isPerformingBranchOperation = false
-        notify?(result.succeeded ? "Rebased onto \(reference.shortName)" : trimmedMessage(result))
+        await reportBranchOperation(result, success: success)
+    }
+
+    /// Merge and rebase are only ever started from a branch, so a commit target here
+    /// would be a programming error rather than something the user can reach.
+    private func reference(from target: GitIntegrationTarget) -> GitReference {
+        switch target {
+        case .reference(let reference):
+            return reference
+        case .commit(let commit):
+            assertionFailure("Merge and rebase expect a branch, not \(commit.shortHash)")
+            return GitReference(
+                fullName: commit.hash,
+                shortName: commit.shortHash,
+                kind: .local,
+                isCurrent: false,
+                upstreamShortName: nil
+            )
+        }
+    }
+
+    /// Refreshes before reporting so a conflict stop can be named as such. Git's own
+    /// stderr for a conflicted merge is a wall of per-file lines; the banner is where
+    /// the user acts on it, so the toast just points at the conflict count.
+    private func reportBranchOperation(
+        _ result: GitService.CommandResult,
+        success: String
+    ) async {
         await refreshGit()
+        if let state = gitOperationState, state.hasConflicts {
+            notify?("\(state.kind.title) stopped with \(state.conflictedPaths.count) conflicted file(s)")
+        } else {
+            notify?(result.succeeded ? success : trimmedMessage(result))
+        }
     }
 
     func updateCurrentBranch(_ reference: GitReference) async {
@@ -653,11 +855,60 @@ final class GitFeatureModel: ObservableObject {
             notify?("Only the current branch can be updated")
             return
         }
+        // Fetch first so the divergence check reflects the remote as it is now;
+        // otherwise a stale ref would send a pull down the wrong path.
         isPerformingBranchOperation = true
+        let fetched = await service.fetch(at: gitRepositoryRoot)
+        guard fetched.succeeded else {
+            isPerformingBranchOperation = false
+            notify?(trimmedMessage(fetched))
+            return
+        }
+
+        let preflight = await service.pullPreflight(at: gitRepositoryRoot)
+        if let preflight, preflight.upstream == nil {
+            isPerformingBranchOperation = false
+            notify?("\(reference.shortName) tracks no remote branch")
+            await refreshGit()
+            return
+        }
+        if let preflight, preflight.isUpToDate {
+            isPerformingBranchOperation = false
+            notify?("\(reference.shortName) is already up to date")
+            await refreshGit()
+            return
+        }
+        // Only a divergent history needs a decision. Git would refuse it with a
+        // localized hint block, so we ask before running anything.
+        if let preflight, preflight.diverged {
+            isPerformingBranchOperation = false
+            pendingPullStrategy = GitPullStrategyRequest(
+                upstream: preflight.upstream ?? "",
+                ahead: preflight.ahead,
+                behind: preflight.behind,
+                hasLocalChanges: preflight.hasLocalChanges
+            )
+            return
+        }
+
         let result = await service.updateCurrentBranch(at: gitRepositoryRoot)
         isPerformingBranchOperation = false
-        notify?(result.succeeded ? "Updated \(reference.shortName)" : trimmedMessage(result))
-        await refreshGit()
+        await reportBranchOperation(result, success: "Updated \(reference.shortName)")
+    }
+
+    /// Runs the pull the user chose from the divergence dialog.
+    func resolvePullStrategy(_ strategy: GitPullStrategy) async {
+        pendingPullStrategy = nil
+        guard let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await service.updateCurrentBranch(at: gitRepositoryRoot, strategy: strategy)
+        isPerformingBranchOperation = false
+        let verb = strategy == .rebase ? "Rebased onto upstream" : "Merged upstream"
+        await reportBranchOperation(result, success: verb)
+    }
+
+    func cancelPullStrategy() {
+        pendingPullStrategy = nil
     }
 
     func fetchGit() async {
@@ -676,15 +927,69 @@ final class GitFeatureModel: ObservableObject {
             return
         }
         isPerformingBranchOperation = true
-        let result = await service.checkout(reference, at: gitRepositoryRoot)
+        let blockingPaths = await service.checkoutBlockingPaths(
+            for: reference,
+            at: gitRepositoryRoot
+        )
+        isPerformingBranchOperation = false
+        guard blockingPaths.isEmpty else {
+            pendingCheckoutConflict = GitCheckoutConflictRequest(
+                reference: reference,
+                blockingPaths: blockingPaths
+            )
+            return
+        }
+        await performCheckout(reference)
+    }
+
+    /// Resolves a blocked checkout with the strategy the user picked in the conflict dialog.
+    func resolveCheckoutConflict(
+        _ request: GitCheckoutConflictRequest,
+        strategy: GitCheckoutConflictStrategy
+    ) async {
+        pendingCheckoutConflict = nil
+        switch strategy {
+        case .smart:
+            await performCheckout(request.reference, autoStash: true)
+        case .force:
+            await performCheckout(request.reference, force: true)
+        }
+    }
+
+    private func performCheckout(
+        _ reference: GitReference,
+        force: Bool = false,
+        autoStash: Bool = false
+    ) async {
+        guard let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await service.checkout(
+            reference,
+            at: gitRepositoryRoot,
+            force: force,
+            autoStash: autoStash
+        )
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
             closeBranchComparison()
-            notify?("Checked out \(reference.shortName)")
+            if autoStash {
+                notify?("Checked out \(reference.shortName) and restored local changes")
+            } else if force {
+                notify?("Checked out \(reference.shortName), discarding local changes")
+            } else {
+                notify?("Checked out \(reference.shortName)")
+            }
             await refreshGit()
         } else {
             notify?(trimmedMessage(result))
+            if autoStash {
+                // A smart checkout can switch branches and still fail to restore the stash,
+                // so re-read Git rather than assuming the working tree is unchanged.
+                selectedGitReference = nil
+                closeBranchComparison()
+                await refreshGit()
+            }
         }
     }
 
@@ -704,21 +1009,11 @@ final class GitFeatureModel: ObservableObject {
     }
 
     func cherryPick(_ commit: GitCommit) async {
-        guard let gitRepositoryRoot else { return }
-        isPerformingBranchOperation = true
-        let result = await service.cherryPick(commit.hash, at: gitRepositoryRoot)
-        isPerformingBranchOperation = false
-        notify?(result.succeeded ? "Cherry-picked \(commit.shortHash)" : trimmedMessage(result))
-        await refreshGit()
+        await startIntegration(.commit(commit), operation: .cherryPick)
     }
 
     func revert(_ commit: GitCommit) async {
-        guard let gitRepositoryRoot else { return }
-        isPerformingBranchOperation = true
-        let result = await service.revert(commit.hash, at: gitRepositoryRoot)
-        isPerformingBranchOperation = false
-        notify?(result.succeeded ? "Reverted \(commit.shortHash)" : trimmedMessage(result))
-        await refreshGit()
+        await startIntegration(.commit(commit), operation: .revert)
     }
 
     func resetCurrentBranch(to commit: GitCommit) async {

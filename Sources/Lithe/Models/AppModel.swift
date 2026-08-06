@@ -1632,6 +1632,34 @@ final class AppModel: ObservableObject {
         await gitFeature.mergeBranch(reference)
     }
 
+    func continueGitOperation() async {
+        await gitFeature.continueGitOperation()
+    }
+
+    func resolvePullStrategy(_ strategy: GitPullStrategy) async {
+        await gitFeature.resolvePullStrategy(strategy)
+    }
+
+    func cancelPullStrategy() {
+        gitFeature.cancelPullStrategy()
+    }
+
+    func resolveIntegrationConflict(_ request: GitIntegrationConflictRequest) async {
+        await gitFeature.resolveIntegrationConflict(request)
+    }
+
+    func cancelIntegrationConflict() {
+        gitFeature.cancelIntegrationConflict()
+    }
+
+    func abortGitOperation() async {
+        await gitFeature.abortGitOperation()
+    }
+
+    func skipGitOperationStep() async {
+        await gitFeature.skipGitOperationStep()
+    }
+
     func rebaseCurrentBranch(onto reference: GitReference) async {
         await gitFeature.rebaseCurrentBranch(onto: reference)
     }
@@ -1646,6 +1674,13 @@ final class AppModel: ObservableObject {
 
     func checkoutReference(_ reference: GitReference) async {
         await gitFeature.checkoutReference(reference)
+    }
+
+    func resolveCheckoutConflict(
+        _ request: GitCheckoutConflictRequest,
+        strategy: GitCheckoutConflictStrategy
+    ) async {
+        await gitFeature.resolveCheckoutConflict(request, strategy: strategy)
     }
 
     func checkoutRevision(_ rawRevision: String) async {

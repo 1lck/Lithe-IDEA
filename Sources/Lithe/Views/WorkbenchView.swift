@@ -45,6 +45,23 @@ struct WorkbenchView: View {
                 Task { await model.checkoutRevision(revision) }
             }
         }
+        .sheet(item: $model.pendingCheckoutConflict) { request in
+            GitCheckoutConflictDialog(request: request) { strategy in
+                Task { await model.resolveCheckoutConflict(request, strategy: strategy) }
+            }
+        }
+        .sheet(item: $model.pendingPullStrategy) { request in
+            GitPullStrategyDialog(request: request) { strategy in
+                Task { await model.resolvePullStrategy(strategy) }
+            }
+            .onDisappear { model.cancelPullStrategy() }
+        }
+        .sheet(item: $model.pendingIntegrationConflict) { request in
+            GitIntegrationConflictDialog(request: request) {
+                Task { await model.resolveIntegrationConflict(request) }
+            }
+            .onDisappear { model.cancelIntegrationConflict() }
+        }
         .confirmationDialog(
             "Save changes before closing?",
             isPresented: Binding(

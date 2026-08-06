@@ -1247,3 +1247,236 @@ private struct GitBranchNameDialog: View {
         dismiss()
     }
 }
+
+/// Offered when local changes would be overwritten by a checkout, so the user can pick a
+/// resolution instead of being handed Git's raw refusal.
+/// Offers to stash when uncommitted changes block a merge or rebase.
+///
+/// Stash-and-retry is the only action besides cancelling. A force equivalent would
+/// mean `git reset --hard`, which discards commits rather than just working-tree
+/// edits, so it is deliberately absent.
+struct GitIntegrationConflictDialog: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: GitIntegrationConflictRequest
+    let onStash: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(headline)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text(explanation)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(request.blockingPaths, id: \.self) { path in
+                        Text(path)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .frame(maxHeight: 132)
+
+            Text("Stashing sets these changes aside, runs the operation, then restores them. If conflicts stop the operation, the changes stay stashed until you finish it.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .lithePointer()
+                Button("Stash and Continue") {
+                    onStash()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .lithePointer()
+                .tint(LitheTheme.accent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .background(LitheTheme.raised)
+    }
+
+    private var headline: LocalizedStringKey {
+        switch request.operation {
+        case .merge: "Uncommitted changes block this merge"
+        case .rebase: "Uncommitted changes block this rebase"
+        case .cherryPick: "Uncommitted changes block this cherry-pick"
+        case .revert: "Uncommitted changes block this revert"
+        }
+    }
+
+    private var explanation: String {
+        // A rebase refuses over any uncommitted change; the others only over the
+        // files they would write. Saying which keeps the list from looking arbitrary.
+        if request.blocksEntirely {
+            return String(
+                format: NSLocalizedString(
+                    "A rebase cannot start with any uncommitted changes, including these unrelated to '%@':",
+                    comment: "Rebase preflight explanation"
+                ),
+                request.target.displayName
+            )
+        }
+        return String(
+            format: NSLocalizedString(
+                "Your changes to these files would be overwritten by '%@':",
+                comment: "Merge preflight explanation"
+            ),
+            request.target.displayName
+        )
+    }
+}
+
+/// Asks how to reconcile a pull that cannot fast-forward.
+///
+/// No force option here: unlike a checkout, where forcing discards uncommitted
+/// edits, forcing a divergent pull means discarding commits. Merge and rebase both
+/// keep the local work, so there is no safe third choice to offer.
+struct GitPullStrategyDialog: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: GitPullStrategyRequest
+    let onResolve: (GitPullStrategy) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Branches have diverged")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text("Your branch and '\(request.upstream)' each have commits the other does not, so the changes cannot be fast-forwarded.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 18) {
+                counter(value: request.ahead, caption: "local commit(s)")
+                counter(value: request.behind, caption: "upstream commit(s)")
+                Spacer(minLength: 0)
+            }
+
+            Text("Merge joins both histories with a merge commit. Rebase replays your commits on top of the upstream, keeping history linear but rewriting your commit hashes.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if request.hasLocalChanges {
+                Label(
+                    "You have uncommitted changes. Rebase will refuse to start until they are committed or stashed.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.warning)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .lithePointer()
+                Button("Rebase") { resolve(.rebase) }
+                    .lithePointer()
+                Button("Merge") { resolve(.merge) }
+                    .buttonStyle(.borderedProminent)
+                    .lithePointer()
+                    .tint(LitheTheme.accent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .background(LitheTheme.raised)
+    }
+
+    private func counter(value: Int, caption: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("\(value)")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(LitheTheme.primaryText)
+            Text(caption)
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+        }
+    }
+
+    private func resolve(_ strategy: GitPullStrategy) {
+        onResolve(strategy)
+        dismiss()
+    }
+}
+
+struct GitCheckoutConflictDialog: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: GitCheckoutConflictRequest
+    let onResolve: (GitCheckoutConflictStrategy) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Local changes would be overwritten")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text("Your changes to these files conflict with '\(request.reference.shortName)':")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(request.blockingPaths, id: \.self) { path in
+                        Text(path)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .frame(maxHeight: 132)
+
+            Text("Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them.")
+                .font(.system(size: 11.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Button("Force Checkout", role: .destructive) { resolve(.force) }
+                    .lithePointer()
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .lithePointer()
+                Button("Smart Checkout") { resolve(.smart) }
+                    .buttonStyle(.borderedProminent)
+                    .lithePointer()
+                    .tint(LitheTheme.accent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .background(LitheTheme.raised)
+    }
+
+    private func resolve(_ strategy: GitCheckoutConflictStrategy) {
+        onResolve(strategy)
+        dismiss()
+    }
+}

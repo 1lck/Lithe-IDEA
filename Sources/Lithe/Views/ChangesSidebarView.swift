@@ -18,6 +18,11 @@ struct ChangesSidebarView: View {
             tabHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
+            if let operation = model.gitOperationState {
+                GitOperationBanner(operation: operation)
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
+
             if model.gitRepositoryRoot == nil {
                 noRepository
             } else if selectedTab == .shelf {
@@ -688,6 +693,79 @@ struct ChangesSidebarView: View {
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
         min(maximum, max(minimum, value))
     }
+}
+
+/// Persistent banner for a merge, rebase, cherry-pick, or revert that Git stopped
+/// partway through. Deliberately not a dialog: resolving conflicts means editing
+/// files, so the controls have to stay reachable rather than block the window.
+private struct GitOperationBanner: View {
+    @EnvironmentObject private var model: AppModel
+    let operation: GitOperationState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(LitheTheme.warning)
+                Text(LocalizedStringKey(operation.kind.inProgressTitle))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                if let reference = operation.reference {
+                    Text(verbatim: "— \(reference)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                if let step = operation.step, let total = operation.total {
+                    Text("Step \(step) of \(total)")
+                }
+                if operation.hasConflicts {
+                    Text("Resolve \(operation.conflictedPaths.count) conflicted file(s), stage them, then continue.")
+                } else {
+                    Text("All conflicts resolved. Continue to finish, or abort to undo.")
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button(LocalizedStringKey(operation.kind.continueTitle)) {
+                    Task { await model.continueGitOperation() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(LitheTheme.accent)
+                .disabled(model.isResolvingGitOperation || operation.hasConflicts)
+                .lithePointer()
+
+                if operation.kind.canSkip {
+                    Button("Skip Commit") {
+                        Task { await model.skipGitOperationStep() }
+                    }
+                    .disabled(model.isResolvingGitOperation)
+                    .lithePointer()
+                }
+
+                Button("Abort") {
+                    Task { await model.abortGitOperation() }
+                }
+                .disabled(model.isResolvingGitOperation)
+                .lithePointer()
+
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 11))
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LitheTheme.raised)
+    }
+
 }
 
 private enum CommitTab: String, CaseIterable, Identifiable {
