@@ -363,6 +363,69 @@ pub struct GitStashesResponse {
     pub stashes: Vec<GitStashResponse>,
 }
 
+/// Result of checking whether a checkout can proceed without losing local edits.
+///
+/// `blocking_paths` holds files that are dirty in the working tree *and* differ
+/// between HEAD and the target ref. Computing the intersection ourselves avoids
+/// parsing Git's stderr, which is localized and therefore unreliable to match.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCheckoutPreflightResponse {
+    pub blocking_paths: Vec<String>,
+}
+
+/// Staged files still holding conflict markers, which must never be committed.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitConflictMarkerResponse {
+    pub paths: Vec<String>,
+}
+
+/// Whether a merge or rebase can start, and what stands in the way.
+///
+/// The two operations differ, verified against Git rather than assumed: a merge
+/// only refuses when a dirty file overlaps what it would write, while a rebase
+/// refuses on any uncommitted change at all, related or not. So `blocking_paths`
+/// is an overlap set for a merge and the full dirty set for a rebase.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitIntegrationPreflightResponse {
+    pub blocking_paths: Vec<String>,
+    pub blocks_entirely: bool,
+}
+
+/// Whether a pull can fast-forward, and how far the two sides have drifted.
+///
+/// `diverged` is the case the UI has to ask about: both sides have commits the
+/// other lacks, so `--ff-only` refuses and the user must pick merge or rebase.
+/// `upstream` is absent when the branch tracks nothing, which is itself a reason
+/// to stop before running anything.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitPullPreflightResponse {
+    pub upstream: Option<String>,
+    pub ahead: usize,
+    pub behind: usize,
+    pub diverged: bool,
+    pub has_local_changes: bool,
+}
+
+/// A sequential operation Git left half-finished, usually because of a conflict.
+///
+/// `kind` is empty when nothing is in progress. `step`/`total` are only populated
+/// for a rebase, which is the one operation that reports its own progress.
+/// `conflicted_paths` comes from porcelain status codes rather than stderr, so it
+/// stays correct under a localized Git.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitOperationStateResponse {
+    pub kind: String,
+    pub reference: Option<String>,
+    pub step: Option<usize>,
+    pub total: Option<usize>,
+    pub conflicted_paths: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitBlameLineResponse {

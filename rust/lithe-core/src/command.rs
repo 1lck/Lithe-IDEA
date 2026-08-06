@@ -47,6 +47,11 @@ pub enum CoreCommand {
     GitCommitFiles,
     GitComparison,
     GitStashes,
+    GitCheckoutPreflight,
+    GitPullPreflight,
+    GitIntegrationPreflight,
+    GitConflictMarkers,
+    GitOperationState,
     GitBlame,
 }
 
@@ -83,6 +88,11 @@ impl CoreCommand {
             "git.commitFiles" => Some(Self::GitCommitFiles),
             "git.comparison" => Some(Self::GitComparison),
             "git.stashes" => Some(Self::GitStashes),
+            "git.checkoutPreflight" => Some(Self::GitCheckoutPreflight),
+            "git.pullPreflight" => Some(Self::GitPullPreflight),
+            "git.integrationPreflight" => Some(Self::GitIntegrationPreflight),
+            "git.conflictMarkers" => Some(Self::GitConflictMarkers),
+            "git.operationState" => Some(Self::GitOperationState),
             "git.blame" => Some(Self::GitBlame),
             _ => None,
         }

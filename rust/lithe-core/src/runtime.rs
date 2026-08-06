@@ -1,9 +1,10 @@
 use crate::command::{CoreCommand, CoreRequest};
 use crate::error::{CoreError, ErrorCode};
 use crate::git::{
-    self, GitApplyRequest, GitBlameRequest, GitCommandRequest, GitCommitFilesRequest,
-    GitCommitRequest, GitComparisonRequest, GitDiffRequest, GitHistoryRequest, GitStashesRequest,
-    GitStatusRequest, GitWriteRequest,
+    self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
+    GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
+    GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
+    GitPullPreflightRequest, GitStashesRequest, GitStatusRequest, GitWriteRequest,
 };
 use crate::history::{
     HistoryContentRequest, HistoryEntriesRequest, HistoryRecordRequest, HistoryRelocateRequest,
@@ -507,6 +508,98 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git stashes response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitCheckoutPreflight => {
+            match serde_json::from_value::<GitCheckoutPreflightRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git checkout preflight request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::checkout_preflight)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Git checkout preflight response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitPullPreflight => {
+            match serde_json::from_value::<GitPullPreflightRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git pull preflight request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::pull_preflight)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git pull preflight response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitConflictMarkers => {
+            match serde_json::from_value::<GitConflictMarkerRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git conflict marker request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::conflict_marker_paths)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git conflict marker response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitIntegrationPreflight => {
+            match serde_json::from_value::<GitIntegrationPreflightRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git integration preflight request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::integration_preflight)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Git integration preflight response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitOperationState => {
+            match serde_json::from_value::<GitOperationStateRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git operation state request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::operation_state)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git operation state response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
