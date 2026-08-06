@@ -595,4 +595,108 @@ struct EditorDocumentTests {
             try document.save()
         }
     }
+
+    @Test
+    func searchRelevanceRanksMatchFormsInOrder() {
+        let root = "/tmp/project/src/"
+        func result(_ name: String) -> FileSearchResult {
+            FileSearchResult(
+                url: URL(fileURLWithPath: root + name),
+                line: nil,
+                preview: "",
+                kind: .file
+            )
+        }
+
+        let query = "DeviceHandler"
+        let exact = SearchRelevance.score(result("DeviceHandler.java"), query: query)
+        let prefix = SearchRelevance.score(result("DeviceHandlerFactory.java"), query: query)
+        let substring = SearchRelevance.score(result("AbstractDeviceHandlerBase.java"), query: query)
+        let miss = SearchRelevance.score(result("PadController.java"), query: query)
+
+        #expect(exact > prefix)
+        #expect(prefix > substring)
+        #expect(substring > 0)
+        #expect(miss == 0)
+    }
+
+    @Test
+    func searchRelevanceMatchesCamelCaseInitials() {
+        let target = FileSearchResult(
+            url: URL(fileURLWithPath: "/tmp/project/src/DeviceHandler.java"),
+            line: nil,
+            preview: "",
+            kind: .file
+        )
+        let unrelated = FileSearchResult(
+            url: URL(fileURLWithPath: "/tmp/project/src/PadController.java"),
+            line: nil,
+            preview: "",
+            kind: .file
+        )
+
+        #expect(SearchRelevance.score(target, query: "dh") > 0)
+        #expect(SearchRelevance.score(unrelated, query: "dh") == 0)
+    }
+
+    @Test
+    func searchRelevancePrefersNameMatchOverPathMatch() {
+        let query = "handler"
+        let byName = FileSearchResult(
+            url: URL(fileURLWithPath: "/tmp/project/Handler.java"),
+            line: nil,
+            preview: "",
+            kind: .file
+        )
+        let byPathOnly = FileSearchResult(
+            url: URL(fileURLWithPath: "/tmp/project/handler/Pad.java"),
+            line: nil,
+            preview: "",
+            kind: .file
+        )
+
+        #expect(SearchRelevance.score(byName, query: query) > SearchRelevance.score(byPathOnly, query: query))
+    }
+
+    @Test
+    func searchRelevancePrefersShallowerFiles() {
+        let shallow = FileSearchResult(
+            url: URL(fileURLWithPath: "/tmp/project/Device.java"),
+            line: nil,
+            preview: "",
+            kind: .file
+        )
+        let deep = FileSearchResult(
+            url: URL(fileURLWithPath: "/tmp/project/a/b/c/d/Device.java"),
+            line: nil,
+            preview: "",
+            kind: .file
+        )
+
+        #expect(SearchRelevance.score(shallow, query: "Device") > SearchRelevance.score(deep, query: "Device"))
+    }
+
+    @Test
+    func searchRelevanceRanksTypeAboveContentForEqualNames() {
+        let url = URL(fileURLWithPath: "/tmp/project/src/DeviceHandler.java")
+        let type = FileSearchResult(
+            url: url,
+            line: 10,
+            preview: "",
+            kind: .type,
+            symbolName: "DeviceHandler"
+        )
+        let content = FileSearchResult(
+            url: url,
+            line: 42,
+            preview: "new DeviceHandler()",
+            kind: .content,
+            symbolName: "DeviceHandler"
+        )
+
+        #expect(
+            SearchRelevance.score(type, query: "DeviceHandler")
+                > SearchRelevance.score(content, query: "DeviceHandler")
+        )
+    }
 }

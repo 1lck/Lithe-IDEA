@@ -6,8 +6,8 @@ enum SearchEverywhereScope: String, CaseIterable, Identifiable {
     case classes = "Classes"
     case files = "Files"
     case symbols = "Symbols"
-    case text = "Text"
     case actions = "Actions"
+    case text = "Text"
 
     var id: String { rawValue }
 }
@@ -31,9 +31,11 @@ struct SearchEverywhereView: View {
         case .all:
             // 对齐 IDEA：默认视图按“名字”找（文件、类、符号、Action），
             // 正文命中只在 Text 标签页出现，避免与 Find in Files 的结果重叠。
-            return results(in: model.searchEverywhereResults.fileMatches)
-                + results(in: model.searchEverywhereResults.classMatches)
-                + results(in: model.searchEverywhereResults.symbolMatches)
+            // IDEA 不按 kind 分段，而是把三类混排后按相关度排序。
+            let nameMatches = model.searchEverywhereResults.fileMatches
+                + model.searchEverywhereResults.classMatches
+                + model.searchEverywhereResults.symbolMatches
+            return rankedResults(nameMatches)
                 + model.searchEverywhereResults.actionMatches.map(SearchItem.action)
         case .classes:
             return results(in: model.searchEverywhereResults.classMatches)
@@ -48,11 +50,26 @@ struct SearchEverywhereView: View {
         }
     }
 
-    /// `.all` 分组渲染里 Action 行的起始索引，必须与 `visibleItems` 的排列保持一致。
-    private var nameMatchCount: Int {
-        model.searchEverywhereResults.fileMatches.count
-            + model.searchEverywhereResults.classMatches.count
-            + model.searchEverywhereResults.symbolMatches.count
+    private struct RankedResult {
+        let index: Int
+        let score: Int
+        let value: FileSearchResult
+    }
+
+    /// 按相关度降序。同分保持原顺序，避免逐字输入时行位置来回跳动。
+    private func rankedResults(_ results: [FileSearchResult]) -> [SearchItem] {
+        let query = model.searchEverywhereQuery
+        var ranked: [RankedResult] = []
+        ranked.reserveCapacity(results.count)
+        for (index, value) in results.enumerated() {
+            ranked.append(
+                RankedResult(index: index, score: SearchRelevance.score(value, query: query), value: value)
+            )
+        }
+        ranked.sort { left, right in
+            left.score == right.score ? left.index < right.index : left.score > right.score
+        }
+        return ranked.map { SearchItem.result($0.value) }
     }
 
     private var hasQuery: Bool {
@@ -61,18 +78,23 @@ struct SearchEverywhereView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.38)
+            // IDEA 不压暗编辑器，所以这层只用来接收“点击外部关闭”，不着色。
+            Color.clear
+                .contentShape(Rectangle())
                 .ignoresSafeArea()
                 .onTapGesture { model.dismissSearchEverywhere() }
 
             VStack(spacing: 0) {
                 scopeTabs
                 searchField
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                resultsList
+                if hasQuery {
+                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                    resultsList
+                }
             }
-            .frame(width: 720)
-            .frame(maxHeight: 560)
+            .frame(width: 860)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxHeight: 560, alignment: .top)
             .lithePopupChrome()
             .padding(.top, 84)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -94,11 +116,6 @@ struct SearchEverywhereView: View {
 
     private var scopeTabs: some View {
         HStack(spacing: 2) {
-            LitheSystemIcon(systemImage: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(LitheTheme.accent)
-                .padding(.leading, 12)
-
             ForEach(SearchEverywhereScope.allCases) { item in
                 Button {
                     scope = item
@@ -123,6 +140,8 @@ struct SearchEverywhereView: View {
             if model.isSearchingEverywhere {
                 ProgressView().controlSize(.mini)
             }
+            includeNonProjectItemsToggle
+            searchOptionsMenu
             Button {
                 model.dismissSearchEverywhere()
             } label: {
@@ -130,21 +149,38 @@ struct SearchEverywhereView: View {
             }
             .litheIconButton()
             .help("Close (Esc)")
-            .padding(.trailing, 6)
         }
+        .padding(.horizontal, 6)
         .frame(height: 40)
         .background(LitheTheme.toolHeader)
+    }
+
+    /// 占位控件：当前搜索范围只覆盖工作区内的文件，还没有“非项目文件”
+    /// （JDK、依赖 jar 里的类）这一概念可供开关，所以先禁用。
+    private var includeNonProjectItemsToggle: some View {
+        Toggle("Include non-project items", isOn: .constant(false))
+            .toggleStyle(.checkbox)
+            .font(.system(size: 11.5))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .disabled(true)
+            .opacity(0.45)
+            .help("Not available yet: dependencies are not indexed")
     }
 
     private var searchField: some View {
         HStack(spacing: 8) {
             LitheSystemIcon(systemImage: "magnifyingglass")
                 .foregroundStyle(LitheTheme.secondaryText)
-            TextField("Search files, classes, symbols, text or actions", text: $model.searchEverywhereQuery)
+            TextField("", text: $model.searchEverywhereQuery)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13.5))
+                .font(.system(size: 15))
                 .focused($searchFocused)
-            if !model.searchEverywhereQuery.isEmpty {
+            if model.searchEverywhereQuery.isEmpty {
+                Text("Type / to see commands")
+                    .font(.system(size: 12))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+                    .allowsHitTesting(false)
+            } else {
                 Button {
                     model.searchEverywhereQuery = ""
                 } label: {
@@ -153,10 +189,9 @@ struct SearchEverywhereView: View {
                 .litheIconButton()
                 .foregroundStyle(LitheTheme.secondaryText)
             }
-            searchOptionsMenu
         }
         .padding(.horizontal, 12)
-        .frame(height: 38)
+        .frame(height: 44)
         .background(LitheTheme.popupBackground)
     }
 
@@ -178,65 +213,37 @@ struct SearchEverywhereView: View {
 
     @ViewBuilder
     private var resultsList: some View {
-        if !hasQuery {
-            placeholder("Type to search")
-        } else if visibleItems.isEmpty && !model.isSearchingEverywhere {
-            placeholder("No matches in \(scope.rawValue)")
+        if visibleItems.isEmpty {
+            if !model.isSearchingEverywhere {
+                placeholder("No matches in \(scope.rawValue)")
+            }
         } else {
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
-                    if scope == .all {
-                        groupedResults
-                    } else {
-                        ForEach(Array(visibleItems.enumerated()), id: \.offset) { index, item in
-                            itemRow(item, index: index)
-                        }
+                    ForEach(Array(visibleItems.enumerated()), id: \.offset) { index, item in
+                        itemRow(item, index: index)
+                    }
+                    if isTruncated {
+                        moreRow
                     }
                 }
-                .padding(.vertical, 5)
+                .padding(.vertical, 4)
             }
         }
     }
 
-    @ViewBuilder
-    private var groupedResults: some View {
-        groupedSection("Files", results: model.searchEverywhereResults.fileMatches, offset: 0, showsLine: false)
-        groupedSection(
-            "Classes",
-            results: model.searchEverywhereResults.classMatches,
-            offset: model.searchEverywhereResults.fileMatches.count,
-            showsLine: true
-        )
-        groupedSection(
-            "Symbols",
-            results: model.searchEverywhereResults.symbolMatches,
-            offset: model.searchEverywhereResults.fileMatches.count + model.searchEverywhereResults.classMatches.count,
-            showsLine: true
-        )
-        if !model.searchEverywhereResults.actionMatches.isEmpty {
-            sectionHeader("Actions")
-            ForEach(Array(model.searchEverywhereResults.actionMatches.enumerated()), id: \.offset) { index, action in
-                actionRow(
-                    action,
-                    index: nameMatchCount + index
-                )
-            }
-        }
+    /// 后端按 matchLimit 截断，命中数刚好顶到上限时提示还有更多。
+    private var isTruncated: Bool {
+        model.searchEverywhereResults.allMatches.count >= SearchEverywhereResults.matchLimit
     }
 
-    @ViewBuilder
-    private func groupedSection(
-        _ title: String,
-        results: [FileSearchResult],
-        offset: Int,
-        showsLine: Bool
-    ) -> some View {
-        if !results.isEmpty {
-            sectionHeader(title)
-            ForEach(Array(results.enumerated()), id: \.offset) { index, result in
-                resultRow(result, index: offset + index, showsLine: showsLine)
-            }
-        }
+    private var moreRow: some View {
+        Text("… more")
+            .font(.system(size: 11))
+            .foregroundStyle(LitheTheme.tertiaryText)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 22)
     }
 
     @ViewBuilder
@@ -250,96 +257,124 @@ struct SearchEverywhereView: View {
     }
 
     private func placeholder(_ text: String) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: hasQuery ? "magnifyingglass" : "sparkle.magnifyingglass")
-                .font(.system(size: 24, weight: .light))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text(LocalizedStringKey(text))
-                .font(LitheTheme.uiFont)
-                .foregroundStyle(LitheTheme.secondaryText)
-        }
-        .frame(maxWidth: .infinity, minHeight: 150)
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        HStack(spacing: 6) {
-            Text(LocalizedStringKey(title))
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 7)
-        .padding(.bottom, 3)
+        Text(LocalizedStringKey(text))
+            .font(LitheTheme.uiFont)
+            .foregroundStyle(LitheTheme.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .frame(height: 34)
     }
 
     private func resultRow(_ result: FileSearchResult, index: Int, showsLine: Bool) -> some View {
-        Button {
-            model.openSearchEverywhereResult(result)
-        } label: {
-            HStack(spacing: 9) {
-                LitheIcon(kind: iconKind(for: result), size: 14)
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 4) {
-                        Text(result.symbolName ?? result.url.lastPathComponent)
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .lineLimit(1)
-                        if showsLine, let line = result.line {
-                            Text(":\(line)")
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundStyle(LitheTheme.secondaryText)
-                        }
+        // 文件夹按钮与整行点击是两个独立目标，所以并排放而不是嵌套，
+        // 否则嵌套的 Button 收不到点击。
+        HStack(spacing: 8) {
+            Button {
+                model.openSearchEverywhereResult(result)
+            } label: {
+                HStack(spacing: 8) {
+                    LitheIcon(kind: iconKind(for: result), size: 14)
+                        .frame(width: 16)
+
+                    // 对齐 IDEA：名字和路径左侧连排，而不是把路径推到右端。
+                    Text(result.symbolName ?? result.url.lastPathComponent)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    if showsLine, let line = result.line {
+                        Text(":\(line)")
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
-                }
-                Spacer(minLength: 12)
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(model.relativePath(for: result.url))
-                        .font(.system(size: 10.5, design: .monospaced))
+                    Text(containerPath(for: result.url))
+                        .font(.system(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                     if result.kind == .content {
                         Text(result.preview)
-                            .font(.system(size: 10))
+                            .font(.system(size: 10.5))
                             .foregroundStyle(LitheTheme.tertiaryText)
                             .lineLimit(1)
                     }
+
+                    Spacer(minLength: 12)
+
+                    Text(moduleLabel(for: result.url))
+                        .font(.system(size: 11))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
-                .frame(maxWidth: 310, alignment: .trailing)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity)
-            .frame(height: 28)
-            .background(index == selectedIndex ? LitheTheme.selection : .clear)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .lithePointer()
+
+            Button {
+                model.revealProjectItemInFinder(result.url)
+            } label: {
+                LitheIcon(kind: .folder, size: 13)
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .help("Show in Finder")
         }
-        .buttonStyle(.plain)
-        .lithePointer()
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity)
+        .frame(height: 24)
+        .background(index == selectedIndex ? LitheTheme.selection : .clear)
+    }
+
+    /// 结果所在目录（不含文件名本身），文件直接位于工作区根下时为空。
+    private func containerPath(for url: URL) -> String {
+        let relative = model.relativePath(for: url)
+        let parent = (relative as NSString).deletingLastPathComponent
+        return parent
+    }
+
+    /// 结果归属的 Maven 模块 artifactID；非 Maven 项目或匹配不到时回退到顶层目录名。
+    private func moduleLabel(for url: URL) -> String {
+        let path = url.standardizedFileURL.path
+        if let project = model.mavenFeature.project {
+            // 多个模块可能嵌套，取路径最长（最深）的那个才是直接归属。
+            let owning = project.allModules
+                .filter { path.hasPrefix($0.url.standardizedFileURL.path + "/") }
+                .max { $0.url.standardizedFileURL.path.count < $1.url.standardizedFileURL.path.count }
+            if let owning {
+                return owning.displayName
+            }
+            if path.hasPrefix(project.rootURL.standardizedFileURL.path + "/") {
+                return project.displayName
+            }
+        }
+        return model.relativePath(for: url).components(separatedBy: "/").first ?? ""
     }
 
     private func actionRow(_ action: LitheAction, index: Int) -> some View {
         Button {
             model.performSearchEverywhereAction(action)
         } label: {
-            HStack(spacing: 9) {
+            HStack(spacing: 8) {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(LitheTheme.warning)
                     .frame(width: 16)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(LocalizedStringKey(action.title))
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(LitheTheme.primaryText)
-                    Text(LocalizedStringKey(action.subtitle))
-                        .font(.system(size: 10))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
-                }
+                Text(LocalizedStringKey(action.title))
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(LocalizedStringKey(action.subtitle))
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
                 Spacer(minLength: 12)
                 HStack(spacing: 8) {
                     Text(LocalizedStringKey(action.group.rawValue))
-                        .font(.system(size: 10.5))
+                        .font(.system(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                     if let keyEquivalent = action.keyEquivalent {
                         Text(keyEquivalent)
@@ -350,7 +385,7 @@ struct SearchEverywhereView: View {
             }
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity)
-            .frame(height: 34)
+            .frame(height: 24)
             .background(index == selectedIndex ? LitheTheme.selection : .clear)
             .contentShape(Rectangle())
         }
