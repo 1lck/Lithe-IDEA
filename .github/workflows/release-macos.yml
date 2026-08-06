@@ -164,7 +164,9 @@ jobs:
 
       - name: Validate the Cask
         run: |
-          brew tap 1lck/lithe "$GITHUB_WORKSPACE"
+          brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
+          tap_path="$(brew --repository)/Library/Taps/1lck/homebrew-lithe"
+          cp "$GITHUB_WORKSPACE/Casks/lithe.rb" "$tap_path/Casks/lithe.rb"
           brew style --cask 1lck/lithe/lithe
           brew audit --cask --online 1lck/lithe/lithe
 
