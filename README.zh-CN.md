@@ -9,7 +9,7 @@
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
-    <a href="#核心能力">核心能力</a> ·
+    <a href="#核心功能">核心功能</a> ·
     <a href="#产品截图">产品截图</a> ·
     <a href="#如何使用">如何使用</a> ·
     <a href="#架构图">架构图</a> ·
@@ -55,37 +55,50 @@ Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ ID
 
 > **熟悉的 IDE 核心体验，更轻的资源占用。**
 
-## 核心能力
+## 核心功能
 
-| 工作流 | Lithe 提供的能力 |
-| --- | --- |
-| 项目浏览 | Welcome Screen、最近项目、文件树、文件类型图标、路径面包屑和工作台状态恢复 |
-| 代码阅读 | 多标签原生编辑器、基础 Java 高亮、代码折叠、行号、保存和未保存状态 |
-| Java 导航 | 基于 Eclipse JDT LS 的定义、引用、实现、Workspace Symbol 和实时诊断 |
-| 搜索 | 文件名、路径、全文搜索、Search Everywhere、大小写/整词/正则匹配和项目替换 |
-| 外部变化 | FSEvents 监听、新增/删除/修改刷新，以及磁盘版本和编辑器版本冲突提示 |
-| Git 审查 | Changes、并排 Diff、Diff 搜索、代码块级暂存/撤销、Commit、Shelf、分支和 Git Graph |
-| 构建运行 | Maven 根项目、多模块、Profiles、Lifecycle、Build Output、Current File、Spring Boot 和 Maven Module |
-| Java Debug | 本地 JDWP、Maven/Spring Boot Debug、Remote JVM/Tomcat attach、断点、单步、线程和变量查询 |
-| 工作效率 | 项目级 Local History、内置终端、可拖拽工具窗口和分栏布局恢复 |
-| 更新 | 检查最新 GitHub Release，校验匹配的安装包，并在确认后覆盖当前 App |
-| 界面语言 | 默认英文，可在 Settings 中切换为简体中文 |
+1. 适配 Spring Boot 项目体系，适合 Java 开发。
+2. 支持 Maven 管理、断点调试和自定义启动配置。
+3. 支持 Git 管理和 Diff 审查。
+4. 支持双击 Shift 搜索，以及 `Command + Shift + F` 全局搜索。
+5. 支持代码跳转和代码引用查找。
+6. 支持本地快照保存。
+7. 支持在应用内打开多个项目。
+8. 支持使用 AI 自动生成 Commit Message，并可自定义格式。
+9. 支持多种 Markdown 语法渲染，与语雀一致。
+10. 支持查看应用的本地内存占用情况。
+11. 支持通过 Homebrew 一键安装和更新。
+12. 支持在应用内一键更新并安装。
+13. 持续修复问题并优化用户体验。
 
 ## 产品截图
 
 <p align="center">
-  <img src="./docs/visual-qa/00-welcome-projects.png" width="49%" alt="Welcome 和最近项目">
-  <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="49%" alt="Java 编辑器和项目树">
+  <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="双击 Shift 全局搜索">
+  <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F 全局搜索和替换">
 </p>
 
 <p align="center">
-  <img src="./docs/visual-qa/09-search-everywhere-results.png" width="49%" alt="Search Everywhere">
-  <img src="./docs/visual-qa/13-spring-boot-usages.png" width="49%" alt="JDT LS Java 引用结果">
+  <img src="./docs/assets/screenshots/git-diff-review.png" width="96%" alt="Git 双栏 Diff 审查">
 </p>
 
 <p align="center">
-  <img src="./docs/visual-qa/08-git-diff-green-state.png" width="49%" alt="Git Diff 审查">
-  <img src="./docs/visual-qa/14-spring-boot-run-configuration.png" width="49%" alt="Spring Boot 运行配置">
+  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="从本机 AI 工具导入 API 配置">
+  <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="自定义 AI Commit Message 格式">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/ai-commit-message.png" width="96%" alt="使用 AI 自动生成 Commit Message">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/markdown-mermaid-preview.png" width="49%" alt="Markdown Mermaid 图表渲染和实时预览">
+  <img src="./docs/assets/screenshots/markdown-rich-preview.png" width="49%" alt="Markdown 多语法渲染和实时预览">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/memory-monitor-annotated.png" width="49%" alt="低内存占用和应用内存监控">
+  <img src="./docs/assets/screenshots/memory-monitor.png" width="49%" alt="应用内存占用详情">
 </p>
 
 ## 如何使用
