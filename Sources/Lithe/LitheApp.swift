@@ -100,7 +100,7 @@ struct LitheApp: App {
 
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
-                    model.isSettingsPresented = true
+                    model.showSettings()
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }

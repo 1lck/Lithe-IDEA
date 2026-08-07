@@ -126,7 +126,7 @@ enum LitheIcons {
         "doc.text": "fileTypes/text.svg",
         "play.fill": "actions/execute.svg",
         "play.rectangle": "actions/execute.svg",
-        "point.3.connected.trianglepath.dotted": "vcs/branch.svg",
+        "point.3.connected.trianglepath.dotted": "toolwindows/toolWindowVcs.svg",
         "shippingbox": "maven/toolWindowMaven.svg",
         "ladybug": "toolwindows/toolWindowDebugger.svg",
         "exclamationmark.triangle": "toolwindows/toolWindowProblems.svg",

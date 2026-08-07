@@ -100,7 +100,7 @@ enum LitheActionRegistry {
                 subtitle: "Configure editor and project behavior",
                 group: .project,
                 keyEquivalent: "⌘,"
-            ) { model.isSettingsPresented = true },
+            ) { model.showSettings() },
             LitheAction(
                 id: "toggle-terminal",
                 title: "Toggle Terminal",

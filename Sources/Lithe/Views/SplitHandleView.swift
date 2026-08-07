@@ -63,20 +63,22 @@ struct SplitHandleView: View {
 
     @ViewBuilder
     private var dividerLine: some View {
-        let color = isDragging
-            ? LitheTheme.accent.opacity(0.72)
-            : LitheTheme.divider.opacity(isHovering ? 1.8 : 1)
+        if isHovering || isDragging {
+            let color = isDragging
+                ? LitheTheme.accent.opacity(0.72)
+                : LitheTheme.divider
 
-        if axis == .horizontal {
-            Rectangle()
-                .fill(color)
-                .frame(width: isDragging ? 2 : 1)
-                .frame(maxHeight: .infinity)
-        } else {
-            Rectangle()
-                .fill(color)
-                .frame(height: isDragging ? 2 : 1)
-                .frame(maxWidth: .infinity)
+            if axis == .horizontal {
+                Rectangle()
+                    .fill(color)
+                    .frame(width: isDragging ? 2 : 1)
+                    .frame(maxHeight: .infinity)
+            } else {
+                Rectangle()
+                    .fill(color)
+                    .frame(height: isDragging ? 2 : 1)
+                    .frame(maxWidth: .infinity)
+            }
         }
     }
 

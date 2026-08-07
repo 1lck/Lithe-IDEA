@@ -2,12 +2,35 @@ import AppKit
 import Combine
 import Foundation
 
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case project = "Project"
+    case general = "General"
+    case editor = "Editor"
+    case terminal = "Terminal"
+    case ai = "AI & Commit"
+    case updates = "Updates"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .project: "folder.badge.gearshape"
+        case .general: "gearshape"
+        case .editor: "textformat"
+        case .terminal: "terminal"
+        case .ai: "wand.and.stars"
+        case .updates: "arrow.down.circle"
+        }
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var workspaceURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project
     @Published var isRunVisible = false
     @Published var isSettingsPresented = false
+    @Published private(set) var requestedSettingsCategory: SettingsCategory = .general
     @Published var isCloneRepositoryPresented = false
     @Published private(set) var recentProjects: [RecentProject]
     @Published var searchQuery = ""
@@ -87,6 +110,11 @@ final class AppModel: ObservableObject {
 
     var detectedClaudeConfiguration: AIConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .claude }
+    }
+
+    func showSettings(category: SettingsCategory = .general) {
+        requestedSettingsCategory = category
+        isSettingsPresented = true
     }
     private var gitFeatureObservation: AnyCancellable?
     private var documentFeatureObservation: AnyCancellable?

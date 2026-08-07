@@ -2,34 +2,13 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
-    enum Category: String, CaseIterable, Identifiable {
-        case project = "Project"
-        case general = "General"
-        case editor = "Editor"
-        case terminal = "Terminal"
-        case ai = "AI & Commit"
-        case updates = "Updates"
-
-        var id: String { rawValue }
-        var icon: String {
-            switch self {
-            case .project: "folder.badge.gearshape"
-            case .general: "gearshape"
-            case .editor: "textformat"
-            case .terminal: "terminal"
-            case .ai: "wand.and.stars"
-            case .updates: "arrow.down.circle"
-            }
-        }
-    }
-
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
     @ObservedObject var projectRuntime: RuntimeSettingsFeatureModel
-    @State private var selection: Category = .general
+    @State private var selection: SettingsCategory
     @State private var hiddenDirectoriesDraft = ""
     @State private var hiddenFilePatternsDraft = ""
     @State private var javaHomeDraft = ""
@@ -38,9 +17,14 @@ struct SettingsView: View {
     @State private var aiAPIKeyDraft = ""
     @State private var isFormatPickerPresented = false
 
-    init(settings: AppSettings, runtimeFeature: RuntimeSettingsFeatureModel) {
+    init(
+        settings: AppSettings,
+        runtimeFeature: RuntimeSettingsFeatureModel,
+        initialCategory: SettingsCategory = .general
+    ) {
         self.settings = settings
         projectRuntime = runtimeFeature
+        _selection = State(initialValue: initialCategory)
     }
 
     var body: some View {
@@ -95,7 +79,7 @@ struct SettingsView: View {
 
     private var categories: some View {
         VStack(spacing: 3) {
-            ForEach(Category.allCases) { category in
+            ForEach(SettingsCategory.allCases) { category in
                 Button {
                     selection = category
                 } label: {

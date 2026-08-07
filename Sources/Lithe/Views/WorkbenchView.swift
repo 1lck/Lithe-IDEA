@@ -13,6 +13,7 @@ struct WorkbenchView: View {
     @State private var newBranchReference: GitReference?
     @State private var isCheckoutRevisionPresented = false
     @State private var pendingTopBarPushReference: GitReference?
+    @State private var isRunConfigurationPickerPresented = false
     @State private var isRunConfigurationEditorPresented = false
     @State private var isProjectSwitcherPresented = false
     @State private var isMemoryUsagePopoverPresented = false
@@ -25,7 +26,6 @@ struct WorkbenchView: View {
 
             HStack(spacing: 0) {
                 activityBar
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 workspaceArea
             }
             .frame(maxHeight: .infinity)
@@ -271,7 +271,7 @@ struct WorkbenchView: View {
             } label: {
                 HStack(spacing: 7) {
                     LitheIDEAIcon(
-                        resourcePath: "vcs/branch.svg",
+                        resourcePath: "toolwindows/toolWindowVcs.svg",
                         size: 14,
                         fallbackSystemImage: "point.3.connected.trianglepath.dotted"
                     )
@@ -358,6 +358,7 @@ struct WorkbenchView: View {
             .menuStyle(.borderlessButton)
             .lithePointer()
             .frame(width: 28, height: 28)
+            .help("More actions")
         }
         .padding(.leading, 76)
         .padding(.trailing, 10)
@@ -412,7 +413,7 @@ struct WorkbenchView: View {
 
                     activityToolButton(
                         systemImage: "point.3.connected.trianglepath.dotted",
-                        ideaAssetPath: "vcs/branch.svg",
+                        ideaAssetPath: "toolwindows/toolWindowVcs.svg",
                         help: "Git",
                         isSelected: model.isGitLogVisible
                     ) {
@@ -455,7 +456,7 @@ struct WorkbenchView: View {
                         help: "Settings",
                         isSelected: model.isSettingsPresented
                     ) {
-                        model.isSettingsPresented = true
+                        model.showSettings()
                     }
                 }
                 .padding(.bottom, 8)
@@ -468,32 +469,43 @@ struct WorkbenchView: View {
 
     private var runControls: some View {
         HStack(spacing: 3) {
-            Picker(
-                selection: Binding(
-                    get: { runFeature.selectedConfigurationID },
-                    set: { runFeature.selectedConfigurationID = $0 }
-                )
-            ) {
-                ForEach(runFeature.configurations) { configuration in
-                    Label(configuration.name, systemImage: configuration.systemImage)
-                        .tag(configuration.id)
-                }
+            Button {
+                isRunConfigurationPickerPresented.toggle()
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: runFeature.selectedConfiguration?.systemImage ?? "play.fill")
-                    Text(runFeature.selectedConfiguration?.name ?? "Current File")
+                        .font(.system(size: 13))
+                        .frame(width: 17)
+                    Text(LocalizedStringKey(runFeature.selectedConfiguration?.name ?? "Current File"))
                         .lineLimit(1)
+                    Spacer(minLength: 5)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .bold))
                 }
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(maxWidth: 230, alignment: .leading)
+                .foregroundStyle(LitheTheme.primaryText)
+                .padding(.horizontal, 8)
+                .frame(width: 230, height: 28, alignment: .leading)
                 .contentShape(Rectangle())
+                .litheRowHover(
+                    isActive: isRunConfigurationPickerPresented,
+                    cornerRadius: 5,
+                    activeBackground: LitheTheme.subtleSelection
+                )
             }
-            .pickerStyle(.menu)
+            .buttonStyle(.plain)
             .lithePointer()
             .help("Select run configuration")
+            .popover(isPresented: $isRunConfigurationPickerPresented, arrowEdge: .top) {
+                RunConfigurationPickerPopover(
+                    configurations: runFeature.configurations,
+                    selectedConfigurationID: Binding(
+                        get: { runFeature.selectedConfigurationID },
+                        set: { runFeature.selectedConfigurationID = $0 }
+                    ),
+                    isPresented: $isRunConfigurationPickerPresented
+                )
+            }
 
             Button {
                 isRunConfigurationEditorPresented = true
@@ -526,7 +538,9 @@ struct WorkbenchView: View {
                 }
             }
             .litheIconButton()
-            .help(runFeature.isRunning ? "Stop" : "Run")
+            .help(LocalizedStringKey(
+                runFeature.isRunning ? "Stop current run" : "Run selected configuration"
+            ))
         }
     }
 
@@ -567,8 +581,8 @@ struct WorkbenchView: View {
         .buttonStyle(.plain)
         .lithePointer()
         .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-        .help(help)
-        .accessibilityLabel(help)
+        .help(LocalizedStringKey(help))
+        .accessibilityLabel(Text(LocalizedStringKey(help)))
     }
 
     private var workspaceArea: some View {
@@ -816,7 +830,9 @@ struct WorkbenchView: View {
             }
             .litheIconButton()
             .disabled(model.activeDocument?.isReadOnly == true)
-            .help(model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save")
+            .help(LocalizedStringKey(
+                model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save"
+            ))
             memoryStatus
             gitStatus
         }
@@ -964,5 +980,59 @@ struct WorkbenchView: View {
             ),
             for: workspaceURL
         )
+    }
+}
+
+private struct RunConfigurationPickerPopover: View {
+    let configurations: [JavaRunConfiguration]
+    @Binding var selectedConfigurationID: String
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(configurations) { configuration in
+                Button {
+                    selectedConfigurationID = configuration.id
+                    isPresented = false
+                } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: configuration.systemImage)
+                            .font(.system(size: 13))
+                            .foregroundStyle(
+                                configuration.id == selectedConfigurationID
+                                    ? LitheTheme.primaryText
+                                    : LitheTheme.secondaryText
+                            )
+                            .frame(width: 18)
+
+                        Text(LocalizedStringKey(configuration.name))
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 12)
+
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(LitheTheme.accent)
+                            .opacity(configuration.id == selectedConfigurationID ? 1 : 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 32)
+                    .contentShape(Rectangle())
+                    .litheRowHover(
+                        isActive: configuration.id == selectedConfigurationID,
+                        cornerRadius: 5,
+                        activeBackground: LitheTheme.subtleSelection
+                    )
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+            }
+        }
+        .padding(6)
+        .frame(width: 270)
+        .background(LitheTheme.popupBackground)
     }
 }
