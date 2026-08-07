@@ -4,6 +4,7 @@ rust/target/
 .swiftpm/
 .idea/
 DerivedData/
+/windows/build*/
 dist/
 Fixtures/**/target/
 *.xcuserstate

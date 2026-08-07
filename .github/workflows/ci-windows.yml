@@ -1,0 +1,63 @@
+name: Windows CI
+
+on:
+  pull_request:
+    paths:
+      - "windows/**"
+      - "rust/**"
+      - "shared/**"
+      - "scripts/build-windows.ps1"
+      - "scripts/verify-windows-boundaries.ps1"
+      - ".github/workflows/ci-windows.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "windows/**"
+      - "rust/**"
+      - "shared/**"
+      - "scripts/build-windows.ps1"
+      - "scripts/verify-windows-boundaries.ps1"
+      - ".github/workflows/ci-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test Windows implementation
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.2"
+          arch: win64_msvc2022_64
+          modules: qtbase
+          cache: true
+
+      - name: Build Rust core and C++ targets
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -Configuration Release -BuildQt
+
+      - name: Verify Windows boundaries
+        shell: pwsh
+        run: ./scripts/verify-windows-boundaries.ps1
+
+      - name: Run C++ tests
+        shell: pwsh
+        run: ctest --test-dir windows/build-windows -C Release --output-on-failure
+
+      - name: Run Rust tests
+        shell: pwsh
+        run: cargo test --manifest-path rust/Cargo.toml

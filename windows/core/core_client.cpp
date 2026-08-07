@@ -1,5 +1,6 @@
 #include "core_client.h"
 
+#include <atomic>
 #include <utility>
 
 extern "C" {
@@ -31,27 +32,44 @@ std::string escapeJson(std::string value) {
 
 } // namespace
 
-CoreResponse CoreClient::execute(const std::string& command,
-                                 const std::string& payloadJson,
-                                 std::optional<std::uint32_t> timeoutMilliseconds) {
-    const auto requestID = "windows-" + std::to_string(++nextRequestID_);
+CoreCall CoreClient::makeCall(std::optional<std::uint64_t> timeoutMilliseconds) {
+    const auto requestID = "windows-" + std::to_string(
+        nextRequestID_.fetch_add(1, std::memory_order_relaxed) + 1);
+    return CoreCall{requestID, requestID, timeoutMilliseconds};
+}
+
+CoreResult<CoreResponse> CoreClient::execute(const CoreCall& call,
+                                             const std::string& command,
+                                             const std::string& payloadJson) {
+    if (!call.isValid()) {
+        return std::unexpected(makeCoreError(
+            CoreErrorCode::InvalidRequest, "Core call is missing an id or operation id"));
+    }
     const auto payload = payloadJson.empty() ? "{}" : payloadJson;
-    auto request = "{\"id\":\"" + escapeJson(requestID)
-        + "\",\"operationId\":\"" + escapeJson(requestID)
+    auto request = "{\"id\":\"" + escapeJson(call.id)
+        + "\",\"operationId\":\"" + escapeJson(call.operationID)
         + "\",\"command\":\"" + escapeJson(command)
         + "\",\"payload\":" + payload + "}";
-    if (timeoutMilliseconds.has_value()) {
+    if (call.timeoutMilliseconds.has_value()) {
         request.insert(request.size() - 1,
                        ",\"timeoutMilliseconds\":"
-                           + std::to_string(*timeoutMilliseconds));
+                           + std::to_string(*call.timeoutMilliseconds));
     }
     return executeRaw(request);
 }
 
-CoreResponse CoreClient::executeRaw(const std::string& requestJson) {
+CoreResult<CoreResponse> CoreClient::execute(
+    const std::string& command,
+    const std::string& payloadJson,
+    std::optional<std::uint64_t> timeoutMilliseconds) {
+    return execute(makeCall(timeoutMilliseconds), command, payloadJson);
+}
+
+CoreResult<CoreResponse> CoreClient::executeRaw(const std::string& requestJson) {
     char* response = lithe_core_execute_json(requestJson.c_str());
     if (response == nullptr) {
-        return {};
+        return std::unexpected(makeCoreError(
+            CoreErrorCode::Unknown, "Rust core returned a null response"));
     }
     std::string json(response);
     lithe_core_free_string(response);
@@ -60,6 +78,10 @@ CoreResponse CoreClient::executeRaw(const std::string& requestJson) {
 
 bool CoreClient::cancel(const std::string& operationID) const {
     return lithe_core_cancel(operationID.c_str()) != 0;
+}
+
+bool CoreClient::cancel(const CoreCall& call) const {
+    return call.isValid() && cancel(call.operationID);
 }
 
 std::string CoreClient::version() const {
