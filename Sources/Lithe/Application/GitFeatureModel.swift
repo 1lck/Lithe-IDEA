@@ -7,7 +7,9 @@ import Foundation
 final class GitFeatureModel: ObservableObject {
     @Published private(set) var gitChanges: [GitChange] = []
     @Published private(set) var gitStashes: [GitStash] = []
+    @Published private(set) var gitShelves: [GitShelfEntry] = []
     @Published private(set) var isPerformingStashOperation = false
+    @Published private(set) var isPerformingShelfOperation = false
     @Published private(set) var gitRepositoryRoot: URL?
     @Published private(set) var currentBranch = "No Git"
     @Published var selectedChange: GitChange?
@@ -22,6 +24,11 @@ final class GitFeatureModel: ObservableObject {
     @Published var pendingCheckoutConflict: GitCheckoutConflictRequest?
     @Published var pendingPullStrategy: GitPullStrategyRequest?
     @Published var pendingIntegrationConflict: GitIntegrationConflictRequest?
+    @Published var pendingConflictRollback: GitConflictRollbackRequest?
+    @Published private(set) var pendingStashRestoreConflict: GitStashRestoreConflictRequest?
+    @Published private(set) var isStashRestoreConflictNoticeVisible = false
+    @Published private(set) var gitConflictFilterPaths: Set<String> = []
+    @Published private(set) var requestedStashReference: String?
     /// Set whenever Git is mid-merge, mid-rebase, mid-cherry-pick, or mid-revert.
     @Published var gitOperationState: GitOperationState?
     @Published var isResolvingGitOperation = false
@@ -45,26 +52,38 @@ final class GitFeatureModel: ObservableObject {
     @Published private(set) var isCloningRepository = false
 
     private let service: GitService
+    private let shelveService: ShelveService?
     private var workspaceURLProvider: (@MainActor () -> URL?)?
     private var isGitLogVisibleProvider: (@MainActor () -> Bool)?
     private var notify: (@MainActor (String) -> Void)?
     private var onStateRefreshed: (@MainActor () async -> Void)?
+    private var saveChangesPolicy: (@MainActor () -> GitSaveChangesPolicy)?
+    private var onGitOperationBegan: (@MainActor () -> Void)?
+    private var onGitOperationEnded: (@MainActor () async -> Void)?
     private var gitHistoryLimit = 300
+    private var deferredSavedChanges: GitDeferredSavedChanges?
 
-    init(service: GitService) {
+    init(service: GitService, shelveService: ShelveService? = nil) {
         self.service = service
+        self.shelveService = shelveService
     }
 
     func configure(
         workspaceURLProvider: @escaping @MainActor () -> URL?,
         isGitLogVisibleProvider: @escaping @MainActor () -> Bool,
         notify: @escaping @MainActor (String) -> Void,
-        onStateRefreshed: @escaping @MainActor () async -> Void
+        onStateRefreshed: @escaping @MainActor () async -> Void,
+        saveChangesPolicy: @escaping @MainActor () -> GitSaveChangesPolicy = { .stash },
+        onGitOperationBegan: @escaping @MainActor () -> Void = {},
+        onGitOperationEnded: @escaping @MainActor () async -> Void = {}
     ) {
         self.workspaceURLProvider = workspaceURLProvider
         self.isGitLogVisibleProvider = isGitLogVisibleProvider
         self.notify = notify
         self.onStateRefreshed = onStateRefreshed
+        self.saveChangesPolicy = saveChangesPolicy
+        self.onGitOperationBegan = onGitOperationBegan
+        self.onGitOperationEnded = onGitOperationEnded
     }
 
     var currentGitReference: GitReference? {
@@ -74,10 +93,18 @@ final class GitFeatureModel: ObservableObject {
     func reset() {
         gitChanges = []
         gitStashes = []
+        gitShelves = []
         gitOperationState = nil
         pendingPullStrategy = nil
         pendingIntegrationConflict = nil
+        pendingConflictRollback = nil
+        pendingStashRestoreConflict = nil
+        isStashRestoreConflictNoticeVisible = false
+        gitConflictFilterPaths = []
+        requestedStashReference = nil
+        deferredSavedChanges = nil
         isPerformingStashOperation = false
+        isPerformingShelfOperation = false
         gitRepositoryRoot = nil
         currentBranch = "No Git"
         selectedChange = nil
@@ -125,8 +152,19 @@ final class GitFeatureModel: ObservableObject {
             gitRepositoryRoot = snapshot.repositoryRoot
             currentBranch = snapshot.branch
             gitChanges = snapshot.changes
+            if !gitConflictFilterPaths.isEmpty {
+                gitConflictFilterPaths.formIntersection(Set(snapshot.changes.map(\.path)))
+            }
             gitStashes = await service.stashes(at: snapshot.repositoryRoot)
+            gitShelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
             gitOperationState = await service.operationState(at: snapshot.repositoryRoot)
+            if let gitOperationState, deferredSavedChanges == nil,
+               let stash = gitStashes.first(where: { $0.message.contains("Lithe auto-stash before") }) {
+                deferredSavedChanges = GitDeferredSavedChanges(
+                    stashReference: stash.reference,
+                    operationTitle: gitOperationState.kind.title.lowercased()
+                )
+            }
 
             if let selectedChange,
                let updated = snapshot.changes.first(where: { $0.path == selectedChange.path }) {
@@ -150,6 +188,7 @@ final class GitFeatureModel: ObservableObject {
             currentBranch = "No Git"
             gitChanges = []
             gitStashes = []
+            gitShelves = []
             gitOperationState = nil
             selectedChange = nil
             selectedDiffPatch = ""
@@ -181,6 +220,35 @@ final class GitFeatureModel: ObservableObject {
         diffRows = document.rows
         diffHunks = document.hunks
         isLoadingDiff = false
+    }
+
+    func selectConflictPath(_ path: String) async {
+        guard let change = gitChanges.first(where: { $0.path == path }) else { return }
+        await selectChange(change)
+    }
+
+    private var selectedSaveChangesPolicy: GitSaveChangesPolicy {
+        guard saveChangesPolicy?() != .shelve || shelveService != nil else { return .stash }
+        return saveChangesPolicy?() ?? .stash
+    }
+
+    private func withGitOperation<T>(_ operation: () async -> T) async -> T {
+        onGitOperationBegan?()
+        let result = await operation()
+        await onGitOperationEnded?()
+        return result
+    }
+
+    func setGitConflictFilter(_ paths: [String]) {
+        gitConflictFilterPaths = Set(paths)
+    }
+
+    func clearGitConflictFilter() {
+        gitConflictFilterPaths = []
+    }
+
+    func requestStashSelection(_ reference: String) {
+        requestedStashReference = reference
     }
 
     func reloadSelectedChangeDiff(whitespace: GitDiffWhitespaceMode) async {
@@ -237,26 +305,26 @@ final class GitFeatureModel: ObservableObject {
 
     func stageSelectedChange() async {
         guard let selectedChange else { return }
-        let result = await service.stage(selectedChange)
+        let result = await withGitOperation { await service.stage(selectedChange) }
         showResult(result, success: "Staged \(selectedChange.path)")
         await refreshGit()
     }
 
     func unstageSelectedChange() async {
         guard let selectedChange else { return }
-        let result = await service.unstage(selectedChange)
+        let result = await withGitOperation { await service.unstage(selectedChange) }
         showResult(result, success: "Unstaged \(selectedChange.path)")
         await refreshGit()
     }
 
     func stageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
-        let result = await service.stage(hunk: hunk, of: change)
+        let result = await withGitOperation { await service.stage(hunk: hunk, of: change) }
         showResult(result, success: "Staged a change block in \(change.path)")
         await refreshGit()
     }
 
     func unstageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
-        let result = await service.unstage(hunk: hunk, of: change)
+        let result = await withGitOperation { await service.unstage(hunk: hunk, of: change) }
         showResult(result, success: "Unstaged a change block in \(change.path)")
         await refreshGit()
     }
@@ -268,7 +336,9 @@ final class GitFeatureModel: ObservableObject {
     func confirmDiscardHunk() async {
         guard let request = pendingDiscardHunk else { return }
         pendingDiscardHunk = nil
-        let result = await service.discard(hunk: request.hunk, of: request.change)
+        let result = await withGitOperation {
+            await service.discard(hunk: request.hunk, of: request.change)
+        }
         showResult(result, success: "Discarded a change block in \(request.change.path)")
         await refreshGit()
     }
@@ -293,13 +363,70 @@ final class GitFeatureModel: ObservableObject {
     func confirmDiscardChange() async {
         guard let change = pendingDiscardChange else { return }
         pendingDiscardChange = nil
-        let result = await service.discard(change)
+        let result = await withGitOperation { await service.discard(change) }
         showResult(result, success: "Discarded \(change.path)")
         await refreshGit()
     }
 
     func cancelDiscardChange() {
         pendingDiscardChange = nil
+    }
+
+    func requestConflictRollback(path: String, resume: GitConflictResume) {
+        guard gitChanges.contains(where: { $0.path == path }) else {
+            notify?("The conflict file is no longer in the working tree")
+            return
+        }
+        pendingConflictRollback = GitConflictRollbackRequest(path: path, resume: resume)
+    }
+
+    func cancelConflictRollback() {
+        pendingConflictRollback = nil
+    }
+
+    /// Confirms a rollback using the request captured by the dialog action.
+    ///
+    /// A confirmation dialog dismisses asynchronously and its binding can clear
+    /// `pendingConflictRollback` before an action's `Task` starts. The explicit
+    /// request keeps the destructive operation and its retry target alive across
+    /// that dismissal.
+    func confirmConflictRollback(_ request: GitConflictRollbackRequest) async {
+        if pendingConflictRollback?.id == request.id {
+            pendingConflictRollback = nil
+        }
+        guard let change = gitChanges.first(where: { $0.path == request.path }) else {
+            notify?("The conflict file is no longer in the working tree")
+            return
+        }
+        let result = await withGitOperation { await service.discardAll(change) }
+        guard result.succeeded else {
+            notify?(trimmedMessage(result))
+            return
+        }
+        notify?("Discarded \(request.path)")
+        await refreshGit()
+        await retryConflictResume(request.resume)
+    }
+
+    private func retryConflictResume(_ resume: GitConflictResume) async {
+        switch resume {
+        case .checkout(let reference):
+            guard let gitRepositoryRoot else { return }
+            let blockingPaths = await service.checkoutBlockingPaths(
+                for: reference,
+                at: gitRepositoryRoot
+            )
+            if blockingPaths.isEmpty {
+                await performCheckout(reference)
+            } else {
+                pendingCheckoutConflict = GitCheckoutConflictRequest(
+                    reference: reference,
+                    blockingPaths: blockingPaths
+                )
+            }
+        case .integration(let target, let operation):
+            await startIntegration(target, operation: operation)
+        }
     }
 
     /// Paths still holding conflict markers. Committing during a merge or rebase
@@ -340,7 +467,9 @@ final class GitFeatureModel: ObservableObject {
         guard await !blockCommitWhenMarkersRemain() else { return false }
 
         isCommitting = true
-        let result = await service.commit(at: gitRepositoryRoot, message: message, amend: amend)
+        let result = await withGitOperation {
+            await service.commit(at: gitRepositoryRoot, message: message, amend: amend)
+        }
         isCommitting = false
         if result.succeeded {
             notify?("Changes committed")
@@ -367,11 +496,13 @@ final class GitFeatureModel: ObservableObject {
         guard await !blockCommitWhenMarkersRemain() else { return false }
 
         isCommitting = true
-        let commitResult = await service.commit(
-            at: gitRepositoryRoot,
-            message: message,
-            amend: amend
-        )
+        let commitResult = await withGitOperation {
+            await service.commit(
+                at: gitRepositoryRoot,
+                message: message,
+                amend: amend
+            )
+        }
         guard commitResult.succeeded else {
             isCommitting = false
             notify?(trimmedMessage(commitResult))
@@ -386,7 +517,9 @@ final class GitFeatureModel: ObservableObject {
             return true
         }
 
-        let pushResult = await service.push(currentReference, at: gitRepositoryRoot)
+        let pushResult = await withGitOperation {
+            await service.push(currentReference, at: gitRepositoryRoot)
+        }
         isCommitting = false
         if pushResult.succeeded {
             notify?("Committed and pushed \(currentReference.shortName)")
@@ -399,9 +532,11 @@ final class GitFeatureModel: ObservableObject {
 
     func toggleStaging(_ change: GitChange) async {
         selectedChange = change
-        let result = change.isStaged
-            ? await service.unstage(change)
-            : await service.stage(change)
+        let result = await withGitOperation {
+            change.isStaged
+                ? await service.unstage(change)
+                : await service.stage(change)
+        }
         let verb = change.isStaged ? "Unstaged" : "Staged"
         showResult(result, success: "\(verb) \(change.path)")
         await refreshGit()
@@ -409,7 +544,7 @@ final class GitFeatureModel: ObservableObject {
 
     func stageAllChanges() async {
         guard let gitRepositoryRoot else { return }
-        let result = await service.stageAll(at: gitRepositoryRoot)
+        let result = await withGitOperation { await service.stageAll(at: gitRepositoryRoot) }
         showResult(result, success: "Staged all changes")
         await refreshGit()
     }
@@ -417,11 +552,13 @@ final class GitFeatureModel: ObservableObject {
     func stashWorkingTree(message: String, includeUntracked: Bool) async {
         guard let gitRepositoryRoot else { return }
         isPerformingStashOperation = true
-        let result = await service.stash(
-            message: message,
-            includeUntracked: includeUntracked,
-            at: gitRepositoryRoot
-        )
+        let result = await withGitOperation {
+            await service.stash(
+                message: message,
+                includeUntracked: includeUntracked,
+                at: gitRepositoryRoot
+            )
+        }
         isPerformingStashOperation = false
         if result.succeeded {
             notify?("Working tree stashed")
@@ -431,28 +568,229 @@ final class GitFeatureModel: ObservableObject {
         }
     }
 
+    /// Saves the current worktree in Lithe's patch store and clears the Git
+    /// worktree. This is the manual counterpart to the automatic Shelve policy.
+    func shelveWorkingTree(message: String) async {
+        guard let gitRepositoryRoot, shelveService != nil else {
+            notify?("Shelve storage is unavailable")
+            return
+        }
+        isPerformingShelfOperation = true
+        let result = await withGitOperation {
+            await captureAndCleanShelf(message: message, at: gitRepositoryRoot)
+        }
+        isPerformingShelfOperation = false
+        switch result {
+        case .saved(let entry):
+            notify?("Shelved \(entry.paths.count) file(s)")
+        case .failed(let message):
+            notify?(message)
+        }
+    }
+
+    func applyShelf(_ shelf: GitShelfEntry) async {
+        guard let gitRepositoryRoot else { return }
+        isPerformingShelfOperation = true
+        let restored = await withGitOperation {
+            await restoreShelf(shelf, at: gitRepositoryRoot)
+        }
+        isPerformingShelfOperation = false
+        if restored {
+            notify?("Restored shelf")
+        }
+    }
+
+    func dropShelf(_ shelf: GitShelfEntry) async {
+        guard let gitRepositoryRoot, let shelveService else { return }
+        isPerformingShelfOperation = true
+        let deleted = await withGitOperation {
+            await shelveService.delete(shelf, repositoryRoot: gitRepositoryRoot)
+        }
+        isPerformingShelfOperation = false
+        notify?(deleted ? "Dropped shelf" : "Could not drop shelf")
+        await refreshGit()
+    }
+
+    private enum ShelfCaptureResult {
+        case saved(GitShelfEntry)
+        case failed(String)
+    }
+
+    private func captureAndCleanShelf(
+        message: String,
+        at repositoryRoot: URL
+    ) async -> ShelfCaptureResult {
+        guard let shelveService else { return .failed("Shelve storage is unavailable") }
+        let changes = gitChanges
+        guard !changes.isEmpty else { return .failed("There are no changes to shelve") }
+        guard !changes.contains(where: \.isConflicted) else {
+            return .failed("Resolve existing conflicts before shelving changes")
+        }
+
+        var stagedPatches: [String] = []
+        var workingPatches: [String] = []
+        for change in changes {
+            if change.isStaged {
+                let patch = await service.stagedDiffPatch(for: change)
+                if !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    stagedPatches.append(patch)
+                }
+            }
+            if change.hasWorkingTreeChange {
+                let patch = await service.workingDiffPatch(for: change)
+                if !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    workingPatches.append(patch)
+                }
+            }
+        }
+
+        let stagedPatch = stagedPatches.joined(separator: "\n")
+        let workingPatch = workingPatches.joined(separator: "\n")
+        guard !stagedPatch.isEmpty || !workingPatch.isEmpty else {
+            return .failed("Could not create a patch for these changes")
+        }
+
+        let paths = Array(Set(changes.flatMap(\.pathspecs))).sorted()
+        guard let entry = await shelveService.save(
+            message: message,
+            repositoryRoot: repositoryRoot,
+            paths: paths,
+            stagedPatch: stagedPatch,
+            workingPatch: workingPatch
+        ) else {
+            return .failed("Could not save the shelf")
+        }
+
+        for change in changes {
+            let discarded = await service.discardAll(change)
+            guard discarded.succeeded else {
+                await refreshGit()
+                return .failed(
+                    "Shelf saved, but could not clear \(change.path): \(trimmedMessage(discarded))"
+                )
+            }
+        }
+        await refreshGit()
+        return .saved(entry)
+    }
+
+    @discardableResult
+    private func restoreShelf(_ shelf: GitShelfEntry, at repositoryRoot: URL) async -> Bool {
+        guard let shelveService else { return false }
+        if !shelf.stagedPatch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let result = await service.applyPatch(
+                shelf.stagedPatch,
+                at: repositoryRoot,
+                mode: "restoreIndex"
+            )
+            if !result.succeeded {
+                let alreadyApplied = await service.patchIsAlreadyApplied(
+                    shelf.stagedPatch,
+                    at: repositoryRoot,
+                    staged: true
+                )
+                guard alreadyApplied else {
+                    notify?("Could not restore shelf: \(trimmedMessage(result))")
+                    return false
+                }
+            }
+        }
+        if !shelf.workingPatch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let result = await service.applyPatch(
+                shelf.workingPatch,
+                at: repositoryRoot,
+                mode: "worktree"
+            )
+            if !result.succeeded {
+                let alreadyApplied = await service.patchIsAlreadyApplied(
+                    shelf.workingPatch,
+                    at: repositoryRoot,
+                    staged: false
+                )
+                guard alreadyApplied else {
+                    notify?("Shelf partially restored; it was kept for retry: \(trimmedMessage(result))")
+                    await refreshGit()
+                    return false
+                }
+            }
+        }
+        guard await shelveService.delete(shelf, repositoryRoot: repositoryRoot) else {
+            notify?("Shelf restored, but it could not be removed")
+            await refreshGit()
+            return true
+        }
+        await refreshGit()
+        return true
+    }
+
     func applyStash(_ stash: GitStash, pop: Bool = false) async {
         guard let gitRepositoryRoot else { return }
         isPerformingStashOperation = true
-        let result = pop
-            ? await service.popStash(stash, at: gitRepositoryRoot)
-            : await service.applyStash(stash, at: gitRepositoryRoot)
+        let result = await withGitOperation {
+            pop
+                ? await service.popStash(stash, at: gitRepositoryRoot)
+                : await service.applyStash(stash, at: gitRepositoryRoot)
+        }
         isPerformingStashOperation = false
         if result.succeeded {
             notify?(pop ? "Popped \(stash.reference)" : "Applied \(stash.reference)")
             await refreshGit()
         } else {
-            notify?(trimmedMessage(result))
+            if let conflict = result.stashRestoreConflict {
+                presentStashRestoreConflict(conflict, operationTitle: "stash restore")
+                // `stash apply` can leave an unmerged index while still returning
+                // before the normal success refresh path. Load those paths now so
+                // the persistent notice can open the existing diff UI immediately.
+                await refreshGit()
+            } else {
+                notify?(trimmedMessage(result))
+            }
         }
     }
 
     func dropStash(_ stash: GitStash) async {
         guard let gitRepositoryRoot else { return }
         isPerformingStashOperation = true
-        let result = await service.dropStash(stash, at: gitRepositoryRoot)
+        let result = await withGitOperation { await service.dropStash(stash, at: gitRepositoryRoot) }
         isPerformingStashOperation = false
+        if result.succeeded,
+           pendingStashRestoreConflict?.stashReference == stash.reference {
+            pendingStashRestoreConflict = nil
+            isStashRestoreConflictNoticeVisible = false
+        }
         notify?(result.succeeded ? "Dropped \(stash.reference)" : trimmedMessage(result))
         await refreshGit()
+    }
+
+    private func presentStashRestoreConflict(
+        _ conflict: GitStashRestoreConflict,
+        operationTitle: String
+    ) {
+        pendingStashRestoreConflict = GitStashRestoreConflictRequest(
+            stashReference: conflict.stashReference,
+            conflictedPaths: conflict.conflictedPaths,
+            operationTitle: operationTitle
+        )
+        isStashRestoreConflictNoticeVisible = true
+    }
+
+    func dismissStashRestoreConflictNotice() {
+        isStashRestoreConflictNoticeVisible = false
+    }
+
+    func showStashRestoreConflictNotice() {
+        guard pendingStashRestoreConflict != nil else { return }
+        isStashRestoreConflictNoticeVisible = true
+    }
+
+    func showStashRestoreConflictFiles() {
+        guard let conflict = pendingStashRestoreConflict else { return }
+        setGitConflictFilter(conflict.conflictedPaths)
+    }
+
+    func showStashRestoreConflictStash() {
+        guard let conflict = pendingStashRestoreConflict else { return }
+        requestStashSelection(conflict.stashReference)
     }
 
     func selectGitReference(_ reference: GitReference?) async {
@@ -627,12 +965,14 @@ final class GitFeatureModel: ObservableObject {
             return
         }
         isPerformingBranchOperation = true
-        let result = await service.createBranch(
-            named: name,
-            from: reference,
-            checkout: checkout,
-            at: gitRepositoryRoot
-        )
+        let result = await withGitOperation {
+            await service.createBranch(
+                named: name,
+                from: reference,
+                checkout: checkout,
+                at: gitRepositoryRoot
+            )
+        }
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
@@ -651,7 +991,9 @@ final class GitFeatureModel: ObservableObject {
             return
         }
         isPerformingBranchOperation = true
-        let result = await service.renameBranch(reference, to: name, at: gitRepositoryRoot)
+        let result = await withGitOperation {
+            await service.renameBranch(reference, to: name, at: gitRepositoryRoot)
+        }
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
@@ -666,7 +1008,7 @@ final class GitFeatureModel: ObservableObject {
     func deleteBranch(_ reference: GitReference) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await service.deleteBranch(reference, at: gitRepositoryRoot)
+        let result = await withGitOperation { await service.deleteBranch(reference, at: gitRepositoryRoot) }
         isPerformingBranchOperation = false
         notify?(result.succeeded ? "Deleted \(reference.shortName)" : trimmedMessage(result))
         await refreshGit()
@@ -694,15 +1036,63 @@ final class GitFeatureModel: ObservableObject {
     ) async {
         guard let gitRepositoryRoot, !isResolvingGitOperation else { return }
         isResolvingGitOperation = true
-        let result = await operation(gitRepositoryRoot)
-        isResolvingGitOperation = false
-        // Refresh either way: a rejected continue leaves the operation in place,
-        // but a partial resolution may still have changed the conflict list.
-        await refreshGit()
+        let result = await withGitOperation {
+            let result = await operation(gitRepositoryRoot)
+            isResolvingGitOperation = false
+            // Refresh either way: a rejected continue leaves the operation in place,
+            // but a partial resolution may still have changed the conflict list.
+            await refreshGit()
+            await restoreDeferredIntegrationStashIfFinished()
+            return result
+        }
         if !result.succeeded {
             notify?(trimmedMessage(result))
         } else if gitOperationState == nil {
             notify?("Git operation finished")
+        }
+    }
+
+    private func restoreDeferredIntegrationStashIfFinished() async {
+        guard gitOperationState == nil,
+              let deferredSavedChanges,
+              let gitRepositoryRoot else { return }
+        self.deferredSavedChanges = nil
+
+        if let stashReference = deferredSavedChanges.stashReference {
+            guard let stash = gitStashes.first(where: {
+                $0.reference == stashReference
+            }) else {
+                notify?("Could not find the saved local changes after the Git operation")
+                return
+            }
+
+            isPerformingBranchOperation = true
+            let restored = await service.popStash(stash, at: gitRepositoryRoot)
+            isPerformingBranchOperation = false
+            if let conflict = restored.stashRestoreConflict {
+                presentStashRestoreConflict(
+                    conflict,
+                    operationTitle: deferredSavedChanges.operationTitle
+                )
+            } else if !restored.succeeded {
+                notify?("Restoring your changes failed: \(trimmedMessage(restored))")
+            } else {
+                notify?("Restored your local changes")
+            }
+            await refreshGit()
+            return
+        }
+
+        guard let shelfID = deferredSavedChanges.shelfID,
+              let shelf = gitShelves.first(where: { $0.id == shelfID }) else {
+            notify?("Could not find the saved shelf after the Git operation")
+            return
+        }
+        isPerformingShelfOperation = true
+        let restored = await restoreShelf(shelf, at: gitRepositoryRoot)
+        isPerformingShelfOperation = false
+        if restored {
+            notify?("Restored your shelved changes")
         }
     }
 
@@ -738,7 +1128,7 @@ final class GitFeatureModel: ObservableObject {
         await runIntegration(target, operation: operation)
     }
 
-    /// Stashes the blocking changes, runs the operation, then restores them.
+    /// Saves the blocking changes, runs the operation, then restores them.
     ///
     /// The stash is left alone when the operation stops on a conflict: popping into
     /// a half-finished merge would tangle the user's own edits with the conflict
@@ -746,13 +1136,26 @@ final class GitFeatureModel: ObservableObject {
     func resolveIntegrationConflict(_ request: GitIntegrationConflictRequest) async {
         pendingIntegrationConflict = nil
         guard let gitRepositoryRoot else { return }
+        await withGitOperation {
+            switch selectedSaveChangesPolicy {
+            case .stash:
+                await resolveIntegrationWithStash(request, at: gitRepositoryRoot)
+            case .shelve:
+                await resolveIntegrationWithShelf(request, at: gitRepositoryRoot)
+            }
+        }
+    }
 
+    private func resolveIntegrationWithStash(
+        _ request: GitIntegrationConflictRequest,
+        at repositoryRoot: URL
+    ) async {
         isPerformingBranchOperation = true
         let stashMessage = "Lithe auto-stash before \(request.operation.rawValue)"
         let stashed = await service.stash(
             message: stashMessage,
-            includeUntracked: false,
-            at: gitRepositoryRoot
+            includeUntracked: true,
+            at: repositoryRoot
         )
         guard stashed.succeeded else {
             isPerformingBranchOperation = false
@@ -764,23 +1167,64 @@ final class GitFeatureModel: ObservableObject {
         await runIntegration(request.target, operation: request.operation)
 
         if let state = gitOperationState, state.hasConflicts {
+            if let stash = gitStashes.first(where: { $0.message.contains(stashMessage) }) {
+                deferredSavedChanges = GitDeferredSavedChanges(
+                    stashReference: stash.reference,
+                    operationTitle: request.operation.title.lowercased()
+                )
+            }
             notify?("Your changes stay stashed until the \(request.operation.title.lowercased()) is finished")
             return
         }
-        // Find our own entry rather than assuming stash@{0}: the operation may have
-        // created entries of its own, and popping the wrong one is unrecoverable.
-        // `runIntegration` refreshed already, so `gitStashes` reflects the new entry.
         guard let entry = gitStashes.first(where: { $0.message.contains(stashMessage) }) else {
             notify?("Could not find the stashed changes to restore")
             return
         }
         isPerformingBranchOperation = true
-        let restored = await service.popStash(entry, at: gitRepositoryRoot)
+        let restored = await service.popStash(entry, at: repositoryRoot)
         isPerformingBranchOperation = false
-        if !restored.succeeded {
+        if let conflict = restored.stashRestoreConflict {
+            presentStashRestoreConflict(
+                conflict,
+                operationTitle: request.operation.title.lowercased()
+            )
+        } else if !restored.succeeded {
             notify?("Restoring your changes failed: \(trimmedMessage(restored))")
         }
         await refreshGit()
+    }
+
+    private func resolveIntegrationWithShelf(
+        _ request: GitIntegrationConflictRequest,
+        at repositoryRoot: URL
+    ) async {
+        isPerformingBranchOperation = true
+        let capture = await captureAndCleanShelf(
+            message: "Lithe shelf before \(request.operation.rawValue)",
+            at: repositoryRoot
+        )
+        isPerformingBranchOperation = false
+        guard case .saved(let shelf) = capture else {
+            if case .failed(let message) = capture { notify?(message) }
+            return
+        }
+
+        await runIntegration(request.target, operation: request.operation)
+        if let state = gitOperationState, state.hasConflicts {
+            deferredSavedChanges = GitDeferredSavedChanges(
+                shelfID: shelf.id,
+                operationTitle: request.operation.title.lowercased()
+            )
+            notify?("Your shelved changes stay saved until the \(request.operation.title.lowercased()) is finished")
+            return
+        }
+
+        isPerformingShelfOperation = true
+        let restored = await restoreShelf(shelf, at: repositoryRoot)
+        isPerformingShelfOperation = false
+        if restored {
+            notify?("Restored your shelved changes")
+        }
     }
 
     func cancelIntegrationConflict() {
@@ -793,28 +1237,31 @@ final class GitFeatureModel: ObservableObject {
     ) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result: GitService.CommandResult
-        let success: String
-        let name = target.displayName
-        switch operation {
-        case .merge:
-            result = await service.mergeBranch(reference(from: target), at: gitRepositoryRoot)
-            success = "Merged \(name)"
-        case .rebase:
-            result = await service.rebaseCurrentBranch(
-                onto: reference(from: target),
-                at: gitRepositoryRoot
-            )
-            success = "Rebased onto \(name)"
-        case .cherryPick:
-            result = await service.cherryPick(target.revision, at: gitRepositoryRoot)
-            success = "Cherry-picked \(name)"
-        case .revert:
-            result = await service.revert(target.revision, at: gitRepositoryRoot)
-            success = "Reverted \(name)"
+        let operationResult = await withGitOperation {
+            let result: GitService.CommandResult
+            let success: String
+            let name = target.displayName
+            switch operation {
+            case .merge:
+                result = await service.mergeBranch(reference(from: target), at: gitRepositoryRoot)
+                success = "Merged \(name)"
+            case .rebase:
+                result = await service.rebaseCurrentBranch(
+                    onto: reference(from: target),
+                    at: gitRepositoryRoot
+                )
+                success = "Rebased onto \(name)"
+            case .cherryPick:
+                result = await service.cherryPick(target.revision, at: gitRepositoryRoot)
+                success = "Cherry-picked \(name)"
+            case .revert:
+                result = await service.revert(target.revision, at: gitRepositoryRoot)
+                success = "Reverted \(name)"
+            }
+            return (result, success)
         }
         isPerformingBranchOperation = false
-        await reportBranchOperation(result, success: success)
+        await reportBranchOperation(operationResult.0, success: operationResult.1)
     }
 
     /// Merge and rebase are only ever started from a branch, so a commit target here
@@ -858,7 +1305,7 @@ final class GitFeatureModel: ObservableObject {
         // Fetch first so the divergence check reflects the remote as it is now;
         // otherwise a stale ref would send a pull down the wrong path.
         isPerformingBranchOperation = true
-        let fetched = await service.fetch(at: gitRepositoryRoot)
+        let fetched = await withGitOperation { await service.fetch(at: gitRepositoryRoot) }
         guard fetched.succeeded else {
             isPerformingBranchOperation = false
             notify?(trimmedMessage(fetched))
@@ -891,7 +1338,9 @@ final class GitFeatureModel: ObservableObject {
             return
         }
 
-        let result = await service.updateCurrentBranch(at: gitRepositoryRoot)
+        let result = await withGitOperation {
+            await service.updateCurrentBranch(at: gitRepositoryRoot)
+        }
         isPerformingBranchOperation = false
         await reportBranchOperation(result, success: "Updated \(reference.shortName)")
     }
@@ -901,7 +1350,9 @@ final class GitFeatureModel: ObservableObject {
         pendingPullStrategy = nil
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await service.updateCurrentBranch(at: gitRepositoryRoot, strategy: strategy)
+        let result = await withGitOperation {
+            await service.updateCurrentBranch(at: gitRepositoryRoot, strategy: strategy)
+        }
         isPerformingBranchOperation = false
         let verb = strategy == .rebase ? "Rebased onto upstream" : "Merged upstream"
         await reportBranchOperation(result, success: verb)
@@ -914,7 +1365,7 @@ final class GitFeatureModel: ObservableObject {
     func fetchGit() async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await service.fetch(at: gitRepositoryRoot)
+        let result = await withGitOperation { await service.fetch(at: gitRepositoryRoot) }
         isPerformingBranchOperation = false
         notify?(result.succeeded ? "Fetched Git remotes" : trimmedMessage(result))
         await refreshGit()
@@ -962,13 +1413,19 @@ final class GitFeatureModel: ObservableObject {
         autoStash: Bool = false
     ) async {
         guard let gitRepositoryRoot else { return }
+        if autoStash && selectedSaveChangesPolicy == .shelve {
+            await performShelvedCheckout(reference, at: gitRepositoryRoot)
+            return
+        }
         isPerformingBranchOperation = true
-        let result = await service.checkout(
-            reference,
-            at: gitRepositoryRoot,
-            force: force,
-            autoStash: autoStash
-        )
+        let result = await withGitOperation {
+            await service.checkout(
+                reference,
+                at: gitRepositoryRoot,
+                force: force,
+                autoStash: autoStash
+            )
+        }
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
@@ -982,7 +1439,11 @@ final class GitFeatureModel: ObservableObject {
             }
             await refreshGit()
         } else {
-            notify?(trimmedMessage(result))
+            if let conflict = result.stashRestoreConflict {
+                presentStashRestoreConflict(conflict, operationTitle: "checkout")
+            } else {
+                notify?(trimmedMessage(result))
+            }
             if autoStash {
                 // A smart checkout can switch branches and still fail to restore the stash,
                 // so re-read Git rather than assuming the working tree is unchanged.
@@ -993,10 +1454,57 @@ final class GitFeatureModel: ObservableObject {
         }
     }
 
+    private func performShelvedCheckout(_ reference: GitReference, at repositoryRoot: URL) async {
+        guard shelveService != nil else {
+            await performCheckout(reference, autoStash: true)
+            return
+        }
+        isPerformingBranchOperation = true
+        let capture = await withGitOperation {
+            await captureAndCleanShelf(
+                message: "Lithe shelf before checkout",
+                at: repositoryRoot
+            )
+        }
+        guard case .saved(let shelf) = capture else {
+            isPerformingBranchOperation = false
+            if case .failed(let message) = capture { notify?(message) }
+            return
+        }
+
+        let result = await withGitOperation {
+            await service.checkout(
+                reference,
+                at: repositoryRoot,
+                force: false,
+                autoStash: false
+            )
+        }
+        guard result.succeeded else {
+            _ = await withGitOperation { await restoreShelf(shelf, at: repositoryRoot) }
+            isPerformingBranchOperation = false
+            notify?(trimmedMessage(result))
+            return
+        }
+
+        selectedGitReference = nil
+        closeBranchComparison()
+        await refreshGit()
+        isPerformingShelfOperation = true
+        let restored = await withGitOperation { await restoreShelf(shelf, at: repositoryRoot) }
+        isPerformingShelfOperation = false
+        isPerformingBranchOperation = false
+        if restored {
+            notify?("Checked out \(reference.shortName) and restored shelved changes")
+        }
+    }
+
     func checkoutRevision(_ rawRevision: String) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await service.checkoutRevision(rawRevision, at: gitRepositoryRoot)
+        let result = await withGitOperation {
+            await service.checkoutRevision(rawRevision, at: gitRepositoryRoot)
+        }
         isPerformingBranchOperation = false
         if result.succeeded {
             selectedGitReference = nil
@@ -1019,11 +1527,13 @@ final class GitFeatureModel: ObservableObject {
     func resetCurrentBranch(to commit: GitCommit) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await service.resetCurrentBranch(
-            to: commit.hash,
-            at: gitRepositoryRoot,
-            mode: "--mixed"
-        )
+        let result = await withGitOperation {
+            await service.resetCurrentBranch(
+                to: commit.hash,
+                at: gitRepositoryRoot,
+                mode: "--mixed"
+            )
+        }
         isPerformingBranchOperation = false
         notify?(result.succeeded ? "Reset current branch to \(commit.shortHash)" : trimmedMessage(result))
         await refreshGit()
@@ -1032,7 +1542,7 @@ final class GitFeatureModel: ObservableObject {
     func pushBranch(_ reference: GitReference) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await service.push(reference, at: gitRepositoryRoot)
+        let result = await withGitOperation { await service.push(reference, at: gitRepositoryRoot) }
         isPerformingBranchOperation = false
         notify?(result.succeeded ? "Pushed \(reference.shortName)" : trimmedMessage(result))
         await refreshGit()
@@ -1057,7 +1567,9 @@ final class GitFeatureModel: ObservableObject {
 
         isCloningRepository = true
         defer { isCloningRepository = false }
-        return await service.cloneRepository(from: remote, to: destination)
+        return await withGitOperation {
+            await service.cloneRepository(from: remote, to: destination)
+        }
     }
 
     private func showResult(_ result: GitService.CommandResult, success: String) {

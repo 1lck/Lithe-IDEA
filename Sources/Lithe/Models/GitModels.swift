@@ -31,6 +31,14 @@ struct GitStash: Identifiable, Hashable, Sendable {
     var id: String { reference }
 }
 
+/// Structured information returned when `git stash pop` keeps the entry because
+/// restoring it created unresolved conflicts. The stash is intentionally not
+/// dropped so the user can finish recovery without losing the original patch.
+struct GitStashRestoreConflict: Hashable, Sendable {
+    let stashReference: String
+    let conflictedPaths: [String]
+}
+
 struct GitCommit: Identifiable, Hashable, Sendable {
     let hash: String
     let shortHash: String
@@ -375,6 +383,20 @@ struct GitCheckoutConflictRequest: Identifiable {
     let blockingPaths: [String]
 }
 
+/// The destructive rollback requested from a conflict dialog. The original
+/// operation is retained so a successful rollback can re-run its preflight and
+/// continue automatically when no blocking paths remain.
+enum GitConflictResume: Sendable {
+    case checkout(GitReference)
+    case integration(target: GitIntegrationTarget, operation: GitIntegrationOperation)
+}
+
+struct GitConflictRollbackRequest: Identifiable, Sendable {
+    let id = UUID()
+    let path: String
+    let resume: GitConflictResume
+}
+
 /// What stands in the way of starting a merge or rebase.
 struct GitIntegrationPreflightState: Sendable {
     let blockingPaths: [String]
@@ -417,6 +439,44 @@ struct GitIntegrationConflictRequest: Identifiable {
     let operation: GitIntegrationOperation
     let blockingPaths: [String]
     let blocksEntirely: Bool
+}
+
+/// A stash created by Lithe could not be restored cleanly. The entry is kept so
+/// the user can resolve the working tree and drop it explicitly afterwards.
+struct GitStashRestoreConflictRequest: Identifiable, Sendable {
+    let id = UUID()
+    let stashReference: String
+    let conflictedPaths: [String]
+    let operationTitle: String
+
+    var hasConflictPaths: Bool { !conflictedPaths.isEmpty }
+}
+
+struct GitDeferredSavedChanges: Sendable {
+    let stashReference: String?
+    let shelfID: UUID?
+    let operationTitle: String
+
+    init(stashReference: String, operationTitle: String) {
+        self.stashReference = stashReference
+        shelfID = nil
+        self.operationTitle = operationTitle
+    }
+
+    init(shelfID: UUID, operationTitle: String) {
+        stashReference = nil
+        self.shelfID = shelfID
+        self.operationTitle = operationTitle
+    }
+}
+
+struct GitShelfEntry: Identifiable, Hashable, Sendable {
+    let id: UUID
+    let message: String
+    let createdAt: Date
+    let paths: [String]
+    let stagedPatch: String
+    let workingPatch: String
 }
 
 /// The branch-integration operations that share a preflight.
@@ -530,6 +590,27 @@ enum GitCheckoutConflictStrategy: Sendable {
     case smart
     /// Switch and discard the local changes.
     case force
+}
+
+enum GitSaveChangesPolicy: String, CaseIterable, Identifiable, Sendable {
+    case stash
+    case shelve
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .stash: "Git stash"
+        case .shelve: "Lithe Shelve"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .stash: "Store temporary changes in Git's stash list."
+        case .shelve: "Store patches in Lithe without adding objects to Git."
+        }
+    }
 }
 
 enum DiffParser {

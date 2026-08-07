@@ -661,6 +661,22 @@ mod tests {
             "initial\n"
         );
 
+        // Conflict-dialog rollback must discard both sides of a file, including
+        // a staged edit followed by a working-tree edit.
+        fs::write(root.join("example.txt"), "staged\n").expect("file should be writable");
+        assert!(run(&["add", "example.txt"]).status.success());
+        fs::write(root.join("example.txt"), "working\n").expect("file should be writable");
+        let discard_all = request("discardAll", serde_json::json!({"paths": ["example.txt"]}));
+        assert_eq!(discard_all["ok"], true, "{discard_all:?}");
+        assert_eq!(
+            fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
+            "initial\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&run(&["status", "--porcelain"]).stdout),
+            ""
+        );
+
         fs::write(root.join("untracked.txt"), "discard me\n")
             .expect("untracked file should be writable");
         assert_eq!(
@@ -871,6 +887,94 @@ mod tests {
     }
 
     #[test]
+    fn stash_restore_conflicts_return_structured_recovery_data() {
+        let root = temporary_root("git-stash-conflict");
+        fs::create_dir_all(&root).expect("temporary repository should be creatable");
+        let run = |arguments: &[&str]| {
+            Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .output()
+                .expect("git should be available")
+        };
+        assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"])
+            .status
+            .success());
+        assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+        fs::write(root.join("shared.txt"), "base\n").expect("file should be writable");
+        assert!(run(&["add", "shared.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+        assert!(run(&["switch", "-qc", "feature"]).status.success());
+        fs::write(root.join("shared.txt"), "feature\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "feature edit"]).status.success());
+        assert!(run(&["switch", "-q", "main"]).status.success());
+
+        fs::write(root.join("shared.txt"), "local\n").expect("file should be writable");
+        assert!(run(&["stash", "push", "-qm", "restore conflict"])
+            .status
+            .success());
+        let stash_reference =
+            String::from_utf8_lossy(&run(&["stash", "list", "--format=%gd"]).stdout)
+                .lines()
+                .next()
+                .expect("stash reference should exist")
+                .trim()
+                .to_string();
+        assert!(run(&["switch", "-q", "feature"]).status.success());
+
+        let write = |operation: &str| -> Value {
+            serde_json::from_str(&execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": format!("stash-{operation}"),
+                    "command": "git.write",
+                    "payload": {
+                        "root": root,
+                        "operation": operation,
+                        "reference": stash_reference
+                    }
+                }))
+                .expect("stash request should encode"),
+            ))
+            .expect("stash response should be JSON")
+        };
+
+        let applied = write("stashApply");
+        assert_eq!(applied["ok"], true, "{applied:?}");
+        assert_eq!(applied["data"]["exitCode"], 1, "{applied:?}");
+        assert_eq!(
+            applied["data"]["stashRestore"]["stashReference"], stash_reference,
+            "{applied:?}"
+        );
+        assert_eq!(
+            applied["data"]["stashRestore"]["conflictedPaths"],
+            serde_json::json!(["shared.txt"]),
+            "{applied:?}"
+        );
+
+        // Clear the index conflict without dropping the saved entry, then verify
+        // `pop` reports the same structured recovery data.
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+        let popped = write("stashPop");
+        assert_eq!(popped["ok"], true, "{popped:?}");
+        assert_eq!(popped["data"]["exitCode"], 1, "{popped:?}");
+        assert_eq!(
+            popped["data"]["stashRestore"]["stashReference"], stash_reference,
+            "{popped:?}"
+        );
+        assert_eq!(
+            popped["data"]["stashRestore"]["conflictedPaths"],
+            serde_json::json!(["shared.txt"]),
+            "{popped:?}"
+        );
+
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+        assert!(run(&["stash", "drop", &stash_reference]).status.success());
+        fs::remove_dir_all(root).expect("temporary repository should be removable");
+    }
+
+    #[test]
     fn git_operation_state_reports_and_resolves_a_merge_conflict() {
         let root = temporary_root("git-operation");
         fs::create_dir_all(&root).expect("temporary workspace should be creatable");
@@ -1076,6 +1180,132 @@ mod tests {
 
         let status = run(&["status", "--porcelain"]).stdout;
         assert_eq!(String::from_utf8_lossy(&status), "M  example.txt\n");
+
+        // Shelve restores the index snapshot and the unstaged worktree delta
+        // separately. Verify that a file with both kinds of edits returns as MM
+        // and keeps the final worktree content.
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+        fs::write(root.join("example.txt"), "staged\n").expect("file should be writable");
+        assert!(run(&["add", "example.txt"]).status.success());
+        let staged_diff = serde_json::json!({
+            "id": "staged-diff",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["example.txt"],
+                "staged": true
+            }
+        });
+        let staged_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&staged_diff).expect("staged diff request should encode"),
+        ))
+        .expect("staged diff response should be JSON");
+        let staged_patch = staged_response["data"]["patch"]
+            .as_str()
+            .expect("staged patch should be text")
+            .to_string();
+
+        fs::write(root.join("example.txt"), "final\n").expect("file should be writable");
+        let working_diff = serde_json::json!({
+            "id": "working-diff",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["example.txt"]
+            }
+        });
+        let working_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&working_diff).expect("working diff request should encode"),
+        ))
+        .expect("working diff response should be JSON");
+        let working_patch = working_response["data"]["patch"]
+            .as_str()
+            .expect("working patch should be text")
+            .to_string();
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+
+        for (id, patch, mode) in [
+            ("restore-index", staged_patch.as_str(), "restoreIndex"),
+            ("restore-worktree", working_patch.as_str(), "worktree"),
+        ] {
+            let apply = serde_json::json!({
+                "id": id,
+                "command": "git.apply",
+                "payload": {"root": root, "patch": patch, "mode": mode}
+            });
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::to_string(&apply).expect("restore apply request should encode"),
+            ))
+            .expect("restore apply response should be JSON");
+            assert_eq!(response["ok"], true, "{response:?}");
+            assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+        }
+        assert_eq!(
+            String::from_utf8_lossy(&run(&["status", "--porcelain"]).stdout),
+            "MM example.txt\n"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
+            "final\n"
+        );
+
+        for (id, patch, mode) in [
+            (
+                "restore-index-check",
+                staged_patch.as_str(),
+                "restoreIndexCheck",
+            ),
+            ("worktree-check", working_patch.as_str(), "worktreeCheck"),
+        ] {
+            let check = serde_json::json!({
+                "id": id,
+                "command": "git.apply",
+                "payload": {"root": root, "patch": patch, "mode": mode}
+            });
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::to_string(&check).expect("patch check request should encode"),
+            ))
+            .expect("patch check response should be JSON");
+            assert_eq!(response["ok"], true, "{response:?}");
+            assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+        }
+
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+        fs::write(root.join("new.txt"), "untracked\n").expect("file should be writable");
+        let untracked_diff = serde_json::json!({
+            "id": "untracked-diff",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["new.txt"],
+                "untracked": true
+            }
+        });
+        let untracked_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&untracked_diff).expect("untracked diff request should encode"),
+        ))
+        .expect("untracked diff response should be JSON");
+        let untracked_patch = untracked_response["data"]["patch"]
+            .as_str()
+            .expect("untracked patch should be text")
+            .to_string();
+        fs::remove_file(root.join("new.txt")).expect("file should be removable");
+        let untracked_apply = serde_json::json!({
+            "id": "untracked-apply",
+            "command": "git.apply",
+            "payload": {"root": root, "patch": untracked_patch, "mode": "worktree"}
+        });
+        let untracked_apply_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&untracked_apply)
+                .expect("untracked apply request should encode"),
+        ))
+        .expect("untracked apply response should be JSON");
+        assert_eq!(untracked_apply_response["ok"], true);
+        assert_eq!(untracked_apply_response["data"]["exitCode"], 0);
+        assert_eq!(
+            fs::read_to_string(root.join("new.txt")).expect("file should be readable"),
+            "untracked\n"
+        );
         fs::remove_dir_all(root).expect("temporary workspace should be removable");
     }
 

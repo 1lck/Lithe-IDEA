@@ -41,6 +41,19 @@ pub struct GitCommandRequest {
 pub struct GitCommandResponse {
     pub output: String,
     pub exit_code: i32,
+    /// Present when a stash restore kept its entry because the working tree
+    /// contains an unresolved merge. Keeping this out of the prose response
+    /// lets bindings offer recovery actions without matching localized Git
+    /// output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stash_restore: Option<GitStashRestoreResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStashRestoreResponse {
+    pub stash_reference: String,
+    pub conflicted_paths: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -258,6 +271,10 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
                 .chain(paths)
                 .collect();
         }
+        "discardAll" => {
+            let paths = validate_paths(&request.paths)?;
+            return discard_all(&root, &paths);
+        }
         "stageAll" => arguments = vec!["add".into(), "--all".into()],
         "commit" => {
             let message = required_text(request.message.as_deref(), "commit message")?;
@@ -396,14 +413,19 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
         "operationContinue" | "operationAbort" | "operationSkip" => {
             return resolve_operation(&root, &request.operation)
         }
-        "stashApply" | "stashPop" | "stashDrop" => {
+        "stashApply" | "stashDrop" => {
             let reference = validated_stash_reference(request.reference.as_deref())?;
+            if request.operation == "stashApply" {
+                return apply_stash(&root, &reference);
+            }
             let action = match request.operation.as_str() {
-                "stashApply" => "apply",
-                "stashPop" => "pop",
                 _ => "drop",
             };
             arguments = vec!["stash".into(), action.into(), reference];
+        }
+        "stashPop" => {
+            let reference = validated_stash_reference(request.reference.as_deref())?;
+            return pop_stash(&root, &reference);
         }
         _ => {
             return Err(CoreError::new(
@@ -488,6 +510,7 @@ fn execute_git(
     Ok(GitCommandResponse {
         output: text,
         exit_code: status.code().unwrap_or(1),
+        stash_restore: None,
     })
 }
 
@@ -513,6 +536,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
             "show".to_string(),
             "--format=".to_string(),
             "--no-ext-diff".to_string(),
+            "--binary".to_string(),
             format!("--unified={}", request.context_lines),
             commit,
         ]
@@ -521,11 +545,16 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         vec![
             "diff".to_string(),
             "--no-ext-diff".to_string(),
+            "--binary".to_string(),
             format!("--unified={}", request.context_lines),
             reference,
         ]
     } else {
-        let mut arguments = vec!["diff".to_string(), "--no-ext-diff".to_string()];
+        let mut arguments = vec![
+            "diff".to_string(),
+            "--no-ext-diff".to_string(),
+            "--binary".to_string(),
+        ];
         if request.untracked {
             arguments.push("--no-index".to_string());
         }
@@ -574,6 +603,29 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
         "discard" => vec![
             "apply".to_string(),
             "--reverse".to_string(),
+            "--whitespace=nowarn".to_string(),
+        ],
+        // Reconstruct a saved index snapshot and its worktree in one step.
+        // `--cached` alone would leave the worktree at HEAD, which makes a
+        // subsequent unstaged patch fail for files with both staged and
+        // unstaged edits.
+        "restoreIndex" => vec![
+            "apply".to_string(),
+            "--index".to_string(),
+            "--whitespace=nowarn".to_string(),
+        ],
+        "worktree" => vec!["apply".to_string(), "--whitespace=nowarn".to_string()],
+        "restoreIndexCheck" => vec![
+            "apply".to_string(),
+            "--cached".to_string(),
+            "--reverse".to_string(),
+            "--check".to_string(),
+            "--whitespace=nowarn".to_string(),
+        ],
+        "worktreeCheck" => vec![
+            "apply".to_string(),
+            "--reverse".to_string(),
+            "--check".to_string(),
             "--whitespace=nowarn".to_string(),
         ],
         _ => {
@@ -1508,7 +1560,154 @@ fn failed_git_result(message: impl Into<String>) -> GitCommandResponse {
     GitCommandResponse {
         output: message.into(),
         exit_code: 1,
+        stash_restore: None,
     }
+}
+
+/// Discards both index and working-tree content for a conflict-dialog rollback.
+/// The normal `discard` operation deliberately preserves staged content, while
+/// this explicit operation is destructive for the whole path and therefore only
+/// used after the UI's second confirmation.
+fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreError> {
+    let mut tracked = Vec::new();
+    let mut untracked = Vec::new();
+    let mut status_arguments = vec![
+        "status".to_string(),
+        "--porcelain".to_string(),
+        "--untracked-files=all".to_string(),
+        "--".to_string(),
+    ];
+    status_arguments.extend(paths.iter().cloned());
+    let status = execute_git(root, &status_arguments, None)?;
+    if status.exit_code != 0 {
+        return Ok(status);
+    }
+    for path in paths {
+        let is_untracked = status.output.lines().any(|line| {
+            (line.starts_with("??") || line.starts_with("!!")) && line[3..].trim() == path
+        });
+        if is_untracked {
+            untracked.push(path.clone());
+        } else {
+            tracked.push(path.clone());
+        }
+    }
+
+    if !tracked.is_empty() {
+        let mut arguments = vec!["checkout".to_string(), "HEAD".to_string(), "--".to_string()];
+        arguments.extend(tracked);
+        let restored = execute_git(root, &arguments, None)?;
+        if restored.exit_code != 0 {
+            return Ok(restored);
+        }
+    }
+    if !untracked.is_empty() {
+        let mut arguments = vec![
+            "clean".to_string(),
+            "-f".to_string(),
+            "-d".to_string(),
+            "--".to_string(),
+        ];
+        arguments.extend(untracked);
+        return execute_git(root, &arguments, None);
+    }
+    Ok(GitCommandResponse {
+        output: String::new(),
+        exit_code: 0,
+        stash_restore: None,
+    })
+}
+
+fn pop_stash(root: &str, reference: &str) -> Result<GitCommandResponse, CoreError> {
+    let mut result = execute_git(
+        root,
+        &["stash".into(), "pop".into(), reference.to_string()],
+        None,
+    )?;
+    let conflicted_paths = conflicted_paths(root)?;
+    let entry_was_kept = stash_reference_exists(root, reference)?;
+    if entry_was_kept && (!conflicted_paths.is_empty() || result.exit_code == 0) {
+        result.stash_restore = Some(GitStashRestoreResponse {
+            stash_reference: reference.to_string(),
+            conflicted_paths,
+        });
+    }
+    Ok(result)
+}
+
+fn apply_stash(root: &str, reference: &str) -> Result<GitCommandResponse, CoreError> {
+    let mut result = execute_git(
+        root,
+        &["stash".into(), "apply".into(), reference.to_string()],
+        None,
+    )?;
+    let conflicted_paths = conflicted_paths(root)?;
+    if !conflicted_paths.is_empty() {
+        result.exit_code = 1;
+        result.stash_restore = Some(GitStashRestoreResponse {
+            stash_reference: reference.to_string(),
+            conflicted_paths,
+        });
+    }
+    Ok(result)
+}
+
+fn conflicted_paths(root: &str) -> Result<Vec<String>, CoreError> {
+    let response = execute_git(
+        root,
+        &[
+            "diff".into(),
+            "--name-only".into(),
+            "--diff-filter=U".into(),
+            "--".into(),
+        ],
+        None,
+    )?;
+    if response.exit_code != 0 {
+        return Err(
+            CoreError::new(ErrorCode::ProcessFailed, "Git conflict status failed")
+                .with_details(response.output),
+        );
+    }
+    let mut paths = response
+        .output
+        .lines()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(String::from)
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+fn stash_reference_exists(root: &str, reference: &str) -> Result<bool, CoreError> {
+    let list = execute_git(
+        root,
+        &["stash".into(), "list".into(), "--format=%gd".into()],
+        None,
+    )?;
+    if list.exit_code != 0 {
+        return Ok(false);
+    }
+    Ok(list.output.lines().any(|line| line.trim() == reference))
+}
+
+fn find_stash_reference(root: &str, message: &str) -> Result<Option<String>, CoreError> {
+    let list = execute_git(
+        root,
+        &["stash".into(), "list".into(), "--format=%gd%x09%gs".into()],
+        None,
+    )?;
+    if list.exit_code != 0 {
+        return Ok(None);
+    }
+    Ok(list.output.lines().find_map(|line| {
+        let (reference, subject) = line.split_once('\t')?;
+        subject
+            .contains(message)
+            .then(|| reference.trim().to_string())
+    }))
 }
 
 fn push(root: &str, reference: Option<&str>) -> Result<GitCommandResponse, CoreError> {
@@ -1614,34 +1813,31 @@ fn checkout_with_auto_stash(
         return Ok(switched);
     }
 
-    let restored = execute_git(root, &["stash".into(), "pop".into()], None)?;
-    if restored.exit_code != 0 {
-        return Ok(restored);
-    }
-    // `git stash pop` exits 0 but keeps the entry when the restore conflicts, so confirm
-    // the entry is actually gone before reporting success.
-    if auto_stash_entry_exists(root)? {
-        return Ok(failed_git_result(format!(
-            "{}\nThe stashed changes conflict with the checked out branch and were kept in the stash.",
-            restored.output.trim_end()
-        )));
-    }
-    Ok(restored)
-}
-
-fn auto_stash_entry_exists(root: &str) -> Result<bool, CoreError> {
-    let list = execute_git(
+    let Some(stash_reference) = find_stash_reference(root, AUTO_STASH_MESSAGE)? else {
+        return Ok(failed_git_result(
+            "Smart Checkout created a stash but could not locate it for restore.",
+        ));
+    };
+    let mut restored = execute_git(
         root,
-        &["stash".into(), "list".into(), "--format=%gs".into()],
+        &["stash".into(), "pop".into(), stash_reference.clone()],
         None,
     )?;
-    if list.exit_code != 0 {
-        return Ok(false);
+    let conflicted_paths = conflicted_paths(root)?;
+    let entry_was_kept = stash_reference_exists(root, &stash_reference)?;
+    if entry_was_kept && (restored.exit_code == 0 || !conflicted_paths.is_empty()) {
+        restored.exit_code = 1;
+        restored.stash_restore = Some(GitStashRestoreResponse {
+            stash_reference,
+            conflicted_paths,
+        });
+        if !restored.output.contains("kept in the stash") {
+            restored.output.push_str(
+                "\nThe stashed changes conflict with the checked out branch and were kept in the stash.",
+            );
+        }
     }
-    Ok(list
-        .output
-        .lines()
-        .any(|line| line.contains(AUTO_STASH_MESSAGE)))
+    Ok(restored)
 }
 
 fn switch_reference(

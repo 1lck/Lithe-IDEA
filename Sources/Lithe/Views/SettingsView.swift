@@ -290,6 +290,21 @@ struct SettingsView: View {
                 }
             }
 
+            group("Git") {
+                Picker("Save local changes with", selection: $settings.gitSaveChangesPolicy) {
+                    ForEach(GitSaveChangesPolicy.allCases) { policy in
+                        Text(LocalizedStringKey(policy.title)).tag(policy)
+                    }
+                }
+                .frame(maxWidth: 260, alignment: .leading)
+                .lithePointer()
+
+                Text(LocalizedStringKey(settings.gitSaveChangesPolicy.description))
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             group("Hidden paths") {
                 Text("One entry per line. Directory names hide matching folders; file entries support * and ?.")
                     .font(LitheTheme.smallFont)

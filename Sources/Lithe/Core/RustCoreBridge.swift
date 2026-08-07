@@ -331,8 +331,14 @@ struct RustCoreBridge: Sendable {
     }
 
     struct GitCommandPayload: Decodable, Sendable {
+        struct StashRestore: Decodable, Sendable {
+            let stashReference: String
+            let conflictedPaths: [String]
+        }
+
         let output: String
         let exitCode: Int32
+        let stashRestore: StashRestore?
     }
 
     struct GitDiffPayload: Decodable, Sendable {

@@ -1025,6 +1025,38 @@ struct EditorDocumentTests {
     }
 
     @Test
+    func shelveStoragePersistsVersionedEntriesPerRepositoryAndDeletesThem() async throws {
+        let storage = InMemoryFileStorage()
+        let service = ShelveService(storage: storage)
+        let repository = URL(fileURLWithPath: "/tmp/repository-one")
+        let otherRepository = URL(fileURLWithPath: "/tmp/repository-two")
+
+        let entry = try #require(
+            await service.save(
+                message: "before checkout",
+                repositoryRoot: repository,
+                paths: ["Sources/App.swift"],
+                stagedPatch: "staged patch",
+                workingPatch: "working patch"
+            )
+        )
+
+        let loaded = await service.entries(for: repository)
+        #expect(loaded == [entry])
+        let isolated = await service.entries(for: otherRepository)
+        #expect(isolated.isEmpty)
+
+        let raw = try #require(storage.firstStoredData())
+        let object = try #require(JSONSerialization.jsonObject(with: raw) as? [String: Any])
+        #expect(object["formatVersion"] as? Int == 1)
+        #expect(object["stagedPatch"] as? String == "staged patch")
+        #expect(object["workingPatch"] as? String == "working patch")
+
+        #expect(await service.delete(entry, repositoryRoot: repository))
+        #expect((await service.entries(for: repository)).isEmpty)
+    }
+
+    @Test
     @MainActor
     func terminalSessionRestartUsesExistingSurfaceAndSelectedShell() {
         let transport = TestTerminalTransport()
@@ -1091,6 +1123,58 @@ struct EditorDocumentTests {
         #expect(!session.isRunning)
         #expect(session.elapsedDescription(at: Date().addingTimeInterval(1)) != nil)
     }
+
+    @Test
+    @MainActor
+    func gitOperationFreezeBatchesWatcherRefreshUntilTheOuterOperationEnds() async {
+        let watcherFactory = TestDirectoryWatcherFactory()
+        let model = WorkspaceFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            directoryWatcherFactory: watcherFactory,
+            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
+        )
+        var refreshCount = 0
+        model.configure(
+            documentsProvider: { [] },
+            activeDocumentProvider: { nil },
+            selectedSidebarProvider: { "project" },
+            setSelectedSidebar: { _ in },
+            restoreSession: { _, _ in },
+            openFile: { _ in },
+            notify: { _ in },
+            recordHistory: { _, _ in },
+            relocateHistory: { _, _ in },
+            relocateOpenDocuments: { _, _ in },
+            closeDocuments: { _ in },
+            processExternalChanges: { _ in false },
+            reloadProjectServices: {},
+            refreshGit: { refreshCount += 1 },
+            updateHistoryVisibilityRules: { _ in },
+            onSnapshotLoaded: { _, _ in }
+        )
+
+        let workspace = URL(fileURLWithPath: "/tmp/frozen-workspace")
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.startWatchingCurrent()
+        guard let source = watcherFactory.source else {
+            Issue.record("The directory watcher was not created")
+            return
+        }
+
+        model.beginGitOperationFreeze()
+        model.beginGitOperationFreeze()
+        source.emit([workspace.appendingPathComponent("Sources/App.swift").path])
+        await Task.yield()
+        await model.endGitOperationFreeze()
+
+        #expect(model.gitOperationFreezeDepth == 1)
+        #expect(refreshCount == 0)
+
+        await model.endGitOperationFreeze()
+        #expect(model.gitOperationFreezeDepth == 0)
+        #expect(refreshCount == 1)
+    }
 }
 
 @MainActor
@@ -1131,5 +1215,157 @@ private final class TestTerminalTransport: TerminalTransport {
         guard isRunning else { return }
         stopCount += 1
         isRunning = false
+    }
+}
+
+private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
+    private let lock = NSLock()
+    private let support = URL(fileURLWithPath: "/in-memory-application-support", isDirectory: true)
+    private var files: [String: Data] = [:]
+    private var directories: Set<String> = []
+
+    func homeDirectory() -> URL { support }
+    func cacheDirectory() -> URL { support }
+    func applicationSupportDirectory() -> URL { support }
+    func metadata(for url: URL) -> FileMetadata? { nil }
+
+    func fileExists(at url: URL) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return files[url.path] != nil || directories.contains(url.path)
+    }
+
+    func isExecutable(at url: URL) -> Bool { false }
+
+    func listDirectory(at url: URL) -> [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return files.keys
+            .filter { URL(fileURLWithPath: $0).deletingLastPathComponent().path == url.path }
+            .map { URL(fileURLWithPath: $0) }
+    }
+
+    func readData(from url: URL, options: Data.ReadingOptions = []) throws -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let value = files[url.path] else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        return value
+    }
+
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = []) throws {
+        lock.lock()
+        files[url.path] = data
+        lock.unlock()
+    }
+
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
+        lock.lock()
+        directories.insert(url.path)
+        lock.unlock()
+    }
+
+    func removeItem(at url: URL) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard files.removeValue(forKey: url.path) != nil else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+    }
+
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let value = files.removeValue(forKey: sourceURL.path) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        files[destinationURL.path] = value
+    }
+
+    func firstStoredData() -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return files.values.first
+    }
+}
+
+private struct EmptyKeyValueStore: KeyValueStore {
+    func data(forKey key: String) -> Data? { nil }
+    func object(forKey key: String) -> Any? { nil }
+    func string(forKey key: String) -> String? { nil }
+    func stringArray(forKey key: String) -> [String]? { nil }
+    func set(_ value: Any?, forKey key: String) {}
+}
+
+private struct EmptyWorkspaceOperations: WorkspaceOperations {
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
+
+    func search(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> [FileSearchResult]? { nil }
+
+    func searchEverywhere(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> SearchEverywhereResults? { nil }
+
+    func previewReplacement(
+        at rootURL: URL,
+        query: String,
+        replacement: String,
+        options: ProjectSearchOptions,
+        paths: [String],
+        textOverrides: [String: String],
+        visibilityRules: FileVisibilityRules
+    ) -> [ProjectReplacementFile]? { nil }
+
+    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
+    func fileExists(at url: URL) -> Bool { false }
+    func isDirectory(at url: URL) -> Bool { false }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func removeItem(at url: URL) throws {}
+    func trashItem(at url: URL) throws {}
+    func writeText(_ text: String, to url: URL) throws {}
+}
+
+private final class TestDirectoryChangeSource: DirectoryChangeSource {
+    private let onChange: @Sendable ([String]) -> Void
+
+    init(onChange: @escaping @Sendable ([String]) -> Void) {
+        self.onChange = onChange
+    }
+
+    func start() {}
+    func stop() {}
+
+    func emit(_ paths: [String]) {
+        onChange(paths)
+    }
+}
+
+private final class TestDirectoryWatcherFactory: DirectoryWatcherFactory {
+    private(set) var source: TestDirectoryChangeSource?
+
+    func make(
+        root: URL,
+        visibilityRules: FileVisibilityRules,
+        onChange: @escaping @Sendable ([String]) -> Void
+    ) -> any DirectoryChangeSource {
+        let source = TestDirectoryChangeSource(onChange: onChange)
+        self.source = source
+        return source
     }
 }

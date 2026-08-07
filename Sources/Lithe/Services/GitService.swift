@@ -54,6 +54,7 @@ protocol GitOperations: Sendable {
     func stage(_ change: GitChange) -> ProcessResult?
     func unstage(_ change: GitChange) -> ProcessResult?
     func discard(_ change: GitChange) -> ProcessResult?
+    func discardAll(_ change: GitChange) -> ProcessResult?
     func commit(at rootURL: URL, message: String, amend: Bool) -> ProcessResult?
     func cherryPick(_ hash: String, at rootURL: URL) -> ProcessResult?
     func revert(_ hash: String, at rootURL: URL) -> ProcessResult?
@@ -105,6 +106,17 @@ struct GitService: Sendable {
     struct CommandResult: Sendable {
         let output: String
         let exitCode: Int32
+        let stashRestoreConflict: GitStashRestoreConflict?
+
+        init(
+            output: String,
+            exitCode: Int32,
+            stashRestoreConflict: GitStashRestoreConflict? = nil
+        ) {
+            self.output = output
+            self.exitCode = exitCode
+            self.stashRestoreConflict = stashRestoreConflict
+        }
 
         var succeeded: Bool { exitCode == 0 }
     }
@@ -147,6 +159,43 @@ struct GitService: Sendable {
         } ?? ""
     }
 
+    /// Returns only the working-tree delta against the current index. This is
+    /// kept separate from `diffPatch(for:)` so Shelve can preserve staged and
+    /// unstaged edits independently for a file that has both.
+    func workingDiffPatch(
+        for change: GitChange,
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) async -> String {
+        await read {
+            $0.diffPatch(
+                at: change.repositoryRoot,
+                pathspecs: change.pathspecs,
+                staged: false,
+                untracked: change.isUntracked,
+                whitespace: whitespace
+            )
+        } ?? ""
+    }
+
+    /// Applies a complete patch outside the diff-hunk convenience methods.
+    /// Shelve uses `restoreIndex` to restore the index and worktree together,
+    /// then `worktree` for the unstaged part.
+    func applyPatch(_ patch: String, at repositoryRoot: URL, mode: String) async -> CommandResult {
+        await command { $0.applyPatch(patch, at: repositoryRoot, mode: mode) }
+    }
+
+    /// A failed restore can leave one half of a Shelf already applied. Check
+    /// the reverse patch so retrying the Shelf remains idempotent instead of
+    /// treating that expected state as a second restore failure.
+    func patchIsAlreadyApplied(
+        _ patch: String,
+        at repositoryRoot: URL,
+        staged: Bool
+    ) async -> Bool {
+        let mode = staged ? "restoreIndexCheck" : "worktreeCheck"
+        return (await applyPatch(patch, at: repositoryRoot, mode: mode)).succeeded
+    }
+
     /// Returns exactly what Git would include for this file in the next
     /// commit, even when the file also has unstaged working-tree changes.
     func stagedDiffPatch(
@@ -174,6 +223,10 @@ struct GitService: Sendable {
 
     func discard(_ change: GitChange) async -> CommandResult {
         return await command { $0.discard(change) }
+    }
+
+    func discardAll(_ change: GitChange) async -> CommandResult {
+        await command { $0.discardAll(change) }
     }
 
     func stage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
@@ -425,7 +478,8 @@ struct GitService: Sendable {
             let result = operation(operations)
             return CommandResult(
                 output: result?.output ?? "Rust Core Git operation failed",
-                exitCode: result?.exitCode ?? 1
+                exitCode: result?.exitCode ?? 1,
+                stashRestoreConflict: result?.stashRestoreConflict
             )
         }.value
     }

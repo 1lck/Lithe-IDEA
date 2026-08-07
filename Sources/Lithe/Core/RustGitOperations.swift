@@ -8,6 +8,19 @@ import Foundation
 struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
     let core: RustCoreBridge
 
+    private func makeProcessResult(_ response: RustCoreBridge.GitCommandPayload) -> ProcessResult {
+        ProcessResult(
+            output: response.output,
+            exitCode: response.exitCode,
+            stashRestoreConflict: response.stashRestore.map {
+                GitStashRestoreConflict(
+                    stashReference: $0.stashReference,
+                    conflictedPaths: $0.conflictedPaths
+                )
+            }
+        )
+    }
+
     func run(
         arguments: [String],
         workingDirectory: String,
@@ -19,7 +32,7 @@ struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
             input: input
         ) {
         case .success(let response):
-            return ProcessResult(output: response.output, exitCode: response.exitCode)
+            return makeProcessResult(response)
         case .failure(let error):
             return ProcessResult(output: error.userMessage, exitCode: 1)
         }
@@ -62,7 +75,7 @@ struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
             autoStash: autoStash
         ) {
         case .success(let response):
-            return ProcessResult(output: response.output, exitCode: response.exitCode)
+            return makeProcessResult(response)
         case .failure(let error):
             return ProcessResult(output: error.userMessage, exitCode: 1)
         }
@@ -78,6 +91,10 @@ struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
 
     func discard(_ change: GitChange) -> ProcessResult? {
         return write(at: change.repositoryRoot, operation: "discard", paths: change.pathspecs)
+    }
+
+    func discardAll(_ change: GitChange) -> ProcessResult? {
+        write(at: change.repositoryRoot, operation: "discardAll", paths: change.pathspecs)
     }
 
     func commit(at rootURL: URL, message: String, amend: Bool) -> ProcessResult? {

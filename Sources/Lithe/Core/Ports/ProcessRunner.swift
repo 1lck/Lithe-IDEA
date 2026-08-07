@@ -49,6 +49,17 @@ struct ProcessLifecycleEvent: Sendable {
 struct ProcessResult: Sendable {
     let output: String
     let exitCode: Int32
+    let stashRestoreConflict: GitStashRestoreConflict?
+
+    init(
+        output: String,
+        exitCode: Int32,
+        stashRestoreConflict: GitStashRestoreConflict? = nil
+    ) {
+        self.output = output
+        self.exitCode = exitCode
+        self.stashRestoreConflict = stashRestoreConflict
+    }
 
     var succeeded: Bool { exitCode == 0 }
 }

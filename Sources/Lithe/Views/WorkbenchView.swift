@@ -46,9 +46,16 @@ struct WorkbenchView: View {
             }
         }
         .sheet(item: $model.pendingCheckoutConflict) { request in
-            GitCheckoutConflictDialog(request: request) { strategy in
-                Task { await model.resolveCheckoutConflict(request, strategy: strategy) }
-            }
+            GitCheckoutConflictDialog(
+                request: request,
+                savePolicy: model.gitSaveChangesPolicy,
+                onResolve: { strategy in
+                    Task { await model.resolveCheckoutConflict(request, strategy: strategy) }
+                },
+                onRollback: { path in
+                    model.requestConflictRollback(path: path, resume: .checkout(request.reference))
+                }
+            )
         }
         .sheet(item: $model.pendingPullStrategy) { request in
             GitPullStrategyDialog(request: request) { strategy in
@@ -57,9 +64,17 @@ struct WorkbenchView: View {
             .onDisappear { model.cancelPullStrategy() }
         }
         .sheet(item: $model.pendingIntegrationConflict) { request in
-            GitIntegrationConflictDialog(request: request) {
-                Task { await model.resolveIntegrationConflict(request) }
-            }
+            GitIntegrationConflictDialog(
+                request: request,
+                savePolicy: model.gitSaveChangesPolicy,
+                onStash: { Task { await model.resolveIntegrationConflict(request) } },
+                onRollback: { path in
+                    model.requestConflictRollback(
+                        path: path,
+                        resume: .integration(target: request.target, operation: request.operation)
+                    )
+                }
+            )
             .onDisappear { model.cancelIntegrationConflict() }
         }
         .confirmationDialog(
@@ -95,6 +110,24 @@ struct WorkbenchView: View {
                 .lithePointer()
         } message: {
             Text("This action cannot be undone by Lithe.")
+        }
+        .confirmationDialog(
+            "Discard changes to '\(model.pendingConflictRollback?.path ?? "this file")'?",
+            isPresented: Binding(
+                get: { model.pendingConflictRollback != nil },
+                set: { if !$0 { model.cancelConflictRollback() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Discard and Retry", role: .destructive) {
+                guard let request = model.pendingConflictRollback else { return }
+                Task { await model.confirmConflictRollback(request) }
+            }
+            .lithePointer()
+            Button("Cancel", role: .cancel) { model.cancelConflictRollback() }
+                .lithePointer()
+        } message: {
+            Text("This discards the file's staged and working-tree changes, then retries the blocked Git operation.")
         }
         .confirmationDialog(
             "Discard this change block?",

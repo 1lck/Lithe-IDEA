@@ -116,7 +116,10 @@ final class AppModel: ObservableObject {
             fileStorage: services.fileStorage,
             localHistoryOperations: services.localHistoryOperations
         )
-        gitFeature = GitFeatureModel(service: services.gitService)
+        gitFeature = GitFeatureModel(
+            service: services.gitService,
+            shelveService: services.shelveService
+        )
         documentFeature = DocumentFeatureModel(
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations
@@ -228,6 +231,13 @@ final class AppModel: ObservableObject {
             onStateRefreshed: { [weak self] in
                 guard let self, let document = self.activeDocument else { return }
                 await self.refreshCodeVision(for: document.url)
+            },
+            saveChangesPolicy: { [weak self] in self?.settings.gitSaveChangesPolicy ?? .stash },
+            onGitOperationBegan: { [weak self] in
+                self?.workspaceFeature.beginGitOperationFreeze()
+            },
+            onGitOperationEnded: { [weak self] in
+                await self?.workspaceFeature.endGitOperationFreeze()
             }
         )
         gitFeatureObservation = gitFeature.objectWillChange.sink { [weak self] _ in
@@ -1154,18 +1164,6 @@ final class AppModel: ObservableObject {
 
     func stageAllChanges() async {
         await gitFeature.stageAllChanges()
-    }
-
-    func stashWorkingTree(message: String, includeUntracked: Bool) async {
-        await gitFeature.stashWorkingTree(message: message, includeUntracked: includeUntracked)
-    }
-
-    func applyStash(_ stash: GitStash, pop: Bool = false) async {
-        await gitFeature.applyStash(stash, pop: pop)
-    }
-
-    func dropStash(_ stash: GitStash) async {
-        await gitFeature.dropStash(stash)
     }
 
     func toggleGitLog() async {

@@ -1,10 +1,9 @@
 # Git 冲突处理：与 IntelliJ IDEA 的对照及后续开发计划
 
 本文对照 IntelliJ IDEA 社区版（`plugins/git4idea`）的实现，记录 Lithe 当前
-Git 冲突处理能力的位置，并给出后续开发项的设计。
+Git 冲突处理能力的位置，并给出后续开发项的设计和实现状态。
 
-**读者**：接手实现的开发者。本文只做设计，不含已完成代码的说明——已完成部分
-请直接读源码，本文只在需要对照时引用。
+**读者**：接手实现的开发者。设计依据见第 1–5 节，当前实现状态和验证结果见第 7 节。
 
 **代码位置**：已完成部分位于分支 `feat/git-conflict-handling`，共三个提交，
 基线为 `2a4ad6f`。详见第 6 节。
@@ -518,3 +517,50 @@ pending 状态；`GitLogView.swift` 中三个对话框位于**同一个 hunk**�
 - 想整体挪到别的分支：`git cherry-pick 7ba64ef^..740d7a1`
 - 想继续开发项 A/B：直接基于 `740d7a1` 建分支
 
+## 7. A、B、C、F 的实现状态
+
+开发项 A、B、C、F 已按“先保护数据，再执行 Git 操作，最后统一刷新”的顺序落地。
+
+### A：冲突文件可查看、单文件回滚并重试
+
+- checkout 和 merge/rebase 等冲突对话框中的已知文件可以直接打开现有 Diff 视图。
+- 每个已知文件提供二次确认后的单文件回滚；回滚后会重新执行 preflight，阻塞项清空时自动继续原操作。
+- 无法映射为 `GitChange` 的路径仍使用纯文本降级展示。
+
+### B：stash 恢复冲突可持续处理
+
+- Rust 返回 `stashReference` 和 `conflictedPaths`，不依赖本地化 Git 文案，也不假设
+  `stash@{0}`。
+- checkout、stash apply/pop 和 integration 恢复冲突会显示持久提示。
+- 提示可以筛选冲突文件、定位保存的 stash，且明确要求解决后手动删除 stash。
+- merge/rebase 等中途停止时，保存的本地改动会延迟到 continue/abort 完成后再恢复。
+
+### C：Shelve 可作为自动保存策略
+
+- 新增版本化的 Lithe Shelf 存储，位置为 Application Support 下按仓库隔离的目录。
+- staged patch 和 working-tree patch 分开保存，恢复时先恢复 index，再恢复工作区。
+- checkout、merge、rebase、cherry-pick、revert 的自动保存可以在 Settings 中选择 Git
+  stash 或 Lithe Shelve。
+- Changes 面板可以创建、恢复和删除 Shelf；恢复失败时保留原 Shelf 供重试。
+
+### F：Git 操作期间冻结文件监听刷新
+
+- GitFeatureModel 的写操作通过 begin/end 回调增加工作区冻结深度，支持嵌套流程。
+- FSEvents 路径在冻结期间只累计，不处理编辑器、项目服务和 Git 状态刷新。
+- 最外层 Git 操作结束后一次性处理累计路径，避免中间 index/worktree 状态进入 UI。
+
+### 验证与尚未覆盖的范围
+
+当前已通过：
+
+- `cargo test --manifest-path rust/lithe-core/Cargo.toml`：33 项测试通过。
+- `swift test`：51 项测试通过。
+- `swift build`。
+- `scripts/verify-service-boundaries.sh` 和 `scripts/verify-rust-core.sh`。
+- `plutil -lint Resources/zh-Hans.lproj/Localizable.strings`。
+- `git diff --check`。
+- `cargo fmt --manifest-path rust/Cargo.toml -- --check`。
+
+仍需在运行中的 macOS 应用里手工验证完整 sheet/banner 呈现，以及真实仓库中的
+checkout、stash 恢复冲突和 Shelf 恢复冲突。开发项 D（多仓库）和 E（三方合并编辑器）
+没有纳入本轮实现。

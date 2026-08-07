@@ -1255,10 +1255,63 @@ private struct GitBranchNameDialog: View {
 /// Stash-and-retry is the only action besides cancelling. A force equivalent would
 /// mean `git reset --hard`, which discards commits rather than just working-tree
 /// edits, so it is deliberately absent.
+private struct GitConflictPathRow: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let path: String
+    let onRollback: (String) -> Void
+
+    private var change: GitChange? {
+        model.gitChanges.first(where: { $0.path == path })
+    }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if change != nil {
+                Button {
+                    dismiss()
+                    model.showGitConflictDiff(path: path)
+                } label: {
+                    Text(path)
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .underline()
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help("Show Diff")
+
+                Button {
+                    dismiss()
+                    onRollback(path)
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(LitheTheme.warning)
+                .lithePointer()
+                .help("Discard this file and retry")
+            } else {
+                Text(path)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 struct GitIntegrationConflictDialog: View {
     @Environment(\.dismiss) private var dismiss
     let request: GitIntegrationConflictRequest
+    let savePolicy: GitSaveChangesPolicy
     let onStash: () -> Void
+    let onRollback: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1275,18 +1328,16 @@ struct GitIntegrationConflictDialog: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(request.blockingPaths, id: \.self) { path in
-                        Text(path)
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        GitConflictPathRow(path: path, onRollback: onRollback)
                     }
                 }
                 .padding(.vertical, 2)
             }
             .frame(maxHeight: 132)
 
-            Text("Stashing sets these changes aside, runs the operation, then restores them. If conflicts stop the operation, the changes stay stashed until you finish it.")
+            Text(LocalizedStringKey(savePolicy == .shelve
+                ? "Shelving saves these changes in Lithe, runs the operation, then restores them. If conflicts stop the operation, the shelf stays saved until you finish it."
+                : "Stashing sets these changes aside, runs the operation, then restores them. If conflicts stop the operation, the changes stay stashed until you finish it."))
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1296,7 +1347,7 @@ struct GitIntegrationConflictDialog: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                     .lithePointer()
-                Button("Stash and Continue") {
+                Button(LocalizedStringKey(savePolicy == .shelve ? "Shelve and Continue" : "Stash and Continue")) {
                     onStash()
                     dismiss()
                 }
@@ -1424,7 +1475,9 @@ struct GitPullStrategyDialog: View {
 struct GitCheckoutConflictDialog: View {
     @Environment(\.dismiss) private var dismiss
     let request: GitCheckoutConflictRequest
+    let savePolicy: GitSaveChangesPolicy
     let onResolve: (GitCheckoutConflictStrategy) -> Void
+    let onRollback: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1440,18 +1493,16 @@ struct GitCheckoutConflictDialog: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(request.blockingPaths, id: \.self) { path in
-                        Text(path)
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        GitConflictPathRow(path: path, onRollback: onRollback)
                     }
                 }
                 .padding(.vertical, 2)
             }
             .frame(maxHeight: 132)
 
-            Text("Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them.")
+            Text(LocalizedStringKey(savePolicy == .shelve
+                ? "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them."
+                : "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them."))
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1463,7 +1514,7 @@ struct GitCheckoutConflictDialog: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                     .lithePointer()
-                Button("Smart Checkout") { resolve(.smart) }
+                Button(LocalizedStringKey(savePolicy == .shelve ? "Smart Checkout (Shelve)" : "Smart Checkout")) { resolve(.smart) }
                     .buttonStyle(.borderedProminent)
                     .lithePointer()
                     .tint(LitheTheme.accent)
