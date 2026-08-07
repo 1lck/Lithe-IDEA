@@ -10,18 +10,19 @@
 <line x1="115" y1="545.00" x2="1135" y2="545.00" stroke="#d1d5db" stroke-width="1"/>
 <text x="97.00" y="552.00" text-anchor="end" font-size="18" fill="#111111">0</text>
 <line x1="115" y1="431.75" x2="1135" y2="431.75" stroke="#d1d5db" stroke-width="1"/>
-<text x="97.00" y="438.75" text-anchor="end" font-size="18" fill="#111111">25</text>
+<text x="97.00" y="438.75" text-anchor="end" font-size="18" fill="#111111">50</text>
 <line x1="115" y1="318.50" x2="1135" y2="318.50" stroke="#d1d5db" stroke-width="1"/>
-<text x="97.00" y="325.50" text-anchor="end" font-size="18" fill="#111111">50</text>
+<text x="97.00" y="325.50" text-anchor="end" font-size="18" fill="#111111">100</text>
 <line x1="115" y1="205.25" x2="1135" y2="205.25" stroke="#d1d5db" stroke-width="1"/>
-<text x="97.00" y="212.25" text-anchor="end" font-size="18" fill="#111111">75</text>
+<text x="97.00" y="212.25" text-anchor="end" font-size="18" fill="#111111">150</text>
 <line x1="115" y1="92.00" x2="1135" y2="92.00" stroke="#d1d5db" stroke-width="1"/>
-<text x="97.00" y="99.00" text-anchor="end" font-size="18" fill="#111111">100</text>
+<text x="97.00" y="99.00" text-anchor="end" font-size="18" fill="#111111">200</text>
 <text x="115.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 03</text>
-<text x="455.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 04</text>
-<text x="795.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 05</text>
-<text x="1135.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 06</text>
-<path d="M 115.00,264.14 L 455.00,232.43 L 795.00,205.25 L 1135.00,191.66" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="370.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 04</text>
+<text x="625.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 05</text>
+<text x="880.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 06</text>
+<text x="1135.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 07</text>
+<path d="M 115.00,404.57 L 370.00,388.72 L 625.00,375.12 L 880.00,318.50 L 1135.00,250.55" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
 <rect x="135" y="110" width="310" height="60" rx="12" fill="#ffffff" stroke="#111111" stroke-width="2"/>
 <rect x="153" y="131" width="16" height="16" rx="3" fill="#e34b2d"/>
 <text x="183.00" y="147.00" font-size="20" fill="#111111">1lck/Lithe-IDEA</text>
