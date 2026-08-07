@@ -23,8 +23,11 @@ swift build --disable-sandbox --triple "$TRIPLE" \
 
 BRIDGE_BINARY="$(mktemp -t lithe-rust-bridge).out"
 trap 'rm -f "$BRIDGE_BINARY"' EXIT
+MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 swiftc scripts/RustCoreBridgeVerification.swift \
     Sources/LitheRustCore/bridge.c \
+    -sdk "$MACOS_SDK" \
+    -target "${TRIPLE}14.0" \
     -Xlinker -force_load \
     -Xlinker "$RUST_LIBRARY" \
     -o "$BRIDGE_BINARY"
