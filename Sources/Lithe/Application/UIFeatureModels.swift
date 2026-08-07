@@ -44,10 +44,18 @@ final class MavenFeatureModel: ObservableObject {
 }
 
 /// UI-facing projection for Java run configurations and process sessions.
+enum RunConfigurationGenerationIntent: Sendable {
+    case identifyOnly
+    case run
+    case debug
+}
+
 @MainActor
 final class JavaRunFeatureModel: ObservableObject {
     private let service: JavaRunService
     private var observation: AnyCancellable?
+    @Published var isGenerationConfirmationPresented = false
+    private(set) var generationIntent: RunConfigurationGenerationIntent = .identifyOnly
 
     @Published var selectedConfigurationID: String {
         didSet {
@@ -78,18 +86,43 @@ final class JavaRunFeatureModel: ObservableObject {
     var mavenProfiles: [MavenProfile] { service.mavenProfiles }
     var moduleSessions: [JavaRunSession] { service.moduleSessions }
     var portConflicts: [JavaRunPortConflict] { service.portConflicts }
+    var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }
+    var configurationDiagnostics: [RunConfigurationDiagnostic] { service.configurationDiagnostics }
+    var generationState: RunConfigurationGenerationState { service.generationState }
+    var recoveryAction: RunConfigurationRecoveryAction { service.recoveryAction }
+    var recoveryPath: String? { service.recoveryPath }
+    var configurationSaveError: String? { service.configurationSaveError }
+    var blockingToolchainDiagnostic: RunConfigurationDiagnostic? {
+        service.configurationDiagnostics.first {
+            $0.code == "missingToolchain" || $0.code == "toolchainVersionMismatch"
+        }
+    }
     var sourceSearchRoots: [URL] { service.sourceSearchRoots }
 
     func options(for configuration: JavaRunConfiguration) -> JavaRunOptions {
         service.options(for: configuration)
     }
 
-    func updateOptions(_ options: JavaRunOptions, for configuration: JavaRunConfiguration) {
-        service.updateOptions(options, for: configuration)
+    func source(for configuration: JavaRunConfiguration) -> RunConfigurationSource {
+        service.source(for: configuration)
+    }
+
+    @discardableResult
+    func updateOptions(
+        _ options: JavaRunOptions,
+        for configuration: JavaRunConfiguration,
+        scope: RunConfigurationSaveScope = .local
+    ) -> Bool {
+        service.updateOptions(options, for: configuration, scope: scope)
     }
 
     func resetOptions(for configuration: JavaRunConfiguration) {
         service.resetOptions(for: configuration)
+    }
+
+    @discardableResult
+    func createConfiguration(_ draft: RunConfigurationDraft) -> Bool {
+        service.createConfiguration(draft)
     }
 
     func runAllModules() {
@@ -122,6 +155,17 @@ final class JavaRunFeatureModel: ObservableObject {
         mavenProject: MavenProject?
     ) async {
         await service.loadProject(at: workspaceURL, files: files, mavenProject: mavenProject)
+    }
+
+    func generateRunConfigurations() async {
+        isGenerationConfirmationPresented = false
+        await service.generateRunConfigurations()
+    }
+
+    func requestRunConfigurationGeneration(intent: RunConfigurationGenerationIntent = .identifyOnly) {
+        guard recoveryAction != .upgradeApplication else { return }
+        generationIntent = intent
+        isGenerationConfirmationPresented = true
     }
 
     func select(_ configuration: JavaRunConfiguration) { service.select(configuration) }

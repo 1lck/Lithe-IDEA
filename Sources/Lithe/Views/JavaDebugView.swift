@@ -442,7 +442,12 @@ struct JavaDebugView: View {
             .lithePointer()
             .tint(LitheTheme.accent)
             .controlSize(.small)
-            .disabled(service.targetKind == .runConfiguration && selectedDebugConfiguration == nil)
+            .disabled(
+                runService.isLoadingProject ||
+                    (service.targetKind == .runConfiguration &&
+                        runService.configurationStatus == .ready &&
+                        selectedDebugConfiguration == nil)
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

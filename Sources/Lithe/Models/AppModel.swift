@@ -398,7 +398,17 @@ final class AppModel: ObservableObject, Identifiable {
         debugFeature.stop()
         mavenFeature.stop()
         javaFeature.stop()
-        if let workspaceURL { javaFeature.prepareProject(at: workspaceURL, files: projectFiles) }
+        if let workspaceURL {
+            javaFeature.prepareProject(at: workspaceURL, files: projectFiles)
+            Task { [weak self] in
+                guard let self else { return }
+                await self.runFeature.loadProject(
+                    at: workspaceURL,
+                    files: self.projectFiles,
+                    mavenProject: self.mavenFeature.project
+                )
+            }
+        }
     }
 
     var projectName: String {
@@ -1459,7 +1469,18 @@ final class AppModel: ObservableObject, Identifiable {
         runFeature.select(configuration)
     }
 
+    func openRunConfiguration(relativePath: String?) {
+        guard let workspaceURL else { return }
+        let url = workspaceURL.appendingPathComponent(relativePath ?? ".lithe/run/generated.json")
+        guard workspaceFeature.fileExists(at: url) else { return }
+        openFile(url)
+    }
+
     func runSelectedConfiguration() {
+        guard runFeature.configurationStatus == .ready else {
+            runFeature.requestRunConfigurationGeneration(intent: .run)
+            return
+        }
         guard javaFeature.runSelectedConfiguration(
             currentDocument: activeDocument,
             saveDocument: { [weak self] document in try self?.saveDocument(document) },
@@ -1497,6 +1518,21 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func startDebugging() {
+        if debugFeature.targetKind == .runConfiguration,
+           runFeature.configurationStatus != .ready {
+            runFeature.requestRunConfigurationGeneration(intent: .debug)
+            return
+        }
+        if runFeature.blockingToolchainDiagnostic != nil {
+            isRunVisible = true
+            isDebugVisible = false
+            isGitLogVisible = false
+            isTerminalVisible = false
+            isReferencesVisible = false
+            isProblemsVisible = false
+            isMavenVisible = false
+            return
+        }
         guard javaFeature.startDebugging(
             currentDocument: activeDocument,
             workspaceURL: workspaceURL,

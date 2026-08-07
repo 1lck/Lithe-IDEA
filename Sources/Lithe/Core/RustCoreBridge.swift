@@ -249,6 +249,72 @@ struct RustCoreBridge: Sendable {
         let configurations: [Configuration]
     }
 
+    struct RunConfigurationPayload: Codable, Sendable {
+        struct Generator: Codable, Sendable {
+            let fingerprint: String
+            let inputs: [String: String]?
+        }
+        struct Configuration: Codable, Sendable {
+            let id: String
+            let name: String
+            let type: String
+            let module: String?
+            let mainClass: String?
+            let toolchains: [String: String]
+            let workingDirectory: String
+            let jvmArguments: [String]
+            let programArguments: [String]
+            let mavenProfiles: [String]
+            let disabled: Bool
+            let source: String?
+        }
+
+        let version: Int
+        let generator: Generator?
+        let configurations: [Configuration]
+        let diagnostics: [[String: String]]?
+        let defaultRunConfiguration: String?
+    }
+
+    struct RunConfigurationGeneratePayload: Codable, Sendable {
+        let generated: RunConfigurationPayload
+        let toolchainRequirements: ToolchainRequirementsPayload
+        let entryCount: Int
+    }
+
+    struct ToolchainRequirementsPayload: Codable, Sendable {
+        struct Requirement: Codable, Sendable {
+            let type: String
+            let minimumVersion: String?
+            let preferredVendor: String?
+            let wrapper: String?
+            let version: String?
+            let java: String?
+        }
+        let version: Int
+        let toolchains: [String: Requirement]
+    }
+
+    struct RunConfigurationInspectPayload: Codable, Sendable {
+        let status: String
+        let generated: RunConfigurationPayload?
+        let toolchainRequirements: ToolchainRequirementsPayload?
+        let diagnostics: [[String: String]]?
+    }
+
+    struct LaunchPlanPayload: Codable, Sendable {
+        struct Executable: Codable, Sendable { let toolchain: String }
+        let executable: Executable
+        let arguments: [String]
+        let workingDirectory: String
+        let environment: [String: [String: String]]
+    }
+
+    struct RunConfigurationMutationPayload: Codable, Sendable {
+        let id: String?
+        let document: String
+    }
+
     struct JavaCodeVisionPayload: Decodable, Sendable {
         struct Hint: Decodable, Sendable {
             let line: Int
@@ -683,6 +749,41 @@ struct RustCoreBridge: Sendable {
         let modulePaths: [String]
     }
 
+    private struct RunConfigurationInspectRequest: Encodable { let root: String }
+    private struct RunConfigurationGenerateRequest: Encodable {
+        let root: String
+        let paths: [String]
+        let modulePaths: [String]
+    }
+    private struct RunConfigurationResolveRequest: Encodable {
+        let root: String
+        let toolchainCandidates: [ProjectToolchainCandidate]
+    }
+    private struct RunConfigurationUpdateOptionsRequest: Encodable {
+        let root: String
+        let scope: String
+        let configurationId: String
+        let workingDirectory: String
+        let jvmArguments: String
+        let programArguments: String
+        let mavenProfiles: [String]
+    }
+    private struct RunConfigurationCreateUserRequest: Encodable {
+        let root: String
+        let scope: String
+        let name: String
+        let type: String
+        let module: String
+        let mainClass: String
+    }
+    private struct LaunchPlanRequest: Encodable {
+        let root: String
+        let configurationId: String
+        let currentFile: String?
+        let classPath: String?
+        let debugPort: Int?
+    }
+
     private struct JavaStructureRequest: Encodable {
         let source: String
         let declarationSources: [String]
@@ -1044,6 +1145,97 @@ struct RustCoreBridge: Sendable {
                 root: rootURL.standardizedFileURL.path,
                 paths: paths,
                 modulePaths: modulePaths
+            )
+        )
+    }
+
+    func inspectRunConfiguration(at rootURL: URL) -> Result<RunConfigurationInspectPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.inspect",
+            payload: RunConfigurationInspectRequest(root: rootURL.standardizedFileURL.path)
+        )
+    }
+
+    func generateRunConfiguration(
+        at rootURL: URL,
+        paths: [String],
+        modulePaths: [String]
+    ) -> Result<RunConfigurationGeneratePayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.generate",
+            payload: RunConfigurationGenerateRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: paths,
+                modulePaths: modulePaths
+            )
+        )
+    }
+
+    func resolveRunConfiguration(
+        at rootURL: URL,
+        toolchainCandidates: [ProjectToolchainCandidate]
+    ) -> Result<RunConfigurationPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.resolve",
+            payload: RunConfigurationResolveRequest(
+                root: rootURL.standardizedFileURL.path,
+                toolchainCandidates: toolchainCandidates
+            )
+        )
+    }
+
+    func createLaunchPlan(
+        at rootURL: URL,
+        configurationID: String,
+        currentFile: String? = nil,
+        classPath: String? = nil,
+        debugPort: Int? = nil
+    ) -> Result<LaunchPlanPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.createLaunchPlan",
+            payload: LaunchPlanRequest(
+                root: rootURL.standardizedFileURL.path,
+                configurationId: configurationID,
+                currentFile: currentFile,
+                classPath: classPath,
+                debugPort: debugPort
+            )
+        )
+    }
+
+    func updateRunConfigurationOptions(
+        at rootURL: URL,
+        configurationID: String,
+        scope: RunConfigurationSaveScope,
+        options: JavaRunOptions
+    ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.updateOptions",
+            payload: RunConfigurationUpdateOptionsRequest(
+                root: rootURL.standardizedFileURL.path,
+                scope: scope.rawValue,
+                configurationId: configurationID,
+                workingDirectory: options.workingDirectoryPath,
+                jvmArguments: options.vmArguments,
+                programArguments: options.programArguments,
+                mavenProfiles: options.activeProfiles.sorted()
+            )
+        )
+    }
+
+    func createUserRunConfiguration(
+        at rootURL: URL,
+        draft: RunConfigurationDraft
+    ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.createUserConfiguration",
+            payload: RunConfigurationCreateUserRequest(
+                root: rootURL.standardizedFileURL.path,
+                scope: draft.scope.rawValue,
+                name: draft.name,
+                type: draft.kind.rawValue,
+                module: draft.modulePath,
+                mainClass: draft.mainClass
             )
         )
     }

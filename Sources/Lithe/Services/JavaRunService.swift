@@ -3,26 +3,41 @@ import Foundation
 @MainActor
 final class JavaRunService: ObservableObject {
     @Published private(set) var configurations: [JavaRunConfiguration] = [.currentFile]
-    @Published var selectedConfigurationID = JavaRunConfiguration.currentFileID
+    @Published var selectedConfigurationID = JavaRunConfiguration.currentFileID {
+        didSet {
+            guard let projectURL else { return }
+            selectedConfigurationIDsByProject[projectURL.path] = selectedConfigurationID
+            preferences.set(selectedConfigurationID, forKey: selectionPreferenceKey(for: projectURL))
+        }
+    }
     @Published private(set) var isLoadingProject = false
     @Published private(set) var isRunning = false
     @Published private(set) var runningTitle: String?
     @Published private(set) var output = ""
     @Published private(set) var lastExitCode: Int32?
     @Published private(set) var optionsByConfigurationID: [String: JavaRunOptions] = [:]
+    @Published private(set) var effectiveSourcesByConfigurationID: [String: RunConfigurationSource] = [:]
     @Published private(set) var mavenProfiles: [MavenProfile] = []
     @Published private(set) var moduleSessions: [JavaRunSession] = []
     @Published private(set) var portConflicts: [JavaRunPortConflict] = []
+    @Published private(set) var configurationStatus: ProjectRunConfigurationStatus = .missing
+    @Published private(set) var configurationDiagnostics: [RunConfigurationDiagnostic] = []
+    @Published private(set) var generationState: RunConfigurationGenerationState = .idle
+    @Published private(set) var recoveryAction: RunConfigurationRecoveryAction = .regenerate
+    @Published private(set) var recoveryPath: String?
+    @Published private(set) var configurationSaveError: String?
 
     private let process: any StreamingProcess
     private let processFactory: () -> any StreamingProcess
     private let fileStorage: any FileStorage
     private let preferences: any KeyValueStore
     private let javaMavenOperations: any JavaMavenOperations
+    private let runConfigurationOperations: any RunConfigurationOperations
     private var projectURL: URL?
     private var projectFiles: [URL] = []
     private var mavenProject: MavenProject?
     private var projectLoadID = UUID()
+    private var selectedConfigurationIDsByProject: [String: String] = [:]
     private var lastRunConfiguration: JavaRunConfiguration?
     private var lastCurrentFileURL: URL?
     private var moduleProcesses: [String: any StreamingProcess] = [:]
@@ -37,7 +52,8 @@ final class JavaRunService: ObservableObject {
         processFactory: @escaping () -> any StreamingProcess,
         fileStorage: any FileStorage,
         preferences: any KeyValueStore,
-        javaMavenOperations: any JavaMavenOperations
+        javaMavenOperations: any JavaMavenOperations,
+        runConfigurationOperations: any RunConfigurationOperations
     ) {
         self.runtimeService = runtimeService
         self.process = process
@@ -45,6 +61,7 @@ final class JavaRunService: ObservableObject {
         self.fileStorage = fileStorage
         self.preferences = preferences
         self.javaMavenOperations = javaMavenOperations
+        self.runConfigurationOperations = runConfigurationOperations
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 self?.append(chunk)
@@ -83,32 +100,107 @@ final class JavaRunService: ObservableObject {
         let loadID = UUID()
         projectLoadID = loadID
         isLoadingProject = true
-        let javaMavenOperations = javaMavenOperations
-        let scannedConfigurations = await Task.detached(priority: .utility) {
-            javaMavenOperations.scanRunConfigurations(
-                at: projectURL,
-                files: files,
-                mavenProject: mavenProject
-            )
+        let operations = runConfigurationOperations
+        let inspection = await Task.detached(priority: .utility) {
+            operations.inspect(at: projectURL)
         }.value
         guard !Task.isCancelled, projectLoadID == loadID else { return }
+        if let currentProject = self.projectURL {
+            selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
+        }
         self.projectURL = projectURL.standardizedFileURL
         self.mavenProject = mavenProject
-        configurations = [.currentFile] + scannedConfigurations
-        reconcileModuleSessions(validConfigurationIDs: Set(scannedConfigurations.map(\.id)))
         mavenProfiles = mavenProject?.profiles ?? []
         self.projectFiles = files
-        optionsByConfigurationID = Dictionary(uniqueKeysWithValues: configurations.map { configuration in
-            (configuration.id, loadOptions(for: configuration.id))
-        })
-        refreshPortConflicts()
-        if !configurations.contains(where: { $0.id == selectedConfigurationID }) {
-            selectedConfigurationID = scannedConfigurations.first(where: { $0.kind == .springBoot })?.id
-                ?? JavaRunConfiguration.currentFileID
-        } else if selectedConfigurationID == JavaRunConfiguration.currentFileID,
-                  let springBootConfiguration = scannedConfigurations.first(where: { $0.kind == .springBoot }) {
-            // A detected Spring Boot app is the useful default for a newly opened Maven project.
-            selectedConfigurationID = springBootConfiguration.id
+        configurationStatus = inspection.status
+        configurationDiagnostics = inspection.diagnostics
+        recoveryAction = inspection.recoveryAction
+        recoveryPath = inspection.recoveryPath
+        generationState = .idle
+        if inspection.status == .ready {
+            do {
+                let candidates = runtimeService.runConfigurationToolchainCandidates(
+                    for: mavenProject,
+                    projectRoot: projectURL
+                )
+                let resolution = try operations.resolve(at: projectURL, toolchainCandidates: candidates)
+                configurationDiagnostics += resolution.diagnostics
+                apply(
+                    resolution.configurations,
+                    preferredConfigurationID: selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
+                        ?? preferences.string(forKey: selectionPreferenceKey(for: projectURL.standardizedFileURL))
+                        ?? resolution.defaultConfigurationID
+                )
+            } catch {
+                configurationStatus = .invalid(error.localizedDescription)
+                recoveryAction = .editConfiguration
+                configurations = []
+                optionsByConfigurationID = [:]
+                effectiveSourcesByConfigurationID = [:]
+            }
+        } else {
+            configurations = []
+            optionsByConfigurationID = [:]
+            effectiveSourcesByConfigurationID = [:]
+            reconcileModuleSessions(validConfigurationIDs: [])
+            refreshPortConflicts()
+        }
+        isLoadingProject = false
+    }
+
+    func generateRunConfigurations() async {
+        guard let projectURL else { return }
+        let loadID = projectLoadID
+        isLoadingProject = true
+        let operations = runConfigurationOperations
+        let files = projectFiles
+        let modulePaths = mavenProject?.allModules.map(\.relativePath) ?? []
+        let result = await Task.detached(priority: .userInitiated) {
+            Result {
+                try operations.generate(
+                    at: projectURL,
+                    files: files,
+                    modulePaths: modulePaths
+                )
+            }
+        }.value
+        guard !Task.isCancelled, projectLoadID == loadID else { return }
+        switch result {
+        case .success(let result):
+            do {
+                let candidates = runtimeService.runConfigurationToolchainCandidates(
+                    for: mavenProject,
+                    projectRoot: projectURL
+                )
+                var resolution = try operations.resolve(at: projectURL, toolchainCandidates: candidates)
+                try operations.migrateLegacySettings(
+                    at: projectURL,
+                    configurationIDs: resolution.configurations.map { $0.configuration.id }
+                )
+                resolution = try operations.resolve(at: projectURL, toolchainCandidates: candidates)
+                configurationStatus = .ready
+                recoveryAction = .none
+                recoveryPath = nil
+                configurationDiagnostics = operations.inspect(at: projectURL).diagnostics + resolution.diagnostics
+                generationState = result.entryCount == 0 ? .noEntries : .succeeded(entryCount: result.entryCount)
+                apply(
+                    resolution.configurations,
+                    preferredConfigurationID: selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
+                        ?? resolution.defaultConfigurationID
+                )
+            } catch {
+                configurationStatus = .invalid(error.localizedDescription)
+                recoveryAction = .editConfiguration
+                configurationDiagnostics = []
+                generationState = .failed(error.localizedDescription)
+                fail(error.localizedDescription)
+            }
+        case .failure(let error):
+            configurationStatus = .invalid(error.localizedDescription)
+            recoveryAction = .fixPermissions
+            configurationDiagnostics = []
+            generationState = .failed(error.localizedDescription)
+            fail(error.localizedDescription)
         }
         isLoadingProject = false
     }
@@ -117,19 +209,82 @@ final class JavaRunService: ObservableObject {
         selectedConfigurationID = configuration.id
     }
 
+    private func selectionPreferenceKey(for projectURL: URL) -> String {
+        "lithe.selected-run-configuration."
+            + projectURL.standardizedFileURL.path.replacingOccurrences(of: "/", with: "_")
+    }
+
     func options(for configuration: JavaRunConfiguration) -> JavaRunOptions {
         optionsByConfigurationID[configuration.id] ?? JavaRunOptions()
     }
 
-    func updateOptions(_ options: JavaRunOptions, for configuration: JavaRunConfiguration) {
+    func source(for configuration: JavaRunConfiguration) -> RunConfigurationSource {
+        effectiveSourcesByConfigurationID[configuration.id] ?? .generated
+    }
+
+    @discardableResult
+    func updateOptions(
+        _ options: JavaRunOptions,
+        for configuration: JavaRunConfiguration,
+        scope: RunConfigurationSaveScope = .local
+    ) -> Bool {
+        configurationSaveError = nil
+        if configurationStatus == .ready, let projectURL {
+            do {
+                try runConfigurationOperations.saveOptions(
+                    options,
+                    configurationID: configuration.id,
+                    scope: scope,
+                    at: projectURL
+                )
+            } catch {
+                configurationSaveError = error.localizedDescription
+                return false
+            }
+        }
         optionsByConfigurationID[configuration.id] = options
+        effectiveSourcesByConfigurationID[configuration.id] = scope == .local ? .local : .project
         persist(options, for: configuration.id)
         refreshPortConflicts()
+        return true
     }
 
     func resetOptions(for configuration: JavaRunConfiguration) {
         let options = JavaRunOptions()
         updateOptions(options, for: configuration)
+    }
+
+    @discardableResult
+    func createConfiguration(_ draft: RunConfigurationDraft) -> Bool {
+        configurationSaveError = nil
+        guard configurationStatus == .ready, let projectURL else {
+            configurationSaveError = "Identify the project before creating a run configuration."
+            return false
+        }
+        do {
+            let id = try runConfigurationOperations.createConfiguration(draft, at: projectURL)
+            let candidates = runtimeService.runConfigurationToolchainCandidates(
+                for: mavenProject,
+                projectRoot: projectURL
+            )
+            let resolution = try runConfigurationOperations.resolve(
+                at: projectURL,
+                toolchainCandidates: candidates
+            )
+            guard resolution.configurations.contains(where: { $0.configuration.id == id }) else {
+                throw RunConfigurationOperationFailure(
+                    message: "The new configuration did not pass project validation. Check its module and main class."
+                )
+            }
+            configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
+                + resolution.diagnostics
+            apply(resolution.configurations, preferredConfigurationID: id)
+            selectedConfigurationIDsByProject[projectURL.path] = id
+            return true
+        } catch {
+            configurationSaveError = error.localizedDescription
+            return false
+        }
     }
 
     func runSelected(currentFileURL: URL?) {
@@ -155,77 +310,58 @@ final class JavaRunService: ObservableObject {
             return
         }
 
+        guard configurationStatus == .ready, let projectURL else {
+            fail("Project run configuration is missing. Identify the project before running.")
+            return
+        }
+        if let diagnostic = configurationDiagnostics.first(where: { Self.isBlockingToolchainDiagnostic($0) }) {
+            fail(diagnostic.message)
+            return
+        }
+        if configuration.kind == .currentFile,
+           currentFileURL?.pathExtension.lowercased() != "java" {
+            fail(String(localized: "Select a Java file before running Current File."))
+            return
+        }
+        let currentFile = currentFileURL.flatMap { relativePath(for: $0, root: projectURL) }
+        let planClassPath = currentFileURL.flatMap(classPath(for:))
+        let plan: SharedLaunchPlan
+        do {
+            plan = try runConfigurationOperations.launchPlan(
+                at: projectURL,
+                configurationID: configuration.id,
+                currentFile: currentFile,
+                classPath: planClassPath,
+                debugPort: nil
+            )
+        } catch {
+            fail(error.localizedDescription)
+            return
+        }
         let executable: URL
-        let arguments: [String]
-        let workingDirectory: URL
-
-        switch configuration.kind {
-        case .currentFile:
-            guard let currentFileURL,
-                  currentFileURL.pathExtension.lowercased() == "java" else {
-                fail("Select a Java file before running Current File.")
-                return
-            }
-            guard let javaURL = runtimeService.javaExecutableURL(overridePath: options.javaHomePath) else {
+        let processKind: ProjectRuntimeProcessKind
+        if plan.toolchainID == "project-jdk" {
+            guard let value = runtimeService.javaExecutableURL(overridePath: options.javaHomePath) else {
                 fail("No Java runtime was found. Set JAVA_HOME or install a JDK.")
                 return
             }
-            executable = javaURL
-            var currentFileArguments = Self.arguments(from: options.vmArguments)
-            if let classPath = classPath(for: currentFileURL) {
-                // Source-file mode still needs the compiled project classes when
-                // the current file references sibling Maven classes.
-                currentFileArguments += ["--class-path", classPath]
-            }
-            currentFileArguments += [currentFileURL.standardizedFileURL.path]
-            currentFileArguments += Self.arguments(from: options.programArguments)
-            arguments = currentFileArguments
-            workingDirectory = resolvedWorkingDirectory(
-                options.workingDirectoryPath,
-                fallback: currentFileURL.deletingLastPathComponent()
-            )
-
-        case .springBoot, .mavenModule:
-            guard let mavenProject else {
-                fail("No Maven project is available for this run configuration.")
-                return
-            }
-            guard let mavenExecutable = runtimeService.mavenExecutable(for: mavenProject) else {
+            executable = value
+            processKind = .java
+        } else {
+            guard let value = runtimeService.mavenExecutable(at: projectURL) else {
                 fail("No Maven executable was found. Configure Maven in Project Settings.")
                 return
             }
-            executable = mavenExecutable
-            var mavenArguments = ["-B", "-ntp"]
-            if let modulePath = configuration.modulePath {
-                mavenArguments += ["-pl", modulePath]
-            }
-            if !options.activeProfiles.isEmpty {
-                mavenArguments += ["-P", options.activeProfiles.sorted().joined(separator: ",")]
-            }
-            if let mainClass = configuration.mainClass {
-                mavenArguments.append("-Dspring-boot.run.main-class=" + mainClass)
-            }
-            let vmArguments = options.vmArguments.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !vmArguments.isEmpty {
-                mavenArguments.append("-Dspring-boot.run.jvmArguments=" + vmArguments)
-            }
-            let programArguments = options.programArguments.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !programArguments.isEmpty {
-                mavenArguments.append("-Dspring-boot.run.arguments=" + programArguments)
-            }
-            mavenArguments.append("spring-boot:run")
-            arguments = mavenArguments
-            let moduleDirectory = configuration.modulePath.flatMap { modulePath in
-                mavenProject.allModules.first(where: { $0.relativePath == modulePath })?.url
-            } ?? mavenProject.rootURL
-            workingDirectory = resolvedWorkingDirectory(options.workingDirectoryPath, fallback: moduleDirectory)
+            executable = value
+            processKind = .maven
         }
+        let arguments = plan.arguments
+        let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
 
         runningTitle = configuration.name
         isRunning = true
         append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
 
-        let processKind: ProjectRuntimeProcessKind = configuration.kind == .currentFile ? .java : .maven
         let operationID = UUID().uuidString
         activeOperationID = operationID
         do {
@@ -301,14 +437,22 @@ final class JavaRunService: ObservableObject {
         stopAllModules()
         projectLoadID = UUID()
         projectURL = nil
+        selectedConfigurationIDsByProject = [:]
         projectFiles = []
         mavenProject = nil
         configurations = [.currentFile]
         selectedConfigurationID = JavaRunConfiguration.currentFileID
         optionsByConfigurationID = [:]
+        effectiveSourcesByConfigurationID = [:]
         mavenProfiles = []
         moduleSessions = []
         portConflicts = []
+        configurationStatus = .missing
+        configurationDiagnostics = []
+        generationState = .idle
+        recoveryAction = .regenerate
+        recoveryPath = nil
+        configurationSaveError = nil
         isLoadingProject = false
         output = ""
         lastExitCode = nil
@@ -326,6 +470,40 @@ final class JavaRunService: ObservableObject {
         lastExitCode = 1
         isRunning = false
         runningTitle = nil
+    }
+
+    private static func isBlockingToolchainDiagnostic(_ diagnostic: RunConfigurationDiagnostic) -> Bool {
+        diagnostic.code == "missingToolchain" || diagnostic.code == "toolchainVersionMismatch"
+    }
+
+    private func apply(
+        _ effective: [EffectiveRunConfiguration],
+        preferredConfigurationID: String? = nil
+    ) {
+        configurations = effective.map(\.configuration)
+        optionsByConfigurationID = Dictionary(uniqueKeysWithValues: effective.map {
+            ($0.configuration.id, $0.options)
+        })
+        effectiveSourcesByConfigurationID = Dictionary(uniqueKeysWithValues: effective.map {
+            ($0.configuration.id, $0.source)
+        })
+        reconcileModuleSessions(validConfigurationIDs: Set(configurations.map(\.id)))
+        refreshPortConflicts()
+        if let preferredConfigurationID,
+           configurations.contains(where: { $0.id == preferredConfigurationID }) {
+            selectedConfigurationID = preferredConfigurationID
+        } else if !configurations.contains(where: { $0.id == selectedConfigurationID }) {
+            selectedConfigurationID = configurations.first(where: { $0.kind == .springBoot })?.id
+                ?? configurations.first?.id
+                ?? JavaRunConfiguration.currentFileID
+        }
+    }
+
+    private func relativePath(for fileURL: URL, root: URL) -> String? {
+        let file = fileURL.standardizedFileURL.path
+        let prefix = root.standardizedFileURL.path + "/"
+        guard file.hasPrefix(prefix) else { return nil }
+        return String(file.dropFirst(prefix.count))
     }
 
     private func finishProcess(exitCode: Int32) {
@@ -383,7 +561,8 @@ final class JavaRunService: ObservableObject {
     }
 
     private func startModuleSession(_ configuration: JavaRunConfiguration) {
-        guard let mavenProject else { return }
+        guard configurationStatus == .ready,
+              let projectURL else { return }
         moduleSessions.removeAll { $0.id == configuration.id }
         let options = self.options(for: configuration)
         let configuredJavaHome = options.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -398,9 +577,32 @@ final class JavaRunService: ObservableObject {
             ))
             return
         }
-        guard let modulePath = configuration.modulePath else { return }
 
-        guard let executable = runtimeService.mavenExecutable(for: mavenProject) else {
+        let plan: SharedLaunchPlan
+        do {
+            plan = try runConfigurationOperations.launchPlan(
+                at: projectURL,
+                configurationID: configuration.id,
+                currentFile: nil,
+                classPath: nil,
+                debugPort: nil
+            )
+            guard plan.toolchainID == "project-maven" else {
+                throw RunConfigurationOperationFailure(message: "The selected configuration does not use Maven.")
+            }
+        } catch {
+            moduleSessions.append(JavaRunSession(
+                id: configuration.id,
+                configurationID: configuration.id,
+                title: configuration.name,
+                output: error.localizedDescription + "\n",
+                isRunning: false,
+                exitCode: 1
+            ))
+            return
+        }
+
+        guard let executable = runtimeService.mavenExecutable(at: projectURL) else {
             moduleSessions.append(JavaRunSession(
                 id: configuration.id,
                 configurationID: configuration.id,
@@ -411,26 +613,8 @@ final class JavaRunService: ObservableObject {
             ))
             return
         }
-        var arguments = ["-B", "-ntp", "-pl", modulePath]
-        if !options.activeProfiles.isEmpty {
-            arguments += ["-P", options.activeProfiles.sorted().joined(separator: ",")]
-        }
-        if let mainClass = configuration.mainClass {
-            arguments.append("-Dspring-boot.run.main-class=" + mainClass)
-        }
-        let vmArguments = options.vmArguments.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !vmArguments.isEmpty {
-            arguments.append("-Dspring-boot.run.jvmArguments=" + vmArguments)
-        }
-        let programArguments = options.programArguments.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !programArguments.isEmpty {
-            arguments.append("-Dspring-boot.run.arguments=" + programArguments)
-        }
-        arguments.append("spring-boot:run")
-
-        let moduleDirectory = mavenProject.allModules.first(where: { $0.relativePath == modulePath })?.url
-            ?? mavenProject.rootURL
-        let workingDirectory = resolvedWorkingDirectory(options.workingDirectoryPath, fallback: moduleDirectory)
+        let arguments = plan.arguments
+        let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
         let environment = runtimeService.environment(
             for: .maven,
             javaHomeOverride: configuredJavaHome

@@ -283,6 +283,95 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigInspect => {
+            match serde_json::from_value::<crate::run_configuration::InspectRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid run configuration inspect request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::run_configuration::inspect)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigGenerate => {
+            match serde_json::from_value::<crate::run_configuration::GenerateRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid run configuration generate request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::run_configuration::generate)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigResolve => {
+            match serde_json::from_value::<crate::run_configuration::ResolveRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid run configuration resolve request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::run_configuration::resolve)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigUpdateOptions => {
+            match serde_json::from_value::<crate::run_configuration::UpdateOptionsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid run options request")
+                    .with_details(error.to_string())
+            })
+            .and_then(crate::run_configuration::update_options)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigCreateUserConfiguration => {
+            match serde_json::from_value::<
+                crate::run_configuration::CreateUserConfigurationRequest,
+            >(parsed.payload)
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid user configuration request")
+                    .with_details(error.to_string())
+            })
+            .and_then(crate::run_configuration::create_user_configuration)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigCreateLaunchPlan => {
+            match serde_json::from_value::<crate::run_configuration::LaunchPlanRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid launch plan request")
+                    .with_details(error.to_string())
+            })
+            .and_then(crate::run_configuration::create_launch_plan)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaCodeVision => {
             match serde_json::from_value::<JavaCodeVisionRequest>(parsed.payload)
                 .map_err(|error| {

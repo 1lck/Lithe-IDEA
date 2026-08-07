@@ -49,6 +49,20 @@ struct LitheCoreLogicTests {
             )
         )
         #expect(
+            rules.isHidden(
+                root.appendingPathComponent(".lithe/run/local.json"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            !rules.isHidden(
+                root.appendingPathComponent(".lithe/run/configurations.json"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
             !rules.isHidden(
                 root.appendingPathComponent("Sources/Model.swift"),
                 relativeTo: root,
@@ -878,6 +892,60 @@ struct LitheCoreLogicTests {
         #expect(firstObserverCalls == 1)
         #expect(secondObserverCalls == 2)
     }
+
+    @Test
+    func runConfigurationMigrationWritesLocalOnlyOverridesAndToolchains() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-run-migration-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MutableKeyValueStore()
+        let projectKey = root.standardizedFileURL.path.replacingOccurrences(of: "/", with: "_")
+        store.set(try JSONEncoder().encode(JavaRunOptions(
+            javaHomePath: "/jdk/legacy",
+            workingDirectoryPath: "backend",
+            vmArguments: "-Xmx2g",
+            programArguments: "--spring.profiles.active=dev",
+            activeProfiles: ["dev"]
+        )), forKey: "lithe.java-run-options.\(projectKey).current-file")
+        store.set(try JSONEncoder().encode(ProjectRuntimeSettings(
+            javaHomePath: "/Library/Java/jdk-21",
+            mavenHomeSelection: .custom,
+            mavenHomePath: "/opt/maven",
+            mavenJavaHomePath: "/Library/Java/jdk-17"
+        )), forKey: "lithe.project-runtime.\(projectKey)")
+
+        let adapter = MacRunConfigurationStore(
+            core: RustCoreBridge(),
+            storage: MacFileStorage(),
+            preferences: store,
+            documentMutator: RunTestDocumentMutator()
+        )
+        try adapter.migrateLegacySettings(at: root, configurationIDs: ["current-file"])
+        try adapter.saveOptions(
+            JavaRunOptions(
+                javaHomePath: "/Library/Java/jdk-22",
+                workingDirectoryPath: "backend app",
+                vmArguments: "\"-Dlabel=hello world\" -Xmx1g",
+                programArguments: "--dev",
+                activeProfiles: ["local"]
+            ),
+            configurationID: "current-file",
+            scope: .local,
+            at: root
+        )
+
+        let local = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent(".lithe/run/local.json"))) as? [String: Any]
+        let configs = local?["configurations"] as? [[String: Any]]
+        #expect(configs?.first?["workingDirectory"] as? String == "backend app")
+        #expect(configs?.first?["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx1g"])
+        let toolchains = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent(".lithe/toolchains/local.json"))) as? [String: Any]
+        let values = toolchains?["toolchains"] as? [String: [String: String]]
+        #expect(values?["project-jdk"]?["home"] == "/Library/Java/jdk-22")
+        #expect(values?["project-maven"]?["executable"] == "/opt/maven/bin/mvn")
+        #expect(store.object(forKey: "lithe.run-configuration-migrated.\(projectKey)") as? Bool == true)
+        #expect(store.data(forKey: "lithe.java-run-options.\(projectKey).current-file") != nil)
+        #expect(store.data(forKey: "lithe.java-run-options.\(projectKey).current-file") != nil)
+    }
 }
 
 @Suite("Editor documents")
@@ -1317,6 +1385,15 @@ private struct EmptyKeyValueStore: KeyValueStore {
     func string(forKey key: String) -> String? { nil }
     func stringArray(forKey key: String) -> [String]? { nil }
     func set(_ value: Any?, forKey key: String) {}
+}
+
+private final class MutableKeyValueStore: KeyValueStore {
+    private var values: [String: Any] = [:]
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }
 
 private struct EmptyWorkspaceOperations: WorkspaceOperations {

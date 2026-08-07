@@ -6,6 +6,8 @@ struct JavaRunConfigurationEditorView: View {
     @ObservedObject var feature: JavaRunFeatureModel
     let configuration: JavaRunConfiguration
     @State private var options: JavaRunOptions
+    @State private var saveScope: RunConfigurationSaveScope = .local
+    @State private var saveError: String?
 
     init(feature: JavaRunFeatureModel, configuration: JavaRunConfiguration) {
         self.feature = feature
@@ -20,6 +22,7 @@ struct JavaRunConfigurationEditorView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    saveScopeSection
                     configurationSummary
                     runtimeSection
                     argumentsSection
@@ -33,14 +36,26 @@ struct JavaRunConfigurationEditorView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack {
                 Button("Reset") {
-                    feature.resetOptions(for: configuration)
-                    options = feature.options(for: configuration)
+                    options = JavaRunOptions()
                 }
                 .buttonStyle(.borderless)
                 .lithePointer()
                 .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
-                Button("Done") { dismiss() }
+                if let saveError {
+                    Text(saveError)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.error)
+                        .lineLimit(2)
+                        .frame(maxWidth: 250, alignment: .trailing)
+                }
+                Button("Done") {
+                    if feature.updateOptions(options, for: configuration, scope: saveScope) {
+                        dismiss()
+                    } else {
+                        saveError = feature.configurationSaveError
+                    }
+                }
                     .keyboardShortcut(.defaultAction)
                     .lithePointer()
             }
@@ -51,8 +66,24 @@ struct JavaRunConfigurationEditorView: View {
         .frame(width: 520, height: 470)
         .background(LitheTheme.window)
         .preferredColorScheme(.dark)
-        .onChange(of: options) {
-            feature.updateOptions(options, for: configuration)
+    }
+
+    private var saveScopeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Save scope")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Picker("Save scope", selection: $saveScope) {
+                Text("This Mac").tag(RunConfigurationSaveScope.local)
+                Text("Project").tag(RunConfigurationSaveScope.project)
+            }
+            .pickerStyle(.segmented)
+            Text(saveScope == .local
+                 ? "Saved in .lithe/run/local.json and excluded from Git."
+                 : "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.")
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -88,12 +119,21 @@ struct JavaRunConfigurationEditorView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             summaryRow(title: "Type", value: configuration.kind.title)
+            summaryRow(title: "Effective source", value: sourceTitle)
             if let mainClass = configuration.mainClass {
                 summaryRow(title: "Main class", value: mainClass)
             }
             if let modulePath = configuration.modulePath {
                 summaryRow(title: "Maven module", value: modulePath)
             }
+        }
+    }
+
+    private var sourceTitle: String {
+        switch feature.source(for: configuration) {
+        case .generated: "Automatically generated"
+        case .project: "Project configuration"
+        case .local: "This Mac"
         }
     }
 
@@ -105,6 +145,7 @@ struct JavaRunConfigurationEditorView: View {
                 text: stringBinding(\.javaHomePath),
                 chooseDirectory: { chooseDirectory(for: \.javaHomePath) }
             )
+            .disabled(saveScope == .project)
             pathRow(
                 title: "Working directory",
                 placeholder: "Use project or file directory",

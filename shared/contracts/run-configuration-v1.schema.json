@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/run-configuration-v1.schema.json",
+  "title": "Lithe Run Configuration Document v1",
+  "type": "object",
+  "required": ["version", "configurations"],
+  "properties": {
+    "version": { "const": 1 },
+    "generator": {
+      "type": "object",
+      "required": ["fingerprint"],
+      "properties": {
+        "fingerprint": { "type": "string", "pattern": "^sha256:" },
+        "inputs": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "string", "pattern": "^sha256:" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "configurations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/configuration" }
+    }
+  },
+  "$defs": {
+    "configuration": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["java.current-file", "spring-boot.maven", "maven.module"] },
+        "module": { "type": "string" },
+        "mainClass": { "type": "string" },
+        "toolchains": { "type": "object", "additionalProperties": { "type": "string" } },
+        "workingDirectory": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).*$" },
+        "jvmArguments": { "type": "array", "items": { "type": "string" } },
+        "programArguments": { "type": "array", "items": { "type": "string" } },
+        "mavenProfiles": { "type": "array", "items": { "type": "string" } },
+        "disabled": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

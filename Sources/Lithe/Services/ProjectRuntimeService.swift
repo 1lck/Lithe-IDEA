@@ -16,13 +16,20 @@ final class ProjectRuntimeService: ObservableObject {
     var onRuntimeChanged: (() -> Void)?
 
     private let runtimeLocator: any RuntimeLocator
+    private let toolchainSource: (any ProjectToolchainConfigurationSource)?
     private var discoveryTask: Task<Void, Never>?
+    private var localToolchains = ProjectToolchainSelection()
 
     private let settingsStore: ProjectRuntimeSettingsStore
 
-    init(runtimeLocator: any RuntimeLocator, store: any KeyValueStore) {
+    init(
+        runtimeLocator: any RuntimeLocator,
+        store: any KeyValueStore,
+        toolchainSource: (any ProjectToolchainConfigurationSource)? = nil
+    ) {
         self.runtimeLocator = runtimeLocator
         self.settingsStore = ProjectRuntimeSettingsStore(store: store)
+        self.toolchainSource = toolchainSource
     }
 
     deinit {
@@ -34,6 +41,8 @@ final class ProjectRuntimeService: ObservableObject {
         let normalizedURL = url.standardizedFileURL
         projectURL = normalizedURL
         settings = settingsStore.load(for: normalizedURL)
+        localToolchains = toolchainSource?.loadLocalToolchains(at: normalizedURL) ?? ProjectToolchainSelection()
+        apply(localToolchains, to: &settings)
         javaRuntimes = []
         mavenRuntimes = []
         discoveryTask = Task { [weak self] in
@@ -46,6 +55,7 @@ final class ProjectRuntimeService: ObservableObject {
         discoveryTask = nil
         projectURL = nil
         settings = ProjectRuntimeSettings()
+        localToolchains = ProjectToolchainSelection()
         javaRuntimes = []
         mavenRuntimes = []
         isDiscovering = false
@@ -79,6 +89,8 @@ final class ProjectRuntimeService: ObservableObject {
         settings = next
         if let projectURL {
             settingsStore.save(next, for: projectURL)
+            localToolchains = toolchainSelection(from: next)
+            try? toolchainSource?.saveLocalToolchains(localToolchains, at: projectURL)
         }
         onRuntimeChanged?()
     }
@@ -94,6 +106,7 @@ final class ProjectRuntimeService: ObservableObject {
         javaRuntimes = result.javaRuntimes
         mavenRuntimes = result.mavenRuntimes
         isDiscovering = false
+        onRuntimeChanged?()
     }
 
     func javaHomeURL(overridePath: String? = nil) -> URL? {
@@ -101,7 +114,7 @@ final class ProjectRuntimeService: ObservableObject {
            !normalizedPath(overridePath).isEmpty {
             return runtimeLocator.validJavaHome(path: normalizedPath(overridePath))
         }
-        let paths = [settings.javaHomePath, runtimeLocator.environment()["JAVA_HOME"]]
+        let paths = [localToolchains.javaHomePath, settings.javaHomePath, runtimeLocator.environment()["JAVA_HOME"]]
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
             if let home = runtimeLocator.validJavaHome(path: path) { return home }
         }
@@ -136,7 +149,13 @@ final class ProjectRuntimeService: ObservableObject {
            !normalizedPath(overridePath).isEmpty {
             return runtimeLocator.validJavaHome(path: normalizedPath(overridePath))
         }
-        let paths = [settings.mavenJavaHomePath, settings.javaHomePath, runtimeLocator.environment()["JAVA_HOME"]]
+        let paths = [
+            localToolchains.mavenJavaHomePath,
+            localToolchains.javaHomePath,
+            settings.mavenJavaHomePath,
+            settings.javaHomePath,
+            runtimeLocator.environment()["JAVA_HOME"]
+        ]
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
             if let home = runtimeLocator.validJavaHome(path: path) { return home }
         }
@@ -161,7 +180,20 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func mavenExecutable(for project: MavenProject) -> URL? {
-        let wrapper = project.rootURL.appendingPathComponent("mvnw")
+        mavenExecutable(at: project.rootURL)
+    }
+
+    func mavenExecutable(at rootURL: URL) -> URL? {
+        let configured = localToolchains.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configured.isEmpty {
+            let candidate = configured.hasPrefix("/")
+                ? URL(fileURLWithPath: configured)
+                : rootURL.appendingPathComponent(configured)
+            if runtimeLocator.isExecutable(at: candidate.standardizedFileURL) {
+                return candidate.standardizedFileURL
+            }
+        }
+        let wrapper = rootURL.appendingPathComponent("mvnw")
         switch settings.mavenHomeSelection {
         case .wrapper:
             return runtimeLocator.isExecutable(at: wrapper) ? wrapper : nil
@@ -185,12 +217,82 @@ final class ProjectRuntimeService: ObservableObject {
         return mavenRuntimes.first { $0.executablePath == executable }
     }
 
+    func runConfigurationToolchainCandidates(
+        for project: MavenProject?,
+        projectRoot: URL? = nil
+    ) -> [ProjectToolchainCandidate] {
+        var result: [ProjectToolchainCandidate] = []
+        let java = activeJavaRuntime() ?? javaHomeURL().flatMap(runtimeLocator.javaRuntime(at:))
+        if let java {
+            result.append(ProjectToolchainCandidate(
+                id: "project-jdk",
+                type: "java",
+                version: java.version,
+                vendor: java.vendor
+            ))
+        }
+        let maven = project.flatMap(activeMavenRuntime)
+            ?? projectRoot.flatMap { root in
+                mavenExecutable(at: root).flatMap(runtimeLocator.mavenRuntime(at:))
+            }
+        if let maven {
+            result.append(ProjectToolchainCandidate(
+                id: "project-maven",
+                type: "maven",
+                version: maven.version,
+                vendor: ""
+            ))
+        }
+        return result
+    }
+
     func javaLanguageServerExecutable() -> URL? {
         runtimeLocator.javaLanguageServerExecutable()
     }
 
     private func normalizedPath(_ path: String) -> String {
         ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+    }
+
+    private func toolchainSelection(from settings: ProjectRuntimeSettings) -> ProjectToolchainSelection {
+        let mavenExecutable: String
+        switch settings.mavenHomeSelection {
+        case .wrapper:
+            mavenExecutable = "./mvnw"
+        case .custom where !settings.mavenHomePath.isEmpty:
+            mavenExecutable = URL(fileURLWithPath: settings.mavenHomePath)
+                .appendingPathComponent("bin/mvn")
+                .path
+        case .automatic, .custom:
+            mavenExecutable = ""
+        }
+        return ProjectToolchainSelection(
+            javaHomePath: settings.javaHomePath,
+            mavenExecutablePath: mavenExecutable,
+            mavenJavaHomePath: settings.mavenJavaHomePath
+        )
+    }
+
+    private func apply(
+        _ selection: ProjectToolchainSelection,
+        to settings: inout ProjectRuntimeSettings
+    ) {
+        if !selection.javaHomePath.isEmpty {
+            settings.javaHomePath = selection.javaHomePath
+        }
+        if !selection.mavenJavaHomePath.isEmpty {
+            settings.mavenJavaHomePath = selection.mavenJavaHomePath
+        }
+        let executable = selection.mavenExecutablePath
+        if executable == "./mvnw" || executable == "mvnw" {
+            settings.mavenHomeSelection = .wrapper
+        } else if !executable.isEmpty {
+            let binDirectory = URL(fileURLWithPath: executable).deletingLastPathComponent()
+            settings.mavenHomeSelection = .custom
+            settings.mavenHomePath = binDirectory.lastPathComponent == "bin"
+                ? binDirectory.deletingLastPathComponent().path
+                : binDirectory.path
+        }
     }
 
 }

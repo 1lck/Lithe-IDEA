@@ -14,7 +14,14 @@ struct RunView: View {
                 Rectangle().fill(LitheTheme.warning.opacity(0.35)).frame(height: 1)
             }
 
-            if feature.moduleSessions.isEmpty {
+            if let notice = configurationNotice {
+                configurationNoticeBanner(notice)
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
+
+            if feature.configurationStatus != .ready {
+                configurationSetupView
+            } else if feature.moduleSessions.isEmpty {
                 OutputTextView(
                     output: feature.output,
                     searchRoots: feature.sourceSearchRoots,
@@ -43,6 +50,158 @@ struct RunView: View {
                !feature.moduleSessions.contains(where: { $0.id == selectedSessionID }) {
                 self.selectedSessionID = nil
             }
+        }
+    }
+
+    private var configurationSetupView: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "play.slash")
+                .font(.system(size: 28))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Text(configurationSetupTitle)
+                .font(.system(size: 14, weight: .semibold))
+            Text(configurationSetupMessage)
+                .font(.system(size: 12))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+            if feature.isLoadingProject {
+                ProgressView("Identifying project…")
+                    .controlSize(.small)
+            } else if feature.recoveryAction == .editConfiguration {
+                HStack(spacing: 8) {
+                    Button("Open Configuration") {
+                        model.openRunConfiguration(relativePath: feature.recoveryPath)
+                    }
+                    if canRegenerateBrokenFile {
+                        Button("Regenerate") {
+                            feature.requestRunConfigurationGeneration()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            } else if feature.recoveryAction == .upgradeApplication {
+                Label("Update Lithe to use this configuration version.", systemImage: "arrow.down.app")
+                    .font(.system(size: 12))
+                    .foregroundStyle(LitheTheme.warning)
+            } else if feature.recoveryAction != .none {
+                Button {
+                    feature.requestRunConfigurationGeneration()
+                } label: {
+                    Label(
+                        feature.recoveryAction == .fixPermissions
+                            ? String(localized: "Retry Identification")
+                            : String(localized: "Identify and Generate"),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+    }
+
+    private var canRegenerateBrokenFile: Bool {
+        feature.recoveryPath == ".lithe/run/generated.json"
+            || feature.recoveryPath == ".lithe/toolchains/requirements.json"
+    }
+
+    private var configurationNotice: (title: String, message: String, systemImage: String)? {
+        if let diagnostic = feature.configurationDiagnostics.first(where: { $0.code == "staleFingerprint" }) {
+            return (
+                String(localized: "Run configurations may be out of date"),
+                diagnostic.message,
+                "exclamationmark.triangle.fill"
+            )
+        }
+        if let diagnostic = feature.blockingToolchainDiagnostic {
+            return (
+                String(localized: "Project toolchain needs attention"),
+                diagnostic.message,
+                "wrench.and.screwdriver.fill"
+            )
+        }
+        if let diagnostic = feature.configurationDiagnostics.first(where: { $0.code == "toolchainVendorMismatch" }) {
+            return (
+                String(localized: "Different JDK vendor selected"),
+                diagnostic.message,
+                "info.circle.fill"
+            )
+        }
+        switch feature.generationState {
+        case .succeeded(let entryCount):
+            return (
+                String(localized: "Project identification complete"),
+                entryCount == 1
+                    ? String(localized: "Generated 1 runnable project entry.")
+                    : String(
+                        format: String(localized: "Generated %lld runnable project entries."),
+                        Int64(entryCount)
+                    ),
+                "checkmark.circle.fill"
+            )
+        case .noEntries:
+            return (
+                String(localized: "No project entry point detected"),
+                String(localized: "Current File remains available. Add a supported Java or Maven entry point, then identify the project again."),
+                "info.circle.fill"
+            )
+        case .failed(let message):
+            return (String(localized: "Project identification failed"), message, "xmark.octagon.fill")
+        case .idle:
+            return nil
+        }
+    }
+
+    private func configurationNoticeBanner(
+        _ notice: (title: String, message: String, systemImage: String)
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: notice.systemImage)
+                .foregroundStyle(LitheTheme.warning)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(notice.title)
+                    .font(.system(size: 11.5, weight: .semibold))
+                Text(notice.message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            if feature.configurationDiagnostics.contains(where: { $0.code == "staleFingerprint" }) {
+                Button("Identify Again") {
+                    feature.requestRunConfigurationGeneration()
+                }
+                .controlSize(.small)
+            } else if feature.blockingToolchainDiagnostic != nil {
+                Button("Open Settings") {
+                    model.showSettings()
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(LitheTheme.warning.opacity(0.08))
+    }
+
+    private var configurationSetupTitle: String {
+        switch feature.configurationStatus {
+        case .missing: String(localized: "Project run configuration not found")
+        case .invalid: String(localized: "Project run configuration is invalid")
+        case .ready: String(localized: "Run configuration ready")
+        }
+    }
+
+    private var configurationSetupMessage: String {
+        switch feature.configurationStatus {
+        case .missing:
+            String(localized: "Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved.")
+        case .invalid(let message):
+            message
+        case .ready:
+            ""
         }
     }
 
@@ -76,6 +235,7 @@ struct RunView: View {
                 }
                 .litheIconButton()
                 .help("Run all Maven modules")
+                .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
 
                 if feature.moduleSessions.contains(where: \.isRunning) {
                     Button(action: feature.stopAllModules) {
@@ -105,6 +265,7 @@ struct RunView: View {
             .litheIconButton()
             .foregroundStyle(selectedSessionIsRunning ? LitheTheme.warning : LitheTheme.success)
             .help(selectedSessionIsRunning ? "Stop run" : "Run configuration")
+            .disabled(feature.isLoadingProject)
 
             Button {
                 if let session = selectedModuleSession {

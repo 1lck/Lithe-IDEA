@@ -118,7 +118,7 @@ enum MacRuntimeDiscovery {
         return paths.sorted().map(URL.init(fileURLWithPath:))
     }
 
-    private static func probeJavaHome(_ home: URL) -> JavaRuntimeCandidate? {
+    static func probeJavaHome(_ home: URL) -> JavaRuntimeCandidate? {
         let output = commandOutput(
             executable: home.appendingPathComponent("bin/java"),
             arguments: ["-version"]
@@ -134,7 +134,7 @@ enum MacRuntimeDiscovery {
         return JavaRuntimeCandidate(homePath: home.path, version: version, vendor: vendor)
     }
 
-    private static func probeMaven(_ executable: URL) -> MavenRuntimeCandidate? {
+    static func probeMaven(_ executable: URL) -> MavenRuntimeCandidate? {
         let output = commandOutput(executable: executable, arguments: ["-version"])
         let version = firstCapture(pattern: #"Apache Maven\s+([^\s]+)"#, in: output) ?? ""
         let home = executable.deletingLastPathComponent().deletingLastPathComponent().path

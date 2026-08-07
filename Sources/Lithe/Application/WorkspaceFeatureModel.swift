@@ -506,7 +506,10 @@ final class WorkspaceFeatureModel: ObservableObject {
         }
         let requiresProjectServiceReload = changedURLs.contains { url in
             let name = url.lastPathComponent.lowercased()
-            return name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts"
+            let isLitheConfiguration = url.pathExtension.lowercased() == "json"
+                && url.path.hasPrefix(workspaceURL.appendingPathComponent(".lithe").path + "/")
+            return isLitheConfiguration
+                || name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts"
                 || url.pathExtension.lowercased() == "java"
         }
         if requiresProjectServiceReload { await reloadProjectServices?() }

@@ -22,16 +22,23 @@ private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
 @MainActor
 final class MacServiceContainer {
     let services: AppServices
+    let runConfigurationStore: MacRunConfigurationStore
 
     init(store: any KeyValueStore) {
         let rustCore = RustCoreBridge()
         let javaMavenOperations = RustJavaMavenOperations(core: rustCore)
         let fileStorage = MacFileStorage()
+        runConfigurationStore = MacRunConfigurationStore(
+            core: rustCore,
+            storage: fileStorage,
+            preferences: store
+        )
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
-            store: store
+            store: store,
+            toolchainSource: runConfigurationStore
         )
         let languageService = JavaLanguageService(
             runtimeService: runtimeService,
@@ -52,13 +59,15 @@ final class MacServiceContainer {
             processFactory: { MacStreamingProcess() },
             fileStorage: fileStorage,
             preferences: store,
-            javaMavenOperations: javaMavenOperations
+            javaMavenOperations: javaMavenOperations,
+            runConfigurationOperations: runConfigurationStore
         )
         let javaDebugService = JavaDebugService(
             runtimeService: runtimeService,
             processFactory: { MacStreamingProcess() },
             fileStorage: fileStorage,
-            javaMavenOperations: javaMavenOperations
+            javaMavenOperations: javaMavenOperations,
+            runConfigurationOperations: runConfigurationStore
         )
         let javaImplementationMarkerService = JavaImplementationMarkerService(
             languageService: languageService

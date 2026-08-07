@@ -75,6 +75,12 @@ stable error code and a user-facing message:
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
 | `java.structure` | Parse Java editor structure, implementation candidates, and inlay hints |
+| `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
+| `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
+| `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
+| `runConfig.updateOptions` | Apply typed option edits and return an updated project or local document |
+| `runConfig.createUserConfiguration` | Validate a typed user configuration and return an updated document |
+| `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
@@ -190,6 +196,33 @@ removed deterministically.
 "modulePaths": string[] }`. Paths are relative Java files. The response
 contains detected `mainClasses` and deterministic `configurations`; process
 launching remains a platform adapter responsibility.
+
+The `runConfig.*` commands implement the versioned project protocol described
+by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and
+never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
+and relative `modulePaths`; it returns generated configuration and toolchain
+requirement documents for the platform adapter to write atomically.
+
+`runConfig.resolve` accepts `root` and optional local `toolchainCandidates`.
+It merges configurations by stable ID using this precedence:
+`local.json > configurations.json > generated.json`. Scalars and arrays are
+replaced by the higher layer, while toolchain maps merge by key. It returns
+effective configurations, their source, the team default, and structured
+diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
+states.
+
+`runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
+document transformations. They validate scope, paths, supported types, stable
+IDs, main classes, modules, and argument parsing, then return UTF-8 JSON in the
+`document` field. The platform adapter selects the target project or local
+file and performs the atomic write. These commands never write files.
+
+`runConfig.createLaunchPlan` accepts `root`, `configurationId`, optional
+`currentFile` and `classPath`, and optional `debugPort`. It returns a toolchain
+reference, argument array, project-relative working directory, and structured
+environment references. It does not return a shell command or platform
+executable path. All project paths use `/`, reject absolute paths and `..`
+traversal, and remain relative to `root`.
 
 `java.codeVision` accepts a workspace root, a target Java path, and Java source
 paths. It returns declaration locations and usage counts; Git blame attribution

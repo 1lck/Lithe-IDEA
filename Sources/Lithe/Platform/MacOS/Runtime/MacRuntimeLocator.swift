@@ -13,6 +13,10 @@ struct MacRuntimeLocator: RuntimeLocator {
         MacRuntimeDiscovery.validJavaHome(path)
     }
 
+    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? {
+        MacRuntimeDiscovery.probeJavaHome(homeURL)
+    }
+
     func isExecutable(at url: URL) -> Bool {
         FileManager.default.isExecutableFile(atPath: url.path)
     }
@@ -23,6 +27,10 @@ struct MacRuntimeLocator: RuntimeLocator {
 
     func mavenExecutable(forHomePath path: String) -> URL? {
         MacRuntimeDiscovery.mavenExecutable(forHomePath: path)
+    }
+
+    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? {
+        MacRuntimeDiscovery.probeMaven(executableURL)
     }
 
     func systemJDBExecutable() -> URL? {

@@ -16,6 +16,7 @@ struct WorkbenchView: View {
     @State private var pendingTopBarPushReference: GitReference?
     @State private var isRunConfigurationPickerPresented = false
     @State private var isRunConfigurationEditorPresented = false
+    @State private var isNewRunConfigurationPresented = false
     @State private var isProjectSwitcherPresented = false
     @State private var isMemoryUsagePopoverPresented = false
     @State private var didRestoreLayout = false
@@ -51,6 +52,23 @@ struct WorkbenchView: View {
             CheckoutRevisionDialog { revision in
                 Task { await model.checkoutRevision(revision) }
             }
+        }
+        .sheet(isPresented: $isNewRunConfigurationPresented) {
+            NewRunConfigurationView(feature: runFeature) {
+                isNewRunConfigurationPresented = false
+            }
+        }
+        .confirmationDialog(
+            runConfigurationSetupTitle,
+            isPresented: $runFeature.isGenerationConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Identify and Generate") {
+                continueAfterRunConfigurationGeneration()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.")
         }
         .sheet(item: $model.pendingCheckoutConflict) { request in
             GitCheckoutConflictDialog(
@@ -591,7 +609,11 @@ struct WorkbenchView: View {
     private var runControls: some View {
         HStack(spacing: 3) {
             Button {
-                isRunConfigurationPickerPresented.toggle()
+                if runFeature.configurationStatus == .ready {
+                    isRunConfigurationPickerPresented.toggle()
+                } else {
+                    runFeature.requestRunConfigurationGeneration()
+                }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: runFeature.selectedConfiguration?.systemImage ?? "play.fill")
@@ -617,6 +639,7 @@ struct WorkbenchView: View {
             .buttonStyle(.plain)
             .lithePointer()
             .help("Select run configuration")
+            .disabled(runFeature.isLoadingProject)
             .popover(isPresented: $isRunConfigurationPickerPresented, arrowEdge: .top) {
                 RunConfigurationPickerPopover(
                     configurations: runFeature.configurations,
@@ -624,7 +647,11 @@ struct WorkbenchView: View {
                         get: { runFeature.selectedConfigurationID },
                         set: { runFeature.selectedConfigurationID = $0 }
                     ),
-                    isPresented: $isRunConfigurationPickerPresented
+                    isPresented: $isRunConfigurationPickerPresented,
+                    onCreate: {
+                        isRunConfigurationPickerPresented = false
+                        isNewRunConfigurationPresented = true
+                    }
                 )
             }
 
@@ -635,6 +662,7 @@ struct WorkbenchView: View {
             }
             .litheIconButton()
             .help("Edit run configuration")
+            .disabled(runFeature.selectedConfiguration == nil || runFeature.configurationStatus != .ready)
             .popover(isPresented: $isRunConfigurationEditorPresented, arrowEdge: .bottom) {
                 if let configuration = runFeature.selectedConfiguration {
                     JavaRunConfigurationEditorView(
@@ -662,6 +690,34 @@ struct WorkbenchView: View {
             .help(LocalizedStringKey(
                 runFeature.isRunning ? "Stop current run" : "Run selected configuration"
             ))
+            .disabled(runFeature.isLoadingProject)
+        }
+    }
+
+    private var runConfigurationSetupTitle: String {
+        switch runFeature.configurationStatus {
+        case .missing:
+            String(localized: "Project run configuration not found")
+        case .invalid:
+            String(localized: "Project run configuration is invalid")
+        case .ready:
+            String(localized: "Run configuration ready")
+        }
+    }
+
+    private func continueAfterRunConfigurationGeneration() {
+        let intent = runFeature.generationIntent
+        Task {
+            await runFeature.generateRunConfigurations()
+            guard runFeature.configurationStatus == .ready else { return }
+            switch intent {
+            case .identifyOnly:
+                break
+            case .run:
+                model.runSelectedConfiguration()
+            case .debug:
+                model.startDebugging()
+            }
         }
     }
 
@@ -1108,6 +1164,7 @@ private struct RunConfigurationPickerPopover: View {
     let configurations: [JavaRunConfiguration]
     @Binding var selectedConfigurationID: String
     @Binding var isPresented: Bool
+    let onCreate: () -> Void
 
     var body: some View {
         VStack(spacing: 2) {
@@ -1151,9 +1208,101 @@ private struct RunConfigurationPickerPopover: View {
                 .buttonStyle(.plain)
                 .lithePointer()
             }
+            Rectangle().fill(LitheTheme.divider).frame(height: 1).padding(.vertical, 4)
+            Button(action: onCreate) {
+                Label("New Configuration", systemImage: "plus")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
+            }
+            .buttonStyle(.plain)
+            .litheRowHover(cornerRadius: 5, activeBackground: LitheTheme.subtleSelection)
+            .lithePointer()
         }
         .padding(6)
         .frame(width: 270)
         .background(LitheTheme.popupBackground)
+    }
+}
+
+private struct NewRunConfigurationView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var feature: JavaRunFeatureModel
+    let onCreated: () -> Void
+    @State private var name = ""
+    @State private var kind: JavaRunConfigurationKind = .springBoot
+    @State private var modulePath = "."
+    @State private var mainClass = ""
+    @State private var scope: RunConfigurationSaveScope = .local
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("New Run Configuration").font(.system(size: 14, weight: .semibold))
+                    Text("Create a shared project configuration or a local override.")
+                        .font(.system(size: 11.5)).foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer()
+                Button { dismiss() } label: { Image(systemName: "xmark") }
+                    .litheIconButton().help("Close")
+            }
+            .foregroundStyle(LitheTheme.primaryText)
+            .padding(.horizontal, 16).frame(height: 54)
+            .background(LitheTheme.toolHeader)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            Form {
+                TextField("Name", text: $name)
+                Picker("Type", selection: $kind) {
+                    Text("Spring Boot").tag(JavaRunConfigurationKind.springBoot)
+                    Text("Maven Module").tag(JavaRunConfigurationKind.mavenModule)
+                }
+                TextField("Module path", text: $modulePath)
+                if kind == .springBoot {
+                    TextField("Main class", text: $mainClass)
+                }
+                Picker("Save scope", selection: $scope) {
+                    Text("This Mac").tag(RunConfigurationSaveScope.local)
+                    Text("Project").tag(RunConfigurationSaveScope.project)
+                }
+                .pickerStyle(.segmented)
+                if let error {
+                    Text(error).foregroundStyle(LitheTheme.error).font(.system(size: 11))
+                }
+            }
+            .formStyle(.grouped)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Create") { create() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(14).background(LitheTheme.toolHeader)
+        }
+        .frame(width: 440, height: 360)
+        .background(LitheTheme.window)
+        .preferredColorScheme(.dark)
+    }
+
+    private func create() {
+        let draft = RunConfigurationDraft(
+            name: name,
+            kind: kind,
+            modulePath: modulePath,
+            mainClass: mainClass,
+            scope: scope
+        )
+        if feature.createConfiguration(draft) {
+            onCreated()
+        } else {
+            error = feature.configurationSaveError
+        }
     }
 }

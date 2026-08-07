@@ -33,8 +33,10 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
             let watcher = Unmanaged<MacDirectoryWatcher>.fromOpaque(info).takeUnretainedValue()
             let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] ?? []
             let visiblePaths = paths.filter { path in
-                !watcher.visibilityRules.isHiddenPath(
-                    URL(fileURLWithPath: path),
+                let url = URL(fileURLWithPath: path)
+                return !MacFileWriteEventSuppression.consume(url) &&
+                    !watcher.visibilityRules.isHiddenPath(
+                    url,
                     relativeTo: watcher.root
                 )
             }
