@@ -6,6 +6,56 @@
 这份计划只覆盖开发交付。真实 Windows 场景、完整 UI 回归、安装升级、签名和
 兼容性验收由测试人员负责，不计入开发排期。
 
+## 当前交接状态（2026-08-07）
+
+本轮开发已停止，后续工作交给新的开发者继续。交接分支为
+`feat/windows-git-parity`；该分支直接发布到远端，不代表已创建 PR，也没有合并到
+`main`。接手者应以此分支和本文为起点，不要从旧的审计或 DTO 快照重新推断状态。
+
+### 已完成并提交
+
+- `7720cd9 docs(windows): replace parity planning documents`
+  - 用本文替换旧的 Windows 追平计划和容易过期的进度文档。
+- `799e27e feat(windows): add advanced Git contract DTOs`
+  - 补齐 `git.checkoutPreflight`、`git.pullPreflight`、
+    `git.integrationPreflight`、`git.conflictMarkers` 和
+    `git.operationState` 的 Windows 请求编码与响应解码。
+  - `GitCommandDto` 已解码结构化 `stashRestore`；`GitWriteRequestDto` 已支持
+    `force` 和 `autoStash`。
+  - `shared/contracts/rust-core-api.md` 已同步新增命令、操作值和实际字段名
+    `hunkId`。
+- `8565e38 feat(windows): wire advanced Git state queries`
+  - 五个安全状态查询已接入 `WorkbenchCoordinator`，各自使用 workspace epoch 和
+    operation generation 丢弃陈旧结果。
+  - `GitFeatureState` 已能保存 checkout/pull/integration preflight、冲突标记、
+    进行中的 Git 操作、stash 恢复冲突和去重后的冲突筛选路径。
+  - stash 恢复冲突会跨后续普通写结果保留，直到调用
+    `clearStashRestoreConflict()` 明确清除。
+
+本机已通过 `lithe_windows_core_dto`、`lithe_windows_coordinator` 和
+`scripts/verify-windows-boundaries.sh`。这些结果只证明平台无关的 C++ 逻辑和边界，
+不代表真实 Windows Qt 交互已经验收。
+
+### 接手者优先完成
+
+1. 完成 Git preflight 状态机：增加带目标上下文的 pending checkout、pending pull
+   和 pending integration，只有 preflight 清空后才能执行对应写操作。
+2. 为所有 Git 写操作增加统一、可嵌套的 begin/end 生命周期。最外层 begin 停止
+   watcher，最外层 end 只触发一次 workspace、Git status、operation state 和必要的
+   history 刷新；工作区切换和陈旧回调必须正确收尾。
+3. 增加 checkout、pull、merge/rebase、cherry-pick/revert、continue/abort/skip
+   的 feature model 测试，覆盖阻塞路径、stash 恢复冲突、非零退出码和陈旧结果。
+4. 提交前同时检查 unmerged 状态和 `git.conflictMarkers`，不能只依赖 Git 的自然
+   语言错误输出。
+5. 再接 Qt 入口：checkout/integration 冲突对话框、进行中操作栏、冲突筛选、
+   fetch/push/merge/rebase/cherry-pick/revert/reset 和破坏性操作确认。
+6. 完成版本化 Lithe Shelf service 与测试，再接 Changes 面板；恢复失败时必须保留
+   Shelf，staged patch 和 working-tree patch 必须分开存储。
+
+阶段 2 到阶段 5 尚未开始，仍按本文顺序执行。当前已有的基础 Git checkout Qt
+入口仍直接调用 `git.write`，尚未改成安全 preflight 流程；不要把 DTO 和查询接入
+误认为用户工作流已经完成。
+
 ## 先按开发完成标准交付
 
 一个功能只有同时满足以下条件，才能从计划中勾选：
