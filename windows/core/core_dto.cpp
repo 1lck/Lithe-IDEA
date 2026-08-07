@@ -226,6 +226,14 @@ std::optional<GitBlameLineDto> decodeGitBlameLineValue(const JsonValue& value) {
     return GitBlameLineDto{*line, *commitHash, *authorName, *authorTime};
 }
 
+std::optional<GitStashRestoreDto> decodeGitStashRestoreValue(const JsonValue& value) {
+    if (!value.isObject()) return std::nullopt;
+    const auto stashReference = requiredString(value, "stashReference");
+    const auto conflictedPaths = stringArray(value, "conflictedPaths");
+    if (!stashReference || !conflictedPaths) return std::nullopt;
+    return GitStashRestoreDto{*stashReference, *conflictedPaths};
+}
+
 const JsonValue* responseObjectData(const CoreEnvelope& envelope) {
     if (!envelope.ok || !envelope.hasData || !envelope.data.isObject()) return nullptr;
     return &envelope.data;
@@ -656,7 +664,84 @@ std::optional<GitCommandDto> decodeGitCommand(const CoreEnvelope& envelope) {
     const auto exitCode = requiredInt(*data, "exitCode");
     if (!output || !exitCode || *exitCode < std::numeric_limits<std::int32_t>::min() ||
         *exitCode > std::numeric_limits<std::int32_t>::max()) return std::nullopt;
-    return GitCommandDto{*output, static_cast<std::int32_t>(*exitCode)};
+    std::optional<GitStashRestoreDto> stashRestore;
+    const auto* stashRestoreValue = objectValue(*data, "stashRestore");
+    if (stashRestoreValue != nullptr) {
+        stashRestore = decodeGitStashRestoreValue(*stashRestoreValue);
+        if (!stashRestore) return std::nullopt;
+    }
+    return GitCommandDto{*output, static_cast<std::int32_t>(*exitCode), stashRestore};
+}
+
+std::optional<GitCheckoutPreflightDto> decodeGitCheckoutPreflight(
+    const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto blockingPaths = stringArray(*data, "blockingPaths");
+    return blockingPaths
+        ? std::optional<GitCheckoutPreflightDto>(GitCheckoutPreflightDto{*blockingPaths})
+        : std::nullopt;
+}
+
+std::optional<GitPullPreflightDto> decodeGitPullPreflight(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto* upstream = objectValue(*data, "upstream");
+    const auto ahead = requiredUInt(*data, "ahead");
+    const auto behind = requiredUInt(*data, "behind");
+    const auto diverged = requiredBool(*data, "diverged");
+    const auto hasLocalChanges = requiredBool(*data, "hasLocalChanges");
+    if (upstream == nullptr || !ahead || !behind || !diverged || !hasLocalChanges) {
+        return std::nullopt;
+    }
+    const auto decodedUpstream = upstream->isNull()
+        ? std::optional<std::string>{} : optionalString(*data, "upstream");
+    if (!upstream->isNull() && !decodedUpstream) return std::nullopt;
+    return GitPullPreflightDto{
+        decodedUpstream, *ahead, *behind, *diverged, *hasLocalChanges,
+    };
+}
+
+std::optional<GitIntegrationPreflightDto> decodeGitIntegrationPreflight(
+    const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto blockingPaths = stringArray(*data, "blockingPaths");
+    const auto blocksEntirely = requiredBool(*data, "blocksEntirely");
+    if (!blockingPaths || !blocksEntirely) return std::nullopt;
+    return GitIntegrationPreflightDto{*blockingPaths, *blocksEntirely};
+}
+
+std::optional<GitConflictMarkersDto> decodeGitConflictMarkers(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto paths = stringArray(*data, "paths");
+    return paths ? std::optional<GitConflictMarkersDto>(GitConflictMarkersDto{*paths})
+                 : std::nullopt;
+}
+
+std::optional<GitOperationStateDto> decodeGitOperationState(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto kind = requiredString(*data, "kind");
+    const auto* reference = objectValue(*data, "reference");
+    const auto* step = objectValue(*data, "step");
+    const auto* total = objectValue(*data, "total");
+    const auto conflictedPaths = stringArray(*data, "conflictedPaths");
+    if (!kind || reference == nullptr || step == nullptr || total == nullptr ||
+        !conflictedPaths) return std::nullopt;
+
+    const auto decodedReference = reference->isNull()
+        ? std::optional<std::string>{} : optionalString(*data, "reference");
+    const auto decodedStep = step->isNull()
+        ? std::optional<std::uint64_t>{} : step->asUInt();
+    const auto decodedTotal = total->isNull()
+        ? std::optional<std::uint64_t>{} : total->asUInt();
+    if ((!reference->isNull() && !decodedReference) || (!step->isNull() && !decodedStep) ||
+        (!total->isNull() && !decodedTotal)) return std::nullopt;
+    return GitOperationStateDto{
+        *kind, decodedReference, decodedStep, decodedTotal, *conflictedPaths,
+    };
 }
 
 std::optional<GitHistoryDto> decodeGitHistory(const CoreEnvelope& envelope) {

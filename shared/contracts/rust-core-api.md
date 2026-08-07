@@ -85,6 +85,11 @@ stable error code and a user-facing message:
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
+| `git.checkoutPreflight` | Return dirty paths that a checkout would overwrite |
+| `git.pullPreflight` | Return upstream, divergence, and local-change state before pulling |
+| `git.integrationPreflight` | Return paths blocking a merge or rebase |
+| `git.conflictMarkers` | Return staged paths that still contain conflict markers |
+| `git.operationState` | Return an in-progress merge, rebase, cherry-pick, or revert state |
 | `git.blame` | Return structured line blame metadata |
 
 Workspace paths in responses are relative and use `/` separators. Line numbers
@@ -107,9 +112,11 @@ standard error envelope.
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
 `reset`, `createBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
-`stashApply`, `stashPop`, and `stashDrop`. Optional fields are `paths`,
+`stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`,
+and `operationSkip`. Optional fields are `paths`,
 `reference`, `referenceKind`, `revision`, `name`, `message`, `remote`,
-`destination`, `mode`, `includeUntracked`, `checkout`, and `amend`.
+`destination`, `mode`, `includeUntracked`, `checkout`, `amend`, `force`, and
+`autoStash`.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
@@ -117,17 +124,36 @@ Successful process launch returns `{ "output": string, "exitCode": number }`
 even when Git exits non-zero. Invalid arguments use the standard
 `invalid_request` error envelope. `checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and
-`destination` as its target path.
+`destination` as its target path. `force` permits a checkout that would
+overwrite local edits, while `autoStash` preserves and restores local changes
+around checkout. Operation actions resolve the operation currently reported by
+Git instead of trusting a client-supplied operation kind. The command response
+may contain a structured `stashRestore` object with `stashReference` and
+`conflictedPaths` when a stash restore keeps its entry because conflicts remain.
+
+The Git safety commands expose structured state so clients do not parse
+localized process output:
+
+- `git.checkoutPreflight` accepts `root` and `reference`, returning
+  `blockingPaths`.
+- `git.pullPreflight` accepts `root`, returning nullable `upstream`, `ahead`,
+  `behind`, `diverged`, and `hasLocalChanges`.
+- `git.integrationPreflight` accepts `root`, `reference`, and an `operation` of
+  `merge` or `rebase`, returning `blockingPaths` and `blocksEntirely`.
+- `git.conflictMarkers` accepts `root`, returning `paths`.
+- `git.operationState` accepts `root`, returning `kind`, nullable `reference`,
+  nullable `step`/`total`, and `conflictedPaths`. An empty `kind` means no
+  sequential Git operation is in progress.
 
 `git.diff` accepts `root`, `pathspecs`, optional `reference` or `commit`,
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],
 "hunks": [] }`. Rows contain one-based `oldLine`/`newLine` values where
 available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
-`removal`, or `information`), and an optional `hunkID`. For `context` and
+`removal`, or `information`), and an optional `hunkId`. For `context` and
 `information` rows both sides carry identical text, so `right` is omitted and
 clients must fall back to `left`. Hunk entries contain their header and the
 patch text needed for partial apply; rows are not duplicated per hunk, so
-clients group `rows` by `hunkID` instead.
+clients group `rows` by `hunkId` instead.
 `git.apply` accepts `root`, `patch`, and `mode`; supported modes are `stage`,
 `unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
 `worktreeCheck`. The two `*Check` modes only test whether the reverse patch
