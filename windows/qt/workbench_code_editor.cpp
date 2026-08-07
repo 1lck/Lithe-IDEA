@@ -10,6 +10,7 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QResizeEvent>
+#include <QScrollBar>
 #include <QSyntaxHighlighter>
 #include <QTextBlock>
 #include <QTextBlockFormat>

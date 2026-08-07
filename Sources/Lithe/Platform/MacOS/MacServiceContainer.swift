@@ -69,6 +69,7 @@ final class MacServiceContainer {
         let markdownRenderer = RustMarkdownRendering(core: rustCore)
         let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)
         let gitService = GitService(operations: gitOperations)
+        let shelveService = ShelveService(storage: fileStorage)
         let secureStore = MacLocalSecretStore()
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
@@ -100,6 +101,7 @@ final class MacServiceContainer {
             javaRunService: javaRunService,
             javaDebugService: javaDebugService,
             gitService: gitService,
+            shelveService: shelveService,
             commitMessageGenerator: commitMessageGenerator,
             secureStore: secureStore,
             credentialResolver: credentialResolver,

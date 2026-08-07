@@ -17,6 +17,7 @@ final class WorkspaceFeatureModel: ObservableObject {
     @Published var projectItemEditRequest: ProjectItemEditRequest?
     @Published var pendingProjectItemDeletion: ProjectItemDeletionRequest?
     @Published private(set) var isPerformingProjectItemOperation = false
+    private(set) var gitOperationFreezeDepth = 0
 
     private let operations: any WorkspaceOperations
     private let fileOperations: any WorkspaceFileOperations
@@ -109,6 +110,7 @@ final class WorkspaceFeatureModel: ObservableObject {
         workspaceSessionPersistenceTask?.cancel()
         pendingExternalPaths.removeAll()
         externalRefreshGeneration += 1
+        gitOperationFreezeDepth = 0
         workspaceURL = nil
         hasRestoredWorkspaceSession = false
         rootNode = nil
@@ -133,6 +135,32 @@ final class WorkspaceFeatureModel: ObservableObject {
         hasRestoredWorkspaceSession = false
         pendingExternalPaths.removeAll()
         externalRefreshGeneration += 1
+    }
+
+    /// Temporarily prevents FSEvents callbacks from making the workspace observe
+    /// Git's intermediate index/worktree states. Nested calls are supported so a
+    /// high-level workflow can contain several Git commands safely.
+    func beginGitOperationFreeze() {
+        gitOperationFreezeDepth += 1
+        refreshTask?.cancel()
+        refreshTask = nil
+        externalRefreshGeneration += 1
+    }
+
+    /// Flushes all watcher paths once the outermost Git operation completes.
+    /// The flush is intentionally immediate: GitFeatureModel has already
+    /// refreshed its own status, so this is the one place where the editor,
+    /// workspace tree, history, and project services catch up together.
+    func endGitOperationFreeze() async {
+        guard gitOperationFreezeDepth > 0 else { return }
+        gitOperationFreezeDepth -= 1
+        guard gitOperationFreezeDepth == 0,
+              let workspaceURL,
+              !pendingExternalPaths.isEmpty else { return }
+        let changedPaths = Array(pendingExternalPaths)
+        pendingExternalPaths.removeAll()
+        externalRefreshGeneration += 1
+        await applyExternalRefresh(changedPaths, at: workspaceURL)
     }
 
     func rebuild(
@@ -432,6 +460,11 @@ final class WorkspaceFeatureModel: ObservableObject {
         guard !paths.isEmpty else { return }
         pendingExternalPaths.formUnion(paths)
         externalRefreshGeneration += 1
+        guard gitOperationFreezeDepth == 0 else {
+            refreshTask?.cancel()
+            refreshTask = nil
+            return
+        }
         let generation = externalRefreshGeneration
         refreshTask?.cancel()
         refreshTask = Task { @MainActor [weak self] in
@@ -448,6 +481,10 @@ final class WorkspaceFeatureModel: ObservableObject {
 
     private func applyExternalRefresh(_ paths: [String], at workspaceURL: URL) async {
         guard self.workspaceURL == workspaceURL else { return }
+        guard gitOperationFreezeDepth == 0 else {
+            pendingExternalPaths.formUnion(paths)
+            return
+        }
         if isLoadingWorkspace || isRefreshingWorkspace {
             scheduleExternalRefresh(paths: paths)
             return

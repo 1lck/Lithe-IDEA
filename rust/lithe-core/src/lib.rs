@@ -534,6 +534,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         fs::write(root.join("new.txt"), "new").expect("test file should be writable");
 
         let request = serde_json::json!({
@@ -592,6 +593,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -661,6 +663,22 @@ mod tests {
             "initial\n"
         );
 
+        // Conflict-dialog rollback must discard both sides of a file, including
+        // a staged edit followed by a working-tree edit.
+        fs::write(root.join("example.txt"), "staged\n").expect("file should be writable");
+        assert!(run(&["add", "example.txt"]).status.success());
+        fs::write(root.join("example.txt"), "working\n").expect("file should be writable");
+        let discard_all = request("discardAll", serde_json::json!({"paths": ["example.txt"]}));
+        assert_eq!(discard_all["ok"], true, "{discard_all:?}");
+        assert_eq!(
+            fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
+            "initial\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&run(&["status", "--porcelain"]).stdout),
+            ""
+        );
+
         fs::write(root.join("untracked.txt"), "discard me\n")
             .expect("untracked file should be writable");
         assert_eq!(
@@ -694,6 +712,28 @@ mod tests {
             }),
         );
         assert_eq!(checkout["ok"], true);
+        assert_eq!(checkout["data"]["exitCode"], 0, "{checkout:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout).trim(),
+            current
+        );
+
+        // Nested branch names go through the same short-name path.
+        assert!(run(&["branch", "feature/nested"]).status.success());
+        let nested = request(
+            "checkout",
+            serde_json::json!({
+                "reference": "refs/heads/feature/nested",
+                "referenceKind": "local"
+            }),
+        );
+        assert_eq!(nested["ok"], true);
+        assert_eq!(nested["data"]["exitCode"], 0, "{nested:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout).trim(),
+            "feature/nested"
+        );
+        assert!(run(&["switch", &current]).status.success());
 
         fs::write(root.join("example.txt"), "working tree\n").expect("file should be writable");
         let stash = request(
@@ -707,6 +747,121 @@ mod tests {
             fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
             "working tree\n"
         );
+
+        // Checkout conflict handling. `feature/core` and the current branch hold different
+        // content for conflict.txt, so a dirty working copy of it blocks a plain switch.
+        fs::write(root.join("conflict.txt"), "on main\n").expect("file should be writable");
+        assert!(run(&["add", "conflict.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "main conflict"]).status.success());
+        assert!(run(&["switch", "feature/core"]).status.success());
+        fs::write(root.join("conflict.txt"), "on feature\n").expect("file should be writable");
+        assert!(run(&["add", "conflict.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "feature conflict"]).status.success());
+        assert!(run(&["switch", &current]).status.success());
+
+        let preflight = |reference: &str| -> Value {
+            let value = execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": "preflight",
+                    "command": "git.checkoutPreflight",
+                    "payload": {"root": root, "reference": reference}
+                }))
+                .expect("request should encode"),
+            );
+            serde_json::from_str(&value).expect("response should decode")
+        };
+
+        // Clean tree: nothing blocks the switch.
+        let clean = preflight("refs/heads/feature/core");
+        assert_eq!(clean["ok"], true, "{clean:?}");
+        assert_eq!(
+            clean["data"]["blockingPaths"],
+            serde_json::json!([]),
+            "{clean:?}"
+        );
+
+        // Dirty and divergent: preflight names the exact blocking file.
+        fs::write(root.join("conflict.txt"), "local edit\n").expect("file should be writable");
+        let blocked = preflight("refs/heads/feature/core");
+        assert_eq!(blocked["ok"], true);
+        assert_eq!(
+            blocked["data"]["blockingPaths"],
+            serde_json::json!(["conflict.txt"]),
+            "{blocked:?}"
+        );
+
+        // Untracked files that the target branch tracks also block a checkout, even
+        // though they never appear in `git diff HEAD`.
+        assert!(run(&["stash", "-u"]).status.success());
+        fs::write(root.join("conflict.txt"), "untracked local\n").expect("file should be writable");
+        let untracked_block = preflight("refs/heads/feature/core");
+        assert_eq!(
+            untracked_block["data"]["blockingPaths"],
+            serde_json::json!(["conflict.txt"]),
+            "{untracked_block:?}"
+        );
+        fs::remove_file(root.join("conflict.txt")).expect("file should be removable");
+        assert!(run(&["stash", "pop"]).status.success());
+
+        // A plain checkout is refused rather than clobbering the edit.
+        let refused = request(
+            "checkout",
+            serde_json::json!({
+                "reference": "refs/heads/feature/core",
+                "referenceKind": "local"
+            }),
+        );
+        assert_ne!(refused["data"]["exitCode"], 0, "{refused:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout).trim(),
+            current
+        );
+
+        // Smart checkout stashes the edit, switches, and restores it.
+        assert!(run(&["switch", "-c", "feature/smart"]).status.success());
+        let smart = request(
+            "checkout",
+            serde_json::json!({
+                "reference": format!("refs/heads/{current}"),
+                "referenceKind": "local",
+                "autoStash": true
+            }),
+        );
+        assert_eq!(smart["ok"], true);
+        assert_eq!(smart["data"]["exitCode"], 0, "{smart:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout).trim(),
+            current
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("conflict.txt")).expect("file should be readable"),
+            "local edit\n"
+        );
+        assert!(
+            String::from_utf8_lossy(&run(&["stash", "list"]).stdout).is_empty(),
+            "smart checkout should consume its stash"
+        );
+
+        // Force checkout discards the local edit and lands on the target branch.
+        let forced = request(
+            "checkout",
+            serde_json::json!({
+                "reference": "refs/heads/feature/core",
+                "referenceKind": "local",
+                "force": true
+            }),
+        );
+        assert_eq!(forced["ok"], true);
+        assert_eq!(forced["data"]["exitCode"], 0, "{forced:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout).trim(),
+            "feature/core"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("conflict.txt")).expect("file should be readable"),
+            "on feature\n"
+        );
+        assert!(run(&["switch", &current]).status.success());
 
         let clone = root
             .parent()
@@ -734,6 +889,218 @@ mod tests {
     }
 
     #[test]
+    fn stash_restore_conflicts_return_structured_recovery_data() {
+        let root = temporary_root("git-stash-conflict");
+        fs::create_dir_all(&root).expect("temporary repository should be creatable");
+        let run = |arguments: &[&str]| {
+            Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .output()
+                .expect("git should be available")
+        };
+        assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"])
+            .status
+            .success());
+        assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+        fs::write(root.join("shared.txt"), "base\n").expect("file should be writable");
+        assert!(run(&["add", "shared.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+        assert!(run(&["switch", "-qc", "feature"]).status.success());
+        fs::write(root.join("shared.txt"), "feature\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "feature edit"]).status.success());
+        assert!(run(&["switch", "-q", "main"]).status.success());
+
+        fs::write(root.join("shared.txt"), "local\n").expect("file should be writable");
+        assert!(run(&["stash", "push", "-qm", "restore conflict"])
+            .status
+            .success());
+        let stash_reference =
+            String::from_utf8_lossy(&run(&["stash", "list", "--format=%gd"]).stdout)
+                .lines()
+                .next()
+                .expect("stash reference should exist")
+                .trim()
+                .to_string();
+        assert!(run(&["switch", "-q", "feature"]).status.success());
+
+        let write = |operation: &str| -> Value {
+            serde_json::from_str(&execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": format!("stash-{operation}"),
+                    "command": "git.write",
+                    "payload": {
+                        "root": root,
+                        "operation": operation,
+                        "reference": stash_reference
+                    }
+                }))
+                .expect("stash request should encode"),
+            ))
+            .expect("stash response should be JSON")
+        };
+
+        let applied = write("stashApply");
+        assert_eq!(applied["ok"], true, "{applied:?}");
+        assert_eq!(applied["data"]["exitCode"], 1, "{applied:?}");
+        assert_eq!(
+            applied["data"]["stashRestore"]["stashReference"], stash_reference,
+            "{applied:?}"
+        );
+        assert_eq!(
+            applied["data"]["stashRestore"]["conflictedPaths"],
+            serde_json::json!(["shared.txt"]),
+            "{applied:?}"
+        );
+
+        // Clear the index conflict without dropping the saved entry, then verify
+        // `pop` reports the same structured recovery data.
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+        let popped = write("stashPop");
+        assert_eq!(popped["ok"], true, "{popped:?}");
+        assert_eq!(popped["data"]["exitCode"], 1, "{popped:?}");
+        assert_eq!(
+            popped["data"]["stashRestore"]["stashReference"], stash_reference,
+            "{popped:?}"
+        );
+        assert_eq!(
+            popped["data"]["stashRestore"]["conflictedPaths"],
+            serde_json::json!(["shared.txt"]),
+            "{popped:?}"
+        );
+
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+        assert!(run(&["stash", "drop", &stash_reference]).status.success());
+        fs::remove_dir_all(root).expect("temporary repository should be removable");
+    }
+
+    #[test]
+    fn git_operation_state_reports_and_resolves_a_merge_conflict() {
+        let root = temporary_root("git-operation");
+        fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+        let run = |arguments: &[&str]| {
+            Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .output()
+                .expect("git should be available")
+        };
+        assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"])
+            .status
+            .success());
+        assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+
+        fs::write(root.join("shared.txt"), "base\n").expect("file should be writable");
+        assert!(run(&["add", "shared.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "initial"]).status.success());
+        let current = String::from_utf8_lossy(&run(&["branch", "--show-current"]).stdout)
+            .trim()
+            .to_string();
+
+        let state = || -> Value {
+            let value = execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": "operation-state",
+                    "command": "git.operationState",
+                    "payload": {"root": root}
+                }))
+                .expect("request should encode"),
+            );
+            serde_json::from_str(&value).expect("response should decode")
+        };
+        let write = |operation: &str| -> Value {
+            let value = execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": "operation-write",
+                    "command": "git.write",
+                    "payload": {"root": root, "operation": operation}
+                }))
+                .expect("request should encode"),
+            );
+            serde_json::from_str(&value).expect("response should decode")
+        };
+
+        // A settled repository reports no operation and no conflicts.
+        let idle = state();
+        assert_eq!(idle["ok"], true, "{idle:?}");
+        assert_eq!(idle["data"]["kind"], "", "{idle:?}");
+        assert_eq!(idle["data"]["conflictedPaths"], serde_json::json!([]));
+
+        // Continuing when nothing is in progress is rejected rather than run blindly.
+        let nothing = write("operationContinue");
+        assert_eq!(nothing["ok"], false, "{nothing:?}");
+        assert_eq!(nothing["error"]["code"], "invalid_request");
+
+        // Build two branches that edit the same line, so merging must conflict.
+        assert!(run(&["switch", "-qc", "feature/conflict"]).status.success());
+        fs::write(root.join("shared.txt"), "from feature\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "feature edit"]).status.success());
+        assert!(run(&["switch", "-q", &current]).status.success());
+        fs::write(root.join("shared.txt"), "from main\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "main edit"]).status.success());
+
+        // Conflicting merges exit non-zero; the point is the state they leave behind.
+        assert!(!run(&["merge", "--no-edit", "feature/conflict"])
+            .status
+            .success());
+
+        let conflicted = state();
+        assert_eq!(conflicted["ok"], true, "{conflicted:?}");
+        assert_eq!(conflicted["data"]["kind"], "merge", "{conflicted:?}");
+        assert_eq!(
+            conflicted["data"]["conflictedPaths"],
+            serde_json::json!(["shared.txt"]),
+            "{conflicted:?}"
+        );
+
+        // Continuing with the conflict unresolved is refused, so the user cannot
+        // commit conflict markers by clicking through the banner.
+        let premature = write("operationContinue");
+        assert_eq!(premature["ok"], false, "{premature:?}");
+        assert_eq!(premature["error"]["code"], "invalid_request");
+
+        // A merge has no skip step.
+        let skip = write("operationSkip");
+        assert_eq!(skip["ok"], false, "{skip:?}");
+
+        // Resolving the file and continuing completes the merge without opening an editor.
+        fs::write(root.join("shared.txt"), "resolved\n").expect("file should be writable");
+        assert!(run(&["add", "shared.txt"]).status.success());
+        let finished = write("operationContinue");
+        assert_eq!(finished["ok"], true, "{finished:?}");
+        assert_eq!(finished["data"]["exitCode"], 0, "{finished:?}");
+
+        let settled = state();
+        assert_eq!(settled["data"]["kind"], "", "{settled:?}");
+        assert_eq!(settled["data"]["conflictedPaths"], serde_json::json!([]));
+
+        // Abort restores the pre-merge state of a fresh conflict.
+        fs::write(root.join("shared.txt"), "main again\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "main again"]).status.success());
+        assert!(run(&["switch", "-q", "feature/conflict"]).status.success());
+        fs::write(root.join("shared.txt"), "feature again\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "feature again"]).status.success());
+        assert!(!run(&["merge", "--no-edit", &current]).status.success());
+        assert_eq!(state()["data"]["kind"], "merge");
+
+        let aborted = write("operationAbort");
+        assert_eq!(aborted["ok"], true, "{aborted:?}");
+        assert_eq!(aborted["data"]["exitCode"], 0, "{aborted:?}");
+        assert_eq!(state()["data"]["kind"], "");
+        assert_eq!(
+            fs::read_to_string(root.join("shared.txt")).expect("file should be readable"),
+            "feature again\n"
+        );
+
+        fs::remove_dir_all(root).expect("temporary repository should be removable");
+    }
+
+    #[test]
     fn git_diff_and_apply_round_trip_a_patch() {
         let root = temporary_root("git-diff");
         fs::create_dir_all(&root).expect("temporary workspace should be creatable");
@@ -745,6 +1112,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -817,6 +1185,132 @@ mod tests {
 
         let status = run(&["status", "--porcelain"]).stdout;
         assert_eq!(String::from_utf8_lossy(&status), "M  example.txt\n");
+
+        // Shelve restores the index snapshot and the unstaged worktree delta
+        // separately. Verify that a file with both kinds of edits returns as MM
+        // and keeps the final worktree content.
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+        fs::write(root.join("example.txt"), "staged\n").expect("file should be writable");
+        assert!(run(&["add", "example.txt"]).status.success());
+        let staged_diff = serde_json::json!({
+            "id": "staged-diff",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["example.txt"],
+                "staged": true
+            }
+        });
+        let staged_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&staged_diff).expect("staged diff request should encode"),
+        ))
+        .expect("staged diff response should be JSON");
+        let staged_patch = staged_response["data"]["patch"]
+            .as_str()
+            .expect("staged patch should be text")
+            .to_string();
+
+        fs::write(root.join("example.txt"), "final\n").expect("file should be writable");
+        let working_diff = serde_json::json!({
+            "id": "working-diff",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["example.txt"]
+            }
+        });
+        let working_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&working_diff).expect("working diff request should encode"),
+        ))
+        .expect("working diff response should be JSON");
+        let working_patch = working_response["data"]["patch"]
+            .as_str()
+            .expect("working patch should be text")
+            .to_string();
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+
+        for (id, patch, mode) in [
+            ("restore-index", staged_patch.as_str(), "restoreIndex"),
+            ("restore-worktree", working_patch.as_str(), "worktree"),
+        ] {
+            let apply = serde_json::json!({
+                "id": id,
+                "command": "git.apply",
+                "payload": {"root": root, "patch": patch, "mode": mode}
+            });
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::to_string(&apply).expect("restore apply request should encode"),
+            ))
+            .expect("restore apply response should be JSON");
+            assert_eq!(response["ok"], true, "{response:?}");
+            assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+        }
+        assert_eq!(
+            String::from_utf8_lossy(&run(&["status", "--porcelain"]).stdout),
+            "MM example.txt\n"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("example.txt")).expect("file should be readable"),
+            "final\n"
+        );
+
+        for (id, patch, mode) in [
+            (
+                "restore-index-check",
+                staged_patch.as_str(),
+                "restoreIndexCheck",
+            ),
+            ("worktree-check", working_patch.as_str(), "worktreeCheck"),
+        ] {
+            let check = serde_json::json!({
+                "id": id,
+                "command": "git.apply",
+                "payload": {"root": root, "patch": patch, "mode": mode}
+            });
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::to_string(&check).expect("patch check request should encode"),
+            ))
+            .expect("patch check response should be JSON");
+            assert_eq!(response["ok"], true, "{response:?}");
+            assert_eq!(response["data"]["exitCode"], 0, "{response:?}");
+        }
+
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
+        fs::write(root.join("new.txt"), "untracked\n").expect("file should be writable");
+        let untracked_diff = serde_json::json!({
+            "id": "untracked-diff",
+            "command": "git.diff",
+            "payload": {
+                "root": root,
+                "pathspecs": ["new.txt"],
+                "untracked": true
+            }
+        });
+        let untracked_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&untracked_diff).expect("untracked diff request should encode"),
+        ))
+        .expect("untracked diff response should be JSON");
+        let untracked_patch = untracked_response["data"]["patch"]
+            .as_str()
+            .expect("untracked patch should be text")
+            .to_string();
+        fs::remove_file(root.join("new.txt")).expect("file should be removable");
+        let untracked_apply = serde_json::json!({
+            "id": "untracked-apply",
+            "command": "git.apply",
+            "payload": {"root": root, "patch": untracked_patch, "mode": "worktree"}
+        });
+        let untracked_apply_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&untracked_apply)
+                .expect("untracked apply request should encode"),
+        ))
+        .expect("untracked apply response should be JSON");
+        assert_eq!(untracked_apply_response["ok"], true);
+        assert_eq!(untracked_apply_response["data"]["exitCode"], 0);
+        assert_eq!(
+            fs::read_to_string(root.join("new.txt")).expect("file should be readable"),
+            "untracked\n"
+        );
         fs::remove_dir_all(root).expect("temporary workspace should be removable");
     }
 
@@ -832,6 +1326,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -1133,5 +1628,400 @@ mod tests {
         .expect("server port response should be JSON");
         assert_eq!(port_response["data"]["port"], 8080);
         fs::remove_dir_all(root).expect("Java fixture should be removable");
+    }
+
+    #[test]
+    fn git_conflict_markers_ignore_markdown_headings() {
+        let root = temporary_root("git-markers");
+        fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+        let run = |arguments: &[&str]| {
+            Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .output()
+                .expect("git should be available")
+        };
+        assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"])
+            .status
+            .success());
+        assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+
+        let markers = || -> Value {
+            serde_json::from_str(&execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": "conflict-markers",
+                    "command": "git.conflictMarkers",
+                    "payload": {"root": root}
+                }))
+                .expect("request should encode"),
+            ))
+            .expect("conflict marker response should be JSON")
+        };
+
+        // A Markdown setext heading underline looks exactly like the middle of a
+        // conflict block, so matching a bare `=======` would flag ordinary docs.
+        fs::write(root.join("doc.md"), "Title\n=======\n\nbody\n")
+            .expect("file should be writable");
+        assert!(run(&["add", "doc.md"]).status.success());
+        let clean = markers();
+        assert_eq!(clean["ok"], true);
+        assert_eq!(
+            clean["data"]["paths"].as_array().unwrap().len(),
+            0,
+            "a Markdown heading is not a conflict: {clean}"
+        );
+
+        // Only files carrying the opening or closing marker are real conflicts.
+        fs::write(
+            root.join("code.txt"),
+            "a\n<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> feature\n",
+        )
+        .expect("file should be writable");
+        // The diff3 style adds a `|||||||` base section, which also counts.
+        fs::write(
+            root.join("diff3.txt"),
+            "x\n<<<<<<< HEAD\na\n||||||| base\nb\n=======\nc\n>>>>>>> other\n",
+        )
+        .expect("file should be writable");
+        assert!(run(&["add", "."]).status.success());
+
+        let found = markers();
+        let paths = found["data"]["paths"].as_array().unwrap();
+        assert_eq!(paths.len(), 2, "{found}");
+        assert_eq!(paths[0], "code.txt");
+        assert_eq!(paths[1], "diff3.txt");
+
+        fs::remove_dir_all(root).expect("Git fixture should be removable");
+    }
+
+    #[test]
+    fn git_integration_preflight_separates_merge_overlap_from_rebase_strictness() {
+        let root = temporary_root("git-integration");
+        fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+        let run = |arguments: &[&str]| {
+            Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .output()
+                .expect("git should be available")
+        };
+        assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"])
+            .status
+            .success());
+        assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+
+        fs::write(root.join("shared.txt"), "base\n").expect("file should be writable");
+        fs::write(root.join("other.txt"), "untouched\n").expect("file should be writable");
+        assert!(run(&["add", "."]).status.success());
+        assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+        // A side branch that only ever touches shared.txt.
+        assert!(run(&["switch", "-qc", "feature"]).status.success());
+        fs::write(root.join("shared.txt"), "incoming\n").expect("file should be writable");
+        assert!(run(&["add", "shared.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "incoming"]).status.success());
+        assert!(run(&["switch", "-q", "main"]).status.success());
+        // Move main forward so the branches genuinely diverge.
+        fs::write(root.join("main.txt"), "main\n").expect("file should be writable");
+        assert!(run(&["add", "main.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "main side"]).status.success());
+
+        let preflight = |operation: &str| -> Value {
+            serde_json::from_str(&execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": "integration-preflight",
+                    "command": "git.integrationPreflight",
+                    "payload": {
+                        "root": root,
+                        "reference": "refs/heads/feature",
+                        "operation": operation
+                    }
+                }))
+                .expect("request should encode"),
+            ))
+            .expect("integration preflight response should be JSON")
+        };
+
+        // A clean tree blocks neither operation.
+        assert_eq!(
+            preflight("merge")["data"]["blockingPaths"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            preflight("rebase")["data"]["blockingPaths"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+
+        // Dirty a file the incoming branch never touches. Git lets a merge proceed
+        // here but still refuses a rebase, so the two must report differently.
+        fs::write(root.join("other.txt"), "local edit\n").expect("file should be writable");
+
+        let merge = preflight("merge");
+        assert_eq!(merge["ok"], true);
+        assert_eq!(
+            merge["data"]["blockingPaths"].as_array().unwrap().len(),
+            0,
+            "an unrelated edit should not block a merge: {merge}"
+        );
+        assert_eq!(merge["data"]["blocksEntirely"], false);
+
+        let rebase = preflight("rebase");
+        assert_eq!(rebase["data"]["blockingPaths"][0], "other.txt");
+        assert_eq!(rebase["data"]["blocksEntirely"], true);
+
+        // Now dirty the file the merge would write; that one does block it.
+        fs::write(root.join("shared.txt"), "local edit\n").expect("file should be writable");
+        let overlapping = preflight("merge");
+        assert_eq!(overlapping["data"]["blockingPaths"][0], "shared.txt");
+        assert_eq!(
+            overlapping["data"]["blockingPaths"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1,
+            "only the overlapping file blocks: {overlapping}"
+        );
+
+        // An unknown operation is rejected rather than guessed at.
+        let invalid = serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "integration-preflight",
+                "command": "git.integrationPreflight",
+                "payload": {
+                    "root": root,
+                    "reference": "refs/heads/feature",
+                    "operation": "graft"
+                }
+            }))
+            .expect("request should encode"),
+        ))
+        .expect("response should be JSON");
+        assert_eq!(invalid["ok"], false);
+
+        fs::remove_dir_all(root).expect("Git fixture should be removable");
+    }
+
+    #[test]
+    fn git_integration_preflight_scopes_cherry_pick_to_the_replayed_commit() {
+        let root = temporary_root("git-cherry-pick");
+        fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+        let run = |arguments: &[&str]| {
+            Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .output()
+                .expect("git should be available")
+        };
+        assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"])
+            .status
+            .success());
+        assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+
+        fs::write(root.join("shared.txt"), "base\n").expect("file should be writable");
+        fs::write(root.join("other.txt"), "untouched\n").expect("file should be writable");
+        assert!(run(&["add", "."]).status.success());
+        assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+        // A side branch of two commits. Only the second one touches shared.txt, so
+        // picking it must consider that file alone rather than the whole branch.
+        assert!(run(&["switch", "-qc", "feature"]).status.success());
+        fs::write(root.join("early.txt"), "early\n").expect("file should be writable");
+        assert!(run(&["add", "early.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "earlier work"]).status.success());
+        fs::write(root.join("shared.txt"), "incoming\n").expect("file should be writable");
+        assert!(run(&["add", "shared.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "touches shared"]).status.success());
+        let pick = String::from_utf8(run(&["rev-parse", "HEAD"]).stdout)
+            .expect("a revision should be UTF-8");
+        let pick = pick.trim().to_string();
+        assert!(run(&["switch", "-q", "main"]).status.success());
+
+        let preflight = |operation: &str, reference: &str| -> Value {
+            serde_json::from_str(&execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": "integration-preflight",
+                    "command": "git.integrationPreflight",
+                    "payload": {
+                        "root": root,
+                        "reference": reference,
+                        "operation": operation
+                    }
+                }))
+                .expect("request should encode"),
+            ))
+            .expect("integration preflight response should be JSON")
+        };
+
+        // An edit to a file the picked commit never touches is not in its way, the
+        // same rule a merge follows and unlike a rebase.
+        fs::write(root.join("other.txt"), "local edit\n").expect("file should be writable");
+        for operation in ["cherryPick", "revert"] {
+            let clear = preflight(operation, &pick);
+            assert_eq!(clear["ok"], true, "{operation} should succeed: {clear}");
+            assert_eq!(
+                clear["data"]["blockingPaths"].as_array().unwrap().len(),
+                0,
+                "an unrelated edit should not block {operation}: {clear}"
+            );
+            assert_eq!(clear["data"]["blocksEntirely"], false);
+        }
+
+        // Dirtying the file that commit rewrites does block it.
+        fs::write(root.join("shared.txt"), "local edit\n").expect("file should be writable");
+        let blocked = preflight("cherryPick", &pick);
+        assert_eq!(blocked["data"]["blockingPaths"][0], "shared.txt");
+        assert_eq!(
+            blocked["data"]["blockingPaths"].as_array().unwrap().len(),
+            1,
+            "only the file the commit writes blocks it: {blocked}"
+        );
+
+        // The branch tip as a whole also adds early.txt, but picking the single
+        // commit must not inherit that; a merge of the same ref would report it.
+        let merge = preflight("merge", "refs/heads/feature");
+        let merge_blocking = merge["data"]["blockingPaths"].as_array().unwrap();
+        assert!(
+            merge_blocking.iter().any(|path| path == "shared.txt"),
+            "the merge shares the overlap: {merge}"
+        );
+
+        fs::remove_dir_all(root).expect("Git fixture should be removable");
+    }
+
+    #[test]
+    fn git_pull_preflight_reports_divergence_and_strategies_resolve_it() {
+        let root = temporary_root("git-pull");
+        let upstream = root.join("upstream");
+        let work = root.join("work");
+        fs::create_dir_all(&upstream).expect("temporary workspace should be creatable");
+
+        let git = |directory: &std::path::Path, arguments: &[&str]| {
+            Command::new("git")
+                .args(arguments)
+                .current_dir(directory)
+                .output()
+                .expect("git should be available")
+        };
+        let identify = |directory: &std::path::Path| {
+            assert!(git(directory, &["config", "core.autocrlf", "false"])
+                .status
+                .success());
+            assert!(
+                git(directory, &["config", "user.email", "test@example.com"])
+                    .status
+                    .success()
+            );
+            assert!(git(directory, &["config", "user.name", "Lithe Test"])
+                .status
+                .success());
+        };
+
+        assert!(git(&upstream, &["init", "-q", "-b", "main"])
+            .status
+            .success());
+        identify(&upstream);
+        fs::write(upstream.join("shared.txt"), "base\n").expect("file should be writable");
+        assert!(git(&upstream, &["add", "shared.txt"]).status.success());
+        assert!(git(&upstream, &["commit", "-qm", "initial"])
+            .status
+            .success());
+
+        assert!(git(
+            &root,
+            &[
+                "clone",
+                "-q",
+                "-c",
+                "core.autocrlf=false",
+                "upstream",
+                "work"
+            ]
+        )
+        .status
+        .success());
+        identify(&work);
+
+        let preflight = || -> Value {
+            serde_json::from_str(&execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": "pull-preflight",
+                    "command": "git.pullPreflight",
+                    "payload": {"root": work}
+                }))
+                .expect("request should encode"),
+            ))
+            .expect("pull preflight response should be JSON")
+        };
+
+        // A fresh clone is level with its upstream, so nothing needs deciding.
+        let clean = preflight();
+        assert_eq!(clean["ok"], true);
+        assert_eq!(clean["data"]["upstream"], "origin/main");
+        assert_eq!(clean["data"]["diverged"], false);
+        assert_eq!(clean["data"]["ahead"], 0);
+        assert_eq!(clean["data"]["behind"], 0);
+
+        // Commit on both sides so neither can fast-forward past the other.
+        fs::write(upstream.join("remote.txt"), "remote\n").expect("file should be writable");
+        assert!(git(&upstream, &["add", "remote.txt"]).status.success());
+        assert!(git(&upstream, &["commit", "-qm", "remote"])
+            .status
+            .success());
+        fs::write(work.join("local.txt"), "local\n").expect("file should be writable");
+        assert!(git(&work, &["add", "local.txt"]).status.success());
+        assert!(git(&work, &["commit", "-qm", "local"]).status.success());
+        assert!(git(&work, &["fetch", "-q"]).status.success());
+
+        let diverged = preflight();
+        assert_eq!(diverged["data"]["diverged"], true);
+        assert_eq!(diverged["data"]["ahead"], 1);
+        assert_eq!(diverged["data"]["behind"], 1);
+
+        let pull = |mode: Option<&str>| -> Value {
+            let mut payload = serde_json::json!({"root": work, "operation": "pull"});
+            if let Some(mode) = mode {
+                payload["mode"] = serde_json::json!(mode);
+            }
+            serde_json::from_str(&execute_json(
+                &serde_json::to_string(&serde_json::json!({
+                    "id": "pull",
+                    "command": "git.write",
+                    "payload": payload
+                }))
+                .expect("request should encode"),
+            ))
+            .expect("pull response should be JSON")
+        };
+
+        // The default refuses a divergent history rather than inventing a merge.
+        let refused = pull(None);
+        assert_ne!(refused["data"]["exitCode"], 0);
+
+        // Rebase replays the local commit on top, leaving a linear history.
+        let rebased = pull(Some("rebase"));
+        assert_eq!(rebased["data"]["exitCode"], 0, "{rebased}");
+
+        let settled = preflight();
+        assert_eq!(settled["data"]["diverged"], false);
+        assert_eq!(settled["data"]["behind"], 0);
+        assert_eq!(settled["data"]["ahead"], 1);
+
+        // An unknown strategy is rejected before Git ever runs.
+        let invalid = pull(Some("squash"));
+        assert_eq!(invalid["ok"], false);
+
+        fs::remove_dir_all(root).expect("Git fixture should be removable");
     }
 }

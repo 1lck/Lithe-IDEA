@@ -10,13 +10,42 @@ struct ChangesSidebarView: View {
     @State private var stashMessage = "WIP"
     @State private var includeUntracked = true
     @State private var selectedStash: GitStash?
+    @State private var selectedShelf: GitShelfEntry?
     @State private var pendingDropStash: GitStash?
+    @State private var pendingDropShelf: GitShelfEntry?
     @State private var shouldConfirmCommitAndPush = false
 
     var body: some View {
         VStack(spacing: 0) {
             tabHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            if let operation = model.gitOperationState {
+                GitOperationBanner(operation: operation)
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
+
+            if let conflict = model.pendingStashRestoreConflict {
+                if model.isStashRestoreConflictNoticeVisible {
+                    GitStashRestoreConflictBanner(conflict: conflict)
+                } else {
+                    HStack(spacing: 7) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(LitheTheme.warning)
+                        Text("Stash restore needs attention")
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(LitheTheme.primaryText)
+                        Spacer(minLength: 0)
+                        Button("Review") { model.showStashRestoreConflictNotice() }
+                            .controlSize(.small)
+                            .lithePointer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(LitheTheme.raised)
+                }
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
 
             if model.gitRepositoryRoot == nil {
                 noRepository
@@ -27,6 +56,10 @@ struct ChangesSidebarView: View {
             }
         }
         .background(LitheTheme.sidebar)
+        .onAppear { selectRequestedStashIfNeeded() }
+        .onChange(of: model.requestedStashReference) { _, _ in
+            selectRequestedStashIfNeeded()
+        }
         .confirmationDialog(
             "Drop \(pendingDropStash?.reference ?? "stash")?",
             isPresented: Binding(
@@ -47,6 +80,25 @@ struct ChangesSidebarView: View {
             .lithePointer()
         } message: {
             Text("This removes the stash from Git and cannot be undone.")
+        }
+        .confirmationDialog(
+            "Drop this shelf?",
+            isPresented: Binding(
+                get: { pendingDropShelf != nil },
+                set: { if !$0 { pendingDropShelf = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Drop Shelf", role: .destructive) {
+                guard let pendingDropShelf else { return }
+                self.pendingDropShelf = nil
+                Task { await model.dropShelf(pendingDropShelf) }
+            }
+            .lithePointer()
+            Button("Cancel", role: .cancel) { pendingDropShelf = nil }
+                .lithePointer()
+        } message: {
+            Text("This removes the saved patch from Lithe and cannot be undone.")
         }
         .confirmationDialog(
             "Commit and push changes?",
@@ -156,7 +208,7 @@ struct ChangesSidebarView: View {
     private var shelfContent: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                TextField("Stash message", text: $stashMessage)
+                TextField("Save message", text: $stashMessage)
                     .textFieldStyle(.plain)
                     .font(.system(size: 11.5))
                     .padding(.horizontal, 7)
@@ -190,18 +242,36 @@ struct ChangesSidebarView: View {
                 .tint(LitheTheme.accent)
                 .lithePointer()
                 .disabled(!canStash)
+
+                Button {
+                    Task {
+                        await model.shelveWorkingTree(message: stashMessage)
+                        selectedShelf = nil
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        if model.isPerformingShelfOperation {
+                            ProgressView().controlSize(.mini)
+                        }
+                        Text("Shelf")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .lithePointer()
+                .disabled(!canShelf)
             }
             .padding(8)
             .background(LitheTheme.toolHeader)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if model.gitStashes.isEmpty {
+            if model.gitStashes.isEmpty && model.gitShelves.isEmpty {
                 VStack(spacing: 9) {
                     Image(systemName: "archivebox")
                         .font(.system(size: 28, weight: .light))
-                    Text("No shelves")
-                    Text("Stash changes here to switch branches safely.")
+                    Text("No saved changes")
+                    Text("Stash or shelf changes here to switch branches safely.")
                         .font(.system(size: 11.5))
                         .multilineTextAlignment(.center)
                 }
@@ -212,8 +282,17 @@ struct ChangesSidebarView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 1) {
-                        ForEach(model.gitStashes) { stash in
-                            stashRow(stash)
+                        if !model.gitShelves.isEmpty {
+                            savedChangesSectionHeader("Lithe Shelves")
+                            ForEach(model.gitShelves) { shelf in
+                                shelfRow(shelf)
+                            }
+                        }
+                        if !model.gitStashes.isEmpty {
+                            savedChangesSectionHeader("Git Stashes")
+                            ForEach(model.gitStashes) { stash in
+                                stashRow(stash)
+                            }
                         }
                     }
                     .padding(7)
@@ -270,6 +349,56 @@ struct ChangesSidebarView: View {
         }
     }
 
+    private func savedChangesSectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(LocalizedStringKey(title))
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 3)
+    }
+
+    private func shelfRow(_ shelf: GitShelfEntry) -> some View {
+        Button {
+            selectedShelf = shelf
+        } label: {
+            HStack(spacing: 8) {
+                LitheSystemIcon(systemImage: "shippingbox")
+                    .foregroundStyle(LitheTheme.accent)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(shelf.message)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .lineLimit(1)
+                    Text("\(shelf.paths.count) file(s) · \(shelf.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.system(size: 10))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(
+                selectedShelf?.id == shelf.id
+                    ? LitheTheme.subtleSelection
+                    : LitheTheme.sidebar
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .contextMenu {
+            Button("Restore") { Task { await model.applyShelf(shelf) } }
+            Button("Drop", role: .destructive) { pendingDropShelf = shelf }
+        }
+    }
+
     private var commitToolbar: some View {
         HStack(spacing: 2) {
             Button {
@@ -311,6 +440,18 @@ struct ChangesSidebarView: View {
 
             Spacer()
 
+            if !model.gitConflictFilterPaths.isEmpty {
+                Button {
+                    model.clearGitConflictFilter()
+                } label: {
+                    Label("Clear conflict filter", systemImage: "line.3.horizontal.decrease.circle")
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.warning)
+                .lithePointer()
+            }
+
             Text(model.currentBranch)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -328,6 +469,19 @@ struct ChangesSidebarView: View {
                         .font(.system(size: 27, weight: .light))
                         .foregroundStyle(LitheTheme.success)
                     Text("Working tree is clean")
+                }
+                .font(LitheTheme.uiFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if displayedChanges.isEmpty {
+                VStack(spacing: 9) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 27, weight: .light))
+                        .foregroundStyle(LitheTheme.warning)
+                    Text("No files match the conflict filter")
+                    Button("Show all changes") { model.clearGitConflictFilter() }
+                        .buttonStyle(.borderless)
+                        .lithePointer()
                 }
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -635,11 +789,16 @@ struct ChangesSidebarView: View {
     }
 
     private var trackedChanges: [GitChange] {
-        model.gitChanges.filter { !$0.isUntracked }
+        displayedChanges.filter { !$0.isUntracked }
     }
 
     private var untrackedChanges: [GitChange] {
-        model.gitChanges.filter(\.isUntracked)
+        displayedChanges.filter(\.isUntracked)
+    }
+
+    private var displayedChanges: [GitChange] {
+        guard !model.gitConflictFilterPaths.isEmpty else { return model.gitChanges }
+        return model.gitChanges.filter { model.gitConflictFilterPaths.contains($0.path) }
     }
 
     private var stagedChanges: [GitChange] {
@@ -656,6 +815,10 @@ struct ChangesSidebarView: View {
         !model.gitChanges.isEmpty && !model.isPerformingStashOperation
     }
 
+    private var canShelf: Bool {
+        !model.gitChanges.isEmpty && !model.isPerformingShelfOperation
+    }
+
     private func statusColor(_ change: GitChange) -> Color {
         switch change.kind {
         case .added: LitheTheme.success
@@ -663,11 +826,18 @@ struct ChangesSidebarView: View {
         case .deleted: .red.opacity(0.86)
         case .moved: LitheTheme.accent
         case .copied: Color(red: 0.46, green: 0.72, blue: 0.92)
+        case .conflicted: .red
         }
     }
 
     private func fileNameColor(_ change: GitChange) -> Color {
         change.kind == .modified ? LitheTheme.primaryText : statusColor(change)
+    }
+
+    private func selectRequestedStashIfNeeded() {
+        guard let reference = model.requestedStashReference else { return }
+        selectedTab = .shelf
+        selectedStash = model.gitStashes.first(where: { $0.reference == reference })
     }
 
     private func changeDisplayName(_ change: GitChange) -> String {
@@ -686,6 +856,128 @@ struct ChangesSidebarView: View {
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
         min(maximum, max(minimum, value))
+    }
+}
+
+/// Persistent banner for a merge, rebase, cherry-pick, or revert that Git stopped
+/// partway through. Deliberately not a dialog: resolving conflicts means editing
+/// files, so the controls have to stay reachable rather than block the window.
+private struct GitOperationBanner: View {
+    @EnvironmentObject private var model: AppModel
+    let operation: GitOperationState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(LitheTheme.warning)
+                Text(LocalizedStringKey(operation.kind.inProgressTitle))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                if let reference = operation.reference {
+                    Text(verbatim: "— \(reference)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                if let step = operation.step, let total = operation.total {
+                    Text("Step \(step) of \(total)")
+                }
+                if operation.hasConflicts {
+                    Text("Resolve \(operation.conflictedPaths.count) conflicted file(s), stage them, then continue.")
+                } else {
+                    Text("All conflicts resolved. Continue to finish, or abort to undo.")
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button(LocalizedStringKey(operation.kind.continueTitle)) {
+                    Task { await model.continueGitOperation() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(LitheTheme.accent)
+                .disabled(model.isResolvingGitOperation || operation.hasConflicts)
+                .lithePointer()
+
+                if operation.kind.canSkip {
+                    Button("Skip Commit") {
+                        Task { await model.skipGitOperationStep() }
+                    }
+                    .disabled(model.isResolvingGitOperation)
+                    .lithePointer()
+                }
+
+                Button("Abort") {
+                    Task { await model.abortGitOperation() }
+                }
+                .disabled(model.isResolvingGitOperation)
+                .lithePointer()
+
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 11))
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LitheTheme.raised)
+    }
+
+}
+
+private struct GitStashRestoreConflictBanner: View {
+    @EnvironmentObject private var model: AppModel
+    let conflict: GitStashRestoreConflictRequest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(LitheTheme.warning)
+                Text("Local changes were restored with conflicts")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Spacer(minLength: 0)
+            }
+
+            Text("Your local changes are safe in \(conflict.stashReference). The \(conflict.operationTitle) is incomplete. Resolve the conflicts, then drop this stash manually.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 7) {
+                Button("Show Conflict Files") {
+                    model.showStashRestoreConflictFiles()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(LitheTheme.accent)
+                .lithePointer()
+
+                Button("View Saved Changes") {
+                    model.showStashRestoreConflictStash()
+                }
+                .lithePointer()
+
+                Spacer(minLength: 0)
+
+                Button("Later") {
+                    model.dismissStashRestoreConflictNotice()
+                }
+                .lithePointer()
+            }
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LitheTheme.raised)
     }
 }
 

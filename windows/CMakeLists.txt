@@ -5,6 +5,10 @@ project(LitheWindows LANGUAGES CXX)
 include(CTest)
 enable_testing()
 
+if(WIN32)
+    add_compile_definitions(NOMINMAX)
+endif()
+
 add_library(lithe_windows_core STATIC
     core/core_client.cpp
     core/core_dto.cpp
@@ -274,12 +278,14 @@ if(LITHE_BUILD_QT_UI)
         "${CMAKE_CURRENT_SOURCE_DIR}/core"
         "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
     )
     if(LITHE_RUST_CORE_LIBRARY)
         target_link_libraries(lithe_windows_qt PRIVATE "${LITHE_RUST_CORE_LIBRARY}")
         if(WIN32)
             target_link_libraries(lithe_windows_qt PRIVATE
-                advapi32 bcrypt userenv ws2_32
+                advapi32 bcrypt ntdll userenv ws2_32
             )
         endif()
     endif()
@@ -307,8 +313,36 @@ if(LITHE_RUST_CORE_LIBRARY)
     )
     if(WIN32)
         target_link_libraries(lithe_windows_core_ping PRIVATE
-            advapi32 bcrypt userenv ws2_32
+            advapi32 bcrypt ntdll userenv ws2_32
         )
     endif()
     add_test(NAME lithe_windows_core_ping COMMAND lithe_windows_core_ping)
 endif()
+
+# Keep assertions enabled for CTest binaries in Release builds so a failed
+# expectation reports its source location instead of cascading into UB.
+set(LITHE_WINDOWS_TEST_TARGETS
+    lithe_windows_phase0_tests
+    lithe_windows_algorithms_tests
+    lithe_windows_app_tests
+    lithe_windows_coordinator_tests
+    lithe_windows_core_dto_tests
+    lithe_windows_persistence_tests
+    lithe_windows_runtime_service_tests
+    lithe_windows_java_run_service_tests
+    lithe_windows_java_debug_service_tests
+    lithe_windows_java_language_server_tests
+    lithe_windows_ai_commit_service_tests
+    lithe_windows_update_service_tests
+)
+if(TARGET lithe_windows_core_ping)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_core_ping)
+endif()
+if(MSVC)
+    set(LITHE_UNDEFINE_NDEBUG_FLAG /UNDEBUG)
+else()
+    set(LITHE_UNDEFINE_NDEBUG_FLAG -UNDEBUG)
+endif()
+foreach(test_target IN LISTS LITHE_WINDOWS_TEST_TARGETS)
+    target_compile_options(${test_target} PRIVATE ${LITHE_UNDEFINE_NDEBUG_FLAG})
+endforeach()

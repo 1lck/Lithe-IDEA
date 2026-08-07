@@ -54,6 +54,7 @@ protocol GitOperations: Sendable {
     func stage(_ change: GitChange) -> ProcessResult?
     func unstage(_ change: GitChange) -> ProcessResult?
     func discard(_ change: GitChange) -> ProcessResult?
+    func discardAll(_ change: GitChange) -> ProcessResult?
     func commit(at rootURL: URL, message: String, amend: Bool) -> ProcessResult?
     func cherryPick(_ hash: String, at rootURL: URL) -> ProcessResult?
     func revert(_ hash: String, at rootURL: URL) -> ProcessResult?
@@ -63,9 +64,26 @@ protocol GitOperations: Sendable {
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> ProcessResult?
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> ProcessResult?
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> ProcessResult?
-    func updateCurrentBranch(at rootURL: URL) -> ProcessResult?
+    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> ProcessResult?
+    func pullPreflight(at rootURL: URL) -> GitPullPreflightState?
+    func conflictMarkerPaths(at rootURL: URL) -> [String]
+    func integrationPreflight(
+        for target: GitIntegrationTarget,
+        operation: GitIntegrationOperation,
+        at rootURL: URL
+    ) -> GitIntegrationPreflightState?
     func fetch(at rootURL: URL) -> ProcessResult?
-    func checkout(_ reference: GitReference, at rootURL: URL) -> ProcessResult?
+    func checkout(
+        _ reference: GitReference,
+        at rootURL: URL,
+        force: Bool,
+        autoStash: Bool
+    ) -> ProcessResult?
+    func checkoutBlockingPaths(for reference: GitReference, at rootURL: URL) -> [String]
+    func operationState(at rootURL: URL) -> GitOperationState?
+    func continueOperation(at rootURL: URL) -> ProcessResult?
+    func abortOperation(at rootURL: URL) -> ProcessResult?
+    func skipOperationStep(at rootURL: URL) -> ProcessResult?
     func checkoutRevision(_ revision: String, at rootURL: URL) -> ProcessResult?
     func push(_ reference: GitReference, at rootURL: URL) -> ProcessResult?
     func cloneRepository(from remote: String, to destination: URL) -> ProcessResult?
@@ -88,6 +106,17 @@ struct GitService: Sendable {
     struct CommandResult: Sendable {
         let output: String
         let exitCode: Int32
+        let stashRestoreConflict: GitStashRestoreConflict?
+
+        init(
+            output: String,
+            exitCode: Int32,
+            stashRestoreConflict: GitStashRestoreConflict? = nil
+        ) {
+            self.output = output
+            self.exitCode = exitCode
+            self.stashRestoreConflict = stashRestoreConflict
+        }
 
         var succeeded: Bool { exitCode == 0 }
     }
@@ -130,6 +159,43 @@ struct GitService: Sendable {
         } ?? ""
     }
 
+    /// Returns only the working-tree delta against the current index. This is
+    /// kept separate from `diffPatch(for:)` so Shelve can preserve staged and
+    /// unstaged edits independently for a file that has both.
+    func workingDiffPatch(
+        for change: GitChange,
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) async -> String {
+        await read {
+            $0.diffPatch(
+                at: change.repositoryRoot,
+                pathspecs: change.pathspecs,
+                staged: false,
+                untracked: change.isUntracked,
+                whitespace: whitespace
+            )
+        } ?? ""
+    }
+
+    /// Applies a complete patch outside the diff-hunk convenience methods.
+    /// Shelve uses `restoreIndex` to restore the index and worktree together,
+    /// then `worktree` for the unstaged part.
+    func applyPatch(_ patch: String, at repositoryRoot: URL, mode: String) async -> CommandResult {
+        await command { $0.applyPatch(patch, at: repositoryRoot, mode: mode) }
+    }
+
+    /// A failed restore can leave one half of a Shelf already applied. Check
+    /// the reverse patch so retrying the Shelf remains idempotent instead of
+    /// treating that expected state as a second restore failure.
+    func patchIsAlreadyApplied(
+        _ patch: String,
+        at repositoryRoot: URL,
+        staged: Bool
+    ) async -> Bool {
+        let mode = staged ? "restoreIndexCheck" : "worktreeCheck"
+        return (await applyPatch(patch, at: repositoryRoot, mode: mode)).succeeded
+    }
+
     /// Returns exactly what Git would include for this file in the next
     /// commit, even when the file also has unstaged working-tree changes.
     func stagedDiffPatch(
@@ -157,6 +223,10 @@ struct GitService: Sendable {
 
     func discard(_ change: GitChange) async -> CommandResult {
         return await command { $0.discard(change) }
+    }
+
+    func discardAll(_ change: GitChange) async -> CommandResult {
+        await command { $0.discardAll(change) }
     }
 
     func stage(hunk: DiffHunk, of change: GitChange) async -> CommandResult {
@@ -295,16 +365,67 @@ struct GitService: Sendable {
         await command { $0.rebaseCurrentBranch(onto: reference, at: repositoryRoot) }
     }
 
-    func updateCurrentBranch(at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.updateCurrentBranch(at: repositoryRoot) }
+    func updateCurrentBranch(
+        at repositoryRoot: URL,
+        strategy: GitPullStrategy = .ffOnly
+    ) async -> CommandResult {
+        await command { $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy) }
+    }
+
+    func pullPreflight(at repositoryRoot: URL) async -> GitPullPreflightState? {
+        await read { $0.pullPreflight(at: repositoryRoot) }
+    }
+
+    func conflictMarkerPaths(at repositoryRoot: URL) async -> [String] {
+        await read { $0.conflictMarkerPaths(at: repositoryRoot) } ?? []
+    }
+
+    func integrationPreflight(
+        for target: GitIntegrationTarget,
+        operation: GitIntegrationOperation,
+        at repositoryRoot: URL
+    ) async -> GitIntegrationPreflightState? {
+        await read {
+            $0.integrationPreflight(for: target, operation: operation, at: repositoryRoot)
+        }
     }
 
     func fetch(at repositoryRoot: URL) async -> CommandResult {
         await command { $0.fetch(at: repositoryRoot) }
     }
 
-    func checkout(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
-        await command { $0.checkout(reference, at: repositoryRoot) }
+    func checkout(
+        _ reference: GitReference,
+        at repositoryRoot: URL,
+        force: Bool = false,
+        autoStash: Bool = false
+    ) async -> CommandResult {
+        await command {
+            $0.checkout(reference, at: repositoryRoot, force: force, autoStash: autoStash)
+        }
+    }
+
+    /// Working-tree paths that would block checking out `reference`, empty when the switch is clean.
+    func checkoutBlockingPaths(for reference: GitReference, at repositoryRoot: URL) async -> [String] {
+        await read { $0.checkoutBlockingPaths(for: reference, at: repositoryRoot) } ?? []
+    }
+
+    /// The half-finished merge, rebase, cherry-pick, or revert Git is sitting in,
+    /// or nil when the repository is in its normal state.
+    func operationState(at repositoryRoot: URL) async -> GitOperationState? {
+        await read(priority: .utility) { $0.operationState(at: repositoryRoot) }
+    }
+
+    func continueOperation(at repositoryRoot: URL) async -> CommandResult {
+        await command { $0.continueOperation(at: repositoryRoot) }
+    }
+
+    func abortOperation(at repositoryRoot: URL) async -> CommandResult {
+        await command { $0.abortOperation(at: repositoryRoot) }
+    }
+
+    func skipOperationStep(at repositoryRoot: URL) async -> CommandResult {
+        await command { $0.skipOperationStep(at: repositoryRoot) }
     }
 
     func checkoutRevision(_ revision: String, at repositoryRoot: URL) async -> CommandResult {
@@ -357,7 +478,8 @@ struct GitService: Sendable {
             let result = operation(operations)
             return CommandResult(
                 output: result?.output ?? "Rust Core Git operation failed",
-                exitCode: result?.exitCode ?? 1
+                exitCode: result?.exitCode ?? 1,
+                stashRestoreConflict: result?.stashRestoreConflict
             )
         }.value
     }

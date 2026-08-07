@@ -1623,7 +1623,12 @@ void WorkbenchWindow::openWorkspaceRoot(const QString& selectedRoot) {
     workspaceRoot_ = root;
     activePath_.clear();
     librarySourcePreview_ = false;
-    if (editorTabs_ != nullptr) editorTabs_->clear();
+    if (editorTabs_ != nullptr) {
+        QSignalBlocker blocker(editorTabs_);
+        while (editorTabs_->count() > 0) {
+            editorTabs_->removeTab(editorTabs_->count() - 1);
+        }
+    }
     editor_->setReadOnly(false);
     editor_->clear();
     pendingWorkspaceSession_ = workspaceSessionStore_.load(root.toStdString());

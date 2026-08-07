@@ -116,7 +116,10 @@ final class AppModel: ObservableObject {
             fileStorage: services.fileStorage,
             localHistoryOperations: services.localHistoryOperations
         )
-        gitFeature = GitFeatureModel(service: services.gitService)
+        gitFeature = GitFeatureModel(
+            service: services.gitService,
+            shelveService: services.shelveService
+        )
         documentFeature = DocumentFeatureModel(
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations
@@ -228,6 +231,13 @@ final class AppModel: ObservableObject {
             onStateRefreshed: { [weak self] in
                 guard let self, let document = self.activeDocument else { return }
                 await self.refreshCodeVision(for: document.url)
+            },
+            saveChangesPolicy: { [weak self] in self?.settings.gitSaveChangesPolicy ?? .stash },
+            onGitOperationBegan: { [weak self] in
+                self?.workspaceFeature.beginGitOperationFreeze()
+            },
+            onGitOperationEnded: { [weak self] in
+                await self?.workspaceFeature.endGitOperationFreeze()
             }
         )
         gitFeatureObservation = gitFeature.objectWillChange.sink { [weak self] _ in
@@ -1156,18 +1166,6 @@ final class AppModel: ObservableObject {
         await gitFeature.stageAllChanges()
     }
 
-    func stashWorkingTree(message: String, includeUntracked: Bool) async {
-        await gitFeature.stashWorkingTree(message: message, includeUntracked: includeUntracked)
-    }
-
-    func applyStash(_ stash: GitStash, pop: Bool = false) async {
-        await gitFeature.applyStash(stash, pop: pop)
-    }
-
-    func dropStash(_ stash: GitStash) async {
-        await gitFeature.dropStash(stash)
-    }
-
     func toggleGitLog() async {
         isGitLogVisible.toggle()
         if isGitLogVisible {
@@ -1632,6 +1630,34 @@ final class AppModel: ObservableObject {
         await gitFeature.mergeBranch(reference)
     }
 
+    func continueGitOperation() async {
+        await gitFeature.continueGitOperation()
+    }
+
+    func resolvePullStrategy(_ strategy: GitPullStrategy) async {
+        await gitFeature.resolvePullStrategy(strategy)
+    }
+
+    func cancelPullStrategy() {
+        gitFeature.cancelPullStrategy()
+    }
+
+    func resolveIntegrationConflict(_ request: GitIntegrationConflictRequest) async {
+        await gitFeature.resolveIntegrationConflict(request)
+    }
+
+    func cancelIntegrationConflict() {
+        gitFeature.cancelIntegrationConflict()
+    }
+
+    func abortGitOperation() async {
+        await gitFeature.abortGitOperation()
+    }
+
+    func skipGitOperationStep() async {
+        await gitFeature.skipGitOperationStep()
+    }
+
     func rebaseCurrentBranch(onto reference: GitReference) async {
         await gitFeature.rebaseCurrentBranch(onto: reference)
     }
@@ -1646,6 +1672,13 @@ final class AppModel: ObservableObject {
 
     func checkoutReference(_ reference: GitReference) async {
         await gitFeature.checkoutReference(reference)
+    }
+
+    func resolveCheckoutConflict(
+        _ request: GitCheckoutConflictRequest,
+        strategy: GitCheckoutConflictStrategy
+    ) async {
+        await gitFeature.resolveCheckoutConflict(request, strategy: strategy)
     }
 
     func checkoutRevision(_ rawRevision: String) async {

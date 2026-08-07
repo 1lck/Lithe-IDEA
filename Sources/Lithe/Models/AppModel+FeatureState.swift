@@ -14,7 +14,12 @@ extension AppModel {
 
     var gitChanges: [GitChange] { gitFeature.gitChanges }
     var gitStashes: [GitStash] { gitFeature.gitStashes }
+    var gitShelves: [GitShelfEntry] { gitFeature.gitShelves }
+    var gitSaveChangesPolicy: GitSaveChangesPolicy { settings.gitSaveChangesPolicy }
     var isPerformingStashOperation: Bool { gitFeature.isPerformingStashOperation }
+    var isPerformingShelfOperation: Bool { gitFeature.isPerformingShelfOperation }
+    var gitOperationState: GitOperationState? { gitFeature.gitOperationState }
+    var isResolvingGitOperation: Bool { gitFeature.isResolvingGitOperation }
     var gitRepositoryRoot: URL? { gitFeature.gitRepositoryRoot }
     var currentBranch: String { gitFeature.currentBranch }
     var selectedChange: GitChange? {
@@ -36,6 +41,36 @@ extension AppModel {
     var pendingDiscardHunk: DiffHunkRequest? {
         get { gitFeature.pendingDiscardHunk }
         set { gitFeature.pendingDiscardHunk = newValue }
+    }
+    var pendingCheckoutConflict: GitCheckoutConflictRequest? {
+        get { gitFeature.pendingCheckoutConflict }
+        set { gitFeature.pendingCheckoutConflict = newValue }
+    }
+
+    var pendingPullStrategy: GitPullStrategyRequest? {
+        get { gitFeature.pendingPullStrategy }
+        set { gitFeature.pendingPullStrategy = newValue }
+    }
+
+    var pendingIntegrationConflict: GitIntegrationConflictRequest? {
+        get { gitFeature.pendingIntegrationConflict }
+        set { gitFeature.pendingIntegrationConflict = newValue }
+    }
+    var pendingConflictRollback: GitConflictRollbackRequest? {
+        get { gitFeature.pendingConflictRollback }
+        set { gitFeature.pendingConflictRollback = newValue }
+    }
+    var pendingStashRestoreConflict: GitStashRestoreConflictRequest? {
+        gitFeature.pendingStashRestoreConflict
+    }
+    var isStashRestoreConflictNoticeVisible: Bool {
+        gitFeature.isStashRestoreConflictNoticeVisible
+    }
+    var gitConflictFilterPaths: Set<String> {
+        gitFeature.gitConflictFilterPaths
+    }
+    var requestedStashReference: String? {
+        gitFeature.requestedStashReference
     }
     var isCommitting: Bool { gitFeature.isCommitting }
     var gitBlameLines: [URL: [GitBlameLine]] { gitFeature.gitBlameLines }

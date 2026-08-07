@@ -133,7 +133,7 @@ std::optional<HTTPResponse> Win32HttpTransport::send(const HTTPRequest& request,
     }
     for (const auto& [key, value] : request.headers) {
         const auto header = wide(key + ": " + value + "\r\n");
-        if (!header || !WinHttpAddRequestHeadersW(httpRequest.get(), header->c_str(),
+        if (!header || !WinHttpAddRequestHeaders(httpRequest.get(), header->c_str(),
                                                    static_cast<DWORD>(-1),
                                                    WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE)) {
             error = "Could not add HTTP request header: " + errorText();
@@ -155,7 +155,7 @@ std::optional<HTTPResponse> Win32HttpTransport::send(const HTTPRequest& request,
     }
     DWORD status = 0;
     DWORD statusSize = sizeof(status);
-    if (!WinHttpQueryHeadersW(httpRequest.get(),
+    if (!WinHttpQueryHeaders(httpRequest.get(),
                               WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                               WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize,
                               WINHTTP_NO_HEADER_INDEX)) {

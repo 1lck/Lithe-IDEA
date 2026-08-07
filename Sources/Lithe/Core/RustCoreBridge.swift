@@ -331,8 +331,14 @@ struct RustCoreBridge: Sendable {
     }
 
     struct GitCommandPayload: Decodable, Sendable {
+        struct StashRestore: Decodable, Sendable {
+            let stashReference: String
+            let conflictedPaths: [String]
+        }
+
         let output: String
         let exitCode: Int32
+        let stashRestore: StashRestore?
     }
 
     struct GitDiffPayload: Decodable, Sendable {
@@ -484,6 +490,35 @@ struct RustCoreBridge: Sendable {
         }
 
         let stashes: [Stash]
+    }
+
+    struct GitCheckoutPreflightPayload: Decodable, Sendable {
+        let blockingPaths: [String]
+    }
+
+    struct GitConflictMarkerPayload: Decodable, Sendable {
+        let paths: [String]
+    }
+
+    struct GitIntegrationPreflightPayload: Decodable, Sendable {
+        let blockingPaths: [String]
+        let blocksEntirely: Bool
+    }
+
+    struct GitPullPreflightPayload: Decodable, Sendable {
+        let upstream: String?
+        let ahead: Int
+        let behind: Int
+        let diverged: Bool
+        let hasLocalChanges: Bool
+    }
+
+    struct GitOperationStatePayload: Decodable, Sendable {
+        let kind: String
+        let reference: String?
+        let step: Int?
+        let total: Int?
+        let conflictedPaths: [String]
     }
 
     struct GitBlamePayload: Decodable, Sendable {
@@ -700,6 +735,8 @@ struct RustCoreBridge: Sendable {
         let includeUntracked: Bool
         let checkout: Bool
         let amend: Bool
+        let force: Bool
+        let autoStash: Bool
     }
 
     private struct GitDiffRequest: Encodable {
@@ -742,6 +779,29 @@ struct RustCoreBridge: Sendable {
 
     private struct GitStashesRequest: Encodable {
         let root: String
+    }
+
+    private struct GitCheckoutPreflightRequest: Encodable {
+        let root: String
+        let reference: String
+    }
+
+    private struct GitOperationStateRequest: Encodable {
+        let root: String
+    }
+
+    private struct GitPullPreflightRequest: Encodable {
+        let root: String
+    }
+
+    private struct GitConflictMarkerRequest: Encodable {
+        let root: String
+    }
+
+    private struct GitIntegrationPreflightRequest: Encodable {
+        let root: String
+        let reference: String
+        let operation: String
     }
 
     private struct GitBlameRequest: Encodable {
@@ -1090,7 +1150,9 @@ struct RustCoreBridge: Sendable {
         mode: String? = nil,
         includeUntracked: Bool = false,
         checkout: Bool = false,
-        amend: Bool = false
+        amend: Bool = false,
+        force: Bool = false,
+        autoStash: Bool = false
     ) -> GitCommandPayload? {
         execute(
             command: "git.write",
@@ -1108,7 +1170,61 @@ struct RustCoreBridge: Sendable {
                 mode: mode,
                 includeUntracked: includeUntracked,
                 checkout: checkout,
-                amend: amend
+                amend: amend,
+                force: force,
+                autoStash: autoStash
+            )
+        )
+    }
+
+    func gitCheckoutPreflight(at rootURL: URL, reference: String) -> GitCheckoutPreflightPayload? {
+        execute(
+            command: "git.checkoutPreflight",
+            payload: GitCheckoutPreflightRequest(
+                root: rootURL.standardizedFileURL.path,
+                reference: reference
+            )
+        )
+    }
+
+    func gitOperationState(at rootURL: URL) -> GitOperationStatePayload? {
+        execute(
+            command: "git.operationState",
+            payload: GitOperationStateRequest(
+                root: rootURL.standardizedFileURL.path
+            )
+        )
+    }
+
+    func gitPullPreflight(at rootURL: URL) -> GitPullPreflightPayload? {
+        execute(
+            command: "git.pullPreflight",
+            payload: GitPullPreflightRequest(
+                root: rootURL.standardizedFileURL.path
+            )
+        )
+    }
+
+    func gitConflictMarkerPaths(at rootURL: URL) -> GitConflictMarkerPayload? {
+        execute(
+            command: "git.conflictMarkers",
+            payload: GitConflictMarkerRequest(
+                root: rootURL.standardizedFileURL.path
+            )
+        )
+    }
+
+    func gitIntegrationPreflight(
+        at rootURL: URL,
+        reference: String,
+        operation: String
+    ) -> GitIntegrationPreflightPayload? {
+        execute(
+            command: "git.integrationPreflight",
+            payload: GitIntegrationPreflightRequest(
+                root: rootURL.standardizedFileURL.path,
+                reference: reference,
+                operation: operation
             )
         )
     }
@@ -1127,7 +1243,9 @@ struct RustCoreBridge: Sendable {
         mode: String? = nil,
         includeUntracked: Bool = false,
         checkout: Bool = false,
-        amend: Bool = false
+        amend: Bool = false,
+        force: Bool = false,
+        autoStash: Bool = false
     ) -> Result<GitCommandPayload, CoreCallError> {
         executeResult(
             command: "git.write",
@@ -1145,7 +1263,9 @@ struct RustCoreBridge: Sendable {
                 mode: mode,
                 includeUntracked: includeUntracked,
                 checkout: checkout,
-                amend: amend
+                amend: amend,
+                force: force,
+                autoStash: autoStash
             )
         )
     }

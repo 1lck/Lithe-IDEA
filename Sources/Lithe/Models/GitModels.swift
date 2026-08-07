@@ -31,6 +31,14 @@ struct GitStash: Identifiable, Hashable, Sendable {
     var id: String { reference }
 }
 
+/// Structured information returned when `git stash pop` keeps the entry because
+/// restoring it created unresolved conflicts. The stash is intentionally not
+/// dropped so the user can finish recovery without losing the original patch.
+struct GitStashRestoreConflict: Hashable, Sendable {
+    let stashReference: String
+    let conflictedPaths: [String]
+}
+
 struct GitCommit: Identifiable, Hashable, Sendable {
     let hash: String
     let shortHash: String
@@ -194,7 +202,19 @@ struct GitChange: Identifiable, Hashable, Sendable {
     var hasWorkingTreeChange: Bool { workTreeStatus != " " }
     var isUntracked: Bool { indexStatus == "?" && workTreeStatus == "?" }
 
+    /// True while a merge, rebase, cherry-pick, or revert has left this file
+    /// unmerged. Git marks these with a `U` on either side, plus the `AA` and `DD`
+    /// pairs for both-added and both-deleted.
+    var isConflicted: Bool {
+        if indexStatus == "U" || workTreeStatus == "U" { return true }
+        return (indexStatus == "A" && workTreeStatus == "A")
+            || (indexStatus == "D" && workTreeStatus == "D")
+    }
+
     var kind: GitChangeKind {
+        // Checked first: an unmerged pair such as `AA` or `UD` would otherwise
+        // match the plain added/deleted cases below and read as an ordinary edit.
+        if isConflicted { return .conflicted }
         if isUntracked || indexStatus == "A" || workTreeStatus == "A" { return .added }
         if indexStatus == "D" || workTreeStatus == "D" { return .deleted }
         if indexStatus == "R" || workTreeStatus == "R" { return .moved }
@@ -208,6 +228,7 @@ struct GitChange: Identifiable, Hashable, Sendable {
     }
 
     var displayStatus: String {
+        if isConflicted { return "!" }
         if isUntracked { return "A" }
         if workTreeStatus != " " { return String(workTreeStatus) }
         return String(indexStatus)
@@ -220,6 +241,7 @@ enum GitChangeKind: String, Sendable {
     case deleted
     case moved
     case copied
+    case conflicted
 
     var title: String {
         switch self {
@@ -228,6 +250,7 @@ enum GitChangeKind: String, Sendable {
         case .deleted: "Deleted"
         case .moved: "Moved"
         case .copied: "Copied"
+        case .conflicted: "Conflicted"
         }
     }
 
@@ -238,6 +261,7 @@ enum GitChangeKind: String, Sendable {
         case .deleted: "minus"
         case .moved: "arrow.right"
         case .copied: "doc.on.doc"
+        case .conflicted: "exclamationmark.triangle"
         }
     }
 }
@@ -350,6 +374,243 @@ struct DiffHunkRequest: Identifiable {
     let id = UUID()
     let change: GitChange
     let hunk: DiffHunk
+}
+
+/// A checkout that local changes would overwrite, awaiting the user's resolution choice.
+struct GitCheckoutConflictRequest: Identifiable {
+    let id = UUID()
+    let reference: GitReference
+    let blockingPaths: [String]
+}
+
+/// The destructive rollback requested from a conflict dialog. The original
+/// operation is retained so a successful rollback can re-run its preflight and
+/// continue automatically when no blocking paths remain.
+enum GitConflictResume: Sendable {
+    case checkout(GitReference)
+    case integration(target: GitIntegrationTarget, operation: GitIntegrationOperation)
+}
+
+struct GitConflictRollbackRequest: Identifiable, Sendable {
+    let id = UUID()
+    let path: String
+    let resume: GitConflictResume
+}
+
+/// What stands in the way of starting a merge or rebase.
+struct GitIntegrationPreflightState: Sendable {
+    let blockingPaths: [String]
+    /// True for a rebase, which refuses on any uncommitted change rather than
+    /// only those overlapping the incoming commits.
+    let blocksEntirely: Bool
+
+    var isClear: Bool { blockingPaths.isEmpty }
+}
+
+/// What an integration replays: a whole branch, or a single commit.
+///
+/// Merge and rebase name a branch while cherry-pick and revert name one commit,
+/// but the preflight only needs a revision to resolve, so they share this.
+enum GitIntegrationTarget: Sendable {
+    case reference(GitReference)
+    case commit(GitCommit)
+
+    /// The revision handed to Git.
+    var revision: String {
+        switch self {
+        case .reference(let reference): reference.fullName
+        case .commit(let commit): commit.hash
+        }
+    }
+
+    /// The revision as the user knows it, for messages.
+    var displayName: String {
+        switch self {
+        case .reference(let reference): reference.shortName
+        case .commit(let commit): commit.shortHash
+        }
+    }
+}
+
+/// An integration blocked by uncommitted changes, awaiting the user's choice.
+struct GitIntegrationConflictRequest: Identifiable {
+    let id = UUID()
+    let target: GitIntegrationTarget
+    let operation: GitIntegrationOperation
+    let blockingPaths: [String]
+    let blocksEntirely: Bool
+}
+
+/// A stash created by Lithe could not be restored cleanly. The entry is kept so
+/// the user can resolve the working tree and drop it explicitly afterwards.
+struct GitStashRestoreConflictRequest: Identifiable, Sendable {
+    let id = UUID()
+    let stashReference: String
+    let conflictedPaths: [String]
+    let operationTitle: String
+
+    var hasConflictPaths: Bool { !conflictedPaths.isEmpty }
+}
+
+struct GitDeferredSavedChanges: Sendable {
+    let stashReference: String?
+    let shelfID: UUID?
+    let operationTitle: String
+
+    init(stashReference: String, operationTitle: String) {
+        self.stashReference = stashReference
+        shelfID = nil
+        self.operationTitle = operationTitle
+    }
+
+    init(shelfID: UUID, operationTitle: String) {
+        stashReference = nil
+        self.shelfID = shelfID
+        self.operationTitle = operationTitle
+    }
+}
+
+struct GitShelfEntry: Identifiable, Hashable, Sendable {
+    let id: UUID
+    let message: String
+    let createdAt: Date
+    let paths: [String]
+    let stagedPatch: String
+    let workingPatch: String
+}
+
+/// The branch-integration operations that share a preflight.
+enum GitIntegrationOperation: String, Sendable {
+    case merge
+    case rebase
+    case cherryPick
+    case revert
+
+    var title: String {
+        switch self {
+        case .merge: "Merge"
+        case .rebase: "Rebase"
+        case .cherryPick: "Cherry-pick"
+        case .revert: "Revert"
+        }
+    }
+}
+
+/// Whether a pull can fast-forward, and how far the two sides have drifted.
+struct GitPullPreflightState: Sendable {
+    let upstream: String?
+    let ahead: Int
+    let behind: Int
+    let diverged: Bool
+    let hasLocalChanges: Bool
+
+    /// Nothing to pull, so the network call can be skipped entirely.
+    var isUpToDate: Bool { behind == 0 && !diverged }
+}
+
+/// A pull that cannot fast-forward, awaiting the user's choice of strategy.
+struct GitPullStrategyRequest: Identifiable {
+    let id = UUID()
+    let upstream: String
+    let ahead: Int
+    let behind: Int
+    let hasLocalChanges: Bool
+}
+
+/// How to reconcile a divergent history when pulling.
+enum GitPullStrategy: String, Sendable {
+    /// Refuse unless the pull can fast-forward. The safe default.
+    case ffOnly
+    /// Join the two histories with a merge commit.
+    case merge
+    /// Replay local commits on top of the upstream, keeping history linear.
+    case rebase
+}
+
+enum GitOperationKind: String, Sendable {
+    case merge
+    case rebase
+    case cherryPick
+    case revert
+
+    var title: String {
+        switch self {
+        case .merge: "Merging"
+        case .rebase: "Rebasing"
+        case .cherryPick: "Cherry-picking"
+        case .revert: "Reverting"
+        }
+    }
+
+    /// Whole literal keys rather than interpolating `title`, so translators get a
+    /// complete sentence per operation instead of a fragment.
+    var inProgressTitle: String {
+        switch self {
+        case .merge: "Merge in progress"
+        case .rebase: "Rebase in progress"
+        case .cherryPick: "Cherry-pick in progress"
+        case .revert: "Revert in progress"
+        }
+    }
+
+    var continueTitle: String {
+        switch self {
+        case .merge: "Continue Merge"
+        case .rebase: "Continue Rebase"
+        case .cherryPick: "Continue Cherry-pick"
+        case .revert: "Continue Revert"
+        }
+    }
+
+    /// Only a rebase replays a sequence of commits, so it alone can skip one.
+    var canSkip: Bool { self == .rebase }
+}
+
+/// A merge, rebase, cherry-pick, or revert that Git left half-finished, usually
+/// because it hit conflicts. Absent when the repository is in its normal state.
+struct GitOperationState: Sendable {
+    let kind: GitOperationKind
+    let reference: String?
+    let step: Int?
+    let total: Int?
+    let conflictedPaths: [String]
+
+    var hasConflicts: Bool { !conflictedPaths.isEmpty }
+
+    /// Rebase progress as `3/7`, nil for operations that replay a single commit.
+    var progress: String? {
+        guard let step, let total, total > 0 else { return nil }
+        return "\(step)/\(total)"
+    }
+}
+
+/// How to resolve a checkout blocked by local changes.
+enum GitCheckoutConflictStrategy: Sendable {
+    /// Stash the local changes, switch, then restore them.
+    case smart
+    /// Switch and discard the local changes.
+    case force
+}
+
+enum GitSaveChangesPolicy: String, CaseIterable, Identifiable, Sendable {
+    case stash
+    case shelve
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .stash: "Git stash"
+        case .shelve: "Lithe Shelve"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .stash: "Store temporary changes in Git's stash list."
+        case .shelve: "Store patches in Lithe without adding objects to Git."
+        }
+    }
 }
 
 enum DiffParser {

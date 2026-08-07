@@ -12,6 +12,7 @@ final class AppSettings: ObservableObject {
         static let terminalShell = "settings.terminalShell"
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
+        static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let commitMessageAI = "settings.commitMessageAI"
     }
 
@@ -36,6 +37,9 @@ final class AppSettings: ObservableObject {
             onFileVisibilityRulesChanged?()
         }
     }
+    @Published var gitSaveChangesPolicy: GitSaveChangesPolicy {
+        didSet { defaults.set(gitSaveChangesPolicy.rawValue, forKey: Key.gitSaveChangesPolicy) }
+    }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
     }
@@ -55,6 +59,9 @@ final class AppSettings: ObservableObject {
             ?? FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
             ?? FileVisibilityRules.default.hiddenFilePatterns
+        gitSaveChangesPolicy = GitSaveChangesPolicy(
+            rawValue: defaults.string(forKey: Key.gitSaveChangesPolicy) ?? ""
+        ) ?? .stash
         if let data = defaults.data(forKey: Key.commitMessageAI),
            let saved = try? JSONDecoder().decode(CommitMessageAISettings.self, from: data) {
             commitMessageAI = saved
@@ -82,6 +89,7 @@ final class AppSettings: ObservableObject {
         terminalShell = .system
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
+        gitSaveChangesPolicy = .stash
         commitMessageAI = .default
     }
 

@@ -15,17 +15,16 @@ namespace {
 using namespace lithe::windows;
 using namespace lithe::windows::app;
 
+std::string pathText(const std::filesystem::path& path) {
+    const auto value = path.generic_u8string();
+    return {reinterpret_cast<const char*>(value.data()), value.size()};
+}
+
 class FakeRuntimeLocator final : public RuntimeLocator {
 public:
-    std::map<std::string, std::string> values{
-        {"JAVA_HOME", "/tmp/jdk"},
-        {"PATH", "/tmp/jdk/bin"},
-        {"USERPROFILE", "/tmp/user"},
-    };
-    std::set<std::string> homes{"/tmp/jdk"};
-    std::set<std::string> executables{
-        "/tmp/jdk/bin/java", "/tmp/jdk/bin/jdb", "/tmp/jdk/bin/mvn",
-    };
+    std::map<std::string, std::string> values;
+    std::set<std::string> homes;
+    std::set<std::string> executables;
 
     std::map<std::string, std::string> environment() const override { return values; }
     RuntimeDiscoveryResult discover() const override { return {}; }
@@ -36,14 +35,14 @@ public:
         return executables.contains(path);
     }
     std::optional<std::string> systemMavenExecutable() const override {
-        return "/tmp/jdk/bin/mvn";
+        return std::nullopt;
     }
     std::optional<std::string> mavenExecutableForHomePath(
         const std::string&) const override {
-        return "/tmp/jdk/bin/mvn";
+        return std::nullopt;
     }
     std::optional<std::string> systemJDBExecutable() const override {
-        return "/tmp/jdk/bin/jdb";
+        return std::nullopt;
     }
     std::optional<std::string> javaLanguageServerExecutable() const override {
         return std::nullopt;
@@ -52,11 +51,14 @@ public:
 
 class FakeStorage final : public FileStorage {
 public:
+    std::string projectRoot;
+    std::string projectSourceDirectory;
+
     std::string homeDirectory() const override { return "/tmp/user"; }
     std::string cacheDirectory() const override { return "/tmp/cache"; }
     std::string applicationSupportDirectory() const override { return "/tmp/app"; }
     std::optional<FileMetadata> metadata(const std::string& path) const override {
-        if (path == "/tmp/project" || path == "/tmp/project/src") {
+        if (path == projectRoot || path == projectSourceDirectory) {
             return FileMetadata{std::nullopt, std::nullopt, false, true};
         }
         return std::nullopt;
@@ -143,13 +145,45 @@ int main() {
     assert(JavaDebugService::containsException(
         "Exception in thread \"main\" java.lang.IllegalStateException\n"));
 
+    const auto projectRoot = std::filesystem::temp_directory_path() /
+                             "lithe-java-debug-project";
+    const auto source = projectRoot / "src" / "Main.java";
+    const auto javaHome = std::filesystem::temp_directory_path() /
+                          "lithe-java-debug-jdk";
+    const auto userHome = std::filesystem::temp_directory_path() /
+                          "lithe-java-debug-user";
+    const auto javaExecutable = javaHome / "bin" /
+#ifdef _WIN32
+                                "java.exe";
+#else
+                                "java";
+#endif
+    const auto jdbExecutable = javaHome / "bin" /
+#ifdef _WIN32
+                                "jdb.exe";
+#else
+                                "jdb";
+#endif
+
     FakeRuntimeLocator locator;
+    locator.values = {
+        {"JAVA_HOME", pathText(javaHome)},
+        {"PATH", pathText(javaHome / "bin")},
+        {"USERPROFILE", pathText(userHome)},
+    };
+    locator.homes.insert(pathText(javaHome));
+    locator.executables = {
+        pathText(javaExecutable),
+        pathText(jdbExecutable),
+    };
     FakeStorage storage;
+    storage.projectRoot = pathText(projectRoot);
+    storage.projectSourceDirectory = pathText(projectRoot / "src");
     ProjectRuntimeService runtime(locator);
     JavaRunService javaRun(runtime, storage);
     JavaRunProject project;
-    project.root = "/tmp/project";
-    project.files = {"/tmp/project/src/Main.java"};
+    project.root = projectRoot;
+    project.files = {source};
     javaRun.setProject(project);
 
     std::vector<FakeSession*> sessions;
@@ -161,7 +195,7 @@ int main() {
     bool notified = false;
     service.setStateHandler([&] { notified = true; });
     service.startCurrentFile(
-        "/tmp/project/src/Main.java",
+        source,
         "package com.example;\npublic class Main { public static void main(String[] a) {} }\n",
         {});
     assert(sessions.size() == 2);
@@ -172,7 +206,7 @@ int main() {
 
     sessions[0]->emitRunning();
     sessions[0]->emitOutput("Listening for transport dt_socket at address: 54321\n");
-    assert(sessions[1]->request.executablePath == "/tmp/jdk/bin/jdb");
+    assert(sessions[1]->request.executablePath == pathText(jdbExecutable));
     assert(contains(sessions[1]->request.arguments, "-J-Duser.language=en"));
     assert(contains(sessions[1]->request.arguments, "-J-Duser.country=US"));
     assert(sessions[1]->request.keepsStandardInputOpen);
@@ -182,7 +216,7 @@ int main() {
     assert(contains(sessions[1]->sent, "run\n"));
     assert(service.snapshot().state == JavaDebugSessionState::Running);
 
-    service.toggleBreakpoint("/tmp/project/src/Main.java", 4, "com.example.Main");
+    service.toggleBreakpoint(source, 4, "com.example.Main");
     assert(contains(sessions[1]->sent, "stop at com.example.Main:4\n"));
     service.inspectVariables();
     sessions[1]->emitOutput("i = 3\nobject = instance of Foo (id=1)\n");

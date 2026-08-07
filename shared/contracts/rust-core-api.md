@@ -79,7 +79,7 @@ stable error code and a user-facing message:
 | `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
-| `git.apply` | Apply a patch in `stage`, `unstage`, or `discard` mode |
+| `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return deterministic refs, commits, parent hashes, decorations, and pagination state |
 | `git.commit` | Return one structured commit by revision |
 | `git.commitFiles` | Return files changed by one commit |
@@ -104,7 +104,7 @@ even when Git exits non-zero; process-start and workspace failures use the
 standard error envelope.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
-`stage`, `unstage`, `discard`, `stageAll`, `commit`, `cherryPick`, `revert`,
+`stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
 `reset`, `createBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, and `stashDrop`. Optional fields are `paths`,
@@ -128,9 +128,15 @@ available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
 clients must fall back to `left`. Hunk entries contain their header and the
 patch text needed for partial apply; rows are not duplicated per hunk, so
 clients group `rows` by `hunkID` instead.
-`git.apply` accepts `root`, `patch`, and `mode`; it returns `{ "output": string,
-"exitCode": number }`. Pathspecs must be workspace-relative and must not
-contain absolute paths or `..` components.
+`git.apply` accepts `root`, `patch`, and `mode`; supported modes are `stage`,
+`unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
+`worktreeCheck`. The two `*Check` modes only test whether the reverse patch
+already applies, so Shelf restoration can be retried after a partial failure.
+It returns
+`{ "output": string, "exitCode": number }`. `restoreIndex` applies a saved
+index patch to both the index and worktree; `worktree` applies only to the
+worktree. Pathspecs must be workspace-relative and must not contain absolute
+paths or `..` components.
 
 `git.history` accepts `root`, an optional full `reference`, and `limit` (the
 core clamps it to `1...5000`). It returns `references`, `commits`, and
