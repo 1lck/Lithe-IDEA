@@ -211,7 +211,7 @@ void testWindowsProcessRoundTrip() {
     assert(shell != nullptr && *shell != '\0');
     lithe::windows::ProcessRequest request;
     request.executablePath = shell;
-    request.arguments = {"/C", "more"};
+    request.arguments = {"/C", "findstr", "phase0-stdin"};
     request.standardInput = "phase0-stdin\r\n";
     request.keepsStandardInputOpen = false;
     request.timeoutMilliseconds = 5000;

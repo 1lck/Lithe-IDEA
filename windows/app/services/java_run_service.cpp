@@ -253,7 +253,7 @@ std::optional<std::uint16_t> JavaRunService::configuredPort(std::string_view inp
 }
 
 std::string JavaRunService::pathUtf8(const std::filesystem::path& path) {
-    const auto value = path.u8string();
+    const auto value = path.generic_u8string();
     return {reinterpret_cast<const char*>(value.data()), value.size()};
 }
 

@@ -31,7 +31,7 @@ std::filesystem::path pathFromUtf8(const std::string& value) {
 }
 
 std::string pathToUtf8(const std::filesystem::path& value) {
-    const auto text = value.u8string();
+    const auto text = value.generic_u8string();
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
 
