@@ -152,6 +152,18 @@ int main() {
                           "lithe-java-debug-jdk";
     const auto userHome = std::filesystem::temp_directory_path() /
                           "lithe-java-debug-user";
+    const auto javaExecutable = javaHome / "bin" /
+#ifdef _WIN32
+                                "java.exe";
+#else
+                                "java";
+#endif
+    const auto jdbExecutable = javaHome / "bin" /
+#ifdef _WIN32
+                                "jdb.exe";
+#else
+                                "jdb";
+#endif
 
     FakeRuntimeLocator locator;
     locator.values = {
@@ -161,8 +173,8 @@ int main() {
     };
     locator.homes.insert(pathText(javaHome));
     locator.executables = {
-        pathText(javaHome / "bin" / "java"),
-        pathText(javaHome / "bin" / "jdb"),
+        pathText(javaExecutable),
+        pathText(jdbExecutable),
     };
     FakeStorage storage;
     storage.projectRoot = pathText(projectRoot);
@@ -194,7 +206,7 @@ int main() {
 
     sessions[0]->emitRunning();
     sessions[0]->emitOutput("Listening for transport dt_socket at address: 54321\n");
-    assert(sessions[1]->request.executablePath == pathText(javaHome / "bin" / "jdb"));
+    assert(sessions[1]->request.executablePath == pathText(jdbExecutable));
     assert(contains(sessions[1]->request.arguments, "-J-Duser.language=en"));
     assert(contains(sessions[1]->request.arguments, "-J-Duser.country=US"));
     assert(sessions[1]->request.keepsStandardInputOpen);
