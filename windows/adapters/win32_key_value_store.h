@@ -10,10 +10,10 @@ class Win32KeyValueStore final : public KeyValueStore {
 public:
     explicit Win32KeyValueStore(std::filesystem::path root = {});
 
-    std::optional<std::string> read(const std::string& key) const override;
-    bool write(const std::string& key,
-               const std::string& value,
-               std::string& error) override;
+    std::optional<KeyValueValue> readValue(const std::string& key) const override;
+    bool writeValue(const std::string& key,
+                    const KeyValueValue& value,
+                    std::string& error) override;
     bool remove(const std::string& key, std::string& error) override;
 
 private:

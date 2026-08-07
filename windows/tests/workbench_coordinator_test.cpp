@@ -1,0 +1,722 @@
+#include "workbench_coordinator.h"
+#include "git_feature.h"
+#include "history_feature.h"
+#include "maven_java_feature.h"
+#include "replacement_feature.h"
+
+#include <cassert>
+#include <chrono>
+#include <condition_variable>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <functional>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace {
+
+std::mutex requestMutex;
+std::condition_variable requestCondition;
+std::vector<std::string> requests;
+bool blockNextSnapshot = false;
+bool snapshotStarted = false;
+bool releaseSnapshot = false;
+
+std::string requestValue(const std::string& request, const std::string& key) {
+    const auto marker = "\"" + key + "\":\"";
+    const auto start = request.find(marker);
+    if (start == std::string::npos) return {};
+    const auto valueStart = start + marker.size();
+    const auto valueEnd = request.find('"', valueStart);
+    return valueEnd == std::string::npos ? std::string{} : request.substr(valueStart, valueEnd - valueStart);
+}
+
+} // namespace
+
+extern "C" {
+
+const char* lithe_core_version(void) {
+    return "coordinator-test-core";
+}
+
+char* lithe_core_execute_json(const char* request) {
+    const std::string value = request == nullptr ? std::string{} : std::string(request);
+    {
+        std::lock_guard lock(requestMutex);
+        requests.push_back(value);
+    }
+    const auto command = requestValue(value, "command");
+    if (command == "workspace.snapshot") {
+        std::unique_lock lock(requestMutex);
+        if (blockNextSnapshot) {
+            blockNextSnapshot = false;
+            snapshotStarted = true;
+            requestCondition.notify_all();
+            requestCondition.wait(lock, [] { return releaseSnapshot; });
+        }
+    }
+    std::string response = command == "file.read"
+        ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"path\":\"src/Main.java\",\"text\":\"hello\"}}"
+        : command == "workspace.search"
+        ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"matches\":[]}}"
+        : command == "workspace.searchEverywhere"
+        ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"matches\":["
+          "{\"kind\":\"file\",\"path\":\"src/Main.java\",\"line\":null,\"preview\":\"src/Main.java\"},"
+          "{\"kind\":\"type\",\"path\":\"src/Main.java\",\"line\":1,\"preview\":\"class Main\",\"symbolName\":\"Main\"},"
+          "{\"kind\":\"content\",\"path\":\"src/Main.java\",\"line\":1,\"preview\":\"class Main\"}]}}"
+        : command == "workspace.replacePreview"
+            ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"files\":[]}}"
+        : command == "git.status"
+                ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"repositoryRoot\":null,\"branch\":\"main\",\"changes\":[]}}"
+                : command == "git.diff"
+                    ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"patch\":\"@@\",\"rows\":[{\"oldLine\":1,\"newLine\":1,\"left\":\"old\",\"right\":\"new\",\"kind\":\"changed\",\"hunkId\":\"hunk-0\"}],\"hunks\":[{\"id\":\"hunk-0\",\"header\":\"@@\",\"patch\":\"@@\"}]}}"
+                    : command == "git.apply"
+                        ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"output\":\"\",\"exitCode\":0}}"
+                    : command == "git.write"
+                            ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"output\":\"written\",\"exitCode\":0}}"
+                            : command == "git.command"
+                                ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"output\":\"command output\",\"exitCode\":0}}"
+                            : command == "git.history"
+                                ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"references\":[],\"commits\":[{\"hash\":\"abc\",\"shortHash\":\"abc\",\"parentHashes\":[],\"authorName\":\"A\",\"authorEmail\":\"a@b\",\"date\":\"2026/08/05 12:00\",\"subject\":\"Initial\",\"decorations\":\"\"}],\"hasMore\":false}}"
+                                : command == "git.commit"
+                                    ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"commit\":{\"hash\":\"abc\",\"shortHash\":\"abc\",\"parentHashes\":[],\"authorName\":\"A\",\"authorEmail\":\"a@b\",\"date\":\"2026/08/05 12:00\",\"subject\":\"Initial\",\"decorations\":\"\"}}}"
+                                    : command == "git.commitFiles"
+                                        ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"files\":[{\"status\":\"M\",\"path\":\"src/Main.java\"}]}}"
+                                        : command == "git.comparison"
+                                            ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"files\":[{\"status\":\"M\",\"path\":\"src/Main.java\"}]}}"
+                                            : command == "git.stashes"
+                                                ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"stashes\":[{\"reference\":\"stash@{0}\",\"message\":\"work\",\"branch\":null,\"date\":\"2026-08-05\"}]}}"
+                                                : command == "git.blame"
+                                                    ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"lines\":[{\"line\":1,\"commitHash\":\"abc\",\"authorName\":\"A\",\"authorTime\":1720000000}]}}"
+                                                    : command == "maven.scan"
+                                                        ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"groupId\":\"com.example\",\"artifactId\":\"app\",\"version\":\"1.0\",\"packaging\":\"jar\",\"modules\":[],\"profiles\":[],\"hasWrapper\":true}}"
+                                                        : command == "maven.diagnostics"
+                                                            ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"issues\":[{\"path\":\"src/Main.java\",\"line\":4,\"column\":null,\"severity\":\"error\",\"message\":\"bad\"}]}}"
+                                                            : command == "java.runConfigurations"
+                                                                ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"mainClasses\":[],\"configurations\":[]}}"
+                                                                : command == "java.codeVision"
+                                                                    ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"hints\":[{\"line\":0,\"utf16Column\":2,\"symbol\":\"run\",\"usageCount\":1}]}}"
+                                                                    : command == "java.className"
+                                                                        ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"className\":\"com.example.Main\"}}"
+                                                                        : command == "java.sourceDefinition"
+                                                                            ? "{\"id\":\"test\",\"ok\":true,\"data\":null}"
+                                                                            : command == "java.serverPort"
+                                                                                ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"port\":8080}}"
+                                                                                : command == "java.structure"
+                                                                                    ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"foldRegions\":[],\"implementationMarkers\":[],\"inlayHints\":[]}}"
+                        : command == "history.record"
+                            ? value.find("\"content\":") == std::string::npos
+                                ? "{\"id\":\"test\",\"ok\":true,\"data\":null}"
+                                : "{\"id\":\"test\",\"ok\":true,\"data\":{\"id\":\"entry-1\",\"timestamp\":1720000000,\"relativePath\":\"src/Main.java\",\"reason\":\"saved\",\"contentPath\":\"src-Main.java/entry-1.snapshot\",\"byteCount\":5}}"
+                            : command == "history.entries"
+                                ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"entries\":[{\"id\":\"entry-1\",\"timestamp\":1720000000,\"relativePath\":\"src/Main.java\",\"reason\":\"saved\",\"contentPath\":\"src-Main.java/entry-1.snapshot\",\"byteCount\":5}]}}"
+                                : command == "history.content"
+                                    ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"text\":\"hello history\"}}"
+                        : command == "history.relocate"
+                                        ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"relocated\":true}}"
+                        : "{\"id\":\"test\",\"ok\":true,\"data\":{\"root\":{\"path\":\"\",\"name\":\"project\",\"isDirectory\":true,\"children\":[]},\"files\":[]}}";
+    if (command == "git.write" && value.find("\"operation\":\"testFailure\"") != std::string::npos) {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"output\":\"checkout failed\",\"exitCode\":7}}";
+    }
+    auto* result = static_cast<char*>(std::malloc(response.size() + 1));
+    assert(result != nullptr);
+    std::memcpy(result, response.c_str(), response.size() + 1);
+    return result;
+}
+
+std::int32_t lithe_core_cancel(const char*) {
+    return 1;
+}
+
+void lithe_core_free_string(char* value) {
+    std::free(value);
+}
+
+} // extern "C"
+
+int main() {
+    lithe::windows::app::WorkbenchCoordinator coordinator(32);
+    assert(coordinator.coreVersion() == "coordinator-test-core");
+
+    std::mutex mutex;
+    std::condition_variable condition;
+    std::optional<lithe::windows::app::WorkspaceOperationResult> snapshot;
+    const auto root = std::filesystem::temp_directory_path() / "lithe-coordinator-test";
+    coordinator.openWorkspace(root, [&](auto result) {
+        std::lock_guard lock(mutex);
+        snapshot = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] { return snapshot.has_value(); }));
+    }
+    assert(snapshot && !snapshot->stale && snapshot->response.isValid());
+    assert(snapshot->envelope && snapshot->envelope->ok);
+    assert(!coordinator.isLoading());
+    assert(coordinator.workspacePaths().has_value());
+
+    {
+        std::lock_guard lock(requestMutex);
+        assert(!requests.empty());
+        assert(requests.back().find("\"command\":\"workspace.snapshot\"") != std::string::npos);
+        assert(requests.back().find("\"timeoutMilliseconds\":30000") != std::string::npos);
+        assert(requests.back().find("\"root\":\"") != std::string::npos);
+        assert(requests.back().find("\"root\":\"\"") == std::string::npos);
+    }
+
+    std::optional<lithe::windows::app::WorkspaceOperationResult> read;
+    coordinator.readFile("src/Main.java", [&](auto result) {
+        std::lock_guard lock(mutex);
+        read = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] { return read.has_value(); }));
+    }
+    assert(read && !read->stale);
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"file.read\"") != std::string::npos);
+        assert(requests.back().find("\"path\":\"src/Main.java\"") != std::string::npos);
+        assert(requests.back().find("\"timeoutMilliseconds\":5000") != std::string::npos);
+    }
+
+    lithe::windows::app::ReplacementFeatureModel replacementFeature(coordinator);
+    std::optional<lithe::windows::app::ReplacementFeatureState> replacementState;
+    lithe::windows::ReplacementPreviewRequestDto replacementRequest;
+    replacementRequest.query = "hello";
+    replacementRequest.replacement = "world";
+    replacementFeature.preview(std::move(replacementRequest), [&](auto state) {
+        std::lock_guard lock(mutex);
+        replacementState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return replacementState.has_value();
+        }));
+    }
+    assert(replacementState && replacementState->preview &&
+           replacementState->preview->files.empty());
+
+    lithe::windows::app::GitFeatureModel gitFeature(coordinator);
+    std::optional<lithe::windows::app::GitFeatureState> gitState;
+    gitFeature.refreshStatus([&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->status && !gitState->isLoadingStatus);
+    assert(!gitState->status->branch.has_value() || *gitState->status->branch == "main");
+
+    gitState.reset();
+    gitFeature.loadDiff({"src/Main.java"}, false, false, [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->diff && gitState->diff->rows.size() == 1);
+    assert(gitState->diff->rows[0].hunkId == "hunk-0");
+
+    gitState.reset();
+    gitFeature.apply("@@", "stage", [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && !gitState->isApplying && !gitState->error);
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"git.apply\"") != std::string::npos);
+        assert(requests.back().find("\"mode\":\"stage\"") != std::string::npos);
+    }
+
+    gitState.reset();
+    lithe::windows::GitWriteRequestDto failedWrite;
+    failedWrite.operation = "testFailure";
+    gitFeature.write(std::move(failedWrite), [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->command && gitState->command->exitCode == 7);
+    assert(gitState->error &&
+           gitState->error->code == lithe::windows::CoreErrorCode::ProcessFailed);
+
+    gitState.reset();
+    gitFeature.refreshHistory(std::nullopt, 300, [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->history && gitState->history->commits.size() == 1);
+
+    gitState.reset();
+    gitFeature.loadCommit("abc", [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->commit && gitState->commit->commit.hash == "abc");
+
+    gitState.reset();
+    gitFeature.loadCommitFiles("abc", [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->commitFiles && gitState->commitFiles->files.size() == 1);
+
+    gitState.reset();
+    gitFeature.loadComparison("refs/heads/main", [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->comparison && gitState->comparison->files.size() == 1);
+
+    gitState.reset();
+    gitFeature.refreshStashes([&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->stashes && gitState->stashes->stashes.size() == 1);
+
+    gitState.reset();
+    gitFeature.loadBlame("src/Main.java", [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->blame && gitState->blame->lines.size() == 1);
+
+    gitState.reset();
+    lithe::windows::GitWriteRequestDto writeRequest;
+    writeRequest.operation = "stage";
+    writeRequest.paths = {"src/Main.java"};
+    gitFeature.write(std::move(writeRequest), [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->command && gitState->command->output == "written");
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"git.write\"") != std::string::npos);
+        assert(requests.back().find("\"operation\":\"stage\"") != std::string::npos);
+        assert(requests.back().find("\"root\":\"" + root.generic_string()) != std::string::npos);
+    }
+
+    gitState.reset();
+    gitFeature.runCommand({"status", "--short"}, std::nullopt, [&](auto state) {
+        std::lock_guard lock(mutex);
+        gitState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    }
+    assert(gitState && gitState->command && gitState->command->output == "command output");
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"git.command\"") != std::string::npos);
+        assert(requests.back().find("\"arguments\":[\"status\",\"--short\"]") != std::string::npos);
+    }
+
+    lithe::windows::app::MavenJavaFeatureModel mavenJavaFeature(coordinator);
+    std::optional<lithe::windows::app::MavenJavaFeatureState> mavenJavaState;
+    mavenJavaFeature.scanMaven([&](auto state) {
+        std::lock_guard lock(mutex);
+        mavenJavaState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return mavenJavaState.has_value();
+        }));
+    }
+    assert(mavenJavaState && mavenJavaState->maven && mavenJavaState->maven->scan);
+    assert(mavenJavaState->maven->scan->artifactId == "app");
+
+    mavenJavaState.reset();
+    mavenJavaFeature.parseMavenDiagnostics("[ERROR] src/Main.java:[4] bad", [&](auto state) {
+        std::lock_guard lock(mutex);
+        mavenJavaState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return mavenJavaState.has_value();
+        }));
+    }
+    assert(mavenJavaState && mavenJavaState->diagnostics &&
+           mavenJavaState->diagnostics->issues.size() == 1);
+
+    mavenJavaState.reset();
+    mavenJavaFeature.loadRunConfigurations({}, {}, [&](auto state) {
+        std::lock_guard lock(mutex);
+        mavenJavaState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return mavenJavaState.has_value();
+        }));
+    }
+    assert(mavenJavaState && mavenJavaState->runConfigurations);
+
+    mavenJavaState.reset();
+    mavenJavaFeature.loadCodeVision("src/Main.java", {}, [&](auto state) {
+        std::lock_guard lock(mutex);
+        mavenJavaState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return mavenJavaState.has_value();
+        }));
+    }
+    assert(mavenJavaState && mavenJavaState->codeVision &&
+           mavenJavaState->codeVision->hints[0].utf16Column == 2);
+
+    mavenJavaState.reset();
+    mavenJavaFeature.resolveClassName("class Main {}", "Main", [&](auto state) {
+        std::lock_guard lock(mutex);
+        mavenJavaState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return mavenJavaState.has_value();
+        }));
+    }
+    assert(mavenJavaState && mavenJavaState->className &&
+           mavenJavaState->className->className == "com.example.Main");
+
+    mavenJavaState.reset();
+    mavenJavaFeature.findSourceDefinition("class Main {}", "Main", std::nullopt,
+        [&](auto state) {
+            std::lock_guard lock(mutex);
+            mavenJavaState = std::move(state);
+            condition.notify_one();
+        });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return mavenJavaState.has_value();
+        }));
+    }
+    assert(mavenJavaState && mavenJavaState->sourceDefinition &&
+           !mavenJavaState->sourceDefinition->definition);
+
+    mavenJavaState.reset();
+    mavenJavaFeature.findServerPort("server:\n  port: 8080", "yml", [&](auto state) {
+        std::lock_guard lock(mutex);
+        mavenJavaState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return mavenJavaState.has_value();
+        }));
+    }
+    assert(mavenJavaState && mavenJavaState->serverPort &&
+           mavenJavaState->serverPort->port == 8080);
+
+    mavenJavaState.reset();
+    mavenJavaFeature.loadJavaStructure("class Main {}", {}, [&](auto state) {
+        std::lock_guard lock(mutex);
+        mavenJavaState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return mavenJavaState.has_value();
+        }));
+    }
+    assert(mavenJavaState && mavenJavaState->structure &&
+           mavenJavaState->structure->foldRegions.empty());
+
+    class TestFileStorage final : public lithe::windows::FileStorage {
+    public:
+        std::string homeDirectory() const override { return "/tmp"; }
+        std::string cacheDirectory() const override { return "/tmp/Lithe/cache"; }
+        std::string applicationSupportDirectory() const override { return "/tmp/Lithe"; }
+        std::optional<lithe::windows::FileMetadata> metadata(const std::string&) const override {
+            return std::nullopt;
+        }
+        bool fileExists(const std::string&) const override { return false; }
+        bool isExecutable(const std::string&) const override { return false; }
+        std::vector<std::string> listDirectory(const std::string&) const override { return {}; }
+        std::optional<std::vector<std::uint8_t>> readData(
+            const std::string&, std::string&) const override { return std::nullopt; }
+        bool writeData(const std::string&, const std::vector<std::uint8_t>&,
+                       std::string&) override { return false; }
+        bool createDirectory(const std::string&, bool, std::string&) override { return false; }
+        bool removeItem(const std::string&, std::string&) override { return false; }
+        bool moveItem(const std::string&, const std::string&, std::string&) override { return false; }
+    } storage;
+    lithe::windows::app::HistoryFeatureModel historyFeature(coordinator, storage);
+    std::optional<lithe::windows::app::HistoryFeatureState> historyState;
+    historyFeature.loadEntries(std::nullopt, [&](auto state) {
+        std::lock_guard lock(mutex);
+        historyState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return historyState.has_value();
+        }));
+    }
+    assert(historyState && historyState->entries && historyState->entries->entries.size() == 1);
+
+    historyState.reset();
+    historyFeature.record("src/Main.java", "saved", std::string("hello"), true, [&](auto state) {
+        std::lock_guard lock(mutex);
+        historyState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return historyState.has_value();
+        }));
+    }
+    assert(historyState && historyState->recordedEntry && !historyState->error);
+
+    historyState.reset();
+    historyFeature.record("src/Main.java", "saved", std::nullopt, true, [&](auto state) {
+        std::lock_guard lock(mutex);
+        historyState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return historyState.has_value();
+        }));
+    }
+    assert(historyState && !historyState->recordedEntry && !historyState->error);
+
+    historyState.reset();
+    historyFeature.loadContent("src-Main.java/entry-1.snapshot", [&](auto state) {
+        std::lock_guard lock(mutex);
+        historyState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return historyState.has_value();
+        }));
+    }
+    assert(historyState && historyState->content && historyState->content->text == "hello history");
+
+    historyState.reset();
+    historyFeature.relocate("src/Main.java", "src/Renamed.java", [&](auto state) {
+        std::lock_guard lock(mutex);
+        historyState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return historyState.has_value();
+        }));
+    }
+    assert(historyState && !historyState->isRelocating && !historyState->error);
+
+    std::optional<lithe::windows::app::WorkspaceOperationResult> everywhere;
+    coordinator.searchEverywhere("Main", [&](auto result) {
+        std::lock_guard lock(mutex);
+        everywhere = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return everywhere.has_value();
+        }));
+    }
+    assert(everywhere && !everywhere->stale && everywhere->envelope &&
+           everywhere->envelope->ok);
+    const auto everywhereResponse = lithe::windows::decodeSearchResponse(*everywhere->envelope);
+    assert(everywhereResponse && everywhereResponse->matches.size() == 3);
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"workspace.searchEverywhere\"") !=
+               std::string::npos);
+        assert(requests.back().find("\"maxSymbolResults\":50") != std::string::npos);
+    }
+
+    // Keep the three requests on different fixed workers so the test can
+    // deterministically complete document and search work while a snapshot is blocked.
+    std::uint64_t nextOperation = 0;
+    const auto workerSlot = [](std::uint64_t operation, std::size_t workerCount) {
+        return std::hash<std::string>{}("windows-" + std::to_string(operation)) % workerCount;
+    };
+    {
+        std::lock_guard lock(requestMutex);
+        assert(!requests.empty());
+        const auto lastOperation = requestValue(requests.back(), "operationId");
+        assert(lastOperation.starts_with("windows-"));
+        nextOperation = std::stoull(lastOperation.substr(std::string("windows-").size())) + 1;
+    }
+    while (workerSlot(nextOperation, 32) == workerSlot(nextOperation + 1, 32) ||
+           workerSlot(nextOperation, 32) == workerSlot(nextOperation + 2, 32) ||
+           workerSlot(nextOperation + 1, 32) == workerSlot(nextOperation + 2, 32)) {
+        std::optional<lithe::windows::app::WorkspaceOperationResult> advance;
+        coordinator.search("advance", [&](auto result) {
+            std::lock_guard lock(mutex);
+            advance = std::move(result);
+            condition.notify_one();
+        });
+        {
+            std::unique_lock lock(mutex);
+            assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+                return advance.has_value();
+            }));
+        }
+        assert(advance && !advance->stale);
+        ++nextOperation;
+    }
+
+    {
+        std::lock_guard lock(requestMutex);
+        blockNextSnapshot = true;
+        snapshotStarted = false;
+        releaseSnapshot = false;
+    }
+    std::optional<lithe::windows::app::WorkspaceOperationResult> concurrentSnapshot;
+    std::optional<lithe::windows::app::WorkspaceOperationResult> concurrentRead;
+    std::optional<lithe::windows::app::WorkspaceOperationResult> concurrentSearch;
+    coordinator.openWorkspace(root / "second", [&](auto result) {
+        std::lock_guard lock(mutex);
+        concurrentSnapshot = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(requestMutex);
+        assert(requestCondition.wait_for(lock, std::chrono::seconds(2), [] {
+            return snapshotStarted;
+        }));
+    }
+    coordinator.readFile("src/Main.java", [&](auto result) {
+        std::lock_guard lock(mutex);
+        concurrentRead = std::move(result);
+        condition.notify_one();
+    });
+    coordinator.search("query", [&](auto result) {
+        std::lock_guard lock(mutex);
+        concurrentSearch = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return concurrentRead.has_value() && concurrentSearch.has_value();
+        }));
+    }
+    assert(concurrentRead && !concurrentRead->stale);
+    assert(concurrentSearch && !concurrentSearch->stale);
+
+    {
+        std::lock_guard lock(requestMutex);
+        releaseSnapshot = true;
+        requestCondition.notify_all();
+    }
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return concurrentSnapshot.has_value();
+        }));
+    }
+    assert(concurrentSnapshot && !concurrentSnapshot->stale);
+    assert(!coordinator.isLoading());
+    coordinator.shutdown();
+    return 0;
+}

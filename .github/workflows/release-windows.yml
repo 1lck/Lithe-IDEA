@@ -1,0 +1,129 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semantic version to release, for example 0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and publish Lithe for Windows
+    if: github.actor == github.repository_owner
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.2"
+          arch: win64_msvc2022_64
+          modules: qtbase
+          cache: true
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress --yes
+
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:EVENT_NAME -eq "workflow_dispatch") {
+            $env:MANUAL_VERSION
+          } else {
+            $env:GITHUB_REF_NAME.Substring(1)
+          }
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "Release version must use the form MAJOR.MINOR.PATCH: $version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build Rust core and Qt workbench
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -Configuration Release -BuildQt
+
+      - name: Import Authenticode certificate
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)) {
+            throw "WINDOWS_SIGNING_CERTIFICATE_BASE64 is required for a signed Windows release."
+          }
+          $path = Join-Path $env:RUNNER_TEMP "lithe-signing.pfx"
+          [System.IO.File]::WriteAllBytes(
+            $path,
+            [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE_BASE64))
+          $password = ConvertTo-SecureString $env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $path `
+            -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          if ($null -eq $certificate) { throw "Could not import the Authenticode certificate." }
+          "LITHE_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" >> $env:GITHUB_ENV
+
+      - name: Package Windows installer
+        shell: pwsh
+        env:
+          LITHE_VERSION: ${{ steps.version.outputs.version }}
+          LITHE_WINDOWS_TIMESTAMP_SERVER: ${{ secrets.WINDOWS_TIMESTAMP_SERVER }}
+        run: ./scripts/package-windows.ps1 -Configuration Release -Version $env:LITHE_VERSION -RequireAuthenticodeSignature
+
+      - name: Verify installer checksum
+        shell: pwsh
+        run: |
+          $installer = "dist/Lithe-${{ steps.version.outputs.version }}-windows-x64.exe"
+          $expected = ((Get-Content "$installer.sha256" -Raw) -split '\s+')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Installer checksum mismatch" }
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          LITHE_VERSION: ${{ steps.version.outputs.version }}
+        shell: pwsh
+        run: |
+          $notes = "docs/releases/v$env:LITHE_VERSION.md"
+          $createArgs = @(
+            $env:RELEASE_TAG,
+            "--repo", $env:GITHUB_REPOSITORY,
+            "--target", $env:GITHUB_SHA,
+            "--title", "Lithe $env:RELEASE_TAG"
+          )
+          $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path -LiteralPath $notes) { $createArgs += @("--notes-file", $notes) }
+            else { $createArgs += "--generate-notes" }
+            gh release create @createArgs
+            if ($LASTEXITCODE -ne 0) {
+              $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
+              if ($LASTEXITCODE -ne 0) { throw "Could not create or find release $env:RELEASE_TAG" }
+            }
+          }
+          gh release upload $env:RELEASE_TAG `
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe" `
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256" `
+            --repo $env:GITHUB_REPOSITORY --clobber

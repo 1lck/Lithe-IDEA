@@ -74,9 +74,10 @@ jobs:
           for architecture in arm64 x86_64; do
             LITHE_ARCH="$architecture" ./scripts/package-app.sh
             LITHE_ARCH="$architecture" ./scripts/create-dmg.sh
-            shasum -a 256 \
-              "dist/Lithe-${LITHE_VERSION}-${architecture}.dmg" \
-              > "dist/Lithe-${LITHE_VERSION}-${architecture}.dmg.sha256"
+            # 在 dist/ 内部计算，让校验文件只记录裸文件名，
+            # 这样下载后直接 shasum -c 就能通过。
+            dmg_name="Lithe-${LITHE_VERSION}-${architecture}.dmg"
+            (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
           done
 
       - name: Verify the bundle and disk image

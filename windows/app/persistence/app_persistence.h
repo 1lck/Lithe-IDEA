@@ -1,0 +1,67 @@
+#pragma once
+
+#include "ports.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace lithe::windows::app {
+
+struct AppSettings {
+    double editorFontSize = 13.0;
+    bool showCodeVision = true;
+    bool showInlayHints = true;
+    std::string terminalShellPath;
+    std::vector<std::string> hiddenDirectoryNames;
+    std::vector<std::string> hiddenFilePatterns;
+};
+
+class AppSettingsStore final {
+public:
+    explicit AppSettingsStore(KeyValueStore& store);
+
+    AppSettings load() const;
+    bool save(const AppSettings& settings, std::string& error);
+
+private:
+    KeyValueStore& store_;
+};
+
+class RecentProjectsStore final {
+public:
+    explicit RecentProjectsStore(KeyValueStore& store, std::size_t maximum = 20);
+
+    std::vector<std::string> load() const;
+    bool record(const std::string& path, std::string& error);
+    bool replace(std::vector<std::string> paths, std::string& error);
+
+private:
+    KeyValueStore& store_;
+    std::size_t maximum_;
+};
+
+struct WorkspaceSession {
+    std::vector<std::string> openPaths;
+    std::vector<std::string> expandedPaths;
+    std::string activePath;
+};
+
+class WorkspaceSessionStore final {
+public:
+    explicit WorkspaceSessionStore(KeyValueStore& store);
+
+    WorkspaceSession load(const std::string& workspaceRoot) const;
+    bool save(const std::string& workspaceRoot,
+              const WorkspaceSession& session,
+              std::string& error);
+    bool clear(const std::string& workspaceRoot, std::string& error);
+
+private:
+    KeyValueStore& store_;
+
+    static std::string key(const std::string& root, const char* field);
+};
+
+} // namespace lithe::windows::app
