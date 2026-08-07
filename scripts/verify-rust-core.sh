@@ -16,6 +16,8 @@ esac
 RUST_LIBRARY="$(scripts/build-rust-core.sh --debug --target "$RUST_TARGET")"
 
 swift build --disable-sandbox --triple "$TRIPLE" \
+    -Xswiftc -Xfrontend \
+    -Xswiftc -disable-round-trip-debug-types \
     -Xlinker -force_load \
     -Xlinker "$RUST_LIBRARY"
 
