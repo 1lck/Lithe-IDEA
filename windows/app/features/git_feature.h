@@ -20,6 +20,13 @@ struct GitFeatureState {
     std::optional<GitStashesResponseDto> stashes;
     std::optional<GitBlameResponseDto> blame;
     std::optional<GitCommandDto> command;
+    std::optional<GitCheckoutPreflightDto> checkoutPreflight;
+    std::optional<GitPullPreflightDto> pullPreflight;
+    std::optional<GitIntegrationPreflightDto> integrationPreflight;
+    std::optional<GitConflictMarkersDto> conflictMarkers;
+    std::optional<GitOperationStateDto> operationState;
+    std::optional<GitStashRestoreDto> stashRestoreConflict;
+    std::vector<std::string> conflictFilterPaths;
     std::optional<CoreError> error;
     bool isLoadingStatus = false;
     bool isLoadingDiff = false;
@@ -29,6 +36,11 @@ struct GitFeatureState {
     bool isLoadingComparison = false;
     bool isLoadingStashes = false;
     bool isLoadingBlame = false;
+    bool isLoadingCheckoutPreflight = false;
+    bool isLoadingPullPreflight = false;
+    bool isLoadingIntegrationPreflight = false;
+    bool isLoadingConflictMarkers = false;
+    bool isLoadingOperationState = false;
     bool isWriting = false;
     bool isApplying = false;
 };
@@ -64,6 +76,14 @@ public:
     void loadComparison(std::string reference, StateHandler handler = {});
     void refreshStashes(StateHandler handler = {});
     void loadBlame(std::string relativePath, StateHandler handler = {});
+    void preflightCheckout(std::string reference, StateHandler handler = {});
+    void preflightPull(StateHandler handler = {});
+    void preflightIntegration(std::string reference,
+                              std::string operation,
+                              StateHandler handler = {});
+    void refreshConflictMarkers(StateHandler handler = {});
+    void refreshOperationState(StateHandler handler = {});
+    void clearStashRestoreConflict();
     void write(GitWriteRequestDto request, StateHandler handler = {});
     void runCommand(std::vector<std::string> arguments,
                     std::optional<std::string> input = std::nullopt,
@@ -98,8 +118,14 @@ private:
     void applyComparison(WorkspaceOperationResult result, StateHandler handler);
     void applyStashes(WorkspaceOperationResult result, StateHandler handler);
     void applyBlame(WorkspaceOperationResult result, StateHandler handler);
+    void applyCheckoutPreflight(WorkspaceOperationResult result, StateHandler handler);
+    void applyPullPreflight(WorkspaceOperationResult result, StateHandler handler);
+    void applyIntegrationPreflight(WorkspaceOperationResult result, StateHandler handler);
+    void applyConflictMarkers(WorkspaceOperationResult result, StateHandler handler);
+    void applyOperationState(WorkspaceOperationResult result, StateHandler handler);
     void applyWrite(WorkspaceOperationResult result, StateHandler handler);
     void applyPatch(WorkspaceOperationResult result, StateHandler handler);
+    void rebuildConflictFilterPaths();
 };
 
 } // namespace lithe::windows::app

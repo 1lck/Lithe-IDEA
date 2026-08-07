@@ -84,7 +84,7 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 ### 扩展协议和状态模型
 
-- [ ] 核对 Windows DTO 对当前 Rust Git 响应的覆盖，包括冲突路径、操作状态和
+- [x] 核对 Windows DTO 对当前 Rust Git 响应的覆盖，包括冲突路径、操作状态和
       stash 恢复冲突。
 - [ ] 在 `GitFeatureState` 中加入 pending checkout、pending integration、
       operation in progress、stash restore conflict、shelf 和冲突筛选状态。

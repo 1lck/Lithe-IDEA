@@ -1,5 +1,6 @@
 #include "git_feature.h"
 
+#include <algorithm>
 #include <memory>
 
 namespace lithe::windows::app {
@@ -186,6 +187,78 @@ void GitFeatureModel::loadBlame(std::string relativePath, StateHandler handler) 
         [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
         applyBlame(std::move(result), std::move(handler));
     });
+}
+
+void GitFeatureModel::preflightCheckout(std::string reference, StateHandler handler) {
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingCheckoutPreflight = true;
+        state_.checkoutPreflight.reset();
+        state_.error.reset();
+    }
+    coordinator_.gitCheckoutPreflight(std::move(reference),
+        [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
+        applyCheckoutPreflight(std::move(result), std::move(handler));
+    });
+}
+
+void GitFeatureModel::preflightPull(StateHandler handler) {
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingPullPreflight = true;
+        state_.pullPreflight.reset();
+        state_.error.reset();
+    }
+    coordinator_.gitPullPreflight(
+        [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
+        applyPullPreflight(std::move(result), std::move(handler));
+    });
+}
+
+void GitFeatureModel::preflightIntegration(std::string reference,
+                                           std::string operation,
+                                           StateHandler handler) {
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingIntegrationPreflight = true;
+        state_.integrationPreflight.reset();
+        state_.error.reset();
+    }
+    coordinator_.gitIntegrationPreflight(std::move(reference), std::move(operation),
+        [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
+        applyIntegrationPreflight(std::move(result), std::move(handler));
+    });
+}
+
+void GitFeatureModel::refreshConflictMarkers(StateHandler handler) {
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingConflictMarkers = true;
+        state_.conflictMarkers.reset();
+        state_.error.reset();
+    }
+    coordinator_.gitConflictMarkers(
+        [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
+        applyConflictMarkers(std::move(result), std::move(handler));
+    });
+}
+
+void GitFeatureModel::refreshOperationState(StateHandler handler) {
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingOperationState = true;
+        state_.error.reset();
+    }
+    coordinator_.gitOperationState(
+        [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
+        applyOperationState(std::move(result), std::move(handler));
+    });
+}
+
+void GitFeatureModel::clearStashRestoreConflict() {
+    std::lock_guard lock(mutex_);
+    state_.stashRestoreConflict.reset();
+    rebuildConflictFilterPaths();
 }
 
 void GitFeatureModel::write(GitWriteRequestDto request, StateHandler handler) {
@@ -490,6 +563,147 @@ void GitFeatureModel::applyBlame(WorkspaceOperationResult result, StateHandler h
     if (handler) handler(state());
 }
 
+void GitFeatureModel::applyCheckoutPreflight(WorkspaceOperationResult result,
+                                             StateHandler handler) {
+    if (result.stale) return;
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingCheckoutPreflight = false;
+        if (result.envelope && result.envelope->ok) {
+            if (auto preflight = decodeGitCheckoutPreflight(*result.envelope)) {
+                state_.checkoutPreflight = std::move(*preflight);
+                state_.error.reset();
+            } else {
+                state_.error = CoreError{
+                    CoreErrorCode::ParseFailed,
+                    "Invalid Git checkout preflight response",
+                    std::nullopt,
+                };
+            }
+        } else if (const auto error = result.coreError()) {
+            state_.error = *error;
+        } else {
+            state_.error = CoreError{
+                CoreErrorCode::Unknown, "Git checkout preflight failed", std::nullopt};
+        }
+    }
+    if (handler) handler(state());
+}
+
+void GitFeatureModel::applyPullPreflight(WorkspaceOperationResult result,
+                                         StateHandler handler) {
+    if (result.stale) return;
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingPullPreflight = false;
+        if (result.envelope && result.envelope->ok) {
+            if (auto preflight = decodeGitPullPreflight(*result.envelope)) {
+                state_.pullPreflight = std::move(*preflight);
+                state_.error.reset();
+            } else {
+                state_.error = CoreError{
+                    CoreErrorCode::ParseFailed,
+                    "Invalid Git pull preflight response",
+                    std::nullopt,
+                };
+            }
+        } else if (const auto error = result.coreError()) {
+            state_.error = *error;
+        } else {
+            state_.error = CoreError{
+                CoreErrorCode::Unknown, "Git pull preflight failed", std::nullopt};
+        }
+    }
+    if (handler) handler(state());
+}
+
+void GitFeatureModel::applyIntegrationPreflight(WorkspaceOperationResult result,
+                                                StateHandler handler) {
+    if (result.stale) return;
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingIntegrationPreflight = false;
+        if (result.envelope && result.envelope->ok) {
+            if (auto preflight = decodeGitIntegrationPreflight(*result.envelope)) {
+                state_.integrationPreflight = std::move(*preflight);
+                state_.error.reset();
+            } else {
+                state_.error = CoreError{
+                    CoreErrorCode::ParseFailed,
+                    "Invalid Git integration preflight response",
+                    std::nullopt,
+                };
+            }
+        } else if (const auto error = result.coreError()) {
+            state_.error = *error;
+        } else {
+            state_.error = CoreError{
+                CoreErrorCode::Unknown, "Git integration preflight failed", std::nullopt};
+        }
+    }
+    if (handler) handler(state());
+}
+
+void GitFeatureModel::applyConflictMarkers(WorkspaceOperationResult result,
+                                           StateHandler handler) {
+    if (result.stale) return;
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingConflictMarkers = false;
+        if (result.envelope && result.envelope->ok) {
+            if (auto markers = decodeGitConflictMarkers(*result.envelope)) {
+                state_.conflictMarkers = std::move(*markers);
+                rebuildConflictFilterPaths();
+                state_.error.reset();
+            } else {
+                state_.error = CoreError{
+                    CoreErrorCode::ParseFailed,
+                    "Invalid Git conflict marker response",
+                    std::nullopt,
+                };
+            }
+        } else if (const auto error = result.coreError()) {
+            state_.error = *error;
+        } else {
+            state_.error = CoreError{
+                CoreErrorCode::Unknown, "Git conflict marker check failed", std::nullopt};
+        }
+    }
+    if (handler) handler(state());
+}
+
+void GitFeatureModel::applyOperationState(WorkspaceOperationResult result,
+                                          StateHandler handler) {
+    if (result.stale) return;
+    {
+        std::lock_guard lock(mutex_);
+        state_.isLoadingOperationState = false;
+        if (result.envelope && result.envelope->ok) {
+            if (auto operationState = decodeGitOperationState(*result.envelope)) {
+                if (operationState->kind.empty()) {
+                    state_.operationState.reset();
+                } else {
+                    state_.operationState = std::move(*operationState);
+                }
+                rebuildConflictFilterPaths();
+                state_.error.reset();
+            } else {
+                state_.error = CoreError{
+                    CoreErrorCode::ParseFailed,
+                    "Invalid Git operation state response",
+                    std::nullopt,
+                };
+            }
+        } else if (const auto error = result.coreError()) {
+            state_.error = *error;
+        } else {
+            state_.error = CoreError{
+                CoreErrorCode::Unknown, "Git operation state failed", std::nullopt};
+        }
+    }
+    if (handler) handler(state());
+}
+
 void GitFeatureModel::applyWrite(WorkspaceOperationResult result, StateHandler handler) {
     if (result.stale) return;
     if (!result.stale) {
@@ -498,6 +712,10 @@ void GitFeatureModel::applyWrite(WorkspaceOperationResult result, StateHandler h
         if (result.envelope && result.envelope->ok) {
             if (auto command = decodeGitCommand(*result.envelope)) {
                 state_.command = std::move(*command);
+                if (state_.command->stashRestore) {
+                    state_.stashRestoreConflict = state_.command->stashRestore;
+                    rebuildConflictFilterPaths();
+                }
                 if (state_.command->exitCode == 0) {
                     state_.error.reset();
                 } else {
@@ -553,6 +771,32 @@ void GitFeatureModel::applyPatch(WorkspaceOperationResult result, StateHandler h
         }
     }
     if (handler) handler(state());
+}
+
+void GitFeatureModel::rebuildConflictFilterPaths() {
+    state_.conflictFilterPaths.clear();
+    if (state_.operationState) {
+        state_.conflictFilterPaths.insert(
+            state_.conflictFilterPaths.end(),
+            state_.operationState->conflictedPaths.begin(),
+            state_.operationState->conflictedPaths.end());
+    }
+    if (state_.conflictMarkers) {
+        state_.conflictFilterPaths.insert(
+            state_.conflictFilterPaths.end(),
+            state_.conflictMarkers->paths.begin(),
+            state_.conflictMarkers->paths.end());
+    }
+    if (state_.stashRestoreConflict) {
+        state_.conflictFilterPaths.insert(
+            state_.conflictFilterPaths.end(),
+            state_.stashRestoreConflict->conflictedPaths.begin(),
+            state_.stashRestoreConflict->conflictedPaths.end());
+    }
+    std::sort(state_.conflictFilterPaths.begin(), state_.conflictFilterPaths.end());
+    state_.conflictFilterPaths.erase(
+        std::unique(state_.conflictFilterPaths.begin(), state_.conflictFilterPaths.end()),
+        state_.conflictFilterPaths.end());
 }
 
 } // namespace lithe::windows::app

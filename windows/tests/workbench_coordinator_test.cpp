@@ -121,6 +121,20 @@ char* lithe_core_execute_json(const char* request) {
     if (command == "git.write" && value.find("\"operation\":\"testFailure\"") != std::string::npos) {
         response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"output\":\"checkout failed\",\"exitCode\":7}}";
     }
+    if (command == "git.checkoutPreflight") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"blockingPaths\":[\"README.md\"]}}";
+    } else if (command == "git.pullPreflight") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"upstream\":\"origin/main\",\"ahead\":1,\"behind\":2,\"diverged\":true,\"hasLocalChanges\":true}}";
+    } else if (command == "git.integrationPreflight") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"blockingPaths\":[\"src/Conflict.java\"],\"blocksEntirely\":true}}";
+    } else if (command == "git.conflictMarkers") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"paths\":[\"src/Conflict.java\"]}}";
+    } else if (command == "git.operationState") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"kind\":\"rebase\",\"reference\":\"main\",\"step\":2,\"total\":4,\"conflictedPaths\":[\"src/Conflict.java\"]}}";
+    } else if (command == "git.write" &&
+               value.find("\"operation\":\"testStashConflict\"") != std::string::npos) {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"output\":\"conflicts\",\"exitCode\":1,\"stashRestore\":{\"stashReference\":\"stash@{0}\",\"conflictedPaths\":[\"src/Stash.java\"]}}}";
+    }
     auto* result = static_cast<char*>(std::malloc(response.size() + 1));
     assert(result != nullptr);
     std::memcpy(result, response.c_str(), response.size() + 1);
@@ -356,6 +370,79 @@ int main() {
         }));
     }
     assert(gitState && gitState->blame && gitState->blame->lines.size() == 1);
+
+    const auto awaitGitState = [&](auto start) {
+        gitState.reset();
+        start([&](auto state) {
+            std::lock_guard lock(mutex);
+            gitState = std::move(state);
+            condition.notify_one();
+        });
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    };
+
+    awaitGitState([&](auto handler) {
+        gitFeature.preflightCheckout("refs/heads/feature", std::move(handler));
+    });
+    assert(gitState->checkoutPreflight &&
+           gitState->checkoutPreflight->blockingPaths == std::vector<std::string>{"README.md"});
+    assert(!gitState->isLoadingCheckoutPreflight);
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"git.checkoutPreflight\"") !=
+               std::string::npos);
+        assert(requests.back().find("\"reference\":\"refs/heads/feature\"") !=
+               std::string::npos);
+    }
+
+    awaitGitState([&](auto handler) { gitFeature.preflightPull(std::move(handler)); });
+    assert(gitState->pullPreflight && gitState->pullPreflight->upstream == "origin/main" &&
+           gitState->pullPreflight->diverged && gitState->pullPreflight->ahead == 1 &&
+           gitState->pullPreflight->behind == 2 && gitState->pullPreflight->hasLocalChanges);
+
+    awaitGitState([&](auto handler) {
+        gitFeature.preflightIntegration(
+            "refs/heads/feature", "rebase", std::move(handler));
+    });
+    assert(gitState->integrationPreflight &&
+           gitState->integrationPreflight->blocksEntirely &&
+           gitState->integrationPreflight->blockingPaths.size() == 1);
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"git.integrationPreflight\"") !=
+               std::string::npos);
+        assert(requests.back().find("\"operation\":\"rebase\"") != std::string::npos);
+    }
+
+    awaitGitState([&](auto handler) {
+        gitFeature.refreshConflictMarkers(std::move(handler));
+    });
+    assert(gitState->conflictMarkers && gitState->conflictMarkers->paths.size() == 1);
+    assert(gitState->conflictFilterPaths == std::vector<std::string>{"src/Conflict.java"});
+
+    awaitGitState([&](auto handler) {
+        gitFeature.refreshOperationState(std::move(handler));
+    });
+    assert(gitState->operationState && gitState->operationState->kind == "rebase" &&
+           gitState->operationState->step == 2 && gitState->operationState->total == 4);
+    assert(gitState->conflictFilterPaths == std::vector<std::string>{"src/Conflict.java"});
+
+    lithe::windows::GitWriteRequestDto stashConflictRequest;
+    stashConflictRequest.operation = "testStashConflict";
+    awaitGitState([&](auto handler) {
+        gitFeature.write(std::move(stashConflictRequest), std::move(handler));
+    });
+    assert(gitState->stashRestoreConflict &&
+           gitState->stashRestoreConflict->stashReference == "stash@{0}");
+    assert(gitState->conflictFilterPaths ==
+           (std::vector<std::string>{"src/Conflict.java", "src/Stash.java"}));
+    gitFeature.clearStashRestoreConflict();
+    assert(!gitFeature.state().stashRestoreConflict &&
+           gitFeature.state().conflictFilterPaths ==
+               std::vector<std::string>{"src/Conflict.java"});
 
     gitState.reset();
     lithe::windows::GitWriteRequestDto writeRequest;

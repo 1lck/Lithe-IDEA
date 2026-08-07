@@ -66,6 +66,13 @@ public:
     void gitCommitFiles(std::string commit, ResponseHandler handler);
     void gitComparison(std::string reference, ResponseHandler handler);
     void gitStashes(ResponseHandler handler);
+    void gitCheckoutPreflight(std::string reference, ResponseHandler handler);
+    void gitPullPreflight(ResponseHandler handler);
+    void gitIntegrationPreflight(std::string reference,
+                                 std::string operation,
+                                 ResponseHandler handler);
+    void gitConflictMarkers(ResponseHandler handler);
+    void gitOperationState(ResponseHandler handler);
     void gitBlame(std::string relativePath, ResponseHandler handler);
     void historyRecord(std::string storageRoot,
                        std::string path,
@@ -133,6 +140,11 @@ private:
         GitCommitFiles,
         GitComparison,
         GitStashes,
+        GitCheckoutPreflight,
+        GitPullPreflight,
+        GitIntegrationPreflight,
+        GitConflictMarkers,
+        GitOperationState,
         GitBlame,
         HistoryRecord,
         HistoryEntries,
@@ -170,6 +182,11 @@ private:
     std::uint64_t gitCommitFilesGeneration_ = 0;
     std::uint64_t gitComparisonGeneration_ = 0;
     std::uint64_t gitStashesGeneration_ = 0;
+    std::uint64_t gitCheckoutPreflightGeneration_ = 0;
+    std::uint64_t gitPullPreflightGeneration_ = 0;
+    std::uint64_t gitIntegrationPreflightGeneration_ = 0;
+    std::uint64_t gitConflictMarkersGeneration_ = 0;
+    std::uint64_t gitOperationStateGeneration_ = 0;
     std::uint64_t gitBlameGeneration_ = 0;
     std::uint64_t historyRecordGeneration_ = 0;
     std::uint64_t historyEntriesGeneration_ = 0;
