@@ -308,6 +308,17 @@ private let testCommitMessageInput = CommitMessageInput(
 @MainActor
 struct CommitMessageSettingsTests {
     @Test
+    func projectOpenBehaviorPersistsAndDefaultsToAsk() {
+        let store = InMemoryKeyValueStore()
+        let initialSettings = AppSettings(store: store)
+        #expect(initialSettings.projectOpenBehavior == .ask)
+
+        initialSettings.projectOpenBehavior = .thisWindow
+        let reloadedSettings = AppSettings(store: store)
+        #expect(reloadedSettings.projectOpenBehavior == .thisWindow)
+    }
+
+    @Test
     func importingCodexStoresOnlyTheCodexSourceReferenceInSettings() throws {
         let store = InMemoryKeyValueStore()
         let settings = AppSettings(store: store)

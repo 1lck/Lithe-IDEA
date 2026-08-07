@@ -257,6 +257,20 @@ struct SettingsView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
+            group("Projects") {
+                Picker("Open projects in", selection: $settings.projectOpenBehavior) {
+                    ForEach(ProjectOpenBehavior.allCases) { behavior in
+                        Text(LocalizedStringKey(behavior.title)).tag(behavior)
+                    }
+                }
+                .frame(maxWidth: 220, alignment: .leading)
+                .lithePointer()
+
+                Text("Choose whether opening another project asks first, stays in this window, or creates a new window.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
             group("Files") {
                 Toggle("Save changed files automatically", isOn: $settings.autoSave)
                     .lithePointer()

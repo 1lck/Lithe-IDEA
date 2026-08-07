@@ -550,6 +550,17 @@
 "Stop Debug" = "停止调试";
 "Stop the current debug session" = "停止当前调试会话";
 "Open Project" = "打开项目";
+"Where would you like to open the project ‘%@’?" = "你想在哪里打开项目“%@”？";
+"Don't ask again" = "不再询问";
+"New Window" = "新窗口";
+"This Window" = "此窗口";
+"Open Projects" = "打开的项目";
+"Recent Projects" = "最近项目";
+"Open projects in" = "项目打开方式";
+"Ask every time" = "每次询问";
+"This window" = "此窗口";
+"New window" = "新窗口";
+"Choose whether opening another project asks first, stays in this window, or creates a new window." = "选择打开其他项目时是每次询问、保留在此窗口，还是创建新窗口。";
 "Open a local project folder" = "打开本地项目文件夹";
 "Return to the Welcome screen" = "返回 Welcome 页面";
 "Configure editor and project behavior" = "配置编辑器和项目行为";

@@ -3,34 +3,31 @@ import SwiftUI
 
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
-    weak var model: AppModel?
+    weak var projectSessions: ProjectSessionManager?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let model else { return .terminateNow }
-        return Self.confirmUnsavedDocuments(for: model) ? .terminateNow : .terminateCancel
+        guard let projectSessions else { return .terminateNow }
+        return Self.confirmUnsavedDocuments(for: projectSessions) ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        model?.stopTerminalSessions()
+        projectSessions?.stopAllSessions()
     }
 
-    static func confirmUnsavedDocuments(for model: AppModel) -> Bool {
-        guard model.hasUnsavedDocuments else { return true }
+    static func confirmUnsavedDocuments(for projectSessions: ProjectSessionManager) -> Bool {
+        guard projectSessions.hasUnsavedDocuments else { return true }
 
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Save changes before quitting?"
-        alert.informativeText = model.openDocuments
-            .filter(\.isDirty)
-            .map(\.displayName)
-            .joined(separator: ", ")
+        alert.informativeText = projectSessions.unsavedDocumentNames.joined(separator: ", ")
         alert.addButton(withTitle: "Save All")
         alert.addButton(withTitle: "Don't Save")
         alert.addButton(withTitle: "Cancel")
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return model.saveAllDocuments()
+            return projectSessions.saveAllDocuments()
         case .alertSecondButtonReturn:
             return true
         default:
@@ -43,7 +40,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 struct LitheApp: App {
     @NSApplicationDelegateAdaptor(LitheAppDelegate.self) private var appDelegate
     @StateObject private var settings: AppSettings
-    @StateObject private var model: AppModel
+    @StateObject private var projectSessions: ProjectSessionManager
     @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
     @StateObject private var updateChecker = UpdateChecker()
 
@@ -51,19 +48,31 @@ struct LitheApp: App {
         let store = MacUserDefaultsStore()
         let settings = AppSettings(store: store)
         _settings = StateObject(wrappedValue: settings)
-        let model = AppModel(
+        let projectSessions = ProjectSessionManager(
             settings: settings,
-            services: MacServiceContainer(store: store).services
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(store: store).services
+                )
+            },
+            newWindowOpener: Self.openProjectInNewWindow
         )
-        _model = StateObject(wrappedValue: model)
+        if let startupProjectURL = Self.startupProjectURL {
+            projectSessions.openStartupProject(startupProjectURL)
+        }
+        _projectSessions = StateObject(wrappedValue: projectSessions)
         _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor())
-        appDelegate.model = model
+        appDelegate.projectSessions = projectSessions
     }
+
+    private var model: AppModel { projectSessions.activeModel }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(model)
+                .environmentObject(projectSessions)
                 .environmentObject(settings)
                 .environmentObject(memoryUsageMonitor)
                 .environmentObject(updateChecker)
@@ -190,5 +199,25 @@ struct LitheApp: App {
                 .disabled(model.workspaceURL == nil)
             }
         }
+    }
+
+    private static var startupProjectURL: URL? {
+        guard let flagIndex = CommandLine.arguments.firstIndex(of: "--open-project"),
+              CommandLine.arguments.indices.contains(flagIndex + 1) else { return nil }
+        let url = URL(fileURLWithPath: CommandLine.arguments[flagIndex + 1]).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return nil }
+        return url
+    }
+
+    private static func openProjectInNewWindow(_ url: URL) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        configuration.arguments = ["--open-project", url.path]
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: configuration
+        )
     }
 }

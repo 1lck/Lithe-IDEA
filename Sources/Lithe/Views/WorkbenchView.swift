@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var memoryUsageMonitor: MemoryUsageMonitor
     @EnvironmentObject private var runFeature: JavaRunFeatureModel
@@ -18,11 +19,17 @@ struct WorkbenchView: View {
     @State private var isProjectSwitcherPresented = false
     @State private var isMemoryUsagePopoverPresented = false
     @State private var didRestoreLayout = false
+    @State private var hoveredProjectTabID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            if projectSessions.openProjects.count > 1 {
+                projectTabBar
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
 
             HStack(spacing: 0) {
                 activityBar
@@ -208,6 +215,119 @@ struct WorkbenchView: View {
         }
     }
 
+    private var projectTabBar: some View {
+        GeometryReader { geometry in
+            let horizontalPadding: CGFloat = 6
+            let tabSpacing: CGFloat = 6
+            let minimumTabWidth: CGFloat = 180
+            let projectCount = CGFloat(max(projectSessions.openProjects.count, 1))
+            let availableWidth = geometry.size.width
+                - horizontalPadding * 2
+                - tabSpacing * (projectCount - 1)
+            let tabWidth = max(minimumTabWidth, floor(availableWidth / projectCount))
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: tabSpacing) {
+                        ForEach(projectSessions.openProjects) { projectModel in
+                            projectTab(projectModel, width: tabWidth)
+                                .id(projectModel.id)
+                        }
+                    }
+                    .padding(.horizontal, horizontalPadding)
+                    .frame(minWidth: geometry.size.width, alignment: .leading)
+                }
+                .onAppear {
+                    proxy.scrollTo(projectSessions.activeSessionID, anchor: .center)
+                }
+                .onChange(of: projectSessions.activeSessionID) { _, id in
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+            }
+        }
+        .frame(height: LitheTheme.Metrics.tabHeight + 4)
+        .background(LitheTheme.toolHeader)
+    }
+
+    private func projectTab(_ projectModel: AppModel, width: CGFloat) -> some View {
+        let isActive = projectModel.id == projectSessions.activeSessionID
+        let isHovered = projectModel.id == hoveredProjectTabID
+
+        return ZStack(alignment: .trailing) {
+            Button {
+                projectSessions.activateSession(projectModel.id)
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(isActive ? LitheTheme.accent : LitheTheme.secondaryText)
+
+                    Text(projectModel.projectName)
+                        .font(.system(size: 12.5, weight: isActive ? .semibold : .medium))
+                        .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
+
+                    if let documentName = projectModel.activeDocument?.displayName {
+                        Text("· \(documentName)")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                    }
+                }
+                .lineLimit(1)
+                .padding(.horizontal, 38)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .accessibilityIdentifier("project-tab-\(projectModel.id.uuidString)")
+
+            Button {
+                projectSessions.closeProject(projectModel.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            .buttonStyle(LitheIconButtonStyle())
+            .lithePointer()
+            .help("Close Project")
+            .opacity(isActive || isHovered ? 1 : 0)
+            .allowsHitTesting(isActive || isHovered)
+            .padding(.trailing, 3)
+        }
+        .frame(width: width, height: 30)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(
+                    isActive
+                        ? LitheTheme.activeTabBackground
+                        : (isHovered ? LitheTheme.hoverBackground : LitheTheme.inactiveTabBackground)
+                )
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(
+                    isActive
+                        ? LitheTheme.inputFocusBorder.opacity(0.7)
+                        : (isHovered ? LitheTheme.panelBorder : .clear),
+                    lineWidth: 1
+                )
+        }
+        .overlay(alignment: .bottom) {
+            Capsule()
+                .fill(isActive ? LitheTheme.tabUnderline : .clear)
+                .frame(width: min(56, max(28, width * 0.12)), height: 2)
+                .padding(.bottom, 1)
+        }
+        .onHover { hovering in
+            hoveredProjectTabID = hovering ? projectModel.id : nil
+        }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .animation(.easeOut(duration: 0.12), value: isActive)
+    }
+
     private var topBar: some View {
         HStack(spacing: 9) {
             Button {
@@ -235,6 +355,7 @@ struct WorkbenchView: View {
             }
             .buttonStyle(.plain)
             .lithePointer()
+            .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
             .popover(isPresented: $isProjectSwitcherPresented, arrowEdge: .bottom) {
                 ProjectSwitcherPopover(
                     isPresented: $isProjectSwitcherPresented,
