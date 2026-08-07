@@ -53,7 +53,7 @@ WorkbenchCoordinator::~WorkbenchCoordinator() {
 }
 
 std::string WorkbenchCoordinator::pathUtf8(const std::filesystem::path& path) {
-    const auto value = path.u8string();
+    const auto value = path.generic_u8string();
     return std::string(reinterpret_cast<const char*>(value.data()), value.size());
 }
 

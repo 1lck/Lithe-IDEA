@@ -12,6 +12,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -215,6 +216,11 @@ void testWindowsProcessRoundTrip() {
     request.keepsStandardInputOpen = false;
     request.timeoutMilliseconds = 5000;
     const auto result = lithe::windows::Win32ProcessRunner().run(request);
+    if (!result.started || result.exitCode != 0 ||
+        result.output.find("phase0-stdin") == std::string::npos) {
+        std::fprintf(stderr, "Process round trip failed: started=%d exitCode=%d output=%s\n",
+                     result.started ? 1 : 0, result.exitCode, result.output.c_str());
+    }
     assert(result.started);
     assert(result.exitCode == 0);
     assert(result.output.find("phase0-stdin") != std::string::npos);
