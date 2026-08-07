@@ -278,6 +278,7 @@ if(LITHE_BUILD_QT_UI)
         "${CMAKE_CURRENT_SOURCE_DIR}/core"
         "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
     )
     if(LITHE_RUST_CORE_LIBRARY)
         target_link_libraries(lithe_windows_qt PRIVATE "${LITHE_RUST_CORE_LIBRARY}")
