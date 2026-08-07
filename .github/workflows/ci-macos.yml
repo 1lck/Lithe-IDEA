@@ -1,0 +1,66 @@
+name: macOS CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and build macOS application
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Resolve host architecture
+        shell: zsh {0}
+        run: |
+          case "$(uname -m)" in
+            arm64) swift_triple="arm64-apple-macosx" ;;
+            x86_64) swift_triple="x86_64-apple-macosx" ;;
+            *) print -u2 -- "Unsupported host architecture: $(uname -m)"; exit 1 ;;
+          esac
+          print -r -- "LITHE_SWIFT_TRIPLE=$swift_triple" >> "$GITHUB_ENV"
+
+      - name: Check packaging scripts and metadata
+        shell: zsh {0}
+        run: |
+          for script in scripts/*.sh; do
+            if [[ "$(head -n 1 "$script")" == "#!/bin/zsh" ]]; then
+              zsh -n "$script"
+            fi
+          done
+          ruby -c scripts/update-homebrew-cask.rb
+          plutil -lint Resources/Info.plist
+
+      - name: Run Swift tests
+        run: swift test --disable-sandbox
+
+      - name: Run Rust Core tests and verify the Swift bridge
+        run: ./scripts/verify-rust-core.sh
+
+      - name: Build release configuration
+        run: ./scripts/build-macos.sh --configuration release --triple "$LITHE_SWIFT_TRIPLE"
