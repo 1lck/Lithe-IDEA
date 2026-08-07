@@ -2350,8 +2350,11 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
             changes: Vec::new(),
         });
     }
-    let repository_root =
-        PathBuf::from(String::from_utf8_lossy(&repository_root_output.stdout).trim());
+    let repository_root_text = String::from_utf8_lossy(&repository_root_output.stdout);
+    let repository_root_path = PathBuf::from(repository_root_text.trim());
+    let repository_root = repository_root_path
+        .canonicalize()
+        .unwrap_or(repository_root_path);
     let branch = run_git(&repository_root, &["branch", "--show-current"])
         .ok()
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())

@@ -534,6 +534,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         fs::write(root.join("new.txt"), "new").expect("test file should be writable");
 
         let request = serde_json::json!({
@@ -592,6 +593,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -898,6 +900,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -986,6 +989,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -1108,6 +1112,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -1321,6 +1326,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -1636,6 +1642,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -1701,6 +1708,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -1815,6 +1823,7 @@ mod tests {
                 .expect("git should be available")
         };
         assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
         assert!(run(&["config", "user.email", "test@example.com"])
             .status
             .success());
@@ -1906,6 +1915,9 @@ mod tests {
                 .expect("git should be available")
         };
         let identify = |directory: &std::path::Path| {
+            assert!(git(directory, &["config", "core.autocrlf", "false"])
+                .status
+                .success());
             assert!(
                 git(directory, &["config", "user.email", "test@example.com"])
                     .status
@@ -1926,9 +1938,19 @@ mod tests {
             .status
             .success());
 
-        assert!(git(&root, &["clone", "-q", "upstream", "work"])
-            .status
-            .success());
+        assert!(git(
+            &root,
+            &[
+                "clone",
+                "-q",
+                "-c",
+                "core.autocrlf=false",
+                "upstream",
+                "work"
+            ]
+        )
+        .status
+        .success());
         identify(&work);
 
         let preflight = || -> Value {
