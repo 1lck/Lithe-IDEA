@@ -5,6 +5,10 @@ project(LitheWindows LANGUAGES CXX)
 include(CTest)
 enable_testing()
 
+if(WIN32)
+    add_compile_definitions(NOMINMAX)
+endif()
+
 add_library(lithe_windows_core STATIC
     core/core_client.cpp
     core/core_dto.cpp
@@ -279,7 +283,7 @@ if(LITHE_BUILD_QT_UI)
         target_link_libraries(lithe_windows_qt PRIVATE "${LITHE_RUST_CORE_LIBRARY}")
         if(WIN32)
             target_link_libraries(lithe_windows_qt PRIVATE
-                advapi32 bcrypt userenv ws2_32
+                advapi32 bcrypt ntdll userenv ws2_32
             )
         endif()
     endif()
@@ -307,7 +311,7 @@ if(LITHE_RUST_CORE_LIBRARY)
     )
     if(WIN32)
         target_link_libraries(lithe_windows_core_ping PRIVATE
-            advapi32 bcrypt userenv ws2_32
+            advapi32 bcrypt ntdll userenv ws2_32
         )
     endif()
     add_test(NAME lithe_windows_core_ping COMMAND lithe_windows_core_ping)

@@ -351,7 +351,7 @@ void Win32ProcessSession::start(const ProcessRequest& request) {
         auto directory = request.workingDirectory
             ? wide(*request.workingDirectory)
             : std::optional<std::wstring>(std::wstring{});
-        const auto environment = environmentBlock(request.environment);
+        auto environment = environmentBlock(request.environment);
         if (!command || !directory || !environment) {
             fail("Process request contains invalid UTF-8");
             return;
