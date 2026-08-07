@@ -57,7 +57,10 @@ jobs:
           plutil -lint Resources/Info.plist
 
       - name: Run Swift tests
-        run: swift test --disable-sandbox
+        run: |
+          swift test --disable-sandbox \
+            -Xswiftc -Xfrontend \
+            -Xswiftc -disable-round-trip-debug-types
 
       - name: Run Rust Core tests and verify the Swift bridge
         run: ./scripts/verify-rust-core.sh
