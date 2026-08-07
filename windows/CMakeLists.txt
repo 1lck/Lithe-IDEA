@@ -318,3 +318,31 @@ if(LITHE_RUST_CORE_LIBRARY)
     endif()
     add_test(NAME lithe_windows_core_ping COMMAND lithe_windows_core_ping)
 endif()
+
+# Keep assertions enabled for CTest binaries in Release builds so a failed
+# expectation reports its source location instead of cascading into UB.
+set(LITHE_WINDOWS_TEST_TARGETS
+    lithe_windows_phase0_tests
+    lithe_windows_algorithms_tests
+    lithe_windows_app_tests
+    lithe_windows_coordinator_tests
+    lithe_windows_core_dto_tests
+    lithe_windows_persistence_tests
+    lithe_windows_runtime_service_tests
+    lithe_windows_java_run_service_tests
+    lithe_windows_java_debug_service_tests
+    lithe_windows_java_language_server_tests
+    lithe_windows_ai_commit_service_tests
+    lithe_windows_update_service_tests
+)
+if(TARGET lithe_windows_core_ping)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_core_ping)
+endif()
+if(MSVC)
+    set(LITHE_UNDEFINE_NDEBUG_FLAG /UNDEBUG)
+else()
+    set(LITHE_UNDEFINE_NDEBUG_FLAG -UNDEBUG)
+endif()
+foreach(test_target IN LISTS LITHE_WINDOWS_TEST_TARGETS)
+    target_compile_options(${test_target} PRIVATE ${LITHE_UNDEFINE_NDEBUG_FLAG})
+endforeach()
