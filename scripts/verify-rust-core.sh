@@ -34,7 +34,7 @@ swiftc scripts/RustCoreBridgeVerification.swift \
 "$BRIDGE_BINARY"
 
 BINARY=".build/$TRIPLE/debug/Lithe"
-if ! nm -gU "$BINARY" | rg -q "_lithe_core_execute_json"; then
+if ! nm -gU "$BINARY" | grep -F "_lithe_core_execute_json" > /dev/null; then
     print -u2 -- "Rust Core symbols are missing from the macOS binary"
     exit 1
 fi
