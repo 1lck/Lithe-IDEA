@@ -1,4 +1,4 @@
-# Windows implementation status
+# Windows implementation
 
 Windows is an independent Qt Widgets/C++ implementation. Shared application
 behavior is provided by `rust/lithe-core` through its C ABI and JSON command
@@ -9,9 +9,10 @@ Match macOS product behavior through the Rust API, contracts, and fixtures in
 PTY/ConPTY, terminal, runtime discovery, installer, update, and native UI logic
 in this directory.
 
-Before continuing the implementation, read the [Windows handoff record](../docs/architecture/windows-handoff.md).
-It records the current implementation boundary, known risks, and the next tasks;
-the development plan remains the long-term roadmap.
+Before continuing the implementation, read the
+[Windows development plan](../docs/architecture/windows-development-plan.md).
+It is the source of truth for remaining parity work, development order, and the
+handoff boundary between developers and testers.
 
 The current implementation has four layers:
 
@@ -44,7 +45,8 @@ Windows-only services also cover jdb-based Java debugging, AI commit-message
 generation through Responses/Chat Completions/Anthropic APIs, GitHub release
 checks with mandatory SHA-256 and Authenticode verification, a post-exit update
 helper, WinHTTP GET/POST, and NSIS packaging. The platform-independent
-regression suite currently has twelve CTest targets.
+regression suite covers DTOs, feature state, services, algorithms, persistence,
+and the Rust C ABI smoke path.
 
 This worktree is being developed from macOS. Do not run the Windows/Qt build or
 platform-specific tests locally; use the Windows CI workflow or a Windows Qt
@@ -64,6 +66,7 @@ provide the Rust library through `LITHE_RUST_CORE_LIBRARY` before packaging.
 The Windows CI path uses `scripts/build-windows.ps1` to cross-build the Rust
 static library and adds a real `core.ping` smoke test. Real Windows execution
 of ConPTY, Job Objects, registry discovery, DPAPI, installer/update behavior,
-and full macOS feature parity remain incomplete locally. Run
+and full product regression belong to the tester handoff after development is
+complete. Run
 `scripts/verify-windows-boundaries.sh` or the PowerShell equivalent when
 changing the Windows boundaries.
