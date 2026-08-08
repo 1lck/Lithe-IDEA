@@ -18,11 +18,11 @@
 <line x1="115" y1="92.00" x2="1135" y2="92.00" stroke="#d1d5db" stroke-width="1"/>
 <text x="97.00" y="99.00" text-anchor="end" font-size="18" fill="#111111">200</text>
 <text x="115.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 03</text>
-<text x="370.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 04</text>
-<text x="625.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 05</text>
-<text x="880.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 06</text>
-<text x="1135.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 07</text>
-<path d="M 115.00,404.57 L 370.00,388.72 L 625.00,375.12 L 880.00,318.50 L 1135.00,250.55" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="319.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 04</text>
+<text x="727.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 06</text>
+<text x="931.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 07</text>
+<text x="1135.00" y="585.00" text-anchor="middle" font-size="18" fill="#111111">Aug 08</text>
+<path d="M 115.00,404.57 L 319.00,388.72 L 523.00,375.12 L 727.00,318.50 L 931.00,150.89 L 1135.00,141.83" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
 <rect x="135" y="110" width="310" height="60" rx="12" fill="#ffffff" stroke="#111111" stroke-width="2"/>
 <rect x="153" y="131" width="16" height="16" rx="3" fill="#e34b2d"/>
 <text x="183.00" y="147.00" font-size="20" fill="#111111">1lck/Lithe-IDEA</text>
