@@ -33,7 +33,6 @@ struct DatabaseTableView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !model.databaseFeature.openTableTabs.isEmpty { tableTabs }
             toolbar
             if model.databaseFeature.selectedTable != nil { filterBar }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -137,45 +136,6 @@ struct DatabaseTableView: View {
         } message: {
             Text("This protected connection will delete selected rows. The other pending table edits will be applied in the same transaction.")
         }
-    }
-
-    private var tableTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                ForEach(model.databaseFeature.openTableTabs, id: \.self) { table in
-                    HStack(spacing: 7) {
-                        Image(systemName: "tablecells")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(model.databaseFeature.selectedTable == table ? LitheTheme.accent : LitheTheme.secondaryText)
-                        Button(table) { Task { await model.databaseFeature.openTable(table) } }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 11, weight: .medium))
-                        Button {
-                            let wasSelected = model.databaseFeature.selectedTable == table
-                            if let next = model.databaseFeature.closeTableTab(table), wasSelected {
-                                Task { await model.databaseFeature.openTable(next) }
-                            }
-                        } label: {
-                            Image(systemName: "xmark").font(.system(size: 8.5, weight: .semibold))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Close table")
-                    }
-                    .padding(.horizontal, 9)
-                    .frame(height: 30)
-                    .background(model.databaseFeature.selectedTable == table ? LitheTheme.accent.opacity(0.12) : LitheTheme.inputBackground.opacity(0.55))
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 5)
-                            .stroke(model.databaseFeature.selectedTable == table ? LitheTheme.accent.opacity(0.55) : LitheTheme.panelBorder, lineWidth: 1)
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-        }
-        .frame(height: 40)
-        .background(LitheTheme.toolHeader)
     }
 
     private var toolbar: some View {
@@ -766,6 +726,61 @@ struct DatabaseTableView: View {
             return "Restoring a SQL backup replaces the current database objects and data. A recovery snapshot will be created first."
         }
         return "This connection has production protection enabled. Importing can change database data."
+    }
+}
+
+struct DatabaseOpenTableTabsView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(model.databaseFeature.openTableTabs, id: \.self) { table in
+                    HStack(spacing: 7) {
+                        Image(systemName: "tablecells")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(model.databaseFeature.selectedTable == table ? LitheTheme.accent : LitheTheme.secondaryText)
+                        Button(table) {
+                            Task { await model.databaseFeature.openTable(table) }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .medium))
+                        Button {
+                            let wasSelected = model.databaseFeature.selectedTable == table
+                            if let next = model.databaseFeature.closeTableTab(table), wasSelected {
+                                Task { await model.databaseFeature.openTable(next) }
+                            }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8.5, weight: .semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Close table")
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(height: 30)
+                    .background(
+                        model.databaseFeature.selectedTable == table
+                            ? LitheTheme.accent.opacity(0.12)
+                            : LitheTheme.inputBackground.opacity(0.55)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(
+                                model.databaseFeature.selectedTable == table
+                                    ? LitheTheme.accent.opacity(0.55)
+                                    : LitheTheme.panelBorder,
+                                lineWidth: 1
+                            )
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+        }
+        .frame(height: 40)
+        .background(LitheTheme.toolHeader)
     }
 }
 

@@ -31,30 +31,11 @@ struct DatabaseWorkspaceView: View {
 
     private var sqlWorkspace: some View {
         VStack(spacing: 0) {
-            ZStack {
-                Picker(
-                    "Database workspace",
-                    selection: Binding(
-                        get: { model.databaseFeature.workspaceSection },
-                        set: { model.databaseFeature.workspaceSection = $0 }
-                    )
-                ) {
-                    ForEach(DatabaseWorkspaceSection.allCases) { section in
-                        Label(section.titleKey, systemImage: section.symbol).tag(section)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 276, height: 28)
-
-                HStack {
-                    Spacer()
-                    connectionChip
-                }
+            if !model.databaseFeature.openTableTabs.isEmpty {
+                DatabaseOpenTableTabsView()
             }
-            .padding(.horizontal, 12)
-            .frame(height: 48)
-            .background(LitheTheme.toolHeader)
+
+            workspaceSectionNavigation
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
@@ -71,49 +52,27 @@ struct DatabaseWorkspaceView: View {
         }
     }
 
-    @ViewBuilder
-    private var connectionChip: some View {
-        if let profile = model.databaseFeature.selectedProfile {
-            HStack(spacing: 8) {
-                DatabaseBrandIcon(kind: profile.kind, size: 15)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(profile.name)
-                        .font(.system(size: 11, weight: .semibold))
-                        .lineLimit(1)
-                    Text(profile.database.isEmpty ? profile.kind.displayName : profile.database)
-                        .font(.system(size: 9))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
+    private var workspaceSectionNavigation: some View {
+        HStack {
+            Picker(
+                "Database workspace",
+                selection: Binding(
+                    get: { model.databaseFeature.workspaceSection },
+                    set: { model.databaseFeature.workspaceSection = $0 }
+                )
+            ) {
+                ForEach(DatabaseWorkspaceSection.allCases) { section in
+                    Label(section.titleKey, systemImage: section.symbol).tag(section)
                 }
-                connectionStatusView(profile)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(LitheTheme.inputBackground.opacity(0.72))
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(LitheTheme.panelBorder.opacity(0.72), lineWidth: 1)
-            }
-            .frame(maxWidth: 220, alignment: .trailing)
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: 276, height: 28)
+            Spacer()
         }
-    }
-
-    @ViewBuilder
-    private func connectionStatusView(_ profile: DatabaseProfile) -> some View {
-        switch model.databaseFeature.connectionStatus(for: profile) {
-        case .idle:
-            Circle().fill(LitheTheme.tertiaryText.opacity(0.5)).frame(width: 6, height: 6).help("Not connected")
-        case .connecting:
-            ProgressView().controlSize(.mini).frame(width: 10, height: 10).help("Connecting")
-        case .connected:
-            Circle().fill(LitheTheme.success).frame(width: 7, height: 7).help("Connected")
-        case .failed:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(LitheTheme.warning)
-                .help("Connection failed")
-        }
+        .padding(.horizontal, 12)
+        .frame(height: 42)
+        .background(LitheTheme.toolHeader)
     }
 
     private var mongoWorkspace: some View {
