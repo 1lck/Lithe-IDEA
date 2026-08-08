@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import html
 import json
 import math
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from urllib import request
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
@@ -99,6 +101,27 @@ def svg_text(x: float, y: float, value: str, **attributes: str) -> str:
         for key, attribute in attributes.items()
     )
     return f'<text x="{x:.2f}" y="{y:.2f}" {rendered_attributes}>{html.escape(value)}</text>'
+
+
+def avatar_data_uri(url: str) -> str | None:
+    parts = urlsplit(url)
+    if parts.scheme != "https":
+        return None
+
+    try:
+        avatar_request = request.Request(
+            add_query_parameter(url, "s", "136"),
+            headers={"User-Agent": "Lithe-IDEA chart generator"},
+        )
+        with request.urlopen(avatar_request, timeout=10) as response:
+            content_type = response.headers.get_content_type()
+            if not content_type.startswith("image/"):
+                return None
+            encoded = base64.b64encode(response.read()).decode("ascii")
+    except (OSError, ValueError):
+        return None
+
+    return f"data:{content_type};base64,{encoded}"
 
 
 def star_history_svg(repo: str, entries: list[dict], dark: bool) -> str:
@@ -198,6 +221,7 @@ def contributor_svg(repo: str, entries: list[dict]) -> str:
     rows = max(1, math.ceil(len(contributors) / columns))
     width = margin * 2 + columns * avatar_size + (columns - 1) * gap
     height = margin * 2 + rows * avatar_size + (rows - 1) * gap
+    avatar_cache: dict[str, str | None] = {}
     elements = [
         f'<rect width="{width}" height="{height}" fill="transparent"/>',
         f'<title>Contributors to {html.escape(repo, quote=True)}</title>',
@@ -214,9 +238,14 @@ def contributor_svg(repo: str, entries: list[dict]) -> str:
         label = f"{login} ({contributions} contributions)"
         elements.append(f'<clipPath id="{clip_id}"><circle cx="{x + avatar_size / 2}" cy="{y + avatar_size / 2}" r="{avatar_size / 2 - 2}"/></clipPath>')
         elements.append(f'<a href="{html.escape(str(profile_url), quote=True)}">')
+        avatar_href = None
         if isinstance(avatar_url, str) and avatar_url:
+            if avatar_url not in avatar_cache:
+                avatar_cache[avatar_url] = avatar_data_uri(avatar_url)
+            avatar_href = avatar_cache[avatar_url]
+        if avatar_href:
             elements.append(
-                f'<image href="{html.escape(add_query_parameter(avatar_url, "s", "136"), quote=True)}" x="{x}" y="{y}" width="{avatar_size}" height="{avatar_size}" preserveAspectRatio="xMidYMid slice" clip-path="url(#{clip_id})"/>'
+                f'<image href="{avatar_href}" x="{x}" y="{y}" width="{avatar_size}" height="{avatar_size}" preserveAspectRatio="xMidYMid slice" clip-path="url(#{clip_id})"/>'
             )
         else:
             elements.append(f'<circle cx="{x + avatar_size / 2}" cy="{y + avatar_size / 2}" r="{avatar_size / 2 - 2}" fill="{contributor_color(login)}"/>')
