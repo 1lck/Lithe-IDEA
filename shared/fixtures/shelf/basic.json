@@ -1,0 +1,16 @@
+{
+  "name": "shelf-basic",
+  "version": 1,
+  "commands": [
+    "shelf.create",
+    "shelf.list",
+    "shelf.restore",
+    "shelf.delete"
+  ],
+  "separatePatchStreams": [
+    "staged.patch",
+    "working-tree.patch"
+  ],
+  "restoreIsNonDestructive": true,
+  "workspaceIsolation": true
+}

@@ -75,6 +75,15 @@ int main() {
     assert(!diff->rows[0].hasRight && diff->rows[0].hunkId == "hunk-0");
     assert(diff->rows[1].hasRight && diff->rows[1].right == "new");
 
+    const auto shelfPatchesEnvelope = decodeCoreEnvelope(R"({
+        "id":"shelf-patches","ok":true,"data":{
+          "stagedPatch":"staged","workingTreePatch":"working"
+        }
+    })");
+    const auto shelfPatches = decodeGitShelfPatches(*shelfPatchesEnvelope);
+    assert(shelfPatches && shelfPatches->stagedPatch == "staged" &&
+           shelfPatches->workingTreePatch == "working");
+
     const auto gitStatusEnvelope = decodeCoreEnvelope(R"({
         "id":"req-6","ok":true,"data":{
           "repositoryRoot":null,"branch":"main","changes":[
@@ -330,7 +339,7 @@ int main() {
     assert(signedJson == "-7");
     assert(unsignedJson == "18446744073709551615");
     assert(floatingJson == "1.25");
-    assert(escapedJson == R"("line\n\"quote\"")");
+    assert(escapedJson == "\"line\\n\\\"quote\\\"\"");
     assert(parseJson(unsignedJson).succeeded());
 
     const auto searchRequest = parseJson(encodeSearchRequest(SearchRequestDto{
@@ -403,5 +412,32 @@ int main() {
     assert(gitDiffRequest.succeeded());
     assert(*objectValue(*gitDiffRequest.value, "contextLines")->asUInt() == 80);
     assert(*objectValue(*gitDiffRequest.value, "ignoreAllWhitespace")->asBool());
+
+    const auto gitShelfPatchesRequest = parseJson(encodeGitShelfPatchesRequest(
+        GitShelfPatchesRequestDto{"/workspace"}));
+    assert(gitShelfPatchesRequest.succeeded());
+    assert(*objectValue(*gitShelfPatchesRequest.value, "root")->asString() == "/workspace");
+
+    const auto shelfRequest = parseJson(encodeShelfCreateRequest(ShelfCreateRequestDto{
+        "/workspace", "/state", "before checkout", "staged", "working"}));
+    assert(shelfRequest.succeeded());
+    assert(*objectValue(*shelfRequest.value, "stagedPatch")->asString() == "staged");
+    assert(*objectValue(*shelfRequest.value, "workingTreePatch")->asString() == "working");
+    const auto shelfEnvelope = decodeCoreEnvelope(R"({
+        "id":"shelf","ok":true,"data":{
+          "id":"shelf-1","workspaceRoot":"/workspace","label":"before checkout",
+          "createdAt":1720000000000,"stagedByteCount":6,"workingTreeByteCount":7
+        }
+    })");
+    const auto shelf = decodeShelfCreate(*shelfEnvelope);
+    assert(shelf && shelf->shelf.id == "shelf-1" && shelf->shelf.stagedByteCount == 6);
+    const auto restoreEnvelope = decodeCoreEnvelope(R"({
+        "id":"restore","ok":true,"data":{
+          "id":"shelf-1","stagedPatch":"staged","workingTreePatch":"working"
+        }
+    })");
+    const auto restoredShelf = decodeShelfRestore(*restoreEnvelope);
+    assert(restoredShelf && restoredShelf->stagedPatch == "staged" &&
+           restoredShelf->workingTreePatch == "working");
     return 0;
 }

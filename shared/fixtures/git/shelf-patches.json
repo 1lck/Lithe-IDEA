@@ -1,0 +1,10 @@
+{
+  "name": "shelf-patches",
+  "request": {
+    "root": "C:/workspace/example"
+  },
+  "response": {
+    "stagedPatch": "diff --git a/src/Main.java b/src/Main.java\n",
+    "workingTreePatch": "diff --git a/README.md b/README.md\n"
+  }
+}

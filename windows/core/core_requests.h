@@ -87,6 +87,31 @@ struct HistoryRelocateRequestDto {
     std::string destinationPath;
 };
 
+struct ShelfCreateRequestDto {
+    std::string workspaceRoot;
+    std::string storageRoot;
+    std::string label;
+    std::string stagedPatch;
+    std::string workingTreePatch;
+};
+
+struct ShelfListRequestDto {
+    std::string workspaceRoot;
+    std::string storageRoot;
+};
+
+struct ShelfRestoreRequestDto {
+    std::string workspaceRoot;
+    std::string storageRoot;
+    std::string id;
+};
+
+struct ShelfDeleteRequestDto {
+    std::string workspaceRoot;
+    std::string storageRoot;
+    std::string id;
+};
+
 struct MavenScanRequestDto {
     std::string root;
 };
@@ -142,6 +167,10 @@ struct GitDiffRequestDto {
     bool untracked = false;
     std::uint64_t contextLines = 80;
     bool ignoreAllWhitespace = false;
+};
+
+struct GitShelfPatchesRequestDto {
+    std::string root;
 };
 
 struct GitApplyRequestDto {
@@ -237,6 +266,10 @@ std::string encodeHistoryRecordRequest(const HistoryRecordRequestDto& request);
 std::string encodeHistoryEntriesRequest(const HistoryEntriesRequestDto& request);
 std::string encodeHistoryContentRequest(const HistoryContentRequestDto& request);
 std::string encodeHistoryRelocateRequest(const HistoryRelocateRequestDto& request);
+std::string encodeShelfCreateRequest(const ShelfCreateRequestDto& request);
+std::string encodeShelfListRequest(const ShelfListRequestDto& request);
+std::string encodeShelfRestoreRequest(const ShelfRestoreRequestDto& request);
+std::string encodeShelfDeleteRequest(const ShelfDeleteRequestDto& request);
 std::string encodeMavenScanRequest(const MavenScanRequestDto& request);
 std::string encodeMavenDiagnosticsRequest(const MavenDiagnosticsRequestDto& request);
 std::string encodeJavaRunConfigurationsRequest(const JavaRunConfigurationsRequestDto& request);
@@ -247,6 +280,7 @@ std::string encodeJavaServerPortRequest(const JavaServerPortRequestDto& request)
 std::string encodeJavaStructureRequest(const JavaStructureRequestDto& request);
 std::string encodeGitStatusRequest(const GitStatusRequestDto& request);
 std::string encodeGitDiffRequest(const GitDiffRequestDto& request);
+std::string encodeGitShelfPatchesRequest(const GitShelfPatchesRequestDto& request);
 std::string encodeGitApplyRequest(const GitApplyRequestDto& request);
 std::string encodeGitCommandRequest(const GitCommandRequestDto& request);
 std::string encodeGitWriteRequest(const GitWriteRequestDto& request);

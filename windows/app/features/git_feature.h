@@ -10,6 +10,11 @@
 
 namespace lithe::windows::app {
 
+struct GitPendingCheckout {
+    std::string reference;
+    std::string referenceKind;
+};
+
 struct GitFeatureState {
     std::optional<GitStatusDto> status;
     std::optional<GitDiffDto> diff;
@@ -26,6 +31,7 @@ struct GitFeatureState {
     std::optional<GitConflictMarkersDto> conflictMarkers;
     std::optional<GitOperationStateDto> operationState;
     std::optional<GitStashRestoreDto> stashRestoreConflict;
+    std::optional<GitPendingCheckout> pendingCheckout;
     std::vector<std::string> conflictFilterPaths;
     std::optional<CoreError> error;
     bool isLoadingStatus = false;
@@ -50,11 +56,18 @@ struct GitStagedDiff {
     GitDiffDto diff;
 };
 
+struct GitShelfPatches {
+    std::string stagedPatch;
+    std::string workingTreePatch;
+};
+
 class GitFeatureModel final {
 public:
     using StateHandler = std::function<void(GitFeatureState)>;
     using StagedDiffsHandler = std::function<void(std::vector<GitStagedDiff>,
                                                   std::optional<CoreError>)>;
+    using ShelfPatchesHandler = std::function<void(std::optional<GitShelfPatches>,
+                                                   std::optional<CoreError>)>;
 
     explicit GitFeatureModel(WorkbenchCoordinator& coordinator);
 
@@ -68,6 +81,7 @@ public:
                         StateHandler handler = {});
     void loadStagedDiffs(std::vector<std::string> paths,
                          StagedDiffsHandler handler);
+    void loadShelfPatches(ShelfPatchesHandler handler);
     void refreshHistory(std::optional<std::string> reference = std::nullopt,
                         std::uint64_t limit = 300,
                         StateHandler handler = {});
@@ -81,6 +95,9 @@ public:
     void preflightIntegration(std::string reference,
                               std::string operation,
                               StateHandler handler = {});
+    void checkout(std::string reference,
+                  std::string referenceKind,
+                  StateHandler handler = {});
     void refreshConflictMarkers(StateHandler handler = {});
     void refreshOperationState(StateHandler handler = {});
     void clearStashRestoreConflict();
@@ -124,8 +141,11 @@ private:
     void applyConflictMarkers(WorkspaceOperationResult result, StateHandler handler);
     void applyOperationState(WorkspaceOperationResult result, StateHandler handler);
     void applyWrite(WorkspaceOperationResult result, StateHandler handler);
-    void applyPatch(WorkspaceOperationResult result, StateHandler handler);
+    void applyPatch(WorkspaceOperationResult result,
+                    StateHandler handler,
+                    std::uint64_t requestSerial);
     void rebuildConflictFilterPaths();
+    std::uint64_t applyRequestSerial_ = 0;
 };
 
 } // namespace lithe::windows::app

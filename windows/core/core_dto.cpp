@@ -104,6 +104,19 @@ std::optional<HistoryEntryDto> decodeHistoryEntry(const JsonValue& value) {
     return HistoryEntryDto{*id, *timestamp, *relativePath, *reason, *contentPath, *byteCount};
 }
 
+std::optional<ShelfSummaryDto> decodeShelfSummary(const JsonValue& value) {
+    const auto id = requiredString(value, "id");
+    const auto workspaceRoot = requiredString(value, "workspaceRoot");
+    const auto label = requiredString(value, "label");
+    const auto createdAt = requiredInt(value, "createdAt");
+    const auto stagedByteCount = requiredUInt(value, "stagedByteCount");
+    const auto workingTreeByteCount = requiredUInt(value, "workingTreeByteCount");
+    if (!id || !workspaceRoot || !label || !createdAt ||
+        !stagedByteCount || !workingTreeByteCount) return std::nullopt;
+    return ShelfSummaryDto{*id, *workspaceRoot, *label, *createdAt,
+                           *stagedByteCount, *workingTreeByteCount};
+}
+
 std::optional<MavenModuleDto> decodeMavenModule(const JsonValue& value) {
     const auto relativePath = requiredString(value, "relativePath");
     const auto groupId = objectValue(value, "groupId");
@@ -429,6 +442,45 @@ std::optional<HistoryRelocateDto> decodeHistoryRelocate(const CoreEnvelope& enve
     return relocated ? std::optional<HistoryRelocateDto>(HistoryRelocateDto{*relocated}) : std::nullopt;
 }
 
+std::optional<ShelfCreateDto> decodeShelfCreate(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto shelf = decodeShelfSummary(*data);
+    return shelf ? std::optional<ShelfCreateDto>(ShelfCreateDto{*shelf}) : std::nullopt;
+}
+
+std::optional<ShelfListDto> decodeShelfList(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto shelves = objectArray(*data, "shelves");
+    if (!shelves) return std::nullopt;
+    ShelfListDto result;
+    result.shelves.reserve(shelves->size());
+    for (const auto* shelf : *shelves) {
+        const auto decoded = decodeShelfSummary(*shelf);
+        if (!decoded) return std::nullopt;
+        result.shelves.push_back(*decoded);
+    }
+    return result;
+}
+
+std::optional<ShelfRestoreDto> decodeShelfRestore(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto id = requiredString(*data, "id");
+    const auto stagedPatch = requiredString(*data, "stagedPatch");
+    const auto workingTreePatch = requiredString(*data, "workingTreePatch");
+    if (!id || !stagedPatch || !workingTreePatch) return std::nullopt;
+    return ShelfRestoreDto{*id, *stagedPatch, *workingTreePatch};
+}
+
+std::optional<ShelfDeleteDto> decodeShelfDelete(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto deleted = requiredBool(*data, "deleted");
+    return deleted ? std::optional<ShelfDeleteDto>(ShelfDeleteDto{*deleted}) : std::nullopt;
+}
+
 std::optional<MavenScanResultDto> decodeMavenScan(const CoreEnvelope& envelope) {
     if (!envelope.ok || !envelope.hasData) return std::nullopt;
     if (envelope.data.isNull()) return MavenScanResultDto{std::nullopt};
@@ -626,6 +678,15 @@ std::optional<GitDiffDto> decodeGitDiff(const CoreEnvelope& envelope) {
         result.hunks.push_back({*id, *header, *hunkPatch});
     }
     return result;
+}
+
+std::optional<GitShelfPatchesDto> decodeGitShelfPatches(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto stagedPatch = requiredString(*data, "stagedPatch");
+    const auto workingTreePatch = requiredString(*data, "workingTreePatch");
+    if (!stagedPatch || !workingTreePatch) return std::nullopt;
+    return GitShelfPatchesDto{*stagedPatch, *workingTreePatch};
 }
 
 std::optional<GitStatusDto> decodeGitStatus(const CoreEnvelope& envelope) {

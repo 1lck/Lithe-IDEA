@@ -85,6 +85,7 @@ void WorkbenchCoordinator::openWorkspace(std::filesystem::path root,
         ++replacementGeneration_;
         ++gitStatusGeneration_;
         ++gitDiffGeneration_;
+        ++gitShelfPatchesGeneration_;
         ++gitApplyGeneration_;
         ++gitWriteGeneration_;
         ++gitCommandGeneration_;
@@ -103,6 +104,10 @@ void WorkbenchCoordinator::openWorkspace(std::filesystem::path root,
         ++historyEntriesGeneration_;
         ++historyContentGeneration_;
         ++historyRelocateGeneration_;
+        ++shelfCreateGeneration_;
+        ++shelfListGeneration_;
+        ++shelfRestoreGeneration_;
+        ++shelfDeleteGeneration_;
         ++mavenScanGeneration_;
         ++mavenDiagnosticsGeneration_;
         ++javaRunConfigurationsGeneration_;
@@ -389,6 +394,29 @@ void WorkbenchCoordinator::gitDiff(std::vector<std::string> pathspecs,
                 *root, std::move(pathspecs), std::nullopt, std::nullopt,
                 staged, untracked, 80, false}),
             OperationDomain::GitDiff, workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::gitShelfPatches(ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitShelfPatchesGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.shelfPatches", encodeGitShelfPatchesRequest(
+                GitShelfPatchesRequestDto{*root}),
+            OperationDomain::GitShelfPatches, workspaceEpoch, generation, call,
+            std::move(handler));
 }
 
 void WorkbenchCoordinator::gitCommitDiff(std::string commit,
@@ -833,6 +861,106 @@ void WorkbenchCoordinator::historyRelocate(std::string storageRoot,
             OperationDomain::HistoryRelocate, workspaceEpoch, generation, call, std::move(handler));
 }
 
+void WorkbenchCoordinator::shelfCreate(std::string storageRoot,
+                                       std::string label,
+                                       std::string stagedPatch,
+                                       std::string workingTreePatch,
+                                       ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++shelfCreateGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("shelf.create",
+            encodeShelfCreateRequest(ShelfCreateRequestDto{
+                *root, std::move(storageRoot), std::move(label),
+                std::move(stagedPatch), std::move(workingTreePatch)}),
+            OperationDomain::ShelfCreate, workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::shelfList(std::string storageRoot, ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++shelfListGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("shelf.list",
+            encodeShelfListRequest(ShelfListRequestDto{*root, std::move(storageRoot)}),
+            OperationDomain::ShelfList, workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::shelfRestore(std::string storageRoot,
+                                        std::string id,
+                                        ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++shelfRestoreGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("shelf.restore",
+            encodeShelfRestoreRequest(ShelfRestoreRequestDto{
+                *root, std::move(storageRoot), std::move(id)}),
+            OperationDomain::ShelfRestore, workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::shelfDelete(std::string storageRoot,
+                                       std::string id,
+                                       ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++shelfDeleteGeneration_;
+        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("shelf.delete",
+            encodeShelfDeleteRequest(ShelfDeleteRequestDto{
+                *root, std::move(storageRoot), std::move(id)}),
+            OperationDomain::ShelfDelete, workspaceEpoch, generation, call, std::move(handler));
+}
+
 void WorkbenchCoordinator::mavenScan(ResponseHandler handler) {
     const auto root = workspaceRootUtf8();
     if (!root) {
@@ -1039,6 +1167,7 @@ void WorkbenchCoordinator::complete(OperationDomain domain,
             case OperationDomain::Replacement: return replacementGeneration_;
             case OperationDomain::GitStatus: return gitStatusGeneration_;
             case OperationDomain::GitDiff: return gitDiffGeneration_;
+            case OperationDomain::GitShelfPatches: return gitShelfPatchesGeneration_;
             case OperationDomain::GitApply: return gitApplyGeneration_;
             case OperationDomain::GitWrite: return gitWriteGeneration_;
             case OperationDomain::GitCommand: return gitCommandGeneration_;
@@ -1058,6 +1187,10 @@ void WorkbenchCoordinator::complete(OperationDomain domain,
             case OperationDomain::HistoryEntries: return historyEntriesGeneration_;
             case OperationDomain::HistoryContent: return historyContentGeneration_;
             case OperationDomain::HistoryRelocate: return historyRelocateGeneration_;
+            case OperationDomain::ShelfCreate: return shelfCreateGeneration_;
+            case OperationDomain::ShelfList: return shelfListGeneration_;
+            case OperationDomain::ShelfRestore: return shelfRestoreGeneration_;
+            case OperationDomain::ShelfDelete: return shelfDeleteGeneration_;
             case OperationDomain::MavenScan: return mavenScanGeneration_;
             case OperationDomain::MavenDiagnostics: return mavenDiagnosticsGeneration_;
             case OperationDomain::JavaRunConfigurations: return javaRunConfigurationsGeneration_;

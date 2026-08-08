@@ -52,7 +52,7 @@ $qtOption = if ($BuildQt) { "ON" } else { "OFF" }
     "-DLITHE_RUST_CORE_LIBRARY=$($rustLibrary.FullName)"
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
 
-& cmake --build $cmakeBuild --config $Configuration --parallel
+& cmake --build $cmakeBuild --config $Configuration --parallel -- /nr:false
 if ($LASTEXITCODE -ne 0) { throw "CMake build failed" }
 
 Write-Output "Windows build completed: $cmakeBuild"

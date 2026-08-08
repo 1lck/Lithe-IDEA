@@ -1,10 +1,15 @@
 #include "app_persistence.h"
 
 #include <algorithm>
+#include <cctype>
 #include <variant>
 
 namespace lithe::windows::app {
 namespace {
+
+constexpr std::string_view kSystemUiLanguage = "system";
+constexpr std::string_view kEnglishUiLanguage = "en";
+constexpr std::string_view kSimplifiedChineseUiLanguage = "zh_CN";
 
 template <typename T>
 std::optional<T> read(const KeyValueStore& store, const char* key) {
@@ -19,6 +24,40 @@ bool write(KeyValueStore& store, const char* key, KeyValueValue value, std::stri
 
 } // namespace
 
+std::string normalizeUiLanguage(std::string_view configuredLanguage) {
+    if (configuredLanguage == kEnglishUiLanguage) return std::string(kEnglishUiLanguage);
+    if (configuredLanguage == kSimplifiedChineseUiLanguage) {
+        return std::string(kSimplifiedChineseUiLanguage);
+    }
+    return std::string(kSystemUiLanguage);
+}
+
+std::string effectiveUiLanguage(std::string_view configuredLanguage,
+                                bool systemLocaleIsChinese) {
+    const auto normalized = normalizeUiLanguage(configuredLanguage);
+    if (normalized != kSystemUiLanguage) return normalized;
+    return std::string(systemLocaleIsChinese ? kSimplifiedChineseUiLanguage
+                                             : kEnglishUiLanguage);
+}
+
+std::string normalizeDataDirectory(std::string_view configuredDirectory) {
+    std::string value(configuredDirectory);
+    const auto isSpace = [](unsigned char character) {
+        return std::isspace(character) != 0;
+    };
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(),
+        [&](char character) { return !isSpace(static_cast<unsigned char>(character)); }));
+    value.erase(std::find_if(value.rbegin(), value.rend(),
+        [&](char character) { return !isSpace(static_cast<unsigned char>(character)); }).base(),
+        value.end());
+    for (auto& character : value) {
+        if (character == '\\') character = '/';
+    }
+    while (!value.empty() && value.back() == '/') value.pop_back();
+    return value;
+}
+
+
 AppSettingsStore::AppSettingsStore(KeyValueStore& store) : store_(store) {}
 
 AppSettings AppSettingsStore::load() const {
@@ -31,6 +70,12 @@ AppSettings AppSettingsStore::load() const {
     }
     if (const auto value = read<bool>(store_, "lithe.settings.showInlayHints")) {
         result.showInlayHints = *value;
+    }
+    if (const auto value = read<std::string>(store_, "lithe.settings.uiLanguage")) {
+        result.uiLanguage = normalizeUiLanguage(*value);
+    }
+    if (const auto value = read<std::string>(store_, "lithe.settings.dataDirectory")) {
+        result.dataDirectory = normalizeDataDirectory(*value);
     }
     if (const auto value = read<std::string>(store_, "lithe.settings.terminalShellPath")) {
         result.terminalShellPath = *value;
@@ -48,6 +93,10 @@ bool AppSettingsStore::save(const AppSettings& settings, std::string& error) {
     if (!write(store_, "lithe.settings.editorFontSize", settings.editorFontSize, error)) return false;
     if (!write(store_, "lithe.settings.showCodeVision", settings.showCodeVision, error)) return false;
     if (!write(store_, "lithe.settings.showInlayHints", settings.showInlayHints, error)) return false;
+    if (!write(store_, "lithe.settings.uiLanguage",
+               normalizeUiLanguage(settings.uiLanguage), error)) return false;
+    if (!write(store_, "lithe.settings.dataDirectory",
+               normalizeDataDirectory(settings.dataDirectory), error)) return false;
     if (!write(store_, "lithe.settings.terminalShellPath", settings.terminalShellPath, error)) return false;
     if (!write(store_, "lithe.settings.hiddenDirectoryNames", settings.hiddenDirectoryNames, error)) return false;
     return write(store_, "lithe.settings.hiddenFilePatterns", settings.hiddenFilePatterns, error);

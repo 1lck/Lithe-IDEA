@@ -470,3 +470,10 @@ pub struct GitDiffResponse {
     pub rows: Vec<GitDiffRowResponse>,
     pub hunks: Vec<GitDiffHunkResponse>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitShelfPatchesResponse {
+    pub staged_patch: String,
+    pub working_tree_patch: String,
+}

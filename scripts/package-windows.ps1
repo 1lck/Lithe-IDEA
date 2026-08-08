@@ -33,6 +33,10 @@ $windeployqt = Get-Command windeployqt.exe -ErrorAction SilentlyContinue
 if ($null -eq $windeployqt) { throw "windeployqt.exe was not found on PATH." }
 $makensis = Get-Command makensis.exe -ErrorAction SilentlyContinue
 if ($null -eq $makensis) { throw "makensis.exe was not found on PATH." }
+$icon = Join-Path $root "windows/packaging/lithe.ico"
+if (-not (Test-Path -LiteralPath $icon -PathType Leaf)) {
+    throw "Windows application icon was not found: $icon"
+}
 
 $output = Join-Path $root $OutputDirectory
 $stage = Join-Path $output "lithe-stage"

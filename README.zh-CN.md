@@ -104,6 +104,8 @@ Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ ID
 
 ## 如何使用
 
+### MacOS
+
 Lithe 需要 macOS 14 或更高版本。Java 项目功能需要 JDK，推荐使用 JDK 17 或 JDK 21；语义导航需要 Eclipse JDT LS；Maven 项目需要项目自带 `mvnw` 或系统中可用的 Maven。
 
 从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。如果该版本提供独立架构安装包，M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。
@@ -136,6 +138,20 @@ brew install jdtls
 ```
 
 打开项目后，在 **Settings → Project** 中配置 Project JDK、Maven 和 Maven 使用的 JDK。Lithe 也会从常见的系统位置自动探测 Java 与 Maven。
+
+### Windows
+
+Windows 版仍在开发中。构建 Qt 工作台需要 Windows 10/11、Visual Studio 2022/MSVC、CMake、Rust stable，以及适用于 MSVC 2022 64-bit 的 Qt 6。Java 功能和安装包打包需要相应的 JDK、Maven 或 NSIS 工具。
+
+在 **PowerShell** 中，从仓库根目录执行：
+
+```powershell
+.\scripts\build-windows.ps1 -Configuration Release -BuildQt
+.\windows\build-windows\Release\lithe_windows_qt.exe
+```
+
+工具链范围和 Windows 专属验证见
+[Windows README](./windows/README.md)。
 
 ## 架构图
 

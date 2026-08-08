@@ -119,6 +119,31 @@ std::string encodeHistoryRelocateRequest(const HistoryRelocateRequestDto& reques
                    {"destinationPath", request.destinationPath}});
 }
 
+std::string encodeShelfCreateRequest(const ShelfCreateRequestDto& request) {
+    return encode({{"workspaceRoot", request.workspaceRoot},
+                   {"storageRoot", request.storageRoot},
+                   {"label", request.label},
+                   {"stagedPatch", request.stagedPatch},
+                   {"workingTreePatch", request.workingTreePatch}});
+}
+
+std::string encodeShelfListRequest(const ShelfListRequestDto& request) {
+    return encode({{"workspaceRoot", request.workspaceRoot},
+                   {"storageRoot", request.storageRoot}});
+}
+
+std::string encodeShelfRestoreRequest(const ShelfRestoreRequestDto& request) {
+    return encode({{"workspaceRoot", request.workspaceRoot},
+                   {"storageRoot", request.storageRoot},
+                   {"id", request.id}});
+}
+
+std::string encodeShelfDeleteRequest(const ShelfDeleteRequestDto& request) {
+    return encode({{"workspaceRoot", request.workspaceRoot},
+                   {"storageRoot", request.storageRoot},
+                   {"id", request.id}});
+}
+
 std::string encodeMavenScanRequest(const MavenScanRequestDto& request) {
     return encode({{"root", request.root}});
 }
@@ -174,6 +199,10 @@ std::string encodeGitDiffRequest(const GitDiffRequestDto& request) {
     addOptional(object, "reference", request.reference);
     addOptional(object, "commit", request.commit);
     return encode(std::move(object));
+}
+
+std::string encodeGitShelfPatchesRequest(const GitShelfPatchesRequestDto& request) {
+    return encode({{"root", request.root}});
 }
 
 std::string encodeGitApplyRequest(const GitApplyRequestDto& request) {

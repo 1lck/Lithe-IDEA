@@ -106,6 +106,38 @@ void GitFeatureModel::loadStagedDiffs(std::vector<std::string> paths,
     state->next();
 }
 
+void GitFeatureModel::loadShelfPatches(ShelfPatchesHandler handler) {
+    coordinator_.gitShelfPatches([handler = std::move(handler)](
+                                      WorkspaceOperationResult result) mutable {
+        if (result.stale) {
+            if (handler) handler(std::nullopt, CoreError{
+                CoreErrorCode::Cancelled, "Shelf patch request became stale", std::nullopt});
+            return;
+        }
+        if (!result.envelope || !result.envelope->ok) {
+            if (handler) {
+                if (const auto error = result.coreError()) {
+                    handler(std::nullopt, *error);
+                } else {
+                    handler(std::nullopt, CoreError{
+                        CoreErrorCode::Unknown, "Shelf patch request failed", std::nullopt});
+                }
+            }
+            return;
+        }
+        const auto patches = decodeGitShelfPatches(*result.envelope);
+        if (handler) {
+            if (patches) {
+                handler(GitShelfPatches{patches->stagedPatch, patches->workingTreePatch},
+                        std::nullopt);
+            } else {
+                handler(std::nullopt, CoreError{
+                    CoreErrorCode::ParseFailed, "Invalid Shelf patch response", std::nullopt});
+            }
+        }
+    });
+}
+
 void GitFeatureModel::refreshHistory(std::optional<std::string> reference,
                                      std::uint64_t limit,
                                      StateHandler handler) {
@@ -227,6 +259,44 @@ void GitFeatureModel::preflightIntegration(std::string reference,
     coordinator_.gitIntegrationPreflight(std::move(reference), std::move(operation),
         [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
         applyIntegrationPreflight(std::move(result), std::move(handler));
+    });
+}
+
+void GitFeatureModel::checkout(std::string reference,
+                               std::string referenceKind,
+                               StateHandler handler) {
+    {
+        std::lock_guard lock(mutex_);
+        state_.pendingCheckout = GitPendingCheckout{reference, referenceKind};
+    }
+    const auto preflightReference = reference;
+    preflightCheckout(preflightReference, [this,
+                                  reference = std::move(reference),
+                                  referenceKind = std::move(referenceKind),
+                                  handler = std::move(handler)](GitFeatureState state) mutable {
+        if (state.error || state.isLoadingCheckoutPreflight ||
+            !state.checkoutPreflight || !state.checkoutPreflight->blockingPaths.empty()) {
+            {
+                std::lock_guard lock(mutex_);
+                state_.pendingCheckout.reset();
+            }
+            state.pendingCheckout.reset();
+            if (handler) handler(std::move(state));
+            return;
+        }
+        GitWriteRequestDto request;
+        request.operation = "checkout";
+        request.reference = std::move(reference);
+        request.referenceKind = std::move(referenceKind);
+        write(std::move(request),
+              [this, handler = std::move(handler)](GitFeatureState result) mutable {
+                  {
+                      std::lock_guard lock(mutex_);
+                      state_.pendingCheckout.reset();
+                  }
+                  result.pendingCheckout.reset();
+                  if (handler) handler(std::move(result));
+              });
     });
 }
 
@@ -366,14 +436,15 @@ void GitFeatureModel::cloneRepository(std::string remote,
 }
 
 void GitFeatureModel::apply(std::string patch, std::string mode, StateHandler handler) {
+    const auto requestSerial = ++applyRequestSerial_;
     {
         std::lock_guard lock(mutex_);
         state_.isApplying = true;
         state_.error.reset();
     }
     coordinator_.gitApply(std::move(patch), std::move(mode),
-        [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
-        applyPatch(std::move(result), std::move(handler));
+        [this, handler = std::move(handler), requestSerial](WorkspaceOperationResult result) mutable {
+        applyPatch(std::move(result), std::move(handler), requestSerial);
     });
 }
 
@@ -385,6 +456,7 @@ GitFeatureState GitFeatureModel::state() const {
 void GitFeatureModel::resetForWorkspace() {
     std::lock_guard lock(mutex_);
     state_ = {};
+    ++applyRequestSerial_;
 }
 
 void GitFeatureModel::applyStatus(WorkspaceOperationResult result, StateHandler handler) {
@@ -740,8 +812,22 @@ void GitFeatureModel::applyWrite(WorkspaceOperationResult result, StateHandler h
     if (handler) handler(state());
 }
 
-void GitFeatureModel::applyPatch(WorkspaceOperationResult result, StateHandler handler) {
-    if (result.stale) return;
+void GitFeatureModel::applyPatch(WorkspaceOperationResult result,
+                                 StateHandler handler,
+                                 std::uint64_t requestSerial) {
+    if (result.stale) {
+        bool current = false;
+        {
+            std::lock_guard lock(mutex_);
+            current = requestSerial == applyRequestSerial_;
+            if (!current) return;
+            state_.isApplying = false;
+            state_.error = CoreError{
+                CoreErrorCode::Cancelled, "Git apply request became stale", std::nullopt};
+        }
+        if (handler) handler(state());
+        return;
+    }
     if (!result.stale) {
         std::lock_guard lock(mutex_);
         state_.isApplying = false;
