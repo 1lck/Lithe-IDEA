@@ -41,6 +41,7 @@ final class DatabaseFeatureModel: ObservableObject {
     @Published private(set) var backupSchedules: [DatabaseBackupSchedule]
     @Published private(set) var sqlTabs: [DatabaseSQLTab]
     @Published var selectedSQLTabID: UUID?
+    @Published var workspaceSection: DatabaseWorkspaceSection = .data
     @Published private(set) var sqlHistory: [DatabaseSQLHistoryEntry]
     @Published private(set) var connectionStatuses: [UUID: DatabaseConnectionStatus] = [:]
     @Published private(set) var isLoading = false
@@ -135,19 +136,20 @@ final class DatabaseFeatureModel: ObservableObject {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func createFolder(name: String) -> Bool {
+    func createFolder(name: String, parentID: UUID? = nil) -> Bool {
         let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             errorMessage = "Folder name is required."
             return false
         }
-        guard !folders.contains(where: { $0.name.caseInsensitiveCompare(normalized) == .orderedSame }) else {
+        guard parentID == nil || folders.contains(where: { $0.id == parentID }),
+              !folders.contains(where: { $0.parentID == parentID && $0.name.caseInsensitiveCompare(normalized) == .orderedSame }) else {
             errorMessage = "A folder with this name already exists."
             return false
         }
         do {
             var updated = folders
-            updated.append(DatabaseConnectionFolder(name: normalized))
+            updated.append(DatabaseConnectionFolder(name: normalized, parentID: parentID))
             try connectionStore.saveFolders(updated)
             folders = sortedFolders(updated)
             return true
@@ -163,7 +165,7 @@ final class DatabaseFeatureModel: ObservableObject {
             errorMessage = "Folder name is required."
             return false
         }
-        guard !folders.contains(where: { $0.id != folder.id && $0.name.caseInsensitiveCompare(normalized) == .orderedSame }) else {
+        guard !folders.contains(where: { $0.id != folder.id && $0.parentID == folder.parentID && $0.name.caseInsensitiveCompare(normalized) == .orderedSame }) else {
             errorMessage = "A folder with this name already exists."
             return false
         }
@@ -187,10 +189,15 @@ final class DatabaseFeatureModel: ObservableObject {
             let updatedProfiles = profiles.map { profile -> DatabaseProfile in
                 guard profile.folderID == folder.id else { return profile }
                 var profile = profile
-                profile.folderID = nil
+                profile.folderID = folder.parentID
                 return profile
             }
-            let updatedFolders = folders.filter { $0.id != folder.id }
+            let updatedFolders = folders.compactMap { current -> DatabaseConnectionFolder? in
+                guard current.id != folder.id else { return nil }
+                var current = current
+                if current.parentID == folder.id { current.parentID = folder.parentID }
+                return current
+            }
             try connectionStore.save(updatedProfiles)
             try connectionStore.saveFolders(updatedFolders)
             profiles = sortedProfiles(updatedProfiles)
@@ -214,6 +221,43 @@ final class DatabaseFeatureModel: ObservableObject {
             profiles = sortedProfiles(updated)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func disconnect(_ profile: DatabaseProfile) {
+        setConnectionStatus(.idle, for: profile.id)
+        if selectedProfileID == profile.id {
+            selectedProfileID = nil
+            tables = []; selectedTable = nil; rows = []; sourceRows = []; columns = []; indexes = []; foreignKeys = []; objects = [:]
+            clearSpecializedWorkspace()
+        }
+    }
+
+    func duplicate(_ profile: DatabaseProfile) -> DatabaseProfile? {
+        var copy = profile
+        copy = DatabaseProfile(
+            name: "\(profile.name) Copy", kind: profile.kind, host: profile.host, port: profile.port,
+            username: profile.username, database: profile.database, path: profile.path, ssl: profile.ssl,
+            folderID: profile.folderID, colorHex: profile.colorHex, readOnly: profile.readOnly,
+            productionProtection: profile.productionProtection, maskSensitiveFields: profile.maskSensitiveFields,
+            sensitiveColumnPatterns: profile.sensitiveColumnPatterns, caCertificatePath: profile.caCertificatePath,
+            serverName: profile.serverName, sshHost: profile.sshHost, sshPort: profile.sshPort,
+            sshUsername: profile.sshUsername, sshKeyPath: profile.sshKeyPath, sshLocalPort: profile.sshLocalPort,
+            proxyURL: profile.proxyURL
+        )
+        do {
+            var updated = profiles
+            updated.append(copy)
+            try connectionStore.save(updated)
+            let password = connectionStore.password(for: profile.id)
+            if !password.isEmpty {
+                try connectionStore.savePassword(password, for: copy.id)
+            }
+            profiles = sortedProfiles(updated)
+            return copy
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -890,6 +934,16 @@ final class DatabaseFeatureModel: ObservableObject {
         } afterSuccess: {
             self.redisSelectedKey = nil
             self.redisKeys.removeAll { $0.key == key }
+        }
+    }
+
+    func flushRedisDatabase(confirmed: Bool) async -> Bool {
+        await performRedisWrite(summary: "Cleared Redis database", confirmed: confirmed) { connection, operations in
+            try operations.redisFlushDatabase(connection: connection, confirmed: confirmed, allowWrite: false)
+        } afterSuccess: {
+            self.redisKeys = []
+            self.redisNextCursor = "0"
+            self.redisSelectedKey = nil
         }
     }
 

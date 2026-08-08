@@ -1,4 +1,18 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+private struct DatabaseTableContextAction {
+    enum Kind { case clear, drop }
+    let profile: DatabaseProfile
+    let table: String
+    let kind: Kind
+
+    var title: LocalizedStringKey { kind == .clear ? "Clear Table" : "Delete Table" }
+    var message: LocalizedStringKey {
+        kind == .clear ? "All rows in this table will be deleted." : "This table and all of its data will be permanently deleted."
+    }
+}
 
 struct DatabaseSidebarView: View {
     @EnvironmentObject private var model: AppModel
@@ -19,8 +33,26 @@ struct DatabaseSidebarView: View {
     @State private var connectionSort = DatabaseConnectionSort.name
     @State private var showsFolderEditor = false
     @State private var editingFolder: DatabaseConnectionFolder?
+    @State private var creatingFolderParentID: UUID?
+    @State private var newConnectionFolderID: UUID?
     @State private var folderPendingDeletion: DatabaseConnectionFolder?
     @State private var showsFolderDeletionConfirmation = false
+    @State private var profilePendingDeletion: DatabaseProfile?
+    @State private var showsProfileDeletionConfirmation = false
+    @State private var exportDocument: DatabaseTransferDocument?
+    @State private var temporaryExportURL: URL?
+    @State private var exportFormat = DatabaseTransferFormat.csv
+    @State private var importFormat = DatabaseTransferFormat.csv
+    @State private var showsExporter = false
+    @State private var showsImporter = false
+    @State private var pendingImportData: Data?
+    @State private var pendingImportURL: URL?
+    @State private var pendingImportFormat: DatabaseTransferFormat?
+    @State private var showsProtectedImportConfirmation = false
+    @State private var pendingTableAction: DatabaseTableContextAction?
+    @State private var showsTableActionConfirmation = false
+    @State private var pendingRedisProfile: DatabaseProfile?
+    @State private var showsRedisFlushConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,9 +70,9 @@ struct DatabaseSidebarView: View {
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 Spacer()
-                Button { editingProfile = nil; showsConnectionEditor = true } label: { Image(systemName: "plus") }
+                Button { editingProfile = nil; newConnectionFolderID = nil; showsConnectionEditor = true } label: { Image(systemName: "plus") }
                     .litheIconButton().help("Add database connection")
-                Button { editingFolder = nil; showsFolderEditor = true } label: { Image(systemName: "folder.badge.plus") }
+                Button { editingFolder = nil; creatingFolderParentID = nil; showsFolderEditor = true } label: { Image(systemName: "folder.badge.plus") }
                     .litheIconButton().help("New Folder")
                 Button { collapseAll() } label: { Image(systemName: "rectangle.compress.vertical") }
                     .litheIconButton().help("Collapse all")
@@ -120,12 +152,12 @@ struct DatabaseSidebarView: View {
             }
         }
         .sheet(isPresented: $showsConnectionEditor) {
-            DatabaseConnectionEditor(isPresented: $showsConnectionEditor, profile: editingProfile)
+            DatabaseConnectionEditor(isPresented: $showsConnectionEditor, profile: editingProfile, defaultFolderID: newConnectionFolderID)
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
         }
         .sheet(isPresented: $showsFolderEditor) {
-            DatabaseFolderEditor(isPresented: $showsFolderEditor, folder: editingFolder)
+            DatabaseFolderEditor(isPresented: $showsFolderEditor, folder: editingFolder, parentID: creatingFolderParentID)
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
         }
@@ -136,7 +168,48 @@ struct DatabaseSidebarView: View {
             }
             Button("Cancel", role: .cancel) { folderPendingDeletion = nil }
         } message: { _ in
-            Text("Removing this folder keeps its connections and moves them to the root.")
+            Text("Removing this folder keeps its contents and moves them to the parent folder or root.")
+        }
+        .alert("Remove connection?", isPresented: $showsProfileDeletionConfirmation, presenting: profilePendingDeletion) { profile in
+            Button("Remove Connection", role: .destructive) {
+                model.databaseFeature.remove(profile)
+                profilePendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { profilePendingDeletion = nil }
+        } message: { profile in
+            Text("Remove \(profile.name)? Its saved password, history, and backup schedule will also be removed.")
+        }
+        .confirmationDialog("Confirm table action", isPresented: $showsTableActionConfirmation, presenting: pendingTableAction) { action in
+            Button(action.title, role: .destructive) { executeTableAction(action) }
+            Button("Cancel", role: .cancel) { pendingTableAction = nil }
+        } message: { action in
+            Text(action.message)
+        }
+        .confirmationDialog("Clear Redis database?", isPresented: $showsRedisFlushConfirmation, presenting: pendingRedisProfile) { profile in
+            Button("Clear Current Redis DB", role: .destructive) {
+                pendingRedisProfile = nil
+                Task {
+                    if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+                    _ = await model.databaseFeature.flushRedisDatabase(confirmed: true)
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingRedisProfile = nil }
+        } message: { _ in
+            Text("All keys in the current Redis database will be permanently deleted.")
+        }
+        .confirmationDialog("Confirm Database Import", isPresented: $showsProtectedImportConfirmation, titleVisibility: .visible) {
+            Button("Import and Modify Database", role: .destructive) { performPendingImport(confirmed: true) }
+            Button("Cancel", role: .cancel) { discardPendingImport() }
+        } message: {
+            Text("Restoring a SQL backup or importing into a protected connection can modify database data. A recovery snapshot will be created first.")
+        }
+        .fileExporter(isPresented: $showsExporter, document: exportDocument, contentType: exportFormat.contentType, defaultFilename: exportFilename) { result in
+            if case let .failure(error) = result { model.databaseFeature.errorMessage = error.localizedDescription }
+            if let temporaryExportURL { try? FileManager.default.removeItem(at: temporaryExportURL) }
+            temporaryExportURL = nil; exportDocument = nil
+        }
+        .fileImporter(isPresented: $showsImporter, allowedContentTypes: [importFormat.contentType]) { result in
+            importFile(result)
         }
         .onChange(of: model.databaseFeature.selectedProfileID) { _, selectedID in
             if let selectedID { expandedProfileIDs = [selectedID] }
@@ -160,6 +233,7 @@ struct DatabaseSidebarView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Button {
                 editingProfile = nil
+                newConnectionFolderID = nil
                 showsConnectionEditor = true
             } label: {
                 Label("Add database connection", systemImage: "plus")
@@ -182,7 +256,7 @@ struct DatabaseSidebarView: View {
             isFolderVisible(folder)
         }
 
-        ForEach(model.databaseFeature.folders) { folder in
+        ForEach(rootFolders) { folder in
             if isFolderVisible(folder) {
                 folderRow(folder)
             }
@@ -228,12 +302,12 @@ struct DatabaseSidebarView: View {
         }
     }
 
-    private func folderRow(_ folder: DatabaseConnectionFolder) -> some View {
+    private func folderRow(_ folder: DatabaseConnectionFolder, indent: CGFloat = 0) -> AnyView {
         let profiles = visibleProfiles(in: folder)
         let isExpanded = !searchQuery.isEmpty || !collapsedFolderIDs.contains(folder.id)
-        let totalCount = allProfiles(in: folder).count
+        let totalCount = recursiveProfileCount(in: folder)
 
-        return VStack(alignment: .leading, spacing: 1) {
+        return AnyView(VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 1) {
                 Button {
                     if collapsedFolderIDs.contains(folder.id) {
@@ -261,7 +335,7 @@ struct DatabaseSidebarView: View {
                                 .foregroundStyle(LitheTheme.tertiaryText)
                         }
                     }
-                    .padding(.leading, 7)
+                    .padding(.leading, 7 + indent)
                     .padding(.trailing, 3)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 31)
@@ -280,7 +354,13 @@ struct DatabaseSidebarView: View {
                 }
                 Button("New Connection") {
                     editingProfile = nil
+                    newConnectionFolderID = folder.id
                     showsConnectionEditor = true
+                }
+                Button("New Subfolder") {
+                    editingFolder = nil
+                    creatingFolderParentID = folder.id
+                    showsFolderEditor = true
                 }
                 Button("Rename Folder") {
                     editingFolder = folder
@@ -299,10 +379,13 @@ struct DatabaseSidebarView: View {
 
             if isExpanded {
                 ForEach(profiles) { profile in
-                    profileRow(profile, indent: 21)
+                    profileRow(profile, indent: 21 + indent)
+                }
+                ForEach(childFolders(of: folder).filter(isFolderVisible)) { child in
+                    folderRow(child, indent: indent + 14)
                 }
             }
-        }
+        })
     }
 
     private func profileRow(_ profile: DatabaseProfile, indent: CGFloat = 0) -> some View {
@@ -364,27 +447,7 @@ struct DatabaseSidebarView: View {
             .litheRowHover(isActive: isSelected, activeBackground: profileColor(for: profile).opacity(0.12))
             .draggable(profile.id.uuidString)
             .contextMenu {
-                Button("Edit Connection") {
-                    editingProfile = profile
-                    showsConnectionEditor = true
-                }
-                Menu("Move to Folder") {
-                    Button("Move to root") {
-                        model.databaseFeature.move(profile, toFolder: nil)
-                    }
-                    if !model.databaseFeature.folders.isEmpty {
-                        Divider()
-                        ForEach(model.databaseFeature.folders) { folder in
-                            Button(folder.name) {
-                                model.databaseFeature.move(profile, toFolder: folder.id)
-                            }
-                        }
-                    }
-                }
-                Divider()
-                Button("Remove Connection", role: .destructive) {
-                    model.databaseFeature.remove(profile)
-                }
+                connectionContextMenu(profile)
             }
 
             if isExpanded, isSelected {
@@ -427,6 +490,7 @@ struct DatabaseSidebarView: View {
             .buttonStyle(.plain)
             .lithePointer()
             .litheRowHover()
+            .contextMenu { databaseContextMenu(profile) }
 
             if databaseExpanded {
                 databaseObjects(for: profile, indent: indent + 18)
@@ -439,9 +503,12 @@ struct DatabaseSidebarView: View {
                 count: model.databaseFeature.redisKeys.count,
                 indent: indent
             )
+            .contextMenu { redisDatabaseContextMenu(profile) }
         } else {
             sidebarLeaf(title: "Configurations", symbol: "doc.text", count: model.databaseFeature.nacosConfigs.count, indent: indent)
+                .contextMenu { nacosContextMenu(profile) }
             sidebarLeaf(title: "Services", symbol: "network", count: model.databaseFeature.nacosServices.count, indent: indent)
+                .contextMenu { nacosContextMenu(profile) }
         }
     }
 
@@ -449,6 +516,7 @@ struct DatabaseSidebarView: View {
     private func databaseObjects(for profile: DatabaseProfile, indent: CGFloat) -> some View {
         if profile.kind.isSQLDatabase {
             objectSectionHeader(kind: .tables, title: "Tables", count: model.databaseFeature.tables.count, indent: indent)
+                .contextMenu { tableGroupContextMenu(profile) }
             if !collapsedObjectKinds.contains(.tables), model.databaseFeature.tables.isEmpty && !model.databaseFeature.isLoading {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("No tables yet")
@@ -497,6 +565,7 @@ struct DatabaseSidebarView: View {
                     .buttonStyle(.plain)
                     .lithePointer()
                     .litheRowHover(isActive: model.databaseFeature.selectedTable == table)
+                    .contextMenu { tableContextMenu(profile, table: table) }
 
                     if isExpanded, model.databaseFeature.selectedTable == table {
                         if model.databaseFeature.isLoading {
@@ -623,6 +692,273 @@ struct DatabaseSidebarView: View {
         return true
     }
 
+    private var rootFolders: [DatabaseConnectionFolder] {
+        model.databaseFeature.folders.filter { $0.parentID == nil }
+    }
+
+    private func childFolders(of folder: DatabaseConnectionFolder) -> [DatabaseConnectionFolder] {
+        model.databaseFeature.folders.filter { $0.parentID == folder.id }
+    }
+
+    @ViewBuilder
+    private func connectionContextMenu(_ profile: DatabaseProfile) -> some View {
+        let status = model.databaseFeature.connectionStatus(for: profile)
+        Button(status == .connected ? "Disconnect" : "Connect") {
+            if status == .connected {
+                model.databaseFeature.disconnect(profile)
+            } else {
+                selectProfile(profile, expand: true)
+            }
+        }
+        .disabled(status == .connecting)
+        Button("New Query") { openSQLQuery(profile) }
+        Button("Refresh") { refresh(profile) }
+        Divider()
+        Button("Copy Name") { copyToPasteboard(profile.name) }
+        Button("Edit Connection") {
+            editingProfile = profile
+            newConnectionFolderID = nil
+            showsConnectionEditor = true
+        }
+        Menu("Move to Folder") {
+            Button("Move to root") { model.databaseFeature.move(profile, toFolder: nil) }
+                .disabled(profile.folderID == nil)
+            if !model.databaseFeature.folders.isEmpty {
+                Divider()
+                ForEach(model.databaseFeature.folders) { folder in
+                    Button(folder.name) { model.databaseFeature.move(profile, toFolder: folder.id) }
+                        .disabled(profile.folderID == folder.id)
+                }
+            }
+            Divider()
+            Button("New Folder") {
+                editingFolder = nil
+                creatingFolderParentID = nil
+                showsFolderEditor = true
+            }
+        }
+        Button("Duplicate Connection") { _ = model.databaseFeature.duplicate(profile) }
+        Divider()
+        Button("Remove Connection", role: .destructive) {
+            profilePendingDeletion = profile
+            showsProfileDeletionConfirmation = true
+        }
+    }
+
+    private func refresh(_ profile: DatabaseProfile) {
+        Task {
+            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+            else if profile.kind.isSQLDatabase { await model.databaseFeature.refreshTables() }
+            else if profile.kind == .redis { await model.databaseFeature.loadRedisKeys(pattern: "") }
+            else { await model.databaseFeature.loadNacosConfigs(dataId: "", group: ""); await model.databaseFeature.loadNacosServices(serviceName: "", group: "") }
+        }
+    }
+
+    private func openSQLQuery(_ profile: DatabaseProfile, sql: String = "") {
+        Task {
+            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+            model.databaseFeature.addSQLTab(sql: sql)
+            model.databaseFeature.workspaceSection = .sql
+        }
+    }
+
+    private func copyToPasteboard(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    @ViewBuilder
+    private func databaseContextMenu(_ profile: DatabaseProfile) -> some View {
+        Button("New Query") { openSQLQuery(profile) }
+        Button("New Table") {
+            openSQLQuery(profile, sql: "CREATE TABLE new_table (\n    id INTEGER PRIMARY KEY\n);\n")
+        }
+        .disabled(profile.readOnly)
+        Button("Import SQL Backup…") {
+            Task {
+                if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+                importFormat = .sql; pendingImportFormat = .sql; showsImporter = true
+            }
+        }
+        .disabled(profile.readOnly)
+        Button("Export Database as SQL…") { exportDatabase(profile) }
+        Divider()
+        Button("Copy Name") { copyToPasteboard(profile.database.isEmpty ? "Default database" : profile.database) }
+        Button("Refresh") { refresh(profile) }
+    }
+
+    @ViewBuilder
+    private func tableGroupContextMenu(_ profile: DatabaseProfile) -> some View {
+        Button("New Table") { openSQLQuery(profile, sql: "CREATE TABLE new_table (\n    id INTEGER PRIMARY KEY\n);\n") }
+            .disabled(profile.readOnly)
+        Button("Refresh") { refresh(profile) }
+    }
+
+    @ViewBuilder
+    private func redisDatabaseContextMenu(_ profile: DatabaseProfile) -> some View {
+        Button("Refresh Keys") { refresh(profile) }
+        Button("Set Database Alias") {
+            editingProfile = profile
+            newConnectionFolderID = nil
+            showsConnectionEditor = true
+        }
+        Button("Clear Current Redis DB", role: .destructive) {
+            pendingRedisProfile = profile
+            showsRedisFlushConfirmation = true
+        }
+        .disabled(profile.readOnly)
+    }
+
+    @ViewBuilder
+    private func nacosContextMenu(_ profile: DatabaseProfile) -> some View {
+        Button("Refresh") { refresh(profile) }
+        Button("Copy Name") { copyToPasteboard(profile.name) }
+        Button("Edit Namespace") {
+            editingProfile = profile
+            newConnectionFolderID = nil
+            showsConnectionEditor = true
+        }
+    }
+
+    @ViewBuilder
+    private func tableContextMenu(_ profile: DatabaseProfile, table: String) -> some View {
+        Button("View Data") { openTable(profile, table: table, section: .data) }
+        Button("New Query") {
+            openTable(profile, table: table, section: .sql, sql: "SELECT * FROM \(quotedIdentifier(table, kind: profile.kind));\n")
+        }
+        Button("View Structure") { openTable(profile, table: table, section: .structure) }
+        Button("Copy Name") { copyToPasteboard(table) }
+        Divider()
+        Menu("Export Data…") {
+            Button("CSV") { exportTable(profile, table: table, format: .csv) }
+            Button("JSON") { exportTable(profile, table: table, format: .json) }
+        }
+        Button("Import Data…") { beginImport(.csv, profile: profile, table: table) }
+            .disabled(profile.readOnly)
+        Divider()
+        Button("Clear Table", role: .destructive) {
+            pendingTableAction = DatabaseTableContextAction(profile: profile, table: table, kind: .clear)
+            showsTableActionConfirmation = true
+        }
+        .disabled(profile.readOnly)
+        Button("Delete Table", role: .destructive) {
+            pendingTableAction = DatabaseTableContextAction(profile: profile, table: table, kind: .drop)
+            showsTableActionConfirmation = true
+        }
+        .disabled(profile.readOnly)
+        Divider()
+        Button("Refresh") { refresh(profile) }
+    }
+
+    private func openTable(_ profile: DatabaseProfile, table: String, section: DatabaseWorkspaceSection, sql: String = "") {
+        Task {
+            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+            await model.databaseFeature.openTable(table)
+            if !sql.isEmpty { model.databaseFeature.addSQLTab(sql: sql) }
+            model.databaseFeature.workspaceSection = section
+        }
+    }
+
+    private func executeTableAction(_ action: DatabaseTableContextAction) {
+        pendingTableAction = nil
+        let sql = action.kind == .clear
+            ? "DELETE FROM \(quotedIdentifier(action.table, kind: action.profile.kind));"
+            : "DROP TABLE \(quotedIdentifier(action.table, kind: action.profile.kind));"
+        Task {
+            if model.databaseFeature.selectedProfileID != action.profile.id { await model.databaseFeature.select(action.profile) }
+            model.databaseFeature.addSQLTab(sql: sql)
+            model.databaseFeature.workspaceSection = .sql
+            guard let tabID = model.databaseFeature.selectedSQLTabID else { return }
+            await model.databaseFeature.runSQL(in: tabID, confirmedRisk: true)
+            if action.kind == .clear { await model.databaseFeature.openTable(action.table) }
+            else { await model.databaseFeature.refreshTables() }
+        }
+    }
+
+    private func beginImport(_ format: DatabaseTransferFormat, profile: DatabaseProfile, table: String?) {
+        Task {
+            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+            if let table { await model.databaseFeature.openTable(table) }
+            importFormat = format
+            pendingImportFormat = format
+            showsImporter = true
+        }
+    }
+
+    private func exportTable(_ profile: DatabaseProfile, table: String, format: DatabaseTransferFormat) {
+        Task {
+            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+            await model.databaseFeature.openTable(table)
+            exportFormat = format
+            guard let data = await model.databaseFeature.exportData(format: format) else { return }
+            exportDocument = DatabaseTransferDocument(data: data)
+            showsExporter = true
+        }
+    }
+
+    private func exportDatabase(_ profile: DatabaseProfile) {
+        Task {
+            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+            exportFormat = .sql
+            guard let url = await model.databaseFeature.exportDataFile(format: .sql) else { return }
+            temporaryExportURL = url
+            exportDocument = DatabaseTransferDocument(fileURL: url)
+            showsExporter = true
+        }
+    }
+
+    private var exportFilename: String {
+        let base = model.databaseFeature.selectedProfile?.database.isEmpty == false ? model.databaseFeature.selectedProfile?.database ?? "database" : "database"
+        return "\(base).\(exportFormat.rawValue)"
+    }
+
+    private func importFile(_ result: Result<URL, Error>) {
+        do {
+            let url = try result.get()
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            let format = pendingImportFormat ?? importFormat
+            if format == .sql {
+                let temporaryURL = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-import-\(UUID().uuidString).sql")
+                try FileManager.default.copyItem(at: url, to: temporaryURL)
+                pendingImportURL = temporaryURL
+            } else {
+                pendingImportData = try Data(contentsOf: url)
+            }
+            pendingImportFormat = format
+            if format == .sql || model.databaseFeature.selectedProfile?.productionProtection == true {
+                showsProtectedImportConfirmation = true
+            } else {
+                performPendingImport(confirmed: false)
+            }
+        } catch { model.databaseFeature.errorMessage = error.localizedDescription }
+    }
+
+    private func performPendingImport(confirmed: Bool) {
+        guard let format = pendingImportFormat else { return }
+        let data = pendingImportData
+        let fileURL = pendingImportURL
+        pendingImportData = nil; pendingImportURL = nil; pendingImportFormat = nil
+        Task {
+            if let fileURL {
+                defer { try? FileManager.default.removeItem(at: fileURL) }
+                _ = await model.databaseFeature.importDataFile(fileURL, format: format, confirmed: confirmed)
+            } else if let data {
+                _ = await model.databaseFeature.importData(data, format: format, confirmed: confirmed)
+            }
+        }
+    }
+
+    private func discardPendingImport() {
+        if let pendingImportURL { try? FileManager.default.removeItem(at: pendingImportURL) }
+        pendingImportData = nil; pendingImportURL = nil; pendingImportFormat = nil
+    }
+
+    private func quotedIdentifier(_ value: String, kind: DatabaseKind) -> String {
+        let quote = (kind == .mysql) ? "`" : "\""
+        return "\(quote)\(value.replacingOccurrences(of: quote, with: quote + quote))\(quote)"
+    }
+
     @ViewBuilder
     private func connectionStatusIndicator(_ profile: DatabaseProfile) -> some View {
         let status = model.databaseFeature.connectionStatus(for: profile)
@@ -694,6 +1030,12 @@ struct DatabaseSidebarView: View {
         model.databaseFeature.profiles.filter { $0.folderID == folder.id }
     }
 
+    private func recursiveProfileCount(in folder: DatabaseConnectionFolder) -> Int {
+        allProfiles(in: folder).count + childFolders(of: folder).reduce(0) { count, child in
+            count + recursiveProfileCount(in: child)
+        }
+    }
+
     private func visibleProfiles(in folder: DatabaseConnectionFolder) -> [DatabaseProfile] {
         let profiles = allProfiles(in: folder)
         if searchQuery.isEmpty { return sorted(profiles.filter(profileMatchesSearch)) }
@@ -702,7 +1044,10 @@ struct DatabaseSidebarView: View {
     }
 
     private func isFolderVisible(_ folder: DatabaseConnectionFolder) -> Bool {
-        (searchQuery.isEmpty && kindFilter == nil) || folder.name.lowercased().contains(searchQuery) || !visibleProfiles(in: folder).isEmpty
+        (searchQuery.isEmpty && kindFilter == nil)
+            || folder.name.lowercased().contains(searchQuery)
+            || !visibleProfiles(in: folder).isEmpty
+            || childFolders(of: folder).contains(where: isFolderVisible)
     }
 
     private func profileMatchesSearch(_ profile: DatabaseProfile) -> Bool {
@@ -830,12 +1175,14 @@ private struct DatabaseFolderEditor: View {
     @EnvironmentObject private var model: AppModel
     @Binding var isPresented: Bool
     let folder: DatabaseConnectionFolder?
+    let parentID: UUID?
     @State private var name = ""
     @State private var validationMessage: String?
 
-    init(isPresented: Binding<Bool>, folder: DatabaseConnectionFolder?) {
+    init(isPresented: Binding<Bool>, folder: DatabaseConnectionFolder?, parentID: UUID? = nil) {
         _isPresented = isPresented
         self.folder = folder
+        self.parentID = parentID
         _name = State(initialValue: folder?.name ?? "")
     }
 
@@ -897,7 +1244,7 @@ private struct DatabaseFolderEditor: View {
         if let folder {
             didSave = model.databaseFeature.renameFolder(folder, to: name)
         } else {
-            didSave = model.databaseFeature.createFolder(name: name)
+            didSave = model.databaseFeature.createFolder(name: name, parentID: parentID)
         }
         if didSave {
             isPresented = false
@@ -939,7 +1286,7 @@ struct DatabaseConnectionEditor: View {
 
     private let profile: DatabaseProfile?
 
-    init(isPresented: Binding<Bool>, profile: DatabaseProfile? = nil) {
+    init(isPresented: Binding<Bool>, profile: DatabaseProfile? = nil, defaultFolderID: UUID? = nil) {
         _isPresented = isPresented
         self.profile = profile
         _name = State(initialValue: profile?.name ?? "")
@@ -950,7 +1297,7 @@ struct DatabaseConnectionEditor: View {
         _database = State(initialValue: profile?.database ?? "")
         _path = State(initialValue: profile?.path ?? "")
         _ssl = State(initialValue: profile?.ssl ?? false)
-        _folderID = State(initialValue: profile?.folderID)
+        _folderID = State(initialValue: profile?.folderID ?? defaultFolderID)
         _colorHex = State(initialValue: profile?.colorHex ?? "")
         _readOnly = State(initialValue: profile?.readOnly ?? false)
         _productionProtection = State(initialValue: profile?.productionProtection ?? false)

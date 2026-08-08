@@ -3,7 +3,6 @@ import SwiftUI
 
 struct DatabaseWorkspaceView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var section: DatabaseWorkspaceSection = .data
 
     var body: some View {
         Group {
@@ -13,8 +12,8 @@ struct DatabaseWorkspaceView: View {
                         Task { await model.databaseFeature.select(profile) }
                     },
                     onNewQuery: { profile in
-                        section = .sql
                         Task { await model.databaseFeature.select(profile) }
+                        model.databaseFeature.workspaceSection = .sql
                     }
                 )
             } else if model.databaseFeature.selectedProfile?.kind == .redis {
@@ -31,7 +30,13 @@ struct DatabaseWorkspaceView: View {
     private var sqlWorkspace: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Picker("Database workspace", selection: $section) {
+                Picker(
+                    "Database workspace",
+                    selection: Binding(
+                        get: { model.databaseFeature.workspaceSection },
+                        set: { model.databaseFeature.workspaceSection = $0 }
+                    )
+                ) {
                     ForEach(DatabaseWorkspaceSection.allCases) { section in
                         Label(section.titleKey, systemImage: section.symbol).tag(section)
                     }
@@ -79,7 +84,7 @@ struct DatabaseWorkspaceView: View {
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            switch section {
+            switch model.databaseFeature.workspaceSection {
             case .data:
                 DatabaseTableView()
             case .sql:
@@ -355,7 +360,7 @@ private struct DatabaseDashboardView: View {
     }
 }
 
-private enum DatabaseWorkspaceSection: String, CaseIterable, Identifiable {
+enum DatabaseWorkspaceSection: String, CaseIterable, Identifiable, Sendable {
     case data
     case sql
     case structure

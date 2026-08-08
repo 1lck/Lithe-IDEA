@@ -559,7 +559,7 @@ private struct DatabaseReplaceSheet: View {
     }
 }
 
-private struct DatabaseTransferDocument: FileDocument {
+struct DatabaseTransferDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.data] }
     let data: Data?
     let fileURL: URL?
@@ -572,11 +572,11 @@ private struct DatabaseTransferDocument: FileDocument {
     }
 }
 
-private extension DatabaseTransferFormat {
+extension DatabaseTransferFormat {
     var contentType: UTType { switch self { case .csv: .commaSeparatedText; case .json: .json; case .sql: .sql } }
 }
 
-private extension UTType {
+extension UTType {
     static let sql = UTType(filenameExtension: "sql") ?? .plainText
 }
 

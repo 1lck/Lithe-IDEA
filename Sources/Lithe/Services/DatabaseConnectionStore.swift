@@ -73,10 +73,10 @@ struct DatabaseProfile: Codable, Equatable, Identifiable, Sendable {
 struct DatabaseConnectionFolder: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
     var name: String
+    var parentID: UUID?
 
-    init(id: UUID = UUID(), name: String) {
-        self.id = id
-        self.name = name
+    init(id: UUID = UUID(), name: String, parentID: UUID? = nil) {
+        self.id = id; self.name = name; self.parentID = parentID
     }
 }
 

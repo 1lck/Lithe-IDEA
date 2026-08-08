@@ -174,6 +174,56 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func databaseNestedFolderAndDuplicateConnectionKeepAssignments() throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let secrets = DatabaseTestSecureStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: secrets)
+        let parent = DatabaseConnectionFolder(name: "Team")
+        let child = DatabaseConnectionFolder(name: "Backend", parentID: parent.id)
+        let profile = DatabaseProfile(name: "Local", kind: .sqlite, path: "/tmp/local.sqlite", folderID: child.id)
+        try store.saveFolders([parent, child])
+        try store.save([profile])
+        try store.savePassword("password", for: profile.id)
+
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: RecordingProcessRunner(result: ProcessResult(output: "", exitCode: 0)), executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+        #expect(feature.createFolder(name: "Queries", parentID: parent.id))
+        #expect(feature.folders.first(where: { $0.name == "Queries" })?.parentID == parent.id)
+        let copy = try #require(feature.duplicate(profile))
+        #expect(copy.folderID == child.id)
+        #expect(copy.id != profile.id)
+        #expect(store.password(for: copy.id) == "password")
+
+        feature.removeFolder(parent)
+        #expect(feature.folders.first(where: { $0.id == child.id })?.parentID == nil)
+        #expect(feature.profiles.first(where: { $0.id == profile.id })?.folderID == child.id)
+    }
+
+    @Test
+    @MainActor
+    func databaseDisconnectResetsSelectedConnectionState() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "Disconnect me", kind: .sqlite, path: "/tmp/disconnect.sqlite")
+        try store.save([profile])
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":[]}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")), connectionStore: store)
+        await feature.select(profile)
+        #expect(feature.connectionStatus(for: profile) == .connected)
+        feature.disconnect(profile)
+        #expect(feature.connectionStatus(for: profile) == .idle)
+        #expect(feature.selectedProfileID == nil)
+    }
+
+    @Test
+    @MainActor
     func databaseConnectionStatusTracksSuccessfulConnection() async throws {
         let preferences = DatabaseTestKeyValueStore()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())

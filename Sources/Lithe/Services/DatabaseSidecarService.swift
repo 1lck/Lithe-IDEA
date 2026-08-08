@@ -334,6 +334,7 @@ protocol DatabaseOperations: Sendable {
     func redisDeleteKey(connection: DatabaseConnection, key: String, confirmed: Bool, allowWrite: Bool) throws
     func redisRenameKey(connection: DatabaseConnection, key: String, newKey: String, confirmed: Bool, allowWrite: Bool) throws
     func redisSetTTL(connection: DatabaseConnection, key: String, ttl: Int64, confirmed: Bool, allowWrite: Bool) throws
+    func redisFlushDatabase(connection: DatabaseConnection, confirmed: Bool, allowWrite: Bool) throws
 
     func nacosListConfigs(connection: DatabaseConnection, dataId: String, group: String, page: Int, pageSize: Int) throws -> NacosConfigList
     func nacosGetConfig(connection: DatabaseConnection, dataId: String, group: String) throws -> NacosConfigDetail
@@ -351,6 +352,7 @@ extension DatabaseOperations {
     func redisDeleteKey(connection: DatabaseConnection, key: String, confirmed: Bool, allowWrite: Bool) throws { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
     func redisRenameKey(connection: DatabaseConnection, key: String, newKey: String, confirmed: Bool, allowWrite: Bool) throws { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
     func redisSetTTL(connection: DatabaseConnection, key: String, ttl: Int64, confirmed: Bool, allowWrite: Bool) throws { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
+    func redisFlushDatabase(connection: DatabaseConnection, confirmed: Bool, allowWrite: Bool) throws { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
     func nacosListConfigs(connection: DatabaseConnection, dataId: String, group: String, page: Int, pageSize: Int) throws -> NacosConfigList { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Nacos is not available in this database service.") }
     func nacosGetConfig(connection: DatabaseConnection, dataId: String, group: String) throws -> NacosConfigDetail { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Nacos is not available in this database service.") }
     func nacosPublishConfig(connection: DatabaseConnection, dataId: String, group: String, content: String, type: String?, confirmed: Bool, allowWrite: Bool) throws { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Nacos is not available in this database service.") }
@@ -527,6 +529,10 @@ final class DatabaseSidecarService: DatabaseOperations, @unchecked Sendable {
 
     func redisSetTTL(connection: DatabaseConnection, key: String, ttl: Int64, confirmed: Bool = false, allowWrite: Bool = false) throws {
         let _: EmptyResult = try request(method: "redisSetTTL", params: RedisWriteParams(connection: connection, key: key, ttl: ttl, confirmed: confirmed, allowWrite: allowWrite))
+    }
+
+    func redisFlushDatabase(connection: DatabaseConnection, confirmed: Bool = false, allowWrite: Bool = false) throws {
+        let _: EmptyResult = try request(method: "redisFlushDatabase", params: RedisWriteParams(connection: connection, key: "", confirmed: confirmed, allowWrite: allowWrite))
     }
 
     func nacosListConfigs(connection: DatabaseConnection, dataId: String = "", group: String = "", page: Int = 1, pageSize: Int = 100) throws -> NacosConfigList {

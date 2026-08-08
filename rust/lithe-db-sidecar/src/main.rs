@@ -263,7 +263,7 @@ async fn dispatch(request: Request) -> Response {
         Ok(json!({
             "protocolVersion": 1,
             "databaseTypes": ["mysql", "postgresql", "sqlite", "redis", "nacos"],
-            "features": ["testConnection", "schema", "indexes", "foreignKeys", "objects", "schemaChanges", "pagedFilterSort", "transactionalCrud", "query", "explain", "diagnostics", "csvImportExport", "jsonImportExport", "sqlBackupRestore", "writeProtection", "redisScan", "redisStringHashEditor", "redisTTL", "nacosConfigManagement", "nacosServiceDiscovery"]
+            "features": ["testConnection", "schema", "indexes", "foreignKeys", "objects", "schemaChanges", "pagedFilterSort", "transactionalCrud", "query", "explain", "diagnostics", "csvImportExport", "jsonImportExport", "sqlBackupRestore", "writeProtection", "redisScan", "redisStringHashEditor", "redisTTL", "redisFlushDatabase", "nacosConfigManagement", "nacosServiceDiscovery"]
         }))
     } else {
         database_method(&request.method, request.params).await
@@ -600,6 +600,19 @@ async fn redis_method_with_connection(
                     .await
                     .map_err(|e| redis_error(e, connection))?;
             }
+            Ok(json!({}))
+        }
+        "redisFlushDatabase" => {
+            ensure_specialized_write(
+                connection,
+                "Clear Redis database",
+                params.confirmed,
+                params.allow_write,
+            )?;
+            let _: String = redis::cmd("FLUSHDB")
+                .query_async(&mut redis)
+                .await
+                .map_err(|e| redis_error(e, connection))?;
             Ok(json!({}))
         }
         _ => Err((
