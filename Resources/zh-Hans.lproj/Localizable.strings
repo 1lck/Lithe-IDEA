@@ -726,6 +726,9 @@
 "New Folder" = "新建文件夹";
 "Rename Folder" = "重命名文件夹";
 "Remove Folder" = "移除文件夹";
+"Collapse Folder" = "收起文件夹";
+"Expand Folder" = "展开文件夹";
+"New Connection" = "新建连接";
 "Folder actions" = "文件夹操作";
 "Search connections" = "搜索连接";
 "Clear search" = "清除搜索";
@@ -758,6 +761,8 @@
 "Password (leave blank to keep current)" = "密码（留空则保留当前密码）";
 "Use TLS" = "使用 TLS";
 "Safety" = "安全";
+"Advanced network" = "高级网络设置";
+"Use SSH tunnel" = "使用 SSH 隧道";
 "Group" = "分组";
 "Color hex (optional)" = "颜色十六进制值（可选）";
 "Read-only connection" = "只读连接";

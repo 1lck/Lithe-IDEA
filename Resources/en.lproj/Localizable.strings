@@ -4,6 +4,11 @@
 "New Folder" = "New Folder";
 "Rename Folder" = "Rename Folder";
 "Remove Folder" = "Remove Folder";
+"Collapse Folder" = "Collapse Folder";
+"Expand Folder" = "Expand Folder";
+"New Connection" = "New Connection";
+"Advanced network" = "Advanced network";
+"Use SSH tunnel" = "Use SSH tunnel";
 "Folder actions" = "Folder actions";
 "Search connections" = "Search connections";
 "Clear search" = "Clear search";
