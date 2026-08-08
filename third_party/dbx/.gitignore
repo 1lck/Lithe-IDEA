@@ -1,0 +1,77 @@
+# Dependencies
+node_modules/
+.claude/
+.codex/
+.workbuddy/
+.superpowers/
+.trellis/
+.worktrees/
+openspec/
+.mcp.json
+AGENTS.md
+CLAUDE.md
+
+# Build output
+dist/
+coverage/
+/target/
+src-tauri/webview2-fixed-runtime/
+plugins/jdbc/target/
+plugins/jdbc/dependency-reduced-pom.xml
+plugins/jdbc/lib/*.jar
+plugins/jdbc/.gradle/
+plugins/jdbc/build/
+plugins/jdbc/dist/
+docs/.next/
+docs/out/
+docs/.source/
+docs/superpowers/
+/docs/aegis/
+src-tauri/*.dylib
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# GitHub (keep workflows)
+.github/*
+!.github/workflows/
+!.github/scripts/
+!.github/ISSUE_TEMPLATE/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Temp
+tmp/
+
+# Code review tool artifacts
+review_diff.json
+review_classified.json
+
+# Logs
+*.log
+
+
+# Generated changelog data
+releases-*.json
+latest-en.json
+
+test.pdb
+portable/
+DBX_*_x64-portable.zip
+.agents/skills
+.pnpm-store/*
+.dbx-web
+# Local devtest connections (contains credentials; do not commit)
+dbx-devtest-connections.json
+.npmrc

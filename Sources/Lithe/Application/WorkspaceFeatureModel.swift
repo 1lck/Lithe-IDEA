@@ -14,6 +14,7 @@ final class WorkspaceFeatureModel: ObservableObject {
     @Published private(set) var projectFiles: [URL] = []
     @Published private(set) var isLoadingWorkspace = false
     @Published private(set) var isRefreshingWorkspace = false
+    @Published private(set) var loadErrorMessage: String?
     @Published var projectItemEditRequest: ProjectItemEditRequest?
     @Published var pendingProjectItemDeletion: ProjectItemDeletionRequest?
     @Published private(set) var isPerformingProjectItemOperation = false
@@ -117,6 +118,7 @@ final class WorkspaceFeatureModel: ObservableObject {
         projectFiles = []
         isLoadingWorkspace = false
         isRefreshingWorkspace = false
+        loadErrorMessage = nil
         projectItemEditRequest = nil
         pendingProjectItemDeletion = nil
         isPerformingProjectItemOperation = false
@@ -171,6 +173,7 @@ final class WorkspaceFeatureModel: ObservableObject {
         let isInitialLoad = !hasSnapshot
         if isInitialLoad {
             isLoadingWorkspace = true
+            loadErrorMessage = nil
         } else {
             isRefreshingWorkspace = true
         }
@@ -180,15 +183,26 @@ final class WorkspaceFeatureModel: ObservableObject {
             operations.snapshot(at: workspaceURL, visibilityRules: rules)
         }.value
 
-        guard isCurrent() else { return .stale }
+        guard isCurrent() else {
+            if isInitialLoad {
+                isLoadingWorkspace = false
+            } else {
+                isRefreshingWorkspace = false
+            }
+            return .stale
+        }
         guard let snapshot else {
             if isInitialLoad {
                 isLoadingWorkspace = false
             } else {
                 isRefreshingWorkspace = false
             }
+            if isInitialLoad {
+                loadErrorMessage = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it."
+            }
             return .unavailable
         }
+        loadErrorMessage = nil
         rootNode = snapshot.root
         projectFiles = snapshot.files
 

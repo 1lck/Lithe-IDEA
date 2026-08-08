@@ -64,6 +64,25 @@ struct ProjectSidebarView: View {
                         }
                     }
                 }
+            } else if let error = model.workspaceLoadErrorMessage {
+                VStack(spacing: 10) {
+                    Image(systemName: "folder.badge.questionmark")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(LitheTheme.warning)
+                    Text("Could not load project")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(LocalizedStringKey(error))
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 250)
+                    Button("Retry") {
+                        Task { await model.refreshWorkspace() }
+                    }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text("No project loaded")
                     .font(LitheTheme.uiFont)
