@@ -12,6 +12,9 @@
 "Collapse all" = "Collapse all";
 "Connections" = "Connections";
 "Connected" = "Connected";
+"Not connected" = "Not connected";
+"Connecting" = "Connecting";
+"Connection failed" = "Connection failed";
 "Filter database type" = "Filter database type";
 "All database types" = "All database types";
 "Sort connections" = "Sort connections";

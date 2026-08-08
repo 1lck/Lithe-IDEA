@@ -103,7 +103,7 @@ private struct DatabaseDashboardView: View {
 
     private var profiles: [DatabaseProfile] { model.databaseFeature.profiles }
     private var databaseTypeCount: Int { Set(profiles.map(\.kind)).count }
-    private var connectedCount: Int { model.databaseFeature.selectedProfileID == nil ? 0 : 1 }
+    private var connectedCount: Int { model.databaseFeature.connectedProfileCount }
 
     var body: some View {
         ScrollViewReader { proxy in

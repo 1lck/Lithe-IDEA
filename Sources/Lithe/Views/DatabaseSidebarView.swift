@@ -351,9 +351,7 @@ struct DatabaseSidebarView: View {
                             .lineLimit(1)
                             .font(.system(size: 9.5))
                             .foregroundStyle(LitheTheme.tertiaryText)
-                        Circle()
-                            .fill(isSelected ? LitheTheme.success : LitheTheme.tertiaryText.opacity(0.42))
-                            .frame(width: 6, height: 6)
+                        connectionStatusIndicator(profile)
                     }
                     .padding(.trailing, 9)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -623,6 +621,39 @@ struct DatabaseSidebarView: View {
         targetedFolderID = nil
         isUnfiledDropTarget = false
         return true
+    }
+
+    @ViewBuilder
+    private func connectionStatusIndicator(_ profile: DatabaseProfile) -> some View {
+        let status = model.databaseFeature.connectionStatus(for: profile)
+        switch status {
+        case .idle:
+            Circle()
+                .fill(LitheTheme.tertiaryText.opacity(0.42))
+                .frame(width: 6, height: 6)
+                .help("Not connected")
+                .accessibilityLabel("Not connected")
+        case .connecting:
+            ProgressView()
+                .controlSize(.mini)
+                .tint(LitheTheme.accent)
+                .frame(width: 12, height: 12)
+                .help("Connecting")
+                .accessibilityLabel("Connecting")
+        case .connected:
+            Circle()
+                .fill(LitheTheme.success)
+                .frame(width: 7, height: 7)
+                .help("Connected")
+                .accessibilityLabel("Connected")
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(LitheTheme.warning)
+                .frame(width: 12, height: 12)
+                .help("Connection failed")
+                .accessibilityLabel("Connection failed")
+        }
     }
 
     private func selectProfile(_ profile: DatabaseProfile, expand: Bool) {

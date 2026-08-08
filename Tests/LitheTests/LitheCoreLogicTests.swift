@@ -173,6 +173,54 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    @MainActor
+    func databaseConnectionStatusTracksSuccessfulConnection() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "Status success", kind: .sqlite, path: "/tmp/status-success.sqlite")
+        try store.save([profile])
+
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":[]}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+
+        #expect(feature.connectionStatus(for: profile) == .connected)
+        #expect(feature.connectedProfileCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func databaseConnectionStatusRetainsFailure() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "Status failure", kind: .sqlite, path: "/tmp/status-failure.sqlite")
+        try store.save([profile])
+
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(
+                processRunner: RecordingProcessRunner(result: ProcessResult(output: "connection refused", exitCode: 1)),
+                executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")
+            ),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+
+        #expect(feature.connectionStatus(for: profile) == .failed)
+        #expect(feature.connectedProfileCount == 0)
+        #expect(feature.errorMessage != nil)
+    }
+
+    @Test
     func databaseSQLBackupUsesStdinAndExtendedTimeout() throws {
         let runner = RecordingProcessRunner { request in
             let input = try! #require(request.standardInput)

@@ -1,6 +1,22 @@
 import Combine
 import Foundation
 
+enum DatabaseConnectionStatus: Equatable, Sendable {
+    case idle
+    case connecting
+    case connected
+    case failed
+
+    var title: String {
+        switch self {
+        case .idle: "Not connected"
+        case .connecting: "Connecting"
+        case .connected: "Connected"
+        case .failed: "Connection failed"
+        }
+    }
+}
+
 @MainActor
 final class DatabaseFeatureModel: ObservableObject {
     @Published private(set) var profiles: [DatabaseProfile]
@@ -26,6 +42,7 @@ final class DatabaseFeatureModel: ObservableObject {
     @Published private(set) var sqlTabs: [DatabaseSQLTab]
     @Published var selectedSQLTabID: UUID?
     @Published private(set) var sqlHistory: [DatabaseSQLHistoryEntry]
+    @Published private(set) var connectionStatuses: [UUID: DatabaseConnectionStatus] = [:]
     @Published private(set) var isLoading = false
     @Published private(set) var backupProgress: Double?
     @Published var errorMessage: String?
@@ -76,6 +93,7 @@ final class DatabaseFeatureModel: ObservableObject {
 
     private func save(_ profile: DatabaseProfile, password: String?) async -> Bool {
         isLoading = true; errorMessage = nil
+        setConnectionStatus(.connecting, for: profile.id)
         do {
             var profile = profile
             if profile.folderID != nil { profile.group = "" }
@@ -87,10 +105,17 @@ final class DatabaseFeatureModel: ObservableObject {
             profiles = sortedProfiles(updated)
             selectedProfileID = profile.id
             isLoading = false
-            if profile.kind.isSQLDatabase { await refreshTables() }
+            if profile.kind.isSQLDatabase {
+                await refreshTables()
+            } else {
+                setConnectionStatus(.connected, for: profile.id)
+            }
             return true
         } catch {
-            errorMessage = error.localizedDescription; isLoading = false; return false
+            errorMessage = error.localizedDescription
+            setConnectionStatus(.failed, for: profile.id)
+            isLoading = false
+            return false
         }
     }
 
@@ -99,6 +124,7 @@ final class DatabaseFeatureModel: ObservableObject {
             let updated = profiles.filter { $0.id != profile.id }
             try connectionStore.save(updated); try connectionStore.deletePassword(for: profile.id); try connectionStore.deleteSQLHistory(for: profile.id); try connectionStore.deleteBackupSchedule(for: profile.id)
             profiles = updated
+            connectionStatuses.removeValue(forKey: profile.id)
             sqlHistory.removeAll { $0.profileID == profile.id }
             backupSchedules.removeAll { $0.profileID == profile.id }
             refreshBackupTimer()
@@ -192,10 +218,13 @@ final class DatabaseFeatureModel: ObservableObject {
     }
 
     func select(_ profile: DatabaseProfile) async {
+        setConnectionStatus(.connecting, for: profile.id)
         selectedProfileID = profile.id; selectedTable = nil; rows = []; sourceRows = []; columns = []; indexes = []; foreignKeys = []; objects = [:]; lastExplainResult = nil; lastDiagnostics = nil
         clearSQLResults()
         clearSpecializedWorkspace()
-        if profile.kind.isSQLDatabase { await refreshTables() }
+        if profile.kind.isSQLDatabase {
+            await refreshTables()
+        }
     }
 
     func refreshTables() async {
@@ -205,14 +234,20 @@ final class DatabaseFeatureModel: ObservableObject {
             return
         }
         isLoading = true; errorMessage = nil
+        setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations] in try operations.listTables(connection: connection, schema: "") }.value
+            setConnectionStatus(.connected, for: profile.id)
+            guard selectedProfileID == profile.id else { isLoading = false; return }
             tables = result.compactMap { row in
                 row["table_name"]?.text ?? row["TABLE_NAME"]?.text ?? row["name"]?.text
             }
             await refreshObjects()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            errorMessage = error.localizedDescription
+            setConnectionStatus(.failed, for: profile.id)
+        }
         isLoading = false
     }
 
@@ -782,16 +817,19 @@ final class DatabaseFeatureModel: ObservableObject {
         if !reset && cursor == "0" { return }
         isLoading = true
         errorMessage = nil
+        setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations] in
                 try operations.redisScan(connection: connection, cursor: cursor, pattern: pattern.isEmpty ? "*" : pattern, count: 100)
             }.value
-            guard selectedProfileID == profile.id else { return }
+            setConnectionStatus(.connected, for: profile.id)
+            guard selectedProfileID == profile.id else { isLoading = false; return }
             redisKeys = reset ? result.keys : Array(Dictionary(grouping: redisKeys + result.keys, by: \.key).compactMap { $0.value.first })
             redisNextCursor = result.nextCursor
         } catch {
             errorMessage = error.localizedDescription
+            setConnectionStatus(.failed, for: profile.id)
         }
         isLoading = false
     }
@@ -805,10 +843,11 @@ final class DatabaseFeatureModel: ObservableObject {
             let detail = try await Task.detached { [operations] in
                 try operations.redisGetKey(connection: connection, key: key)
             }.value
-            guard selectedProfileID == profile.id else { return }
+            guard selectedProfileID == profile.id else { isLoading = false; return }
             redisSelectedKey = detail
         } catch {
             errorMessage = error.localizedDescription
+            setConnectionStatus(.failed, for: profile.id)
         }
         isLoading = false
     }
@@ -884,16 +923,19 @@ final class DatabaseFeatureModel: ObservableObject {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
         isLoading = true
         errorMessage = nil
+        setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations] in
                 try operations.nacosListConfigs(connection: connection, dataId: dataId, group: group, page: page, pageSize: 100)
             }.value
-            guard selectedProfileID == profile.id else { return }
+            setConnectionStatus(.connected, for: profile.id)
+            guard selectedProfileID == profile.id else { isLoading = false; return }
             nacosConfigs = result.items
             nacosConfigTotalCount = result.totalCount
         } catch {
             errorMessage = error.localizedDescription
+            setConnectionStatus(.failed, for: profile.id)
         }
         isLoading = false
     }
@@ -911,6 +953,7 @@ final class DatabaseFeatureModel: ObservableObject {
             nacosSelectedConfig = detail
         } catch {
             errorMessage = error.localizedDescription
+            setConnectionStatus(.failed, for: profile.id)
         }
         isLoading = false
     }
@@ -940,16 +983,19 @@ final class DatabaseFeatureModel: ObservableObject {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
         isLoading = true
         errorMessage = nil
+        setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations] in
                 try operations.nacosListServices(connection: connection, serviceName: serviceName, group: group, page: page, pageSize: 100)
             }.value
-            guard selectedProfileID == profile.id else { return }
+            setConnectionStatus(.connected, for: profile.id)
+            guard selectedProfileID == profile.id else { isLoading = false; return }
             nacosServices = result.items
             nacosServiceTotalCount = result.totalCount
         } catch {
             errorMessage = error.localizedDescription
+            setConnectionStatus(.failed, for: profile.id)
         }
         isLoading = false
     }
@@ -1152,6 +1198,20 @@ final class DatabaseFeatureModel: ObservableObject {
     }
 
     var selectedProfile: DatabaseProfile? { profiles.first { $0.id == selectedProfileID } }
+
+    func connectionStatus(for profile: DatabaseProfile) -> DatabaseConnectionStatus {
+        connectionStatuses[profile.id] ?? .idle
+    }
+
+    var connectedProfileCount: Int {
+        connectionStatuses.values.reduce(into: 0) { count, status in
+            if status == .connected { count += 1 }
+        }
+    }
+
+    private func setConnectionStatus(_ status: DatabaseConnectionStatus, for profileID: UUID) {
+        connectionStatuses[profileID] = status
+    }
 
     private func connection(_ profile: DatabaseProfile, password: String? = nil) -> DatabaseConnection {
         DatabaseConnection(kind: profile.kind, host: profile.host, port: profile.port, username: profile.username,
