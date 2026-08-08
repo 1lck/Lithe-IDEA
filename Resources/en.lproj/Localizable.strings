@@ -1,1 +1,8 @@
 /* English is the default UI language. */
+"Editor tabs" = "Editor tabs";
+"Choose how open files are arranged in the tab bar." = "Choose how open files are arranged in the tab bar.";
+"Single row" = "Single row";
+"Wrap into rows" = "Wrap into rows";
+"Keep the tab bar compact and scroll sideways when needed." = "Keep the tab bar compact and scroll sideways when needed.";
+"Show every open file and let the tab bar grow downward." = "Show every open file and let the tab bar grow downward.";
+"Layout" = "Layout";

@@ -349,15 +349,36 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Display") {
                 row("Font size") {
-                        Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
+                    Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
                         Text("\(Int(settings.editorFontSize)) pt")
                             .monospacedDigit()
                             .frame(width: 42, alignment: .trailing)
-                        }
-                        .lithePointer()
                     }
+                    .lithePointer()
+                }
                 Toggle("Show usages and Git author", isOn: $settings.showCodeVision)
                     .lithePointer()
+            }
+            group("Editor tabs") {
+                Text("Choose how open files are arranged in the tab bar.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+
+                row("Layout") {
+                    Picker("", selection: $settings.editorTabLayoutMode) {
+                        ForEach(EditorTabLayoutMode.allCases) { mode in
+                            Text(LocalizedStringKey(mode.title)).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                    .lithePointer()
+                }
+
+                Text(LocalizedStringKey(settings.editorTabLayoutMode.description))
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             group("Indentation") {
                 row("Tab width") {

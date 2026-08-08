@@ -170,6 +170,56 @@ final class DocumentFeatureModel: ObservableObject {
         onDocumentOpened?(document)
     }
 
+    /// Moves an open document in the tab order without changing the active
+    /// document or touching the document contents.
+    func moveDocument(_ documentID: UUID, before targetDocumentID: UUID) {
+        guard documentID != targetDocumentID,
+              let sourceIndex = openDocuments.firstIndex(where: { $0.id == documentID }),
+              openDocuments.contains(where: { $0.id == targetDocumentID }) else { return }
+
+        var next = openDocuments
+        let document = next.remove(at: sourceIndex)
+        guard let targetIndex = next.firstIndex(where: { $0.id == targetDocumentID }) else { return }
+        next.insert(document, at: targetIndex)
+        guard next.map(\.id) != openDocuments.map(\.id) else { return }
+
+        openDocuments = next
+        onDocumentCollectionChanged?()
+    }
+
+    func moveDocument(_ documentID: UUID, after targetDocumentID: UUID) {
+        guard documentID != targetDocumentID,
+              let sourceIndex = openDocuments.firstIndex(where: { $0.id == documentID }),
+              openDocuments.contains(where: { $0.id == targetDocumentID }) else { return }
+
+        var next = openDocuments
+        let document = next.remove(at: sourceIndex)
+        guard let targetIndex = next.firstIndex(where: { $0.id == targetDocumentID }) else { return }
+        next.insert(document, at: targetIndex + 1)
+        guard next.map(\.id) != openDocuments.map(\.id) else { return }
+
+        openDocuments = next
+        onDocumentCollectionChanged?()
+    }
+
+    /// Restores the order saved in a workspace session after documents have
+    /// finished loading concurrently. Any document not present in the saved
+    /// session remains at the end in its current order.
+    func reorderDocuments(orderedPaths: [String]) {
+        let order = Dictionary(
+            uniqueKeysWithValues: orderedPaths.enumerated().map { ($1, $0) }
+        )
+        let next = openDocuments.sorted { left, right in
+            let leftIndex = order[left.url.standardizedFileURL.path] ?? Int.max
+            let rightIndex = order[right.url.standardizedFileURL.path] ?? Int.max
+            return leftIndex < rightIndex
+        }
+        guard next.map(\.id) != openDocuments.map(\.id) else { return }
+
+        openDocuments = next
+        onDocumentCollectionChanged?()
+    }
+
     func requestCloseDocument(_ document: EditorDocument) {
         isPendingProjectClose = false
         pendingCloseQueue = []
