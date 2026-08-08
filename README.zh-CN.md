@@ -268,6 +268,8 @@ Lithe 采用 [Apache License 2.0](./LICENSE) 授权。
 
 ## Star History
 
+每个日期点表示北京时间当天 `00:00` 时仓库的累计 Star 数。图表从 2026 年 8 月 2 日的 0 开始。
+
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-dark.svg" />

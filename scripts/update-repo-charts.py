@@ -8,7 +8,7 @@ import html
 import json
 import math
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -19,6 +19,8 @@ PLOT_LEFT = 115
 PLOT_RIGHT = 1135
 PLOT_TOP = 92
 PLOT_BOTTOM = 545
+CHART_TIMEZONE = timezone(timedelta(hours=8))
+STAR_HISTORY_START_DATE = date(2026, 8, 2)
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,7 +53,10 @@ def parse_starred_date(entry: dict) -> date | None:
         return None
 
     try:
-        return datetime.fromisoformat(raw_value.replace("Z", "+00:00")).date()
+        starred_at = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+        if starred_at.tzinfo is None:
+            starred_at = starred_at.replace(tzinfo=timezone.utc)
+        return starred_at.astimezone(CHART_TIMEZONE).date()
     except ValueError:
         return None
 
@@ -103,24 +108,20 @@ def star_history_svg(repo: str, entries: list[dict], dark: bool) -> str:
         if (starred_date := parse_starred_date(entry)) is not None
     )
 
-    today = date.today()
-    if counts:
-        first_day = min(counts)
-        last_day = max(today, max(counts))
-    else:
-        first_day = today - timedelta(days=30)
-        last_day = today
+    today = datetime.now(CHART_TIMEZONE).date()
+    first_day = STAR_HISTORY_START_DATE
+    last_day = max(first_day, today)
 
     span = max((last_day - first_day).days, 1)
-    cumulative = 0
+    cumulative = sum(count for starred_date, count in counts.items() if starred_date < first_day)
     points: list[tuple[date, int]] = []
     current_day = first_day
     while current_day <= last_day:
-        cumulative += counts[current_day]
         points.append((current_day, cumulative))
+        cumulative += counts[current_day]
         current_day += timedelta(days=1)
 
-    maximum = nice_maximum(max(cumulative, 1))
+    maximum = nice_maximum(max((value for _, value in points), default=1))
     plot_width = PLOT_RIGHT - PLOT_LEFT
     plot_height = PLOT_BOTTOM - PLOT_TOP
 
@@ -146,7 +147,7 @@ def star_history_svg(repo: str, entries: list[dict], dark: bool) -> str:
         svg_text(600, 54, "Star History", text_anchor="middle", font_size="34", font_weight="700", fill=foreground),
         f'<line x1="{PLOT_LEFT}" y1="{PLOT_BOTTOM}" x2="{PLOT_RIGHT}" y2="{PLOT_BOTTOM}" stroke="{foreground}" stroke-width="2"/>',
         f'<line x1="{PLOT_LEFT}" y1="{PLOT_TOP}" x2="{PLOT_LEFT}" y2="{PLOT_BOTTOM}" stroke="{foreground}" stroke-width="2"/>',
-        svg_text(54, 325, "GitHub Stars", text_anchor="middle", transform="rotate(-90 54 325)", font_size="22", fill=foreground),
+        svg_text(54, 325, "GitHub Stars at 00:00", text_anchor="middle", transform="rotate(-90 54 325)", font_size="22", fill=foreground),
         svg_text(625, 635, "Date", text_anchor="middle", font_size="22", fill=foreground),
     ]
 
@@ -175,7 +176,7 @@ def star_history_svg(repo: str, entries: list[dict], dark: bool) -> str:
     return "\n".join(
         [
             '<?xml version="1.0" encoding="UTF-8"?>',
-            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CHART_WIDTH} {CHART_HEIGHT}" role="img" aria-label="Star history for {html.escape(repo, quote=True)}">',
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CHART_WIDTH} {CHART_HEIGHT}" role="img" aria-label="Star history at Beijing midnight for {html.escape(repo, quote=True)}">',
             f'<style>text {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }}</style>',
             *elements,
             "</svg>",
