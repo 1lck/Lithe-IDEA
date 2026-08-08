@@ -765,6 +765,7 @@
 "Use SSH tunnel" = "使用 SSH 隧道";
 "Collapse all" = "全部收起";
 "Connections" = "连接";
+"Connected" = "已连接";
 "Filter database type" = "筛选数据库类型";
 "All database types" = "全部数据库类型";
 "Sort connections" = "连接排序";

@@ -11,6 +11,7 @@
 "Use SSH tunnel" = "Use SSH tunnel";
 "Collapse all" = "Collapse all";
 "Connections" = "Connections";
+"Connected" = "Connected";
 "Filter database type" = "Filter database type";
 "All database types" = "All database types";
 "Sort connections" = "Sort connections";

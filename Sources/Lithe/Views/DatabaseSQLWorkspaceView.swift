@@ -103,13 +103,15 @@ private struct DatabaseDashboardView: View {
 
     private var profiles: [DatabaseProfile] { model.databaseFeature.profiles }
     private var databaseTypeCount: Int { Set(profiles.map(\.kind)).count }
+    private var connectedCount: Int { model.databaseFeature.selectedProfileID == nil ? 0 : 1 }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
                     metricCard(title: "Connections", value: profiles.count, symbol: "cylinder.split.1x2")
-                    metricCard(title: "Folders", value: model.databaseFeature.folders.count, symbol: "folder")
+                    metricCard(title: "Connected", value: connectedCount, symbol: "checkmark.shield")
                     metricCard(title: "Database types", value: databaseTypeCount, symbol: "sparkles")
                 }
 
@@ -119,34 +121,7 @@ private struct DatabaseDashboardView: View {
                             dashboardEmpty("No saved connections yet.")
                         } else {
                             ForEach(Array(profiles.prefix(5))) { profile in
-                                Button { onOpenConnection(profile) } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: profile.kind.symbolName)
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundStyle(profile.colorHex.isEmpty ? LitheTheme.accent : Color(hex: profile.colorHex))
-                                            .frame(width: 18)
-                                        RoundedRectangle(cornerRadius: 2)
-                                            .fill(profile.colorHex.isEmpty ? LitheTheme.accent : Color(hex: profile.colorHex))
-                                            .frame(width: 3, height: 28)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(profile.name)
-                                                .font(.system(size: 11.5, weight: .semibold))
-                                            Text(connectionSubtitle(profile))
-                                                .font(.system(size: 9.5))
-                                                .foregroundStyle(LitheTheme.tertiaryText)
-                                        }
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 9, weight: .bold))
-                                            .foregroundStyle(LitheTheme.tertiaryText)
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 48)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .lithePointer()
-                                .litheRowHover(cornerRadius: 0)
+                                quickStartRow(profile)
                                 if profile.id != profiles.prefix(5).last?.id {
                                     Rectangle().fill(LitheTheme.divider).frame(height: 1)
                                 }
@@ -159,6 +134,9 @@ private struct DatabaseDashboardView: View {
                         if let first = profiles.first {
                             dashboardAction("New Query", symbol: "doc.badge.plus") { onNewQuery(first) }
                             dashboardAction("Browse Database", symbol: "tablecells") { onOpenConnection(first) }
+                        }
+                        dashboardAction("History", symbol: "clock.arrow.circlepath") {
+                            withAnimation { proxy.scrollTo("recent-sql", anchor: .top) }
                         }
                     }
                     .frame(width: 270)
@@ -185,8 +163,10 @@ private struct DatabaseDashboardView: View {
                         }
                     }
                 }
+                .id("recent-sql")
             }
             .padding(20)
+        }
         }
         .background(LitheTheme.editor)
         .sheet(isPresented: $showsConnectionEditor) {
@@ -194,6 +174,50 @@ private struct DatabaseDashboardView: View {
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
         }
+    }
+
+    private func quickStartRow(_ profile: DatabaseProfile) -> some View {
+        HStack(spacing: 0) {
+            Button { onOpenConnection(profile) } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: profile.kind.symbolName)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(profile.colorHex.isEmpty ? LitheTheme.accent : Color(hex: profile.colorHex))
+                        .frame(width: 18)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(profile.colorHex.isEmpty ? LitheTheme.accent : Color(hex: profile.colorHex))
+                        .frame(width: 3, height: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(profile.name)
+                            .font(.system(size: 11.5, weight: .semibold))
+                        Text(connectionSubtitle(profile))
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                    }
+                    Spacer()
+                }
+                .padding(.leading, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 48)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button { onNewQuery(profile) } label: {
+                Image(systemName: "doc.badge.plus")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .help("New Query")
+            .accessibilityLabel("New Query")
+            .padding(.trailing, 6)
+        }
+        .lithePointer()
+        .litheRowHover(cornerRadius: 0)
     }
 
     private func metricCard(title: LocalizedStringKey, value: Int, symbol: String) -> some View {
