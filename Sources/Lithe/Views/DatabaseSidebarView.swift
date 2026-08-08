@@ -85,61 +85,77 @@ struct DatabaseSidebarView: View {
             .frame(height: 42)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-                TextField("Search connections", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11.5))
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(LitheTheme.tertiaryText)
+            HStack(spacing: 6) {
+                HStack(spacing: 7) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                    TextField("Search connections", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11.5))
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(LitheTheme.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear search")
                     }
-                    .buttonStyle(.plain)
-                    .help("Clear search")
                 }
-                Menu {
-                    Button("All database types") { kindFilter = nil }
-                    Divider()
-                    ForEach(DatabaseKind.allCases, id: \.self) { kind in
-                        Button {
-                            kindFilter = kind
-                        } label: {
-                            Label {
-                                Text(kind.displayName)
-                            } icon: {
-                                DatabaseBrandIcon(kind: kind, size: 13)
+                .padding(.horizontal, 9)
+                .frame(maxWidth: .infinity, minHeight: 31)
+                .background(LitheTheme.inputBackground.opacity(0.72))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay { RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder.opacity(0.55), lineWidth: 1) }
+
+                HStack(spacing: 0) {
+                    Menu {
+                        Button("All database types") { kindFilter = nil }
+                        Divider()
+                        ForEach(DatabaseKind.allCases, id: \.self) { kind in
+                            Button {
+                                kindFilter = kind
+                            } label: {
+                                Label {
+                                    Text(kind.displayName)
+                                } icon: {
+                                    DatabaseBrandIcon(kind: kind, size: 13)
+                                }
                             }
                         }
+                    } label: {
+                        Image(systemName: kindFilter == nil ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(kindFilter == nil ? LitheTheme.secondaryText : LitheTheme.accent)
+                            .frame(width: 29, height: 31)
                     }
-                } label: {
-                    Image(systemName: kindFilter == nil ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 24)
-                .help("Filter database type")
-                Menu {
-                    Picker("Sort connections", selection: $connectionSort) {
-                        ForEach(DatabaseConnectionSort.allCases) { mode in
-                            Text(mode.title).tag(mode)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .help("Filter database type")
+
+                    Rectangle().fill(LitheTheme.divider).frame(width: 1, height: 17)
+
+                    Menu {
+                        Picker("Sort connections", selection: $connectionSort) {
+                            ForEach(DatabaseConnectionSort.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
                         }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .frame(width: 29, height: 31)
                     }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.system(size: 10.5, weight: .medium))
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .help("Sort connections")
                 }
-                .menuStyle(.borderlessButton)
-                .frame(width: 24)
-                .help("Sort connections")
+                .background(LitheTheme.inputBackground.opacity(0.72))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay { RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder.opacity(0.55), lineWidth: 1) }
             }
-            .padding(.horizontal, 9)
-            .frame(height: 31)
-            .background(LitheTheme.inputBackground.opacity(0.72))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
 

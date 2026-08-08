@@ -31,7 +31,7 @@ struct DatabaseWorkspaceView: View {
 
     private var sqlWorkspace: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
+            ZStack {
                 Picker(
                     "Database workspace",
                     selection: Binding(
@@ -45,41 +45,15 @@ struct DatabaseWorkspaceView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(width: 300)
+                .frame(width: 276, height: 28)
 
-                Spacer()
-
-                if let profile = model.databaseFeature.selectedProfile {
-                    HStack(spacing: 7) {
-                        DatabaseBrandIcon(kind: profile.kind, size: 15)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(profile.name)
-                                .font(.system(size: 11.5, weight: .medium))
-                            Text(profile.database.isEmpty ? profile.kind.displayName : profile.database)
-                                .font(.system(size: 9.5))
-                                .foregroundStyle(LitheTheme.secondaryText)
-                        }
-                    }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(LitheTheme.inputBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
-                    }
-                } else {
-                    Label("No connection", systemImage: "cylinder.split.1x2")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 6)
-                        .background(LitheTheme.inputBackground.opacity(0.55))
-                        .clipShape(Capsule())
+                HStack {
+                    Spacer()
+                    connectionChip
                 }
             }
             .padding(.horizontal, 12)
-            .frame(height: 44)
+            .frame(height: 48)
             .background(LitheTheme.toolHeader)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -94,6 +68,51 @@ struct DatabaseWorkspaceView: View {
             case .history:
                 DatabaseHistoryView()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var connectionChip: some View {
+        if let profile = model.databaseFeature.selectedProfile {
+            HStack(spacing: 8) {
+                DatabaseBrandIcon(kind: profile.kind, size: 15)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(profile.name)
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                    Text(profile.database.isEmpty ? profile.kind.displayName : profile.database)
+                        .font(.system(size: 9))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                }
+                connectionStatusView(profile)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(LitheTheme.inputBackground.opacity(0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(LitheTheme.panelBorder.opacity(0.72), lineWidth: 1)
+            }
+            .frame(maxWidth: 220, alignment: .trailing)
+        }
+    }
+
+    @ViewBuilder
+    private func connectionStatusView(_ profile: DatabaseProfile) -> some View {
+        switch model.databaseFeature.connectionStatus(for: profile) {
+        case .idle:
+            Circle().fill(LitheTheme.tertiaryText.opacity(0.5)).frame(width: 6, height: 6).help("Not connected")
+        case .connecting:
+            ProgressView().controlSize(.mini).frame(width: 10, height: 10).help("Connecting")
+        case .connected:
+            Circle().fill(LitheTheme.success).frame(width: 7, height: 7).help("Connected")
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(LitheTheme.warning)
+                .help("Connection failed")
         }
     }
 

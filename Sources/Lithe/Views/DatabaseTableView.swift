@@ -205,35 +205,51 @@ struct DatabaseTableView: View {
                 }
             }
             Spacer()
-            Button { showsFilterPopover.toggle() } label: { Label("Field Filter", systemImage: "rectangle.3.group") }
+            toolbarGroup {
+                Button { model.databaseFeature.workspaceSection = .structure } label: {
+                    toolbarActionLabel("Table Properties", systemImage: "tablecells")
+                }
                 .buttonStyle(.plain)
-                .font(.system(size: 10.5, weight: .medium))
-            Button { model.databaseFeature.workspaceSection = .structure } label: { Label("Table Properties", systemImage: "tablecells") }
-                .buttonStyle(.plain)
-                .font(.system(size: 10.5, weight: .medium))
                 .disabled(model.databaseFeature.selectedProfile?.kind == .mongodb)
-            Menu {
-                Button("Import CSV…") { importFormat = .csv; showsImporter = true }
-                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
-                Button("Import JSON…") { importFormat = .json; showsImporter = true }
-                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
-                Button("Restore SQL Backup…") { importFormat = .sql; showsImporter = true }
-                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true || model.databaseFeature.selectedProfile?.kind == .sqlserver)
-                Divider()
-                Button("Export Table as CSV…") { export(.csv) }
-                Button("Export Table as JSON…") { export(.json) }
-                Button("Back Up Database as SQL…") { export(.sql) }
-                    .disabled(model.databaseFeature.selectedProfile?.kind == .sqlserver)
-            } label: { Label("Data Tools", systemImage: "shippingbox") }
+
+                toolbarDivider
+
+                Menu {
+                    Button("Import CSV…") { importFormat = .csv; showsImporter = true }
+                        .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                    Button("Import JSON…") { importFormat = .json; showsImporter = true }
+                        .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                    Button("Restore SQL Backup…") { importFormat = .sql; showsImporter = true }
+                        .disabled(model.databaseFeature.selectedProfile?.readOnly == true || model.databaseFeature.selectedProfile?.kind == .sqlserver)
+                    Divider()
+                    Button("Export Table as CSV…") { export(.csv) }
+                    Button("Export Table as JSON…") { export(.json) }
+                    Button("Back Up Database as SQL…") { export(.sql) }
+                        .disabled(model.databaseFeature.selectedProfile?.kind == .sqlserver)
+                } label: {
+                    toolbarActionLabel("Data Tools", systemImage: "shippingbox", showsChevron: true)
+                }
                 .menuStyle(.borderlessButton)
-                .fixedSize()
+                .menuIndicator(.hidden)
                 .disabled(model.databaseFeature.selectedProfile?.kind == .mongodb)
-            Menu {
-                Button("Paste TSV from Clipboard") { pasteFromClipboard() }
-                Button("Replace in Current Page…") { showsReplaceSheet = true }
-                    .disabled(model.databaseFeature.rows.isEmpty)
-            } label: { Image(systemName: "wrench.and.screwdriver") }
-                .menuStyle(.borderlessButton).frame(width: 26).help("Batch table tools")
+
+                toolbarDivider
+
+                Menu {
+                    Button("Paste TSV from Clipboard") { pasteFromClipboard() }
+                    Button("Replace in Current Page…") { showsReplaceSheet = true }
+                        .disabled(model.databaseFeature.rows.isEmpty)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .frame(width: 30, height: 27)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .help("Batch table tools")
+            }
         }
         .padding(.horizontal, 12).frame(height: 44).foregroundStyle(LitheTheme.primaryText).background(LitheTheme.toolHeader)
     }
@@ -351,6 +367,32 @@ struct DatabaseTableView: View {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                     .stroke(LitheTheme.panelBorder.opacity(0.7), lineWidth: 1)
             }
+    }
+
+    private func toolbarActionLabel(
+        _ title: LocalizedStringKey,
+        systemImage: String,
+        showsChevron: Bool = false
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10.5, weight: .medium))
+            Text(title)
+                .font(.system(size: 10.5, weight: .medium))
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+            }
+        }
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.horizontal, 9)
+        .frame(height: 27)
+        .contentShape(Rectangle())
+    }
+
+    private var toolbarDivider: some View {
+        Rectangle().fill(LitheTheme.divider).frame(width: 1, height: 17)
     }
 
     private var grid: some View {
