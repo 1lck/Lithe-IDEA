@@ -53,6 +53,9 @@ struct DatabaseSidebarView: View {
     @State private var showsTableActionConfirmation = false
     @State private var pendingRedisProfile: DatabaseProfile?
     @State private var showsRedisFlushConfirmation = false
+    @State private var showsDBXImporter = false
+    @State private var showsDBXImportSheet = false
+    @State private var dbxImportData: Data?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,6 +77,8 @@ struct DatabaseSidebarView: View {
                     .litheIconButton().help("Add database connection")
                 Button { editingFolder = nil; creatingFolderParentID = nil; showsFolderEditor = true } label: { Image(systemName: "folder.badge.plus") }
                     .litheIconButton().help("New Folder")
+                Button { showsDBXImporter = true } label: { Image(systemName: "square.and.arrow.down") }
+                    .litheIconButton().help("Import connections from DBX")
                 Button { collapseAll() } label: { Image(systemName: "rectangle.compress.vertical") }
                     .litheIconButton().help("Collapse all")
                 Button { refreshSelectedConnection() } label: { Image(systemName: "arrow.triangle.2.circlepath") }
@@ -185,6 +190,13 @@ struct DatabaseSidebarView: View {
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
         }
+        .sheet(isPresented: $showsDBXImportSheet, onDismiss: { dbxImportData = nil }) {
+            if let dbxImportData {
+                DatabaseDBXImportSheet(data: dbxImportData)
+                    .environment(\.locale, model.settings.language.locale)
+                    .id(model.settings.language)
+            }
+        }
         .alert("Remove folder?", isPresented: $showsFolderDeletionConfirmation, presenting: folderPendingDeletion) { folder in
             Button("Remove Folder", role: .destructive) {
                 model.databaseFeature.removeFolder(folder)
@@ -235,8 +247,23 @@ struct DatabaseSidebarView: View {
         .fileImporter(isPresented: $showsImporter, allowedContentTypes: [importFormat.contentType]) { result in
             importFile(result)
         }
+        .fileImporter(isPresented: $showsDBXImporter, allowedContentTypes: [.json]) { result in
+            importDBXFile(result)
+        }
         .onChange(of: model.databaseFeature.selectedProfileID) { _, selectedID in
             if let selectedID { expandedProfileIDs = [selectedID] }
+        }
+    }
+
+    private func importDBXFile(_ result: Result<URL, Error>) {
+        do {
+            let url = try result.get()
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            dbxImportData = try Data(contentsOf: url)
+            showsDBXImportSheet = true
+        } catch {
+            model.databaseFeature.errorMessage = error.localizedDescription
         }
     }
 
@@ -1176,6 +1203,263 @@ struct DatabaseSidebarView: View {
             guard let value = row[key] else { return nil }
             return "\(key): \(String(describing: value))"
         }.joined(separator: "  ")
+    }
+}
+
+private struct DatabaseDBXImportSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    let data: Data
+    @State private var passphrase = ""
+    @State private var plan: DatabaseDBXImportPlan?
+    @State private var selectedIDs: Set<UUID> = []
+    @State private var errorMessage: String?
+    @State private var isReading = false
+
+    private let service = DatabaseDBXImportService()
+    private var isEncrypted: Bool { service.isEncrypted(data) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(LitheTheme.accent)
+                    .frame(width: 30, height: 30)
+                    .background(LitheTheme.accent.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Import Connections from DBX")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Connections are saved without testing them. Passwords are stored in Keychain.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 58)
+            .background(LitheTheme.toolHeader)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            Group {
+                if let plan {
+                    preview(plan)
+                } else {
+                    unlockView
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            HStack {
+                if plan != nil {
+                    Text("\(selectedIDs.count) connections selected")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .monospacedDigit()
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                if let plan {
+                    Button("Import Selected") {
+                        let count = model.databaseFeature.importDBXConnections(plan: plan, selectedIDs: selectedIDs)
+                        if count > 0 { dismiss() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selectedIDs.isEmpty)
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(LitheTheme.toolHeader)
+        }
+        .frame(width: 680, height: 560)
+        .background(LitheTheme.editor)
+        .foregroundStyle(LitheTheme.primaryText)
+        .onAppear {
+            if !isEncrypted { readFile() }
+        }
+        .onDisappear { passphrase = "" }
+    }
+
+    private var unlockView: some View {
+        VStack(spacing: 14) {
+            Spacer()
+            Image(systemName: isEncrypted ? "lock.doc" : "doc.text.magnifyingglass")
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(LitheTheme.accent)
+            Text(isEncrypted ? "Encrypted DBX Export" : "Reading DBX Export")
+                .font(.system(size: 13, weight: .semibold))
+            if isEncrypted {
+                Text("Enter the password used when this connection file was exported from DBX.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+                SecureField("DBX export password", text: $passphrase)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 320)
+                    .onSubmit(readFile)
+            }
+            if let errorMessage {
+                DatabaseLocalization.text(errorMessage)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.error)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
+            if isReading {
+                ProgressView("Reading connection configuration…")
+                    .controlSize(.small)
+            } else if isEncrypted {
+                Button("Read DBX Export") { readFile() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(passphrase.isEmpty)
+            }
+            Spacer()
+        }
+        .padding(24)
+    }
+
+    private func preview(_ plan: DatabaseDBXImportPlan) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 18) {
+                summaryValue(plan.importableCount, label: "Ready")
+                summaryValue(plan.duplicateCount, label: "Duplicates")
+                summaryValue(plan.unsupportedCount, label: "Unsupported")
+                summaryValue(plan.folders.count, label: "Folders")
+                Spacer()
+                if plan.wasEncrypted {
+                    Label("Passwords decrypted", systemImage: "lock.open.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(LitheTheme.success)
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(LitheTheme.inputBackground.opacity(0.55))
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            ScrollView {
+                LazyVStack(spacing: 1) {
+                    ForEach(plan.candidates) { candidate in
+                        candidateRow(candidate)
+                    }
+                    if !plan.unsupportedTypes.isEmpty {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(LitheTheme.warning)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Unsupported DBX database types")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text(plan.unsupportedTypes.sorted(by: { $0.key < $1.key }).map { "\($0.key) × \($0.value)" }.joined(separator: ", "))
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(LitheTheme.warning.opacity(0.07))
+                    }
+                }
+                .padding(10)
+            }
+        }
+    }
+
+    private func summaryValue(_ value: Int, label: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(value)").font(.system(size: 13, weight: .semibold, design: .monospaced))
+            Text(label).font(.system(size: 9.5)).foregroundStyle(LitheTheme.tertiaryText)
+        }
+    }
+
+    private func candidateRow(_ candidate: DatabaseDBXImportCandidate) -> some View {
+        let isSelected = selectedIDs.contains(candidate.id)
+        return Button {
+            guard !candidate.isDuplicate else { return }
+            if isSelected { selectedIDs.remove(candidate.id) }
+            else { selectedIDs.insert(candidate.id) }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: candidate.isDuplicate ? "minus.circle" : (isSelected ? "checkmark.square.fill" : "square"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(candidate.isDuplicate ? LitheTheme.tertiaryText : (isSelected ? LitheTheme.accent : LitheTheme.secondaryText))
+                    .frame(width: 18)
+                DatabaseBrandIcon(kind: candidate.profile.kind, size: 18)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Text(candidate.profile.name)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .lineLimit(1)
+                        if candidate.isDuplicate {
+                            Text("Duplicate")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(LitheTheme.tertiaryText)
+                        } else if !candidate.warnings.isEmpty {
+                            Text("Review")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(LitheTheme.warning)
+                        }
+                    }
+                    Text(candidateSubtitle(candidate.profile))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                    ForEach(candidate.warnings, id: \.self) { warning in
+                        DatabaseLocalization.text(warning)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(LitheTheme.warning)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                Text(candidate.profile.kind.displayName)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(candidate.isDuplicate)
+        .background(isSelected ? LitheTheme.accent.opacity(0.08) : LitheTheme.inputBackground.opacity(0.35))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func candidateSubtitle(_ profile: DatabaseProfile) -> String {
+        if profile.kind == .sqlite { return profile.path }
+        let endpoint = profile.port > 0 ? "\(profile.host):\(profile.port)" : profile.host
+        return profile.username.isEmpty ? endpoint : "\(profile.username) @ \(endpoint)"
+    }
+
+    private func readFile() {
+        guard !isReading else { return }
+        isReading = true
+        errorMessage = nil
+        let data = data
+        let passphrase = isEncrypted ? passphrase : nil
+        let profiles = model.databaseFeature.profiles
+        Task {
+            do {
+                let parsed = try await Task.detached {
+                    try service.parse(data: data, passphrase: passphrase, existingProfiles: profiles)
+                }.value
+                plan = parsed
+                selectedIDs = Set(parsed.candidates.filter { !$0.isDuplicate }.map(\.id))
+                self.passphrase = ""
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isReading = false
+        }
     }
 }
 

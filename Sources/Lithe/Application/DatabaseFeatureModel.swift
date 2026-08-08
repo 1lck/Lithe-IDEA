@@ -225,6 +225,58 @@ final class DatabaseFeatureModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func importDBXConnections(plan: DatabaseDBXImportPlan, selectedIDs: Set<UUID>) -> Int {
+        errorMessage = nil
+        var updatedFolders = folders
+        var folderIDMap: [UUID: UUID] = [:]
+        for importedFolder in plan.folders {
+            let targetParentID = importedFolder.parentID.flatMap { folderIDMap[$0] }
+            if let existing = updatedFolders.first(where: {
+                $0.parentID == targetParentID && $0.name.caseInsensitiveCompare(importedFolder.name) == .orderedSame
+            }) {
+                folderIDMap[importedFolder.id] = existing.id
+            } else {
+                let folder = DatabaseConnectionFolder(name: importedFolder.name, parentID: targetParentID)
+                updatedFolders.append(folder)
+                folderIDMap[importedFolder.id] = folder.id
+            }
+        }
+
+        var updatedProfiles = profiles
+        var imported: [(profile: DatabaseProfile, password: String)] = []
+        for candidate in plan.candidates where selectedIDs.contains(candidate.id) && !candidate.isDuplicate {
+            var profile = candidate.profile
+            profile.folderID = profile.folderID.flatMap { folderIDMap[$0] }
+            let duplicate = updatedProfiles.contains {
+                $0.name == profile.name && $0.host == profile.host && $0.port == profile.port && $0.path == profile.path
+            }
+            guard !duplicate else { continue }
+            updatedProfiles.append(profile)
+            imported.append((profile, candidate.password))
+        }
+        guard !imported.isEmpty else { return 0 }
+
+        var writtenPasswordIDs: [UUID] = []
+        do {
+            for item in imported where !item.password.isEmpty {
+                try connectionStore.savePassword(item.password, for: item.profile.id)
+                writtenPasswordIDs.append(item.profile.id)
+            }
+            try connectionStore.saveFolders(updatedFolders)
+            try connectionStore.save(updatedProfiles)
+            folders = sortedFolders(updatedFolders)
+            profiles = sortedProfiles(updatedProfiles)
+            return imported.count
+        } catch {
+            for id in writtenPasswordIDs { try? connectionStore.deletePassword(for: id) }
+            try? connectionStore.saveFolders(folders)
+            try? connectionStore.save(profiles)
+            errorMessage = error.localizedDescription
+            return 0
+        }
+    }
+
     func disconnect(_ profile: DatabaseProfile) {
         setConnectionStatus(.idle, for: profile.id)
         if selectedProfileID == profile.id {

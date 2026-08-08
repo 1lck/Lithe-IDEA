@@ -103,6 +103,76 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func databaseDBXImportMapsConnectionsFoldersAndUnsupportedTypes() throws {
+        let data = Data(dbxPlainConnectionExport.utf8)
+        let duplicate = DatabaseProfile(name: "Production MySQL", kind: .mysql, host: "db.example.com", port: 3306)
+        let plan = try DatabaseDBXImportService().parse(data: data, passphrase: nil, existingProfiles: [duplicate])
+
+        #expect(plan.wasEncrypted == false)
+        #expect(plan.candidates.count == 2)
+        #expect(plan.duplicateCount == 1)
+        #expect(plan.unsupportedTypes == ["oracle": 1])
+        #expect(plan.folders.count == 2)
+        let production = try #require(plan.candidates.first { $0.sourceID == "mysql-1" })
+        #expect(production.profile.kind == .mysql)
+        #expect(production.profile.username == "root")
+        #expect(production.password == "db-secret")
+        #expect(production.profile.readOnly)
+        #expect(production.profile.productionProtection)
+        #expect(production.profile.sshHost == "jump.example.com")
+        let sqlite = try #require(plan.candidates.first { $0.sourceID == "sqlite-1" })
+        #expect(sqlite.profile.kind == .sqlite)
+        #expect(sqlite.profile.path == "/tmp/local.sqlite")
+        let localFolder = try #require(plan.folders.first { $0.id == sqlite.profile.folderID })
+        #expect(localFolder.name == "Local")
+        #expect(localFolder.parentID != nil)
+    }
+
+    @Test
+    func databaseDBXImportDecryptsTheVersionOneWebCryptoEnvelope() throws {
+        let data = Data(dbxEncryptedConnectionExport.utf8)
+        let service = DatabaseDBXImportService()
+        #expect(service.isEncrypted(data))
+        let plan = try service.parse(data: data, passphrase: "migration-pass", existingProfiles: [])
+        #expect(plan.wasEncrypted)
+        #expect(plan.candidates.count == 1)
+        #expect(plan.candidates[0].profile.name == "M")
+        #expect(plan.candidates[0].password == "p")
+        #expect(throws: DatabaseDBXImportError.wrongPassphrase) {
+            try service.parse(data: data, passphrase: "wrong", existingProfiles: [])
+        }
+    }
+
+    @Test
+    @MainActor
+    func databaseDBXImportPersistsProfilesFoldersAndKeychainPasswordsOffline() throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let secrets = DatabaseTestSecureStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: secrets)
+        let operations = DatabaseSidecarService(
+            processRunner: RecordingProcessRunner(result: ProcessResult(output: "", exitCode: 1)),
+            executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")
+        )
+        let feature = DatabaseFeatureModel(operations: operations, connectionStore: store)
+        let plan = try DatabaseDBXImportService().parse(
+            data: Data(dbxPlainConnectionExport.utf8),
+            passphrase: nil,
+            existingProfiles: []
+        )
+
+        let count = feature.importDBXConnections(plan: plan, selectedIDs: Set(plan.candidates.map(\.id)))
+        #expect(count == 2)
+        #expect(feature.profiles.count == 2)
+        #expect(feature.folders.count == 2)
+        let mysql = try #require(feature.profiles.first { $0.name == "Production MySQL" })
+        #expect(store.password(for: mysql.id) == "db-secret")
+        #expect(mysql.folderID != nil)
+        let sqlite = try #require(feature.profiles.first { $0.name == "Local SQLite" })
+        let localFolder = try #require(feature.folders.first { $0.id == sqlite.folderID })
+        #expect(localFolder.parentID == mysql.folderID)
+    }
+
+    @Test
     func databaseConnectionFoldersPersistWithProfiles() throws {
         let preferences = DatabaseTestKeyValueStore()
         let secrets = DatabaseTestSecureStore()
@@ -1888,6 +1958,77 @@ private struct EmptyKeyValueStore: KeyValueStore {
     func stringArray(forKey key: String) -> [String]? { nil }
     func set(_ value: Any?, forKey key: String) {}
 }
+
+private let dbxPlainConnectionExport = #"""
+{
+  "connections": [
+    {
+      "id": "mysql-1",
+      "name": "Production MySQL",
+      "db_type": "mysql",
+      "host": "db.example.com",
+      "port": 3306,
+      "username": "root",
+      "password": "db-secret",
+      "database": "app",
+      "color": "#ff5500",
+      "read_only": true,
+      "is_production": true,
+      "ssl": true,
+      "ca_cert_path": "/tmp/ca.pem",
+      "transport_layers": [
+        {
+          "type": "ssh",
+          "enabled": true,
+          "host": "jump.example.com",
+          "port": 22,
+          "user": "deploy",
+          "key_path": "/tmp/id_ed25519"
+        }
+      ]
+    },
+    {
+      "id": "sqlite-1",
+      "name": "Local SQLite",
+      "db_type": "sqlite",
+      "host": "/tmp/local.sqlite",
+      "port": 0,
+      "username": "",
+      "password": "",
+      "database": ""
+    },
+    {
+      "id": "oracle-1",
+      "name": "Oracle",
+      "db_type": "oracle",
+      "host": "oracle.example.com",
+      "port": 1521,
+      "username": "scott",
+      "password": "tiger"
+    }
+  ],
+  "layout": {
+    "groups": [
+      { "id": "g1", "name": "Production", "collapsed": false },
+      { "id": "g2", "name": "Local", "collapsed": false }
+    ],
+    "order": [
+      {
+        "type": "group",
+        "id": "g1",
+        "connectionIds": ["mysql-1"],
+        "children": [
+          { "type": "group", "id": "g2", "connectionIds": ["sqlite-1"] }
+        ]
+      }
+    ]
+  }
+}
+"""#
+
+private let dbxEncryptedConnectionExport = #"""
+{"format":"dbx-encrypted","version":1,"salt":"AAECAwQFBgcICQoLDA0ODw==","iv":"EBESExQVFhcYGRob","data":"fdwV5NDM/8LXPJqMyQgoQVkuOwMe+0VDPFR8HsEWD1AMIhPz1sHRRkmzd6ZLcBqnfcA57xCJz3Jtnbf+djnYI83EiNkr6iukZq1Ahd8aGy/r61/JdThx/NTaUgzn0mwAIcpxDl9uyBDwI0PO8WAaXbZyWbFumsLn3SJSEb8d"}
+"""#
 
 private struct EmptyWorkspaceOperations: WorkspaceOperations {
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
