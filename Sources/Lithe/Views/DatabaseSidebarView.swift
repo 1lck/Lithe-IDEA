@@ -148,7 +148,9 @@ struct DatabaseSidebarView: View {
                     } else {
                         connectionTree
                     }
-                }.padding(5)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(5)
             }
             if model.databaseFeature.isLoading { ProgressView().controlSize(.small).padding(8) }
             if let error = model.databaseFeature.errorMessage {
@@ -343,12 +345,17 @@ struct DatabaseSidebarView: View {
                     .padding(.trailing, 3)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 31)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
                 .lithePointer()
                 .litheRowHover(isActive: false)
 
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .background(targetedFolderID == folder.id ? LitheTheme.accent.opacity(0.18) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .contextMenu {
@@ -440,11 +447,16 @@ struct DatabaseSidebarView: View {
                     .padding(.trailing, 9)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: 30)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
                 .lithePointer()
             }
             .padding(.leading, 4 + indent)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .litheRowHover(isActive: isSelected, activeBackground: profileColor(for: profile).opacity(0.12))
             .draggable(profile.id.uuidString)
             .contextMenu {
@@ -486,9 +498,12 @@ struct DatabaseSidebarView: View {
                 }
                 .padding(.leading, indent)
                 .padding(.trailing, 8)
-                .frame(height: 27)
+                .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .lithePointer()
             .litheRowHover()
             .contextMenu {
@@ -657,8 +672,11 @@ struct DatabaseSidebarView: View {
             .padding(.leading, indent)
             .padding(.trailing, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .lithePointer()
         .litheRowHover()
     }
@@ -691,7 +709,8 @@ struct DatabaseSidebarView: View {
         }
         .padding(.leading, indent)
         .padding(.trailing, 9)
-        .frame(height: 24)
+        .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+        .contentShape(Rectangle())
         .foregroundStyle(LitheTheme.secondaryText)
     }
 
