@@ -160,6 +160,10 @@ For upstream audit, `third_party/dbx` contains a source-only snapshot of
 [`996ce42e80387bba4b33a2bf1713f590ef79d476`](https://github.com/t8y2/dbx/commit/996ce42e80387bba4b33a2bf1713f590ef79d476).
 It is not a Git submodule or runtime dependency and is excluded from Lithe's
 release bundle; the database helper is implemented and built independently.
+The five database brand marks used by the current workspace are copied into
+`Resources/DatabaseIcons` as independent application resources. Their DBX
+source, Apache-2.0 license, and trademark-use notice are recorded alongside
+the files, so the packaged application never resolves assets from `third_party`.
 
 ## Architecture
 

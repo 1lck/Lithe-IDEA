@@ -49,9 +49,7 @@ struct DatabaseWorkspaceView: View {
 
                 if let profile = model.databaseFeature.selectedProfile {
                     HStack(spacing: 7) {
-                        Image(systemName: profile.kind.symbolName)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(LitheTheme.accent)
+                        DatabaseBrandIcon(kind: profile.kind, size: 15)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(profile.name)
                                 .font(.system(size: 11.5, weight: .medium))
@@ -246,10 +244,7 @@ private struct DatabaseDashboardView: View {
         HStack(spacing: 0) {
             Button { onOpenConnection(profile) } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: profile.kind.symbolName)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(profile.colorHex.isEmpty ? LitheTheme.accent : Color(hex: profile.colorHex))
-                        .frame(width: 18)
+                    DatabaseBrandIcon(kind: profile.kind, size: 18)
                     RoundedRectangle(cornerRadius: 2)
                         .fill(profile.colorHex.isEmpty ? LitheTheme.accent : Color(hex: profile.colorHex))
                         .frame(width: 3, height: 28)

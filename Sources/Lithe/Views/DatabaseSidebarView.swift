@@ -106,7 +106,11 @@ struct DatabaseSidebarView: View {
                         Button {
                             kindFilter = kind
                         } label: {
-                            Label(kind.displayName, systemImage: kind.symbolName)
+                            Label {
+                                Text(kind.displayName)
+                            } icon: {
+                                DatabaseBrandIcon(kind: kind, size: 13)
+                            }
                         }
                     }
                 } label: {
@@ -412,10 +416,7 @@ struct DatabaseSidebarView: View {
                         RoundedRectangle(cornerRadius: 1.5)
                             .fill(profileColor(for: profile))
                             .frame(width: 3, height: 18)
-                        Image(systemName: profile.kind.symbolName)
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(profileColor(for: profile))
-                            .frame(width: 15)
+                        DatabaseBrandIcon(kind: profile.kind, size: 15)
                         Text(profile.name)
                             .lineLimit(1)
                             .font(.system(size: 11.5, weight: .medium))
@@ -1317,9 +1318,7 @@ struct DatabaseConnectionEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: kind.symbolName)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(LitheTheme.accent)
+                DatabaseBrandIcon(kind: kind, size: 22)
                     .frame(width: 34, height: 34)
                     .background(LitheTheme.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 8))

@@ -1,0 +1,13 @@
+Database brand icon assets
+==========================
+
+The database icon files in this directory were copied from the DBX project:
+https://github.com/t8y2/dbx
+Snapshot commit: 996ce42e80387bba4b33a2bf1713f590ef79d476
+
+DBX is distributed under the Apache License, Version 2.0. A copy of that
+license is included in this directory as LICENSE-APACHE-2.0.txt.
+
+The MySQL, PostgreSQL, SQLite, Redis, and Nacos names and logos may be
+trademarks of their respective owners. They are used only to identify the
+corresponding connection type and do not imply endorsement or affiliation.

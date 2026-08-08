@@ -155,6 +155,9 @@ Redis 使用增量 `SCAN` 分页，不会默认全量加载键空间；第一版
 [`996ce42e80387bba4b33a2bf1713f590ef79d476`](https://github.com/t8y2/dbx/commit/996ce42e80387bba4b33a2bf1713f590ef79d476)
 的仅源码快照。它不是 Git 子模块，也不是运行时依赖，不会被打入 Lithe 发布包；
 数据库 helper 由本项目独立实现和构建。
+当前工作台使用的五个数据库品牌标识已独立复制到 `Resources/DatabaseIcons`。
+素材目录内保留了 DBX 来源、Apache-2.0 许可证及商标用途说明；应用打包和运行时
+不会从 `third_party` 目录读取这些素材。
 
 ## 架构图
 

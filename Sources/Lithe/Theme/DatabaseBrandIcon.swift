@@ -1,0 +1,69 @@
+import AppKit
+import SwiftUI
+
+extension DatabaseKind {
+    var brandIconFilename: String {
+        switch self {
+        case .mysql: "mysql.svg"
+        case .postgresql: "postgres.svg"
+        case .sqlite: "sqlite.svg"
+        case .redis: "redis.svg"
+        case .nacos: "nacos.png"
+        }
+    }
+
+    var brandIconFallbackSymbol: String {
+        switch self {
+        case .mysql: "cylinder.fill"
+        case .postgresql: "cylinder.split.1x2.fill"
+        case .sqlite: "externaldrive.fill"
+        case .redis: "square.stack.3d.up.fill"
+        case .nacos: "slider.horizontal.3"
+        }
+    }
+}
+
+@MainActor
+private enum DatabaseBrandIconLoader {
+    private static var cache: [DatabaseKind: NSImage] = [:]
+
+    static func image(for kind: DatabaseKind) -> NSImage? {
+        if let cached = cache[kind] { return cached }
+        let filename = kind.brandIconFilename as NSString
+        guard let url = Bundle.main.url(
+            forResource: filename.deletingPathExtension,
+            withExtension: filename.pathExtension,
+            subdirectory: "DatabaseIcons"
+        ), let image = NSImage(contentsOf: url) else {
+            return nil
+        }
+        image.isTemplate = false
+        cache[kind] = image
+        return image
+    }
+}
+
+/// Database vendor mark used only for type recognition. The system-image
+/// fallback keeps unbundled development builds and future platforms usable.
+struct DatabaseBrandIcon: View {
+    let kind: DatabaseKind
+    var size: CGFloat = 14
+
+    var body: some View {
+        Group {
+            if let image = DatabaseBrandIconLoader.image(for: kind) {
+                Image(nsImage: image)
+                    .resizable()
+                    .renderingMode(.original)
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: kind.brandIconFallbackSymbol)
+                    .font(.system(size: size, weight: .medium))
+                    .foregroundStyle(LitheTheme.accent)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}

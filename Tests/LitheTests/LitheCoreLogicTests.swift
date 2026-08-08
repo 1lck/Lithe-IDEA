@@ -202,6 +202,13 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func databaseBrandIconCatalogCoversSupportedKinds() {
+        #expect(DatabaseKind.allCases.map(\.brandIconFilename) == [
+            "mysql.svg", "postgres.svg", "sqlite.svg", "redis.svg", "nacos.png"
+        ])
+    }
+
+    @Test
     @MainActor
     func databaseDisconnectResetsSelectedConnectionState() async throws {
         let preferences = DatabaseTestKeyValueStore()

@@ -33,6 +33,7 @@ cp "rust/target/macos/$RUST_TARGET/debug/lithe-db-mcp" "$APP_DIR/Contents/Helper
 cp Resources/Info.plist "$APP_DIR/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
+cp -R Resources/DatabaseIcons "$APP_DIR/Contents/Resources/DatabaseIcons"
 for localization in en.lproj zh-Hans.lproj; do
     if [[ -d "Resources/$localization" ]]; then
         cp -R "Resources/$localization" "$APP_DIR/Contents/Resources/$localization"
