@@ -5,7 +5,13 @@ struct DatabaseSidebarView: View {
     @State private var showsConnectionEditor = false
     @State private var editingProfile: DatabaseProfile?
     @State private var searchText = ""
-    @State private var expandedFolderIDs: Set<UUID> = []
+    /// Folders start expanded, while this set records the user's explicit
+    /// collapsed state. Keeping the negative state avoids refreshes reopening
+    /// folders behind the user's back.
+    @State private var collapsedFolderIDs: Set<UUID> = []
+    @State private var collapsedObjectKinds: Set<DatabaseObjectKind> = []
+    @State private var targetedFolderID: UUID?
+    @State private var isUnfiledDropTarget = false
     @State private var showsFolderEditor = false
     @State private var editingFolder: DatabaseConnectionFolder?
     @State private var folderPendingDeletion: DatabaseConnectionFolder?
@@ -98,10 +104,6 @@ struct DatabaseSidebarView: View {
         } message: { _ in
             Text("Removing this folder keeps its connections and moves them to the root.")
         }
-        .onAppear { expandFoldersIfNeeded() }
-        .onChange(of: model.databaseFeature.folders.map(\.id)) { _, _ in
-            expandFoldersIfNeeded()
-        }
     }
 
     private var emptyConnections: some View {
@@ -156,6 +158,13 @@ struct DatabaseSidebarView: View {
                 .textCase(.uppercase)
                 .padding(.top, model.databaseFeature.folders.isEmpty ? 3 : 9)
                 .padding(.horizontal, 9)
+                .dropDestination(for: String.self) { items, _ in
+                    moveDroppedProfile(items, to: nil)
+                } isTargeted: { targeted in
+                    isUnfiledDropTarget = targeted
+                }
+                .background(isUnfiledDropTarget ? LitheTheme.accent.opacity(0.18) : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
             ForEach(rootProfiles) { profile in
                 profileRow(profile)
             }
@@ -184,16 +193,16 @@ struct DatabaseSidebarView: View {
 
     private func folderRow(_ folder: DatabaseConnectionFolder) -> some View {
         let profiles = visibleProfiles(in: folder)
-        let isExpanded = !searchQuery.isEmpty || expandedFolderIDs.contains(folder.id)
+        let isExpanded = !searchQuery.isEmpty || !collapsedFolderIDs.contains(folder.id)
         let totalCount = allProfiles(in: folder).count
 
         return VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 1) {
                 Button {
-                    if expandedFolderIDs.contains(folder.id) {
-                        expandedFolderIDs.remove(folder.id)
+                    if collapsedFolderIDs.contains(folder.id) {
+                        collapsedFolderIDs.remove(folder.id)
                     } else {
-                        expandedFolderIDs.insert(folder.id)
+                        collapsedFolderIDs.insert(folder.id)
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -224,25 +233,18 @@ struct DatabaseSidebarView: View {
                 .lithePointer()
                 .litheRowHover(isActive: false)
 
-                Menu {
-                    Button("Rename Folder") {
-                        editingFolder = folder
-                        showsFolderEditor = true
-                    }
-                    Button("Remove Folder", role: .destructive) {
-                        folderPendingDeletion = folder
-                        showsFolderDeletionConfirmation = true
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .frame(width: 24, height: 28)
-                }
-                .menuStyle(.borderlessButton)
-                .help("Folder actions")
             }
+            .background(targetedFolderID == folder.id ? LitheTheme.accent.opacity(0.18) : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
             .contextMenu {
+                Button(isExpanded ? "Collapse Folder" : "Expand Folder") {
+                    if isExpanded { collapsedFolderIDs.insert(folder.id) }
+                    else { collapsedFolderIDs.remove(folder.id) }
+                }
+                Button("New Connection") {
+                    editingProfile = nil
+                    showsConnectionEditor = true
+                }
                 Button("Rename Folder") {
                     editingFolder = folder
                     showsFolderEditor = true
@@ -251,6 +253,11 @@ struct DatabaseSidebarView: View {
                     folderPendingDeletion = folder
                     showsFolderDeletionConfirmation = true
                 }
+            }
+            .dropDestination(for: String.self) { items, _ in
+                moveDroppedProfile(items, to: folder.id)
+            } isTargeted: { targeted in
+                targetedFolderID = targeted ? folder.id : nil
             }
 
             if isExpanded {
@@ -293,6 +300,7 @@ struct DatabaseSidebarView: View {
         .buttonStyle(.plain)
         .lithePointer()
         .litheRowHover(isActive: model.databaseFeature.selectedProfileID == profile.id, activeBackground: LitheTheme.subtleSelection)
+        .draggable(profile.id.uuidString)
         .contextMenu {
             Button("Edit Connection") {
                 editingProfile = profile
@@ -321,23 +329,8 @@ struct DatabaseSidebarView: View {
     @ViewBuilder
     private func databaseObjects(for profile: DatabaseProfile) -> some View {
         if profile.kind.isSQLDatabase {
-            HStack(spacing: 6) {
-                Image(systemName: "tablecells")
-                    .font(.system(size: 10))
-                Text(profile.database.isEmpty ? "Tables" : profile.database)
-                Spacer()
-                Text("\(model.databaseFeature.tables.count)")
-                    .monospacedDigit()
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(LitheTheme.badgeBackground)
-                    .clipShape(Capsule())
-            }
-            .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(LitheTheme.secondaryText)
-            .padding(.top, 12)
-            .padding(.horizontal, 10)
-            if model.databaseFeature.tables.isEmpty && !model.databaseFeature.isLoading {
+            objectSectionHeader(kind: .tables, title: profile.database.isEmpty ? "Tables" : profile.database, count: model.databaseFeature.tables.count)
+            if !collapsedObjectKinds.contains(.tables), model.databaseFeature.tables.isEmpty && !model.databaseFeature.isLoading {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("No tables yet")
                         .font(.system(size: 10.5, weight: .medium))
@@ -353,17 +346,24 @@ struct DatabaseSidebarView: View {
                 .padding(.horizontal, 6)
                 .padding(.top, 6)
             }
-            ForEach(model.databaseFeature.tables, id: \.self) { table in
-                Button { Task { await model.databaseFeature.openTable(table) } } label: {
-                    Label(table, systemImage: "tablecells")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 20)
-                        .padding(.trailing, 8)
-                        .frame(height: 25)
+            if !collapsedObjectKinds.contains(.tables) {
+                ForEach(model.databaseFeature.tables, id: \.self) { table in
+                    Button {
+                        // Set selection before starting the async fetch so the
+                        // main pane leaves the empty state immediately.
+                        model.databaseFeature.selectedTable = table
+                        Task { await model.databaseFeature.openTable(table) }
+                    } label: {
+                        Label(table, systemImage: "tablecells")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 20)
+                            .padding(.trailing, 8)
+                            .frame(height: 25)
+                    }
+                    .buttonStyle(.plain)
+                    .lithePointer()
+                    .litheRowHover(isActive: model.databaseFeature.selectedTable == table)
                 }
-                .buttonStyle(.plain)
-                .lithePointer()
-                .litheRowHover(isActive: model.databaseFeature.selectedTable == table)
             }
             ForEach(DatabaseObjectKind.allCases.filter { $0 != .tables }, id: \.self) { kind in
                 let entries = model.databaseFeature.objects[kind] ?? []
@@ -397,12 +397,50 @@ struct DatabaseSidebarView: View {
         }
     }
 
-    private var searchQuery: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    private func objectSectionHeader(kind: DatabaseObjectKind, title: String, count: Int) -> some View {
+        Button {
+            if collapsedObjectKinds.contains(kind) { collapsedObjectKinds.remove(kind) }
+            else { collapsedObjectKinds.insert(kind) }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: collapsedObjectKinds.contains(kind) ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .frame(width: 12)
+                Image(systemName: kind.symbol)
+                    .font(.system(size: 10))
+                Text(title)
+                Spacer()
+                Text("\(count)")
+                    .monospacedDigit()
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(LitheTheme.badgeBackground)
+                    .clipShape(Capsule())
+            }
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(.vertical, 5)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .litheRowHover()
     }
 
-    private func expandFoldersIfNeeded() {
-        expandedFolderIDs.formUnion(model.databaseFeature.folders.map(\.id))
+    private func moveDroppedProfile(_ items: [String], to folderID: UUID?) -> Bool {
+        guard let rawID = items.first, let profileID = UUID(uuidString: rawID),
+              let profile = model.databaseFeature.profiles.first(where: { $0.id == profileID }) else {
+            return false
+        }
+        model.databaseFeature.move(profile, toFolder: folderID)
+        targetedFolderID = nil
+        isUnfiledDropTarget = false
+        return true
+    }
+
+    private var searchQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private var unfiledProfiles: [DatabaseProfile] {
@@ -487,7 +525,8 @@ private extension DatabaseKind {
 
     var symbolName: String {
         switch self {
-        case .mysql, .postgresql: "cylinder.fill"
+        case .mysql: "cylinder.fill"
+        case .postgresql: "cylinder.split.1x2.fill"
         case .sqlite: "externaldrive.fill"
         case .redis: "square.stack.3d.up.fill"
         case .nacos: "slider.horizontal.3"
@@ -614,6 +653,9 @@ private struct DatabaseConnectionEditor: View {
     @State private var sshKeyPath = ""
     @State private var sshLocalPort = ""
     @State private var proxyURL = ""
+    @State private var safetyExpanded = false
+    @State private var networkExpanded = false
+    @State private var usesSSHTunnel = false
 
     private let profile: DatabaseProfile?
 
@@ -642,6 +684,7 @@ private struct DatabaseConnectionEditor: View {
         _sshKeyPath = State(initialValue: profile?.sshKeyPath ?? "")
         _sshLocalPort = State(initialValue: profile?.sshLocalPort == 0 ? "" : String(profile?.sshLocalPort ?? 0))
         _proxyURL = State(initialValue: profile?.proxyURL ?? "")
+        _usesSSHTunnel = State(initialValue: !(profile?.sshHost ?? "").isEmpty)
     }
 
     var body: some View {
@@ -698,7 +741,7 @@ private struct DatabaseConnectionEditor: View {
                     }
                     Toggle("Use TLS", isOn: $ssl)
                 }
-                Section("Safety") {
+                DisclosureGroup(isExpanded: $safetyExpanded) {
                     Picker("Folder", selection: $folderID) {
                         Text("No folder").tag(UUID?.none)
                         ForEach(model.databaseFeature.folders) { folder in
@@ -712,17 +755,26 @@ private struct DatabaseConnectionEditor: View {
                         Toggle("Mask sensitive fields", isOn: $maskSensitiveFields)
                         TextField("Sensitive column patterns", text: $sensitiveColumnPatterns)
                     }
+                } label: {
+                    Label("Safety", systemImage: "shield")
                 }
-                Section("Network") {
-                    TextField("TLS CA certificate path", text: $caCertificatePath)
-                    TextField("TLS server name", text: $serverName)
-                    TextField("SSH host (optional)", text: $sshHost)
-                    TextField("SSH port", text: $sshPort)
-                    TextField("SSH username", text: $sshUsername)
-                    TextField("SSH key path", text: $sshKeyPath)
-                    TextField("SSH local port (optional)", text: $sshLocalPort)
-                    TextField("Proxy URL (optional)", text: $proxyURL)
-            }
+                DisclosureGroup(isExpanded: $networkExpanded) {
+                    if ssl {
+                        TextField("TLS CA certificate path", text: $caCertificatePath)
+                        TextField("TLS server name", text: $serverName)
+                    }
+                    Toggle("Use SSH tunnel", isOn: $usesSSHTunnel)
+                    if usesSSHTunnel {
+                        TextField("SSH host", text: $sshHost)
+                        TextField("SSH port", text: $sshPort)
+                        TextField("SSH username", text: $sshUsername)
+                        TextField("SSH key path", text: $sshKeyPath)
+                        TextField("SSH local port", text: $sshLocalPort)
+                        TextField("Proxy URL (optional)", text: $proxyURL)
+                    }
+                } label: {
+                    Label("Advanced network", systemImage: "network")
+                }
             .padding(.top, 2)
             }.formStyle(.grouped).scrollContentBackground(.hidden)
             if let error = model.databaseFeature.errorMessage { DatabaseLocalization.error(error).font(.system(size: 11)).foregroundStyle(LitheTheme.error).padding(.horizontal, 16) }
@@ -753,7 +805,7 @@ private struct DatabaseConnectionEditor: View {
     }
 
     private func connect() {
-        let candidate = DatabaseProfile(id: profile?.id ?? UUID(), name: name, kind: kind, host: host, port: UInt16(port) ?? 0, username: username, database: database, path: path, ssl: ssl, group: "", folderID: folderID, colorHex: colorHex, readOnly: readOnly, productionProtection: productionProtection, maskSensitiveFields: maskSensitiveFields, sensitiveColumnPatterns: sensitiveColumnPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }, caCertificatePath: caCertificatePath, serverName: serverName, sshHost: sshHost, sshPort: UInt16(sshPort) ?? 22, sshUsername: sshUsername, sshKeyPath: sshKeyPath, sshLocalPort: UInt16(sshLocalPort) ?? 0, proxyURL: proxyURL)
+        let candidate = DatabaseProfile(id: profile?.id ?? UUID(), name: name, kind: kind, host: host, port: UInt16(port) ?? 0, username: username, database: database, path: path, ssl: ssl, group: "", folderID: folderID, colorHex: colorHex, readOnly: readOnly, productionProtection: productionProtection, maskSensitiveFields: maskSensitiveFields, sensitiveColumnPatterns: sensitiveColumnPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }, caCertificatePath: ssl ? caCertificatePath : "", serverName: ssl ? serverName : "", sshHost: usesSSHTunnel ? sshHost : "", sshPort: usesSSHTunnel ? (UInt16(sshPort) ?? 22) : 0, sshUsername: usesSSHTunnel ? sshUsername : "", sshKeyPath: usesSSHTunnel ? sshKeyPath : "", sshLocalPort: usesSSHTunnel ? (UInt16(sshLocalPort) ?? 0) : 0, proxyURL: usesSSHTunnel ? proxyURL : "")
         Task {
             let saved = if profile == nil {
                 await model.databaseFeature.add(candidate, password: password)
