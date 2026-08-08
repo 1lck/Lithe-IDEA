@@ -562,14 +562,16 @@ struct DatabaseSidebarView: View {
                             Text(table)
                                 .font(.system(size: 10.8, weight: .medium))
                                 .lineLimit(1)
-                            Spacer()
+                            Spacer(minLength: 0)
                         }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, indent + 14)
-                            .padding(.trailing, 8)
-                            .frame(height: 26)
+                        .padding(.leading, indent + 14)
+                        .padding(.trailing, 8)
+                        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                     .lithePointer()
                     .litheRowHover(isActive: model.databaseFeature.selectedTable == table)
                     .contextMenu {
