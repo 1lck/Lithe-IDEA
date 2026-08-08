@@ -72,6 +72,10 @@ final class MacServiceContainer {
         let gitService = GitService(operations: gitOperations)
         let shelveService = ShelveService(storage: fileStorage)
         let secureStore = MacLocalSecretStore()
+        let databaseSecureStore = MacKeychainSecureStore(
+            service: "app.lithe.desktop.database",
+            legacyStore: secureStore
+        )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
         let aiConfigurationSources: [any AIConfigurationSource] = [
@@ -106,6 +110,7 @@ final class MacServiceContainer {
             shelveService: shelveService,
             commitMessageGenerator: commitMessageGenerator,
             secureStore: secureStore,
+            databaseSecureStore: databaseSecureStore,
             credentialResolver: credentialResolver,
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),

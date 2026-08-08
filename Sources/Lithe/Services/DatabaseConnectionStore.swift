@@ -142,6 +142,7 @@ final class DatabaseConnectionStore: @unchecked Sendable {
     }
 
     func password(for id: UUID) -> String { secureStore.read(key: passwordKey(id)) ?? "" }
+    func hasPassword(for id: UUID) -> Bool { secureStore.read(key: passwordKey(id)) != nil }
     func savePassword(_ password: String, for id: UUID) throws { try secureStore.write(password, key: passwordKey(id)) }
     func deletePassword(for id: UUID) throws { try secureStore.delete(key: passwordKey(id)) }
     private func passwordKey(_ id: UUID) -> String { "database.connection.\(id.uuidString).password" }

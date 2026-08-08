@@ -31,6 +31,7 @@ final class AppServices {
     let shelveService: ShelveService
     let commitMessageGenerator: CommitMessageGenerationService
     let secureStore: any SecureStore
+    let databaseSecureStore: any SecureStore
     let credentialResolver: any AIProviderCredentialResolver
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
@@ -61,6 +62,7 @@ final class AppServices {
         shelveService: ShelveService,
         commitMessageGenerator: CommitMessageGenerationService,
         secureStore: any SecureStore,
+        databaseSecureStore: any SecureStore,
         credentialResolver: any AIProviderCredentialResolver,
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
@@ -90,6 +92,7 @@ final class AppServices {
         self.shelveService = shelveService
         self.commitMessageGenerator = commitMessageGenerator
         self.secureStore = secureStore
+        self.databaseSecureStore = databaseSecureStore
         self.credentialResolver = credentialResolver
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore

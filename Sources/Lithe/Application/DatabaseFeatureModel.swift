@@ -93,17 +93,35 @@ final class DatabaseFeatureModel: ObservableObject {
         await save(profile, password: password)
     }
 
+    func hasSavedPassword(for profile: DatabaseProfile) -> Bool {
+        connectionStore.hasPassword(for: profile.id)
+    }
+
     private func save(_ profile: DatabaseProfile, password: String?) async -> Bool {
         isLoading = true; errorMessage = nil
         setConnectionStatus(.connecting, for: profile.id)
         do {
             var profile = profile
             if profile.folderID != nil { profile.group = "" }
-            let connection = connection(profile, password: password ?? connectionStore.password(for: profile.id))
+            let previousPassword = connectionStore.password(for: profile.id)
+            let hadPreviousPassword = connectionStore.hasPassword(for: profile.id)
+            let connection = connection(profile, password: password ?? previousPassword)
             try await Task.detached { [operations] in try operations.testConnection(connection) }.value
-            var updated = profiles.filter { $0.id != profile.id }; updated.append(profile)
-            try connectionStore.save(updated)
+            let previousProfiles = profiles
+            var updated = previousProfiles.filter { $0.id != profile.id }; updated.append(profile)
             if let password { try connectionStore.savePassword(password, for: profile.id) }
+            do {
+                try connectionStore.save(updated)
+            } catch {
+                if password != nil {
+                    if hadPreviousPassword {
+                        try? connectionStore.savePassword(previousPassword, for: profile.id)
+                    } else {
+                        try? connectionStore.deletePassword(for: profile.id)
+                    }
+                }
+                throw error
+            }
             profiles = sortedProfiles(updated)
             selectedProfileID = profile.id
             isLoading = false

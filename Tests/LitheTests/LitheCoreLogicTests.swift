@@ -103,6 +103,46 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    @MainActor
+    func databaseRepeatedConnectionEditsPreserveTheSavedPasswordAndProfileID() async throws {
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            return ProcessResult(
+                output: #"{"id":"\#(id)","ok":true,"result":{"connected":true}}"#,
+                exitCode: 0
+            )
+        }
+        let preferences = DatabaseTestKeyValueStore()
+        let secrets = DatabaseTestSecureStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: secrets)
+        let operations = DatabaseSidecarService(
+            processRunner: runner,
+            executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")
+        )
+        let feature = DatabaseFeatureModel(operations: operations, connectionStore: store)
+        let profile = DatabaseProfile(name: "Local Redis", kind: .redis, port: 6379)
+
+        #expect(await feature.add(profile, password: "1234"))
+        var firstRename = profile
+        firstRename.name = "Renamed Redis"
+        #expect(await feature.update(firstRename, password: nil))
+        var secondRename = firstRename
+        secondRename.name = "Renamed Again"
+        #expect(await feature.update(secondRename, password: nil))
+
+        #expect(feature.profiles.first?.id == profile.id)
+        #expect(feature.profiles.first?.name == "Renamed Again")
+        #expect(store.password(for: profile.id) == "1234")
+        #expect(runner.requests.count == 3)
+        for request in runner.requests {
+            let payload = String(decoding: try #require(request.standardInput), as: UTF8.self)
+            #expect(payload.contains(#""password":"1234""#))
+        }
+    }
+
+    @Test
     func databaseDBXImportMapsConnectionsFoldersAndUnsupportedTypes() throws {
         let data = Data(dbxPlainConnectionExport.utf8)
         let duplicate = DatabaseProfile(name: "Production MySQL", kind: .mysql, host: "db.example.com", port: 3306)

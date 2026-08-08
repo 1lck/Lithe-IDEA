@@ -18,6 +18,7 @@ struct DatabaseSidebarView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showsConnectionEditor = false
     @State private var editingProfile: DatabaseProfile?
+    @State private var connectionEditorPresentationID = UUID()
     @State private var searchText = ""
     /// Folders start expanded, while this set records the user's explicit
     /// collapsed state. Keeping the negative state avoids refreshes reopening
@@ -73,7 +74,7 @@ struct DatabaseSidebarView: View {
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 Spacer()
-                Button { editingProfile = nil; newConnectionFolderID = nil; showsConnectionEditor = true } label: { Image(systemName: "plus") }
+                Button { presentConnectionEditor() } label: { Image(systemName: "plus") }
                     .litheIconButton().help("Add database connection")
                 Button { editingFolder = nil; creatingFolderParentID = nil; showsFolderEditor = true } label: { Image(systemName: "folder.badge.plus") }
                     .litheIconButton().help("New Folder")
@@ -182,6 +183,7 @@ struct DatabaseSidebarView: View {
         }
         .sheet(isPresented: $showsConnectionEditor) {
             DatabaseConnectionEditor(isPresented: $showsConnectionEditor, profile: editingProfile, defaultFolderID: newConnectionFolderID)
+                .id(connectionEditorPresentationID)
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
         }
@@ -283,9 +285,7 @@ struct DatabaseSidebarView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button {
-                editingProfile = nil
-                newConnectionFolderID = nil
-                showsConnectionEditor = true
+                presentConnectionEditor()
             } label: {
                 Label("Add database connection", systemImage: "plus")
             }
@@ -409,9 +409,7 @@ struct DatabaseSidebarView: View {
                     else { collapsedFolderIDs.remove(folder.id) }
                 }
                 Button("New Connection") {
-                    editingProfile = nil
-                    newConnectionFolderID = folder.id
-                    showsConnectionEditor = true
+                    presentConnectionEditor(defaultFolderID: folder.id)
                 }
                 Button("New Subfolder") {
                     editingFolder = nil
@@ -796,9 +794,7 @@ struct DatabaseSidebarView: View {
         Divider()
         Button("Copy Name") { copyToPasteboard(profile.name) }
         Button("Edit Connection") {
-            editingProfile = profile
-            newConnectionFolderID = nil
-            showsConnectionEditor = true
+            presentConnectionEditor(profile: profile)
         }
         Menu("Move to Folder") {
             Button("Move to root") { model.databaseFeature.move(profile, toFolder: nil) }
@@ -904,9 +900,7 @@ struct DatabaseSidebarView: View {
     private func redisDatabaseContextMenu(_ profile: DatabaseProfile) -> some View {
         Button("Refresh Keys") { refresh(profile) }
         Button("Set Database Alias") {
-            editingProfile = profile
-            newConnectionFolderID = nil
-            showsConnectionEditor = true
+            presentConnectionEditor(profile: profile)
         }
         Button("Clear Current Redis DB", role: .destructive) {
             pendingRedisProfile = profile
@@ -920,10 +914,18 @@ struct DatabaseSidebarView: View {
         Button("Refresh") { refresh(profile) }
         Button("Copy Name") { copyToPasteboard(profile.name) }
         Button("Edit Namespace") {
-            editingProfile = profile
-            newConnectionFolderID = nil
-            showsConnectionEditor = true
+            presentConnectionEditor(profile: profile)
         }
+    }
+
+    private func presentConnectionEditor(
+        profile: DatabaseProfile? = nil,
+        defaultFolderID: UUID? = nil
+    ) {
+        editingProfile = profile
+        newConnectionFolderID = defaultFolderID
+        connectionEditorPresentationID = UUID()
+        showsConnectionEditor = true
     }
 
     @ViewBuilder
@@ -1653,6 +1655,7 @@ struct DatabaseConnectionEditor: View {
     @State private var safetyExpanded = false
     @State private var networkExpanded = false
     @State private var usesSSHTunnel = false
+    @State private var hasSavedPassword = false
 
     private let profile: DatabaseProfile?
 
@@ -1722,7 +1725,12 @@ struct DatabaseConnectionEditor: View {
                     TextField(kind == .mongodb ? "Host or MongoDB URI" : "Host", text: $host)
                     TextField("Port", text: $port)
                     TextField(kind == .nacos || kind == .mongodb ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"), text: $username)
-                    SecureField(profile == nil ? "Password" : "Password (leave blank to keep current)", text: $password)
+                    SecureField(
+                        profile == nil
+                            ? "Password"
+                            : (hasSavedPassword ? "Password (leave blank to keep current)" : "Password (no saved password)"),
+                        text: $password
+                    )
                     if kind == .redis {
                         TextField("Redis database index", text: $database)
                         Text("Leave the database index at 0 for the standard Redis database.")
@@ -1800,6 +1808,11 @@ struct DatabaseConnectionEditor: View {
             case .mongodb: port = "27017"; username = ""; database = "admin"; path = ""
             case .redis: port = "6379"; username = ""; database = "0"; path = ""
             case .nacos: port = "8848"; username = "nacos"; database = ""; path = "/nacos"
+            }
+        }
+        .onAppear {
+            if let profile {
+                hasSavedPassword = model.databaseFeature.hasSavedPassword(for: profile)
             }
         }
         .frame(width: 500, height: kind == .sqlite ? 640 : (kind.supportsDataGrid ? 750 : 710)).background(LitheTheme.raised)

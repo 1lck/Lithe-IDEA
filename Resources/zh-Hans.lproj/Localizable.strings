@@ -767,6 +767,7 @@
 "Username" = "用户名";
 "Password" = "密码";
 "Password (leave blank to keep current)" = "密码（留空则保留当前密码）";
+"Password (no saved password)" = "密码（当前没有已保存的密码）";
 "Use TLS" = "使用 TLS";
 "Safety" = "安全";
 "Advanced network" = "高级网络设置";

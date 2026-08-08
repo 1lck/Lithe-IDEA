@@ -167,7 +167,7 @@ final class AppModel: ObservableObject, Identifiable {
         )
         databaseFeature = DatabaseFeatureModel(
             operations: services.databaseOperations,
-            connectionStore: DatabaseConnectionStore(store: services.store, secureStore: services.secureStore)
+            connectionStore: DatabaseConnectionStore(store: services.store, secureStore: services.databaseSecureStore)
         )
         javaFeature.configureRuntime(
             mavenFeature: mavenFeature,

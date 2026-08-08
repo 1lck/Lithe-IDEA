@@ -125,6 +125,7 @@
 "Unsupported" = "Unsupported";
 "Folders" = "Folders";
 "Passwords decrypted" = "Passwords decrypted";
+"Password (no saved password)" = "Password (no saved password)";
 "Unsupported DBX database types" = "Unsupported DBX database types";
 "Duplicate" = "Duplicate";
 "Review" = "Review";
