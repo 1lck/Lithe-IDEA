@@ -770,14 +770,25 @@ private struct DatabaseStructureView: View {
                                         .foregroundStyle(LitheTheme.secondaryText)
                                 }
                                 Spacer()
-                                Menu {
-                                    Button("Rename Column…") { editor = .renameColumn(column) }
-                                    Button("Drop Column", role: .destructive) {
+                                HStack(spacing: 2) {
+                                    Button {
+                                        editor = .renameColumn(column)
+                                    } label: {
+                                        Image(systemName: "pencil")
+                                    }
+                                    .litheIconButton()
+                                    .help("Rename Column…")
+
+                                    Button(role: .destructive) {
                                         pendingChange = DatabaseSchemaChange(operation: "dropColumn", table: table, name: column)
                                         showsDestructiveConfirmation = true
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .foregroundStyle(LitheTheme.error)
                                     }
-                                } label: { Image(systemName: "ellipsis.circle") }
-                                .menuStyle(.borderlessButton).frame(width: 28)
+                                    .litheIconButton()
+                                    .help("Drop Column")
+                                }
                             }
                         }
                     }
