@@ -319,6 +319,20 @@ struct CommitMessageSettingsTests {
     }
 
     @Test
+    func editorTabLayoutModePersistsAndDefaultsToSingleLine() {
+        let store = InMemoryKeyValueStore()
+        let initialSettings = AppSettings(store: store)
+        #expect(initialSettings.editorTabLayoutMode == .singleLine)
+
+        initialSettings.editorTabLayoutMode = .multipleRows
+        let reloadedSettings = AppSettings(store: store)
+        #expect(reloadedSettings.editorTabLayoutMode == .multipleRows)
+
+        reloadedSettings.restoreDefaults()
+        #expect(reloadedSettings.editorTabLayoutMode == .singleLine)
+    }
+
+    @Test
     func importingCodexStoresOnlyTheCodexSourceReferenceInSettings() throws {
         let store = InMemoryKeyValueStore()
         let settings = AppSettings(store: store)

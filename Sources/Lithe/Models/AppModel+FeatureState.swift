@@ -9,6 +9,14 @@ extension AppModel {
         get { documentFeature.activeDocumentID }
         set { documentFeature.activeDocumentID = newValue }
     }
+
+    func moveOpenDocument(_ documentID: UUID, before targetDocumentID: UUID) {
+        documentFeature.moveDocument(documentID, before: targetDocumentID)
+    }
+
+    func moveOpenDocument(_ documentID: UUID, after targetDocumentID: UUID) {
+        documentFeature.moveDocument(documentID, after: targetDocumentID)
+    }
     var pendingCloseDocument: EditorDocument? { documentFeature.pendingCloseDocument }
     var isPendingProjectClose: Bool { documentFeature.isPendingProjectClose }
 

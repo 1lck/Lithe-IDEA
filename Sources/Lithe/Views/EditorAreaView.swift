@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum MarkdownViewMode: String, CaseIterable, Identifiable, Equatable {
     case editor
@@ -26,7 +27,9 @@ private enum MarkdownViewMode: String, CaseIterable, Identifiable, Equatable {
 
 struct EditorAreaView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
     @State private var hoveredTabID: UUID?
+    @State private var draggedTabID: UUID?
     @State private var splitDocumentID: UUID?
     @State private var markdownViewModes: [UUID: MarkdownViewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
@@ -97,73 +100,151 @@ struct EditorAreaView: View {
     }
 
     private var editorTabs: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-                    ForEach(Array(model.openDocuments.enumerated()), id: \.element.id) { index, document in
-                        HStack(spacing: 0) {
-                            Button {
-                                model.activeDocumentID = document.id
-                            } label: {
-                                HStack(spacing: 7) {
-                                    LitheIcon(
-                                        kind: LitheIcons.kind(for: document.url, isDirectory: false),
-                                        size: 13
-                                    )
-                                    Text(document.displayName)
-                                        .font(.system(size: 12.5))
-                                        .lineLimit(1)
-                                    if document.isDirty {
-                                        Circle()
-                                            .fill(LitheTheme.primaryText)
-                                            .frame(width: 6, height: 6)
-                                    }
-                                }
-                                .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                                .padding(.leading, 11)
-                                .frame(height: LitheTheme.Metrics.tabHeight)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .lithePointer()
-
-                            Button {
-                                model.requestCloseDocument(document)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .semibold))
-                            }
-                            .litheIconButton()
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .opacity(model.activeDocumentID == document.id || hoveredTabID == document.id ? 1 : 0)
-                            .allowsHitTesting(model.activeDocumentID == document.id || hoveredTabID == document.id)
-                            .padding(.trailing, 4)
-                        }
-                        .background(model.activeDocumentID == document.id ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
-                        .overlay(alignment: .bottom) {
-                            if model.activeDocumentID == document.id {
-                                Rectangle().fill(LitheTheme.accent).frame(height: 2)
-                            }
-                        }
-                        .contextMenu {
-                            editorTabContextMenu(for: document, at: index)
-                        }
-                        .onHover { isHovering in
-                            hoveredTabID = isHovering ? document.id : nil
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-
+        HStack(alignment: .top, spacing: 0) {
+            editorTabLayout
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let document = model.activeDocument,
                isMarkdownFile(document),
                splitDocumentID == nil {
                 markdownModePicker
             }
         }
-        .frame(height: LitheTheme.Metrics.tabHeight)
+        .frame(minHeight: LitheTheme.Metrics.tabHeight, alignment: .top)
         .background(LitheTheme.sidebar)
+    }
+
+    @ViewBuilder
+    private var editorTabLayout: some View {
+        switch settings.editorTabLayoutMode {
+        case .singleLine:
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    editorTabItems
+                }
+            }
+            .frame(height: LitheTheme.Metrics.tabHeight)
+        case .multipleRows:
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 180, maximum: 280), spacing: 1)
+                ],
+                alignment: .leading,
+                spacing: 1
+            ) {
+                editorTabItems
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var editorTabItems: some View {
+        ForEach(Array(model.openDocuments.enumerated()), id: \.element.id) { index, document in
+            editorTab(document, at: index)
+        }
+    }
+
+    private func editorTab(_ document: EditorDocument, at index: Int) -> some View {
+        Group {
+            if settings.editorTabLayoutMode == .multipleRows {
+                editorTabContent(document)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                editorTabContent(document)
+            }
+        }
+        .contextMenu {
+            editorTabContextMenu(for: document, at: index)
+        }
+        .onHover { isHovering in
+            hoveredTabID = isHovering ? document.id : nil
+        }
+        .onDrag {
+            draggedTabID = document.id
+            return NSItemProvider(object: document.id.uuidString as NSString)
+        }
+        .overlay {
+            GeometryReader { geometry in
+                Color.clear
+                    .onDrop(
+                        of: [UTType.text],
+                        delegate: EditorTabDropDelegate(
+                            draggedDocumentID: draggedTabID,
+                            targetDocumentID: document.id,
+                            targetWidth: geometry.size.width,
+                            move: { source, target, insertAfter in
+                                if insertAfter {
+                                    model.moveOpenDocument(source, after: target)
+                                } else {
+                                    model.moveOpenDocument(source, before: target)
+                                }
+                            },
+                            finish: {
+                                draggedTabID = nil
+                            }
+                        )
+                    )
+            }
+        }
+    }
+
+    private func editorTabContent(_ document: EditorDocument) -> some View {
+        HStack(spacing: 0) {
+            Button {
+                model.activeDocumentID = document.id
+            } label: {
+                HStack(spacing: 7) {
+                    LitheIcon(
+                        kind: LitheIcons.kind(for: document.url, isDirectory: false),
+                        size: 13
+                    )
+                    editorTabTitle(document)
+                    if document.isDirty {
+                        Circle()
+                            .fill(LitheTheme.primaryText)
+                            .frame(width: 6, height: 6)
+                    }
+                }
+                .foregroundStyle(model.activeDocumentID == document.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                .padding(.leading, 11)
+                .frame(height: LitheTheme.Metrics.tabHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+
+            Button {
+                model.requestCloseDocument(document)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .litheIconButton()
+            .foregroundStyle(LitheTheme.secondaryText)
+            .opacity(model.activeDocumentID == document.id || hoveredTabID == document.id ? 1 : 0)
+            .allowsHitTesting(model.activeDocumentID == document.id || hoveredTabID == document.id)
+            .padding(.trailing, 4)
+        }
+        .background(model.activeDocumentID == document.id ? LitheTheme.activeTabBackground : LitheTheme.inactiveTabBackground)
+        .overlay(alignment: .bottom) {
+            if model.activeDocumentID == document.id {
+                Rectangle().fill(LitheTheme.accent).frame(height: 2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func editorTabTitle(_ document: EditorDocument) -> some View {
+        if settings.editorTabLayoutMode == .multipleRows {
+            Text(document.displayName)
+                .font(.system(size: 12.5))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 240, alignment: .leading)
+        } else {
+            Text(document.displayName)
+                .font(.system(size: 12.5))
+                .lineLimit(1)
+        }
     }
 
     private var markdownModePicker: some View {
@@ -448,4 +529,36 @@ struct EditorAreaView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+}
+
+private struct EditorTabDropDelegate: DropDelegate {
+    let draggedDocumentID: UUID?
+    let targetDocumentID: UUID
+    let targetWidth: CGFloat
+    let move: (UUID, UUID, Bool) -> Void
+    let finish: () -> Void
+
+    func dropEntered(info: DropInfo) {
+        moveIfNeeded(using: info)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        moveIfNeeded(using: info)
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        finish()
+        return true
+    }
+
+    private func moveIfNeeded(using info: DropInfo) {
+        guard let draggedDocumentID,
+              draggedDocumentID != targetDocumentID else { return }
+        move(
+            draggedDocumentID,
+            targetDocumentID,
+            targetWidth > 0 && info.location.x > targetWidth / 2
+        )
+    }
 }

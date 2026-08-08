@@ -207,6 +207,7 @@ final class AppModel: ObservableObject, Identifiable {
                         }
                     }
                 }
+                self.documentFeature.reorderDocuments(orderedPaths: paths)
                 if let activePath = session.activePath,
                    let document = self.openDocuments.first(where: {
                        $0.url.standardizedFileURL.path == activePath
