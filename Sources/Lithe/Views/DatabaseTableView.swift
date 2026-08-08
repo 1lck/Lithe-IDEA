@@ -13,9 +13,11 @@ struct DatabaseTableView: View {
     @State private var exportFormat = DatabaseTransferFormat.csv
     @State private var showsExporter = false
     @State private var showsImporter = false
-    @State private var filterColumn = ""
-    @State private var filterText = ""
+    @State private var filterConditions: [DatabaseTableFilterDraft] = [.init()]
+    @State private var showsFilterPopover = false
     @State private var sort: [DatabaseSort] = []
+    @State private var jumpTargetColumn: String?
+    @State private var rowDetailsIndex: Int?
     @State private var pasteAnchor: CellKey?
     @State private var showsReplaceSheet = false
     @State private var replaceColumn = ""
@@ -26,10 +28,10 @@ struct DatabaseTableView: View {
     @State private var pendingImportFormat: DatabaseTransferFormat?
     @State private var showsProtectedImportConfirmation = false
     @State private var showsProtectedTableChangeConfirmation = false
-    @FocusState private var isFilterFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
+            if !model.databaseFeature.openTableTabs.isEmpty { tableTabs }
             toolbar
             if model.databaseFeature.selectedTable != nil { filterBar }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -42,7 +44,16 @@ struct DatabaseTableView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: model.databaseFeature.selectedTable) { _, _ in discard() }
+        .onChange(of: model.databaseFeature.selectedTable) { _, _ in
+            discard()
+            sort = []
+            filterConditions = [.init()]
+        }
+        .onChange(of: model.databaseFeature.columns) { _, columns in
+            if filterConditions.count == 1, filterConditions[0].column.isEmpty {
+                filterConditions[0].column = columns.first ?? ""
+            }
+        }
         .sheet(isPresented: $showsReplaceSheet) {
             DatabaseReplaceSheet(
                 columns: model.databaseFeature.columns,
@@ -53,6 +64,20 @@ struct DatabaseTableView: View {
             )
             .environment(\.locale, model.settings.language.locale)
             .id(model.settings.language)
+        }
+        .sheet(isPresented: Binding(
+            get: { rowDetailsIndex != nil },
+            set: { if !$0 { rowDetailsIndex = nil } }
+        )) {
+            if let rowDetailsIndex, model.databaseFeature.rows.indices.contains(rowDetailsIndex) {
+                DatabaseRowDetailsSheet(
+                    rowNumber: rowDetailsIndex + 1,
+                    columns: model.databaseFeature.columns,
+                    row: model.databaseFeature.rows[rowDetailsIndex]
+                )
+                .environment(\.locale, model.settings.language.locale)
+                .id(model.settings.language)
+            }
         }
         .fileExporter(isPresented: $showsExporter, document: exportDocument, contentType: exportFormat.contentType, defaultFilename: exportFilename) { result in
             if case let .failure(error) = result { model.databaseFeature.errorMessage = error.localizedDescription }
@@ -91,6 +116,45 @@ struct DatabaseTableView: View {
         }
     }
 
+    private var tableTabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(model.databaseFeature.openTableTabs, id: \.self) { table in
+                    HStack(spacing: 7) {
+                        Image(systemName: "tablecells")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(model.databaseFeature.selectedTable == table ? LitheTheme.accent : LitheTheme.secondaryText)
+                        Button(table) { Task { await model.databaseFeature.openTable(table) } }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 11, weight: .medium))
+                        Button {
+                            let wasSelected = model.databaseFeature.selectedTable == table
+                            if let next = model.databaseFeature.closeTableTab(table), wasSelected {
+                                Task { await model.databaseFeature.openTable(next) }
+                            }
+                        } label: {
+                            Image(systemName: "xmark").font(.system(size: 8.5, weight: .semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Close table")
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(height: 30)
+                    .background(model.databaseFeature.selectedTable == table ? LitheTheme.accent.opacity(0.12) : LitheTheme.inputBackground.opacity(0.55))
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(model.databaseFeature.selectedTable == table ? LitheTheme.accent.opacity(0.55) : LitheTheme.panelBorder, lineWidth: 1)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+        }
+        .frame(height: 40)
+        .background(LitheTheme.toolHeader)
+    }
+
     private var toolbar: some View {
         HStack(spacing: 8) {
             HStack(spacing: 7) {
@@ -118,71 +182,67 @@ struct DatabaseTableView: View {
                 }
             }
             Spacer()
-            toolbarGroup {
-                Button { insertedRows.append([:]) } label: { Image(systemName: "plus") }.litheIconButton().help("Add row")
-                    .disabled(model.databaseFeature.selectedTable == nil)
-                Button { markSelectedForDeletion() } label: { Image(systemName: "trash") }.litheIconButton().help("Delete selected rows")
-                    .disabled(selectedRows.isEmpty)
-                Menu {
-                    Button { pasteFromClipboard() } label: { Label("Paste TSV from Clipboard", systemImage: "doc.on.clipboard") }
-                        .disabled(model.databaseFeature.selectedTable == nil)
-                    Button { showsReplaceSheet = true } label: { Label("Replace in Current Page…", systemImage: "arrow.triangle.2.circlepath") }
-                        .disabled(model.databaseFeature.rows.isEmpty)
-                } label: { Image(systemName: "doc.on.clipboard") }
-                    .menuStyle(.borderlessButton).frame(width: 28).help("Batch paste or replace table values")
-            }
-            toolbarGroup {
-                Button { discard() } label: { Image(systemName: "arrow.uturn.backward") }.litheIconButton().help("Discard changes")
-                    .disabled(!hasChanges)
-                Button { apply() } label: { Image(systemName: "checkmark") }.litheIconButton().help("Apply changes")
-                    .disabled(!hasChanges || model.databaseFeature.isLoading)
-            }
-            toolbarGroup {
-                Button { if let table = model.databaseFeature.selectedTable { Task { await model.databaseFeature.openTable(table) } } } label: { Image(systemName: "arrow.clockwise") }.litheIconButton().help("Refresh table")
-                Menu {
-                    Section("Columns") {
-                        ForEach(model.databaseFeature.columns, id: \.self) { Text($0) }
-                    }
-                    Section("Indexes (\(model.databaseFeature.indexes.count))") {
-                        if model.databaseFeature.indexes.isEmpty { Text("None") }
-                        ForEach(Array(model.databaseFeature.indexes.enumerated()), id: \.offset) { _, row in Text(metadataLabel(row)) }
-                    }
-                    Section("Foreign Keys (\(model.databaseFeature.foreignKeys.count))") {
-                        if model.databaseFeature.foreignKeys.isEmpty { Text("None") }
-                        ForEach(Array(model.databaseFeature.foreignKeys.enumerated()), id: \.offset) { _, row in Text(metadataLabel(row)) }
-                    }
-                } label: { Image(systemName: "info.circle") }
-                    .menuStyle(.borderlessButton).frame(width: 28).help("Table structure, indexes, and foreign keys")
-                    .disabled(model.databaseFeature.selectedTable == nil)
-                Menu {
-                    Button("Import CSV…") { importFormat = .csv; showsImporter = true }
-                    Button("Import JSON…") { importFormat = .json; showsImporter = true }
-                    Button("Restore SQL Backup…") { importFormat = .sql; showsImporter = true }
-                    Divider()
-                    Button("Export Table as CSV…") { export(.csv) }
-                    Button("Export Table as JSON…") { export(.json) }
-                    Button("Back Up Database as SQL…") { export(.sql) }
-                } label: { Image(systemName: "square.and.arrow.up.on.square") }
-                    .menuStyle(.borderlessButton).frame(width: 28).help("Import or export database data")
-            }
+            Button { showsFilterPopover.toggle() } label: { Label("Field Filter", systemImage: "rectangle.3.group") }
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5, weight: .medium))
+            Button { model.databaseFeature.workspaceSection = .structure } label: { Label("Table Properties", systemImage: "tablecells") }
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5, weight: .medium))
+            Menu {
+                Button("Import CSV…") { importFormat = .csv; showsImporter = true }
+                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                Button("Import JSON…") { importFormat = .json; showsImporter = true }
+                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                Button("Restore SQL Backup…") { importFormat = .sql; showsImporter = true }
+                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                Divider()
+                Button("Export Table as CSV…") { export(.csv) }
+                Button("Export Table as JSON…") { export(.json) }
+                Button("Back Up Database as SQL…") { export(.sql) }
+            } label: { Label("Data Tools", systemImage: "shippingbox") }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            Menu {
+                Button("Paste TSV from Clipboard") { pasteFromClipboard() }
+                Button("Replace in Current Page…") { showsReplaceSheet = true }
+                    .disabled(model.databaseFeature.rows.isEmpty)
+            } label: { Image(systemName: "wrench.and.screwdriver") }
+                .menuStyle(.borderlessButton).frame(width: 26).help("Batch table tools")
         }
         .padding(.horizontal, 12).frame(height: 44).foregroundStyle(LitheTheme.primaryText).background(LitheTheme.toolHeader)
     }
 
     private var filterBar: some View {
-        HStack(spacing: 5) {
-            Picker("", selection: $filterColumn) {
-                Text("Column").tag("")
-                ForEach(model.databaseFeature.columns, id: \.self) { Text($0).tag($0) }
-            }.labelsHidden().frame(width: 120)
-            TextField("Filter rows", text: $filterText)
-                .textFieldStyle(.plain)
-                .focused($isFilterFocused)
-                .litheSearchField(isFocused: isFilterFocused)
-                .frame(maxWidth: 240)
-                .onSubmit { applyFilter() }
-            Button { applyFilter() } label: { Image(systemName: "line.3.horizontal.decrease") }.litheIconButton().help("Apply filter")
-            Button { clearFilter() } label: { Image(systemName: "xmark") }.litheIconButton().help("Clear filter").disabled(filterText.isEmpty && sort.isEmpty)
+        HStack(spacing: 7) {
+            Button { showsFilterPopover.toggle() } label: {
+                Label(activeFilters.isEmpty ? "Filter" : "Filters: \(activeFilters.count)", systemImage: "line.3.horizontal.decrease")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .popover(isPresented: $showsFilterPopover, arrowEdge: .bottom) { filterPopover }
+            Button { refreshTable() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+            Menu {
+                ForEach(model.databaseFeature.columns, id: \.self) { column in
+                    Button(column) { jumpTargetColumn = column }
+                }
+            } label: { Label("Jump to Column", systemImage: "rectangle.split.3x1") }
+                .menuStyle(.borderlessButton).fixedSize()
+            Menu {
+                Button("Copy Selected Rows as TSV") { copySelectedRowsAsTSV() }
+                    .disabled(selectedRows.isEmpty)
+                Button("Paste TSV from Clipboard") { pasteFromClipboard() }
+            } label: { Text("TSV") }
+                .menuStyle(.borderlessButton).frame(width: 52)
+            Button { insertedRows.append([:]) } label: { Label("Add Row", systemImage: "plus") }
+                .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+            Button { apply() } label: { Label("Apply", systemImage: "checkmark") }
+                .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                .disabled(!hasChanges || model.databaseFeature.isLoading || model.databaseFeature.selectedProfile?.readOnly == true)
+            Button { discard() } label: { Label("Discard", systemImage: "arrow.uturn.backward") }
+                .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                .disabled(!hasChanges)
             Spacer()
             Button { previousPage() } label: { Image(systemName: "chevron.left") }.litheIconButton().help("Previous page").disabled(model.databaseFeature.currentOffset == 0)
             Text(pageLabel).font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1).frame(minWidth: 90)
@@ -190,6 +250,48 @@ struct DatabaseTableView: View {
                 .disabled(model.databaseFeature.currentOffset + model.databaseFeature.rows.count >= model.databaseFeature.totalRows)
         }
         .padding(.horizontal, 12).frame(height: 38).background(LitheTheme.toolHeader.opacity(0.92))
+    }
+
+    private var filterPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Filter").font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Button { filterConditions.append(.init(column: model.databaseFeature.columns.first ?? "")) } label: {
+                    Label("Add Condition", systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+            }
+            ForEach($filterConditions) { $condition in
+                HStack(spacing: 8) {
+                    Picker("Column", selection: $condition.column) {
+                        ForEach(model.databaseFeature.columns, id: \.self) { Text($0).tag($0) }
+                    }
+                    .frame(width: 150)
+                    Picker("Operator", selection: $condition.operator) {
+                        ForEach(DatabaseFilterOperator.allCases, id: \.self) { op in Text(op.title).tag(op) }
+                    }
+                    .frame(width: 130)
+                    TextField("Value", text: $condition.value)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 170)
+                        .disabled(condition.operator == .isNull || condition.operator == .isNotNull)
+                    Button(role: .destructive) { filterConditions.removeAll { $0.id == condition.id } } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack {
+                Button("Clear Filters") { clearFilter() }
+                Spacer()
+                Button("Reset Conditions") { filterConditions = [.init(column: model.databaseFeature.columns.first ?? "")] }
+                Button("Apply Filter") { applyFilter(); showsFilterPopover = false }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
+        .frame(width: 600)
     }
 
     private func toolbarGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -205,24 +307,36 @@ struct DatabaseTableView: View {
 
     private var grid: some View {
         GeometryReader { geometry in
-            ScrollView([.horizontal, .vertical]) {
-                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    Section {
-                        ForEach(Array(model.databaseFeature.rows.enumerated()), id: \.offset) { index, row in
-                            rowView(index: index, row: row, isInserted: false)
-                                .opacity(deletedRows.contains(index) ? 0.42 : 1)
-                        }
-                        ForEach(Array(insertedRows.enumerated()), id: \.offset) { index, row in
-                            insertedRowView(index: index, row: row)
-                        }
-                    } header: { header }
+            let width = columnWidth(availableWidth: geometry.size.width)
+            ScrollViewReader { proxy in
+                ScrollView([.horizontal, .vertical]) {
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        Section {
+                            ForEach(Array(model.databaseFeature.rows.enumerated()), id: \.offset) { index, row in
+                                rowView(index: index, row: row, columnWidth: width)
+                                    .opacity(deletedRows.contains(index) ? 0.42 : 1)
+                            }
+                            ForEach(Array(insertedRows.enumerated()), id: \.offset) { index, row in
+                                insertedRowView(index: index, row: row, columnWidth: width)
+                            }
+                        } header: { header(columnWidth: width) }
+                    }
+                    .frame(
+                        minWidth: max(geometry.size.width, CGFloat(model.databaseFeature.columns.count) * width + 42),
+                        minHeight: geometry.size.height,
+                        alignment: .topLeading
+                    )
                 }
-                .frame(minWidth: max(geometry.size.width, CGFloat(model.databaseFeature.columns.count) * 160 + 42), alignment: .topLeading)
+                .onChange(of: jumpTargetColumn) { _, column in
+                    guard let column else { return }
+                    withAnimation { proxy.scrollTo("column-\(column)", anchor: .center) }
+                    jumpTargetColumn = nil
+                }
             }
         }
     }
 
-    private var header: some View {
+    private func header(columnWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
             Text("#").frame(width: 42)
             ForEach(model.databaseFeature.columns, id: \.self) { column in
@@ -230,38 +344,39 @@ struct DatabaseTableView: View {
                     HStack(spacing: 4) {
                         Text(column).lineLimit(1)
                         if let selected = sort.first, selected.column == column { Image(systemName: selected.descending ? "arrow.down" : "arrow.up").font(.system(size: 8)) }
-                    }.font(.system(size: 11.5, weight: .semibold)).padding(.horizontal, 7).frame(width: 160, height: 29, alignment: .leading)
+                    }.font(.system(size: 11.5, weight: .semibold)).padding(.horizontal, 7).frame(width: columnWidth, height: 32, alignment: .leading)
                 }.buttonStyle(.plain)
+                    .id("column-\(column)")
                     .overlay(alignment: .trailing) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
             }
         }.foregroundStyle(LitheTheme.secondaryText).background(LitheTheme.raised)
     }
 
-    private func rowView(index: Int, row: DatabaseRow, isInserted: Bool) -> some View {
+    private func rowView(index: Int, row: DatabaseRow, columnWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
             Button { toggleSelection(index) } label: { Text("\(index + 1)").frame(width: 42, height: 27) }
                 .buttonStyle(.plain).background(selectedRows.contains(index) ? LitheTheme.selection : LitheTheme.toolHeader)
             ForEach(model.databaseFeature.columns, id: \.self) { column in
                 TextField("NULL", text: binding(row: index, column: column, original: row[column]))
                     .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
-                    .frame(width: 160, height: 27).background(drafts[CellKey(row: index, column: column)] == nil ? Color.clear : LitheTheme.warning.opacity(0.12))
+                    .frame(width: columnWidth, height: 29).background(drafts[CellKey(row: index, column: column)] == nil ? Color.clear : LitheTheme.warning.opacity(0.12))
                     .overlay(alignment: .trailing) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
                     .onTapGesture { pasteAnchor = CellKey(row: index, column: column) }
-                    .contextMenu {
-                        Button("Set NULL") { setNull(row: index, column: column) }
-                        Button("Revert Cell") { drafts.removeValue(forKey: CellKey(row: index, column: column)) }
-                    }
+                    .contextMenu { rowContextMenu(index: index) }
             }
-        }.overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
+        }
+        .contentShape(Rectangle())
+        .contextMenu { rowContextMenu(index: index) }
+        .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
     }
 
-    private func insertedRowView(index: Int, row: DatabaseRow) -> some View {
+    private func insertedRowView(index: Int, row: DatabaseRow, columnWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
             Image(systemName: "plus").frame(width: 42, height: 27).background(LitheTheme.success.opacity(0.12))
             ForEach(model.databaseFeature.columns, id: \.self) { column in
                 TextField("Default", text: insertedBinding(row: index, column: column))
                     .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
-                    .frame(width: 160, height: 27).background(LitheTheme.success.opacity(0.08))
+                    .frame(width: columnWidth, height: 29).background(LitheTheme.success.opacity(0.08))
                     .overlay(alignment: .trailing) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
                     .contextMenu {
                         Button("Set NULL") { insertedRows[index][column] = .null }
@@ -269,6 +384,22 @@ struct DatabaseTableView: View {
                     }
             }
         }.overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
+    }
+
+    @ViewBuilder
+    private func rowContextMenu(index: Int) -> some View {
+        Button("Row Details") { rowDetailsIndex = index }
+        Divider()
+        Button("Delete Row", role: .destructive) {
+            deletedRows.insert(index)
+            selectedRows.remove(index)
+        }
+        .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+    }
+
+    private func columnWidth(availableWidth: CGFloat) -> CGFloat {
+        guard !model.databaseFeature.columns.isEmpty else { return 160 }
+        return max(140, floor((availableWidth - 42) / CGFloat(model.databaseFeature.columns.count)))
     }
 
     private var hasChanges: Bool { !drafts.isEmpty || !insertedRows.isEmpty || !deletedRows.isEmpty }
@@ -331,15 +462,29 @@ struct DatabaseTableView: View {
     }
 
     private var activeFilters: [DatabaseFilter] {
-        guard !filterColumn.isEmpty, !filterText.isEmpty else { return [] }
-        return [DatabaseFilter(column: filterColumn, operator: .contains, value: .string(filterText))]
+        filterConditions.compactMap { condition in
+            guard !condition.column.isEmpty else { return nil }
+            let needsValue = condition.operator != .isNull && condition.operator != .isNotNull
+            guard !needsValue || !condition.value.isEmpty else { return nil }
+            return DatabaseFilter(
+                column: condition.column,
+                operator: condition.operator,
+                value: needsValue ? .string(condition.value) : .null
+            )
+        }
     }
     private var pageLabel: String {
         guard model.databaseFeature.totalRows > 0 else { return "0 / 0" }
         return "\(model.databaseFeature.currentOffset + 1)-\(model.databaseFeature.currentOffset + model.databaseFeature.rows.count) / \(model.databaseFeature.totalRows)"
     }
     private func applyFilter() { Task { await model.databaseFeature.loadPage(filters: activeFilters, sort: sort, offset: 0); discard() } }
-    private func clearFilter() { filterText = ""; filterColumn = ""; sort = []; applyFilter() }
+    private func clearFilter() { filterConditions = [.init(column: model.databaseFeature.columns.first ?? "")]; sort = []; applyFilter() }
+    private func refreshTable() {
+        Task {
+            await model.databaseFeature.loadPage(filters: activeFilters, sort: sort, offset: model.databaseFeature.currentOffset)
+            discard()
+        }
+    }
     private func toggleSort(_ column: String) {
         if let current = sort.first, current.column == column { sort = current.descending ? [] : [DatabaseSort(column: column, descending: true)] }
         else { sort = [DatabaseSort(column: column)] }
@@ -372,6 +517,17 @@ struct DatabaseTableView: View {
                 }
             }
         }
+    }
+
+    private func copySelectedRowsAsTSV() {
+        let indexes = selectedRows.sorted().filter(model.databaseFeature.rows.indices.contains)
+        guard !indexes.isEmpty else { return }
+        let columns = model.databaseFeature.columns
+        let text = indexes.map { index in
+            columns.map { display(model.databaseFeature.rows[index][$0]) }.joined(separator: "\t")
+        }.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func replaceCurrentPage() {
@@ -522,6 +678,82 @@ private struct DatabaseTableEmptyState: View {
 }
 
 private struct CellKey: Hashable { let row: Int; let column: String }
+
+private struct DatabaseTableFilterDraft: Identifiable {
+    let id = UUID()
+    var column = ""
+    var `operator`: DatabaseFilterOperator = .contains
+    var value = ""
+}
+
+private extension DatabaseFilterOperator {
+    var title: LocalizedStringKey {
+        switch self {
+        case .equals: "Equals"
+        case .notEquals: "Not Equals"
+        case .greaterThan: "Greater Than"
+        case .lessThan: "Less Than"
+        case .contains: "Contains"
+        case .startsWith: "Starts With"
+        case .isNull: "Is NULL"
+        case .isNotNull: "Is Not NULL"
+        }
+    }
+}
+
+private struct DatabaseRowDetailsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let rowNumber: Int
+    let columns: [String]
+    let row: DatabaseRow
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Image(systemName: "list.bullet.rectangle")
+                    .foregroundStyle(LitheTheme.accent)
+                Text("Row Details").font(.system(size: 14, weight: .semibold))
+                Text("#\(rowNumber)").foregroundStyle(LitheTheme.secondaryText)
+                Spacer()
+                Button("Close") { dismiss() }
+            }
+            .padding(16)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(columns, id: \.self) { column in
+                        HStack(alignment: .top, spacing: 14) {
+                            Text(column)
+                                .font(.system(size: 11, weight: .semibold))
+                                .frame(width: 150, alignment: .leading)
+                            Text(valueText(row[column]))
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(LitheTheme.editor)
+                        .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
+                    }
+                }
+            }
+        }
+        .frame(width: 620, height: 460)
+    }
+
+    private func valueText(_ value: DatabaseValue?) -> String {
+        switch value {
+        case nil, .null: "NULL"
+        case let .string(value): value
+        case let .integer(value): String(value)
+        case let .number(value): String(value)
+        case let .bool(value): value ? "true" : "false"
+        case let .object(value): String(describing: value)
+        case let .array(value): String(describing: value)
+        }
+    }
+}
 
 private struct DatabaseReplaceSheet: View {
     @Environment(\.dismiss) private var dismiss

@@ -24,6 +24,7 @@ final class DatabaseFeatureModel: ObservableObject {
     @Published var selectedProfileID: UUID?
     @Published private(set) var tables: [String] = []
     @Published var selectedTable: String?
+    @Published private(set) var openTableTabs: [String] = []
     @Published private(set) var columns: [String] = []
     @Published private(set) var columnTypes: [String: String] = [:]
     @Published private(set) var rows: [DatabaseRow] = []
@@ -130,7 +131,7 @@ final class DatabaseFeatureModel: ObservableObject {
             backupSchedules.removeAll { $0.profileID == profile.id }
             refreshBackupTimer()
             if selectedProfileID == profile.id {
-                selectedProfileID = nil; tables = []; selectedTable = nil; rows = []; sourceRows = []; indexes = []; foreignKeys = []; objects = [:]; lastExplainResult = nil; lastDiagnostics = nil
+                selectedProfileID = nil; tables = []; selectedTable = nil; openTableTabs = []; rows = []; sourceRows = []; indexes = []; foreignKeys = []; objects = [:]; lastExplainResult = nil; lastDiagnostics = nil
                 clearSpecializedWorkspace()
             }
         } catch { errorMessage = error.localizedDescription }
@@ -228,7 +229,7 @@ final class DatabaseFeatureModel: ObservableObject {
         setConnectionStatus(.idle, for: profile.id)
         if selectedProfileID == profile.id {
             selectedProfileID = nil
-            tables = []; selectedTable = nil; rows = []; sourceRows = []; columns = []; indexes = []; foreignKeys = []; objects = [:]
+            tables = []; selectedTable = nil; openTableTabs = []; rows = []; sourceRows = []; columns = []; indexes = []; foreignKeys = []; objects = [:]
             clearSpecializedWorkspace()
         }
     }
@@ -262,6 +263,7 @@ final class DatabaseFeatureModel: ObservableObject {
     }
 
     func select(_ profile: DatabaseProfile) async {
+        if selectedProfileID != profile.id { openTableTabs = [] }
         setConnectionStatus(.connecting, for: profile.id)
         selectedProfileID = profile.id; selectedTable = nil; rows = []; sourceRows = []; columns = []; indexes = []; foreignKeys = []; objects = [:]; lastExplainResult = nil; lastDiagnostics = nil
         clearSQLResults()
@@ -486,6 +488,7 @@ final class DatabaseFeatureModel: ObservableObject {
 
     func openTable(_ table: String) async {
         guard let profile = selectedProfile else { return }
+        if !openTableTabs.contains(table) { openTableTabs.append(table) }
         selectedTable = table; isLoading = true; errorMessage = nil
         do {
             let connection = connection(profile)
@@ -514,6 +517,18 @@ final class DatabaseFeatureModel: ObservableObject {
             currentOffset = 0
         } catch { errorMessage = error.localizedDescription }
         isLoading = false
+    }
+
+    @discardableResult
+    func closeTableTab(_ table: String) -> String? {
+        openTableTabs.removeAll { $0 == table }
+        guard selectedTable == table else { return selectedTable }
+        selectedTable = openTableTabs.last
+        if selectedTable == nil {
+            rows = []; sourceRows = []; columns = []; columnTypes = [:]
+            indexes = []; foreignKeys = []; totalRows = 0; currentOffset = 0
+        }
+        return selectedTable
     }
 
     func loadPage(filters: [DatabaseFilter], sort: [DatabaseSort], offset: Int) async {

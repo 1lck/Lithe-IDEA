@@ -43,7 +43,7 @@ struct DatabaseWorkspaceView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(width: 352)
+                .frame(width: 300)
 
                 Spacer()
 
@@ -91,10 +91,8 @@ struct DatabaseWorkspaceView: View {
                 DatabaseSQLWorkspaceView()
             case .structure:
                 DatabaseStructureView()
-            case .diagnostics:
-                DatabaseDiagnosticsView()
-            case .schemaDiff:
-                DatabaseSchemaDiffView()
+            case .history:
+                DatabaseHistoryView()
             }
         }
     }
@@ -364,8 +362,7 @@ enum DatabaseWorkspaceSection: String, CaseIterable, Identifiable, Sendable {
     case data
     case sql
     case structure
-    case diagnostics
-    case schemaDiff
+    case history
 
     var id: String { rawValue }
     var titleKey: LocalizedStringKey {
@@ -373,8 +370,7 @@ enum DatabaseWorkspaceSection: String, CaseIterable, Identifiable, Sendable {
         case .data: "Data"
         case .sql: "SQL"
         case .structure: "Structure"
-        case .diagnostics: "Diagnostics"
-        case .schemaDiff: "Schema Diff"
+        case .history: "History"
         }
     }
     var symbol: String {
@@ -382,8 +378,63 @@ enum DatabaseWorkspaceSection: String, CaseIterable, Identifiable, Sendable {
         case .data: "tablecells"
         case .sql: "terminal"
         case .structure: "list.bullet.rectangle"
-        case .diagnostics: "stethoscope"
-        case .schemaDiff: "arrow.left.arrow.right"
+        case .history: "clock.arrow.circlepath"
+        }
+    }
+}
+
+private struct DatabaseHistoryView: View {
+    @EnvironmentObject private var model: AppModel
+
+    private var entries: [DatabaseSQLHistoryEntry] {
+        guard let profileID = model.databaseFeature.selectedProfileID else { return [] }
+        return model.databaseFeature.sqlHistory.filter { $0.profileID == profileID }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .foregroundStyle(LitheTheme.accent)
+                Text("SQL History").font(.system(size: 12.5, weight: .semibold))
+                Spacer()
+                Text("\(entries.count) statements")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 42)
+            .background(LitheTheme.toolHeader)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            if entries.isEmpty {
+                ContentUnavailableView("No query history", systemImage: "clock.arrow.circlepath")
+            } else {
+                List(entries) { entry in
+                    Button {
+                        model.databaseFeature.restoreSQLHistory(entry)
+                        model.databaseFeature.workspaceSection = .sql
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "terminal").foregroundStyle(LitheTheme.accent)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
+                                    .font(.system(size: 11.5, design: .monospaced))
+                                    .lineLimit(2)
+                                Text(entry.executedAt, format: .dateTime.year().month().day().hour().minute().second())
+                                    .font(.system(size: 9.5))
+                                    .foregroundStyle(LitheTheme.tertiaryText)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .listStyle(.inset)
+            }
         }
     }
 }

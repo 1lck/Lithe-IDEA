@@ -252,7 +252,7 @@ struct DatabaseMutation: Codable, Equatable, Sendable {
     var key: DatabaseRow = [:]
 }
 
-enum DatabaseFilterOperator: String, Codable, Sendable { case equals, notEquals, greaterThan, lessThan, contains, startsWith, isNull, isNotNull }
+enum DatabaseFilterOperator: String, Codable, CaseIterable, Sendable { case equals, notEquals, greaterThan, lessThan, contains, startsWith, isNull, isNotNull }
 struct DatabaseFilter: Codable, Equatable, Sendable { let column: String; let `operator`: DatabaseFilterOperator; var value: DatabaseValue = .null }
 struct DatabaseSort: Codable, Equatable, Sendable { let column: String; var descending = false }
 struct DatabaseSQLExportOptions: Codable, Equatable, Sendable {
