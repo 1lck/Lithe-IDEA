@@ -20,6 +20,8 @@ struct DatabaseTableView: View {
     @State private var rowDetailsIndex: Int?
     @State private var pasteAnchor: CellKey?
     @State private var showsReplaceSheet = false
+    @State private var showsBatchUpdateSheet = false
+    @State private var showsBatchDeleteConfirmation = false
     @State private var replaceColumn = ""
     @State private var replaceText = ""
     @State private var replacementText = ""
@@ -65,6 +67,15 @@ struct DatabaseTableView: View {
             .environment(\.locale, model.settings.language.locale)
             .id(model.settings.language)
         }
+        .sheet(isPresented: $showsBatchUpdateSheet) {
+            DatabaseBatchUpdateSheet(
+                columns: model.databaseFeature.columns,
+                selectedCount: selectedRows.count,
+                onApply: applyBatchUpdate
+            )
+            .environment(\.locale, model.settings.language.locale)
+            .id(model.settings.language)
+        }
         .sheet(isPresented: Binding(
             get: { rowDetailsIndex != nil },
             set: { if !$0 { rowDetailsIndex = nil } }
@@ -87,6 +98,18 @@ struct DatabaseTableView: View {
         }
         .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.commaSeparatedText, .json, .sql]) { result in
             importFile(result)
+        }
+        .confirmationDialog(
+            "Delete selected rows?",
+            isPresented: $showsBatchDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Mark rows for deletion", role: .destructive) {
+                markSelectedForDeletion()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The selected rows will be marked for deletion. Choose Apply to commit this change.")
         }
         .confirmationDialog(
             "Confirm Database Import",
@@ -246,6 +269,28 @@ struct DatabaseTableView: View {
             Button { discard() } label: { Label("Discard", systemImage: "arrow.uturn.backward") }
                 .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
                 .disabled(!hasChanges)
+            if !selectedRows.isEmpty {
+                Rectangle()
+                    .fill(LitheTheme.divider)
+                    .frame(width: 1, height: 18)
+                Text("\(selectedRows.count) selected")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.accent)
+                    .monospacedDigit()
+                Button { showsBatchUpdateSheet = true } label: {
+                    Label("Batch Edit", systemImage: "square.and.pencil")
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5, weight: .medium))
+                .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                Button { showsBatchDeleteConfirmation = true } label: {
+                    Label("Delete Selected", systemImage: "trash")
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(LitheTheme.error)
+                .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+            }
             Spacer()
             Button { previousPage() } label: { Image(systemName: "chevron.left") }.litheIconButton().help("Previous page").disabled(model.databaseFeature.currentOffset == 0)
             Text(pageLabel).font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1).frame(minWidth: 90)
@@ -325,7 +370,7 @@ struct DatabaseTableView: View {
                         } header: { header(columnWidth: width) }
                     }
                     .frame(
-                        minWidth: max(geometry.size.width, CGFloat(model.databaseFeature.columns.count) * width + 42),
+                        minWidth: max(geometry.size.width, CGFloat(model.databaseFeature.columns.count) * width + selectionColumnWidth),
                         minHeight: geometry.size.height,
                         alignment: .topLeading
                     )
@@ -341,7 +386,18 @@ struct DatabaseTableView: View {
 
     private func header(columnWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
-            Text("#").frame(width: 42)
+            Button { toggleAllRows() } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: selectionSymbol)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(selectedRows.isEmpty ? LitheTheme.secondaryText : LitheTheme.accent)
+                    Text("#")
+                }
+                .frame(width: selectionColumnWidth, height: 32)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(allRowsSelected ? "Deselect all rows on this page" : "Select all rows on this page")
             ForEach(model.databaseFeature.columns, id: \.self) { column in
                 Button { toggleSort(column) } label: {
                     HStack(spacing: 4) {
@@ -357,8 +413,20 @@ struct DatabaseTableView: View {
 
     private func rowView(index: Int, row: DatabaseRow, columnWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
-            Button { toggleSelection(index) } label: { Text("\(index + 1)").frame(width: 42, height: 27) }
-                .buttonStyle(.plain).background(selectedRows.contains(index) ? LitheTheme.selection : LitheTheme.toolHeader)
+            Button { toggleSelection(index) } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: selectedRows.contains(index) ? "checkmark.square.fill" : "square")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(selectedRows.contains(index) ? LitheTheme.accent : LitheTheme.secondaryText)
+                    Text("\(index + 1)")
+                        .monospacedDigit()
+                }
+                .frame(width: selectionColumnWidth, height: 29)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(LitheTheme.toolHeader)
+            .disabled(deletedRows.contains(index))
             ForEach(model.databaseFeature.columns, id: \.self) { column in
                 TextField("NULL", text: binding(row: index, column: column, original: row[column]))
                     .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
@@ -368,6 +436,7 @@ struct DatabaseTableView: View {
                     .contextMenu { rowContextMenu(index: index) }
             }
         }
+        .background(selectedRows.contains(index) ? LitheTheme.selection.opacity(0.34) : Color.clear)
         .contentShape(Rectangle())
         .contextMenu { rowContextMenu(index: index) }
         .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
@@ -375,7 +444,7 @@ struct DatabaseTableView: View {
 
     private func insertedRowView(index: Int, row: DatabaseRow, columnWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
-            Image(systemName: "plus").frame(width: 42, height: 27).background(LitheTheme.success.opacity(0.12))
+            Image(systemName: "plus").frame(width: selectionColumnWidth, height: 29).background(LitheTheme.success.opacity(0.12))
             ForEach(model.databaseFeature.columns, id: \.self) { column in
                 TextField("Default", text: insertedBinding(row: index, column: column))
                     .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
@@ -402,11 +471,26 @@ struct DatabaseTableView: View {
 
     private func columnWidth(availableWidth: CGFloat) -> CGFloat {
         guard !model.databaseFeature.columns.isEmpty else { return 160 }
-        return max(140, floor((availableWidth - 42) / CGFloat(model.databaseFeature.columns.count)))
+        return max(140, floor((availableWidth - selectionColumnWidth) / CGFloat(model.databaseFeature.columns.count)))
     }
 
+    private var selectionColumnWidth: CGFloat { 64 }
+    private var selectableRowIndexes: Set<Int> {
+        Set(model.databaseFeature.rows.indices).subtracting(deletedRows)
+    }
+    private var allRowsSelected: Bool {
+        !selectableRowIndexes.isEmpty && selectedRows == selectableRowIndexes
+    }
+    private var selectionSymbol: String {
+        if selectedRows.isEmpty { return "square" }
+        return allRowsSelected ? "checkmark.square.fill" : "minus.square.fill"
+    }
     private var hasChanges: Bool { !drafts.isEmpty || !insertedRows.isEmpty || !deletedRows.isEmpty }
     private func toggleSelection(_ index: Int) { if selectedRows.contains(index) { selectedRows.remove(index) } else { selectedRows.insert(index) } }
+    private func toggleAllRows() {
+        if allRowsSelected { selectedRows = [] }
+        else { selectedRows = selectableRowIndexes }
+    }
     private func markSelectedForDeletion() { deletedRows.formUnion(selectedRows); selectedRows = [] }
     private func discard() { drafts = [:]; insertedRows = []; selectedRows = []; deletedRows = []; pasteAnchor = nil }
 
@@ -426,6 +510,18 @@ struct DatabaseTableView: View {
         let key = CellKey(row: row, column: column)
         if model.databaseFeature.rows[row][column] == .null { drafts.removeValue(forKey: key) }
         else { drafts[key] = .null }
+    }
+
+    private func applyBatchUpdate(column: String, value: String, setNull: Bool) {
+        for rowIndex in selectedRows where model.databaseFeature.rows.indices.contains(rowIndex) && !deletedRows.contains(rowIndex) {
+            let key = CellKey(row: rowIndex, column: column)
+            let newValue: DatabaseValue = setNull ? .null : .string(value)
+            if model.databaseFeature.rows[rowIndex][column] == newValue {
+                drafts.removeValue(forKey: key)
+            } else {
+                drafts[key] = newValue
+            }
+        }
     }
 
     private func apply() {
@@ -628,6 +724,89 @@ struct DatabaseTableView: View {
             return "Restoring a SQL backup replaces the current database objects and data. A recovery snapshot will be created first."
         }
         return "This connection has production protection enabled. Importing can change database data."
+    }
+}
+
+private struct DatabaseBatchUpdateSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let columns: [String]
+    let selectedCount: Int
+    let onApply: (String, String, Bool) -> Void
+
+    @State private var column = ""
+    @State private var value = ""
+    @State private var setNull = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 9) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(LitheTheme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Batch Edit Rows")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("\(selectedCount) selected")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 56)
+            .background(LitheTheme.toolHeader)
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Set one field for every selected row. The change remains pending until you choose Apply.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Column")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    Picker("Column", selection: $column) {
+                        ForEach(columns, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Value")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    TextField("New value", text: $value)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(setNull)
+                    Toggle("Set NULL", isOn: $setNull)
+                        .toggleStyle(.checkbox)
+                }
+            }
+            .padding(16)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Stage Batch Edit") {
+                    onApply(column, value, setNull)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(column.isEmpty || selectedCount == 0)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(LitheTheme.toolHeader)
+        }
+        .frame(width: 440)
+        .background(LitheTheme.editor)
+        .foregroundStyle(LitheTheme.primaryText)
+        .onAppear {
+            if column.isEmpty { column = columns.first ?? "" }
+        }
     }
 }
 
