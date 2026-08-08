@@ -104,69 +104,75 @@ private struct DatabaseDashboardView: View {
     private var profiles: [DatabaseProfile] { model.databaseFeature.profiles }
     private var databaseTypeCount: Int { Set(profiles.map(\.kind)).count }
     private var connectedCount: Int { model.databaseFeature.connectedProfileCount }
+    private let dashboardColumns = [
+        GridItem(.flexible(), spacing: 1),
+        GridItem(.flexible(), spacing: 1)
+    ]
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    metricCard(title: "Connections", value: profiles.count, symbol: "cylinder.split.1x2")
-                    metricCard(title: "Connected", value: connectedCount, symbol: "checkmark.shield")
-                    metricCard(title: "Database types", value: databaseTypeCount, symbol: "sparkles")
-                }
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            metricCard(title: "Connections", value: profiles.count, symbol: "cylinder.split.1x2")
+                            metricCard(title: "Connected", value: connectedCount, symbol: "checkmark.shield")
+                            metricCard(title: "Database types", value: databaseTypeCount, symbol: "sparkles")
+                        }
 
-                HStack(alignment: .top, spacing: 14) {
-                    dashboardSection(title: "Quick Start", symbol: "bolt") {
-                        if profiles.isEmpty {
-                            dashboardEmpty("No saved connections yet.")
-                        } else {
-                            ForEach(Array(profiles.prefix(5))) { profile in
-                                quickStartRow(profile)
-                                if profile.id != profiles.prefix(5).last?.id {
-                                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                        HStack(alignment: .top, spacing: 12) {
+                            dashboardSection(title: "Quick Start", symbol: "bolt") {
+                                quickStartContent
+                            }
+
+                            dashboardSection(title: "Common Actions", symbol: "wand.and.stars") {
+                                LazyVGrid(columns: dashboardColumns, spacing: 1) {
+                                    dashboardAction("New Connection", symbol: "plus") { showsConnectionEditor = true }
+                                    dashboardAction("New Query", symbol: "doc.badge.plus", isEnabled: !profiles.isEmpty) {
+                                        if let first = profiles.first { onNewQuery(first) }
+                                    }
+                                    dashboardAction("Browse Database", symbol: "tablecells", isEnabled: !profiles.isEmpty) {
+                                        if let first = profiles.first { onOpenConnection(first) }
+                                    }
+                                    dashboardAction("History", symbol: "clock.arrow.circlepath") {
+                                        withAnimation { proxy.scrollTo("recent-sql", anchor: .top) }
+                                    }
+                                }
+                                .background(LitheTheme.divider)
+                            }
+                            .frame(width: 270)
+                        }
+
+                        dashboardSection(
+                            title: "Recent SQL",
+                            symbol: "clock.arrow.circlepath",
+                            minHeight: max(160, geometry.size.height - 288)
+                        ) {
+                            if model.databaseFeature.sqlHistory.isEmpty {
+                                dashboardEmpty("No SQL history yet.")
+                            } else {
+                                ForEach(Array(model.databaseFeature.sqlHistory.prefix(8))) { entry in
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "terminal")
+                                            .foregroundStyle(LitheTheme.accent)
+                                        Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
+                                            .font(.system(size: 10.5, design: .monospaced))
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text(entry.executedAt, style: .relative)
+                                            .font(.system(size: 9.5))
+                                            .foregroundStyle(LitheTheme.tertiaryText)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 36)
                                 }
                             }
                         }
+                        .id("recent-sql")
                     }
-
-                    dashboardSection(title: "Common Actions", symbol: "wand.and.stars") {
-                        dashboardAction("New Connection", symbol: "plus") { showsConnectionEditor = true }
-                        if let first = profiles.first {
-                            dashboardAction("New Query", symbol: "doc.badge.plus") { onNewQuery(first) }
-                            dashboardAction("Browse Database", symbol: "tablecells") { onOpenConnection(first) }
-                        }
-                        dashboardAction("History", symbol: "clock.arrow.circlepath") {
-                            withAnimation { proxy.scrollTo("recent-sql", anchor: .top) }
-                        }
-                    }
-                    .frame(width: 270)
+                    .padding(16)
                 }
-
-                dashboardSection(title: "Recent SQL", symbol: "clock.arrow.circlepath") {
-                    if model.databaseFeature.sqlHistory.isEmpty {
-                        dashboardEmpty("No SQL history yet.")
-                    } else {
-                        ForEach(Array(model.databaseFeature.sqlHistory.prefix(5))) { entry in
-                            HStack(spacing: 10) {
-                                Image(systemName: "terminal")
-                                    .foregroundStyle(LitheTheme.accent)
-                                Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
-                                    .font(.system(size: 10.5, design: .monospaced))
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(entry.executedAt, style: .relative)
-                                    .font(.system(size: 9.5))
-                                    .foregroundStyle(LitheTheme.tertiaryText)
-                            }
-                            .padding(.horizontal, 12)
-                            .frame(height: 36)
-                        }
-                    }
-                }
-                .id("recent-sql")
             }
-            .padding(20)
-        }
         }
         .background(LitheTheme.editor)
         .sheet(isPresented: $showsConnectionEditor) {
@@ -174,6 +180,63 @@ private struct DatabaseDashboardView: View {
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
         }
+    }
+
+    @ViewBuilder
+    private var quickStartContent: some View {
+        if profiles.isEmpty {
+            VStack(spacing: 8) {
+                HStack(spacing: 7) {
+                    Image(systemName: "cylinder.split.1x2")
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                    Text("No saved connections yet.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                }
+                Button { showsConnectionEditor = true } label: {
+                    Label("New Connection", systemImage: "plus")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .padding(.horizontal, 11)
+                        .frame(height: 28)
+                        .background(LitheTheme.inputBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 97)
+        } else {
+            let quickProfiles = Array(profiles.prefix(2))
+            ForEach(quickProfiles) { profile in
+                quickStartRow(profile)
+                if profile.id != quickProfiles.last?.id || quickProfiles.count == 1 {
+                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                }
+            }
+            if quickProfiles.count == 1 {
+                quickStartAddConnectionRow
+            }
+        }
+    }
+
+    private var quickStartAddConnectionRow: some View {
+        Button { showsConnectionEditor = true } label: {
+            Label("New Connection", systemImage: "plus")
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .padding(.horizontal, 13)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 48)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .litheRowHover(cornerRadius: 0)
     }
 
     private func quickStartRow(_ profile: DatabaseProfile) -> some View {
@@ -236,7 +299,12 @@ private struct DatabaseDashboardView: View {
         .overlay { RoundedRectangle(cornerRadius: 9).stroke(LitheTheme.panelBorder, lineWidth: 1) }
     }
 
-    private func dashboardSection<Content: View>(title: LocalizedStringKey, symbol: String, @ViewBuilder content: () -> Content) -> some View {
+    private func dashboardSection<Content: View>(
+        title: LocalizedStringKey,
+        symbol: String,
+        minHeight: CGFloat? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Label(title, systemImage: symbol)
                 .font(.system(size: 11.5, weight: .semibold))
@@ -246,22 +314,30 @@ private struct DatabaseDashboardView: View {
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
         .background(LitheTheme.raised)
         .clipShape(RoundedRectangle(cornerRadius: 9))
         .overlay { RoundedRectangle(cornerRadius: 9).stroke(LitheTheme.panelBorder, lineWidth: 1) }
     }
 
-    private func dashboardAction(_ title: LocalizedStringKey, symbol: String, action: @escaping () -> Void) -> some View {
+    private func dashboardAction(
+        _ title: LocalizedStringKey,
+        symbol: String,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Label(title, systemImage: symbol)
                 .font(.system(size: 11))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 13)
-                .frame(height: 39)
+                .frame(height: 48)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.42)
+        .background(LitheTheme.raised)
         .lithePointer()
         .litheRowHover(cornerRadius: 0)
     }
