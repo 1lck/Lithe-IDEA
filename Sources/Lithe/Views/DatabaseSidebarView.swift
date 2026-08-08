@@ -10,8 +10,13 @@ struct DatabaseSidebarView: View {
     /// folders behind the user's back.
     @State private var collapsedFolderIDs: Set<UUID> = []
     @State private var collapsedObjectKinds: Set<DatabaseObjectKind> = []
+    @State private var expandedProfileIDs: Set<UUID> = []
+    @State private var collapsedDatabaseProfileIDs: Set<UUID> = []
+    @State private var expandedTableKey: String?
     @State private var targetedFolderID: UUID?
     @State private var isUnfiledDropTarget = false
+    @State private var kindFilter: DatabaseKind?
+    @State private var connectionSort = DatabaseConnectionSort.name
     @State private var showsFolderEditor = false
     @State private var editingFolder: DatabaseConnectionFolder?
     @State private var folderPendingDeletion: DatabaseConnectionFolder?
@@ -27,7 +32,7 @@ struct DatabaseSidebarView: View {
                     .background(LitheTheme.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Database").font(.system(size: 12.5, weight: .semibold))
+                    Text("Connections").font(.system(size: 12.5, weight: .semibold))
                     Text("Connections: \(model.databaseFeature.profiles.count)")
                         .font(.system(size: 9.5))
                         .foregroundStyle(LitheTheme.tertiaryText)
@@ -37,6 +42,8 @@ struct DatabaseSidebarView: View {
                     .litheIconButton().help("Add database connection")
                 Button { editingFolder = nil; showsFolderEditor = true } label: { Image(systemName: "folder.badge.plus") }
                     .litheIconButton().help("New Folder")
+                Button { collapseAll() } label: { Image(systemName: "rectangle.compress.vertical") }
+                    .litheIconButton().help("Collapse all")
                 Button { Task { await model.databaseFeature.refreshTables() } } label: { Image(systemName: "arrow.clockwise") }
                     .litheIconButton().help("Refresh database objects")
             }
@@ -60,6 +67,36 @@ struct DatabaseSidebarView: View {
                     .buttonStyle(.plain)
                     .help("Clear search")
                 }
+                Menu {
+                    Button("All database types") { kindFilter = nil }
+                    Divider()
+                    ForEach(DatabaseKind.allCases, id: \.self) { kind in
+                        Button {
+                            kindFilter = kind
+                        } label: {
+                            Label(kind.displayName, systemImage: kind.symbolName)
+                        }
+                    }
+                } label: {
+                    Image(systemName: kindFilter == nil ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 24)
+                .help("Filter database type")
+                Menu {
+                    Picker("Sort connections", selection: $connectionSort) {
+                        ForEach(DatabaseConnectionSort.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 10.5, weight: .medium))
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 24)
+                .help("Sort connections")
             }
             .padding(.horizontal, 9)
             .frame(height: 31)
@@ -74,9 +111,6 @@ struct DatabaseSidebarView: View {
                         emptyConnections
                     } else {
                         connectionTree
-                    }
-                    if let profile = model.databaseFeature.selectedProfile {
-                        databaseObjects(for: profile)
                     }
                 }.padding(5)
             }
@@ -103,6 +137,9 @@ struct DatabaseSidebarView: View {
             Button("Cancel", role: .cancel) { folderPendingDeletion = nil }
         } message: { _ in
             Text("Removing this folder keeps its connections and moves them to the root.")
+        }
+        .onChange(of: model.databaseFeature.selectedProfileID) { _, selectedID in
+            if let selectedID { expandedProfileIDs = [selectedID] }
         }
     }
 
@@ -168,7 +205,7 @@ struct DatabaseSidebarView: View {
             ForEach(rootProfiles) { profile in
                 profileRow(profile)
             }
-        } else if !searchQuery.isEmpty && !hasVisibleFolders {
+        } else if (!searchQuery.isEmpty || kindFilter != nil) && !hasVisibleFolders {
             VStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 13, weight: .medium))
@@ -269,67 +306,151 @@ struct DatabaseSidebarView: View {
     }
 
     private func profileRow(_ profile: DatabaseProfile, indent: CGFloat = 0) -> some View {
-        Button { Task { await model.databaseFeature.select(profile) } } label: {
-            HStack(spacing: 7) {
-                Image(systemName: profile.readOnly ? "lock.fill" : profile.kind.symbolName)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(profileColor(for: profile))
-                    .frame(width: 15)
-                Text(profile.name)
-                    .lineLimit(1)
-                    .font(.system(size: 11.5, weight: .medium))
-                if profile.productionProtection {
-                    Image(systemName: "shield.fill")
-                        .font(.system(size: 8))
-                        .foregroundStyle(LitheTheme.warning)
+        let isExpanded = expandedProfileIDs.contains(profile.id)
+        let isSelected = model.databaseFeature.selectedProfileID == profile.id
+
+        return VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 0) {
+                Button {
+                    toggleProfile(profile)
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .frame(width: 18, height: 30)
                 }
-                Spacer(minLength: 4)
-                Text(profile.kind.displayName)
-                    .lineLimit(1)
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-                Circle()
-                    .fill(model.databaseFeature.selectedProfileID == profile.id ? LitheTheme.accent : LitheTheme.tertiaryText.opacity(0.45))
-                    .frame(width: 5.5, height: 5.5)
-            }
-            .padding(.leading, 10 + indent)
-            .padding(.trailing, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 30)
-        }
-        .buttonStyle(.plain)
-        .lithePointer()
-        .litheRowHover(isActive: model.databaseFeature.selectedProfileID == profile.id, activeBackground: LitheTheme.subtleSelection)
-        .draggable(profile.id.uuidString)
-        .contextMenu {
-            Button("Edit Connection") {
-                editingProfile = profile
-                showsConnectionEditor = true
-            }
-            Menu("Move to Folder") {
-                Button("Move to root") {
-                    model.databaseFeature.move(profile, toFolder: nil)
+                .buttonStyle(.plain)
+                .lithePointer()
+
+                Button {
+                    selectProfile(profile, expand: true)
+                } label: {
+                    HStack(spacing: 7) {
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(profileColor(for: profile))
+                            .frame(width: 3, height: 18)
+                        Image(systemName: profile.kind.symbolName)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(profileColor(for: profile))
+                            .frame(width: 15)
+                        Text(profile.name)
+                            .lineLimit(1)
+                            .font(.system(size: 11.5, weight: .medium))
+                        if profile.readOnly {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 7.5))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        }
+                        if profile.productionProtection {
+                            Image(systemName: "shield.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(LitheTheme.warning)
+                        }
+                        Spacer(minLength: 4)
+                        Text(profile.kind.displayName)
+                            .lineLimit(1)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                        Circle()
+                            .fill(isSelected ? LitheTheme.success : LitheTheme.tertiaryText.opacity(0.42))
+                            .frame(width: 6, height: 6)
+                    }
+                    .padding(.trailing, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 30)
                 }
-                if !model.databaseFeature.folders.isEmpty {
-                    Divider()
-                    ForEach(model.databaseFeature.folders) { folder in
-                        Button(folder.name) {
-                            model.databaseFeature.move(profile, toFolder: folder.id)
+                .buttonStyle(.plain)
+                .lithePointer()
+            }
+            .padding(.leading, 4 + indent)
+            .litheRowHover(isActive: isSelected, activeBackground: profileColor(for: profile).opacity(0.12))
+            .draggable(profile.id.uuidString)
+            .contextMenu {
+                Button("Edit Connection") {
+                    editingProfile = profile
+                    showsConnectionEditor = true
+                }
+                Menu("Move to Folder") {
+                    Button("Move to root") {
+                        model.databaseFeature.move(profile, toFolder: nil)
+                    }
+                    if !model.databaseFeature.folders.isEmpty {
+                        Divider()
+                        ForEach(model.databaseFeature.folders) { folder in
+                            Button(folder.name) {
+                                model.databaseFeature.move(profile, toFolder: folder.id)
+                            }
                         }
                     }
                 }
+                Divider()
+                Button("Remove Connection", role: .destructive) {
+                    model.databaseFeature.remove(profile)
+                }
             }
-            Divider()
-            Button("Remove Connection", role: .destructive) {
-                model.databaseFeature.remove(profile)
+
+            if isExpanded, isSelected {
+                profileObjectTree(profile, indent: indent + 24)
             }
         }
     }
 
     @ViewBuilder
-    private func databaseObjects(for profile: DatabaseProfile) -> some View {
+    private func profileObjectTree(_ profile: DatabaseProfile, indent: CGFloat) -> some View {
         if profile.kind.isSQLDatabase {
-            objectSectionHeader(kind: .tables, title: profile.database.isEmpty ? "Tables" : profile.database, count: model.databaseFeature.tables.count)
+            let databaseExpanded = !collapsedDatabaseProfileIDs.contains(profile.id)
+            Button {
+                if databaseExpanded { collapsedDatabaseProfileIDs.insert(profile.id) }
+                else { collapsedDatabaseProfileIDs.remove(profile.id) }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: databaseExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .frame(width: 12)
+                    Image(systemName: "cylinder")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(LitheTheme.warning)
+                    Group {
+                        if profile.database.isEmpty {
+                            Text("Default database")
+                        } else {
+                            Text(verbatim: profile.database)
+                        }
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                    Spacer()
+                }
+                .padding(.leading, indent)
+                .padding(.trailing, 8)
+                .frame(height: 27)
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .litheRowHover()
+
+            if databaseExpanded {
+                databaseObjects(for: profile, indent: indent + 18)
+            }
+        } else if profile.kind == .redis {
+            sidebarLeaf(
+                title: "Redis database",
+                detail: profile.database.isEmpty ? "0" : profile.database,
+                symbol: "square.stack.3d.up",
+                count: model.databaseFeature.redisKeys.count,
+                indent: indent
+            )
+        } else {
+            sidebarLeaf(title: "Configurations", symbol: "doc.text", count: model.databaseFeature.nacosConfigs.count, indent: indent)
+            sidebarLeaf(title: "Services", symbol: "network", count: model.databaseFeature.nacosServices.count, indent: indent)
+        }
+    }
+
+    @ViewBuilder
+    private func databaseObjects(for profile: DatabaseProfile, indent: CGFloat) -> some View {
+        if profile.kind.isSQLDatabase {
+            objectSectionHeader(kind: .tables, title: "Tables", count: model.databaseFeature.tables.count, indent: indent)
             if !collapsedObjectKinds.contains(.tables), model.databaseFeature.tables.isEmpty && !model.databaseFeature.isLoading {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("No tables yet")
@@ -343,26 +464,58 @@ struct DatabaseSidebarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(LitheTheme.inputBackground.opacity(0.55))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
-                .padding(.horizontal, 6)
+                .padding(.leading, indent + 18)
+                .padding(.trailing, 6)
                 .padding(.top, 6)
             }
             if !collapsedObjectKinds.contains(.tables) {
                 ForEach(model.databaseFeature.tables, id: \.self) { table in
+                    let tableKey = "\(profile.id.uuidString)|\(table)"
+                    let isExpanded = expandedTableKey == tableKey
                     Button {
-                        // Set selection before starting the async fetch so the
-                        // main pane leaves the empty state immediately.
+                        expandedTableKey = isExpanded ? nil : tableKey
                         model.databaseFeature.selectedTable = table
                         Task { await model.databaseFeature.openTable(table) }
                     } label: {
-                        Label(table, systemImage: "tablecells")
+                        HStack(spacing: 6) {
+                            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .foregroundStyle(LitheTheme.tertiaryText)
+                                .frame(width: 12)
+                            Image(systemName: "tablecells")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(LitheTheme.success)
+                                .frame(width: 14)
+                            Text(table)
+                                .font(.system(size: 10.8, weight: .medium))
+                                .lineLimit(1)
+                            Spacer()
+                        }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, 20)
+                            .padding(.leading, indent + 14)
                             .padding(.trailing, 8)
-                            .frame(height: 25)
+                            .frame(height: 26)
                     }
                     .buttonStyle(.plain)
                     .lithePointer()
                     .litheRowHover(isActive: model.databaseFeature.selectedTable == table)
+
+                    if isExpanded, model.databaseFeature.selectedTable == table {
+                        if model.databaseFeature.isLoading {
+                            HStack(spacing: 7) {
+                                ProgressView().controlSize(.mini)
+                                Text("Loading table metadata…")
+                                    .font(.system(size: 9.5))
+                                    .foregroundStyle(LitheTheme.tertiaryText)
+                            }
+                            .padding(.leading, indent + 48)
+                            .frame(height: 24)
+                        } else {
+                            sidebarLeaf(title: "Columns", symbol: "list.bullet.indent", count: model.databaseFeature.columns.count, indent: indent + 36, tint: LitheTheme.success)
+                            sidebarLeaf(title: "Indexes", symbol: "key", count: model.databaseFeature.indexes.count, indent: indent + 36, tint: LitheTheme.warning)
+                            sidebarLeaf(title: "Foreign Keys", symbol: "link", count: model.databaseFeature.foreignKeys.count, indent: indent + 36, tint: LitheTheme.accent)
+                        }
+                    }
                 }
             }
             ForEach(DatabaseObjectKind.allCases.filter { $0 != .tables }, id: \.self) { kind in
@@ -390,14 +543,14 @@ struct DatabaseSidebarView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                     }
-                    .padding(.leading, 12)
+                    .padding(.leading, indent + 10)
                     .padding(.top, 2)
                 }
             }
         }
     }
 
-    private func objectSectionHeader(kind: DatabaseObjectKind, title: String, count: Int) -> some View {
+    private func objectSectionHeader(kind: DatabaseObjectKind, title: LocalizedStringKey, count: Int, indent: CGFloat) -> some View {
         Button {
             if collapsedObjectKinds.contains(kind) { collapsedObjectKinds.remove(kind) }
             else { collapsedObjectKinds.insert(kind) }
@@ -420,12 +573,45 @@ struct DatabaseSidebarView: View {
             .font(.system(size: 10.5, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText)
             .padding(.vertical, 5)
-            .padding(.horizontal, 8)
+            .padding(.leading, indent)
+            .padding(.trailing, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
         .lithePointer()
         .litheRowHover()
+    }
+
+    private func sidebarLeaf(
+        title: LocalizedStringKey,
+        detail: String? = nil,
+        symbol: String,
+        count: Int,
+        indent: CGFloat,
+        tint: Color = LitheTheme.secondaryText
+    ) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: symbol)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 14)
+            Text(title)
+                .font(.system(size: 10.5))
+                .lineLimit(1)
+            if let detail {
+                Text(verbatim: detail)
+                    .font(.system(size: 10.5))
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text("\(count)")
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.tertiaryText)
+        }
+        .padding(.leading, indent)
+        .padding(.trailing, 9)
+        .frame(height: 24)
+        .foregroundStyle(LitheTheme.secondaryText)
     }
 
     private func moveDroppedProfile(_ items: [String], to folderID: UUID?) -> Bool {
@@ -439,17 +625,38 @@ struct DatabaseSidebarView: View {
         return true
     }
 
+    private func selectProfile(_ profile: DatabaseProfile, expand: Bool) {
+        if expand { expandedProfileIDs = [profile.id] }
+        Task { await model.databaseFeature.select(profile) }
+    }
+
+    private func toggleProfile(_ profile: DatabaseProfile) {
+        if expandedProfileIDs.contains(profile.id) {
+            expandedProfileIDs.remove(profile.id)
+        } else {
+            expandedProfileIDs.insert(profile.id)
+            selectProfile(profile, expand: true)
+        }
+    }
+
+    private func collapseAll() {
+        collapsedFolderIDs = Set(model.databaseFeature.folders.map(\.id))
+        expandedProfileIDs.removeAll()
+        collapsedObjectKinds = Set(DatabaseObjectKind.allCases)
+        expandedTableKey = nil
+    }
+
     private var searchQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private var unfiledProfiles: [DatabaseProfile] {
-        model.databaseFeature.profiles.filter { profile in
+        sorted(model.databaseFeature.profiles.filter { profile in
             guard profile.folderID == nil || !model.databaseFeature.folders.contains(where: { $0.id == profile.folderID }) else {
                 return false
             }
             return profileMatchesSearch(profile)
-        }
+        })
     }
 
     private func allProfiles(in folder: DatabaseConnectionFolder) -> [DatabaseProfile] {
@@ -458,21 +665,47 @@ struct DatabaseSidebarView: View {
 
     private func visibleProfiles(in folder: DatabaseConnectionFolder) -> [DatabaseProfile] {
         let profiles = allProfiles(in: folder)
-        guard !searchQuery.isEmpty else { return profiles }
-        if folder.name.lowercased().contains(searchQuery) { return profiles }
-        return profiles.filter(profileMatchesSearch)
+        if searchQuery.isEmpty { return sorted(profiles.filter(profileMatchesSearch)) }
+        if folder.name.lowercased().contains(searchQuery) { return sorted(profiles.filter(matchesKindFilter)) }
+        return sorted(profiles.filter(profileMatchesSearch))
     }
 
     private func isFolderVisible(_ folder: DatabaseConnectionFolder) -> Bool {
-        searchQuery.isEmpty || folder.name.lowercased().contains(searchQuery) || !visibleProfiles(in: folder).isEmpty
+        (searchQuery.isEmpty && kindFilter == nil) || folder.name.lowercased().contains(searchQuery) || !visibleProfiles(in: folder).isEmpty
     }
 
     private func profileMatchesSearch(_ profile: DatabaseProfile) -> Bool {
+        guard matchesKindFilter(profile) else { return false }
         guard !searchQuery.isEmpty else { return true }
         let searchableText = [profile.name, profile.kind.displayName, profile.host, profile.database, profile.path]
             .joined(separator: " ")
             .lowercased()
         return searchableText.contains(searchQuery)
+    }
+
+    private func matchesKindFilter(_ profile: DatabaseProfile) -> Bool {
+        kindFilter == nil || profile.kind == kindFilter
+    }
+
+    private func sorted(_ profiles: [DatabaseProfile]) -> [DatabaseProfile] {
+        profiles.sorted { lhs, rhs in
+            switch connectionSort {
+            case .name:
+                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            case .databaseType:
+                if lhs.kind.displayName == rhs.kind.displayName {
+                    lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                } else {
+                    lhs.kind.displayName < rhs.kind.displayName
+                }
+            case .host:
+                if lhs.host == rhs.host {
+                    lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                } else {
+                    lhs.host.localizedCaseInsensitiveCompare(rhs.host) == .orderedAscending
+                }
+            }
+        }
     }
 
     private func profileColor(for profile: DatabaseProfile) -> Color {
@@ -487,6 +720,22 @@ struct DatabaseSidebarView: View {
             guard let value = row[key] else { return nil }
             return "\(key): \(String(describing: value))"
         }.joined(separator: "  ")
+    }
+}
+
+private enum DatabaseConnectionSort: String, CaseIterable, Identifiable {
+    case name
+    case databaseType
+    case host
+
+    var id: String { rawValue }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .name: "Name"
+        case .databaseType: "Database type"
+        case .host: "Host"
+        }
     }
 }
 
@@ -534,7 +783,7 @@ private extension DatabaseKind {
     }
 }
 
-private extension Color {
+extension Color {
     init(hex: String) {
         let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var value: UInt64 = 0
@@ -627,7 +876,7 @@ private struct DatabaseFolderEditor: View {
     }
 }
 
-private struct DatabaseConnectionEditor: View {
+struct DatabaseConnectionEditor: View {
     @EnvironmentObject private var model: AppModel
     @Binding var isPresented: Bool
     @State private var name = ""

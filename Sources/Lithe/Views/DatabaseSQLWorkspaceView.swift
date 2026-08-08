@@ -7,7 +7,17 @@ struct DatabaseWorkspaceView: View {
 
     var body: some View {
         Group {
-            if model.databaseFeature.selectedProfile?.kind == .redis {
+            if model.databaseFeature.selectedProfile == nil {
+                DatabaseDashboardView(
+                    onOpenConnection: { profile in
+                        Task { await model.databaseFeature.select(profile) }
+                    },
+                    onNewQuery: { profile in
+                        section = .sql
+                        Task { await model.databaseFeature.select(profile) }
+                    }
+                )
+            } else if model.databaseFeature.selectedProfile?.kind == .redis {
                 RedisWorkspaceView()
             } else if model.databaseFeature.selectedProfile?.kind == .nacos {
                 NacosWorkspaceView()
@@ -82,6 +92,166 @@ struct DatabaseWorkspaceView: View {
                 DatabaseSchemaDiffView()
             }
         }
+    }
+}
+
+private struct DatabaseDashboardView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var showsConnectionEditor = false
+    let onOpenConnection: (DatabaseProfile) -> Void
+    let onNewQuery: (DatabaseProfile) -> Void
+
+    private var profiles: [DatabaseProfile] { model.databaseFeature.profiles }
+    private var databaseTypeCount: Int { Set(profiles.map(\.kind)).count }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    metricCard(title: "Connections", value: profiles.count, symbol: "cylinder.split.1x2")
+                    metricCard(title: "Folders", value: model.databaseFeature.folders.count, symbol: "folder")
+                    metricCard(title: "Database types", value: databaseTypeCount, symbol: "sparkles")
+                }
+
+                HStack(alignment: .top, spacing: 14) {
+                    dashboardSection(title: "Quick Start", symbol: "bolt") {
+                        if profiles.isEmpty {
+                            dashboardEmpty("No saved connections yet.")
+                        } else {
+                            ForEach(Array(profiles.prefix(5))) { profile in
+                                Button { onOpenConnection(profile) } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: profile.kind.symbolName)
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(profile.colorHex.isEmpty ? LitheTheme.accent : Color(hex: profile.colorHex))
+                                            .frame(width: 18)
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(profile.colorHex.isEmpty ? LitheTheme.accent : Color(hex: profile.colorHex))
+                                            .frame(width: 3, height: 28)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(profile.name)
+                                                .font(.system(size: 11.5, weight: .semibold))
+                                            Text(connectionSubtitle(profile))
+                                                .font(.system(size: 9.5))
+                                                .foregroundStyle(LitheTheme.tertiaryText)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundStyle(LitheTheme.tertiaryText)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 48)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .lithePointer()
+                                .litheRowHover(cornerRadius: 0)
+                                if profile.id != profiles.prefix(5).last?.id {
+                                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                                }
+                            }
+                        }
+                    }
+
+                    dashboardSection(title: "Common Actions", symbol: "wand.and.stars") {
+                        dashboardAction("New Connection", symbol: "plus") { showsConnectionEditor = true }
+                        if let first = profiles.first {
+                            dashboardAction("New Query", symbol: "doc.badge.plus") { onNewQuery(first) }
+                            dashboardAction("Browse Database", symbol: "tablecells") { onOpenConnection(first) }
+                        }
+                    }
+                    .frame(width: 270)
+                }
+
+                dashboardSection(title: "Recent SQL", symbol: "clock.arrow.circlepath") {
+                    if model.databaseFeature.sqlHistory.isEmpty {
+                        dashboardEmpty("No SQL history yet.")
+                    } else {
+                        ForEach(Array(model.databaseFeature.sqlHistory.prefix(5))) { entry in
+                            HStack(spacing: 10) {
+                                Image(systemName: "terminal")
+                                    .foregroundStyle(LitheTheme.accent)
+                                Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(entry.executedAt, style: .relative)
+                                    .font(.system(size: 9.5))
+                                    .foregroundStyle(LitheTheme.tertiaryText)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 36)
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .background(LitheTheme.editor)
+        .sheet(isPresented: $showsConnectionEditor) {
+            DatabaseConnectionEditor(isPresented: $showsConnectionEditor)
+                .environment(\.locale, model.settings.language.locale)
+                .id(model.settings.language)
+        }
+    }
+
+    private func metricCard(title: LocalizedStringKey, value: Int, symbol: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(LitheTheme.secondaryText)
+            Text("\(value)")
+                .font(.system(size: 25, weight: .semibold, design: .rounded))
+                .foregroundStyle(LitheTheme.primaryText)
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LitheTheme.raised)
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .overlay { RoundedRectangle(cornerRadius: 9).stroke(LitheTheme.panelBorder, lineWidth: 1) }
+    }
+
+    private func dashboardSection<Content: View>(title: LocalizedStringKey, symbol: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 11.5, weight: .semibold))
+                .padding(.horizontal, 13)
+                .frame(height: 40)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(LitheTheme.raised)
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .overlay { RoundedRectangle(cornerRadius: 9).stroke(LitheTheme.panelBorder, lineWidth: 1) }
+    }
+
+    private func dashboardAction(_ title: LocalizedStringKey, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 11))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 13)
+                .frame(height: 39)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .litheRowHover(cornerRadius: 0)
+    }
+
+    private func dashboardEmpty(_ message: LocalizedStringKey) -> some View {
+        Text(message)
+            .font(.system(size: 10.5))
+            .foregroundStyle(LitheTheme.tertiaryText)
+            .padding(16)
+    }
+
+    private func connectionSubtitle(_ profile: DatabaseProfile) -> String {
+        if profile.kind == .sqlite { return "SQLite · \(URL(fileURLWithPath: profile.path).lastPathComponent)" }
+        return "\(profile.kind.displayName) · \(profile.host):\(profile.port)"
     }
 }
 

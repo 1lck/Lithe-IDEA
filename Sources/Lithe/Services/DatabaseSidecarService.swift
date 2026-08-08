@@ -1,6 +1,6 @@
 import Foundation
 
-enum DatabaseKind: String, Codable, Sendable {
+enum DatabaseKind: String, Codable, CaseIterable, Sendable {
     case mysql
     case postgresql
     case sqlite
