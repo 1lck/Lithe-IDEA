@@ -723,6 +723,8 @@
 "Add database connection" = "添加数据库连接";
 "Connections: %lld" = "连接数：%lld";
 "Refresh database objects" = "刷新数据库对象";
+"Refresh connection structure" = "刷新连接结构";
+"Refresh table data" = "刷新表数据";
 "New Folder" = "新建文件夹";
 "New Subfolder" = "新建子文件夹";
 "Rename Folder" = "重命名文件夹";

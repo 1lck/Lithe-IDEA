@@ -76,8 +76,10 @@ struct DatabaseSidebarView: View {
                     .litheIconButton().help("New Folder")
                 Button { collapseAll() } label: { Image(systemName: "rectangle.compress.vertical") }
                     .litheIconButton().help("Collapse all")
-                Button { Task { await model.databaseFeature.refreshTables() } } label: { Image(systemName: "arrow.clockwise") }
-                    .litheIconButton().help("Refresh database objects")
+                Button { refreshSelectedConnection() } label: { Image(systemName: "arrow.triangle.2.circlepath") }
+                    .litheIconButton()
+                    .help("Refresh connection structure")
+                    .disabled(model.databaseFeature.selectedProfile == nil)
             }
             .foregroundStyle(LitheTheme.primaryText).padding(.leading, 10).padding(.trailing, 5)
             .frame(height: 42)
@@ -787,6 +789,11 @@ struct DatabaseSidebarView: View {
             else if profile.kind == .redis { await model.databaseFeature.loadRedisKeys(pattern: "") }
             else { await model.databaseFeature.loadNacosConfigs(dataId: "", group: ""); await model.databaseFeature.loadNacosServices(serviceName: "", group: "") }
         }
+    }
+
+    private func refreshSelectedConnection() {
+        guard let profile = model.databaseFeature.selectedProfile else { return }
+        refresh(profile)
     }
 
     private func openSQLQuery(_ profile: DatabaseProfile, sql: String = "") {

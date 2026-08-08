@@ -223,7 +223,7 @@ struct DatabaseTableView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .popover(isPresented: $showsFilterPopover, arrowEdge: .bottom) { filterPopover }
-            Button { refreshTable() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+            Button { refreshTable() } label: { Label("Refresh table data", systemImage: "arrow.clockwise") }
                 .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
             Menu {
                 ForEach(model.databaseFeature.columns, id: \.self) { column in

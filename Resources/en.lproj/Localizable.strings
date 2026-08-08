@@ -13,6 +13,8 @@
 "Copy Name" = "Copy Name";
 "Duplicate Connection" = "Duplicate Connection";
 "Refresh" = "Refresh";
+"Refresh connection structure" = "Refresh connection structure";
+"Refresh table data" = "Refresh table data";
 "Move to root" = "Move to root";
 "Advanced network" = "Advanced network";
 "Use SSH tunnel" = "Use SSH tunnel";
