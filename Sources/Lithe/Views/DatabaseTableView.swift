@@ -14,8 +14,12 @@ struct DatabaseTableView: View {
     @State private var showsExporter = false
     @State private var showsImporter = false
     @State private var filterConditions: [DatabaseTableFilterDraft] = [.init()]
+    @State private var filterJoin = DatabaseFilterJoin.and
+    @State private var appliedFilters: [DatabaseFilter] = []
     @State private var showsFilterPopover = false
-    @State private var sort: [DatabaseSort] = []
+    @State private var sortConditions: [DatabaseTableSortDraft] = []
+    @State private var appliedSort: [DatabaseSort] = []
+    @State private var showsSortPopover = false
     @State private var jumpTargetColumn: String?
     @State private var rowDetailsIndex: Int?
     @State private var pasteAnchor: CellKey?
@@ -34,7 +38,10 @@ struct DatabaseTableView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            if model.databaseFeature.selectedTable != nil { filterBar }
+            if model.databaseFeature.selectedTable != nil {
+                queryClauseBar
+                dataActionBar
+            }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             if model.databaseFeature.selectedTable == nil {
                 DatabaseTableEmptyState(hasConnection: model.databaseFeature.selectedProfile != nil)
@@ -47,7 +54,10 @@ struct DatabaseTableView: View {
         .background(LitheTheme.editor)
         .onChange(of: model.databaseFeature.selectedTable) { _, _ in
             discard()
-            sort = []
+            appliedFilters = []
+            appliedSort = []
+            sortConditions = []
+            filterJoin = .and
             filterConditions = [.init()]
         }
         .onChange(of: model.databaseFeature.columns) { _, columns in
@@ -140,29 +150,16 @@ struct DatabaseTableView: View {
 
     private var toolbar: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 7) {
-                Image(systemName: "tablecells")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(LitheTheme.accent)
-                    .frame(width: 24, height: 24)
-                    .background(LitheTheme.accent.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                VStack(alignment: .leading, spacing: 1) {
-                    Group {
-                        if let table = model.databaseFeature.selectedTable {
-                            Text(table)
-                        } else {
-                            Text("Database")
-                        }
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    if model.databaseFeature.selectedTable != nil {
-                        Text("\(model.databaseFeature.totalRows) rows")
-                            .font(.system(size: 9.5))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .monospacedDigit()
-                    }
-                }
+            contextCrumb(model.databaseFeature.selectedProfile?.name ?? String(localized: "Database"), icon: "externaldrive.connected.to.line.below")
+            Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(LitheTheme.tertiaryText)
+            contextCrumb(databaseContextName, icon: "cylinder")
+            if let table = model.databaseFeature.selectedTable {
+                Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(LitheTheme.tertiaryText)
+                contextCrumb(table, icon: "tablecells", emphasized: true)
+                Text("\(model.databaseFeature.columns.count) fields")
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+                    .monospacedDigit()
             }
             Spacer()
             toolbarGroup {
@@ -214,14 +211,37 @@ struct DatabaseTableView: View {
         .padding(.horizontal, 12).frame(height: 44).foregroundStyle(LitheTheme.primaryText).background(LitheTheme.toolHeader)
     }
 
-    private var filterBar: some View {
-        HStack(spacing: 7) {
-            Button { showsFilterPopover.toggle() } label: {
-                Label(activeFilters.isEmpty ? "Filter" : "Filters: \(activeFilters.count)", systemImage: "line.3.horizontal.decrease")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+    private var queryClauseBar: some View {
+        HStack(spacing: 6) {
+            clausePill(title: Text("All rows"), icon: "tray.full", active: true) {}
+            clausePill(
+                title: Text(verbatim: appliedFilters.isEmpty ? "WHERE" : "WHERE · \(appliedFilters.count)"),
+                icon: "line.3.horizontal.decrease",
+                active: !appliedFilters.isEmpty
+            ) { showsFilterPopover.toggle() }
             .popover(isPresented: $showsFilterPopover, arrowEdge: .bottom) { filterPopover }
+            clausePill(
+                title: Text(verbatim: sortClauseTitle),
+                icon: "arrow.up.arrow.down",
+                active: !appliedSort.isEmpty
+            ) { showsSortPopover.toggle() }
+            .popover(isPresented: $showsSortPopover, arrowEdge: .bottom) { sortPopover }
+            Spacer()
+            if !appliedFilters.isEmpty || !appliedSort.isEmpty {
+                Button("Clear query") { clearQuery() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(LitheTheme.inputBackground.opacity(0.52))
+        .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
+    }
+
+    private var dataActionBar: some View {
+        HStack(spacing: 7) {
             Button { refreshTable() } label: { Label("Refresh table data", systemImage: "arrow.clockwise") }
                 .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
             Menu {
@@ -279,7 +299,14 @@ struct DatabaseTableView: View {
     private var filterPopover: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Filter").font(.system(size: 13, weight: .semibold))
+                Text("WHERE").font(.system(size: 13, weight: .semibold, design: .monospaced))
+                Picker("Join conditions", selection: $filterJoin) {
+                    Text("AND").tag(DatabaseFilterJoin.and)
+                    Text("OR").tag(DatabaseFilterJoin.or)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 104)
                 Spacer()
                 Button { filterConditions.append(.init(column: model.databaseFeature.columns.first ?? "")) } label: {
                     Label("Add Condition", systemImage: "plus")
@@ -288,6 +315,12 @@ struct DatabaseTableView: View {
             }
             ForEach($filterConditions) { $condition in
                 HStack(spacing: 8) {
+                    Button { condition.isEnabled.toggle() } label: {
+                        Image(systemName: condition.isEnabled ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(condition.isEnabled ? LitheTheme.accent : LitheTheme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help(condition.isEnabled ? "Disable condition" : "Enable condition")
                     Picker("Column", selection: $condition.column) {
                         ForEach(model.databaseFeature.columns, id: \.self) { Text($0).tag($0) }
                     }
@@ -307,7 +340,7 @@ struct DatabaseTableView: View {
                 }
             }
             HStack {
-                Button("Clear Filters") { clearFilter() }
+                Button("Clear Filters") { clearFilters() }
                 Spacer()
                 Button("Reset Conditions") { filterConditions = [.init(column: model.databaseFeature.columns.first ?? "")] }
                 Button("Apply Filter") { applyFilter(); showsFilterPopover = false }
@@ -315,7 +348,54 @@ struct DatabaseTableView: View {
             }
         }
         .padding(16)
-        .frame(width: 600)
+        .frame(width: 630)
+    }
+
+    private var sortPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("ORDER BY").font(.system(size: 13, weight: .semibold, design: .monospaced))
+                Spacer()
+                Button { sortConditions.append(.init(column: model.databaseFeature.columns.first ?? "")) } label: {
+                    Label("Add Sort", systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+            }
+            if sortConditions.isEmpty {
+                Text("No sorting")
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(maxWidth: .infinity, minHeight: 42)
+            }
+            ForEach(Array(sortConditions.indices), id: \.self) { index in
+                HStack(spacing: 8) {
+                    Text("\(index + 1)").font(.system(size: 10, design: .monospaced)).foregroundStyle(LitheTheme.tertiaryText).frame(width: 18)
+                    Picker("Column", selection: $sortConditions[index].column) {
+                        ForEach(model.databaseFeature.columns, id: \.self) { Text($0).tag($0) }
+                    }
+                    .frame(width: 190)
+                    Picker("Direction", selection: $sortConditions[index].descending) {
+                        Text("Ascending").tag(false)
+                        Text("Descending").tag(true)
+                    }
+                    .frame(width: 120)
+                    Button { moveSort(from: index, by: -1) } label: { Image(systemName: "arrow.up") }
+                        .buttonStyle(.plain).help("Move up").disabled(index == 0)
+                    Button { moveSort(from: index, by: 1) } label: { Image(systemName: "arrow.down") }
+                        .buttonStyle(.plain).help("Move down").disabled(index == sortConditions.count - 1)
+                    Button(role: .destructive) { sortConditions.remove(at: index) } label: { Image(systemName: "trash") }
+                        .buttonStyle(.plain)
+                }
+            }
+            HStack {
+                Button("Clear Sorting") { clearSorting() }
+                Spacer()
+                Button("Apply Sorting") { applySorting(); showsSortPopover = false }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
+        .frame(width: 520)
     }
 
     private func toolbarGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -327,6 +407,38 @@ struct DatabaseTableView: View {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                     .stroke(LitheTheme.panelBorder.opacity(0.7), lineWidth: 1)
             }
+    }
+
+    private func contextCrumb(_ title: String, icon: String, emphasized: Bool = false) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(emphasized ? LitheTheme.accent : LitheTheme.secondaryText)
+            Text(title)
+                .font(.system(size: 10.5, weight: emphasized ? .semibold : .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(emphasized ? LitheTheme.primaryText : LitheTheme.secondaryText)
+    }
+
+    private func clausePill(title: Text, icon: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 9.5, weight: .medium))
+                title.font(.system(size: 10, weight: .semibold, design: .monospaced))
+            }
+            .foregroundStyle(active ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .background(active ? LitheTheme.accent.opacity(0.11) : LitheTheme.toolHeader)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(active ? LitheTheme.accent.opacity(0.34) : LitheTheme.panelBorder, lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func toolbarActionLabel(
@@ -404,7 +516,12 @@ struct DatabaseTableView: View {
                 Button { toggleSort(column) } label: {
                     HStack(spacing: 4) {
                         Text(column).lineLimit(1)
-                        if let selected = sort.first, selected.column == column { Image(systemName: selected.descending ? "arrow.down" : "arrow.up").font(.system(size: 8)) }
+                        if let index = appliedSort.firstIndex(where: { $0.column == column }) {
+                            Image(systemName: appliedSort[index].descending ? "arrow.down" : "arrow.up").font(.system(size: 8))
+                            if appliedSort.count > 1 {
+                                Text("\(index + 1)").font(.system(size: 8, weight: .semibold)).foregroundStyle(LitheTheme.tertiaryText)
+                            }
+                        }
                     }.font(.system(size: 11.5, weight: .semibold)).padding(.horizontal, 7).frame(width: columnWidth, height: 32, alignment: .leading)
                 }.buttonStyle(.plain)
                     .id("column-\(column)")
@@ -562,37 +679,84 @@ struct DatabaseTableView: View {
         return values.isEmpty ? row.keys.sorted().joined(separator: ", ") : values.joined(separator: " - ")
     }
 
-    private var activeFilters: [DatabaseFilter] {
+    private var draftFilters: [DatabaseFilter] {
         filterConditions.compactMap { condition in
-            guard !condition.column.isEmpty else { return nil }
+            guard condition.isEnabled, !condition.column.isEmpty else { return nil }
             let needsValue = condition.operator != .isNull && condition.operator != .isNotNull
             guard !needsValue || !condition.value.isEmpty else { return nil }
             return DatabaseFilter(
                 column: condition.column,
                 operator: condition.operator,
-                value: needsValue ? .string(condition.value) : .null
+                value: needsValue ? .string(condition.value) : .null,
+                join: filterJoin
             )
         }
+    }
+    private var databaseContextName: String {
+        guard let profile = model.databaseFeature.selectedProfile else { return String(localized: "Database") }
+        if let database = profile.database.nonEmpty { return database }
+        if profile.kind == .sqlite, let filename = profile.path.nonEmpty { return URL(fileURLWithPath: filename).lastPathComponent }
+        return profile.kind.rawValue.uppercased()
+    }
+    private var sortClauseTitle: String {
+        guard !appliedSort.isEmpty else { return "ORDER BY" }
+        let summary = appliedSort.prefix(2).map { "\($0.column) \($0.descending ? "↓" : "↑")" }.joined(separator: ", ")
+        return appliedSort.count > 2 ? "ORDER BY · \(summary)…" : "ORDER BY · \(summary)"
     }
     private var pageLabel: String {
         guard model.databaseFeature.totalRows > 0 else { return "0 / 0" }
         return "\(model.databaseFeature.currentOffset + 1)-\(model.databaseFeature.currentOffset + model.databaseFeature.rows.count) / \(model.databaseFeature.totalRows)"
     }
-    private func applyFilter() { Task { await model.databaseFeature.loadPage(filters: activeFilters, sort: sort, offset: 0); discard() } }
-    private func clearFilter() { filterConditions = [.init(column: model.databaseFeature.columns.first ?? "")]; sort = []; applyFilter() }
-    private func refreshTable() {
+    private func applyFilter() {
+        appliedFilters = draftFilters
+        reloadQuery(offset: 0)
+    }
+    private func clearFilters() {
+        filterConditions = [.init(column: model.databaseFeature.columns.first ?? "")]
+        appliedFilters = []
+        reloadQuery(offset: 0)
+    }
+    private func clearSorting() {
+        sortConditions = []
+        appliedSort = []
+        reloadQuery(offset: 0)
+    }
+    private func clearQuery() {
+        filterConditions = [.init(column: model.databaseFeature.columns.first ?? "")]
+        sortConditions = []
+        appliedFilters = []
+        appliedSort = []
+        reloadQuery(offset: 0)
+    }
+    private func applySorting() {
+        appliedSort = sortConditions.compactMap { $0.column.isEmpty ? nil : DatabaseSort(column: $0.column, descending: $0.descending) }
+        reloadQuery(offset: 0)
+    }
+    private func moveSort(from index: Int, by delta: Int) {
+        let destination = index + delta
+        guard sortConditions.indices.contains(index), sortConditions.indices.contains(destination) else { return }
+        sortConditions.swapAt(index, destination)
+    }
+    private func reloadQuery(offset: Int) {
         Task {
-            await model.databaseFeature.loadPage(filters: activeFilters, sort: sort, offset: model.databaseFeature.currentOffset)
+            await model.databaseFeature.loadPage(filters: appliedFilters, sort: appliedSort, offset: offset)
             discard()
         }
     }
-    private func toggleSort(_ column: String) {
-        if let current = sort.first, current.column == column { sort = current.descending ? [] : [DatabaseSort(column: column, descending: true)] }
-        else { sort = [DatabaseSort(column: column)] }
-        applyFilter()
+    private func refreshTable() {
+        reloadQuery(offset: model.databaseFeature.currentOffset)
     }
-    private func previousPage() { Task { await model.databaseFeature.loadPage(filters: activeFilters, sort: sort, offset: max(0, model.databaseFeature.currentOffset - model.databaseFeature.pageSize)); discard() } }
-    private func nextPage() { Task { await model.databaseFeature.loadPage(filters: activeFilters, sort: sort, offset: model.databaseFeature.currentOffset + model.databaseFeature.pageSize); discard() } }
+    private func toggleSort(_ column: String) {
+        if let current = appliedSort.first, current.column == column {
+            appliedSort = current.descending ? [] : [DatabaseSort(column: column, descending: true)]
+        } else {
+            appliedSort = [DatabaseSort(column: column)]
+        }
+        sortConditions = appliedSort.map { .init(column: $0.column, descending: $0.descending) }
+        reloadQuery(offset: 0)
+    }
+    private func previousPage() { reloadQuery(offset: max(0, model.databaseFeature.currentOffset - model.databaseFeature.pageSize)) }
+    private func nextPage() { reloadQuery(offset: model.databaseFeature.currentOffset + model.databaseFeature.pageSize) }
 
     private func pasteFromClipboard() {
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
@@ -920,9 +1084,16 @@ private struct CellKey: Hashable { let row: Int; let column: String }
 
 private struct DatabaseTableFilterDraft: Identifiable {
     let id = UUID()
+    var isEnabled = true
     var column = ""
     var `operator`: DatabaseFilterOperator = .contains
     var value = ""
+}
+
+private struct DatabaseTableSortDraft: Identifiable {
+    let id = UUID()
+    var column = ""
+    var descending = false
 }
 
 private extension DatabaseFilterOperator {

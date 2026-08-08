@@ -533,12 +533,26 @@ fn filter_clause(filters: &[Filter]) -> Result<String, (String, String)> {
                 ))
             }
         };
-        predicates.push(predicate);
+        let join = match filter.join.as_str() {
+            "and" => "AND",
+            "or" => "OR",
+            value => {
+                return Err((
+                    "invalid_filter".into(),
+                    format!("Unsupported filter join: {value}"),
+                ))
+            }
+        };
+        predicates.push((join, predicate));
     }
     Ok(if predicates.is_empty() {
         String::new()
     } else {
-        format!(" WHERE {}", predicates.join(" AND "))
+        let mut clause = predicates[0].1.clone();
+        for (join, predicate) in predicates.iter().skip(1) {
+            clause.push_str(&format!(" {join} {predicate}"));
+        }
+        format!(" WHERE ({clause})")
     })
 }
 

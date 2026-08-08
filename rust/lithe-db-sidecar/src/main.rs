@@ -208,6 +208,8 @@ struct Filter {
     operator: String,
     #[serde(default)]
     value: Value,
+    #[serde(default = "default_filter_join")]
+    join: String,
 }
 
 #[derive(Deserialize)]
@@ -234,6 +236,9 @@ fn default_limit() -> u32 {
 }
 fn default_true() -> bool {
     true
+}
+fn default_filter_join() -> String {
+    "and".into()
 }
 
 #[tokio::main]
@@ -2068,13 +2073,27 @@ fn filter_clause(kind: &str, filters: &[Filter]) -> Result<(String, Vec<Value>),
                 ))
             }
         };
-        predicates.push(predicate);
+        let join = match filter.join.as_str() {
+            "and" => "AND",
+            "or" => "OR",
+            value => {
+                return Err((
+                    "invalid_filter".into(),
+                    format!("Unsupported filter join: {value}"),
+                ))
+            }
+        };
+        predicates.push((join, predicate));
     }
     Ok((
         if predicates.is_empty() {
             String::new()
         } else {
-            format!(" WHERE {}", predicates.join(" AND "))
+            let mut clause = predicates[0].1.clone();
+            for (join, predicate) in predicates.iter().skip(1) {
+                clause.push_str(&format!(" {join} {predicate}"));
+            }
+            format!(" WHERE ({clause})")
         },
         values,
     ))
@@ -3883,18 +3902,20 @@ mod tests {
             column: "name".into(),
             operator: "contains".into(),
             value: json!("lit"),
+            join: "and".into(),
         }];
         let (sql, values) = filter_clause("sqlite", &filters).unwrap();
-        assert_eq!(sql, " WHERE \"name\" LIKE ?");
+        assert_eq!(sql, " WHERE (\"name\" LIKE ?)");
         assert_eq!(values, vec![json!("%lit%")]);
         let unusual = vec![Filter {
             column: "显示 \"名称\"".into(),
             operator: "equals".into(),
             value: json!(1),
+            join: "and".into(),
         }];
         assert_eq!(
             filter_clause("sqlite", &unusual).unwrap().0,
-            " WHERE \"显示 \"\"名称\"\"\" = ?"
+            " WHERE (\"显示 \"\"名称\"\"\" = ?)"
         );
         assert_eq!(quote_identifier("mysql", "a`b").unwrap(), "`a``b`");
         assert_eq!(quote_identifier("sqlite", "a\"b").unwrap(), "\"a\"\"b\"");
@@ -3902,6 +3923,27 @@ mod tests {
             quote_identifier("sqlite", "bad\0name").unwrap_err().0,
             "invalid_identifier"
         );
+    }
+
+    #[test]
+    fn filters_support_or_join() {
+        let filters = vec![
+            Filter {
+                column: "name".into(),
+                operator: "equals".into(),
+                value: json!("missing"),
+                join: "and".into(),
+            },
+            Filter {
+                column: "score".into(),
+                operator: "equals".into(),
+                value: json!(1),
+                join: "or".into(),
+            },
+        ];
+        let (sql, values) = filter_clause("sqlite", &filters).unwrap();
+        assert_eq!(sql, " WHERE (\"name\" = ? OR \"score\" = ?)");
+        assert_eq!(values, vec![json!("missing"), json!(1)]);
     }
 
     #[test]

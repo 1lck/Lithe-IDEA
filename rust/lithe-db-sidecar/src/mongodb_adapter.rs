@@ -298,7 +298,7 @@ async fn apply_changes(database: &mongodb::Database, mutations: &[Mutation]) -> 
 }
 
 fn mongo_filter(filters: &[Filter]) -> Result<Document, (String, String)> {
-    let mut result = Document::new();
+    let mut result: Option<Document> = None;
     for filter in filters {
         let value = json_to_bson(filter.value.clone())?;
         let expression = match filter.operator.as_str() {
@@ -321,9 +321,31 @@ fn mongo_filter(filters: &[Filter]) -> Result<Document, (String, String)> {
                 ))
             }
         };
-        result.insert(filter.column.clone(), expression);
+        let mut predicate = Document::new();
+        predicate.insert(filter.column.clone(), expression);
+        result = Some(match result {
+            None => predicate,
+            Some(previous) => {
+                let operator = match filter.join.as_str() {
+                    "and" => "$and",
+                    "or" => "$or",
+                    value => {
+                        return Err((
+                            "invalid_filter".into(),
+                            format!("Unsupported MongoDB filter join: {value}"),
+                        ))
+                    }
+                };
+                let mut combined = Document::new();
+                combined.insert(
+                    operator,
+                    Bson::Array(vec![Bson::Document(previous), Bson::Document(predicate)]),
+                );
+                combined
+            }
+        });
     }
-    Ok(result)
+    Ok(result.unwrap_or_default())
 }
 
 fn mongo_sort(sort: &[Sort]) -> Document {
