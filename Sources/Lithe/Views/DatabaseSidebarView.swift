@@ -120,7 +120,7 @@ struct DatabaseSidebarView: View {
                                 Label {
                                     Text(kind.displayName)
                                 } icon: {
-                                    Image(systemName: kind.symbolName)
+                                    DatabaseBrandIcon(kind: kind, size: 13)
                                 }
                             }
                         }

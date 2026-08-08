@@ -31,10 +31,16 @@ extension DatabaseKind {
 
 @MainActor
 private enum DatabaseBrandIconLoader {
-    private static var cache: [DatabaseKind: NSImage] = [:]
+    private struct CacheKey: Hashable {
+        let kind: DatabaseKind
+        let size: Int
+    }
 
-    static func image(for kind: DatabaseKind) -> NSImage? {
-        if let cached = cache[kind] { return cached }
+    private static var cache: [CacheKey: NSImage] = [:]
+
+    static func image(for kind: DatabaseKind, size: CGFloat) -> NSImage? {
+        let key = CacheKey(kind: kind, size: max(1, Int(size.rounded())))
+        if let cached = cache[key] { return cached }
         let filename = kind.brandIconFilename as NSString
         guard let url = Bundle.main.url(
             forResource: filename.deletingPathExtension,
@@ -43,8 +49,12 @@ private enum DatabaseBrandIconLoader {
         ), let image = NSImage(contentsOf: url) else {
             return nil
         }
+        // SwiftUI respects the view frame, but AppKit menu bridging reads the
+        // NSImage's intrinsic size. Normalize both so vector assets cannot
+        // expand a system menu to their original SVG canvas dimensions.
+        image.size = NSSize(width: CGFloat(key.size), height: CGFloat(key.size))
         image.isTemplate = false
-        cache[kind] = image
+        cache[key] = image
         return image
     }
 }
@@ -57,7 +67,7 @@ struct DatabaseBrandIcon: View {
 
     var body: some View {
         Group {
-            if let image = DatabaseBrandIconLoader.image(for: kind) {
+            if let image = DatabaseBrandIconLoader.image(for: kind, size: size) {
                 Image(nsImage: image)
                     .resizable()
                     .renderingMode(.original)
