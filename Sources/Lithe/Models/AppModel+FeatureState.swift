@@ -112,6 +112,7 @@ extension AppModel {
 
     var isLoadingWorkspace: Bool { workspaceFeature.isLoadingWorkspace }
     var isRefreshingWorkspace: Bool { workspaceFeature.isRefreshingWorkspace }
+    var workspaceLoadErrorMessage: String? { workspaceFeature.loadErrorMessage }
     var searchResults: [FileSearchResult] { searchFeature.searchResults }
     var isSearching: Bool { searchFeature.isSearching }
     var searchEverywhereResults: SearchEverywhereResults { searchFeature.searchEverywhereResults }

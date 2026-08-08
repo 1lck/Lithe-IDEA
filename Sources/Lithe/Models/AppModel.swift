@@ -90,6 +90,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
     private var didCloseProject: (() -> Void)?
+    private var securityScopedWorkspaceURL: URL?
     private let services: AppServices
     private let platformUI: any PlatformUI
     let settings: AppSettings
@@ -396,6 +397,7 @@ final class AppModel: ObservableObject, Identifiable {
     func shutdownProjectSession() {
         doubleShiftDetector?.stop()
         stopTerminalSessions()
+        stopAccessingWorkspace()
         if let fileVisibilityRulesObserverID {
             settings.removeFileVisibilityRulesObserver(fileVisibilityRulesObserverID)
             self.fileVisibilityRulesObserverID = nil
@@ -504,6 +506,10 @@ final class AppModel: ObservableObject, Identifiable {
         if let previousWorkspaceURL = workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
         }
+        stopAccessingWorkspace()
+        if platformUI.startAccessingProject(normalizedURL) {
+            securityScopedWorkspaceURL = normalizedURL
+        }
         stopTerminalSessions()
         runtimeFeature.openProject(at: normalizedURL)
         mavenFeature.reset()
@@ -556,6 +562,7 @@ final class AppModel: ObservableObject, Identifiable {
         if let workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: workspaceURL)
         }
+        stopAccessingWorkspace()
         workspaceURL = nil
         selectedSidebar = .project
         workspaceFeature.reset()
@@ -596,6 +603,12 @@ final class AppModel: ObservableObject, Identifiable {
         pendingProjectItemDeletion = nil
         refreshRecentProjects()
         didCloseProject?()
+    }
+
+    private func stopAccessingWorkspace() {
+        guard let securityScopedWorkspaceURL else { return }
+        platformUI.stopAccessingProject(securityScopedWorkspaceURL)
+        self.securityScopedWorkspaceURL = nil
     }
 
     func removeRecentProject(_ project: RecentProject) {

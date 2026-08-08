@@ -1,5 +1,9 @@
 /* English is the default UI language. */
 
+"Could not load project" = "Could not load project";
+"Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
+"Retry" = "Retry";
+
 /* Database connection navigation */
 "New Folder" = "New Folder";
 "New Subfolder" = "New Subfolder";

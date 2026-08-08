@@ -193,6 +193,9 @@
 "Open" = "打开";
 "No recent projects" = "没有最近项目";
 "No project loaded" = "未加载项目";
+"Could not load project" = "无法加载项目";
+"Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
+"Retry" = "重试";
 "Open a local folder to start working." = "打开本地文件夹开始工作。";
 "Show in Finder" = "在 Finder 中显示";
 "Show Project in Finder" = "在 Finder 中显示项目";

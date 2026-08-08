@@ -1827,6 +1827,91 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func workspaceInitialLoadFailureCanRetryWithoutLeavingAnEmptyProject() async {
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [false, true])
+        let model = WorkspaceFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
+        )
+        model.configure(
+            documentsProvider: { [] },
+            activeDocumentProvider: { nil },
+            selectedSidebarProvider: { "project" },
+            setSelectedSidebar: { _ in },
+            restoreSession: { _, _ in },
+            openFile: { _ in },
+            notify: { _ in },
+            recordHistory: { _, _ in },
+            relocateHistory: { _, _ in },
+            relocateOpenDocuments: { _, _ in },
+            closeDocuments: { _ in },
+            processExternalChanges: { _ in false },
+            reloadProjectServices: {},
+            refreshGit: {},
+            updateHistoryVisibilityRules: { _ in },
+            onSnapshotLoaded: { _, _ in }
+        )
+
+        let workspace = URL(fileURLWithPath: "/tmp/retry-workspace")
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let firstResult = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+
+        if case .unavailable = firstResult {} else {
+            Issue.record("The first unavailable snapshot should report a load failure")
+        }
+        #expect(model.loadErrorMessage != nil)
+        #expect(!model.isLoadingWorkspace)
+        #expect(model.rootNode == nil)
+
+        let retryResult = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+
+        if case .loaded = retryResult {} else {
+            Issue.record("Retry should publish the available workspace snapshot")
+        }
+        #expect(model.loadErrorMessage == nil)
+        #expect(!model.isLoadingWorkspace)
+        #expect(model.rootNode?.url.standardizedFileURL == workspace.standardizedFileURL)
+    }
+
+    @Test
+    func workspaceFilesystemFallbackBuildsAVisibleTreeAndHonorsHiddenRules() throws {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-workspace-fallback-\(UUID().uuidString)")
+        let sources = workspace.appendingPathComponent("Sources")
+        let hiddenGit = workspace.appendingPathComponent(".git")
+        try fileManager.createDirectory(at: sources, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: hiddenGit, withIntermediateDirectories: true)
+        fileManager.createFile(
+            atPath: sources.appendingPathComponent("App.swift").path,
+            contents: Data("print(1)".utf8)
+        )
+        fileManager.createFile(
+            atPath: workspace.appendingPathComponent("README.md").path,
+            contents: Data("project".utf8)
+        )
+        fileManager.createFile(
+            atPath: hiddenGit.appendingPathComponent("config").path,
+            contents: Data()
+        )
+        defer { try? fileManager.removeItem(at: workspace) }
+
+        let snapshot = try #require(
+            FileSystemWorkspaceSnapshotBuilder().snapshot(
+                at: workspace,
+                visibilityRules: .default
+            )
+        )
+
+        #expect(snapshot.root.children?.map(\.name) == ["Sources", "README.md"])
+        #expect(snapshot.files.map(\.lastPathComponent).sorted() == ["App.swift", "README.md"])
+        #expect(!snapshot.files.contains { $0.path.contains("/.git/") })
+    }
+
+    @Test
+    @MainActor
     func gitOperationFreezeBatchesWatcherRefreshUntilTheOuterOperationEnds() async {
         let watcherFactory = TestDirectoryWatcherFactory()
         let model = WorkspaceFeatureModel(
@@ -2072,6 +2157,53 @@ private let dbxEncryptedConnectionExport = #"""
 
 private struct EmptyWorkspaceOperations: WorkspaceOperations {
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
+
+    func search(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> [FileSearchResult]? { nil }
+
+    func searchEverywhere(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> SearchEverywhereResults? { nil }
+
+    func previewReplacement(
+        at rootURL: URL,
+        query: String,
+        replacement: String,
+        options: ProjectSearchOptions,
+        paths: [String],
+        textOverrides: [String: String],
+        visibilityRules: FileVisibilityRules
+    ) -> [ProjectReplacementFile]? { nil }
+
+    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private var snapshotAvailability: [Bool]
+
+    init(snapshotAvailability: [Bool]) {
+        self.snapshotAvailability = snapshotAvailability
+    }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
+        lock.lock()
+        let isAvailable = snapshotAvailability.isEmpty ? true : snapshotAvailability.removeFirst()
+        lock.unlock()
+        guard isAvailable else { return nil }
+        return WorkspaceSnapshot(
+            root: FileNode(url: rootURL, isDirectory: true, children: []),
+            files: []
+        )
+    }
 
     func search(
         at rootURL: URL,
