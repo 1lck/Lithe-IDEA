@@ -7,7 +7,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
+const LEGACY_VERSION: u32 = 1;
+/// Toolchain requirements and `project.json` are separate documents that happen
+/// to live under `.lithe`. Their schema did not change with run-config v2, so
+/// they keep their own version and must not be validated against `VERSION`.
+const SIDECAR_VERSION: u32 = 1;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +103,76 @@ pub struct RunConfigurationDocument {
     pub configurations: Vec<RunConfiguration>,
 }
 
+/// Rewrites a v1 document in place into the v2 shape.
+///
+/// Ids are preserved verbatim. The three-layer merge matches configurations by
+/// id, so rewriting them would silently detach every override a user wrote in
+/// the team or local layer -- a failure with no error message.
+pub fn migrate_document_value(document: &mut Value) -> bool {
+    if document.get("version").and_then(Value::as_u64) != Some(LEGACY_VERSION as u64) {
+        return false;
+    }
+    if let Some(items) = document
+        .get_mut("configurations")
+        .and_then(Value::as_array_mut)
+    {
+        for item in items {
+            migrate_configuration_value(item);
+        }
+    }
+    document["version"] = json!(VERSION);
+    true
+}
+
+fn migrate_configuration_value(item: &mut Value) {
+    let Some(object) = item.as_object_mut() else {
+        return;
+    };
+    let legacy_type = object
+        .remove("type")
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| "java.current-file".to_string());
+
+    let mut maven = serde_json::Map::new();
+    for (legacy_key, target_key) in [
+        ("mainClass", "mainClass"),
+        ("module", "module"),
+        ("jvmArguments", "jvmArguments"),
+        ("programArguments", "programArguments"),
+        ("mavenProfiles", "profiles"),
+    ] {
+        if let Some(value) = object.remove(legacy_key) {
+            let is_empty = value
+                .as_array()
+                .map(|items| items.is_empty())
+                .unwrap_or(false);
+            if !value.is_null() && !is_empty {
+                maven.insert(target_key.to_string(), value);
+            }
+        }
+    }
+    if let Some(working_directory) = object.remove("workingDirectory") {
+        object.insert("cwd".to_string(), working_directory);
+    }
+    if !maven.is_empty() {
+        object
+            .entry("extensions")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .map(|extensions| extensions.insert("maven".to_string(), Value::Object(maven)));
+    }
+
+    let execution = match legacy_type.as_str() {
+        "spring-boot.maven" => "service",
+        "java.current-file" => "application",
+        _ => "task",
+    };
+    object.insert("provider".to_string(), json!(legacy_type));
+    object.insert("execution".to_string(), json!(execution));
+    object.insert("confidence".to_string(), json!("native"));
+    object.insert("debug".to_string(), json!({ "adapter": "jdwp" }));
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneratorMetadata {
@@ -106,27 +181,77 @@ pub struct GeneratorMetadata {
     pub inputs: BTreeMap<String, String>,
 }
 
+/// How a configuration behaves once started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Execution {
+    /// User-launched program whose lifetime is not assumed to be long-running.
+    Application,
+    /// Long-running process: has stop semantics and may expose a port.
+    Service,
+    /// Runs to completion and exits.
+    Task,
+    /// Orchestrates other configurations by id.
+    Group,
+}
+
+impl Default for Execution {
+    fn default() -> Self {
+        Self::Application
+    }
+}
+
+/// How the configuration was discovered. Ranks dedupe winners: a native parse
+/// beats a manifest declaration, which beats an entry-point guess.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Confidence {
+    Heuristic,
+    Declared,
+    Native,
+}
+
+impl Default for Confidence {
+    fn default() -> Self {
+        Self::Declared
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugCapability {
+    pub adapter: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunConfiguration {
     pub id: String,
     pub name: String,
-    #[serde(rename = "type")]
-    pub kind: String,
+    /// Open namespaced discriminator, e.g. `maven.module`, `npm.script`.
+    /// Deliberately not an enum: new ecosystems must not require a contract change.
+    pub provider: String,
     #[serde(default)]
-    pub module: Option<String>,
+    pub execution: Execution,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
     #[serde(default)]
-    pub main_class: Option<String>,
+    pub args: Vec<String>,
+    #[serde(default = "dot")]
+    pub cwd: String,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub confidence: Confidence,
     #[serde(default)]
     pub toolchains: BTreeMap<String, String>,
-    #[serde(default = "dot")]
-    pub working_directory: String,
-    #[serde(default)]
-    pub jvm_arguments: Vec<String>,
-    #[serde(default)]
-    pub program_arguments: Vec<String>,
-    #[serde(default)]
-    pub maven_profiles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug: Option<DebugCapability>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<String>,
+    /// Ecosystem-specific payload keyed by namespace (`maven`, `npm`, ...).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: BTreeMap<String, Value>,
     #[serde(default)]
     pub disabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -135,6 +260,26 @@ pub struct RunConfiguration {
 
 fn dot() -> String {
     ".".to_string()
+}
+
+/// Accessors for the `maven` extension namespace. Keeps JDWP and Spring Boot
+/// launch assembly working after the fields moved out of the common shape.
+impl RunConfiguration {
+    pub fn extension_string(&self, namespace: &str, key: &str) -> Option<String> {
+        self.extensions
+            .get(namespace)?
+            .get(key)?
+            .as_str()
+            .map(str::to_string)
+    }
+
+    pub fn main_class(&self) -> Option<String> {
+        self.extension_string("maven", "mainClass")
+    }
+
+    pub fn module(&self) -> Option<String> {
+        self.extension_string("maven", "module")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,19 +318,22 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         "project.json",
     ] {
         if let Some(document) = read_document_value(&root, relative)? {
-            validate_version_value(&document)?;
             if relative.starts_with("run/") {
+                validate_version_value(&document)?;
                 configuration_ids(&document)?;
-            } else if relative == "toolchains/local.json"
-                && document
-                    .get("toolchains")
-                    .and_then(Value::as_object)
-                    .is_none()
-            {
-                return Err(CoreError::new(
-                    ErrorCode::ParseFailed,
-                    "Local toolchains must contain a toolchains object",
-                ));
+            } else {
+                validate_sidecar_version_value(&document)?;
+                if relative == "toolchains/local.json"
+                    && document
+                        .get("toolchains")
+                        .and_then(Value::as_object)
+                        .is_none()
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::ParseFailed,
+                        "Local toolchains must contain a toolchains object",
+                    ));
+                }
             }
         }
     }
@@ -193,7 +341,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         validate_version(document.version)?;
     }
     if let Some(document) = requirements.as_ref() {
-        validate_version(document.version)?;
+        validate_sidecar_version(document.version)?;
     }
     let mut diagnostics = Vec::new();
     if let Some(metadata) = generated
@@ -224,62 +372,106 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
 
 pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
-    let module_paths = inferred_maven_module_paths(
-        &root,
-        &request.paths,
-        request.module_paths,
-    );
+    let module_paths = inferred_maven_module_paths(&root, &request.paths, request.module_paths);
     let scanned = crate::java::run_configurations(JavaRunConfigurationsRequest {
         root: request.root.clone(),
         paths: request.paths,
         module_paths,
     })?;
-    let entry_count = scanned.configurations.len();
+    let java_entry_count = scanned.configurations.len();
     let mut configurations = scanned
         .configurations
         .into_iter()
-        .map(|value| RunConfiguration {
-            id: value.id,
-            name: value.name,
-            kind: match value.kind.as_str() {
+        .map(|value| {
+            let provider = match value.kind.as_str() {
                 "springBoot" => "spring-boot.maven",
+                "javaMain" => "java.main",
                 "mavenModule" => "maven.module",
                 _ => "java.current-file",
+            };
+            let mut maven = serde_json::Map::new();
+            maven.insert(
+                "module".to_string(),
+                json!(value.module_path.unwrap_or_else(|| ".".to_string())),
+            );
+            if let Some(main_class) = value.main_class {
+                maven.insert("mainClass".to_string(), json!(main_class));
             }
-            .to_string(),
-            module: value.module_path.or_else(|| Some(".".to_string())),
-            main_class: value.main_class,
-            toolchains: [
-                ("java".to_string(), "project-jdk".to_string()),
-                ("maven".to_string(), "project-maven".to_string()),
-            ]
-            .into_iter()
-            .collect(),
-            working_directory: ".".to_string(),
-            jvm_arguments: Vec::new(),
-            program_arguments: Vec::new(),
-            maven_profiles: Vec::new(),
-            disabled: false,
-            source: None,
+            RunConfiguration {
+                id: value.id,
+                name: value.name,
+                provider: provider.to_string(),
+                execution: match provider {
+                    "spring-boot.maven" => Execution::Service,
+                    "java.main" | "java.current-file" => Execution::Application,
+                    _ => Execution::Task,
+                },
+                command: None,
+                args: Vec::new(),
+                cwd: ".".to_string(),
+                env: BTreeMap::new(),
+                confidence: Confidence::Native,
+                toolchains: if provider == "java.current-file" {
+                    [("java".to_string(), "project-jdk".to_string())]
+                        .into_iter()
+                        .collect()
+                } else {
+                    [
+                        ("java".to_string(), "project-jdk".to_string()),
+                        ("maven".to_string(), "project-maven".to_string()),
+                    ]
+                    .into_iter()
+                    .collect()
+                },
+                debug: (provider != "java.main").then(|| DebugCapability {
+                    adapter: "jdwp".to_string(),
+                }),
+                members: Vec::new(),
+                extensions: [("maven".to_string(), Value::Object(maven))]
+                    .into_iter()
+                    .collect(),
+                disabled: false,
+                source: None,
+            }
         })
         .collect::<Vec<_>>();
     configurations.push(RunConfiguration {
         id: "current-file".to_string(),
         name: "Current File".to_string(),
-        kind: "java.current-file".to_string(),
-        module: Some(".".to_string()),
-        main_class: None,
+        provider: "java.current-file".to_string(),
+        execution: Execution::Application,
+        command: None,
+        args: Vec::new(),
+        cwd: ".".to_string(),
+        env: BTreeMap::new(),
+        confidence: Confidence::Native,
         toolchains: [("java".to_string(), "project-jdk".to_string())]
             .into_iter()
             .collect(),
-        working_directory: ".".to_string(),
-        jvm_arguments: Vec::new(),
-        program_arguments: Vec::new(),
-        maven_profiles: Vec::new(),
+        debug: Some(DebugCapability {
+            adapter: "jdwp".to_string(),
+        }),
+        members: Vec::new(),
+        extensions: [("maven".to_string(), json!({ "module": "." }))]
+            .into_iter()
+            .collect(),
         disabled: false,
         source: None,
     });
     let inputs = project_inputs(&root)?;
+    // Detectors run after the Java scan so a Java configuration always keeps its
+    // id: `detected_configurations` skips ids the Java pass already claimed
+    // rather than overwriting them, which would detach team and local overrides.
+    let claimed = configurations
+        .iter()
+        .map(|item| item.id.clone())
+        .collect::<BTreeSet<_>>();
+    let detected = detected_configurations(&root, &claimed)?;
+    // Counts real entry points, not documents: the always-present "Current File"
+    // fallback is excluded so an empty project still reports zero and the UI can
+    // say so, while a detected npm service correctly reports one.
+    let entry_count = java_entry_count + detected.len();
+    configurations.extend(detected);
     let generated = RunConfigurationDocument {
         version: VERSION,
         generator: Some(GeneratorMetadata {
@@ -292,6 +484,39 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     Ok(
         json!({ "generated": generated, "toolchainRequirements": requirements, "entryCount": entry_count }),
     )
+}
+
+/// Translates detector output into the run-configuration contract.
+///
+/// Detected entries are always process-based: the detector resolved the command,
+/// so there is no toolchain binding and no ecosystem-specific launch assembly.
+/// That is what keeps a new ecosystem from needing changes in `create_launch_plan`.
+fn detected_configurations(
+    root: &Path,
+    claimed: &BTreeSet<String>,
+) -> Result<Vec<RunConfiguration>, CoreError> {
+    Ok(crate::detectors::detect_all(root)?
+        .into_iter()
+        .map(|item| RunConfiguration {
+            id: item.id(),
+            name: item.name,
+            provider: item.provider,
+            execution: item.execution,
+            command: Some(item.command),
+            args: item.args,
+            cwd: item.cwd,
+            env: item.env,
+            confidence: item.confidence,
+            toolchains: BTreeMap::new(),
+            debug: None,
+            members: Vec::new(),
+            extensions: item.extensions,
+            disabled: false,
+            source: Some(item.source),
+        })
+        .filter(|item| !claimed.contains(&item.id))
+        .filter(|item| validate_configuration(item).is_ok())
+        .collect())
 }
 
 fn inferred_maven_module_paths(
@@ -328,7 +553,10 @@ fn normalize_project_relative(value: &str) -> Option<PathBuf> {
     let path = Path::new(value);
     if path.is_absolute()
         || path.components().any(|component| {
-            matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_))
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
         })
     {
         return None;
@@ -353,7 +581,7 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     validate_version_value(&team)?;
     validate_version_value(&local)?;
     if let Some(manifest) = manifest.as_ref() {
-        validate_version_value(manifest)?;
+        validate_sidecar_version_value(manifest)?;
     }
     let generated_ids = configuration_ids(&generated)?;
     let mut diagnostics = Vec::new();
@@ -380,12 +608,8 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
             }));
             continue;
         }
-        if let Some(module) = configuration
-            .module
-            .as_deref()
-            .filter(|value| *value != ".")
-        {
-            if !project_directory_exists(&root, module) {
+        if let Some(module) = configuration.module().filter(|value| value != ".") {
+            if !project_directory_exists(&root, &module) {
                 configuration.disabled = true;
                 diagnostics.push(json!({
                     "id": configuration.id,
@@ -395,20 +619,17 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
                 continue;
             }
         }
-        if !project_directory_exists(&root, &configuration.working_directory) {
+        if !project_directory_exists(&root, &configuration.cwd) {
             configuration.disabled = true;
             diagnostics.push(json!({
                 "id": configuration.id,
                 "code": "missingWorkingDirectory",
-                "message": format!(
-                    "Working directory does not exist: {}",
-                    configuration.working_directory
-                )
+                "message": format!("Working directory does not exist: {}", configuration.cwd)
             }));
             continue;
         }
-        if let Some(main_class) = configuration.main_class.as_deref() {
-            if !main_class_exists(&root, main_class)? {
+        if let Some(main_class) = configuration.main_class() {
+            if !main_class_exists(&root, &main_class)? {
                 configuration.disabled = true;
                 diagnostics.push(json!({
                     "id": configuration.id,
@@ -462,12 +683,15 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
     let configurations = document["configurations"]
         .as_array_mut()
         .ok_or_else(|| CoreError::new(ErrorCode::ParseFailed, "configurations must be an array"))?;
-    let mut patch = json!({
-        "id": request.configuration_id,
-        "workingDirectory": working_directory,
+    let maven_patch = json!({
         "jvmArguments": split_arguments(&request.jvm_arguments),
         "programArguments": split_arguments(&request.program_arguments),
-        "mavenProfiles": request.maven_profiles.into_iter().collect::<std::collections::BTreeSet<_>>()
+        "profiles": request.maven_profiles.into_iter().collect::<BTreeSet<_>>()
+    });
+    let mut patch = json!({
+        "id": request.configuration_id,
+        "cwd": working_directory,
+        "extensions": { "maven": maven_patch }
     });
     if let Some(existing) = configurations
         .iter_mut()
@@ -480,6 +704,10 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
             )
         })?;
         for (key, value) in patch.as_object_mut().expect("patch is an object") {
+            if key == "extensions" {
+                merge_extensions(target, value)?;
+                continue;
+            }
             target.insert(key.clone(), value.take());
         }
     } else {
@@ -561,20 +789,26 @@ pub fn create_user_configuration(
     let configurations = document["configurations"]
         .as_array_mut()
         .ok_or_else(|| CoreError::new(ErrorCode::ParseFailed, "configurations must be an array"))?;
-    let mut configuration = json!({
-        "id": id,
-        "name": name,
-        "type": configuration_kind,
+    let mut maven = json!({
         "module": module,
-        "toolchains": {"java": "project-jdk", "maven": "project-maven"},
-        "workingDirectory": ".",
         "jvmArguments": [],
         "programArguments": [],
-        "mavenProfiles": []
+        "profiles": []
     });
     if !main_class.is_empty() {
-        configuration["mainClass"] = json!(main_class);
+        maven["mainClass"] = json!(main_class);
     }
+    let configuration = json!({
+        "id": id,
+        "name": name,
+        "provider": configuration_kind,
+        "execution": if configuration_kind == "spring-boot.maven" { "service" } else { "task" },
+        "confidence": "native",
+        "toolchains": {"java": "project-jdk", "maven": "project-maven"},
+        "cwd": ".",
+        "debug": {"adapter": "jdwp"},
+        "extensions": {"maven": maven}
+    });
     configurations.push(configuration);
     configurations.sort_by(|left, right| {
         left["id"]
@@ -605,17 +839,27 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             "Run configuration is disabled",
         ));
     }
-    let kind = config["type"].as_str().unwrap_or("");
-    let mut jvm_arguments = config["jvmArguments"]
+    let provider = config["provider"].as_str().unwrap_or("");
+
+    // A configuration carrying its own `command` is process-based: the detector
+    // already resolved what to run, so there is nothing ecosystem-specific to
+    // assemble. Dispatching here keeps the Java branches below untouched.
+    if let Some(command) = config["command"].as_str().filter(|value| !value.is_empty()) {
+        return process_launch_plan(config, command);
+    }
+
+    let maven = &config["extensions"]["maven"];
+    let mut jvm_arguments = maven["jvmArguments"]
         .as_array()
         .cloned()
         .unwrap_or_default();
-    let program_arguments = config["programArguments"]
+    let program_arguments = maven["programArguments"]
         .as_array()
         .cloned()
         .unwrap_or_default();
     let mut arguments = Vec::new();
-    let is_current = kind == "java.current-file";
+    let is_current = provider == "java.current-file";
+    let is_java_main = provider == "java.main";
     if let Some(port) = request.debug_port {
         jvm_arguments.insert(
             0,
@@ -645,12 +889,31 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         }
         arguments.push(json!(current_file));
         arguments.extend(program_arguments);
-    } else {
+    } else if is_java_main {
         arguments.extend([json!("-B"), json!("-ntp")]);
-        if let Some(module) = config["module"].as_str().filter(|m| *m != ".") {
+        if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
             arguments.extend([json!("-pl"), json!(module)]);
         }
-        if let Some(profiles) = config["mavenProfiles"].as_array().filter(|p| !p.is_empty()) {
+        let main = maven["mainClass"].as_str().ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Java application is missing its main class",
+            )
+        })?;
+        arguments.push(json!(format!("-Dexec.mainClass={main}")));
+        if !program_arguments.is_empty() {
+            arguments.push(json!(format!(
+                "-Dexec.args={}",
+                string_arguments(&program_arguments)
+            )));
+        }
+        arguments.push(json!("org.codehaus.mojo:exec-maven-plugin:3.5.0:java"));
+    } else {
+        arguments.extend([json!("-B"), json!("-ntp")]);
+        if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
+            arguments.extend([json!("-pl"), json!(module)]);
+        }
+        if let Some(profiles) = maven["profiles"].as_array().filter(|p| !p.is_empty()) {
             arguments.extend([
                 json!("-P"),
                 json!(profiles
@@ -660,7 +923,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                     .join(",")),
             ]);
         }
-        if let Some(main) = config["mainClass"].as_str() {
+        if let Some(main) = maven["mainClass"].as_str() {
             arguments.push(json!(format!("-Dspring-boot.run.main-class={main}")));
         }
         if !jvm_arguments.is_empty() {
@@ -693,10 +956,44 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     Ok(json!({
         "executable": { "toolchain": executable_toolchain },
         "arguments": arguments,
-        "workingDirectory": config["workingDirectory"].as_str().unwrap_or("."),
+        "workingDirectory": config["cwd"].as_str().unwrap_or("."),
         "environment": {
             "JAVA_HOME": { "toolchain": java_toolchain, "property": "home" }
         }
+    }))
+}
+
+/// Launch plan for configurations that name their own executable.
+///
+/// `executable.command` is a bare program name resolved on PATH by the host, as
+/// opposed to `executable.toolchain` which the host resolves from its toolchain
+/// registry. The two are mutually exclusive and the host branches on which key
+/// is present. No JAVA_HOME is injected -- a Go or Node service has no use for
+/// it, and injecting it would leak a Java assumption into every ecosystem.
+fn process_launch_plan(config: &Value, command: &str) -> Result<Value, CoreError> {
+    if command.contains('/') || command.contains('\\') {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Run configuration command must be a bare program name",
+        )
+        .with_details(command));
+    }
+    let arguments = config["args"].as_array().cloned().unwrap_or_default();
+    if arguments.iter().any(|value| !value.is_string()) {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Run configuration arguments must be strings",
+        ));
+    }
+    Ok(json!({
+        "executable": { "command": command },
+        "arguments": arguments,
+        "workingDirectory": config["cwd"].as_str().unwrap_or("."),
+        // `environment` is reserved for toolchain-derived values the host must
+        // resolve. Literal key/value pairs stay in `env` so the two never
+        // collide in one field.
+        "environment": {},
+        "env": config["env"].as_object().cloned().unwrap_or_default()
     }))
 }
 
@@ -722,6 +1019,21 @@ fn validate_version(version: u32) -> Result<(), CoreError> {
         .with_details(format!("expected {VERSION}, found {version}")));
     }
     Ok(())
+}
+
+fn validate_sidecar_version(version: u32) -> Result<(), CoreError> {
+    if version != SIDECAR_VERSION {
+        return Err(
+            CoreError::new(ErrorCode::NotSupported, "Unsupported document version")
+                .with_details(format!("expected {SIDECAR_VERSION}, found {version}")),
+        );
+    }
+    Ok(())
+}
+
+fn validate_sidecar_version_value(document: &Value) -> Result<(), CoreError> {
+    let version = document.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
+    validate_sidecar_version(version)
 }
 
 fn merge_values(
@@ -757,6 +1069,10 @@ fn merge_values(
                 };
                 for (key, value) in patch {
                     if key == "source" {
+                        continue;
+                    }
+                    if key == "extensions" {
+                        merge_extensions(target, &mut value.clone())?;
                         continue;
                     }
                     if key == "toolchains" {
@@ -810,6 +1126,48 @@ fn merge_values(
         .collect()
 }
 
+/// Deep-merges the `extensions` object one namespace at a time.
+///
+/// A shallow insert would let a layer that touches a single maven key drop the
+/// whole npm namespace it never mentioned.
+fn merge_extensions(
+    target: &mut serde_json::Map<String, Value>,
+    patch: &mut Value,
+) -> Result<(), CoreError> {
+    let patch_map = patch.as_object().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::ParseFailed,
+            "Run configuration extensions must be an object",
+        )
+    })?;
+    let target_map = target
+        .entry("extensions".to_string())
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::ParseFailed,
+                "Run configuration extensions must be an object",
+            )
+        })?;
+    for (namespace, value) in patch_map {
+        let slot = target_map
+            .entry(namespace.clone())
+            .or_insert_with(|| json!({}));
+        match (slot.as_object_mut(), value.as_object()) {
+            (Some(existing), Some(incoming)) => {
+                for (key, item) in incoming {
+                    existing.insert(key.clone(), item.clone());
+                }
+            }
+            _ => {
+                *slot = value.clone();
+            }
+        }
+    }
+    Ok(())
+}
+
 fn configuration_ids(document: &Value) -> Result<BTreeMap<String, ()>, CoreError> {
     let Some(items) = document.get("configurations").and_then(Value::as_array) else {
         return Err(CoreError::new(
@@ -837,19 +1195,17 @@ fn validate_configuration(configuration: &RunConfiguration) -> Result<(), CoreEr
             "Run configuration id and name are required",
         ));
     }
-    if !matches!(
-        configuration.kind.as_str(),
-        "java.current-file" | "spring-boot.maven" | "maven.module"
-    ) {
+    if !valid_provider(&configuration.provider) {
         return Err(CoreError::new(
             ErrorCode::NotSupported,
-            "Unsupported run configuration type",
+            "Unsupported run configuration provider",
         )
-        .with_details(configuration.kind.clone()));
+        .with_details(configuration.provider.clone()));
     }
+    let module = configuration.module().unwrap_or_else(|| ".".to_string());
     for (field, value) in [
-        ("module", configuration.module.as_deref().unwrap_or(".")),
-        ("workingDirectory", configuration.working_directory.as_str()),
+        ("module", module.as_str()),
+        ("workingDirectory", configuration.cwd.as_str()),
     ] {
         if invalid_relative_path(value) {
             return Err(CoreError::new(
@@ -1034,7 +1390,15 @@ fn read_document(
         )
         .with_details(e.to_string())
     })?;
-    serde_json::from_str(&text).map(Some).map_err(|e| {
+    let mut value: Value = serde_json::from_str(&text).map_err(|e| {
+        CoreError::new(
+            ErrorCode::ParseFailed,
+            format!("Run configuration JSON is invalid: .lithe/{relative}"),
+        )
+        .with_details(e.to_string())
+    })?;
+    migrate_document_value(&mut value);
+    serde_json::from_value(value).map(Some).map_err(|e| {
         CoreError::new(
             ErrorCode::ParseFailed,
             format!("Run configuration JSON is invalid: .lithe/{relative}"),
@@ -1055,13 +1419,20 @@ fn read_document_value(root: &Path, relative: &str) -> Result<Option<Value>, Cor
         )
         .with_details(e.to_string())
     })?;
-    serde_json::from_str(&text).map(Some).map_err(|e| {
+    let mut value: Value = serde_json::from_str(&text).map_err(|e| {
         CoreError::new(
             ErrorCode::ParseFailed,
             format!("Configuration JSON is invalid: .lithe/{relative}"),
         )
         .with_details(e.to_string())
-    })
+    })?;
+    // Only run/* documents carry the run-configuration schema. project.json and
+    // the toolchain files share the .lithe root and a version field, but their
+    // schema is unrelated -- migrating them would bump a version they never own.
+    if relative.starts_with("run/") {
+        migrate_document_value(&mut value);
+    }
+    Ok(Some(value))
 }
 
 fn read_requirements(root: &Path) -> Result<Option<ToolchainRequirementsDocument>, CoreError> {
@@ -1122,7 +1493,7 @@ fn detect_requirements(root: &Path) -> Result<ToolchainRequirementsDocument, Cor
         toolchains.insert("project-maven".to_string(), maven);
     }
     Ok(ToolchainRequirementsDocument {
-        version: VERSION,
+        version: SIDECAR_VERSION,
         toolchains,
     })
 }
@@ -1134,7 +1505,7 @@ fn toolchain_diagnostics(
     let Some(requirements) = read_requirements(root)? else {
         return Ok(Vec::new());
     };
-    validate_version(requirements.version)?;
+    validate_sidecar_version(requirements.version)?;
     let mut diagnostics = Vec::new();
     for (id, requirement) in requirements.toolchains {
         let Some(candidate) = candidates
@@ -1267,7 +1638,20 @@ fn input_change_summary(
 fn ignored_directory(path: &Path) -> bool {
     matches!(
         path.file_name().and_then(|name| name.to_str()),
-        Some(".git" | ".lithe" | ".idea" | ".gradle" | "target" | "build")
+        Some(
+            ".git"
+                | ".lithe"
+                | ".idea"
+                | ".gradle"
+                | ".venv"
+                | "venv"
+                | "node_modules"
+                | "vendor"
+                | "target"
+                | "build"
+                | "dist"
+                | "out"
+        )
     )
 }
 
@@ -1284,6 +1668,29 @@ fn fingerprint_input(path: &Path) -> bool {
                 | ".java-version"
                 | ".sdkmanrc"
                 | "mise.toml"
+                | "package.json"
+                | "package-lock.json"
+                | "pnpm-lock.yaml"
+                | "yarn.lock"
+                | "bun.lock"
+                | "bun.lockb"
+                | "docker-compose.yml"
+                | "docker-compose.yaml"
+                | "compose.yml"
+                | "compose.yaml"
+                | "pyproject.toml"
+                | "manage.py"
+                | "Cargo.toml"
+                | "go.mod"
+                | "Procfile"
+                | "Procfile.dev"
+                | "Procfile.local"
+                | "Makefile"
+                | "makefile"
+                | "GNUmakefile"
+                | "justfile"
+                | "Justfile"
+                | ".justfile"
         )
     )
 }
@@ -1392,4 +1799,22 @@ fn existing_root(value: &str) -> Result<PathBuf, CoreError> {
 #[allow(dead_code)]
 fn valid_relative(value: &str) -> bool {
     !invalid_relative_path(value)
+}
+
+/// `namespace.name`, both segments lowercase kebab starting with a letter.
+/// Shape is checked, membership is not: an unknown ecosystem must be able to
+/// register a provider without touching this file.
+fn valid_provider(value: &str) -> bool {
+    let Some((namespace, name)) = value.split_once('.') else {
+        return false;
+    };
+    [namespace, name].iter().all(|segment| {
+        segment
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_lowercase())
+            && segment
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    })
 }

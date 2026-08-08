@@ -26,7 +26,7 @@ struct JavaRunConfigurationEditorView: View {
                     configurationSummary
                     runtimeSection
                     argumentsSection
-                    if configuration.kind != .currentFile && !feature.mavenProfiles.isEmpty {
+                    if configuration.kind.isMavenBacked && !feature.mavenProfiles.isEmpty {
                         profilesSection
                     }
                 }

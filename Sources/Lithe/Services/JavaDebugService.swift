@@ -130,7 +130,7 @@ final class JavaDebugService: ObservableObject {
         options: JavaRunOptions
     ) {
         stop()
-        guard configuration.kind == .springBoot || configuration.kind == .mavenModule else {
+        guard configuration.kind.isMavenBacked else {
             fail("Select a Spring Boot or Maven Module configuration before starting Debug.")
             return
         }

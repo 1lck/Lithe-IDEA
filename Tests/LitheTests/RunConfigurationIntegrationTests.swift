@@ -32,7 +32,7 @@ struct RunConfigurationIntegrationTests {
             mainClass: "com.example.App"
         )
         let plan = SharedLaunchPlan(
-            toolchainID: "project-maven",
+            executable: .toolchain("project-maven"),
             arguments: ["-B", "-ntp", "-pl", "backend", "-P", "dev", "spring-boot:run"],
             workingDirectory: "backend"
         )
@@ -58,11 +58,12 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func runAllModulesUsesOneSharedLaunchPlanPerModule() async throws {
+    func runAllServicesUsesOneSharedLaunchPlanPerService() async throws {
         let first = JavaRunConfiguration(
             id: "module:backend",
             name: "backend",
             kind: .mavenModule,
+            execution: .service,
             modulePath: "backend",
             mainClass: nil
         )
@@ -70,16 +71,17 @@ struct RunConfigurationIntegrationTests {
             id: "module:worker",
             name: "worker",
             kind: .mavenModule,
+            execution: .service,
             modulePath: "worker",
             mainClass: nil
         )
         let firstPlan = SharedLaunchPlan(
-            toolchainID: "project-maven",
+            executable: .toolchain("project-maven"),
             arguments: ["-B", "-ntp", "-pl", "backend", "spring-boot:run"],
             workingDirectory: "."
         )
         let secondPlan = SharedLaunchPlan(
-            toolchainID: "project-maven",
+            executable: .toolchain("project-maven"),
             arguments: ["-B", "-ntp", "-pl", "worker", "-P", "local", "spring-boot:run"],
             workingDirectory: "worker"
         )
@@ -97,7 +99,7 @@ struct RunConfigurationIntegrationTests {
             files: [],
             mavenProject: fixture.mavenProject
         )
-        fixture.service.runAllModules()
+        fixture.service.runAllServices()
 
         #expect(fixture.operations.launchPlanIDs == [first.id, second.id])
         #expect(fixture.processFactory.processes.count == 2)
@@ -108,6 +110,153 @@ struct RunConfigurationIntegrationTests {
             fixture.root.appendingPathComponent("worker").path
         ])
     }
+
+    /// The concurrent-session path was written for Maven and hard-required a
+    /// `project-maven` toolchain. A full-stack project has to bring up its Java
+    /// service and its Node service side by side, each resolved its own way.
+    @Test
+    func runAllServicesStartsMavenAndProcessServicesTogether() async throws {
+        let backend = JavaRunConfiguration(
+            id: "module:backend",
+            name: "backend",
+            kind: .mavenModule,
+            execution: .service,
+            modulePath: "backend",
+            mainClass: nil
+        )
+        let frontend = JavaRunConfiguration(
+            id: "npm.script:frontend-web/dev",
+            name: "dev",
+            kind: .process(provider: "npm.script"),
+            execution: .service,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let backendPlan = SharedLaunchPlan(
+            executable: .toolchain("project-maven"),
+            arguments: ["-B", "-ntp", "-pl", "backend", "spring-boot:run"],
+            workingDirectory: "."
+        )
+        let frontendPlan = SharedLaunchPlan(
+            executable: .command("pnpm"),
+            arguments: ["run", "dev"],
+            workingDirectory: "frontend-web",
+            environment: ["PORT": "5173"]
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [
+                EffectiveRunConfiguration(configuration: backend, options: JavaRunOptions()),
+                EffectiveRunConfiguration(configuration: frontend, options: JavaRunOptions())
+            ],
+            plans: [backend.id: backendPlan, frontend.id: frontendPlan]
+        )
+
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: fixture.mavenProject
+        )
+        fixture.service.runAllServices()
+
+        #expect(fixture.processFactory.processes.count == 2)
+        #expect(fixture.service.moduleSessions.map(\.id) == [backend.id, frontend.id])
+        #expect(fixture.service.moduleSessions.allSatisfy { $0.isRunning })
+
+        let requests = try fixture.processFactory.processes.map { try #require($0.requests.last) }
+        #expect(requests[0].executablePath == "/toolchains/maven/bin/mvn")
+        #expect(requests[1].executablePath == "/usr/bin/pnpm")
+        #expect(requests[1].arguments == ["run", "dev"])
+        #expect(requests[1].workingDirectory == fixture.root.appendingPathComponent("frontend-web").path)
+        // A process plan carries its own environment and must not inherit Maven's.
+        #expect(requests[1].environment?["PORT"] == "5173")
+        #expect(requests[1].environment?["JAVA_HOME"] == nil)
+    }
+
+    @Test
+    func runAllServicesExcludesApplicationsAndTasks() async throws {
+        let service = JavaRunConfiguration(
+            id: "npm.script:web/dev",
+            name: "dev",
+            kind: .process(provider: "npm.script"),
+            execution: .service,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let application = JavaRunConfiguration(
+            id: "go.command:cmd/migrate/migrate",
+            name: "migrate",
+            kind: .process(provider: "go.command"),
+            execution: .application,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let task = JavaRunConfiguration(
+            id: "npm.script:web/build",
+            name: "build",
+            kind: .process(provider: "npm.script"),
+            execution: .task,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let servicePlan = SharedLaunchPlan(
+            executable: .command("npm"),
+            arguments: ["run", "dev"],
+            workingDirectory: "web"
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [service, application, task].map {
+                EffectiveRunConfiguration(configuration: $0, options: JavaRunOptions())
+            },
+            plans: [service.id: servicePlan]
+        )
+
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: nil
+        )
+        fixture.service.runAllServices()
+
+        #expect(fixture.operations.launchPlanIDs == [service.id])
+        #expect(fixture.service.moduleSessions.map(\.id) == [service.id])
+        #expect(fixture.processFactory.processes.count == 1)
+    }
+
+    /// Services start individually, not only as an all-at-once batch.
+    @Test
+    func startingASingleProcessServiceCreatesItsOwnSession() async throws {
+        let frontend = JavaRunConfiguration(
+            id: "npm.script:frontend-web/dev",
+            name: "dev",
+            kind: .process(provider: "npm.script"),
+            execution: .service,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let plan = SharedLaunchPlan(
+            executable: .command("pnpm"),
+            arguments: ["run", "dev"],
+            workingDirectory: "frontend-web"
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(configuration: frontend, options: JavaRunOptions())],
+            plans: [frontend.id: plan]
+        )
+
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: nil
+        )
+        fixture.service.startConfiguration(frontend)
+
+        let session = try #require(fixture.service.moduleSessions.first)
+        #expect(session.configurationID == frontend.id)
+        #expect(session.isRunning)
+        #expect(fixture.processFactory.processes.count == 1)    }
 
     @Test
     func projectRuntimeUsesAndUpdatesLitheLocalToolchains() throws {
@@ -194,7 +343,7 @@ struct RunConfigurationIntegrationTests {
             status: .ready,
             effective: [],
             plans: [configuration.id: SharedLaunchPlan(
-                toolchainID: "project-maven",
+                executable: .toolchain("project-maven"),
                 arguments: arguments,
                 workingDirectory: "backend"
             )]
@@ -1175,4 +1324,62 @@ private struct RunTestJavaMavenOperations: JavaMavenOperations {
     func serverPort(content: String, fileExtension: String) -> Int? { nil }
     func scanRunConfigurations(at rootURL: URL, files: [URL], mavenProject: MavenProject?) -> [JavaRunConfiguration] { [] }
     func structure(source: String, declarationSources: [String]) -> JavaStructureResult? { nil }
+}
+
+@Suite("Core payload decoding")
+struct CorePayloadDecodingTests {
+    /// The core spells Maven coordinates the way Maven does -- `groupId` and
+    /// `artifactId`. Swift spells the same properties with a capital D, and
+    /// `artifactId` is non-optional, so a missing key mapping made the whole
+    /// scan decode to nil and the Maven panel claimed the project had no pom.
+    /// The failure is silent: the bridge discards decoding errors.
+    @Test
+    func mavenScanDecodesTheCoordinateSpellingTheCoreEmits() throws {
+        let json = """
+        {
+          "groupId": "com.lithe.demo",
+          "artifactId": "full-stack-demo",
+          "version": "1.0.0-SNAPSHOT",
+          "packaging": "pom",
+          "hasWrapper": true,
+          "profiles": [],
+          "modules": [
+            {
+              "groupId": "com.lithe.demo",
+              "artifactId": "backend-api",
+              "relativePath": "backend-api",
+              "version": "1.0.0-SNAPSHOT",
+              "packaging": "jar",
+              "modules": []
+            }
+          ]
+        }
+        """
+
+        let payload = try JSONDecoder().decode(
+            RustCoreBridge.MavenScanPayload.self,
+            from: Data(json.utf8)
+        )
+        let project = payload.makeProject(rootURL: URL(fileURLWithPath: "/tmp/demo"))
+
+        #expect(project.artifactID == "full-stack-demo")
+        #expect(project.modules.map(\.artifactID) == ["backend-api"])
+        #expect(project.modules.map(\.relativePath) == ["backend-api"])
+    }
+
+    /// Same root cause, quieter symptom: `hunkId` decoded as nil left every
+    /// diff row unattached to its hunk instead of failing outright.
+    @Test
+    func gitDiffRowDecodesItsHunkIdentifier() throws {
+        let json = """
+        {"oldLine":1,"newLine":1,"left":"a","right":"b","kind":"changed","hunkId":"h1"}
+        """
+
+        let row = try JSONDecoder().decode(
+            RustCoreBridge.GitDiffPayload.Row.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(row.hunkID == "h1")
+    }
 }

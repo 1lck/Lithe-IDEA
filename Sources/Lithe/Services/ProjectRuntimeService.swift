@@ -179,6 +179,21 @@ final class ProjectRuntimeService: ObservableObject {
         return environment
     }
 
+    /// Resolves a bare program name against PATH. Returns nil when the tool is
+    /// not installed, so callers can say which runtime is missing instead of
+    /// failing with a generic spawn error.
+    func executableOnPath(_ command: String) -> URL? {
+        guard !command.isEmpty, !command.contains("/") else { return nil }
+        let path = runtimeLocator.environment()["PATH"] ?? ""
+        for directory in path.split(separator: ":") where !directory.isEmpty {
+            let candidate = URL(fileURLWithPath: String(directory))
+                .appendingPathComponent(command)
+                .standardizedFileURL
+            if runtimeLocator.isExecutable(at: candidate) { return candidate }
+        }
+        return nil
+    }
+
     func mavenExecutable(for project: MavenProject) -> URL? {
         mavenExecutable(at: project.rootURL)
     }

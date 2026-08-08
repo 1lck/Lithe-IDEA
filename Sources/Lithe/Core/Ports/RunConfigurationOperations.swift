@@ -68,9 +68,22 @@ struct RunConfigurationOperationFailure: LocalizedError, Sendable {
 }
 
 struct SharedLaunchPlan: Sendable {
-    let toolchainID: String
+    /// Exactly one of `toolchainID` / `command` is set. A toolchain is resolved
+    /// through the IDE's registry; a command is resolved on PATH.
+    enum Executable: Sendable {
+        case toolchain(String)
+        case command(String)
+    }
+
+    let executable: Executable
     let arguments: [String]
     let workingDirectory: String
+    var environment: [String: String] = [:]
+
+    var toolchainID: String? {
+        if case .toolchain(let value) = executable { return value }
+        return nil
+    }
 }
 
 struct RunConfigurationGenerationResult: Sendable {

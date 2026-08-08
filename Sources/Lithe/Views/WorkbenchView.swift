@@ -63,12 +63,12 @@ struct WorkbenchView: View {
             isPresented: $runFeature.isGenerationConfirmationPresented,
             titleVisibility: .visible
         ) {
-            Button("Identify and Generate") {
+            Button(runFeature.configurationStatus == .ready ? "Rescan" : "Identify and Generate") {
                 continueAfterRunConfigurationGeneration()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.")
+            Text(runConfigurationSetupMessage)
         }
         .sheet(item: $model.pendingCheckoutConflict) { request in
             GitCheckoutConflictDialog(
@@ -465,17 +465,6 @@ struct WorkbenchView: View {
 
             Spacer(minLength: 22)
 
-            HStack(spacing: 6) {
-                Image(systemName: "leaf")
-                    .foregroundStyle(LitheTheme.success)
-                Text(model.projectName)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-            }
-            .font(.system(size: 12.5, weight: .medium))
-            .foregroundStyle(LitheTheme.primaryText)
-
             runControls
 
             Button {
@@ -578,6 +567,15 @@ struct WorkbenchView: View {
                         isSelected: model.isMavenVisible
                     ) {
                         model.toggleMaven()
+                    }
+
+                    activityToolButton(
+                        systemImage: "play.rectangle",
+                        ideaAssetPath: "toolwindows/toolWindowRun.svg",
+                        help: "Services",
+                        isSelected: model.isRunVisible
+                    ) {
+                        model.toggleRun()
                     }
 
                     activityToolButton(
@@ -701,8 +699,16 @@ struct WorkbenchView: View {
         case .invalid:
             String(localized: "Project run configuration is invalid")
         case .ready:
-            String(localized: "Run configuration ready")
+            String(localized: "Rescan the project for services")
         }
+    }
+
+    /// The dialog doubles as first-time setup and as an explicit rescan. Only
+    /// the first case can claim Run is unavailable until it completes.
+    private var runConfigurationSetupMessage: String {
+        runFeature.configurationStatus == .ready
+            ? String(localized: "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.")
+            : String(localized: "Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.")
     }
 
     private func continueAfterRunConfigurationGeneration() {
@@ -1266,8 +1272,8 @@ private struct NewRunConfigurationView: View {
                     TextField("Main class", text: $mainClass)
                 }
                 Picker("Save scope", selection: $scope) {
-                    Text("This Mac").tag(RunConfigurationSaveScope.local)
-                    Text("Project").tag(RunConfigurationSaveScope.project)
+                    Text("This Mac only").tag(RunConfigurationSaveScope.local)
+                    Text("Shared with project").tag(RunConfigurationSaveScope.project)
                 }
                 .pickerStyle(.segmented)
                 if let error {

@@ -339,21 +339,19 @@ final class JavaRunService: ObservableObject {
             return
         }
         let executable: URL
-        let processKind: ProjectRuntimeProcessKind
-        if plan.toolchainID == "project-jdk" {
-            guard let value = runtimeService.javaExecutableURL(overridePath: options.javaHomePath) else {
-                fail("No Java runtime was found. Set JAVA_HOME or install a JDK.")
-                return
-            }
-            executable = value
-            processKind = .java
-        } else {
-            guard let value = runtimeService.mavenExecutable(at: projectURL) else {
-                fail("No Maven executable was found. Configure Maven in Project Settings.")
-                return
-            }
-            executable = value
-            processKind = .maven
+        let environment: [String: String]?
+        switch resolveExecutable(
+            for: plan,
+            projectURL: projectURL,
+            javaHomePath: options.javaHomePath,
+            configuredJavaHome: configuredJavaHome
+        ) {
+        case .resolved(let resolvedExecutable, let resolvedEnvironment):
+            executable = resolvedExecutable
+            environment = resolvedEnvironment
+        case .unavailable(let message):
+            fail(message)
+            return
         }
         let arguments = plan.arguments
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
@@ -370,31 +368,30 @@ final class JavaRunService: ObservableObject {
                 executablePath: executable.path,
                 arguments: arguments,
                 workingDirectory: workingDirectory.path,
-                environment: runtimeService.environment(
-                    for: processKind,
-                    javaHomeOverride: configuredJavaHome
-                )
+                environment: environment
             ))
         } catch {
             fail("Unable to start " + configuration.name + ": " + error.localizedDescription)
         }
     }
 
-    func runAllModules() {
-        guard mavenProject != nil else {
-            fail("No Maven project is available for module run configurations.")
+    func runAllServices() {
+        let serviceConfigurations = configurations.filter { $0.execution == .service }
+        guard !serviceConfigurations.isEmpty else {
+            fail(String(localized: "No runnable services were detected in this project."))
             return
         }
-        let moduleConfigurations = configurations.filter { $0.kind == .mavenModule }
-        guard !moduleConfigurations.isEmpty else {
-            fail("No Maven module run configurations were detected.")
-            return
-        }
-        stopAllModules()
+        stopAllServices()
         moduleSessions = []
-        for configuration in moduleConfigurations {
+        for configuration in serviceConfigurations {
             startModuleSession(configuration)
         }
+    }
+
+    func startConfiguration(_ configuration: JavaRunConfiguration) {
+        guard configuration.kind != .currentFile else { return }
+        stopModule(sessionID: configuration.id)
+        startModuleSession(configuration)
     }
 
     func stopModule(_ session: JavaRunSession) {
@@ -408,7 +405,7 @@ final class JavaRunService: ObservableObject {
         startModuleSession(configuration)
     }
 
-    func stopAllModules() {
+    func stopAllServices() {
         for sessionID in Array(moduleProcesses.keys) {
             stopModule(sessionID: sessionID)
         }
@@ -434,7 +431,7 @@ final class JavaRunService: ObservableObject {
 
     func reset() {
         stop()
-        stopAllModules()
+        stopAllServices()
         projectLoadID = UUID()
         projectURL = nil
         selectedConfigurationIDsByProject = [:]
@@ -531,7 +528,13 @@ final class JavaRunService: ObservableObject {
     }
 
     private func append(_ value: String) {
-        output.append(value.replacingOccurrences(of: "\r", with: ""))
+        let continuing = !(output.isEmpty || output.hasSuffix("\n"))
+        output.append(
+            OutputTimestamper.stamped(
+                value.replacingOccurrences(of: "\r", with: ""),
+                continuingLine: continuing
+            )
+        )
         if output.count > maximumOutputCharacters {
             output.removeFirst(output.count - maximumOutputCharacters)
         }
@@ -587,9 +590,6 @@ final class JavaRunService: ObservableObject {
                 classPath: nil,
                 debugPort: nil
             )
-            guard plan.toolchainID == "project-maven" else {
-                throw RunConfigurationOperationFailure(message: "The selected configuration does not use Maven.")
-            }
         } catch {
             moduleSessions.append(JavaRunSession(
                 id: configuration.id,
@@ -602,12 +602,25 @@ final class JavaRunService: ObservableObject {
             return
         }
 
-        guard let executable = runtimeService.mavenExecutable(at: projectURL) else {
+        let executable: URL
+        let environment: [String: String]?
+        switch resolveExecutable(
+            for: plan,
+            projectURL: projectURL,
+            javaHomePath: options.javaHomePath,
+            configuredJavaHome: configuredJavaHome
+        ) {
+        case .resolved(let resolvedExecutable, let resolvedEnvironment):
+            executable = resolvedExecutable
+            environment = resolvedEnvironment
+        case .unavailable(let message):
+            // A service that cannot start still becomes a session so the panel
+            // shows which one failed and why, rather than silently omitting it.
             moduleSessions.append(JavaRunSession(
                 id: configuration.id,
                 configurationID: configuration.id,
                 title: configuration.name,
-                output: "No Maven executable was found. Configure Maven in Project Settings.\n",
+                output: message + "\n",
                 isRunning: false,
                 exitCode: 1
             ))
@@ -615,10 +628,6 @@ final class JavaRunService: ObservableObject {
         }
         let arguments = plan.arguments
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
-        let environment = runtimeService.environment(
-            for: .maven,
-            javaHomeOverride: configuredJavaHome
-        )
 
         let session = JavaRunSession(
             id: configuration.id,
@@ -669,6 +678,51 @@ final class JavaRunService: ObservableObject {
                     sessionID: configuration.id
                 )
             }
+        }
+    }
+
+    private enum ExecutableResolution {
+        case resolved(executable: URL, environment: [String: String]?)
+        case unavailable(String)
+    }
+
+    /// Resolves a launch plan's executable and environment. Shared by the
+    /// single-slot run path and by concurrent service sessions: a `.command`
+    /// plan carries its own environment and must not inherit the Maven one.
+    private func resolveExecutable(
+        for plan: SharedLaunchPlan,
+        projectURL: URL,
+        javaHomePath: String,
+        configuredJavaHome: String
+    ) -> ExecutableResolution {
+        switch plan.executable {
+        case .toolchain("project-jdk"):
+            guard let value = runtimeService.javaExecutableURL(overridePath: javaHomePath) else {
+                return .unavailable(String(localized: "No Java runtime was found. Set JAVA_HOME or install a JDK."))
+            }
+            return .resolved(executable: value, environment: runtimeService.environment(
+                for: .java,
+                javaHomeOverride: configuredJavaHome
+            ))
+        case .toolchain:
+            guard let value = runtimeService.mavenExecutable(at: projectURL) else {
+                return .unavailable(String(localized: "No Maven executable was found. Configure Maven in Project Settings."))
+            }
+            return .resolved(executable: value, environment: runtimeService.environment(
+                for: .maven,
+                javaHomeOverride: configuredJavaHome
+            ))
+        case .command(let command):
+            guard let value = runtimeService.executableOnPath(command) else {
+                return .unavailable(String(
+                    format: String(localized: "%@ was not found on your PATH."),
+                    command
+                ))
+            }
+            return .resolved(
+                executable: value,
+                environment: plan.environment.isEmpty ? nil : plan.environment
+            )
         }
     }
 
@@ -723,7 +777,14 @@ final class JavaRunService: ObservableObject {
 
     private func appendModuleOutput(_ value: String, sessionID: String) {
         guard let index = moduleSessions.firstIndex(where: { $0.id == sessionID }) else { return }
-        moduleSessions[index].output.append(value.replacingOccurrences(of: "\r", with: ""))
+        let existing = moduleSessions[index].output
+        let continuing = !(existing.isEmpty || existing.hasSuffix("\n"))
+        moduleSessions[index].output.append(
+            OutputTimestamper.stamped(
+                value.replacingOccurrences(of: "\r", with: ""),
+                continuingLine: continuing
+            )
+        )
         if moduleSessions[index].output.count > maximumOutputCharacters {
             moduleSessions[index].output.removeFirst(
                 moduleSessions[index].output.count - maximumOutputCharacters

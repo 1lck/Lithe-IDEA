@@ -81,21 +81,23 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         case .success(let value): payload = value
         case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)
         }
-        let configurations: [EffectiveRunConfiguration] = payload.configurations.compactMap { value -> EffectiveRunConfiguration? in
-            guard let kind = configurationKind(value.type) else { return nil }
+        let configurations: [EffectiveRunConfiguration] = payload.configurations.map { value in
+            let kind = configurationKind(value.provider)
+            let maven = value.maven
             return EffectiveRunConfiguration(
                 configuration: JavaRunConfiguration(
                     id: value.id,
                     name: value.name,
                     kind: kind,
-                    modulePath: value.module == "." ? nil : value.module,
-                    mainClass: value.mainClass
+                    execution: value.execution.flatMap(RunConfigurationExecution.init(rawValue:)),
+                    modulePath: maven?.module == "." ? nil : maven?.module,
+                    mainClass: maven?.mainClass
                 ),
                 options: JavaRunOptions(
-                    workingDirectoryPath: value.workingDirectory == "." ? "" : value.workingDirectory,
-                    vmArguments: value.jvmArguments.joined(separator: " "),
-                    programArguments: value.programArguments.joined(separator: " "),
-                    activeProfiles: Set(value.mavenProfiles)
+                    workingDirectoryPath: (value.cwd ?? ".") == "." ? "" : (value.cwd ?? "."),
+                    vmArguments: (maven?.jvmArguments ?? []).joined(separator: " "),
+                    programArguments: (maven?.programArguments ?? []).joined(separator: " "),
+                    activeProfiles: Set(maven?.profiles ?? [])
                 ),
                 source: RunConfigurationSource(rawValue: value.source ?? "generated") ?? .generated
             )
@@ -125,10 +127,21 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         case .success(let payload): value = payload
         case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)
         }
+        let executable: SharedLaunchPlan.Executable
+        if let toolchain = value.executable.toolchain {
+            executable = .toolchain(toolchain)
+        } else if let command = value.executable.command {
+            executable = .command(command)
+        } else {
+            throw RunConfigurationOperationFailure(
+                message: "The launch plan names neither a toolchain nor a command."
+            )
+        }
         return SharedLaunchPlan(
-            toolchainID: value.executable.toolchain,
+            executable: executable,
             arguments: value.arguments,
-            workingDirectory: value.workingDirectory
+            workingDirectory: value.workingDirectory,
+            environment: value.env ?? [:]
         )
     }
 
@@ -254,7 +267,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             let ignore = "run/local.json\ntoolchains/local.json\n**/*.tmp\n"
             if !storage.fileExists(at: ignoreURL) { try atomicWrite(Data(ignore.utf8), to: ignoreURL, root: root) }
             if !storage.fileExists(at: manifestURL) {
-                let defaultID = result.generated.configurations.first(where: { $0.type == "spring-boot.maven" })?.id
+                let defaultID = result.generated.configurations.first(where: { $0.provider == "spring-boot.maven" })?.id
                     ?? result.generated.configurations.first?.id
                 var manifest: [String: Any] = ["version": 1]
                 if let defaultID { manifest["defaultRunConfiguration"] = defaultID }
@@ -392,12 +405,13 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
     }
 
-    private func configurationKind(_ value: String) -> JavaRunConfigurationKind? {
+    private func configurationKind(_ value: String) -> JavaRunConfigurationKind {
         switch value {
         case "java.current-file": .currentFile
         case "spring-boot.maven": .springBoot
+        case "java.main": .javaMain
         case "maven.module": .mavenModule
-        default: nil
+        default: .process(provider: value)
         }
     }
 }

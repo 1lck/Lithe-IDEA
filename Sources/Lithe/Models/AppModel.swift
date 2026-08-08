@@ -1385,6 +1385,17 @@ final class AppModel: ObservableObject, Identifiable {
         terminalFeature.stopAllSessions()
     }
 
+    func toggleRun() {
+        isRunVisible.toggle()
+        guard isRunVisible else { return }
+        isGitLogVisible = false
+        isTerminalVisible = false
+        isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isDebugVisible = false
+    }
+
     func toggleMaven() {
         isMavenVisible.toggle()
         guard isMavenVisible else { return }

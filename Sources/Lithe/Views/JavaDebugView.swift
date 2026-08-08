@@ -454,13 +454,13 @@ struct JavaDebugView: View {
 
     private var debugConfigurations: [JavaRunConfiguration] {
         runService.configurations.filter {
-            $0.kind == .springBoot || $0.kind == .mavenModule
+            $0.kind.isMavenBacked
         }
     }
 
     private var selectedDebugConfiguration: JavaRunConfiguration? {
         guard let configuration = runService.selectedConfiguration,
-              configuration.kind == .springBoot || configuration.kind == .mavenModule else {
+              configuration.kind.isMavenBacked else {
             return nil
         }
         return configuration

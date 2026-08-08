@@ -1,5 +1,6 @@
 mod cancellation;
 mod command;
+mod detectors;
 mod error;
 mod event;
 mod ffi;
@@ -28,7 +29,7 @@ mod tests {
     use super::execute_json;
     use serde_json::Value;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -71,7 +72,7 @@ mod tests {
         let generated: Value = serde_json::from_str(&execute_json(&request.to_string()))
             .expect("generate response should be JSON");
         assert_eq!(generated["ok"], true);
-        assert_eq!(generated["data"]["generated"]["version"], 1);
+        assert_eq!(generated["data"]["generated"]["version"], 2);
         assert!(generated["data"]["generated"]["configurations"]
             .as_array()
             .unwrap()
@@ -161,14 +162,85 @@ mod tests {
             .unwrap();
         assert!(configurations.iter().any(|value| {
             value["id"] == "spring:com.example.BackendApplication"
-                && value["module"] == "backend-api"
+                && value["extensions"]["maven"]["module"] == "backend-api"
         }));
-        assert!(configurations
+        assert!(configurations.iter().any(|value| {
+            value["id"] == "java-main:com.example.WorkerMain"
+                && value["extensions"]["maven"]["module"] == "batch-worker"
+                && value["execution"] == "application"
+        }));
+        assert!(!configurations
             .iter()
-            .any(|value| value["id"] == "module:backend-api"));
-        assert!(configurations
+            .any(|value| value["provider"] == "maven.module"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ordinary_java_main_uses_an_application_launch_plan() {
+        let root = temporary_root("run-config-java-main");
+        let source = "batch-worker/src/main/java/com/example/WorkerMain.java";
+        fs::create_dir_all(root.join("batch-worker/src/main/java/com/example")).unwrap();
+        fs::write(root.join("pom.xml"), "<project/>").unwrap();
+        fs::write(root.join("batch-worker/pom.xml"), "<project/>").unwrap();
+        fs::write(
+            root.join(source),
+            "package com.example; class WorkerMain { public static void main(String[] args) {} }",
+        )
+        .unwrap();
+
+        let generated_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "generate-java-main",
+                "command": "runConfig.generate",
+                "payload": {"root": root, "paths": [source], "modulePaths": []}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        let generated = &generated_response["data"]["generated"];
+        let java_main = generated["configurations"]
+            .as_array()
+            .unwrap()
             .iter()
-            .any(|value| value["id"] == "module:batch-worker"));
+            .find(|value| value["provider"] == "java.main")
+            .unwrap();
+        assert_eq!(java_main["execution"], "application");
+        assert_eq!(java_main["extensions"]["maven"]["module"], "batch-worker");
+
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            serde_json::to_string(generated).unwrap(),
+        )
+        .unwrap();
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "plan-java-main",
+                "command": "runConfig.createLaunchPlan",
+                "payload": {
+                    "root": root,
+                    "configurationId": "java-main:com.example.WorkerMain"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(plan["ok"], true, "{plan}");
+        assert_eq!(plan["data"]["executable"]["toolchain"], "project-maven");
+        assert!(plan["data"]["arguments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "-Dexec.mainClass=com.example.WorkerMain"));
+        assert_eq!(
+            plan["data"]["arguments"]
+                .as_array()
+                .unwrap()
+                .last()
+                .unwrap(),
+            "org.codehaus.mojo:exec-maven-plugin:3.5.0:java"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -196,7 +268,7 @@ mod tests {
 
         fs::write(
             root.join(".lithe/run/generated.json"),
-            r#"{"version":2,"configurations":[]}"#,
+            r#"{"version":3,"configurations":[]}"#,
         )
         .unwrap();
         let unsupported = inspect("unsupported");
@@ -205,7 +277,7 @@ mod tests {
         assert!(unsupported["error"]["details"]
             .as_str()
             .unwrap()
-            .contains("found 2"));
+            .contains("found 3"));
 
         fs::write(
             root.join(".lithe/run/generated.json"),
@@ -262,7 +334,7 @@ mod tests {
         let updated_document: Value =
             serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
         assert_eq!(
-            updated_document["configurations"][0]["jvmArguments"],
+            updated_document["configurations"][0]["extensions"]["maven"]["jvmArguments"],
             serde_json::json!(["-Dlabel=hello world", "-Xmx2g"])
         );
         fs::write(
@@ -2574,5 +2646,506 @@ mod tests {
         assert_eq!(invalid["ok"], false);
 
         fs::remove_dir_all(root).expect("Git fixture should be removable");
+    }
+
+    /// The v1 -> v2 rewrite must not change a single byte of the emitted command
+    /// line. Values are asserted literally rather than recomputed, so a future
+    /// refactor that silently drops an argument fails here instead of at runtime.
+    #[test]
+    fn migrated_v1_documents_produce_identical_launch_arguments() {
+        let root = temporary_root("run-config-migration");
+        fs::create_dir_all(root.join("backend/src/main/java/com/example")).unwrap();
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::write(root.join("pom.xml"), "<project/>").unwrap();
+        fs::write(root.join("backend/pom.xml"), "<project/>").unwrap();
+        fs::write(
+            root.join("backend/src/main/java/com/example/App.java"),
+            "package com.example; class App { public static void main(String[] args) {} }",
+        )
+        .unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            r#"{"version":1,"configurations":[{
+                "id":"spring:com.example.App",
+                "name":"App",
+                "type":"spring-boot.maven",
+                "module":"backend",
+                "workingDirectory":".",
+                "mainClass":"com.example.App",
+                "jvmArguments":["-Xmx2g"],
+                "programArguments":["--dev"],
+                "mavenProfiles":["local"],
+                "toolchains":{"java":"project-jdk","maven":"project-maven"}
+            }]}"#,
+        )
+        .unwrap();
+
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "migrated-plan",
+                "command": "runConfig.createLaunchPlan",
+                "payload": {
+                    "root": root,
+                    "configurationId": "spring:com.example.App",
+                    "debugPort": 5005
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(plan["ok"], true);
+        assert_eq!(
+            plan["data"]["arguments"],
+            serde_json::json!([
+                "-B",
+                "-ntp",
+                "-pl",
+                "backend",
+                "-P",
+                "local",
+                "-Dspring-boot.run.main-class=com.example.App",
+                "-Dspring-boot.run.jvmArguments=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:5005 -Duser.language=en -Duser.country=US -Xmx2g",
+                "-Dspring-boot.run.arguments=--dev",
+                "spring-boot:run"
+            ])
+        );
+        assert_eq!(plan["data"]["workingDirectory"], ".");
+        assert_eq!(plan["data"]["executable"]["toolchain"], "project-maven");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// `project.json` and the toolchain files sit under `.lithe` and carry their
+    /// own `version: 1`, unrelated to the run-configuration schema. Migration
+    /// must not touch them, or resolve rejects a perfectly valid project.
+    #[test]
+    fn migration_leaves_sidecar_documents_at_their_own_version() {
+        let root = temporary_root("run-config-sidecar");
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            r#"{"version":1,"configurations":[{"id":"current-file","name":"Current File","type":"java.current-file"}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join(".lithe/project.json"),
+            r#"{"version":1,"defaultRunConfiguration":"current-file"}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join(".lithe/toolchains/requirements.json"),
+            r#"{"version":1,"toolchains":{}}"#,
+        )
+        .unwrap();
+
+        let resolved: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "sidecar",
+                "command": "runConfig.resolve",
+                "payload": {"root": root}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(resolved["ok"], true, "{resolved}");
+        assert_eq!(resolved["data"]["version"], 2);
+        assert_eq!(resolved["data"]["defaultRunConfiguration"], "current-file");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A non-Java service must reach a launch plan without acquiring a Java
+    /// toolchain or a JAVA_HOME it has no use for.
+    #[test]
+    fn process_configurations_launch_without_java_assumptions() {
+        let root = temporary_root("run-config-process");
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::create_dir_all(root.join("frontend")).unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            r#"{"version":2,"configurations":[{
+                "id":"npm:dev",
+                "name":"web dev",
+                "provider":"npm.script",
+                "execution":"service",
+                "confidence":"declared",
+                "command":"npm",
+                "args":["run","dev"],
+                "cwd":"frontend",
+                "env":{"PORT":"3000"},
+                "toolchains":{}
+            }]}"#,
+        )
+        .unwrap();
+
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "process-plan",
+                "command": "runConfig.createLaunchPlan",
+                "payload": {"root": root, "configurationId": "npm:dev"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(plan["ok"], true, "{plan}");
+        assert_eq!(plan["data"]["executable"]["command"], "npm");
+        assert!(plan["data"]["executable"]["toolchain"].is_null());
+        assert_eq!(plan["data"]["arguments"], serde_json::json!(["run", "dev"]));
+        assert_eq!(plan["data"]["workingDirectory"], "frontend");
+        assert_eq!(plan["data"]["env"]["PORT"], "3000");
+        assert!(plan["data"]["environment"]["JAVA_HOME"].is_null());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// An absolute or relative path would let a project manifest point the IDE
+    /// at an executable of its choosing. Commands resolve on PATH only.
+    #[test]
+    fn process_configurations_reject_path_qualified_commands() {
+        let root = temporary_root("run-config-process-path");
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            r#"{"version":2,"configurations":[{
+                "id":"evil","name":"evil","provider":"shell.command",
+                "command":"../../../usr/bin/curl","args":[],"cwd":".","toolchains":{}
+            }]}"#,
+        )
+        .unwrap();
+
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "evil-plan",
+                "command": "runConfig.createLaunchPlan",
+                "payload": {"root": root, "configurationId": "evil"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(plan["ok"], false);
+        assert_eq!(plan["error"]["code"], "invalid_request");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Builds a project that mixes six ecosystems in one tree, including the
+    /// traps that break naive detectors: a lockfile that is not npm's, a
+    /// `node_modules` full of decoy manifests, and a Go command in a
+    /// subdirectory with no manifest of its own.
+    fn multi_language_project(root: &Path) {
+        for directory in ["frontend/node_modules/decoy", "api", "cmd/gateway"] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        fs::write(
+            root.join("frontend/package.json"),
+            r#"{"name":"web","scripts":{"dev":"vite","build":"vite build"}}"#,
+        )
+        .unwrap();
+        fs::write(root.join("frontend/pnpm-lock.yaml"), "lockfileVersion: 9\n").unwrap();
+        fs::write(
+            root.join("frontend/node_modules/decoy/package.json"),
+            r#"{"scripts":{"dev":"should-never-appear"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("api/pyproject.toml"),
+            "[tool.poetry]\nname = \"api\"\n[tool.poetry.scripts]\napi-server = \"api.main:run\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("api/main.py"),
+            "from fastapi import FastAPI\napp = FastAPI()\n",
+        )
+        .unwrap();
+        fs::write(root.join("go.mod"), "module example.com/gw\ngo 1.22\n").unwrap();
+        fs::write(
+            root.join("cmd/gateway/main.go"),
+            "package main\nfunc main() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("docker-compose.yml"),
+            "services:\n  db:\n    image: postgres\n  cache:\n    image: redis\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Procfile"),
+            "worker: python worker/run.py\nweb: gunicorn api.main:app\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Makefile"),
+            "run:\n\techo run\nclean:\n\techo clean\n",
+        )
+        .unwrap();
+    }
+
+    fn generated_configurations(root: &Path) -> Vec<Value> {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "generate",
+                "command": "runConfig.generate",
+                "payload": {"root": root}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"]["generated"]["configurations"]
+            .as_array()
+            .cloned()
+            .unwrap()
+    }
+
+    /// The headline behaviour: one project, six ecosystems, every service found
+    /// without the user configuring anything.
+    #[test]
+    fn detectors_find_services_across_unrelated_ecosystems() {
+        let root = temporary_root("detect-multi");
+        fs::create_dir_all(&root).unwrap();
+        multi_language_project(&root);
+
+        let ids = generated_configurations(&root)
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+
+        for expected in [
+            "npm.script:frontend/dev",
+            "python.script:api/api-server",
+            "python.uvicorn:api/main",
+            "go.command:cmd/gateway/gateway",
+            "compose.service:db",
+            "compose.stack:compose up",
+            "procfile.process:web",
+            "make.target:run",
+        ] {
+            assert!(
+                ids.contains(&expected.to_string()),
+                "missing {expected} in {ids:?}"
+            );
+        }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A dependency tree contains thousands of manifests. Descending into it
+    /// would both bury the real services and make project open unusably slow.
+    #[test]
+    fn detectors_never_descend_into_dependency_directories() {
+        let root = temporary_root("detect-prune");
+        fs::create_dir_all(&root).unwrap();
+        multi_language_project(&root);
+
+        let sources = generated_configurations(&root)
+            .iter()
+            .filter_map(|item| item["source"].as_str().map(str::to_string))
+            .collect::<Vec<_>>();
+
+        assert!(
+            !sources.iter().any(|source| source.contains("node_modules")),
+            "{sources:?}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Running `npm run dev` in a pnpm workspace fails at spawn time with an
+    /// error that points nowhere useful, so the lockfile decides the command.
+    #[test]
+    fn npm_detector_uses_the_package_manager_the_lockfile_names() {
+        let root = temporary_root("detect-pnpm");
+        fs::create_dir_all(&root).unwrap();
+        multi_language_project(&root);
+
+        let dev = generated_configurations(&root)
+            .into_iter()
+            .find(|item| item["id"] == "npm.script:frontend/dev")
+            .unwrap();
+
+        assert_eq!(dev["command"], "pnpm");
+        assert_eq!(dev["args"], serde_json::json!(["run", "dev"]));
+        assert_eq!(dev["cwd"], "frontend");
+        assert_eq!(dev["execution"], "service");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn npm_detector_inherits_the_workspace_package_manager() {
+        let root = temporary_root("detect-pnpm-workspace");
+        fs::create_dir_all(root.join("apps/web")).unwrap();
+        fs::write(root.join("pnpm-lock.yaml"), "lockfileVersion: 9\n").unwrap();
+        fs::write(
+            root.join("apps/web/package.json"),
+            r#"{"scripts":{"dev":"vite"}}"#,
+        )
+        .unwrap();
+
+        let dev = generated_configurations(&root)
+            .into_iter()
+            .find(|item| item["id"] == "npm.script:apps/web/dev")
+            .unwrap();
+        assert_eq!(dev["command"], "pnpm");
+        assert_eq!(dev["execution"], "service");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn detectors_preserve_application_service_and_task_semantics() {
+        let root = temporary_root("detect-execution-semantics");
+        fs::create_dir_all(&root).unwrap();
+        multi_language_project(&root);
+        let configurations = generated_configurations(&root);
+        let execution = |id: &str| {
+            configurations
+                .iter()
+                .find(|item| item["id"] == id)
+                .and_then(|item| item["execution"].as_str())
+        };
+
+        assert_eq!(execution("npm.script:frontend/dev"), Some("service"));
+        assert_eq!(execution("npm.script:frontend/build"), Some("task"));
+        assert_eq!(
+            execution("python.script:api/api-server"),
+            Some("application")
+        );
+        assert_eq!(
+            execution("go.command:cmd/gateway/gateway"),
+            Some("application")
+        );
+        assert_eq!(execution("compose.stack:compose up"), Some("service"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Detected entries are process-based, so they must survive the same launch
+    /// path as any other configuration without acquiring Java assumptions.
+    #[test]
+    fn detected_services_produce_runnable_launch_plans() {
+        let root = temporary_root("detect-launch");
+        fs::create_dir_all(&root).unwrap();
+        multi_language_project(&root);
+        let generated = serde_json::json!({
+            "version": 2,
+            "configurations": generated_configurations(&root)
+        });
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            serde_json::to_string(&generated).unwrap(),
+        )
+        .unwrap();
+
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "plan",
+                "command": "runConfig.createLaunchPlan",
+                "payload": {"root": root, "configurationId": "npm.script:frontend/dev"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+        assert_eq!(plan["ok"], true, "{plan}");
+        assert_eq!(plan["data"]["executable"]["command"], "pnpm");
+        assert!(plan["data"]["executable"]["toolchain"].is_null());
+        assert_eq!(plan["data"]["workingDirectory"], "frontend");
+        assert!(plan["data"]["environment"]["JAVA_HOME"].is_null());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Ids are the join key for the team and local override layers. A detector
+    /// that renamed a Java configuration would silently detach every override
+    /// written against it, with no error anywhere.
+    #[test]
+    fn detectors_never_claim_an_id_the_java_scan_already_produced() {
+        let root = temporary_root("detect-no-clobber");
+        fs::create_dir_all(&root).unwrap();
+        multi_language_project(&root);
+
+        let ids = generated_configurations(&root)
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        let mut unique = ids.clone();
+        unique.sort();
+        unique.dedup();
+
+        assert_eq!(ids.len(), unique.len(), "duplicate ids in {ids:?}");
+        assert!(ids.contains(&"current-file".to_string()));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A Java project that also ships a frontend must gain the frontend's
+    /// services without any Java configuration changing id. Ids are the join key
+    /// for the team and local layers, so a shifted id detaches every override
+    /// silently -- there is no error to notice.
+    #[test]
+    fn detectors_extend_a_java_project_without_disturbing_its_configurations() {
+        let root = temporary_root("detect-java-mixed");
+        let module = root.join("backend-api/src/main/java/com/demo");
+        fs::create_dir_all(&module).unwrap();
+        fs::create_dir_all(root.join("frontend-web")).unwrap();
+        fs::write(
+            root.join("pom.xml"),
+            "<project><modules><module>backend-api</module></modules></project>",
+        )
+        .unwrap();
+        fs::write(root.join("backend-api/pom.xml"), "<project></project>").unwrap();
+        fs::write(
+            module.join("BackendApplication.java"),
+            "package com.demo;\n@SpringBootApplication\npublic class BackendApplication { public static void main(String[] a) {} }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("frontend-web/package.json"),
+            r#"{"name":"web","scripts":{"dev":"vite"}}"#,
+        )
+        .unwrap();
+
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "generate",
+                "command": "runConfig.generate",
+                "payload": {
+                    "root": root,
+                    "paths": ["backend-api/src/main/java/com/demo/BackendApplication.java"]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        let configurations = response["data"]["generated"]["configurations"]
+            .as_array()
+            .unwrap();
+        let ids = configurations
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(
+            ids.contains(&"spring:com.demo.BackendApplication".to_string()),
+            "{ids:?}"
+        );
+        assert!(
+            ids.contains(&"npm.script:frontend-web/dev".to_string()),
+            "{ids:?}"
+        );
+        // The Java entries stay toolchain-backed; only the detected ones are
+        // process-based. A regression here would send npm through Maven.
+        let java = configurations
+            .iter()
+            .find(|item| item["id"] == "spring:com.demo.BackendApplication")
+            .unwrap();
+        assert!(java["command"].is_null());
+        assert_eq!(java["toolchains"]["maven"], "project-maven");
+
+        fs::remove_dir_all(root).unwrap();
     }
 }

@@ -79,12 +79,89 @@ struct OutputTextView: View {
         let parsed = ANSIOutputRenderer.parse(source)
         guard !parsed.cleanText.isEmpty else { return AttributedString() }
         var result = ANSIOutputRenderer.render(parsed, fontSize: 11.5)
+        applySeverityColors(to: &result, text: parsed.cleanText, ansiStyled: parsed.hasStyling)
+        dimTimestamps(in: &result, text: parsed.cleanText)
         for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots) {
             guard let range = Range(location.range, in: result) else { continue }
             result[range].link = locationURL(path: location.url.path, line: location.line, column: location.column)
             result[range].foregroundColor = location.kind == .warning ? LitheTheme.warning : LitheTheme.error
         }
         return result
+    }
+
+    // MARK: - 日志级别着色
+
+    enum Severity {
+        case error, warning, info, debug
+
+        var color: Color {
+            switch self {
+            case .error: LitheTheme.error
+            case .warning: LitheTheme.warning
+            case .info: Color(red: 0.55, green: 0.72, blue: 0.95)
+            case .debug: LitheTheme.secondaryText
+            }
+        }
+    }
+
+    /// Matches the level as its own bracketed or spaced token so a path such as
+    /// `src/main/java/Error.java` is not mistaken for an error line.
+    private static let severityExpression = try! NSRegularExpression(
+        pattern: #"(?:^|\s|\[)(ERROR|SEVERE|FATAL|WARN(?:ING)?|INFO|DEBUG|TRACE)(?:\]|\s|:)"#
+    )
+
+    static func severity(ofLine line: String) -> Severity? {
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = severityExpression.firstMatch(in: line, range: range),
+              let token = capture(match, at: 1, in: line) else { return nil }
+        switch token.uppercased() {
+        case "ERROR", "SEVERE", "FATAL": return .error
+        case "WARN", "WARNING": return .warning
+        case "INFO": return .info
+        case "DEBUG", "TRACE": return .debug
+        default: return nil
+        }
+    }
+
+    /// Colors whole lines by log level so a wall of white output separates into
+    /// scannable bands. Skipped when the process emitted its own ANSI colors --
+    /// overriding those would fight the tool's intended formatting.
+    private static func applySeverityColors(
+        to result: inout AttributedString,
+        text: String,
+        ansiStyled: Bool
+    ) {
+        guard !ansiStyled else { return }
+        var colored: [(Range<String.Index>, Severity)] = []
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: [.byLines]) { substring, lineRange, _, _ in
+            guard let line = substring, let severity = severity(ofLine: line) else { return }
+            colored.append((lineRange, severity))
+        }
+        for (lineRange, severity) in colored {
+            guard let range = Range(lineRange, in: result) else { continue }
+            result[range].foregroundColor = severity.color
+        }
+    }
+
+    /// Recedes the leading clock on every line so the timestamps read as a
+    /// gutter rather than competing with the message for attention. Applied
+    /// after severity coloring, which paints whole lines including the stamp.
+    private static func dimTimestamps(in result: inout AttributedString, text: String) {
+        var stamps: [Range<String.Index>] = []
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: [.byLines]) { substring, lineRange, _, _ in
+            guard let line = substring,
+                  let length = OutputTimestamper.leadingTimeLength(of: line) else { return }
+            let end = text.index(
+                lineRange.lowerBound,
+                offsetBy: length,
+                limitedBy: lineRange.upperBound
+            ) ?? lineRange.upperBound
+            stamps.append(lineRange.lowerBound..<end)
+        }
+        for stamp in stamps {
+            guard let range = Range(stamp, in: result) else { continue }
+            result[range].foregroundColor = LitheTheme.secondaryText.opacity(0.7)
+        }
     }
 
     // MARK: - 错误位置匹配
@@ -359,6 +436,9 @@ enum ANSIOutputRenderer {
     struct ParsedOutput {
         var cleanText: String
         var segments: [Segment]
+        /// True when the source carried SGR color codes, meaning the producing
+        /// tool already colored its output and callers should not recolor it.
+        var hasStyling = false
     }
 
     /// 便捷渲染:直接由源文本生成 AttributedString。
@@ -389,6 +469,7 @@ enum ANSIOutputRenderer {
         var segmentStart: String.Index?
         var style = Style()
         var index = 0
+        var sawColorCode = false
 
         func flush() {
             guard !buffer.isEmpty else { return }
@@ -422,6 +503,7 @@ enum ANSIOutputRenderer {
                         if scalars[end] == "m" {
                             let parameters = String(String.UnicodeScalarView(scalars[(index + 2)..<end]))
                             applySGR(parameters, to: &style)
+                            if parameters != "0" && !parameters.isEmpty { sawColorCode = true }
                         }
                         index = end + 1
                         continue
@@ -449,7 +531,7 @@ enum ANSIOutputRenderer {
             index += 1
         }
         flush()
-        return ParsedOutput(cleanText: cleanText, segments: segments)
+        return ParsedOutput(cleanText: cleanText, segments: segments, hasStyling: sawColorCode)
     }
 
     private static func applySGR(_ parameters: String, to style: inout Style) {

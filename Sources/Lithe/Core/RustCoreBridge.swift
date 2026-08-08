@@ -171,6 +171,10 @@ struct RustCoreBridge: Sendable {
             let isActiveByDefault: Bool
         }
 
+        /// The core serializes Maven coordinates as `groupId` / `artifactId`,
+        /// matching Maven itself. Swift spells the same properties with a
+        /// capital D, so the mapping has to be explicit -- without it decoding
+        /// fails and the whole scan silently returns nil.
         struct Module: Decodable, Sendable {
             let relativePath: String
             let groupID: String?
@@ -178,6 +182,15 @@ struct RustCoreBridge: Sendable {
             let version: String?
             let packaging: String
             let modules: [Module]
+
+            enum CodingKeys: String, CodingKey {
+                case relativePath
+                case groupID = "groupId"
+                case artifactID = "artifactId"
+                case version
+                case packaging
+                case modules
+            }
 
             func makeModel(rootURL: URL) -> MavenModule {
                 MavenModule(
@@ -199,6 +212,16 @@ struct RustCoreBridge: Sendable {
         let modules: [Module]
         let profiles: [Profile]
         let hasWrapper: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case groupID = "groupId"
+            case artifactID = "artifactId"
+            case version
+            case packaging
+            case modules
+            case profiles
+            case hasWrapper
+        }
 
         func makeProject(rootURL: URL) -> MavenProject {
             MavenProject(
@@ -255,18 +278,36 @@ struct RustCoreBridge: Sendable {
             let inputs: [String: String]?
         }
         struct Configuration: Codable, Sendable {
+            struct Maven: Codable, Sendable {
+                let module: String?
+                let mainClass: String?
+                let jvmArguments: [String]?
+                let programArguments: [String]?
+                let profiles: [String]?
+            }
+            struct Debug: Codable, Sendable {
+                let adapter: String
+            }
+            struct Extensions: Codable, Sendable {
+                let maven: Maven?
+            }
             let id: String
             let name: String
-            let type: String
-            let module: String?
-            let mainClass: String?
+            let provider: String
+            let execution: String?
+            let command: String?
+            let args: [String]?
+            let cwd: String?
+            let env: [String: String]?
+            let confidence: String?
             let toolchains: [String: String]
-            let workingDirectory: String
-            let jvmArguments: [String]
-            let programArguments: [String]
-            let mavenProfiles: [String]
+            let debug: Debug?
+            let members: [String]?
+            let extensions: Extensions?
             let disabled: Bool
             let source: String?
+
+            var maven: Maven? { extensions?.maven }
         }
 
         let version: Int
@@ -303,11 +344,15 @@ struct RustCoreBridge: Sendable {
     }
 
     struct LaunchPlanPayload: Codable, Sendable {
-        struct Executable: Codable, Sendable { let toolchain: String }
+        struct Executable: Codable, Sendable {
+            let toolchain: String?
+            let command: String?
+        }
         let executable: Executable
         let arguments: [String]
         let workingDirectory: String
         let environment: [String: [String: String]]
+        let env: [String: String]?
     }
 
     struct RunConfigurationMutationPayload: Codable, Sendable {
@@ -415,6 +460,15 @@ struct RustCoreBridge: Sendable {
             let right: String?
             let kind: String
             let hunkID: String?
+
+            enum CodingKeys: String, CodingKey {
+                case oldLine
+                case newLine
+                case left
+                case right
+                case kind
+                case hunkID = "hunkId"
+            }
 
             func makeModel(sequence: Int) -> DiffRow {
                 DiffRow(
@@ -1233,7 +1287,7 @@ struct RustCoreBridge: Sendable {
                 root: rootURL.standardizedFileURL.path,
                 scope: draft.scope.rawValue,
                 name: draft.name,
-                type: draft.kind.rawValue,
+                type: draft.kind.id,
                 module: draft.modulePath,
                 mainClass: draft.mainClass
             )

@@ -87,34 +87,22 @@ pub fn run_configurations(
 
     let mut configurations = main_classes
         .iter()
-        .filter(|value| value.is_spring_boot)
         .map(|value| JavaRunConfigurationResponse {
-            id: format!("spring:{}", value.qualified_name),
+            id: if value.is_spring_boot {
+                format!("spring:{}", value.qualified_name)
+            } else {
+                format!("java-main:{}", value.qualified_name)
+            },
             name: value.simple_name.clone(),
-            kind: "springBoot".to_string(),
+            kind: if value.is_spring_boot {
+                "springBoot".to_string()
+            } else {
+                "javaMain".to_string()
+            },
             module_path: module_path(&value.path, &request.module_paths),
             main_class: Some(value.qualified_name.clone()),
         })
         .collect::<Vec<_>>();
-
-    for module in &request.module_paths {
-        let selected_main = main_classes
-            .iter()
-            .filter(|value| is_inside(&value.path, module))
-            .min_by(|left, right| left.path.cmp(&right.path));
-        configurations.push(JavaRunConfigurationResponse {
-            id: format!("module:{}", module),
-            name: module
-                .rsplit('/')
-                .next()
-                .filter(|value| !value.is_empty())
-                .unwrap_or(module)
-                .to_string(),
-            kind: "mavenModule".to_string(),
-            module_path: Some(module.clone()),
-            main_class: selected_main.map(|value| value.qualified_name.clone()),
-        });
-    }
     configurations.sort_by(|left, right| {
         kind_order(&left.kind)
             .cmp(&kind_order(&right.kind))
@@ -340,7 +328,7 @@ fn is_inside(path: &str, directory: &str) -> bool {
 fn kind_order(kind: &str) -> usize {
     match kind {
         "springBoot" => 0,
-        "mavenModule" => 1,
+        "javaMain" => 1,
         _ => 2,
     }
 }

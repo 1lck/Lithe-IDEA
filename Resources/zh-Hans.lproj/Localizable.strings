@@ -397,6 +397,7 @@
 "Restart" = "重新启动";
 "Clear" = "清除";
 "Current run" = "当前运行";
+"Primary configuration" = "主配置";
 "JDWP is not encrypted; prefer localhost or an SSH tunnel" = "JDWP 未加密，建议使用 localhost 或 SSH 隧道";
 "Toggle breakpoint at caret" = "在光标处切换断点";
 "Pause" = "暂停";
@@ -592,9 +593,13 @@
 "results" = "个结果";
 "found" = "个结果";
 "Run a configuration to see process output." = "运行配置后即可查看进程输出。";
-"Select a run session to see process output." = "选择运行会话以查看进程输出。";
-"Run all Maven modules" = "运行所有 Maven 模块";
-"Stop all Maven modules" = "停止所有 Maven 模块";
+"Select a run configuration to see its output." = "选择运行配置以查看其输出。";
+"Run all services" = "运行所有服务";
+"Stop all services" = "停止所有服务";
+"Start service" = "启动服务";
+"Stop service" = "停止服务";
+"Services" = "服务";
+"No runnable services were detected in this project." = "未在此项目中检测到可运行的服务。";
 "Identify and Generate" = "识别并生成";
 "Retry Identification" = "重新识别";
 "Identifying project…" = "正在识别项目…";
@@ -614,12 +619,15 @@
 "Identify Again" = "重新识别";
 "Project run configuration not found" = "未找到项目运行配置";
 "Project run configuration is invalid" = "项目运行配置无效";
-"Run configuration ready" = "运行配置已就绪";
+"Rescan the project for services" = "重新识别项目中的服务";
+"Rescan" = "重新识别";
+"Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed." = "Lithe 将重新查找服务并刷新 .lithe/run/generated.json。项目与本机的覆盖配置不会被修改。";
 "Generate .lithe/run/generated.json to enable Run and Debug. Existing project and local overrides will be preserved." = "生成 .lithe/run/generated.json 后即可使用运行和调试。现有项目配置和本机覆盖配置会被保留。";
 "Select a Java file before running Current File." = "使用“当前文件”运行前，请先选择一个 Java 文件。";
 "Stop run" = "停止运行";
 "Run configuration" = "运行配置";
 "Restart run" = "重新运行";
+"Rescan services" = "重新识别服务";
 "Clear run output" = "清除运行输出";
 "Debug target" = "调试目标";
 "Open a Java file" = "打开 Java 文件";
@@ -682,6 +690,7 @@
 "This sends the current branch to its configured remote." = "这会将当前分支推送到已配置的远程仓库。";
 "Select run configuration" = "选择运行配置";
 "Edit run configuration" = "编辑运行配置";
+"Edit service configuration" = "编辑服务配置";
 "Search files and contents" = "搜索文件和内容";
 "The item can be recovered from the macOS Trash." = "可以从 macOS 废纸篓中恢复此项目。";
 "Refreshing project" = "正在刷新项目";
@@ -739,3 +748,23 @@
 "Smart Checkout (Shelve)" = "智能检出（Shelf）";
 "Shelving saves these changes in Lithe, runs the operation, then restores them. If conflicts stop the operation, the shelf stays saved until you finish it." = "保存为 Shelf 会把这些更改保存在 Lithe 中，执行操作后再恢复。如果操作因冲突中断，Shelf 会一直保留，直到你完成该操作。";
 "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them." = "智能检出会先把更改保存为 Lithe Shelf，切换分支后再恢复。强制检出会直接切换并丢弃这些更改。";
+
+/* Run configuration selector and creation dialog. */
+"New Configuration" = "新建配置";
+"New Run Configuration" = "新建运行配置";
+"Create a shared project configuration or a local override." = "创建团队共享的项目配置，或仅本机生效的覆盖配置。";
+"Name" = "名称";
+"Type" = "类型";
+"Spring Boot" = "Spring Boot";
+"Maven Module" = "Maven 模块";
+"Docker Compose" = "Docker Compose";
+"Procfile" = "Procfile";
+"Applications" = "应用";
+"Services" = "服务";
+"Tasks" = "任务";
+"Groups" = "组合";
+"Java Application" = "Java 应用";
+"Module path" = "模块路径";
+"Save scope" = "保存范围";
+"This Mac only" = "仅本机";
+"Shared with project" = "项目共享";

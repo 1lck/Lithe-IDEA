@@ -161,7 +161,7 @@ final class JavaFeatureModel: ObservableObject {
             )
         case .runConfiguration:
             guard let configuration = runFeature.selectedConfiguration,
-                  configuration.kind == .springBoot || configuration.kind == .mavenModule else {
+                  configuration.kind.isMavenBacked else {
                 notify?("Select a Spring Boot or Maven Module configuration before starting Debug")
                 return false
             }

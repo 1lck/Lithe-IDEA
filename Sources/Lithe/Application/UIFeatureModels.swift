@@ -57,23 +57,16 @@ final class JavaRunFeatureModel: ObservableObject {
     @Published var isGenerationConfirmationPresented = false
     private(set) var generationIntent: RunConfigurationGenerationIntent = .identifyOnly
 
-    @Published var selectedConfigurationID: String {
-        didSet {
-            guard selectedConfigurationID != service.selectedConfigurationID else { return }
-            service.selectedConfigurationID = selectedConfigurationID
+    init(service: JavaRunService) {
+        self.service = service
+        observation = service.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
         }
     }
 
-    init(service: JavaRunService) {
-        self.service = service
-        _selectedConfigurationID = Published(initialValue: service.selectedConfigurationID)
-        observation = service.objectWillChange.sink { [weak self] _ in
-            guard let self else { return }
-            if self.selectedConfigurationID != self.service.selectedConfigurationID {
-                self.selectedConfigurationID = self.service.selectedConfigurationID
-            }
-            self.objectWillChange.send()
-        }
+    var selectedConfigurationID: String {
+        get { service.selectedConfigurationID }
+        set { service.selectedConfigurationID = newValue }
     }
 
     var configurations: [JavaRunConfiguration] { service.configurations }
@@ -125,12 +118,16 @@ final class JavaRunFeatureModel: ObservableObject {
         service.createConfiguration(draft)
     }
 
-    func runAllModules() {
-        service.runAllModules()
+    func runAllServices() {
+        service.runAllServices()
     }
 
-    func stopAllModules() {
-        service.stopAllModules()
+    func stopAllServices() {
+        service.stopAllServices()
+    }
+
+    func startConfiguration(_ configuration: JavaRunConfiguration) {
+        service.startConfiguration(configuration)
     }
 
     func stopModule(_ session: JavaRunSession) {
