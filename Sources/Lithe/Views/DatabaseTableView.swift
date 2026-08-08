@@ -513,19 +513,46 @@ struct DatabaseTableView: View {
             .buttonStyle(.plain)
             .help(allRowsSelected ? "Deselect all rows on this page" : "Select all rows on this page")
             ForEach(model.databaseFeature.columns, id: \.self) { column in
-                Button { toggleSort(column) } label: {
-                    HStack(spacing: 4) {
-                        Text(column).lineLimit(1)
-                        if let index = appliedSort.firstIndex(where: { $0.column == column }) {
-                            Image(systemName: appliedSort[index].descending ? "arrow.down" : "arrow.up").font(.system(size: 8))
-                            if appliedSort.count > 1 {
-                                Text("\(index + 1)").font(.system(size: 8, weight: .semibold)).foregroundStyle(LitheTheme.tertiaryText)
-                            }
+                HStack(spacing: 4) {
+                    Text(column)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if let index = appliedSort.firstIndex(where: { $0.column == column }), appliedSort.count > 1 {
+                        Text("\(index + 1)")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                    }
+                    Menu {
+                        Button {
+                            setSort(column: column, descending: false)
+                        } label: {
+                            Label("Ascending", systemImage: "arrow.up")
                         }
-                    }.font(.system(size: 11.5, weight: .semibold)).padding(.horizontal, 7).frame(width: columnWidth, height: 32, alignment: .leading)
-                }.buttonStyle(.plain)
-                    .id("column-\(column)")
-                    .overlay(alignment: .trailing) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
+                        Button {
+                            setSort(column: column, descending: true)
+                        } label: {
+                            Label("Descending", systemImage: "arrow.down")
+                        }
+                    } label: {
+                        Image(systemName: sortIcon(for: column))
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(isSorted(column) ? LitheTheme.accent : LitheTheme.tertiaryText)
+                            .frame(width: 24, height: 30)
+                            .contentShape(Rectangle())
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Sort column")
+                }
+                .font(.system(size: 11.5, weight: .semibold))
+                .padding(.leading, 7)
+                .padding(.trailing, 3)
+                .frame(width: columnWidth, height: 32, alignment: .leading)
+                .id("column-\(column)")
+                .overlay(alignment: .trailing) {
+                    Rectangle().fill(LitheTheme.divider).frame(width: 1)
+                }
             }
         }.foregroundStyle(LitheTheme.secondaryText).background(LitheTheme.raised)
     }
@@ -746,14 +773,19 @@ struct DatabaseTableView: View {
     private func refreshTable() {
         reloadQuery(offset: model.databaseFeature.currentOffset)
     }
-    private func toggleSort(_ column: String) {
-        if let current = appliedSort.first, current.column == column {
-            appliedSort = current.descending ? [] : [DatabaseSort(column: column, descending: true)]
-        } else {
-            appliedSort = [DatabaseSort(column: column)]
-        }
+    private func setSort(column: String, descending: Bool) {
+        appliedSort = [DatabaseSort(column: column, descending: descending)]
         sortConditions = appliedSort.map { .init(column: $0.column, descending: $0.descending) }
         reloadQuery(offset: 0)
+    }
+    private func isSorted(_ column: String) -> Bool {
+        appliedSort.contains { $0.column == column }
+    }
+    private func sortIcon(for column: String) -> String {
+        guard let sort = appliedSort.first(where: { $0.column == column }) else {
+            return "arrow.up.arrow.down"
+        }
+        return sort.descending ? "arrow.down" : "arrow.up"
     }
     private func previousPage() { reloadQuery(offset: max(0, model.databaseFeature.currentOffset - model.databaseFeature.pageSize)) }
     private func nextPage() { reloadQuery(offset: model.databaseFeature.currentOffset + model.databaseFeature.pageSize) }

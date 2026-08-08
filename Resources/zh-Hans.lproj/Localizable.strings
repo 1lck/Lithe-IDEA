@@ -854,6 +854,7 @@
 "Descending" = "降序";
 "Direction" = "方向";
 "No sorting" = "未设置排序";
+"Sort column" = "排序此列";
 "Move up" = "上移";
 "Move down" = "下移";
 "fields" = "个字段";
