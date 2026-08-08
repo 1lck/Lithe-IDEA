@@ -253,14 +253,16 @@ enum DatabaseSchemaDiffEngine {
             let defaultSQL = sourceColumn.defaultValue.map { " DEFAULT \($0)" } ?? ""
             let sql: String
             switch snapshot.kind {
-            case .mysql:
+            case .mysql, .mariadb:
                 sql = "ALTER TABLE \(qualified(snapshot.schema, source.name, kind: snapshot.kind)) MODIFY COLUMN \(quote(sourceColumn.name, kind: snapshot.kind)) \(type) \(nullable)\(defaultSQL)"
             case .postgresql:
                 // PostgreSQL requires separate statements for type/nullability.
                 // The first statement is the deterministic, non-destructive part;
                 // the complete migration text below retains all requested clauses.
                 sql = "ALTER TABLE \(qualified(snapshot.schema, source.name, kind: snapshot.kind)) ALTER COLUMN \(quote(sourceColumn.name, kind: snapshot.kind)) TYPE \(type); ALTER TABLE \(qualified(snapshot.schema, source.name, kind: snapshot.kind)) ALTER COLUMN \(quote(sourceColumn.name, kind: snapshot.kind)) \(sourceColumn.isNullable ? "DROP NOT NULL" : "SET NOT NULL")\(defaultSQL.isEmpty ? "" : "; ALTER TABLE \(qualified(snapshot.schema, source.name, kind: snapshot.kind)) ALTER COLUMN \(quote(sourceColumn.name, kind: snapshot.kind)) SET DEFAULT \(String(defaultSQL.dropFirst(9)))")"
-            case .sqlite, .redis, .nacos:
+            case .sqlserver:
+                sql = "ALTER TABLE \(qualified(snapshot.schema, source.name, kind: snapshot.kind)) ALTER COLUMN \(quote(sourceColumn.name, kind: snapshot.kind)) \(type) \(nullable)"
+            case .sqlite, .mongodb, .redis, .nacos:
                 sql = "-- SQLite requires a table rebuild to change column definition: \(source.name).\(sourceColumn.name)"
             }
             items.append(DatabaseSchemaDiffItem(
@@ -288,7 +290,7 @@ enum DatabaseSchemaDiffEngine {
             items.append(DatabaseSchemaDiffItem(id: "add-index:\(source.name):\(index.name)", kind: .addIndex, table: source.name, detail: "Add index \(index.name)", sql: sql))
         }
         for index in target.indexes where !sourceNames.contains(index.name) {
-            let sql = snapshot.kind == .mysql
+            let sql = snapshot.kind == .mysql || snapshot.kind == .mariadb
                 ? "DROP INDEX \(quote(index.name, kind: snapshot.kind)) ON \(qualified(snapshot.schema, source.name, kind: snapshot.kind))"
                 : "DROP INDEX \(qualified(snapshot.schema, index.name, kind: snapshot.kind))"
             items.append(DatabaseSchemaDiffItem(id: "drop-index:\(source.name):\(index.name)", kind: .dropIndex, table: source.name, detail: "Drop index \(index.name)", sql: sql))
@@ -320,7 +322,7 @@ enum DatabaseSchemaDiffEngine {
             let sql: String
             if snapshot.kind == .sqlite {
                 sql = "-- SQLite requires a table rebuild to drop foreign key \(group.name) from \(source.name)"
-            } else if snapshot.kind == .mysql {
+            } else if snapshot.kind == .mysql || snapshot.kind == .mariadb {
                 sql = "ALTER TABLE \(qualified(snapshot.schema, source.name, kind: snapshot.kind)) DROP FOREIGN KEY \(quote(group.name, kind: snapshot.kind))"
             } else {
                 sql = "ALTER TABLE \(qualified(snapshot.schema, source.name, kind: snapshot.kind)) DROP CONSTRAINT \(quote(group.name, kind: snapshot.kind))"
@@ -385,14 +387,15 @@ enum DatabaseSchemaDiffEngine {
 
     private static func qualified(_ schema: String, _ name: String, kind: DatabaseKind) -> String {
         let quotedName = quote(name, kind: kind)
-        guard !schema.isEmpty, kind != .mysql else { return quotedName }
+        guard !schema.isEmpty, kind != .mysql, kind != .mariadb else { return quotedName }
         return "\(quote(schema, kind: kind)).\(quotedName)"
     }
 
     private static func quote(_ value: String, kind: DatabaseKind) -> String {
         switch kind {
-        case .mysql: return "`\(value.replacingOccurrences(of: "`", with: "``"))`"
-        case .postgresql, .sqlite, .redis, .nacos: return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+        case .mysql, .mariadb: return "`\(value.replacingOccurrences(of: "`", with: "``"))`"
+        case .sqlserver: return "[\(value.replacingOccurrences(of: "]", with: "]]"))]"
+        case .postgresql, .sqlite, .mongodb, .redis, .nacos: return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
         }
     }
 }

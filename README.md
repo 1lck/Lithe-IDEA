@@ -139,10 +139,13 @@ After opening a project, use **Settings → Project** to configure the project J
 
 ### Database workspace and external MCP
 
-The optional Database workspace supports MySQL, PostgreSQL, SQLite, Redis, and
-Nacos through an on-demand Rust helper. The helper is not started while the
-database workspace is unused. SQL connections provide table CRUD, TSV batch paste,
+The optional Database workspace supports MySQL, MariaDB, PostgreSQL, SQLite,
+Microsoft SQL Server, MongoDB, Redis, and Nacos through an on-demand Rust helper.
+The helper is not started while the database workspace is unused. SQL connections provide table CRUD, TSV batch paste,
 find/replace within the current page, plus CSV, JSON, and SQL import and export.
+MariaDB reuses the MySQL-compatible engine; SQL Server has a native TDS data-grid
+adapter. MongoDB collections use the document grid with paging, filters, indexes,
+and protected insert/update/delete operations.
 Redis uses incremental `SCAN` pages instead of loading an entire keyspace, and its
 first workspace supports String and Hash editing, TTL changes, key renaming, and
 deletion. Nacos provides configuration search and publishing, plus service and
@@ -160,7 +163,7 @@ For upstream audit, `third_party/dbx` contains a source-only snapshot of
 [`996ce42e80387bba4b33a2bf1713f590ef79d476`](https://github.com/t8y2/dbx/commit/996ce42e80387bba4b33a2bf1713f590ef79d476).
 It is not a Git submodule or runtime dependency and is excluded from Lithe's
 release bundle; the database helper is implemented and built independently.
-The five database brand marks used by the current workspace are copied into
+The eight database brand marks used by the current workspace are copied into
 `Resources/DatabaseIcons` as independent application resources. Their DBX
 source, Apache-2.0 license, and trademark-use notice are recorded alongside
 the files, so the packaged application never resolves assets from `third_party`.

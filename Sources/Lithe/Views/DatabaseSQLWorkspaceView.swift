@@ -20,6 +20,8 @@ struct DatabaseWorkspaceView: View {
                 RedisWorkspaceView()
             } else if model.databaseFeature.selectedProfile?.kind == .nacos {
                 NacosWorkspaceView()
+            } else if model.databaseFeature.selectedProfile?.kind == .mongodb {
+                mongoWorkspace
             } else {
                 sqlWorkspace
             }
@@ -92,6 +94,31 @@ struct DatabaseWorkspaceView: View {
             case .history:
                 DatabaseHistoryView()
             }
+        }
+    }
+
+    private var mongoWorkspace: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 9) {
+                if let profile = model.databaseFeature.selectedProfile {
+                    DatabaseBrandIcon(kind: .mongodb, size: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("MongoDB Documents").font(.system(size: 12, weight: .semibold))
+                        Text(profile.database.isEmpty ? "admin" : profile.database)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
+                }
+                Spacer()
+                Text("Collection data can be edited directly in the grid.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+            .background(LitheTheme.toolHeader)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            DatabaseTableView()
         }
     }
 }
@@ -438,8 +465,11 @@ private extension DatabaseKind {
     var displayName: String {
         switch self {
         case .mysql: "MySQL"
+        case .mariadb: "MariaDB"
         case .postgresql: "PostgreSQL"
         case .sqlite: "SQLite"
+        case .sqlserver: "SQL Server"
+        case .mongodb: "MongoDB"
         case .redis: "Redis"
         case .nacos: "Nacos"
         }
@@ -448,8 +478,11 @@ private extension DatabaseKind {
     var symbolName: String {
         switch self {
         case .mysql: "cylinder.split.1x2"
+        case .mariadb: "cylinder.split.1x2"
         case .postgresql: "cylinder.split.1x2"
         case .sqlite: "externaldrive"
+        case .sqlserver: "server.rack"
+        case .mongodb: "leaf"
         case .redis: "square.stack.3d.up.fill"
         case .nacos: "slider.horizontal.3"
         }

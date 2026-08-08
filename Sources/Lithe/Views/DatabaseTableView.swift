@@ -188,20 +188,23 @@ struct DatabaseTableView: View {
             Button { model.databaseFeature.workspaceSection = .structure } label: { Label("Table Properties", systemImage: "tablecells") }
                 .buttonStyle(.plain)
                 .font(.system(size: 10.5, weight: .medium))
+                .disabled(model.databaseFeature.selectedProfile?.kind == .mongodb)
             Menu {
                 Button("Import CSV…") { importFormat = .csv; showsImporter = true }
                     .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
                 Button("Import JSON…") { importFormat = .json; showsImporter = true }
                     .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
                 Button("Restore SQL Backup…") { importFormat = .sql; showsImporter = true }
-                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true || model.databaseFeature.selectedProfile?.kind == .sqlserver)
                 Divider()
                 Button("Export Table as CSV…") { export(.csv) }
                 Button("Export Table as JSON…") { export(.json) }
                 Button("Back Up Database as SQL…") { export(.sql) }
+                    .disabled(model.databaseFeature.selectedProfile?.kind == .sqlserver)
             } label: { Label("Data Tools", systemImage: "shippingbox") }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .disabled(model.databaseFeature.selectedProfile?.kind == .mongodb)
             Menu {
                 Button("Paste TSV from Clipboard") { pasteFromClipboard() }
                 Button("Replace in Current Page…") { showsReplaceSheet = true }
@@ -448,7 +451,7 @@ struct DatabaseTableView: View {
     }
 
     private func display(_ value: DatabaseValue?) -> String {
-        switch value { case nil, .null: ""; case let .string(value): value; case let .integer(value): String(value); case let .number(value): String(value); case let .bool(value): value ? "true" : "false"; case let .object(value): String(describing: value); case let .array(value): String(describing: value) }
+        switch value { case nil, .null: ""; case let .string(value): value; case let .integer(value): String(value); case let .number(value): String(value); case let .bool(value): value ? "true" : "false"; case let .object(value): databaseJSONText(.object(value)); case let .array(value): databaseJSONText(.array(value)) }
     }
 
     private func metadataLabel(_ row: DatabaseRow) -> String {
@@ -749,10 +752,15 @@ private struct DatabaseRowDetailsSheet: View {
         case let .integer(value): String(value)
         case let .number(value): String(value)
         case let .bool(value): value ? "true" : "false"
-        case let .object(value): String(describing: value)
-        case let .array(value): String(describing: value)
+        case let .object(value): databaseJSONText(.object(value))
+        case let .array(value): databaseJSONText(.array(value))
         }
     }
+}
+
+private func databaseJSONText(_ value: DatabaseValue) -> String {
+    guard let data = try? JSONEncoder().encode(value) else { return String(describing: value) }
+    return String(decoding: data, as: UTF8.self)
 }
 
 private struct DatabaseReplaceSheet: View {

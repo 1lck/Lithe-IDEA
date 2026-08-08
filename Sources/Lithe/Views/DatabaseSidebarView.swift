@@ -459,7 +459,7 @@ struct DatabaseSidebarView: View {
 
     @ViewBuilder
     private func profileObjectTree(_ profile: DatabaseProfile, indent: CGFloat) -> some View {
-        if profile.kind.isSQLDatabase {
+        if profile.kind.supportsDataGrid {
             let databaseExpanded = !collapsedDatabaseProfileIDs.contains(profile.id)
             Button {
                 if databaseExpanded { collapsedDatabaseProfileIDs.insert(profile.id) }
@@ -475,7 +475,7 @@ struct DatabaseSidebarView: View {
                         .foregroundStyle(LitheTheme.warning)
                     Group {
                         if profile.database.isEmpty {
-                            Text("Default database")
+                            Text(profile.kind == .mongodb ? "admin" : "Default database")
                         } else {
                             Text(verbatim: profile.database)
                         }
@@ -491,7 +491,10 @@ struct DatabaseSidebarView: View {
             .buttonStyle(.plain)
             .lithePointer()
             .litheRowHover()
-            .contextMenu { databaseContextMenu(profile) }
+            .contextMenu {
+                if profile.kind == .mongodb { mongoDatabaseContextMenu(profile) }
+                else { databaseContextMenu(profile) }
+            }
 
             if databaseExpanded {
                 databaseObjects(for: profile, indent: indent + 18)
@@ -515,14 +518,17 @@ struct DatabaseSidebarView: View {
 
     @ViewBuilder
     private func databaseObjects(for profile: DatabaseProfile, indent: CGFloat) -> some View {
-        if profile.kind.isSQLDatabase {
-            objectSectionHeader(kind: .tables, title: "Tables", count: model.databaseFeature.tables.count, indent: indent)
-                .contextMenu { tableGroupContextMenu(profile) }
+        if profile.kind.supportsDataGrid {
+            objectSectionHeader(kind: .tables, title: profile.kind == .mongodb ? "Collections" : "Tables", count: model.databaseFeature.tables.count, indent: indent)
+                .contextMenu {
+                    if profile.kind == .mongodb { Button("Refresh Collections") { refresh(profile) } }
+                    else { tableGroupContextMenu(profile) }
+                }
             if !collapsedObjectKinds.contains(.tables), model.databaseFeature.tables.isEmpty && !model.databaseFeature.isLoading {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("No tables yet")
+                    Text(profile.kind == .mongodb ? "No collections yet" : "No tables yet")
                         .font(.system(size: 10.5, weight: .medium))
-                    Text("Refresh this connection to load its database objects.")
+                    Text(profile.kind == .mongodb ? "Refresh this connection to load its collections." : "Refresh this connection to load its database objects.")
                         .font(.system(size: 9.5))
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -549,7 +555,7 @@ struct DatabaseSidebarView: View {
                                 .font(.system(size: 8.5, weight: .bold))
                                 .foregroundStyle(LitheTheme.tertiaryText)
                                 .frame(width: 12)
-                            Image(systemName: "tablecells")
+                            Image(systemName: profile.kind == .mongodb ? "doc.on.doc" : "tablecells")
                                 .font(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(LitheTheme.success)
                                 .frame(width: 14)
@@ -566,7 +572,10 @@ struct DatabaseSidebarView: View {
                     .buttonStyle(.plain)
                     .lithePointer()
                     .litheRowHover(isActive: model.databaseFeature.selectedTable == table)
-                    .contextMenu { tableContextMenu(profile, table: table) }
+                    .contextMenu {
+                        if profile.kind == .mongodb { mongoCollectionContextMenu(profile, collection: table) }
+                        else { tableContextMenu(profile, table: table) }
+                    }
 
                     if isExpanded, model.databaseFeature.selectedTable == table {
                         if model.databaseFeature.isLoading {
@@ -579,14 +588,16 @@ struct DatabaseSidebarView: View {
                             .padding(.leading, indent + 48)
                             .frame(height: 24)
                         } else {
-                            sidebarLeaf(title: "Columns", symbol: "list.bullet.indent", count: model.databaseFeature.columns.count, indent: indent + 36, tint: LitheTheme.success)
+                            sidebarLeaf(title: profile.kind == .mongodb ? "Fields" : "Columns", symbol: "list.bullet.indent", count: model.databaseFeature.columns.count, indent: indent + 36, tint: LitheTheme.success)
                             sidebarLeaf(title: "Indexes", symbol: "key", count: model.databaseFeature.indexes.count, indent: indent + 36, tint: LitheTheme.warning)
-                            sidebarLeaf(title: "Foreign Keys", symbol: "link", count: model.databaseFeature.foreignKeys.count, indent: indent + 36, tint: LitheTheme.accent)
+                            if profile.kind != .mongodb {
+                                sidebarLeaf(title: "Foreign Keys", symbol: "link", count: model.databaseFeature.foreignKeys.count, indent: indent + 36, tint: LitheTheme.accent)
+                            }
                         }
                     }
                 }
             }
-            ForEach(DatabaseObjectKind.allCases.filter { $0 != .tables }, id: \.self) { kind in
+            ForEach(profile.kind == .mongodb ? [] : DatabaseObjectKind.allCases.filter { $0 != .tables }, id: \.self) { kind in
                 let entries = model.databaseFeature.objects[kind] ?? []
                 if !entries.isEmpty {
                     DisclosureGroup {
@@ -712,7 +723,9 @@ struct DatabaseSidebarView: View {
             }
         }
         .disabled(status == .connecting)
-        Button("New Query") { openSQLQuery(profile) }
+        if profile.kind.isSQLDatabase {
+            Button("New Query") { openSQLQuery(profile) }
+        }
         Button("Refresh") { refresh(profile) }
         Divider()
         Button("Copy Name") { copyToPasteboard(profile.name) }
@@ -749,7 +762,7 @@ struct DatabaseSidebarView: View {
     private func refresh(_ profile: DatabaseProfile) {
         Task {
             if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
-            else if profile.kind.isSQLDatabase { await model.databaseFeature.refreshTables() }
+            else if profile.kind.supportsDataGrid { await model.databaseFeature.refreshTables() }
             else if profile.kind == .redis { await model.databaseFeature.loadRedisKeys(pattern: "") }
             else { await model.databaseFeature.loadNacosConfigs(dataId: "", group: ""); await model.databaseFeature.loadNacosServices(serviceName: "", group: "") }
         }
@@ -775,17 +788,38 @@ struct DatabaseSidebarView: View {
             openSQLQuery(profile, sql: "CREATE TABLE new_table (\n    id INTEGER PRIMARY KEY\n);\n")
         }
         .disabled(profile.readOnly)
-        Button("Import SQL Backup…") {
-            Task {
-                if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
-                importFormat = .sql; pendingImportFormat = .sql; showsImporter = true
+        if profile.kind != .sqlserver {
+            Button("Import SQL Backup…") {
+                Task {
+                    if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+                    importFormat = .sql; pendingImportFormat = .sql; showsImporter = true
+                }
             }
+            .disabled(profile.readOnly)
+            Button("Export Database as SQL…") { exportDatabase(profile) }
         }
-        .disabled(profile.readOnly)
-        Button("Export Database as SQL…") { exportDatabase(profile) }
         Divider()
         Button("Copy Name") { copyToPasteboard(profile.database.isEmpty ? "Default database" : profile.database) }
         Button("Refresh") { refresh(profile) }
+    }
+
+    @ViewBuilder
+    private func mongoDatabaseContextMenu(_ profile: DatabaseProfile) -> some View {
+        Button("Refresh Collections") { refresh(profile) }
+        Button("Copy Name") { copyToPasteboard(profile.database.isEmpty ? "admin" : profile.database) }
+    }
+
+    @ViewBuilder
+    private func mongoCollectionContextMenu(_ profile: DatabaseProfile, collection: String) -> some View {
+        Button("View Documents") { openTable(profile, table: collection, section: .data) }
+        Button("Copy Name") { copyToPasteboard(collection) }
+        Divider()
+        Button("Refresh") {
+            Task {
+                if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+                await model.databaseFeature.openTable(collection)
+            }
+        }
     }
 
     @ViewBuilder
@@ -956,7 +990,8 @@ struct DatabaseSidebarView: View {
     }
 
     private func quotedIdentifier(_ value: String, kind: DatabaseKind) -> String {
-        let quote = (kind == .mysql) ? "`" : "\""
+        if kind == .sqlserver { return "[\(value.replacingOccurrences(of: "]", with: "]]"))]" }
+        let quote = (kind == .mysql || kind == .mariadb) ? "`" : "\""
         return "\(quote)\(value.replacingOccurrences(of: quote, with: quote + quote))\(quote)"
     }
 
@@ -1142,8 +1177,11 @@ private extension DatabaseKind {
     var displayName: String {
         switch self {
         case .mysql: "MySQL"
+        case .mariadb: "MariaDB"
         case .postgresql: "PostgreSQL"
         case .sqlite: "SQLite"
+        case .sqlserver: "SQL Server"
+        case .mongodb: "MongoDB"
         case .redis: "Redis"
         case .nacos: "Nacos"
         }
@@ -1152,8 +1190,11 @@ private extension DatabaseKind {
     var symbolName: String {
         switch self {
         case .mysql: "cylinder.fill"
+        case .mariadb: "cylinder.fill"
         case .postgresql: "cylinder.split.1x2.fill"
         case .sqlite: "externaldrive.fill"
+        case .sqlserver: "server.rack"
+        case .mongodb: "leaf.fill"
         case .redis: "square.stack.3d.up.fill"
         case .nacos: "slider.horizontal.3"
         }
@@ -1339,17 +1380,20 @@ struct DatabaseConnectionEditor: View {
                 TextField("Name", text: $name)
                 Picker("Database", selection: $kind) {
                     Text("MySQL").tag(DatabaseKind.mysql)
+                    Text("MariaDB").tag(DatabaseKind.mariadb)
                     Text("PostgreSQL").tag(DatabaseKind.postgresql)
                     Text("SQLite").tag(DatabaseKind.sqlite)
+                    Text("SQL Server").tag(DatabaseKind.sqlserver)
+                    Text("MongoDB").tag(DatabaseKind.mongodb)
                     Text("Redis").tag(DatabaseKind.redis)
                     Text("Nacos").tag(DatabaseKind.nacos)
                 }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                 if kind == .sqlite { TextField("Database file path", text: $path) }
                 else {
-                    TextField("Host", text: $host)
+                    TextField(kind == .mongodb ? "Host or MongoDB URI" : "Host", text: $host)
                     TextField("Port", text: $port)
-                    TextField(kind == .nacos ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"), text: $username)
+                    TextField(kind == .nacos || kind == .mongodb ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"), text: $username)
                     SecureField(profile == nil ? "Password" : "Password (leave blank to keep current)", text: $password)
                     if kind == .redis {
                         TextField("Redis database index", text: $database)
@@ -1377,7 +1421,7 @@ struct DatabaseConnectionEditor: View {
                     TextField("Color hex (optional)", text: $colorHex)
                     Toggle("Read-only connection", isOn: $readOnly)
                     Toggle("Production protection", isOn: $productionProtection)
-                    if kind.isSQLDatabase {
+                    if kind.supportsDataGrid {
                         Toggle("Mask sensitive fields", isOn: $maskSensitiveFields)
                         TextField("Sensitive column patterns", text: $sensitiveColumnPatterns)
                     }
@@ -1421,13 +1465,16 @@ struct DatabaseConnectionEditor: View {
             guard profile == nil else { return }
             switch newKind {
             case .mysql: port = "3306"; username = "root"; database = ""; path = ""
+            case .mariadb: port = "3306"; username = "root"; database = ""; path = ""
             case .postgresql: port = "5432"; username = "postgres"; database = ""; path = ""
             case .sqlite: path = ""; database = ""
+            case .sqlserver: port = "1433"; username = "sa"; database = "master"; path = ""
+            case .mongodb: port = "27017"; username = ""; database = "admin"; path = ""
             case .redis: port = "6379"; username = ""; database = "0"; path = ""
             case .nacos: port = "8848"; username = "nacos"; database = ""; path = "/nacos"
             }
         }
-        .frame(width: 500, height: kind == .sqlite ? 640 : (kind.isSQLDatabase ? 750 : 710)).background(LitheTheme.raised)
+        .frame(width: 500, height: kind == .sqlite ? 640 : (kind.supportsDataGrid ? 750 : 710)).background(LitheTheme.raised)
     }
 
     private func connect() {

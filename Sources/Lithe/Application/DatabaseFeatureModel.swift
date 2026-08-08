@@ -107,7 +107,7 @@ final class DatabaseFeatureModel: ObservableObject {
             profiles = sortedProfiles(updated)
             selectedProfileID = profile.id
             isLoading = false
-            if profile.kind.isSQLDatabase {
+            if profile.kind.supportsDataGrid {
                 await refreshTables()
             } else {
                 setConnectionStatus(.connected, for: profile.id)
@@ -268,14 +268,14 @@ final class DatabaseFeatureModel: ObservableObject {
         selectedProfileID = profile.id; selectedTable = nil; rows = []; sourceRows = []; columns = []; indexes = []; foreignKeys = []; objects = [:]; lastExplainResult = nil; lastDiagnostics = nil
         clearSQLResults()
         clearSpecializedWorkspace()
-        if profile.kind.isSQLDatabase {
+        if profile.kind.supportsDataGrid {
             await refreshTables()
         }
     }
 
     func refreshTables() async {
         guard let profile = selectedProfile else { return }
-        guard profile.kind.isSQLDatabase else {
+        guard profile.kind.supportsDataGrid else {
             tables = []
             return
         }
@@ -289,7 +289,7 @@ final class DatabaseFeatureModel: ObservableObject {
             tables = result.compactMap { row in
                 row["table_name"]?.text ?? row["TABLE_NAME"]?.text ?? row["name"]?.text
             }
-            await refreshObjects()
+            if profile.kind.isSQLDatabase { await refreshObjects() }
         } catch {
             errorMessage = error.localizedDescription
             setConnectionStatus(.failed, for: profile.id)
@@ -564,9 +564,9 @@ final class DatabaseFeatureModel: ObservableObject {
         isLoading = true; errorMessage = nil
         do {
             let connection = connection(profile)
-            let recoveryPoint = try await createRecoveryPoint(profile: profile, reason: "Before table edit")
+            let recoveryPoint = profile.kind == .mongodb ? nil : try await createRecoveryPoint(profile: profile, reason: "Before table edit")
             _ = try await Task.detached { [operations] in try operations.applyChanges(connection: connection, schema: "", mutations: mutations, confirmed: confirmed, allowWrite: false) }.value
-            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "tableEdit", summary: "Applied table cell changes", createdAt: Date(), recoveryPointID: recoveryPoint.id, rowsAffected: nil, succeeded: true, errorMessage: nil))
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "tableEdit", summary: "Applied table cell changes", createdAt: Date(), recoveryPointID: recoveryPoint?.id, rowsAffected: nil, succeeded: true, errorMessage: nil))
             await openTable(table); return true
         } catch {
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "tableEdit", summary: "Table cell changes failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription))
@@ -1259,6 +1259,11 @@ final class DatabaseFeatureModel: ObservableObject {
         if type.contains("timestamp with time zone") || type == "timestamptz" { return .object(["timestampWithTimeZone": .string(text)]) }
         if type.contains("timestamp") || type.contains("datetime") { return .object(["datetime": .string(text)]) }
         if type == "uuid" { return .object(["uuid": .string(text)]) }
+        if selectedProfile?.kind == .mongodb,
+           ["document", "array", "objectid", "date", "value"].contains(type),
+           let parsed = try? JSONDecoder().decode(DatabaseValue.self, from: Data(text.utf8)) {
+            return parsed
+        }
         if type == "json" || type == "jsonb",
            let parsed = try? JSONDecoder().decode(DatabaseValue.self, from: Data(text.utf8)) {
             return .object(["json": parsed])
@@ -1292,7 +1297,8 @@ final class DatabaseFeatureModel: ObservableObject {
     }
 
     nonisolated private static func quotedIdentifier(_ identifier: String, for kind: DatabaseKind) -> String {
-        if kind == .mysql { return "`\(identifier.replacingOccurrences(of: "`", with: "``"))`" }
+        if kind == .mysql || kind == .mariadb { return "`\(identifier.replacingOccurrences(of: "`", with: "``"))`" }
+        if kind == .sqlserver { return "[\(identifier.replacingOccurrences(of: "]", with: "]]"))]" }
         return "\"\(identifier.replacingOccurrences(of: "\"", with: "\"\""))\""
     }
 }

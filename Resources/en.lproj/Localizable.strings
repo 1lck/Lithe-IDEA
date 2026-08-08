@@ -119,3 +119,12 @@
 "Folder name is required." = "Folder name is required.";
 "A folder with this name already exists." = "A folder with this name already exists.";
 "The selected connection folder no longer exists." = "The selected connection folder no longer exists.";
+"MongoDB Documents" = "MongoDB Documents";
+"Collection data can be edited directly in the grid." = "Collection data can be edited directly in the grid.";
+"Collections" = "Collections";
+"Refresh Collections" = "Refresh Collections";
+"View Documents" = "View Documents";
+"Host or MongoDB URI" = "Host or MongoDB URI";
+"No collections yet" = "No collections yet";
+"Refresh this connection to load its collections." = "Refresh this connection to load its collections.";
+"Fields" = "Fields";

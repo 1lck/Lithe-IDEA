@@ -1148,3 +1148,12 @@
 "Confirm Nacos configuration change" = "确认 Nacos 配置更改";
 "This connection has production protection enabled. Confirm the configuration change before publishing it to Nacos." = "此连接启用了生产环境保护。请确认后再将配置发布到 Nacos。";
 "Deleting a Nacos configuration cannot be undone." = "删除 Nacos 配置后无法撤销。";
+"MongoDB Documents" = "MongoDB 文档";
+"Collection data can be edited directly in the grid." = "可以直接在表格中编辑集合文档。";
+"Collections" = "集合";
+"Refresh Collections" = "刷新集合";
+"View Documents" = "查看文档";
+"Host or MongoDB URI" = "主机或 MongoDB URI";
+"No collections yet" = "暂无集合";
+"Refresh this connection to load its collections." = "刷新此连接以加载集合。";
+"Fields" = "字段";

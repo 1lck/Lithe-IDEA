@@ -81,11 +81,11 @@ fn tools() -> Value {
     let tool = |name: &str, description: &str, properties: Value, required: &[&str]| json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required}});
     json!({"tools":[
         tool("db_list_connections", "List configured database aliases without revealing credentials.", json!({}), &[]),
-        tool("db_list_tables", "List tables and views for a configured connection.", json!({"connection":{"type":"string"}}), &["connection"]),
-        tool("db_describe_table", "Read columns, indexes, and foreign keys for a table.", json!({"connection":{"type":"string"},"table":{"type":"string"}}), &["connection","table"]),
+        tool("db_list_tables", "List tables, views, or MongoDB collections for a configured connection.", json!({"connection":{"type":"string"}}), &["connection"]),
+        tool("db_describe_table", "Read columns, indexes, foreign keys, or sampled MongoDB document fields.", json!({"connection":{"type":"string"},"table":{"type":"string"}}), &["connection","table"]),
         tool("db_list_objects", "List views, routines, triggers, or sequences.", json!({"connection":{"type":"string"},"kind":{"type":"string","enum":["views","routines","triggers","sequences"]}}), &["connection","kind"]),
         tool("db_plan_sql", "Classify SQL and report whether explicit write confirmation is required.", json!({"sql":{"type":"string"}}), &["sql"]),
-        tool("db_query", "Execute a read-only SQL query with a bounded result set.", json!({"connection":{"type":"string"},"sql":{"type":"string"},"values":{"type":"array"},"limit":{"type":"integer"}}), &["connection","sql"]),
+        tool("db_query", "Execute a bounded read-only SQL query, or a JSON filter against a MongoDB collection.", json!({"connection":{"type":"string"},"table":{"type":"string","description":"Required for MongoDB and interpreted as the collection name."},"sql":{"type":"string","description":"SQL text, or a MongoDB JSON filter object."},"values":{"type":"array"},"limit":{"type":"integer"}}), &["connection","sql"]),
         tool("db_explain", "Inspect the database query plan without executing the query.", json!({"connection":{"type":"string"},"sql":{"type":"string"},"format":{"type":"string"}}), &["connection","sql"]),
         tool("db_diagnostics", "Read table size, locks, slow queries, indexes, data quality, or schema impact diagnostics.", json!({"connection":{"type":"string"},"kind":{"type":"string"},"table":{"type":"string"}}), &["connection","kind"]),
         tool("db_backup", "Create a recoverable SQL backup before an approved change.", json!({"connection":{"type":"string"},"tables":{"type":"array"}}), &["connection"]),
@@ -125,7 +125,13 @@ fn call_tool(
             read_call("describeTable", &args, connections, policy, Some(table))
         }
         "db_list_objects" => read_call("listObjects", &args, connections, policy, None),
-        "db_query" => read_call("query", &args, connections, policy, None),
+        "db_query" => read_call(
+            "query",
+            &args,
+            connections,
+            policy,
+            args.get("table").and_then(Value::as_str),
+        ),
         "db_explain" => read_call("explain", &args, connections, policy, None),
         "db_diagnostics" => read_call("diagnostics", &args, connections, policy, None),
         "db_backup" => backup_call(&args, connections, policy, recovery_dir, audit_path),

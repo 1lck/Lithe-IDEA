@@ -2,17 +2,22 @@ import Foundation
 
 enum DatabaseKind: String, Codable, CaseIterable, Sendable {
     case mysql
+    case mariadb
     case postgresql
     case sqlite
+    case sqlserver
+    case mongodb
     case redis
     case nacos
 
     var isSQLDatabase: Bool {
         switch self {
-        case .mysql, .postgresql, .sqlite: true
-        case .redis, .nacos: false
+        case .mysql, .mariadb, .postgresql, .sqlite, .sqlserver: true
+        case .mongodb, .redis, .nacos: false
         }
     }
+
+    var supportsDataGrid: Bool { isSQLDatabase || self == .mongodb }
 }
 
 struct DatabaseConnection: Codable, Equatable, Sendable {

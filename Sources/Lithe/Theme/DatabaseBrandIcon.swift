@@ -5,8 +5,11 @@ extension DatabaseKind {
     var brandIconFilename: String {
         switch self {
         case .mysql: "mysql.svg"
+        case .mariadb: "mariadb.svg"
         case .postgresql: "postgres.svg"
         case .sqlite: "sqlite.svg"
+        case .sqlserver: "sqlserver.svg"
+        case .mongodb: "mongodb.svg"
         case .redis: "redis.svg"
         case .nacos: "nacos.png"
         }
@@ -15,8 +18,11 @@ extension DatabaseKind {
     var brandIconFallbackSymbol: String {
         switch self {
         case .mysql: "cylinder.fill"
+        case .mariadb: "cylinder.fill"
         case .postgresql: "cylinder.split.1x2.fill"
         case .sqlite: "externaldrive.fill"
+        case .sqlserver: "server.rack"
+        case .mongodb: "leaf.fill"
         case .redis: "square.stack.3d.up.fill"
         case .nacos: "slider.horizontal.3"
         }

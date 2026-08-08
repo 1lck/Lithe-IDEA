@@ -1,3 +1,6 @@
+mod mongodb_adapter;
+mod sqlserver_adapter;
+
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures_util::TryStreamExt;
 use redis::AsyncCommands;
@@ -262,8 +265,8 @@ async fn dispatch(request: Request) -> Response {
     let result = if request.method == "capabilities" {
         Ok(json!({
             "protocolVersion": 1,
-            "databaseTypes": ["mysql", "postgresql", "sqlite", "redis", "nacos"],
-            "features": ["testConnection", "schema", "indexes", "foreignKeys", "objects", "schemaChanges", "pagedFilterSort", "transactionalCrud", "query", "explain", "diagnostics", "csvImportExport", "jsonImportExport", "sqlBackupRestore", "writeProtection", "redisScan", "redisStringHashEditor", "redisTTL", "redisFlushDatabase", "nacosConfigManagement", "nacosServiceDiscovery"]
+            "databaseTypes": ["mysql", "mariadb", "postgresql", "sqlite", "sqlserver", "mongodb", "redis", "nacos"],
+            "features": ["testConnection", "schema", "indexes", "foreignKeys", "objects", "schemaChanges", "pagedFilterSort", "transactionalCrud", "query", "explain", "diagnostics", "csvImportExport", "jsonImportExport", "sqlBackupRestore", "writeProtection", "sqlServerDataGrid", "mongoCollections", "mongoDocumentEditor", "redisScan", "redisStringHashEditor", "redisTTL", "redisFlushDatabase", "nacosConfigManagement", "nacosServiceDiscovery"]
         }))
     } else {
         database_method(&request.method, request.params).await
@@ -280,6 +283,8 @@ async fn database_method(method: &str, value: Value) -> DbResult {
     match params.connection.kind.as_str() {
         "redis" => redis_method(method, params).await,
         "nacos" => nacos_method(method, params).await,
+        "sqlserver" => sqlserver_adapter::method(method, params).await,
+        "mongodb" => mongodb_adapter::method(method, params).await,
         _ => sql_database_method(method, params).await,
     }
 }
@@ -1517,7 +1522,7 @@ async fn connect_direct(connection: &Connection) -> Result<DirectPool, (String, 
 
 fn normalized_kind(kind: &str) -> Result<&str, (String, String)> {
     match kind {
-        "mysql" => Ok("mysql"),
+        "mysql" | "mariadb" => Ok("mysql"),
         "postgres" | "postgresql" => Ok("postgresql"),
         "sqlite" => Ok("sqlite"),
         _ => Err((
@@ -1627,7 +1632,9 @@ async fn open_ssh_tunnel(connection: &Connection) -> Result<Option<SshTunnel>, (
         connection.port
     } else {
         match connection.kind.as_str() {
-            "mysql" => 3306,
+            "mysql" | "mariadb" => 3306,
+            "sqlserver" => 1433,
+            "mongodb" => 27017,
             "redis" => 6379,
             "nacos" => 8848,
             _ => 5432,
