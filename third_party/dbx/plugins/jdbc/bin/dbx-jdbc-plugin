@@ -1,0 +1,47 @@
+#!/usr/bin/env sh
+set -eu
+DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+if [ -n "${DBX_JAVA_BIN:-}" ] && [ -x "$DBX_JAVA_BIN" ]; then
+  JAVA_BIN="$DBX_JAVA_BIN"
+elif [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+  JAVA_BIN="$JAVA_HOME/bin/java"
+elif [ -x "/opt/homebrew/opt/openjdk/bin/java" ]; then
+  JAVA_BIN="/opt/homebrew/opt/openjdk/bin/java"
+elif [ -x "/usr/local/opt/openjdk/bin/java" ]; then
+  JAVA_BIN="/usr/local/opt/openjdk/bin/java"
+elif command -v java >/dev/null 2>&1 && java -version >/dev/null 2>&1; then
+  JAVA_BIN="java"
+else
+  echo "Java runtime not found. Install Java or the optional DBX JDBC runtime." >&2
+  exit 127
+fi
+
+exec "$JAVA_BIN" \
+  -XX:+IgnoreUnrecognizedVMOptions \
+  --add-opens=java.base/java.io=ALL-UNNAMED \
+  --add-opens=java.base/java.lang=ALL-UNNAMED \
+  --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
+  --add-opens=java.base/java.net=ALL-UNNAMED \
+  --add-opens=java.base/java.nio=ALL-UNNAMED \
+  --add-opens=java.base/java.nio.charset=ALL-UNNAMED \
+  --add-opens=java.base/java.text=ALL-UNNAMED \
+  --add-opens=java.base/java.time=ALL-UNNAMED \
+  --add-opens=java.base/java.util=ALL-UNNAMED \
+  --add-opens=java.base/java.util.concurrent=ALL-UNNAMED \
+  --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED \
+  --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED \
+  --add-opens=java.base/jdk.internal.vm=ALL-UNNAMED \
+  --add-opens=java.base/sun.nio.ch=ALL-UNNAMED \
+  --add-opens=java.base/sun.nio.fs=ALL-UNNAMED \
+  --add-opens=java.base/sun.security.action=ALL-UNNAMED \
+  --add-opens=java.base/sun.security.ssl=ALL-UNNAMED \
+  --add-opens=java.base/sun.security.util=ALL-UNNAMED \
+  --add-opens=java.security.jgss/sun.security.jgss=ALL-UNNAMED \
+  --add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED \
+  --add-opens=java.sql/java.sql=ALL-UNNAMED \
+  ${DBX_JAVA_OPTS:-} \
+  -Dfile.encoding=UTF-8 \
+  -Dsun.stdout.encoding=UTF-8 \
+  -Dsun.stderr.encoding=UTF-8 \
+  -jar "$DIR/../lib/dbx-jdbc-plugin.jar"

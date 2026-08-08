@@ -820,6 +820,8 @@ struct WorkbenchView: View {
                 ChangesSidebarView()
             case .search:
                 SearchSidebarView()
+            case .database:
+                DatabaseSidebarView()
             }
         }
         .background(LitheTheme.sidebar)

@@ -29,6 +29,7 @@ final class MacServiceContainer {
         let fileStorage = MacFileStorage()
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
+        let databaseOperations = DatabaseSidecarService(processRunner: processRunner)
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store
@@ -101,6 +102,7 @@ final class MacServiceContainer {
             javaRunService: javaRunService,
             javaDebugService: javaDebugService,
             gitService: gitService,
+            databaseOperations: databaseOperations,
             shelveService: shelveService,
             commitMessageGenerator: commitMessageGenerator,
             secureStore: secureStore,

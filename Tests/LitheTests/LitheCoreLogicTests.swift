@@ -6,6 +6,436 @@ import Testing
 @Suite("Lithe core logic")
 struct LitheCoreLogicTests {
     @Test
+    func databaseSidecarParsesCapabilitiesWithoutStartingUntilRequested() throws {
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            return ProcessResult(
+                output: #"{"id":"\#(id)","ok":true,"result":{"protocolVersion":1,"databaseTypes":["mysql","postgresql","sqlite"],"features":["schema"]}}"#,
+                exitCode: 0
+            )
+        }
+        let service = DatabaseSidecarService(
+            processRunner: runner,
+            executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")
+        )
+
+        #expect(runner.requests.isEmpty)
+        #expect(try service.capabilities() == DatabaseCapabilities(
+            protocolVersion: 1,
+            databaseTypes: ["mysql", "postgresql", "sqlite"],
+            features: ["schema"]
+        ))
+        #expect(runner.requests.count == 1)
+        #expect(runner.requests[0].arguments.isEmpty)
+        #expect(runner.requests[0].standardInput != nil)
+        #expect(runner.requests[0].timeoutMilliseconds == 30_000)
+    }
+
+    @Test
+    func databaseSidecarSerializesRedisAndNacosWorkspaceRequests() throws {
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            switch method {
+            case "redisScan":
+                result = #"{"keys":[{"key":"session:42","type":"string","ttl":60,"size":9}],"nextCursor":"19"}"#
+            case "nacosListConfigs":
+                result = #"{"items":[{"dataId":"app.yaml","group":"DEFAULT_GROUP","namespace":"dev","type":"yaml","md5":"abc"}],"totalCount":1}"#
+            default:
+                Issue.record("Unexpected sidecar method: \(method)")
+                result = "{}"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let service = DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar"))
+
+        let redis = DatabaseConnection(kind: .redis, host: "127.0.0.1", port: 6379, database: "0")
+        let scan = try service.redisScan(connection: redis, cursor: "0", pattern: "session:*", count: 50)
+        #expect(scan.keys.first?.key == "session:42")
+        #expect(scan.nextCursor == "19")
+
+        let nacos = DatabaseConnection(kind: .nacos, host: "127.0.0.1", port: 8848, database: "dev", path: "/nacos")
+        let configs = try service.nacosListConfigs(connection: nacos, dataId: "app", group: "DEFAULT_GROUP")
+        #expect(configs.items.first?.dataId == "app.yaml")
+        #expect(configs.totalCount == 1)
+
+        let redisRequest = String(decoding: try #require(runner.requests[0].standardInput), as: UTF8.self)
+        let nacosRequest = String(decoding: try #require(runner.requests[1].standardInput), as: UTF8.self)
+        #expect(redisRequest.contains(#""method":"redisScan""#))
+        #expect(redisRequest.contains(#""kind":"redis""#))
+        #expect(!redisRequest.contains("127.0.0.1:6379"))
+        #expect(nacosRequest.contains(#""method":"nacosListConfigs""#))
+        #expect(nacosRequest.contains(#""kind":"nacos""#))
+    }
+
+    @Test
+    func databaseSidecarMapsFailedProcessToStableError() {
+        let runner = RecordingProcessRunner(result: ProcessResult(output: "connection store failed", exitCode: 2))
+        let service = DatabaseSidecarService(
+            processRunner: runner,
+            executableURL: URL(fileURLWithPath: "/tmp/dbx")
+        )
+
+        #expect(throws: DatabaseSidecarError.processFailed(exitCode: 2, output: "connection store failed")) {
+            try service.capabilities()
+        }
+    }
+
+    @Test
+    func databaseProfilesKeepPasswordsOutOfPreferences() throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let secrets = DatabaseTestSecureStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: secrets)
+        let profile = DatabaseProfile(name: "Local", kind: .mysql, username: "root", database: "app")
+
+        try store.save([profile])
+        try store.savePassword("secret-value", for: profile.id)
+
+        #expect(store.load() == [profile])
+        #expect(store.password(for: profile.id) == "secret-value")
+        let encodedProfiles = try #require(preferences.data(forKey: "database.profiles.v1"))
+        #expect(!String(decoding: encodedProfiles, as: UTF8.self).contains("secret-value"))
+    }
+
+    @Test
+    func databaseConnectionFoldersPersistWithProfiles() throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let secrets = DatabaseTestSecureStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: secrets)
+        let folder = DatabaseConnectionFolder(name: "Development")
+        let profile = DatabaseProfile(name: "Local MySQL", kind: .mysql, folderID: folder.id)
+
+        try store.saveFolders([folder])
+        try store.save([profile])
+
+        #expect(store.loadFolders() == [folder])
+        #expect(store.load().first?.folderID == folder.id)
+        #expect(store.load().first?.group == "")
+    }
+
+    @Test
+    @MainActor
+    func databaseLegacyGroupsMigrateToFoldersAndFolderRemovalKeepsConnections() throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let secrets = DatabaseTestSecureStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: secrets)
+        let profile = DatabaseProfile(name: "Legacy MySQL", kind: .mysql, group: "Team A")
+        try store.save([profile])
+
+        let operations = DatabaseSidecarService(
+            processRunner: RecordingProcessRunner(result: ProcessResult(output: "", exitCode: 0)),
+            executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")
+        )
+        let feature = DatabaseFeatureModel(operations: operations, connectionStore: store)
+        let folder = try #require(feature.folders.first)
+        let migrated = try #require(feature.profiles.first)
+
+        #expect(folder.name == "Team A")
+        #expect(migrated.folderID == folder.id)
+        #expect(migrated.group.isEmpty)
+        #expect(store.loadFolders() == [folder])
+
+        feature.removeFolder(folder)
+
+        let remaining = try #require(feature.profiles.first)
+        #expect(feature.folders.isEmpty)
+        #expect(remaining.id == profile.id)
+        #expect(remaining.folderID == nil)
+        #expect(store.load().first?.folderID == nil)
+    }
+
+    @Test
+    @MainActor
+    func databaseConnectionMovePersistsFolderAssignment() throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let secrets = DatabaseTestSecureStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: secrets)
+        let first = DatabaseConnectionFolder(name: "One")
+        let second = DatabaseConnectionFolder(name: "Two")
+        let profile = DatabaseProfile(name: "Move me", kind: .sqlite, path: "/tmp/test.sqlite")
+        try store.saveFolders([first, second])
+        try store.save([profile])
+
+        let operations = DatabaseSidecarService(
+            processRunner: RecordingProcessRunner(result: ProcessResult(output: "", exitCode: 0)),
+            executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")
+        )
+        let feature = DatabaseFeatureModel(operations: operations, connectionStore: store)
+        feature.move(profile, toFolder: second.id)
+
+        #expect(feature.profiles.first?.folderID == second.id)
+        #expect(store.load().first?.folderID == second.id)
+    }
+
+    @Test
+    func databaseSQLBackupUsesStdinAndExtendedTimeout() throws {
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"encoding":"base64","data":"U0VMRUNUIDE7"}}"#, exitCode: 0)
+        }
+        let service = DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar"))
+        let data = try service.exportSQL(connection: DatabaseConnection(kind: .sqlite, path: "/tmp/test.sqlite"))
+
+        #expect(String(decoding: data, as: UTF8.self) == "SELECT 1;")
+        #expect(runner.requests[0].arguments.isEmpty)
+        #expect(runner.requests[0].timeoutMilliseconds == 120_000)
+        let requestText = String(decoding: try #require(runner.requests[0].standardInput), as: UTF8.self)
+        #expect(requestText.contains(#""method":"exportSql""#))
+    }
+
+    @Test
+    func databaseFileBackupUsesPathProtocolAndExtendedTimeout() throws {
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result = method == "exportSqlToFile"
+                ? #"{"path":"/tmp/backup.sql","byteCount":12,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}"#
+                : #"{"rowsAffected":1}"#
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let service = DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar"))
+        let output = try service.exportSQLToFile(connection: DatabaseConnection(kind: .sqlite, path: "/tmp/test.sqlite"), outputURL: URL(fileURLWithPath: "/tmp/backup.sql"))
+        #expect(output.byteCount == 12)
+        #expect(runner.requests[0].timeoutMilliseconds == 120_000)
+        let requestText = String(decoding: try #require(runner.requests[0].standardInput), as: UTF8.self)
+        #expect(requestText.contains(#""method":"exportSqlToFile""#))
+        #expect(requestText.contains("outputPath"))
+
+        _ = try service.importSQLFile(connection: DatabaseConnection(kind: .sqlite, path: "/tmp/test.sqlite"), fileURL: URL(fileURLWithPath: "/tmp/backup.sql"), confirmed: true, allowWrite: true)
+        #expect(runner.requests[1].timeoutMilliseconds == 120_000)
+
+        _ = try service.restoreSQLFile(connection: DatabaseConnection(kind: .sqlite, path: "/tmp/test.sqlite"), fileURL: URL(fileURLWithPath: "/tmp/backup.sql"), confirmed: true, allowWrite: true)
+        #expect(runner.requests[2].timeoutMilliseconds == 120_000)
+        let restoreRequest = String(decoding: try #require(runner.requests[2].standardInput), as: UTF8.self)
+        #expect(restoreRequest.contains(#""method":"restoreSqlFile""#))
+        #expect(DatabaseSQLExportOptions().limit == 0)
+    }
+
+    @Test
+    func databaseSQLAnalyzerProtectsUnqualifiedAndDestructiveStatements() {
+        let unsafeUpdate = DatabaseSQLAnalyzer.analyze("UPDATE users SET active = 0")
+        #expect(unsafeUpdate.kind == .mutation)
+        #expect(unsafeUpdate.requiresConfirmation)
+        #expect(unsafeUpdate.warning?.contains("WHERE") == true)
+
+        let safeDelete = DatabaseSQLAnalyzer.analyze("delete from users where id = 1")
+        #expect(safeDelete.kind == .mutation)
+        #expect(!safeDelete.requiresConfirmation)
+
+        let drop = DatabaseSQLAnalyzer.analyze("-- review first\nDROP TABLE `temporary users`")
+        #expect(drop.kind == .definition)
+        #expect(drop.requiresConfirmation)
+
+        let query = DatabaseSQLAnalyzer.analyze("SELECT 'UPDATE users SET x = 1' AS example")
+        #expect(query.kind == .query)
+        #expect(!query.requiresConfirmation)
+    }
+
+    @Test
+    func databaseSQLFormatterPreservesQuotedTextAndNormalizesKeywords() {
+        let formatted = DatabaseSQLFormatter.format("select  name, 'a  b' from users where id=1;")
+        #expect(formatted.contains("SELECT name, 'a  b' FROM users WHERE id = 1;"))
+        let withComment = DatabaseSQLFormatter.format("select -- keep this text\nfrom users")
+        #expect(withComment.contains("-- keep this text"))
+        #expect(withComment.contains("FROM users"))
+    }
+
+    @Test
+    func databaseSQLHistoryIsBoundedAndKeepsOnlyProfileReferences() throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let secrets = DatabaseTestSecureStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: secrets)
+        let profileID = UUID()
+
+        for index in 0..<105 {
+            try store.appendSQLHistory(DatabaseSQLHistoryEntry(
+                profileID: profileID,
+                sql: "SELECT \(index)",
+                kind: .query,
+                executedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                durationMilliseconds: index
+            ))
+        }
+
+        let history = store.loadSQLHistory()
+        #expect(history.count == 100)
+        #expect(history.first?.sql == "SELECT 104")
+        #expect(history.allSatisfy { $0.profileID == profileID })
+        let encoded = try #require(preferences.data(forKey: "database.sql-history.v1"))
+        #expect(!String(decoding: encoded, as: UTF8.self).contains("password"))
+    }
+
+    @Test
+    func databaseRecoveryStoreRoundTripsCompressedSnapshotsAndAudit() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-recovery-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = DatabaseRecoveryStore(rootURL: root)
+        let profileID = UUID()
+        let snapshot = Data(repeating: 65, count: 128 * 1_024)
+        let point = try store.createRecoveryPoint(profileID: profileID, reason: "test", data: snapshot)
+
+        #expect(point.profileID == profileID)
+        #expect(point.isCompressed)
+        #expect(point.sha256.count == 64)
+        #expect(try store.data(for: point) == snapshot)
+
+        let audit = DatabaseAuditEntry(id: UUID(), profileID: profileID, action: "test", summary: "snapshot", createdAt: Date(), recoveryPointID: point.id, rowsAffected: nil, succeeded: true, errorMessage: nil)
+        try store.appendAudit(audit)
+        let loadedAudit = try #require(store.auditEntries(for: profileID).first)
+        #expect(loadedAudit.id == audit.id)
+        #expect(loadedAudit.profileID == profileID)
+        #expect(loadedAudit.recoveryPointID == point.id)
+        #expect(loadedAudit.summary == "snapshot")
+    }
+
+    @Test
+    func databaseRecoveryStoreCopiesAndValidatesFileBackups() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-recovery-file-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("source.sql")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let contents = Data("CREATE TABLE items (id INTEGER);\n".utf8)
+        try contents.write(to: source)
+
+        let store = DatabaseRecoveryStore(rootURL: root.appendingPathComponent("store"))
+        let point = try store.createRecoveryPoint(profileID: UUID(), reason: "file", fileURL: source)
+        #expect(!point.isCompressed)
+        #expect(point.originalByteCount == contents.count)
+        #expect(try store.fileURL(for: point).lastPathComponent == point.fileName)
+        #expect(try store.data(for: point) == contents)
+
+        try Data("tampered".utf8).write(to: root.appendingPathComponent("store").appendingPathComponent(point.fileName))
+        #expect(throws: CocoaError(.fileReadCorruptFile)) { try store.data(for: point) }
+    }
+
+    @Test
+    func databaseProfilesDecodeLegacyPreferencesWithSafeDefaults() throws {
+        let legacy = """
+        [{"id":"00000000-0000-0000-0000-000000000001","name":"Legacy","kind":"mysql","host":"127.0.0.1","port":3306,"username":"root","database":"app","path":"","ssl":false}]
+        """
+        let preferences = DatabaseTestKeyValueStore()
+        let secrets = DatabaseTestSecureStore()
+        preferences.set(Data(legacy.utf8), forKey: "database.profiles.v1")
+        let store = DatabaseConnectionStore(store: preferences, secureStore: secrets)
+        let profile = try #require(store.load().first)
+
+        #expect(profile.readOnly == false)
+        #expect(profile.productionProtection == false)
+        #expect(profile.maskSensitiveFields == false)
+        #expect(profile.sensitiveColumnPatterns.contains("password"))
+    }
+
+    @Test
+    func databaseSensitiveFieldMaskerMasksConfiguredColumnsWithoutChangingNulls() {
+        let rows: [DatabaseRow] = [[
+            "id": .integer(7),
+            "email": .string("user@example.com"),
+            "api_token": .string("secret-value"),
+            "password": .null
+        ]]
+
+        let masked = DatabaseSensitiveFieldMasker.mask(
+            rows: rows,
+            enabled: true,
+            patterns: ["token", "password"]
+        )
+
+        #expect(masked[0]["id"] == .integer(7))
+        #expect(masked[0]["email"] == .string("user@example.com"))
+        #expect(masked[0]["api_token"] == .string("******"))
+        #expect(masked[0]["password"] == .null)
+        #expect(DatabaseSensitiveFieldMasker.mask(rows: rows, enabled: false, patterns: ["token"]) == rows)
+    }
+
+    @Test
+    func databaseSchemaDiffReportsTableColumnAndDestructiveChanges() {
+        let source = DatabaseSchemaSnapshot(
+            profileID: UUID(),
+            profileName: "Source",
+            kind: .sqlite,
+            schema: "",
+            tables: [DatabaseSchemaTableSnapshot(
+                name: "users",
+                columns: [
+                    DatabaseSchemaColumnSnapshot(name: "id", dataType: "INTEGER", isNullable: false, defaultValue: nil, isPrimaryKey: true),
+                    DatabaseSchemaColumnSnapshot(name: "email", dataType: "TEXT", isNullable: false, defaultValue: nil, isPrimaryKey: false),
+                    DatabaseSchemaColumnSnapshot(name: "active", dataType: "INTEGER", isNullable: true, defaultValue: "1", isPrimaryKey: false)
+                ],
+                indexes: [],
+                foreignKeys: []
+            )]
+        )
+        let target = DatabaseSchemaSnapshot(
+            profileID: UUID(),
+            profileName: "Target",
+            kind: .sqlite,
+            schema: "",
+            tables: [DatabaseSchemaTableSnapshot(
+                name: "users",
+                columns: [
+                    DatabaseSchemaColumnSnapshot(name: "id", dataType: "INTEGER", isNullable: false, defaultValue: nil, isPrimaryKey: true),
+                    DatabaseSchemaColumnSnapshot(name: "name", dataType: "TEXT", isNullable: true, defaultValue: nil, isPrimaryKey: false)
+                ],
+                indexes: [],
+                foreignKeys: []
+            )]
+        )
+
+        let diff = DatabaseSchemaDiffEngine.compare(source: source, target: target)
+        #expect(diff.items.map(\.kind).contains(.addColumn))
+        #expect(diff.items.map(\.kind).contains(.dropColumn))
+        #expect(diff.requiresConfirmation)
+        #expect(diff.migrationSQL.contains("ADD COLUMN \"email\" TEXT NOT NULL"))
+        #expect(diff.migrationSQL.contains("DROP COLUMN \"name\""))
+    }
+
+    @Test
+    func databaseSchemaDiffCreatesReferencedTablesBeforeIndexes() {
+        let source = DatabaseSchemaSnapshot(
+            profileID: UUID(),
+            profileName: "Source",
+            kind: .sqlite,
+            schema: "",
+            tables: [
+                DatabaseSchemaTableSnapshot(
+                    name: "posts",
+                    columns: [
+                        DatabaseSchemaColumnSnapshot(name: "id", dataType: "INTEGER", isNullable: false, defaultValue: nil, isPrimaryKey: true),
+                        DatabaseSchemaColumnSnapshot(name: "user_id", dataType: "INTEGER", isNullable: false, defaultValue: nil, isPrimaryKey: false)
+                    ],
+                    indexes: [DatabaseSchemaIndexSnapshot(name: "idx_posts_user", definition: "CREATE INDEX \"idx_posts_user\" ON \"posts\" (\"user_id\")")],
+                    foreignKeys: [DatabaseSchemaForeignKeySnapshot(name: "0", column: "user_id", referencedTable: "users", referencedColumn: "id")]
+                ),
+                DatabaseSchemaTableSnapshot(
+                    name: "users",
+                    columns: [DatabaseSchemaColumnSnapshot(name: "id", dataType: "INTEGER", isNullable: false, defaultValue: nil, isPrimaryKey: true)],
+                    indexes: [],
+                    foreignKeys: []
+                )
+            ]
+        )
+        let target = DatabaseSchemaSnapshot(profileID: UUID(), profileName: "Target", kind: .sqlite, schema: "", tables: [])
+
+        let diff = DatabaseSchemaDiffEngine.compare(source: source, target: target)
+        let createdTables = diff.items.filter { $0.kind == .addTable }.map(\.table)
+        let indexPosition = try! #require(diff.items.firstIndex { $0.id == "add-index:posts:idx_posts_user" })
+        let postPosition = try! #require(diff.items.firstIndex { $0.id == "add-table:posts" })
+
+        #expect(createdTables == ["users", "posts"])
+        #expect(indexPosition > postPosition)
+        #expect(diff.items[postPosition].sql.contains("FOREIGN KEY (\"user_id\") REFERENCES \"users\" (\"id\")"))
+    }
+
+    @Test
     func updateDownloadProgressReportsKnownAndUnknownTotals() {
         let progress = UpdateDownloadProgress(downloadedBytes: 512, totalBytes: 2_048)
 
@@ -878,6 +1308,40 @@ struct LitheCoreLogicTests {
         #expect(firstObserverCalls == 1)
         #expect(secondObserverCalls == 2)
     }
+}
+
+private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
+    private let handler: (ProcessRequest) -> ProcessResult
+    private(set) var requests: [ProcessRequest] = []
+
+    init(result: ProcessResult) {
+        handler = { _ in result }
+    }
+
+    init(handler: @escaping (ProcessRequest) -> ProcessResult) {
+        self.handler = handler
+    }
+
+    func run(_ request: ProcessRequest) -> ProcessResult {
+        requests.append(request)
+        return handler(request)
+    }
+}
+
+private final class DatabaseTestKeyValueStore: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+private final class DatabaseTestSecureStore: SecureStore, @unchecked Sendable {
+    private var values: [String: String] = [:]
+    func read(key: String) -> String? { values[key] }
+    func write(_ value: String, key: String) throws { values[key] = value }
+    func delete(key: String) throws { values.removeValue(forKey: key) }
 }
 
 @Suite("Editor documents")

@@ -35,7 +35,10 @@ struct EditorAreaView: View {
     var body: some View {
         ZStack(alignment: .top) {
             Group {
-                if let comparison = model.branchComparison {
+                if model.selectedSidebar == .database {
+                    DatabaseWorkspaceView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                } else if let comparison = model.branchComparison {
                     BranchComparisonView(comparison: comparison)
                 } else if let commitDiff = model.selectedGitCommitDiffContext {
                     GitCommitDiffReviewView(context: commitDiff)

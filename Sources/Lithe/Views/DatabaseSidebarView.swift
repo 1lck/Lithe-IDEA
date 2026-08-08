@@ -1,0 +1,766 @@
+import SwiftUI
+
+struct DatabaseSidebarView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var showsConnectionEditor = false
+    @State private var editingProfile: DatabaseProfile?
+    @State private var searchText = ""
+    @State private var expandedFolderIDs: Set<UUID> = []
+    @State private var showsFolderEditor = false
+    @State private var editingFolder: DatabaseConnectionFolder?
+    @State private var folderPendingDeletion: DatabaseConnectionFolder?
+    @State private var showsFolderDeletionConfirmation = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "cylinder.split.1x2")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.accent)
+                    .frame(width: 22, height: 22)
+                    .background(LitheTheme.accent.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Database").font(.system(size: 12.5, weight: .semibold))
+                    Text("Connections: \(model.databaseFeature.profiles.count)")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                }
+                Spacer()
+                Button { editingProfile = nil; showsConnectionEditor = true } label: { Image(systemName: "plus") }
+                    .litheIconButton().help("Add database connection")
+                Button { editingFolder = nil; showsFolderEditor = true } label: { Image(systemName: "folder.badge.plus") }
+                    .litheIconButton().help("New Folder")
+                Button { Task { await model.databaseFeature.refreshTables() } } label: { Image(systemName: "arrow.clockwise") }
+                    .litheIconButton().help("Refresh database objects")
+            }
+            .foregroundStyle(LitheTheme.primaryText).padding(.leading, 10).padding(.trailing, 5)
+            .frame(height: 42)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+                TextField("Search connections", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11.5))
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear search")
+                }
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 31)
+            .background(LitheTheme.inputBackground.opacity(0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    if model.databaseFeature.profiles.isEmpty && model.databaseFeature.folders.isEmpty {
+                        emptyConnections
+                    } else {
+                        connectionTree
+                    }
+                    if let profile = model.databaseFeature.selectedProfile {
+                        databaseObjects(for: profile)
+                    }
+                }.padding(5)
+            }
+            if model.databaseFeature.isLoading { ProgressView().controlSize(.small).padding(8) }
+            if let error = model.databaseFeature.errorMessage {
+                DatabaseLocalization.error(error).font(.system(size: 10.5)).foregroundStyle(LitheTheme.error).padding(8).lineLimit(4)
+            }
+        }
+        .sheet(isPresented: $showsConnectionEditor) {
+            DatabaseConnectionEditor(isPresented: $showsConnectionEditor, profile: editingProfile)
+                .environment(\.locale, model.settings.language.locale)
+                .id(model.settings.language)
+        }
+        .sheet(isPresented: $showsFolderEditor) {
+            DatabaseFolderEditor(isPresented: $showsFolderEditor, folder: editingFolder)
+                .environment(\.locale, model.settings.language.locale)
+                .id(model.settings.language)
+        }
+        .alert("Remove folder?", isPresented: $showsFolderDeletionConfirmation, presenting: folderPendingDeletion) { folder in
+            Button("Remove Folder", role: .destructive) {
+                model.databaseFeature.removeFolder(folder)
+                folderPendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { folderPendingDeletion = nil }
+        } message: { _ in
+            Text("Removing this folder keeps its connections and moves them to the root.")
+        }
+        .onAppear { expandFoldersIfNeeded() }
+        .onChange(of: model.databaseFeature.folders.map(\.id)) { _, _ in
+            expandFoldersIfNeeded()
+        }
+    }
+
+    private var emptyConnections: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "cylinder.split.1x2")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(LitheTheme.accent)
+                .frame(width: 44, height: 44)
+                .background(LitheTheme.accent.opacity(0.12))
+                .clipShape(Circle())
+            Text("No database connections")
+                .font(.system(size: 11.5, weight: .semibold))
+            Text("Add a connection to browse tables, run SQL, and manage data.")
+                .font(.system(size: 10))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                editingProfile = nil
+                showsConnectionEditor = true
+            } label: {
+                Label("Add database connection", systemImage: "plus")
+            }
+            .buttonStyle(LithePrimaryButtonStyle())
+        }
+        .foregroundStyle(LitheTheme.primaryText)
+        .padding(18)
+        .frame(maxWidth: .infinity)
+        .background(LitheTheme.inputBackground.opacity(0.58))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(8)
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private var connectionTree: some View {
+        let rootProfiles = unfiledProfiles
+        let hasVisibleFolders = model.databaseFeature.folders.contains { folder in
+            isFolderVisible(folder)
+        }
+
+        ForEach(model.databaseFeature.folders) { folder in
+            if isFolderVisible(folder) {
+                folderRow(folder)
+            }
+        }
+
+        if !rootProfiles.isEmpty {
+            Text("Unfiled connections")
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.tertiaryText)
+                .textCase(.uppercase)
+                .padding(.top, model.databaseFeature.folders.isEmpty ? 3 : 9)
+                .padding(.horizontal, 9)
+            ForEach(rootProfiles) { profile in
+                profileRow(profile)
+            }
+        } else if !searchQuery.isEmpty && !hasVisibleFolders {
+            VStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13, weight: .medium))
+                Text("No connections match your search.")
+                    .font(.system(size: 10.5))
+            }
+            .foregroundStyle(LitheTheme.tertiaryText)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+        } else if model.databaseFeature.profiles.isEmpty {
+            VStack(spacing: 6) {
+                Image(systemName: "cylinder.split.1x2")
+                    .font(.system(size: 13, weight: .medium))
+                Text("No database connections")
+                    .font(.system(size: 10.5))
+            }
+            .foregroundStyle(LitheTheme.tertiaryText)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
+        }
+    }
+
+    private func folderRow(_ folder: DatabaseConnectionFolder) -> some View {
+        let profiles = visibleProfiles(in: folder)
+        let isExpanded = !searchQuery.isEmpty || expandedFolderIDs.contains(folder.id)
+        let totalCount = allProfiles(in: folder).count
+
+        return VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 1) {
+                Button {
+                    if expandedFolderIDs.contains(folder.id) {
+                        expandedFolderIDs.remove(folder.id)
+                    } else {
+                        expandedFolderIDs.insert(folder.id)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                            .frame(width: 12)
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(LitheTheme.warning)
+                            .frame(width: 15)
+                        Text(folder.name)
+                            .lineLimit(1)
+                            .font(.system(size: 11.5, weight: .semibold))
+                        Spacer(minLength: 4)
+                        if totalCount > 0 {
+                            Text("\(totalCount)")
+                                .font(.system(size: 9.5, design: .monospaced))
+                                .foregroundStyle(LitheTheme.tertiaryText)
+                        }
+                    }
+                    .padding(.leading, 7)
+                    .padding(.trailing, 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 31)
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .litheRowHover(isActive: false)
+
+                Menu {
+                    Button("Rename Folder") {
+                        editingFolder = folder
+                        showsFolderEditor = true
+                    }
+                    Button("Remove Folder", role: .destructive) {
+                        folderPendingDeletion = folder
+                        showsFolderDeletionConfirmation = true
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .frame(width: 24, height: 28)
+                }
+                .menuStyle(.borderlessButton)
+                .help("Folder actions")
+            }
+            .contextMenu {
+                Button("Rename Folder") {
+                    editingFolder = folder
+                    showsFolderEditor = true
+                }
+                Button("Remove Folder", role: .destructive) {
+                    folderPendingDeletion = folder
+                    showsFolderDeletionConfirmation = true
+                }
+            }
+
+            if isExpanded {
+                ForEach(profiles) { profile in
+                    profileRow(profile, indent: 21)
+                }
+            }
+        }
+    }
+
+    private func profileRow(_ profile: DatabaseProfile, indent: CGFloat = 0) -> some View {
+        Button { Task { await model.databaseFeature.select(profile) } } label: {
+            HStack(spacing: 7) {
+                Image(systemName: profile.readOnly ? "lock.fill" : profile.kind.symbolName)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(profileColor(for: profile))
+                    .frame(width: 15)
+                Text(profile.name)
+                    .lineLimit(1)
+                    .font(.system(size: 11.5, weight: .medium))
+                if profile.productionProtection {
+                    Image(systemName: "shield.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(LitheTheme.warning)
+                }
+                Spacer(minLength: 4)
+                Text(profile.kind.displayName)
+                    .lineLimit(1)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+                Circle()
+                    .fill(model.databaseFeature.selectedProfileID == profile.id ? LitheTheme.accent : LitheTheme.tertiaryText.opacity(0.45))
+                    .frame(width: 5.5, height: 5.5)
+            }
+            .padding(.leading, 10 + indent)
+            .padding(.trailing, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 30)
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .litheRowHover(isActive: model.databaseFeature.selectedProfileID == profile.id, activeBackground: LitheTheme.subtleSelection)
+        .contextMenu {
+            Button("Edit Connection") {
+                editingProfile = profile
+                showsConnectionEditor = true
+            }
+            Menu("Move to Folder") {
+                Button("Move to root") {
+                    model.databaseFeature.move(profile, toFolder: nil)
+                }
+                if !model.databaseFeature.folders.isEmpty {
+                    Divider()
+                    ForEach(model.databaseFeature.folders) { folder in
+                        Button(folder.name) {
+                            model.databaseFeature.move(profile, toFolder: folder.id)
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("Remove Connection", role: .destructive) {
+                model.databaseFeature.remove(profile)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func databaseObjects(for profile: DatabaseProfile) -> some View {
+        if profile.kind.isSQLDatabase {
+            HStack(spacing: 6) {
+                Image(systemName: "tablecells")
+                    .font(.system(size: 10))
+                Text(profile.database.isEmpty ? "Tables" : profile.database)
+                Spacer()
+                Text("\(model.databaseFeature.tables.count)")
+                    .monospacedDigit()
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(LitheTheme.badgeBackground)
+                    .clipShape(Capsule())
+            }
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(.top, 12)
+            .padding(.horizontal, 10)
+            if model.databaseFeature.tables.isEmpty && !model.databaseFeature.isLoading {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No tables yet")
+                        .font(.system(size: 10.5, weight: .medium))
+                    Text("Refresh this connection to load its database objects.")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(LitheTheme.inputBackground.opacity(0.55))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .padding(.horizontal, 6)
+                .padding(.top, 6)
+            }
+            ForEach(model.databaseFeature.tables, id: \.self) { table in
+                Button { Task { await model.databaseFeature.openTable(table) } } label: {
+                    Label(table, systemImage: "tablecells")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 20)
+                        .padding(.trailing, 8)
+                        .frame(height: 25)
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .litheRowHover(isActive: model.databaseFeature.selectedTable == table)
+            }
+            ForEach(DatabaseObjectKind.allCases.filter { $0 != .tables }, id: \.self) { kind in
+                let entries = model.databaseFeature.objects[kind] ?? []
+                if !entries.isEmpty {
+                    DisclosureGroup {
+                        ForEach(Array(entries.enumerated()), id: \.offset) { _, row in
+                            Text(objectLabel(row))
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .lineLimit(1)
+                                .padding(.leading, 34)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(height: 23)
+                        }
+                    } label: {
+                        Label {
+                            HStack(spacing: 4) {
+                                Text(LocalizedStringKey(kind.title))
+                                Text("(\(entries.count))")
+                            }
+                        } icon: {
+                            Image(systemName: kind.symbol)
+                        }
+                        .font(.system(size: 11))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    }
+                    .padding(.leading, 12)
+                    .padding(.top, 2)
+                }
+            }
+        }
+    }
+
+    private var searchQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func expandFoldersIfNeeded() {
+        expandedFolderIDs.formUnion(model.databaseFeature.folders.map(\.id))
+    }
+
+    private var unfiledProfiles: [DatabaseProfile] {
+        model.databaseFeature.profiles.filter { profile in
+            guard profile.folderID == nil || !model.databaseFeature.folders.contains(where: { $0.id == profile.folderID }) else {
+                return false
+            }
+            return profileMatchesSearch(profile)
+        }
+    }
+
+    private func allProfiles(in folder: DatabaseConnectionFolder) -> [DatabaseProfile] {
+        model.databaseFeature.profiles.filter { $0.folderID == folder.id }
+    }
+
+    private func visibleProfiles(in folder: DatabaseConnectionFolder) -> [DatabaseProfile] {
+        let profiles = allProfiles(in: folder)
+        guard !searchQuery.isEmpty else { return profiles }
+        if folder.name.lowercased().contains(searchQuery) { return profiles }
+        return profiles.filter(profileMatchesSearch)
+    }
+
+    private func isFolderVisible(_ folder: DatabaseConnectionFolder) -> Bool {
+        searchQuery.isEmpty || folder.name.lowercased().contains(searchQuery) || !visibleProfiles(in: folder).isEmpty
+    }
+
+    private func profileMatchesSearch(_ profile: DatabaseProfile) -> Bool {
+        guard !searchQuery.isEmpty else { return true }
+        let searchableText = [profile.name, profile.kind.displayName, profile.host, profile.database, profile.path]
+            .joined(separator: " ")
+            .lowercased()
+        return searchableText.contains(searchQuery)
+    }
+
+    private func profileColor(for profile: DatabaseProfile) -> Color {
+        profile.colorHex.isEmpty ? LitheTheme.accent : Color(hex: profile.colorHex)
+    }
+
+    private func objectLabel(_ row: DatabaseRow) -> String {
+        for key in ["table_name", "routine_name", "trigger_name", "sequence_name", "name", "TABLE_NAME", "ROUTINE_NAME", "TRIGGER_NAME", "SEQUENCE_NAME"] {
+            if let value = row[key], case let .string(name) = value, !name.isEmpty { return name }
+        }
+        return row.keys.sorted().compactMap { key in
+            guard let value = row[key] else { return nil }
+            return "\(key): \(String(describing: value))"
+        }.joined(separator: "  ")
+    }
+}
+
+private extension DatabaseObjectKind {
+    var title: String {
+        switch self {
+        case .tables: "Tables"
+        case .views: "Views"
+        case .routines: "Routines"
+        case .triggers: "Triggers"
+        case .sequences: "Sequences"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .tables: "tablecells"
+        case .views: "eye"
+        case .routines: "function"
+        case .triggers: "bolt"
+        case .sequences: "list.number"
+        }
+    }
+}
+
+private extension DatabaseKind {
+    var displayName: String {
+        switch self {
+        case .mysql: "MySQL"
+        case .postgresql: "PostgreSQL"
+        case .sqlite: "SQLite"
+        case .redis: "Redis"
+        case .nacos: "Nacos"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .mysql, .postgresql: "cylinder.fill"
+        case .sqlite: "externaldrive.fill"
+        case .redis: "square.stack.3d.up.fill"
+        case .nacos: "slider.horizontal.3"
+        }
+    }
+}
+
+private extension Color {
+    init(hex: String) {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var value: UInt64 = 0
+        Scanner(string: cleaned).scanHexInt64(&value)
+        let red = Double((value >> 16) & 0xff) / 255
+        let green = Double((value >> 8) & 0xff) / 255
+        let blue = Double(value & 0xff) / 255
+        self.init(red: red, green: green, blue: blue)
+    }
+}
+
+private struct DatabaseFolderEditor: View {
+    @EnvironmentObject private var model: AppModel
+    @Binding var isPresented: Bool
+    let folder: DatabaseConnectionFolder?
+    @State private var name = ""
+    @State private var validationMessage: String?
+
+    init(isPresented: Binding<Bool>, folder: DatabaseConnectionFolder?) {
+        _isPresented = isPresented
+        self.folder = folder
+        _name = State(initialValue: folder?.name ?? "")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(LitheTheme.warning)
+                    .frame(width: 34, height: 34)
+                    .background(LitheTheme.warning.opacity(0.14))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(folder == nil ? "New Folder" : "Rename Folder")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(folder == nil ? "Keep connections organized in the sidebar." : "Update the folder name without changing its connections.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 62)
+            .background(LitheTheme.toolHeader)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            Form {
+                TextField("Folder name", text: $name)
+                    .onSubmit(save)
+                if let validationMessage {
+                    DatabaseLocalization.error(validationMessage)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.error)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel") { isPresented = false }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                Button(folder == nil ? "Create folder" : "Save folder") { save() }
+                    .buttonStyle(LithePrimaryButtonStyle())
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 58)
+            .background(LitheTheme.toolHeader)
+        }
+        .frame(width: 390, height: 240)
+        .background(LitheTheme.raised)
+    }
+
+    private func save() {
+        let didSave: Bool
+        if let folder {
+            didSave = model.databaseFeature.renameFolder(folder, to: name)
+        } else {
+            didSave = model.databaseFeature.createFolder(name: name)
+        }
+        if didSave {
+            isPresented = false
+        } else {
+            validationMessage = model.databaseFeature.errorMessage
+        }
+    }
+}
+
+private struct DatabaseConnectionEditor: View {
+    @EnvironmentObject private var model: AppModel
+    @Binding var isPresented: Bool
+    @State private var name = ""
+    @State private var kind = DatabaseKind.mysql
+    @State private var host = "127.0.0.1"
+    @State private var port = "3306"
+    @State private var username = "root"
+    @State private var password = ""
+    @State private var database = ""
+    @State private var path = ""
+    @State private var ssl = false
+    @State private var folderID: UUID?
+    @State private var colorHex = ""
+    @State private var readOnly = false
+    @State private var productionProtection = false
+    @State private var maskSensitiveFields = false
+    @State private var sensitiveColumnPatterns = "password, secret, token, api_key"
+    @State private var caCertificatePath = ""
+    @State private var serverName = ""
+    @State private var sshHost = ""
+    @State private var sshPort = "22"
+    @State private var sshUsername = ""
+    @State private var sshKeyPath = ""
+    @State private var sshLocalPort = ""
+    @State private var proxyURL = ""
+
+    private let profile: DatabaseProfile?
+
+    init(isPresented: Binding<Bool>, profile: DatabaseProfile? = nil) {
+        _isPresented = isPresented
+        self.profile = profile
+        _name = State(initialValue: profile?.name ?? "")
+        _kind = State(initialValue: profile?.kind ?? .mysql)
+        _host = State(initialValue: profile?.host ?? "127.0.0.1")
+        _port = State(initialValue: String(profile?.port ?? 3306))
+        _username = State(initialValue: profile?.username ?? "root")
+        _database = State(initialValue: profile?.database ?? "")
+        _path = State(initialValue: profile?.path ?? "")
+        _ssl = State(initialValue: profile?.ssl ?? false)
+        _folderID = State(initialValue: profile?.folderID)
+        _colorHex = State(initialValue: profile?.colorHex ?? "")
+        _readOnly = State(initialValue: profile?.readOnly ?? false)
+        _productionProtection = State(initialValue: profile?.productionProtection ?? false)
+        _maskSensitiveFields = State(initialValue: profile?.maskSensitiveFields ?? false)
+        _sensitiveColumnPatterns = State(initialValue: profile?.sensitiveColumnPatterns.joined(separator: ", ") ?? "password, secret, token, api_key")
+        _caCertificatePath = State(initialValue: profile?.caCertificatePath ?? "")
+        _serverName = State(initialValue: profile?.serverName ?? "")
+        _sshHost = State(initialValue: profile?.sshHost ?? "")
+        _sshPort = State(initialValue: String(profile?.sshPort ?? 22))
+        _sshUsername = State(initialValue: profile?.sshUsername ?? "")
+        _sshKeyPath = State(initialValue: profile?.sshKeyPath ?? "")
+        _sshLocalPort = State(initialValue: profile?.sshLocalPort == 0 ? "" : String(profile?.sshLocalPort ?? 0))
+        _proxyURL = State(initialValue: profile?.proxyURL ?? "")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: kind.symbolName)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(LitheTheme.accent)
+                    .frame(width: 34, height: 34)
+                    .background(LitheTheme.accent.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(profile == nil ? "Add Database Connection" : "Edit Database Connection")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Configure connection and safety options.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 62)
+            .background(LitheTheme.toolHeader)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            Form {
+                TextField("Name", text: $name)
+                Picker("Database", selection: $kind) {
+                    Text("MySQL").tag(DatabaseKind.mysql)
+                    Text("PostgreSQL").tag(DatabaseKind.postgresql)
+                    Text("SQLite").tag(DatabaseKind.sqlite)
+                    Text("Redis").tag(DatabaseKind.redis)
+                    Text("Nacos").tag(DatabaseKind.nacos)
+                }
+                    .pickerStyle(.segmented)
+                if kind == .sqlite { TextField("Database file path", text: $path) }
+                else {
+                    TextField("Host", text: $host)
+                    TextField("Port", text: $port)
+                    TextField(kind == .nacos ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"), text: $username)
+                    SecureField(profile == nil ? "Password" : "Password (leave blank to keep current)", text: $password)
+                    if kind == .redis {
+                        TextField("Redis database index", text: $database)
+                        Text("Leave the database index at 0 for the standard Redis database.")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    } else if kind == .nacos {
+                        TextField("Namespace ID (optional)", text: $database)
+                        TextField("API context path", text: $path)
+                        Text("Use /nacos for a standard Nacos server, or / for a reverse proxy at its root.")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    } else {
+                        TextField("Database", text: $database)
+                    }
+                    Toggle("Use TLS", isOn: $ssl)
+                }
+                Section("Safety") {
+                    Picker("Folder", selection: $folderID) {
+                        Text("No folder").tag(UUID?.none)
+                        ForEach(model.databaseFeature.folders) { folder in
+                            Text(folder.name).tag(UUID?.some(folder.id))
+                        }
+                    }
+                    TextField("Color hex (optional)", text: $colorHex)
+                    Toggle("Read-only connection", isOn: $readOnly)
+                    Toggle("Production protection", isOn: $productionProtection)
+                    if kind.isSQLDatabase {
+                        Toggle("Mask sensitive fields", isOn: $maskSensitiveFields)
+                        TextField("Sensitive column patterns", text: $sensitiveColumnPatterns)
+                    }
+                }
+                Section("Network") {
+                    TextField("TLS CA certificate path", text: $caCertificatePath)
+                    TextField("TLS server name", text: $serverName)
+                    TextField("SSH host (optional)", text: $sshHost)
+                    TextField("SSH port", text: $sshPort)
+                    TextField("SSH username", text: $sshUsername)
+                    TextField("SSH key path", text: $sshKeyPath)
+                    TextField("SSH local port (optional)", text: $sshLocalPort)
+                    TextField("Proxy URL (optional)", text: $proxyURL)
+            }
+            .padding(.top, 2)
+            }.formStyle(.grouped).scrollContentBackground(.hidden)
+            if let error = model.databaseFeature.errorMessage { DatabaseLocalization.error(error).font(.system(size: 11)).foregroundStyle(LitheTheme.error).padding(.horizontal, 16) }
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel") { isPresented = false }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                Button("Connect") { connect() }
+                    .buttonStyle(LithePrimaryButtonStyle())
+                    .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || model.databaseFeature.isLoading)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 58)
+            .background(LitheTheme.toolHeader)
+        }
+        .onChange(of: kind) { _, newKind in
+            guard profile == nil else { return }
+            switch newKind {
+            case .mysql: port = "3306"; username = "root"; database = ""; path = ""
+            case .postgresql: port = "5432"; username = "postgres"; database = ""; path = ""
+            case .sqlite: path = ""; database = ""
+            case .redis: port = "6379"; username = ""; database = "0"; path = ""
+            case .nacos: port = "8848"; username = "nacos"; database = ""; path = "/nacos"
+            }
+        }
+        .frame(width: 500, height: kind == .sqlite ? 640 : (kind.isSQLDatabase ? 750 : 710)).background(LitheTheme.raised)
+    }
+
+    private func connect() {
+        let candidate = DatabaseProfile(id: profile?.id ?? UUID(), name: name, kind: kind, host: host, port: UInt16(port) ?? 0, username: username, database: database, path: path, ssl: ssl, group: "", folderID: folderID, colorHex: colorHex, readOnly: readOnly, productionProtection: productionProtection, maskSensitiveFields: maskSensitiveFields, sensitiveColumnPatterns: sensitiveColumnPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }, caCertificatePath: caCertificatePath, serverName: serverName, sshHost: sshHost, sshPort: UInt16(sshPort) ?? 22, sshUsername: sshUsername, sshKeyPath: sshKeyPath, sshLocalPort: UInt16(sshLocalPort) ?? 0, proxyURL: proxyURL)
+        Task {
+            let saved = if profile == nil {
+                await model.databaseFeature.add(candidate, password: password)
+            } else {
+                await model.databaseFeature.update(candidate, password: password.isEmpty ? nil : password)
+            }
+            if saved { isPresented = false }
+        }
+    }
+}

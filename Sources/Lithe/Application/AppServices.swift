@@ -27,6 +27,7 @@ final class AppServices {
     let javaRunService: JavaRunService
     let javaDebugService: JavaDebugService
     let gitService: GitService
+    let databaseOperations: any DatabaseOperations
     let shelveService: ShelveService
     let commitMessageGenerator: CommitMessageGenerationService
     let secureStore: any SecureStore
@@ -56,6 +57,7 @@ final class AppServices {
         javaRunService: JavaRunService,
         javaDebugService: JavaDebugService,
         gitService: GitService,
+        databaseOperations: any DatabaseOperations,
         shelveService: ShelveService,
         commitMessageGenerator: CommitMessageGenerationService,
         secureStore: any SecureStore,
@@ -84,6 +86,7 @@ final class AppServices {
         self.javaRunService = javaRunService
         self.javaDebugService = javaDebugService
         self.gitService = gitService
+        self.databaseOperations = databaseOperations
         self.shelveService = shelveService
         self.commitMessageGenerator = commitMessageGenerator
         self.secureStore = secureStore

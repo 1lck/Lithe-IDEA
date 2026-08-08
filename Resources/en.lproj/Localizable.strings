@@ -1,1 +1,24 @@
 /* English is the default UI language. */
+
+/* Database connection navigation */
+"New Folder" = "New Folder";
+"Rename Folder" = "Rename Folder";
+"Remove Folder" = "Remove Folder";
+"Folder actions" = "Folder actions";
+"Search connections" = "Search connections";
+"Clear search" = "Clear search";
+"Unfiled connections" = "Unfiled connections";
+"No connections match your search." = "No connections match your search.";
+"Move to Folder" = "Move to Folder";
+"Move to root" = "Move to root";
+"Keep connections organized in the sidebar." = "Keep connections organized in the sidebar.";
+"Update the folder name without changing its connections." = "Update the folder name without changing its connections.";
+"Folder" = "Folder";
+"No folder" = "No folder";
+"Create folder" = "Create folder";
+"Save folder" = "Save folder";
+"Remove folder?" = "Remove folder?";
+"Removing this folder keeps its connections and moves them to the root." = "Removing this folder keeps its connections and moves them to the root.";
+"Folder name is required." = "Folder name is required.";
+"A folder with this name already exists." = "A folder with this name already exists.";
+"The selected connection folder no longer exists." = "The selected connection folder no longer exists.";

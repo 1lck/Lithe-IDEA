@@ -1,0 +1,59 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+import { AlertTriangle } from "@lucide/vue";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useConnectionStore } from "@/stores/connectionStore";
+
+const props = withDefaults(
+  defineProps<{
+    connectionId?: string | null;
+    triggerClass?: string;
+  }>(),
+  {
+    connectionId: null,
+    triggerClass: "",
+  },
+);
+
+const { t } = useI18n();
+const connectionStore = useConnectionStore();
+
+const errorMessage = computed(() => (props.connectionId ? connectionStore.connectionErrors[props.connectionId] : ""));
+
+function clearError() {
+  if (props.connectionId) connectionStore.clearConnectionError(props.connectionId);
+}
+
+function selectErrorText(event: FocusEvent) {
+  if (event.target instanceof HTMLTextAreaElement) event.target.select();
+}
+</script>
+
+<template>
+  <Popover v-if="errorMessage">
+    <PopoverTrigger as-child>
+      <button
+        type="button"
+        class="inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded text-amber-500 hover:bg-amber-500/10 hover:text-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-500/40"
+        :class="triggerClass"
+        :title="t('connection.errorIndicatorHint')"
+        :aria-label="t('connection.errorIndicatorHint')"
+        @click.stop
+      >
+        <AlertTriangle class="h-3.5 w-3.5" />
+      </button>
+    </PopoverTrigger>
+    <PopoverContent side="top" class="w-96 max-w-[calc(100vw-2rem)] gap-2 p-2 text-xs" @click.stop>
+      <div class="flex items-start gap-2">
+        <div class="min-w-0 flex-1">
+          <div class="font-medium text-foreground">
+            {{ t("connection.lastError") }}
+          </div>
+          <textarea class="mt-1 max-h-40 min-h-20 w-full resize-none overflow-auto rounded border bg-muted/30 p-2 font-mono text-[11px] leading-4 text-muted-foreground outline-none" :value="errorMessage" readonly @focus="selectErrorText" />
+        </div>
+        <button type="button" class="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground" @click="clearError">{{ t("connection.clearError") }}</button>
+      </div>
+    </PopoverContent>
+  </Popover>
+</template>

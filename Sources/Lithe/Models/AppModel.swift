@@ -104,6 +104,7 @@ final class AppModel: ObservableObject, Identifiable {
     let gitFeature: GitFeatureModel
     let documentFeature: DocumentFeatureModel
     let javaFeature: JavaFeatureModel
+    let databaseFeature: DatabaseFeatureModel
     private var workspaceFeatureObservation: AnyCancellable?
     private var searchFeatureObservation: AnyCancellable?
     private var terminalFeatureObservation: AnyCancellable?
@@ -124,6 +125,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var gitFeatureObservation: AnyCancellable?
     private var documentFeatureObservation: AnyCancellable?
     private var javaFeatureObservation: AnyCancellable?
+    private var databaseFeatureObservation: AnyCancellable?
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
     private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
 
@@ -163,12 +165,19 @@ final class AppModel: ObservableObject, Identifiable {
             operations: services.javaMavenOperations,
             workspaceOperations: services.workspaceOperations
         )
+        databaseFeature = DatabaseFeatureModel(
+            operations: services.databaseOperations,
+            connectionStore: DatabaseConnectionStore(store: services.store, secureStore: services.secureStore)
+        )
         javaFeature.configureRuntime(
             mavenFeature: mavenFeature,
             runFeature: runFeature,
             debugFeature: debugFeature
         )
         recentProjects = services.recentProjectsStore.load()
+        databaseFeatureObservation = databaseFeature.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         workspaceFeatureObservation = workspaceFeature.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -1812,6 +1821,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     case project
     case changes
     case search
+    case database
 
     var id: String { rawValue }
 
@@ -1820,6 +1830,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .project: "Project"
         case .changes: "Changes"
         case .search: "Search"
+        case .database: "Database"
         }
     }
 
@@ -1828,6 +1839,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .project: "folder"
         case .changes: "slider.horizontal.3"
         case .search: "magnifyingglass"
+        case .database: "cylinder.split.1x2"
         }
     }
 
@@ -1836,6 +1848,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .project: "toolwindows/toolWindowProject.svg"
         case .changes: "toolwindows/toolWindowCommit.svg"
         case .search: "toolwindows/toolWindowFind.svg"
+        case .database: "toolwindows/toolWindowDatabase.svg"
         }
     }
 }

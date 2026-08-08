@@ -4,6 +4,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
+    @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var updateChecker: UpdateChecker
     @State private var didStartAutomaticUpdateCheck = false
 
@@ -26,6 +27,11 @@ struct RootView: View {
                 initialCategory: model.requestedSettingsCategory
             )
                 .environmentObject(model)
+                // Sheets are presented in a separate SwiftUI hierarchy on
+                // macOS. Pass the selected app locale explicitly so Settings
+                // stays in sync with the workspace while it is open.
+                .environment(\.locale, settings.language.locale)
+                .id(settings.language)
         }
         .sheet(isPresented: $model.isCloneRepositoryPresented) {
             CloneRepositoryView()
