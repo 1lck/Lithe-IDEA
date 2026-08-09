@@ -1,0 +1,67 @@
+plugins {
+    id 'com.gradleup.shadow' version '9.0.0-beta12' apply false
+}
+
+def infrastructureProjects = ['common', 'test-support'] as Set
+def legacyStandaloneProjects = ['mongodb', 'kafka', 'rocketmq'] as Set
+def pooledJdbcProjects = [
+    'access', 'bigquery', 'dameng', 'databend', 'databricks', 'db2', 'exasol',
+    'firebird', 'gbase8a', 'gbase8s', 'goldendb', 'h2', 'h2-legacy', 'highgo', 'hive',
+    'informix', 'iotdb', 'iris', 'kylin', 'oceanbase-oracle', 'oscar', 'saphana',
+    'snowflake', 'spark', 'sqlserver-legacy', 'sundb', 'teradata', 'trino', 'uxdb',
+    'vertica', 'yashandb'
+] as Set
+def agentProjects = subprojects.findAll { !infrastructureProjects.contains(it.name) }
+def jdbcAgentProjects = agentProjects.findAll { !legacyStandaloneProjects.contains(it.name) }
+
+allprojects {
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    if (name == 'test-support') {
+        apply plugin: 'java-library'
+    } else {
+        apply plugin: 'java'
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    dependencies {
+        testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+    }
+}
+
+configure(agentProjects) {
+    apply plugin: 'com.gradleup.shadow'
+
+    tasks.named('shadowJar') {
+        archiveBaseName = "dbx-agent-${project.name}"
+        archiveClassifier = ''
+    }
+}
+
+configure(jdbcAgentProjects) {
+    dependencies {
+        implementation project(':common')
+        testImplementation project(':test-support')
+    }
+}
+
+configure(agentProjects.findAll { pooledJdbcProjects.contains(it.name) }) {
+    dependencies {
+        implementation 'com.zaxxer:HikariCP:7.0.2'
+        runtimeOnly 'org.slf4j:slf4j-nop:2.0.17'
+    }
+}

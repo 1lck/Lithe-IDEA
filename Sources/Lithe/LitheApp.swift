@@ -77,6 +77,11 @@ struct LitheApp: App {
                 .environmentObject(memoryUsageMonitor)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
+                // SwiftUI does not consistently re-resolve every existing
+                // LocalizedStringKey when only the locale environment value
+                // changes. Re-identify the root so a language selection takes
+                // effect immediately across every workspace, including sheets.
+                .id(settings.language)
                 .frame(minWidth: 980, minHeight: 640)
                 .preferredColorScheme(.dark)
                 .task {

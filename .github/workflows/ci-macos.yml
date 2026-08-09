@@ -65,5 +65,11 @@ jobs:
       - name: Run Rust Core tests and verify the Swift bridge
         run: ./scripts/verify-rust-core.sh
 
+      - name: Test database helpers
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+          cargo test --manifest-path rust/Cargo.toml -p lithe-db-sidecar
+          cargo test --manifest-path rust/Cargo.toml -p lithe-db-mcp
+
       - name: Build release configuration
         run: ./scripts/build-macos.sh --configuration release --triple "$LITHE_SWIFT_TRIPLE"

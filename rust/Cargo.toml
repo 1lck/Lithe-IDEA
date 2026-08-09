@@ -1,3 +1,9 @@
 [workspace]
-members = ["lithe-core"]
+members = ["lithe-core", "lithe-db-sidecar", "lithe-db-mcp"]
 resolver = "2"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"
