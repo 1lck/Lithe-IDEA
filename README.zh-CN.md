@@ -137,6 +137,31 @@ brew install jdtls
 
 打开项目后，在 **Settings → Project** 中配置 Project JDK、Maven 和 Maven 使用的 JDK。Lithe 也会从常见的系统位置自动探测 Java 与 Maven。
 
+### 数据库工作台与外部 MCP
+
+可选的 Database 工作台通过按需启动的 Rust helper 支持 MySQL、MariaDB、
+PostgreSQL、SQLite、Microsoft SQL Server、MongoDB、Redis 和 Nacos；用户没有
+使用数据库功能时不会启动数据库进程。SQL 连接
+提供表格增删改、TSV 批量粘贴、当前分页查找替换，以及 CSV、JSON、SQL 导入导出。
+MariaDB 复用 MySQL 兼容引擎；SQL Server 使用原生 TDS 数据表格适配器。MongoDB
+集合支持文档表格、分页、筛选、索引查看，以及受安全规则保护的新增、修改和删除。
+Redis 使用增量 `SCAN` 分页，不会默认全量加载键空间；第一版支持 String 和 Hash
+编辑、TTL 修改、键重命名和删除。Nacos 支持配置搜索与发布，以及服务和实例健康
+状态查看。Redis 和 Nacos 写入同样遵守只读与生产环境保护规则。SQL 备份默认完整
+导出，不会按每张表截断行数；恢复 SQL 备份始终需要确认，会先验证备份内容，再将
+当前数据库对象和数据恢复为备份状态。发布包同时包含
+`Contents/Helpers/lithe-db-mcp`，这是供外部自动化工具调用的独立 MCP stdio
+适配器，只提供数据库工具，不包含产品内 Agent 自然语言对话功能。
+
+为便于审计，`third_party/dbx` 保存了
+[t8y2/dbx](https://github.com/t8y2/dbx) 在提交
+[`996ce42e80387bba4b33a2bf1713f590ef79d476`](https://github.com/t8y2/dbx/commit/996ce42e80387bba4b33a2bf1713f590ef79d476)
+的仅源码快照。它不是 Git 子模块，也不是运行时依赖，不会被打入 Lithe 发布包；
+数据库 helper 由本项目独立实现和构建。
+当前工作台使用的八个数据库品牌标识已独立复制到 `Resources/DatabaseIcons`。
+素材目录内保留了 DBX 来源、Apache-2.0 许可证及商标用途说明；应用打包和运行时
+不会从 `third_party` 目录读取这些素材。
+
 ## 架构图
 
 ```mermaid

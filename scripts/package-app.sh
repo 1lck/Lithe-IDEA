@@ -29,6 +29,39 @@ fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
+
+database_sidecar="${LITHE_DB_SIDECAR_EXECUTABLE:-}"
+if [[ -z "$database_sidecar" && "${LITHE_SKIP_DATABASE_SIDECAR:-0}" != "1" ]]; then
+    database_sidecar=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/build-database-sidecar.sh")
+fi
+if [[ -n "$database_sidecar" ]]; then
+    if [[ ! -x "$database_sidecar" ]]; then
+        print -u2 -- "LITHE_DB_SIDECAR_EXECUTABLE is not executable: $database_sidecar"
+        exit 1
+    fi
+    if [[ "$ARCH" == "universal" ]] && ! lipo "$database_sidecar" -verify_arch arm64 -verify_arch x86_64 >/dev/null 2>&1; then
+        print -u2 -- "Universal packaging requires a fat database helper with arm64 and x86_64 slices"
+        exit 1
+    fi
+    mkdir -p "$APP_DIR/Contents/Helpers"
+    cp "$database_sidecar" "$APP_DIR/Contents/Helpers/lithe-db-sidecar"
+fi
+database_mcp="${LITHE_DB_MCP_EXECUTABLE:-}"
+if [[ -z "$database_mcp" && "${LITHE_SKIP_DATABASE_MCP:-0}" != "1" ]]; then
+    database_mcp=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/build-database-mcp.sh")
+fi
+if [[ -n "$database_mcp" ]]; then
+    if [[ ! -x "$database_mcp" ]]; then
+        print -u2 -- "LITHE_DB_MCP_EXECUTABLE is not executable: $database_mcp"
+        exit 1
+    fi
+    if [[ "$ARCH" == "universal" ]] && ! lipo "$database_mcp" -verify_arch arm64 -verify_arch x86_64 >/dev/null 2>&1; then
+        print -u2 -- "Universal packaging requires a fat database MCP helper with arm64 and x86_64 slices"
+        exit 1
+    fi
+    mkdir -p "$APP_DIR/Contents/Helpers"
+    cp "$database_mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
+fi
 if [[ "$ARCH" == "universal" ]]; then
     arm64_binary="$ROOT_DIR/.build/$ARM64_TRIPLE/release/Lithe"
     x86_64_binary="$ROOT_DIR/.build/$X86_64_TRIPLE/release/Lithe"
@@ -60,6 +93,7 @@ cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R "$ROOT_DIR/Resources/IDEAIcons" "$APP_DIR/Contents/Resources/IDEAIcons"
+cp -R "$ROOT_DIR/Resources/DatabaseIcons" "$APP_DIR/Contents/Resources/DatabaseIcons"
 for localization in en.lproj zh-Hans.lproj; do
     if [[ -d "$ROOT_DIR/Resources/$localization" ]]; then
         cp -R "$ROOT_DIR/Resources/$localization" "$APP_DIR/Contents/Resources/$localization"

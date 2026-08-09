@@ -1,0 +1,850 @@
+use std::sync::Arc;
+
+use axum::extract::State;
+use axum::http::HeaderMap;
+use axum::Json;
+use serde::Deserialize;
+
+use crate::error::AppError;
+use crate::state::WebState;
+
+/// Check if a connection is read-only and return an error if so.
+async fn ensure_writable(
+    app: &dbx_core::connection::AppState,
+    connection_id: &str,
+    action: &str,
+) -> Result<(), AppError> {
+    if let Some(name) = dbx_core::query::connection_readonly_name(app, connection_id).await {
+        return Err(AppError::from(format!(
+            "Read-only mode: connection '{}' has read-only protection enabled. {} blocked.",
+            name, action
+        )));
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisConnectionRequest {
+    pub connection_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisScanRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub cursor: u64,
+    pub pattern: String,
+    pub count: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisScanBatchRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub cursor: u64,
+    pub pattern: String,
+    pub count: usize,
+    #[serde(default = "default_max_iterations")]
+    pub max_iterations: usize,
+    pub include_types: Option<bool>,
+}
+
+fn default_max_iterations() -> usize {
+    1
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisValueScanRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub cursor: u64,
+    pub pattern: String,
+    pub query: String,
+    pub include_key_matches: Option<bool>,
+    pub count: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeyRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisStreamEntriesRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisStreamGroupRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub group_raw: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisStreamPendingRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub group_raw: String,
+    pub cursor: Option<String>,
+    pub consumer_raw: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisLoadMoreRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub key_type: String,
+    pub cursor: u64,
+    pub count: usize,
+    pub filter: Option<String>,
+    pub sort_direction: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisSetStringRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub value: String,
+    pub ttl: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisHashRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub field: String,
+    pub value: Option<String>,
+    pub ttl: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisHashFieldTtlRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub field: String,
+    pub ttl: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisHashFieldExpireAtRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub field: String,
+    pub expire_at: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisZaddRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub member: String,
+    pub score: f64,
+    pub ttl: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisZsetUpdateRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub original_member: String,
+    pub expected_score: String,
+    pub member: String,
+    pub score: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisListRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub value: Option<String>,
+    pub index: Option<i64>,
+    pub ttl: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisSetRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub member: String,
+    pub ttl: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisStreamAddRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub entry_id: String,
+    pub fields: Vec<(String, String)>,
+    pub ttl: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisJsonSetRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub value: String,
+    pub ttl: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisSetTtlRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub ttl: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisSetExpireAtRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub expire_at: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeysRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raws: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisDbRequest {
+    pub connection_id: String,
+    pub db: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisCommandRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub command: String,
+    pub skip_safety_check: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisPubSubPublishRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub channel: String,
+    pub message: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlowlogGetRequest {
+    pub connection_id: String,
+    pub count: usize,
+    pub node_host: Option<String>,
+    pub node_port: Option<u16>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClusterNodesRequest {
+    pub connection_id: String,
+}
+
+pub async fn list_databases(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisConnectionRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result =
+        dbx_core::redis_ops::redis_list_databases_core(&state.app, &req.connection_id).await.map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn scan_keys(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisScanRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_scan_keys_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        req.cursor,
+        &req.pattern,
+        req.count,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn scan_keys_batch(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisScanBatchRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_scan_keys_batch_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        req.cursor,
+        &req.pattern,
+        req.count,
+        req.max_iterations,
+        req.include_types.unwrap_or(true),
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn scan_values(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisValueScanRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_scan_values_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        req.cursor,
+        &req.pattern,
+        &req.query,
+        req.include_key_matches.unwrap_or(false),
+        req.count,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn get_value(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisKeyRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_get_value_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn get_ttl(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisKeyRequest>,
+) -> Result<Json<i64>, AppError> {
+    let ttl = dbx_core::redis_ops::redis_get_ttl_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(ttl))
+}
+
+pub async fn get_stream_entries(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisStreamEntriesRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_stream_entries_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        req.cursor.as_deref(),
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn get_stream_groups(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisKeyRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result =
+        dbx_core::redis_ops::redis_stream_groups_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw)
+            .await
+            .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn get_stream_consumers(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisStreamGroupRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_stream_consumers_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.group_raw,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn get_stream_pending(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisStreamPendingRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_stream_pending_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.group_raw,
+        req.cursor.as_deref(),
+        req.consumer_raw.as_deref(),
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn load_more(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisLoadMoreRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_load_more_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.key_type,
+        req.cursor,
+        req.count,
+        req.filter.as_deref(),
+        req.sort_direction.as_deref(),
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn set_string(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisSetStringRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "SET").await?;
+    dbx_core::redis_ops::redis_set_string_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.value,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn delete_key(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisKeyRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "Delete key").await?;
+    dbx_core::redis_ops::redis_delete_key_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn hash_set(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisHashRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "HSET").await?;
+    let value = req.value.as_deref().unwrap_or("");
+    dbx_core::redis_ops::redis_hash_set_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.field,
+        value,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn hash_del(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisHashRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "HDEL").await?;
+    dbx_core::redis_ops::redis_hash_del_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw, &req.field)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn hash_field_set_ttl(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisHashFieldTtlRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "HEXPIRE").await?;
+    dbx_core::redis_ops::redis_hash_field_set_ttl_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.field,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn hash_field_set_expire_at(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisHashFieldExpireAtRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "HEXPIREAT").await?;
+    dbx_core::redis_ops::redis_hash_field_set_expire_at_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.field,
+        req.expire_at,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn list_push(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisListRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "LPUSH").await?;
+    let value = req.value.as_deref().unwrap_or("");
+    dbx_core::redis_ops::redis_list_push_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        value,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn list_set(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisListRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "LSET").await?;
+    let index = req.index.unwrap_or(0);
+    let value = req.value.as_deref().unwrap_or("");
+    dbx_core::redis_ops::redis_list_set_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw, index, value)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn list_remove(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisListRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "LREM").await?;
+    let index = req.index.unwrap_or(0);
+    dbx_core::redis_ops::redis_list_remove_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw, index)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn set_add(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisSetRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "SADD").await?;
+    dbx_core::redis_ops::redis_set_add_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.member,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn set_remove(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisSetRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "SREM").await?;
+    dbx_core::redis_ops::redis_set_remove_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw, &req.member)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn zadd(State(state): State<Arc<WebState>>, Json(req): Json<RedisZaddRequest>) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "ZADD").await?;
+    dbx_core::redis_ops::redis_zadd_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.member,
+        req.score,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn zset_update(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisZsetUpdateRequest>,
+) -> Result<Json<bool>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "ZADD/ZREM").await?;
+    let used_acl_compatibility = dbx_core::redis_ops::redis_zset_update_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.original_member,
+        &req.expected_score,
+        &req.member,
+        &req.score,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(used_acl_compatibility))
+}
+
+pub async fn stream_add(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisStreamAddRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "XADD").await?;
+    dbx_core::redis_ops::redis_stream_add_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.entry_id,
+        req.fields,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn json_set(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisJsonSetRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "JSON.SET").await?;
+    dbx_core::redis_ops::redis_json_set_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.value,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn check_json_module(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisDbRequest>,
+) -> Result<Json<bool>, AppError> {
+    let result = dbx_core::redis_ops::redis_check_json_module_in_db_core(&state.app, &req.connection_id, req.db)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(result))
+}
+
+pub async fn set_ttl(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisSetTtlRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "EXPIRE").await?;
+    dbx_core::redis_ops::redis_set_ttl_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw, req.ttl)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn set_expire_at(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisSetExpireAtRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "EXPIREAT").await?;
+    dbx_core::redis_ops::redis_set_expire_at_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        req.expire_at,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn delete_keys(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisKeysRequest>,
+) -> Result<Json<u64>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "Delete keys").await?;
+    let result =
+        dbx_core::redis_ops::redis_delete_keys_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raws)
+            .await
+            .map_err(AppError::from)?;
+    Ok(Json(result))
+}
+
+pub async fn flush_db(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisDbRequest>,
+) -> Result<Json<()>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "FLUSHDB").await?;
+    dbx_core::redis_ops::redis_flush_db_core(&state.app, &req.connection_id, req.db).await.map_err(AppError::from)?;
+    Ok(Json(()))
+}
+
+pub async fn execute_command(
+    State(state): State<Arc<WebState>>,
+    headers: HeaderMap,
+    Json(req): Json<RedisCommandRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    super::mcp_policy::ensure_scope(&state, &headers, &req.connection_id).await?;
+    let argv = dbx_core::db::redis_driver::parse_command_argv(&req.command)
+        .map_err(|error| AppError::from(format!("Invalid Redis command: {error}")))?;
+    let cmd_name = argv[0].to_ascii_uppercase();
+    let safety = dbx_core::db::redis_driver::classify_command(&cmd_name);
+    let is_mcp_request = super::mcp_policy::is_mcp_request(&headers);
+    let centrally_approved_high_risk =
+        is_mcp_request && safety == dbx_core::db::redis_driver::RedisCommandSafety::Blocked;
+    if safety != dbx_core::db::redis_driver::RedisCommandSafety::Allowed {
+        if centrally_approved_high_risk {
+            super::mcp_policy::ensure_dangerous_write(
+                &state,
+                &headers,
+                &req.connection_id,
+                &req.db.to_string(),
+                &format!("Redis command '{cmd_name}'"),
+            )
+            .await?;
+        } else {
+            super::mcp_policy::ensure_write(
+                &state,
+                &headers,
+                &req.connection_id,
+                &req.db.to_string(),
+                &format!("Redis command '{cmd_name}'"),
+            )
+            .await?;
+        }
+    }
+    // In read-only mode, only allow safe read commands
+    if let Some(name) = dbx_core::query::connection_readonly_name(&state.app, &req.connection_id).await {
+        if safety != dbx_core::db::redis_driver::RedisCommandSafety::Allowed {
+            return Err(AppError::from(format!(
+                "Read-only mode: connection '{}' has read-only protection enabled. Command '{}' blocked.",
+                name, cmd_name
+            )));
+        }
+    }
+    let result = dbx_core::redis_ops::redis_execute_command_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.command,
+        if is_mcp_request { centrally_approved_high_risk } else { req.skip_safety_check.unwrap_or(false) },
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn publish_message(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisPubSubPublishRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    ensure_writable(&state.app, &req.connection_id, "PUBLISH").await?;
+    let count =
+        dbx_core::redis_ops::redis_publish_core(&state.app, &req.connection_id, req.db, &req.channel, &req.message)
+            .await
+            .map_err(AppError::from)?;
+    Ok(Json(serde_json::json!({ "subscribers": count })))
+}
+
+pub async fn slowlog_get(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<SlowlogGetRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_slowlog_get_core(
+        &state.app,
+        &req.connection_id,
+        req.count,
+        req.node_host,
+        req.node_port,
+    )
+    .await
+    .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}
+
+pub async fn cluster_master_nodes(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<ClusterNodesRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let result = dbx_core::redis_ops::redis_cluster_master_nodes_core(&state.app, &req.connection_id)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Json(serde_json::to_value(result).map_err(|e| AppError::from(e.to_string()))?))
+}

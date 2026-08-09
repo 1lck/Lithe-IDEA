@@ -28,7 +28,7 @@ if [[ -n "${RUSTFLAGS:-}" ]]; then
 else
     export RUSTFLAGS="-C link-arg=-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
 fi
-BUILD_ARGS=(build --manifest-path rust/Cargo.toml)
+BUILD_ARGS=(build --manifest-path rust/Cargo.toml -p lithe-core)
 OUTPUT_DIR="$CARGO_TARGET_DIR"
 if [[ -n "$TARGET" ]]; then
     BUILD_ARGS+=(--target "$TARGET")

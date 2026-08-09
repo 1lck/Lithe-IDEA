@@ -1,0 +1,4350 @@
+use super::*;
+use crate::models::connection::DatabaseType;
+
+fn column(name: &str) -> EditableStructureColumn {
+    EditableStructureColumn {
+        id: name.to_string(),
+        name: name.to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        default_value: String::new(),
+        comment: String::new(),
+        is_primary_key: false,
+        extra: None,
+        original: None,
+        original_position: None,
+        marked_for_drop: false,
+        character_set: String::new(),
+        collation: String::new(),
+    }
+}
+
+/// Existing column draft with optional primary-key membership change.
+fn existing_pk_column(
+    name: &str,
+    data_type: &str,
+    was_primary_key: bool,
+    is_primary_key: bool,
+) -> EditableStructureColumn {
+    let mut col = column(name);
+    col.data_type = data_type.to_string();
+    col.is_nullable = false;
+    col.is_primary_key = is_primary_key;
+    col.original = Some(ColumnInfo {
+        name: name.to_string(),
+        data_type: data_type.to_string(),
+        is_nullable: false,
+        column_default: None,
+        is_primary_key: was_primary_key,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+    col
+}
+
+fn structure_change_options(
+    database_type: DatabaseType,
+    schema: Option<&str>,
+    table_name: &str,
+    columns: Vec<EditableStructureColumn>,
+) -> TableStructureSqlOptions {
+    TableStructureSqlOptions {
+        database_type: Some(database_type),
+        schema: schema.map(str::to_string),
+        table_name: table_name.to_string(),
+        columns,
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    }
+}
+
+fn index(name: &str, columns: &[&str]) -> EditableStructureIndex {
+    EditableStructureIndex {
+        id: name.to_string(),
+        name: name.to_string(),
+        columns: columns.iter().map(|column| column.to_string()).collect(),
+        is_unique: false,
+        is_primary: false,
+        filter: String::new(),
+        index_type: String::new(),
+        included_columns: Vec::new(),
+        comment: String::new(),
+        original: None,
+        marked_for_drop: false,
+    }
+}
+
+fn foreign_key(name: &str, column: &str, ref_table: &str, ref_column: &str) -> EditableStructureForeignKey {
+    EditableStructureForeignKey {
+        id: name.to_string(),
+        name: name.to_string(),
+        column: column.to_string(),
+        ref_schema: String::new(),
+        ref_table: ref_table.to_string(),
+        ref_column: ref_column.to_string(),
+        on_update: String::new(),
+        on_delete: String::new(),
+        original: None,
+        marked_for_drop: false,
+    }
+}
+
+fn trigger(name: &str, timing: &str, event: &str, statement: &str) -> EditableStructureTrigger {
+    EditableStructureTrigger {
+        id: name.to_string(),
+        name: name.to_string(),
+        timing: timing.to_string(),
+        event: event.to_string(),
+        statement: statement.to_string(),
+        original: None,
+        marked_for_drop: false,
+    }
+}
+
+#[test]
+fn builds_mysql_column_and_index_changes() {
+    let mut renamed = column("display_name");
+    renamed.data_type = "varchar(120)".to_string();
+    renamed.is_nullable = false;
+    renamed.default_value = "guest".to_string();
+    renamed.comment = "Shown name".to_string();
+    renamed.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar(80)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+    let mut email = column("email");
+    email.is_nullable = false;
+    let mut old_index = index("idx_old", &["name"]);
+    old_index.marked_for_drop = true;
+    old_index.original = Some(IndexInfo {
+        name: "idx_old".to_string(),
+        columns: vec!["name".to_string()],
+        is_unique: false,
+        is_primary: false,
+        filter: None,
+        index_type: None,
+        included_columns: None,
+        comment: None,
+    });
+    let mut email_index = index("uniq_users_email", &["email"]);
+    email_index.is_unique = true;
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![renamed, email],
+        indexes: vec![old_index, email_index],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE `users` CHANGE COLUMN `name` `display_name` varchar(120) NOT NULL DEFAULT 'guest' COMMENT 'Shown name';",
+            "ALTER TABLE `users` ADD COLUMN `email` varchar(255) NOT NULL;",
+            "DROP INDEX `idx_old` ON `users`;",
+            "CREATE UNIQUE INDEX `uniq_users_email` ON `users` (`email`);",
+        ]
+    );
+}
+
+#[test]
+fn builds_xugu_type_change_with_native_syntax() {
+    let mut code = column("code");
+    code.data_type = "bigint".to_string();
+    code.original = Some(ColumnInfo {
+        name: "code".to_string(),
+        data_type: "integer".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Xugu),
+        schema: Some("public".to_string()),
+        table_name: "info_x".to_string(),
+        column: code,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"public\".\"info_x\" ALTER COLUMN \"code\" bigint;"]);
+
+    let mut code = column("code");
+    code.data_type = "bigint".to_string();
+    code.original = Some(ColumnInfo {
+        name: "code".to_string(),
+        data_type: "integer".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Xugu),
+        schema: Some("public".to_string()),
+        table_name: "info_x".to_string(),
+        columns: vec![code],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"public\".\"info_x\" ALTER COLUMN \"code\" bigint;"]);
+
+    let mut postgres_code = column("code");
+    postgres_code.data_type = "integer".to_string();
+    postgres_code.original = Some(ColumnInfo {
+        name: "code".to_string(),
+        data_type: "varchar(20)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+    let postgres_result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("public".to_string()),
+        table_name: "info_x".to_string(),
+        column: postgres_code,
+    });
+
+    assert_eq!(
+        postgres_result.statements,
+        vec!["ALTER TABLE \"public\".\"info_x\" ALTER COLUMN \"code\" TYPE integer USING \"code\"::integer;"]
+    );
+}
+
+#[test]
+fn builds_postgres_explicit_type_cast_for_renamed_column() {
+    let mut code = column("new code");
+    code.data_type = "bigint".to_string();
+    code.original = Some(ColumnInfo {
+        name: "old code".to_string(),
+        data_type: "character varying(20)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("public".to_string()),
+        table_name: "items".to_string(),
+        column: code,
+    });
+
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"public\".\"items\" RENAME COLUMN \"old code\" TO \"new code\";",
+            "ALTER TABLE \"public\".\"items\" ALTER COLUMN \"new code\" TYPE bigint USING \"new code\"::bigint;",
+        ]
+    );
+}
+
+#[test]
+fn builds_postgres_atomic_type_change_with_existing_default() {
+    let mut code = column("code");
+    code.data_type = "varchar(20)".to_string();
+    code.default_value = "7".to_string();
+    code.original = Some(ColumnInfo {
+        name: "code".to_string(),
+        data_type: "integer".to_string(),
+        is_nullable: true,
+        column_default: Some("7".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("public".to_string()),
+        table_name: "items".to_string(),
+        column: code,
+    });
+
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE \"public\".\"items\" ALTER COLUMN \"code\" DROP DEFAULT, ALTER COLUMN \"code\" TYPE varchar(20) USING \"code\"::varchar(20), ALTER COLUMN \"code\" SET DEFAULT '7';"]
+    );
+}
+
+#[test]
+fn builds_postgres_type_change_that_drops_default() {
+    let mut code = column("code");
+    code.data_type = "bigint".to_string();
+    code.original = Some(ColumnInfo {
+        name: "code".to_string(),
+        data_type: "character varying".to_string(),
+        is_nullable: true,
+        column_default: Some("'7'::character varying".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: None,
+        table_name: "items".to_string(),
+        column: code,
+    });
+
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE \"items\" ALTER COLUMN \"code\" DROP DEFAULT, ALTER COLUMN \"code\" TYPE bigint USING \"code\"::bigint;"]
+    );
+}
+
+#[test]
+fn builds_postgres_array_and_domain_type_casts_without_affecting_xugu() {
+    let mut tags = column("tags");
+    tags.data_type = "text[]".to_string();
+    tags.original = Some(ColumnInfo {
+        name: "tags".to_string(),
+        data_type: "varchar(20)[]".to_string(),
+        is_nullable: true,
+        ..Default::default()
+    });
+    let postgres = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("catalog".to_string()),
+        table_name: "items".to_string(),
+        column: tags,
+    });
+    assert_eq!(
+        postgres.statements,
+        vec!["ALTER TABLE \"catalog\".\"items\" ALTER COLUMN \"tags\" TYPE text[] USING \"tags\"::text[];"]
+    );
+
+    let mut status = column("status");
+    status.data_type = "catalog.status_domain".to_string();
+    status.original = Some(ColumnInfo {
+        name: "status".to_string(),
+        data_type: "text".to_string(),
+        is_nullable: true,
+        ..Default::default()
+    });
+    let postgres = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("catalog".to_string()),
+        table_name: "items".to_string(),
+        column: status,
+    });
+    assert_eq!(
+        postgres.statements,
+        vec!["ALTER TABLE \"catalog\".\"items\" ALTER COLUMN \"status\" TYPE catalog.status_domain USING \"status\"::catalog.status_domain;"]
+    );
+}
+
+#[test]
+fn builds_mysql_unsigned_integer_column_with_length_before_attribute() {
+    let mut score = column("score");
+    score.data_type = "int unsigned(11)".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![score],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE `users` ADD COLUMN `score` int(11) unsigned;"]);
+}
+
+#[test]
+fn doris_table_editor_renames_column_without_mysql_change_syntax() {
+    let mut renamed = column("dtp_flag_jt");
+    renamed.data_type = "int".to_string();
+    renamed.comment = "Group DTP".to_string();
+    renamed.original = Some(ColumnInfo {
+        name: "dtp_flag".to_string(),
+        data_type: "int".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some("Group DTP".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Doris),
+        schema: Some("qybiprod".to_string()),
+        table_name: "dim_prod_sp_vkorg".to_string(),
+        columns: vec![renamed],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE `dim_prod_sp_vkorg` RENAME COLUMN `dtp_flag` `dtp_flag_jt`;"]);
+}
+
+#[test]
+fn doris_single_column_alter_renames_then_modifies_column_definition() {
+    let mut renamed = column("dtp_flag_jt");
+    renamed.data_type = "int".to_string();
+    renamed.comment = "Group DTP".to_string();
+    renamed.original = Some(ColumnInfo {
+        name: "dtp_flag".to_string(),
+        data_type: "int".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some("Division DTP".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Doris),
+        schema: Some("qybiprod".to_string()),
+        table_name: "dim_prod_sp_vkorg".to_string(),
+        column: renamed,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE `dim_prod_sp_vkorg` RENAME COLUMN `dtp_flag` `dtp_flag_jt`;",
+            "ALTER TABLE `dim_prod_sp_vkorg` MODIFY COLUMN `dtp_flag_jt` int COMMENT 'Group DTP';",
+        ]
+    );
+}
+
+#[test]
+fn dameng_integer_column_omits_mysql_display_width() {
+    let mut age = column("age");
+    age.data_type = "integer(11)".to_string();
+    let mut amount = column("amount");
+    amount.data_type = "number(10,0)".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "users".to_string(),
+        columns: vec![age, amount],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"SYSDBA\".\"users\" ADD (\"age\" integer);",
+            "ALTER TABLE \"SYSDBA\".\"users\" ADD (\"amount\" number(10,0));",
+        ]
+    );
+}
+
+#[test]
+fn builds_highgo_foreign_key_changes_with_postgres_syntax() {
+    let mut old_fk = foreign_key("orders_user_id_fkey", "user_id", "users", "id");
+    old_fk.marked_for_drop = true;
+    old_fk.original = Some(ForeignKeyInfo {
+        name: "orders_user_id_fkey".to_string(),
+        column: "user_id".to_string(),
+        ref_schema: Some("public".to_string()),
+        ref_table: "users".to_string(),
+        ref_column: "id".to_string(),
+        on_update: None,
+        on_delete: None,
+    });
+    let mut new_fk = foreign_key("orders_account_id_fkey", "account_id", "accounts", "id");
+    new_fk.ref_schema = "crm".to_string();
+    new_fk.on_delete = "CASCADE".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Highgo),
+        schema: Some("public".to_string()),
+        table_name: "orders".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: vec![old_fk, new_fk],
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"public\".\"orders\" DROP CONSTRAINT \"orders_user_id_fkey\";",
+            "ALTER TABLE \"public\".\"orders\" ADD CONSTRAINT \"orders_account_id_fkey\" FOREIGN KEY (\"account_id\") REFERENCES \"crm\".\"accounts\" (\"id\") ON DELETE CASCADE;",
+        ]
+    );
+}
+
+#[test]
+fn builds_informix_column_and_index_changes() {
+    let mut renamed = column("display_name");
+    renamed.data_type = "varchar(120)".to_string();
+    renamed.is_nullable = false;
+    renamed.default_value = "guest".to_string();
+    renamed.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar(80)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+    let mut email = column("email");
+    email.is_nullable = false;
+    let mut old_col = column("old_col");
+    old_col.marked_for_drop = true;
+    old_col.original = Some(ColumnInfo {
+        name: "old_col".to_string(),
+        data_type: "varchar(20)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+    let mut old_index = index("idx_old", &["name"]);
+    old_index.marked_for_drop = true;
+    old_index.original = Some(IndexInfo {
+        name: "idx_old".to_string(),
+        columns: vec!["name".to_string()],
+        is_unique: false,
+        is_primary: false,
+        filter: None,
+        index_type: None,
+        included_columns: None,
+        comment: None,
+    });
+    let mut email_index = index("uniq_users_email", &["email"]);
+    email_index.is_unique = true;
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Informix),
+        schema: Some("gbasedbt".to_string()),
+        table_name: "users".to_string(),
+        columns: vec![renamed, email, old_col],
+        indexes: vec![old_index, email_index],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "RENAME COLUMN gbasedbt.users.name TO display_name;",
+            "ALTER TABLE gbasedbt.users MODIFY (display_name varchar(120) NOT NULL DEFAULT 'guest');",
+            "ALTER TABLE gbasedbt.users ADD (email varchar(255) NOT NULL);",
+            "ALTER TABLE gbasedbt.users DROP (old_col);",
+            "DROP INDEX gbasedbt.idx_old;",
+            "CREATE UNIQUE INDEX uniq_users_email ON gbasedbt.users (email);",
+        ]
+    );
+}
+
+#[test]
+fn oracle_does_not_generate_drop_sql_for_all_columns() {
+    let mut id = column("id");
+    id.marked_for_drop = true;
+    id.original = Some(ColumnInfo {
+        name: "id".to_string(),
+        data_type: "varchar2(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+    let mut name = column("name");
+    name.marked_for_drop = true;
+    name.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar2(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Oracle),
+        schema: Some("DBX_TEST".to_string()),
+        table_name: "test".to_string(),
+        columns: vec![id, name],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(
+        result.warnings,
+        vec![
+            "Oracle does not allow dropping all columns from a table. Keep at least one column or drop the table instead."
+        ]
+    );
+}
+
+#[test]
+fn oracle_timestamp_default_precedes_nullability_in_modify_sql() {
+    let mut col = column("time");
+    col.data_type = "TIMESTAMP(6)".to_string();
+    col.default_value = "CURRENT_TIMESTAMP".to_string();
+    col.original = Some(ColumnInfo {
+        name: "time".to_string(),
+        data_type: "TIMESTAMP(6)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Oracle),
+        schema: Some("DBX_TEST".to_string()),
+        table_name: "test".to_string(),
+        column: col,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE \"DBX_TEST\".\"test\" MODIFY (\"time\" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP);"]
+    );
+}
+
+#[test]
+fn oracle_timestamp_precision_change_does_not_repeat_unchanged_nullability() {
+    let mut col = column("time");
+    col.data_type = "TIMESTAMP(9)".to_string();
+    col.original = Some(ColumnInfo {
+        name: "time".to_string(),
+        data_type: "TIMESTAMP(6)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Oracle),
+        schema: Some("DBX_TEST".to_string()),
+        table_name: "test".to_string(),
+        column: col,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"DBX_TEST\".\"test\" MODIFY (\"time\" TIMESTAMP(9));"]);
+}
+
+#[test]
+fn iris_drop_index_includes_table_name() {
+    let mut old_index = index("index_id", &["ID"]);
+    old_index.marked_for_drop = true;
+    old_index.original = Some(IndexInfo {
+        name: "index_id".to_string(),
+        columns: vec!["ID".to_string()],
+        is_unique: false,
+        is_primary: false,
+        filter: None,
+        index_type: None,
+        included_columns: None,
+        comment: None,
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Iris),
+        schema: Some("SQLUSER".to_string()),
+        table_name: "tb_a".to_string(),
+        columns: Vec::new(),
+        indexes: vec![old_index],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["DROP INDEX \"index_id\" ON TABLE \"SQLUSER\".\"tb_a\";"]);
+}
+
+#[test]
+fn iris_ignores_comment_changes_but_keeps_supported_column_alters() {
+    let mut renamed = column("DISPLAY_NAME");
+    renamed.data_type = "VARCHAR(40)".to_string();
+    renamed.is_nullable = true;
+    renamed.default_value = "'after'".to_string();
+    renamed.comment = "new description".to_string();
+    renamed.original = Some(ColumnInfo {
+        name: "NAME".to_string(),
+        data_type: "VARCHAR(20)".to_string(),
+        is_nullable: false,
+        column_default: Some("before".to_string()),
+        is_primary_key: false,
+        extra: None,
+        comment: Some("old description".to_string()),
+        ..Default::default()
+    });
+    let mut created_at = column("CREATED_AT");
+    created_at.data_type = "TIMESTAMP".to_string();
+    created_at.default_value = "CURRENT_TIMESTAMP".to_string();
+    created_at.comment = "creation time".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Iris),
+        schema: Some("SQLUSER".to_string()),
+        table_name: "DBX_ISSUE_1678".to_string(),
+        columns: vec![renamed, created_at],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: Some("new table description".to_string()),
+        original_table_comment: Some("old table description".to_string()),
+    });
+
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"SQLUSER\".\"DBX_ISSUE_1678\" ALTER COLUMN \"NAME\" RENAME \"DISPLAY_NAME\";",
+            "ALTER TABLE \"SQLUSER\".\"DBX_ISSUE_1678\" MODIFY (\"DISPLAY_NAME\" VARCHAR(40) DEFAULT 'after' NULL);",
+            "ALTER TABLE \"SQLUSER\".\"DBX_ISSUE_1678\" ADD (\"CREATED_AT\" TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
+        ]
+    );
+    assert_eq!(
+        result.warnings,
+        vec![
+            "Column comments are not supported for iris from this editor; the comment change for \"NAME\" was ignored.",
+            "Column comments are not supported for iris from this editor; the comment for \"CREATED_AT\" was ignored.",
+            "Table comments are not supported for iris from this editor; the comment change was ignored.",
+        ]
+    );
+    assert!(result.statements.iter().all(|statement| !statement.contains("COMMENT ON")));
+}
+
+#[test]
+fn iris_comment_only_change_returns_warning_without_sql() {
+    let mut name = column("NAME");
+    name.comment = "new description".to_string();
+    name.original = Some(ColumnInfo {
+        name: "NAME".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some("old description".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Iris),
+        schema: Some("SQLUSER".to_string()),
+        table_name: "DBX_ISSUE_1678".to_string(),
+        column: name,
+    });
+
+    assert!(result.statements.is_empty());
+    assert_eq!(
+        result.warnings,
+        vec![
+            "Column comments are not supported for iris from this editor; the comment change for \"NAME\" was ignored."
+        ]
+    );
+}
+
+#[test]
+fn oracle_compatible_databases_keep_comment_on_sql() {
+    for database_type in [DatabaseType::Oracle, DatabaseType::OceanbaseOracle, DatabaseType::Dameng] {
+        let mut name = column("NAME");
+        name.comment = "new description".to_string();
+        name.original = Some(ColumnInfo {
+            name: "NAME".to_string(),
+            data_type: "varchar(255)".to_string(),
+            is_nullable: true,
+            column_default: None,
+            is_primary_key: false,
+            extra: None,
+            comment: Some("old description".to_string()),
+            ..Default::default()
+        });
+
+        let result = build_table_structure_change_sql(TableStructureSqlOptions {
+            database_type: Some(database_type),
+            schema: Some("APP".to_string()),
+            table_name: "USERS".to_string(),
+            columns: vec![name],
+            indexes: Vec::new(),
+            foreign_keys: Vec::new(),
+            triggers: Vec::new(),
+            table_comment: Some("new table description".to_string()),
+            original_table_comment: Some("old table description".to_string()),
+        });
+
+        assert_eq!(result.warnings, Vec::<String>::new(), "{database_type:?}");
+        assert_eq!(
+            result.statements,
+            vec![
+                "COMMENT ON COLUMN \"APP\".\"USERS\".\"NAME\" IS 'new description';",
+                "COMMENT ON TABLE \"APP\".\"USERS\" IS 'new table description';",
+            ],
+            "{database_type:?}"
+        );
+    }
+}
+
+#[test]
+fn mysql_create_index_with_comment() {
+    let mut col = column("name");
+    col.data_type = "varchar(120)".to_string();
+    let mut idx = index("idx_users_name", &["name"]);
+    idx.comment = "Search index".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: vec![idx],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE `users` ADD COLUMN `name` varchar(120);",
+            "CREATE INDEX `idx_users_name` ON `users` (`name`) COMMENT 'Search index';",
+        ]
+    );
+}
+
+#[test]
+fn manticoresearch_builds_create_table_sql_only() {
+    let mut title = column("title");
+    title.data_type = "text".to_string();
+    title.is_nullable = false;
+    let mut views = column("views");
+    views.data_type = "int".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::ManticoreSearch),
+        schema: None,
+        table_name: "materials".to_string(),
+        columns: vec![title, views],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["CREATE TABLE `materials` (\n  `title` text,\n  `views` int\n);"]);
+}
+
+#[test]
+fn manticoresearch_builds_add_and_drop_column_sql() {
+    let mut old_code = column("code");
+    old_code.data_type = "string".to_string();
+    old_code.marked_for_drop = true;
+    old_code.original = Some(ColumnInfo {
+        name: "code".to_string(),
+        data_type: "string".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut name = column("name");
+    name.data_type = "string".to_string();
+    name.extra =
+        Some(ColumnExtra { manticore_attribute: Some(true), manticore_indexed: Some(true), ..Default::default() });
+    let mut resource = column("resource");
+    resource.data_type = "json".to_string();
+    resource.extra = Some(ColumnExtra { manticore_secondary_index: Some(true), ..Default::default() });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::ManticoreSearch),
+        schema: None,
+        table_name: "materials".to_string(),
+        columns: vec![old_code, name, resource],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE `materials` DROP COLUMN `code`;",
+            "ALTER TABLE `materials` ADD COLUMN `name` string attribute indexed;",
+            "ALTER TABLE `materials` ADD COLUMN `resource` json secondary_index='1';",
+        ]
+    );
+}
+
+#[test]
+fn gbase8a_uses_limited_mysql_ddl() {
+    let mut renamed = column("display_email");
+    renamed.data_type = "varchar(255)".to_string();
+    renamed.original = Some(ColumnInfo {
+        name: "email".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+    let new_col = column("nickname");
+    let mut old_col = column("old_col");
+    old_col.marked_for_drop = true;
+    old_col.original = Some(ColumnInfo {
+        name: "old_col".to_string(),
+        data_type: "varchar(20)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+    let mut index = index("idx_users_email", &["display_email"]);
+    index.original = Some(IndexInfo {
+        name: "idx_users_email".to_string(),
+        columns: vec!["email".to_string()],
+        is_unique: false,
+        is_primary: false,
+        filter: None,
+        index_type: None,
+        included_columns: None,
+        comment: None,
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Gbase),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![renamed, new_col, old_col],
+        indexes: vec![index],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE `users` CHANGE COLUMN `email` `display_email` varchar(255);",
+            "ALTER TABLE `users` ADD COLUMN `nickname` varchar(255);",
+            "ALTER TABLE `users` DROP COLUMN `old_col`;",
+        ]
+    );
+    assert_eq!(
+        result.warnings,
+        vec!["Editing existing indexes is not supported for gbase from this editor.".to_string()]
+    );
+}
+
+#[test]
+fn gbase8a_allows_mysql_style_column_reorder() {
+    let mut id = column("id");
+    id.original_position = Some(0);
+    id.original = Some(ColumnInfo {
+        name: "id".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut name = column("name");
+    name.original_position = Some(1);
+    name.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut email = column("email");
+    email.original_position = Some(2);
+    email.original = Some(ColumnInfo {
+        name: "email".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Gbase),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![id, email, name],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE `users` MODIFY COLUMN `name` varchar(255) AFTER `email`;"]);
+}
+
+#[test]
+fn manticoresearch_does_not_drop_id_column() {
+    let mut id = column("id");
+    id.data_type = "bigint".to_string();
+    id.marked_for_drop = true;
+    id.original = Some(ColumnInfo {
+        name: "id".to_string(),
+        data_type: "bigint".to_string(),
+        is_nullable: false,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::ManticoreSearch),
+        schema: None,
+        table_name: "materials".to_string(),
+        columns: vec![id],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(result.warnings, vec!["Manticore Search id column cannot be dropped from this editor."]);
+}
+
+#[test]
+fn manticoresearch_warns_when_existing_column_properties_change() {
+    let mut name = column("name");
+    name.data_type = "string".to_string();
+    name.extra = Some(ColumnExtra {
+        manticore_indexed: Some(true),
+        manticore_stored: Some(true),
+        manticore_attribute: Some(true),
+        ..Default::default()
+    });
+    name.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "string".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut resource = column("resource");
+    resource.data_type = "json".to_string();
+    resource.extra = Some(ColumnExtra { manticore_secondary_index: Some(true), ..Default::default() });
+    resource.original = Some(ColumnInfo {
+        name: "resource".to_string(),
+        data_type: "json".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut old_resource = column("old_resource");
+    old_resource.data_type = "json".to_string();
+    old_resource.extra = Some(ColumnExtra::default());
+    old_resource.original = Some(ColumnInfo {
+        name: "old_resource".to_string(),
+        data_type: "json".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: Some("secondary_index='1'".to_string()),
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::ManticoreSearch),
+        schema: None,
+        table_name: "materials".to_string(),
+        columns: vec![name, resource, old_resource],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(
+        result.warnings,
+        vec![
+            "Editing existing columns is not supported for manticoresearch yet.",
+            "Editing existing columns is not supported for manticoresearch yet.",
+            "Editing existing columns is not supported for manticoresearch yet.",
+        ]
+    );
+}
+
+#[test]
+fn manticoresearch_ignores_mysql_column_options() {
+    let mut title = column("title");
+    title.data_type = "text".to_string();
+    title.is_nullable = false;
+    title.is_primary_key = true;
+    title.default_value = "'untitled'".to_string();
+    title.comment = "Title text".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::ManticoreSearch),
+        schema: None,
+        table_name: "materials".to_string(),
+        columns: vec![title],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["CREATE TABLE `materials` (\n  `title` text\n);"]);
+}
+
+#[test]
+fn manticoresearch_builds_text_column_properties() {
+    let mut title = column("title");
+    title.data_type = "text".to_string();
+    title.extra =
+        Some(ColumnExtra { manticore_indexed: Some(true), manticore_stored: Some(true), ..Default::default() });
+    let mut sku = column("sku");
+    sku.data_type = "string".to_string();
+    sku.extra =
+        Some(ColumnExtra { manticore_indexed: Some(true), manticore_attribute: Some(true), ..Default::default() });
+    let mut name = column("name");
+    name.data_type = "string".to_string();
+    name.extra = Some(ColumnExtra {
+        manticore_indexed: Some(true),
+        manticore_stored: Some(true),
+        manticore_attribute: Some(true),
+        ..Default::default()
+    });
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::ManticoreSearch),
+        schema: None,
+        table_name: "materials".to_string(),
+        columns: vec![title, sku, name],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "CREATE TABLE `materials` (\n  `title` text stored indexed,\n  `sku` string attribute indexed,\n  `name` string stored attribute indexed\n);"
+        ]
+    );
+}
+
+#[test]
+fn manticoresearch_builds_json_secondary_index_property() {
+    let mut metadata = column("metadata");
+    metadata.data_type = "json".to_string();
+    metadata.extra = Some(ColumnExtra { manticore_secondary_index: Some(true), ..Default::default() });
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::ManticoreSearch),
+        schema: None,
+        table_name: "materials".to_string(),
+        columns: vec![metadata],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["CREATE TABLE `materials` (\n  `metadata` json secondary_index='1'\n);"]);
+}
+
+#[test]
+fn mysql_create_unique_index_with_comment_and_btree() {
+    let mut idx = index("uniq_users_email", &["email"]);
+    idx.is_unique = true;
+    idx.index_type = "BTREE".to_string();
+    idx.comment = "Unique email index".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: Vec::new(),
+        indexes: vec![idx],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["CREATE UNIQUE INDEX `uniq_users_email` USING BTREE ON `users` (`email`) COMMENT 'Unique email index';",]
+    );
+}
+
+#[test]
+fn mysql_create_functional_index_preserves_key_part_syntax() {
+    let functional_key_part = "((case when (`STATUS` = _utf8mb4'online') then _utf8mb4'online' else NULL end))";
+    let mut idx = index("test_UNIQUE", &["attr", "attr2", functional_key_part]);
+    idx.is_unique = true;
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "test".to_string(),
+        columns: Vec::new(),
+        indexes: vec![idx],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![format!("CREATE UNIQUE INDEX `test_UNIQUE` ON `test` (`attr`, `attr2`, {functional_key_part});")]
+    );
+}
+
+#[test]
+fn mysql_add_timestamp_column_drops_invalid_precision() {
+    let mut created_at = column("created_at");
+    created_at.data_type = "timestamp(255)".to_string();
+    created_at.default_value = "CURRENT_TIMESTAMP".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![created_at],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE `users` ADD COLUMN `created_at` timestamp DEFAULT CURRENT_TIMESTAMP;"]
+    );
+}
+
+#[test]
+fn mysql_add_timestamp_column_preserves_valid_precision() {
+    let mut created_at = column("created_at");
+    created_at.data_type = "timestamp(3)".to_string();
+    created_at.default_value = "CURRENT_TIMESTAMP(3)".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![created_at],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE `users` ADD COLUMN `created_at` timestamp(3) DEFAULT CURRENT_TIMESTAMP(3);"]
+    );
+}
+
+#[test]
+fn builds_postgres_create_table_with_comments_and_index() {
+    let mut id = column("id");
+    id.data_type = "integer".to_string();
+    id.is_nullable = false;
+    id.is_primary_key = true;
+    let mut name = column("name");
+    name.data_type = "text".to_string();
+    name.comment = "Display name".to_string();
+    let mut idx = index("idx_users_name", &["name"]);
+    idx.index_type = "gin".to_string();
+    idx.comment = "search".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("public".to_string()),
+        table_name: "users".to_string(),
+        columns: vec![id, name],
+        indexes: vec![idx],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "CREATE TABLE \"public\".\"users\" (\n  \"id\" integer,\n  \"name\" text,\n  PRIMARY KEY (\"id\")\n);",
+            "COMMENT ON COLUMN \"public\".\"users\".\"name\" IS 'Display name';",
+            "CREATE INDEX \"idx_users_name\" ON \"public\".\"users\" USING GIN (\"name\");",
+            "COMMENT ON INDEX \"idx_users_name\" IS 'search';",
+        ]
+    );
+}
+
+#[test]
+fn create_table_trims_table_name_whitespace_for_all_statements() {
+    let mut id = column("id");
+    id.data_type = "integer".to_string();
+    let idx = index("idx_users_id", &["id"]);
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "  users  ".to_string(),
+        columns: vec![id],
+        indexes: vec![idx],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["CREATE TABLE `users` (\n  `id` integer\n);", "CREATE INDEX `idx_users_id` ON `users` (`id`);",]
+    );
+}
+
+#[test]
+fn warns_for_sqlite_unsafe_column_changes() {
+    let mut col = column("name");
+    col.data_type = "text".to_string();
+    col.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar(80)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Sqlite),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(
+        result.warnings,
+        vec!["SQLite cannot safely alter existing column \"name\" without rebuilding the table."]
+    );
+}
+
+#[test]
+fn qualifies_attached_sqlite_table_and_index_changes() {
+    let mut email = column("email");
+    email.data_type = "text".to_string();
+    let mut old_index = index("idx_users_old", &["email"]);
+    old_index.marked_for_drop = true;
+    old_index.original = Some(IndexInfo {
+        name: "idx_users_old".to_string(),
+        columns: vec!["email".to_string()],
+        is_unique: false,
+        is_primary: false,
+        filter: None,
+        index_type: None,
+        included_columns: None,
+        comment: None,
+    });
+    let email_index = index("idx_users_email", &["email"]);
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Sqlite),
+        schema: Some("analytics".to_string()),
+        table_name: "users".to_string(),
+        columns: vec![email],
+        indexes: vec![old_index, email_index],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"analytics\".\"users\" ADD COLUMN \"email\" text;",
+            "DROP INDEX \"analytics\".\"idx_users_old\";",
+            "CREATE INDEX \"analytics\".\"idx_users_email\" ON \"users\" (\"email\");",
+        ]
+    );
+
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch(
+            "ATTACH DATABASE ':memory:' AS analytics;
+             CREATE TABLE main.users(id INTEGER);
+             CREATE TABLE analytics.users(id INTEGER);
+             CREATE INDEX analytics.idx_users_old ON users(id);",
+        )
+        .unwrap();
+    connection.execute_batch(&result.statements.join("\n")).unwrap();
+    let main_columns = connection
+        .prepare("PRAGMA main.table_info('users')")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>("name"))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let attached_columns = connection
+        .prepare("PRAGMA analytics.table_info('users')")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>("name"))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let attached_indexes = connection
+        .prepare("PRAGMA analytics.index_list('users')")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>("name"))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(main_columns, vec!["id"]);
+    assert_eq!(attached_columns, vec!["id", "email"]);
+    assert_eq!(attached_indexes, vec!["idx_users_email"]);
+}
+
+#[test]
+fn builds_rqlite_changes_with_sqlite_dialect() {
+    let mut email = column("email");
+    email.data_type = "text".to_string();
+    email.is_nullable = false;
+    let mut email_index = index("idx_users_email", &["email"]);
+    email_index.filter = "email IS NOT NULL".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Rqlite),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![email],
+        indexes: vec![email_index],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"users\" ADD COLUMN \"email\" text NOT NULL;",
+            "CREATE INDEX \"idx_users_email\" ON \"users\" (\"email\") WHERE email IS NOT NULL;",
+        ]
+    );
+}
+
+#[test]
+fn builds_kingbase_add_column_without_column_keyword() {
+    let mut flag = column("flag");
+    flag.data_type = "varchar(100)".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Kingbase),
+        schema: Some("dbo".to_string()),
+        table_name: "dw_bill_info_copy".to_string(),
+        columns: vec![flag],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"dbo\".\"dw_bill_info_copy\" ADD \"flag\" varchar(100);"]);
+}
+
+#[test]
+fn builds_mysql_column_reorder_statements() {
+    let mut id = column("id");
+    id.data_type = "int".to_string();
+    id.is_nullable = false;
+    id.is_primary_key = true;
+    id.original_position = Some(0);
+    id.original = Some(ColumnInfo {
+        name: "id".to_string(),
+        data_type: "int".to_string(),
+        is_nullable: false,
+        column_default: None,
+        is_primary_key: true,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut email = column("email");
+    email.original_position = Some(2);
+    email.original = Some(ColumnInfo {
+        name: "email".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut name = column("display_name");
+    name.id = "name".to_string();
+    name.data_type = "varchar(120)".to_string();
+    name.original_position = Some(1);
+    name.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar(80)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![id, email, name],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE `users` CHANGE COLUMN `name` `display_name` varchar(120) AFTER `email`;"]
+    );
+}
+
+#[test]
+fn mysql_add_column_before_existing_column_does_not_reorder_shifted_column() {
+    let mut deleted = column("deleted");
+    deleted.original_position = Some(0);
+    deleted.original = Some(ColumnInfo {
+        name: "deleted".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let new_column = column("sss");
+
+    let mut tenant_id = column("tenant_id");
+    tenant_id.data_type = "bigint".to_string();
+    tenant_id.is_nullable = false;
+    tenant_id.default_value = "0".to_string();
+    tenant_id.comment = "tenant id".to_string();
+    tenant_id.original_position = Some(1);
+    tenant_id.original = Some(ColumnInfo {
+        name: "tenant_id".to_string(),
+        data_type: "bigint".to_string(),
+        is_nullable: false,
+        column_default: Some("0".to_string()),
+        is_primary_key: false,
+        extra: None,
+        comment: Some("tenant id".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "infra_api_error_log".to_string(),
+        columns: vec![deleted, new_column, tenant_id],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE `infra_api_error_log` ADD COLUMN `sss` varchar(255) AFTER `deleted`;"]
+    );
+}
+
+#[test]
+fn mysql_existing_column_reorder_does_not_reorder_columns_shifted_by_prior_move() {
+    let mut id = column("id");
+    id.original_position = Some(0);
+    id.original = Some(ColumnInfo {
+        name: "id".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut name = column("name");
+    name.original_position = Some(1);
+    name.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut email = column("email");
+    email.original_position = Some(2);
+    email.original = Some(ColumnInfo {
+        name: "email".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![id, email, name],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE `users` MODIFY COLUMN `name` varchar(255) AFTER `email`;"]);
+}
+
+#[test]
+fn mysql_moving_first_column_to_end_uses_single_reorder_statement() {
+    let mut col_0 = column("col_0");
+    col_0.data_type = "int(11)".to_string();
+    col_0.is_nullable = false;
+    col_0.original_position = Some(0);
+    col_0.original = Some(ColumnInfo {
+        name: "col_0".to_string(),
+        data_type: "int(11)".to_string(),
+        is_nullable: false,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut col_1 = column("col_1");
+    col_1.original_position = Some(1);
+    col_1.original = Some(ColumnInfo {
+        name: "col_1".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut col_2 = column("col_2");
+    col_2.original_position = Some(2);
+    col_2.original = Some(ColumnInfo {
+        name: "col_2".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut col_3 = column("col_3");
+    col_3.original_position = Some(3);
+    col_3.original = Some(ColumnInfo {
+        name: "col_3".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col_1, col_2, col_3, col_0],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE `users` MODIFY COLUMN `col_0` int(11) NOT NULL AFTER `col_3`;"]);
+}
+
+#[test]
+fn builds_sql_server_quoted_column_and_index_statements() {
+    let mut email = column("email");
+    email.data_type = "nvarchar(255)".to_string();
+    email.is_nullable = false;
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "users".to_string(),
+        columns: vec![email],
+        indexes: vec![index("idx_users_email", &["email"])],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE [dbo].[users] ADD [email] nvarchar(255) NOT NULL;",
+            "CREATE INDEX [idx_users_email] ON [dbo].[users] ([email]);",
+        ]
+    );
+}
+
+#[test]
+fn sqlserver_strips_mysql_display_width_from_fixed_integer_types() {
+    let mut id = column("id");
+    id.data_type = "int(11)".to_string();
+    id.is_nullable = false;
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "users".to_string(),
+        columns: vec![id],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE [dbo].[users] ADD [id] int NOT NULL;"]);
+}
+
+#[test]
+fn sqlserver_strips_scale_from_float() {
+    let mut amount = column("amount");
+    amount.data_type = "float(10,2)".to_string();
+    amount.is_nullable = true;
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "orders".to_string(),
+        columns: vec![amount],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE [dbo].[orders] ADD [amount] float;"]);
+}
+
+#[test]
+fn sqlserver_preserves_float_mantissa_bits() {
+    let mut value = column("value");
+    value.data_type = "float(53)".to_string();
+    value.is_nullable = false;
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "measurements".to_string(),
+        columns: vec![value],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE [dbo].[measurements] ADD [value] float(53) NOT NULL;"]);
+}
+
+#[test]
+fn sqlserver_default_changes_drop_old_constraints_with_isolated_batches() {
+    let mut sku = column("sku");
+    sku.data_type = "nvarchar(64)".to_string();
+    sku.default_value = "new sku".to_string();
+    sku.original = Some(ColumnInfo {
+        name: "sku".to_string(),
+        data_type: "nvarchar(64)".to_string(),
+        is_nullable: true,
+        column_default: Some("'old sku'".to_string()),
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut active = column("active");
+    active.data_type = "bit".to_string();
+    active.is_nullable = false;
+    active.default_value = "1".to_string();
+    active.original = Some(ColumnInfo {
+        name: "active".to_string(),
+        data_type: "bit".to_string(),
+        is_nullable: false,
+        column_default: Some("0".to_string()),
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("core".to_string()),
+        table_name: "products".to_string(),
+        columns: vec![sku, active],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements.len(), 4);
+
+    let sku_drop = &result.statements[0];
+    let active_drop = &result.statements[2];
+    let sku_var = sku_drop.strip_prefix("DECLARE ").unwrap().split_once(" NVARCHAR(MAX);").unwrap().0;
+    let active_var = active_drop.strip_prefix("DECLARE ").unwrap().split_once(" NVARCHAR(MAX);").unwrap().0;
+    assert_ne!(sku_var, "@sql");
+    assert_ne!(active_var, "@sql");
+    assert_ne!(sku_var, active_var);
+
+    for (sql, column_name) in [(sku_drop, "sku"), (active_drop, "active")] {
+        assert!(sql.contains("SELECT TOP (1)"));
+        assert!(sql.contains(" + QUOTENAME(dc.name) FROM sys.default_constraints AS dc WHERE "));
+        assert!(sql.contains("OBJECT_ID(N'[core].[products]')"));
+        assert!(sql.contains(&format!("N'{column_name}', 'ColumnId'")));
+        assert!(sql.contains(" IF "));
+        assert!(!sql.contains("]'FROM"));
+        assert!(!sql.contains("constraintsWHERE"));
+    }
+
+    assert_eq!(
+        result.statements[1],
+        "ALTER TABLE [core].[products] ADD CONSTRAINT [DF_products_sku] DEFAULT 'new sku' FOR [sku];"
+    );
+    assert_eq!(
+        result.statements[3],
+        "ALTER TABLE [core].[products] ADD CONSTRAINT [DF_products_active] DEFAULT 1 FOR [active];"
+    );
+}
+
+#[test]
+fn sqlserver_type_change_preserves_existing_default_constraint() {
+    let mut check_value = column("check_value");
+    check_value.data_type = "decimal(18,2)".to_string();
+    check_value.is_nullable = false;
+    check_value.default_value = "0".to_string();
+    check_value.original = Some(ColumnInfo {
+        name: "check_value".to_string(),
+        data_type: "int".to_string(),
+        is_nullable: false,
+        column_default: Some("0".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "issue_3714".to_string(),
+        column: check_value,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements.len(), 1);
+    let sql = &result.statements[0];
+    let capture = sql.find("= dc.name").unwrap();
+    let drop = sql.find("DROP CONSTRAINT").unwrap();
+    let alter = sql.find("ALTER COLUMN [check_value] decimal(18,2) NOT NULL").unwrap();
+    let restore = sql.rfind("ADD CONSTRAINT").unwrap();
+    assert!(capture < drop && drop < alter && alter < restore);
+    assert!(sql.contains("= dc.definition"));
+    assert!(sql.contains("QUOTENAME(@dbx_default_sql_"));
+    assert!(sql.contains("+ N' DEFAULT ' + @dbx_default_sql_"));
+    assert!(sql.contains("+ N' FOR [check_value]'"));
+}
+
+#[test]
+fn sqlserver_type_and_default_change_drops_before_alter_and_adds_new_default() {
+    let mut quantity = column("quantity");
+    quantity.data_type = "decimal(12,3)".to_string();
+    quantity.is_nullable = false;
+    quantity.default_value = "1.5".to_string();
+    quantity.original = Some(ColumnInfo {
+        name: "quantity".to_string(),
+        data_type: "int".to_string(),
+        is_nullable: false,
+        column_default: Some("0".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "inventory".to_string(),
+        column: quantity,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements.len(), 3);
+    assert!(result.statements[0].contains("DROP CONSTRAINT"));
+    assert_eq!(result.statements[1], "ALTER TABLE [dbo].[inventory] ALTER COLUMN [quantity] decimal(12,3) NOT NULL;");
+    assert_eq!(
+        result.statements[2],
+        "ALTER TABLE [dbo].[inventory] ADD CONSTRAINT [DF_inventory_quantity] DEFAULT 1.5 FOR [quantity];"
+    );
+}
+
+#[test]
+fn sqlserver_rename_and_nullability_change_restores_default_on_new_column_name() {
+    let mut renamed = column("is_enabled");
+    renamed.data_type = "bit".to_string();
+    renamed.is_nullable = false;
+    renamed.default_value = "1".to_string();
+    renamed.original = Some(ColumnInfo {
+        name: "enabled".to_string(),
+        data_type: "bit".to_string(),
+        is_nullable: true,
+        column_default: Some("1".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "settings".to_string(),
+        column: renamed,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements.len(), 2);
+    assert_eq!(result.statements[0], "EXEC sp_rename '[dbo].[settings].[enabled]', 'is_enabled', 'COLUMN';");
+    assert!(result.statements[1].contains("N'is_enabled', 'ColumnId'"));
+    assert!(result.statements[1].contains("ALTER COLUMN [is_enabled] bit NOT NULL"));
+    assert!(result.statements[1].contains("FOR [is_enabled]"));
+}
+
+#[test]
+fn sqlserver_type_change_without_default_keeps_direct_alter_behavior() {
+    let mut value = column("value");
+    value.data_type = "bigint".to_string();
+    value.is_nullable = false;
+    value.original = Some(ColumnInfo {
+        name: "value".to_string(),
+        data_type: "int".to_string(),
+        is_nullable: false,
+        column_default: None,
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "metrics".to_string(),
+        column: value,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE [dbo].[metrics] ALTER COLUMN [value] bigint NOT NULL;"]);
+}
+
+#[test]
+fn sqlserver_unchanged_foreign_key_does_not_warn_when_saving_other_changes() {
+    let mut email = column("email");
+    email.data_type = "nvarchar(255)".to_string();
+    email.is_nullable = false;
+
+    let mut user_fk = foreign_key("fk_orders_user_id", "user_id", "users", "id");
+    user_fk.ref_schema = "dbo".to_string();
+    user_fk.original = Some(ForeignKeyInfo {
+        name: "fk_orders_user_id".to_string(),
+        column: "user_id".to_string(),
+        ref_schema: Some("dbo".to_string()),
+        ref_table: "users".to_string(),
+        ref_column: "id".to_string(),
+        on_update: None,
+        on_delete: None,
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "orders".to_string(),
+        columns: vec![email],
+        indexes: Vec::new(),
+        foreign_keys: vec![user_fk],
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE [dbo].[orders] ADD [email] nvarchar(255) NOT NULL;"]);
+}
+
+#[test]
+fn sqlserver_add_column_with_identity() {
+    let mut id = column("id");
+    id.data_type = "int".to_string();
+    id.is_nullable = false;
+    id.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(10), increment: Some(2) }),
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "orders".to_string(),
+        columns: vec![id],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE [dbo].[orders] ADD [id] int NOT NULL IDENTITY(10, 2);"]);
+}
+
+#[test]
+fn dameng_add_column_with_identity() {
+    let mut id = column("ID");
+    id.data_type = "INT".to_string();
+    id.is_nullable = false;
+    id.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(10), increment: Some(2) }),
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "TEST".to_string(),
+        columns: vec![id],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"SYSDBA\".\"TEST\" ADD (\"ID\" INT IDENTITY(10, 2));"]);
+}
+
+#[test]
+fn dameng_rejects_identity_on_incompatible_type() {
+    let mut column = column("CODE");
+    column.data_type = "VARCHAR(255)".to_string();
+    column.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(1) }),
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "TEST".to_string(),
+        columns: vec![column],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(
+        result.warnings,
+        vec!["Dameng identity column \"CODE\" must use tinyint, smallint, int, integer, bigint, number, numeric, or decimal/dec with scale 0."]
+    );
+}
+
+#[test]
+fn sqlserver_rejects_identity_on_incompatible_type() {
+    let mut column = column("test");
+    column.data_type = "varchar(255)".to_string();
+    column.is_nullable = false;
+    column.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(1) }),
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("core".to_string()),
+        table_name: "products".to_string(),
+        columns: vec![column],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(
+        result.warnings,
+        vec!["SQL Server identity column \"test\" must use tinyint, smallint, int, bigint, or decimal/numeric with scale 0."]
+    );
+}
+
+#[test]
+fn sqlserver_changed_foreign_key_still_warns_as_unsupported() {
+    let mut user_fk = foreign_key("fk_orders_user_id", "user_id", "accounts", "id");
+    user_fk.ref_schema = "dbo".to_string();
+    user_fk.original = Some(ForeignKeyInfo {
+        name: "fk_orders_user_id".to_string(),
+        column: "user_id".to_string(),
+        ref_schema: Some("dbo".to_string()),
+        ref_table: "users".to_string(),
+        ref_column: "id".to_string(),
+        on_update: None,
+        on_delete: None,
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "orders".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: vec![user_fk],
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(result.warnings, vec!["Editing foreign keys is not supported for sqlserver from this editor."]);
+}
+
+#[test]
+fn sqlserver_unchanged_identity_extra_does_not_mark_existing_column_changed() {
+    let mut id = column("id");
+    id.data_type = "int".to_string();
+    id.is_nullable = false;
+    id.is_primary_key = true;
+    id.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(1) }),
+        ..Default::default()
+    });
+    id.original = Some(ColumnInfo {
+        name: "id".to_string(),
+        data_type: "int".to_string(),
+        is_nullable: false,
+        column_default: None,
+        is_primary_key: true,
+        extra: Some("IDENTITY(1,1)".to_string()),
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "orders".to_string(),
+        columns: vec![id],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, Vec::<String>::new());
+}
+
+#[test]
+fn dameng_unchanged_identity_extra_does_not_mark_existing_column_changed() {
+    let mut id = column("ID");
+    id.data_type = "INT".to_string();
+    id.is_nullable = false;
+    id.is_primary_key = true;
+    id.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(1) }),
+        ..Default::default()
+    });
+    id.original = Some(ColumnInfo {
+        name: "ID".to_string(),
+        data_type: "INT".to_string(),
+        is_nullable: false,
+        column_default: None,
+        is_primary_key: true,
+        extra: Some("identity".to_string()),
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "TEST".to_string(),
+        columns: vec![id],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, Vec::<String>::new());
+}
+
+#[test]
+fn dameng_rejects_adding_second_identity_column() {
+    let mut existing = column("ID");
+    existing.data_type = "INT".to_string();
+    existing.is_nullable = false;
+    existing.is_primary_key = true;
+    existing.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(1) }),
+        ..Default::default()
+    });
+    existing.original = Some(ColumnInfo {
+        name: "ID".to_string(),
+        data_type: "INT".to_string(),
+        is_nullable: false,
+        column_default: None,
+        is_primary_key: true,
+        extra: Some("identity".to_string()),
+        comment: None,
+        ..Default::default()
+    });
+    let mut added = column("SEQ");
+    added.data_type = "BIGINT".to_string();
+    added.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(1) }),
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "TEST".to_string(),
+        columns: vec![existing, added],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, vec!["Dameng tables can have only one identity column."]);
+}
+
+#[test]
+fn sqlserver_existing_column_identity_change_warns_without_unchanged_foreign_key_warning() {
+    let mut id = column("id");
+    id.data_type = "int".to_string();
+    id.is_nullable = false;
+    id.is_primary_key = true;
+    id.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(1) }),
+        ..Default::default()
+    });
+    id.original = Some(ColumnInfo {
+        name: "id".to_string(),
+        data_type: "int".to_string(),
+        is_nullable: false,
+        column_default: None,
+        is_primary_key: true,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let mut user_fk = foreign_key("fk_orders_user_id", "user_id", "users", "id");
+    user_fk.ref_schema = "dbo".to_string();
+    user_fk.original = Some(ForeignKeyInfo {
+        name: "fk_orders_user_id".to_string(),
+        column: "user_id".to_string(),
+        ref_schema: Some("dbo".to_string()),
+        ref_table: "users".to_string(),
+        ref_column: "id".to_string(),
+        on_update: None,
+        on_delete: None,
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: Some("dbo".to_string()),
+        table_name: "orders".to_string(),
+        columns: vec![id],
+        indexes: Vec::new(),
+        foreign_keys: vec![user_fk],
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(
+        result.warnings,
+        vec!["Changing SQL Server IDENTITY for existing column \"id\" is not supported from this editor."]
+    );
+}
+
+#[cfg(feature = "duckdb-sidecar")]
+#[test]
+fn builds_duckdb_create_table_statements() {
+    let mut name = column("name");
+    name.data_type = "VARCHAR".to_string();
+    name.is_nullable = false;
+    let mut created_at = column("created_at");
+    created_at.data_type = "TIMESTAMP".to_string();
+    created_at.default_value = "current_timestamp".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::DuckDb),
+        schema: None,
+        table_name: "events".to_string(),
+        columns: vec![name, created_at],
+        indexes: vec![index("idx_events_name", &["name"])],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "CREATE TABLE \"events\" (\n  \"name\" VARCHAR NOT NULL,\n  \"created_at\" TIMESTAMP DEFAULT current_timestamp\n);",
+            "CREATE INDEX \"idx_events_name\" ON \"events\" (\"name\");",
+        ]
+    );
+}
+
+#[test]
+fn builds_clickhouse_nullable_comment_and_reorder_statements() {
+    let mut source = column("source");
+    source.data_type = "String".to_string();
+    source.is_nullable = true;
+    source.comment = "traffic source".to_string();
+    let mut status = column("status");
+    status.data_type = "Nullable(String)".to_string();
+    status.is_nullable = false;
+    status.comment = "current status".to_string();
+    status.original = Some(ColumnInfo {
+        name: "status".to_string(),
+        data_type: "Nullable(String)".to_string(),
+        is_nullable: true,
+        column_default: Some("'pending'".to_string()),
+        is_primary_key: false,
+        extra: None,
+        comment: Some("old status".to_string()),
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::ClickHouse),
+        schema: None,
+        table_name: "events".to_string(),
+        columns: vec![source, status],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"events\" ADD COLUMN \"source\" Nullable(String);",
+            "ALTER TABLE \"events\" COMMENT COLUMN \"source\" 'traffic source';",
+            "ALTER TABLE \"events\" MODIFY COLUMN \"status\" REMOVE DEFAULT;",
+            "ALTER TABLE \"events\" MODIFY COLUMN \"status\" String;",
+            "ALTER TABLE \"events\" COMMENT COLUMN \"status\" 'current status';",
+        ]
+    );
+}
+
+#[test]
+fn builds_h2_schema_qualified_existing_column_statements() {
+    let mut name = column("DISPLAY_NAME");
+    name.id = "name".to_string();
+    name.data_type = "VARCHAR(120)".to_string();
+    name.is_nullable = false;
+    name.default_value = "guest".to_string();
+    name.comment = "Display name".to_string();
+    name.original = Some(ColumnInfo {
+        name: "NAME".to_string(),
+        data_type: "VARCHAR(80)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::H2),
+        schema: Some("PUBLIC".to_string()),
+        table_name: "USERS".to_string(),
+        columns: vec![name],
+        indexes: vec![index("IDX_USERS_DISPLAY_NAME", &["DISPLAY_NAME"])],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"PUBLIC\".\"USERS\" ALTER COLUMN \"NAME\" RENAME TO \"DISPLAY_NAME\";",
+            "ALTER TABLE \"PUBLIC\".\"USERS\" ALTER COLUMN \"DISPLAY_NAME\" SET DATA TYPE VARCHAR(120);",
+            "ALTER TABLE \"PUBLIC\".\"USERS\" ALTER COLUMN \"DISPLAY_NAME\" SET NOT NULL;",
+            "ALTER TABLE \"PUBLIC\".\"USERS\" ALTER COLUMN \"DISPLAY_NAME\" SET DEFAULT 'guest';",
+            "COMMENT ON COLUMN \"PUBLIC\".\"USERS\".\"DISPLAY_NAME\" IS 'Display name';",
+            "CREATE INDEX \"IDX_USERS_DISPLAY_NAME\" ON \"PUBLIC\".\"USERS\" (\"DISPLAY_NAME\");",
+        ]
+    );
+}
+
+#[test]
+fn builds_postgres_alter_table_add_primary_key() {
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Postgres,
+        Some("public"),
+        "users",
+        vec![existing_pk_column("id", "integer", false, true)],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"public\".\"users\" ADD PRIMARY KEY (\"id\");"]);
+}
+
+#[test]
+fn builds_dameng_alter_table_add_primary_key() {
+    // DM8: ADD [CONSTRAINT name] PRIMARY KEY — anonymous form matches DBeaver/MySQL-style editors.
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![existing_pk_column("id", "INT", false, true)],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"SYSDBA\".\"users\" ADD PRIMARY KEY (\"id\");"]);
+}
+
+#[test]
+fn builds_dameng_composite_primary_key_in_draft_order() {
+    let mut tenant_id = existing_pk_column("tenant_id", "INT", false, true);
+    tenant_id.id = "tenant_id".to_string();
+    let mut code = existing_pk_column("code", "VARCHAR(50)", false, true);
+    code.id = "code".to_string();
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![tenant_id, code],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"SYSDBA\".\"users\" ADD PRIMARY KEY (\"tenant_id\", \"code\");"]);
+}
+
+#[test]
+fn dameng_reordering_unchanged_composite_primary_key_does_not_emit_primary_key_ddl() {
+    let mut tenant_id = existing_pk_column("tenant_id", "INT", true, true);
+    tenant_id.id = "tenant_id".to_string();
+    tenant_id.original_position = Some(0);
+    let mut code = existing_pk_column("code", "VARCHAR(50)", true, true);
+    code.id = "code".to_string();
+    code.original_position = Some(1);
+
+    // Dameng reordering is local-only. Moving these columns must not recreate the key
+    // merely because the draft order changed.
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![code, tenant_id],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements.is_empty());
+}
+
+#[test]
+fn dameng_adds_new_primary_key_column_before_adding_constraint() {
+    let mut code = column("code");
+    code.data_type = "VARCHAR(50)".to_string();
+    code.is_nullable = false;
+    code.is_primary_key = true;
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![code],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"SYSDBA\".\"users\" ADD (\"code\" VARCHAR(50));",
+            "ALTER TABLE \"SYSDBA\".\"users\" ADD PRIMARY KEY (\"code\");",
+        ]
+    );
+}
+
+#[test]
+fn builds_dameng_alter_table_drop_primary_key() {
+    // DM8 official: DROP PRIMARY KEY [RESTRICT|CASCADE]; default RESTRICT (no CASCADE from editor).
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![existing_pk_column("id", "INT", true, false)],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"SYSDBA\".\"users\" DROP PRIMARY KEY;"]);
+}
+
+#[test]
+fn builds_dameng_alter_table_change_primary_key() {
+    // DBeaver/Navicat-style modify: drop existing key then add the new one (never ADD without DROP).
+    let mut old_pk = existing_pk_column("id", "INT", true, false);
+    old_pk.id = "old_id".to_string();
+    let mut new_pk = existing_pk_column("code", "VARCHAR(50)", false, true);
+    new_pk.id = "new_code".to_string();
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![old_pk, new_pk],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"SYSDBA\".\"users\" DROP PRIMARY KEY;",
+            "ALTER TABLE \"SYSDBA\".\"users\" ADD PRIMARY KEY (\"code\");",
+        ]
+    );
+}
+
+#[test]
+fn dameng_validates_new_primary_key_column_before_replacing_existing_key() {
+    let mut old_pk = existing_pk_column("id", "INT", true, false);
+    old_pk.id = "old_id".to_string();
+    let mut code = existing_pk_column("code", "VARCHAR(50)", false, true);
+    code.id = "new_code".to_string();
+    code.original.as_mut().unwrap().is_nullable = true;
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![old_pk, code],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"SYSDBA\".\"users\" MODIFY (\"code\" VARCHAR(50) NOT NULL);",
+            "ALTER TABLE \"SYSDBA\".\"users\" DROP PRIMARY KEY;",
+            "ALTER TABLE \"SYSDBA\".\"users\" ADD PRIMARY KEY (\"code\");",
+        ]
+    );
+}
+
+#[test]
+fn dameng_blocks_dropping_former_primary_key_column() {
+    let mut id = existing_pk_column("id", "INT", true, false);
+    id.marked_for_drop = true;
+    let name = existing_pk_column("name", "VARCHAR(50)", false, false);
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![id, name],
+    ));
+
+    assert!(result.statements.is_empty());
+    assert!(result.warnings.iter().any(|warning| warning.contains("Primary key column")));
+}
+
+#[test]
+fn oracle_uncheck_primary_key_and_drop_column_does_not_emit_drop_column() {
+    // alter_primary_key is false for Oracle: unchecking PK must not unlock DROP COLUMN without a PK drop.
+    let mut id = existing_pk_column("id", "NUMBER", true, false);
+    id.marked_for_drop = true;
+    let name = existing_pk_column("name", "VARCHAR2(50)", false, false);
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Oracle,
+        Some("HR"),
+        "users",
+        vec![id, name],
+    ));
+
+    assert!(
+        !result.statements.iter().any(|sql| sql.to_ascii_uppercase().contains("DROP COLUMN")),
+        "must not DROP COLUMN former PK without DROP PRIMARY KEY; got {:?}",
+        result.statements
+    );
+    assert!(
+        !result.statements.iter().any(|sql| sql.to_ascii_uppercase().contains("PRIMARY KEY")),
+        "Oracle must not emit partial PK DDL; got {:?}",
+        result.statements
+    );
+    assert!(
+        result.warnings.iter().any(|w| w.contains("primary key") || w.contains("Primary key")),
+        "expected primary-key related warning; got {:?}",
+        result.warnings
+    );
+}
+
+#[test]
+fn sqlserver_uncheck_primary_key_and_drop_column_does_not_emit_drop_column() {
+    let mut id = existing_pk_column("id", "int", true, false);
+    id.marked_for_drop = true;
+    let name = existing_pk_column("name", "nvarchar(50)", false, false);
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::SqlServer,
+        Some("dbo"),
+        "users",
+        vec![id, name],
+    ));
+
+    assert!(
+        !result.statements.iter().any(|sql| sql.to_ascii_uppercase().contains("DROP COLUMN")),
+        "must not DROP COLUMN former PK without PK drop; got {:?}",
+        result.statements
+    );
+    assert!(result.warnings.iter().any(|w| w.contains("primary key") || w.contains("Primary key")));
+}
+
+#[test]
+fn dameng_set_not_null_before_add_primary_key() {
+    // DM8: PK columns must be NOT NULL; DM auto-adds NOT NULL but clients still MODIFY first.
+    // Order: column MODIFY NOT NULL, then ADD PRIMARY KEY.
+    let mut id = existing_pk_column("id", "INT", false, true);
+    id.original.as_mut().unwrap().is_nullable = true;
+    // is_nullable stays false (set when marking PK) so MODIFY ... NOT NULL is emitted.
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![id],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"SYSDBA\".\"users\" MODIFY (\"id\" INT NOT NULL);",
+            "ALTER TABLE \"SYSDBA\".\"users\" ADD PRIMARY KEY (\"id\");",
+        ]
+    );
+}
+
+#[test]
+fn dameng_blocks_dropping_active_primary_key_column() {
+    // Keep a non-PK column so we do not hit the "cannot drop all columns" guard first.
+    let mut id = existing_pk_column("id", "INT", true, true);
+    id.marked_for_drop = true;
+    let name = existing_pk_column("name", "VARCHAR(50)", false, false);
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![id, name],
+    ));
+
+    assert!(!result.statements.iter().any(|sql| sql.contains("DROP COLUMN")));
+    assert!(result.warnings.iter().any(|w| w.contains("Primary key column")));
+}
+
+#[test]
+fn dameng_does_not_mutate_primary_key_when_active_key_column_is_marked_for_drop() {
+    let mut id = existing_pk_column("id", "INT", true, true);
+    id.marked_for_drop = true;
+    let code = existing_pk_column("code", "VARCHAR(50)", false, true);
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![id, code],
+    ));
+
+    assert!(result.statements.is_empty(), "invalid draft must not emit partial PK DDL: {:?}", result.statements);
+    assert!(result.warnings.iter().any(|warning| warning.contains("Primary key column")));
+}
+
+#[test]
+fn builds_postgres_alter_table_drop_primary_key() {
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Postgres,
+        Some("public"),
+        "users",
+        vec![existing_pk_column("id", "integer", true, false)],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"public\".\"users\" DROP CONSTRAINT \"users_pkey\";"]);
+}
+
+#[test]
+fn builds_mysql_alter_table_change_primary_key() {
+    let mut old_pk = existing_pk_column("id", "int", true, false);
+    old_pk.id = "old_id".to_string();
+    let mut new_pk = existing_pk_column("uuid", "varchar(36)", false, true);
+    new_pk.id = "new_uuid".to_string();
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Mysql,
+        None,
+        "users",
+        vec![old_pk, new_pk],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE `users` DROP PRIMARY KEY;", "ALTER TABLE `users` ADD PRIMARY KEY (`uuid`);",]
+    );
+}
+
+#[test]
+fn builds_no_statements_when_primary_key_unchanged() {
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Postgres,
+        None,
+        "users",
+        vec![existing_pk_column("id", "integer", true, true)],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements.is_empty());
+}
+
+#[test]
+fn rename_only_primary_key_column_does_not_emit_primary_key_ddl() {
+    let mut id = existing_pk_column("id_new", "integer", true, true);
+    id.original.as_mut().unwrap().name = "id".to_string();
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Dameng,
+        Some("SYSDBA"),
+        "users",
+        vec![id],
+    ));
+
+    // Membership is tracked by draft id, so rename alone is not a PK change.
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(!result.statements.iter().any(|sql| sql.contains("PRIMARY KEY")));
+}
+
+#[test]
+fn warns_sqlite_cannot_alter_primary_key() {
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Sqlite,
+        None,
+        "users",
+        vec![existing_pk_column("id", "integer", false, true)],
+    ));
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(result.warnings.len(), 1);
+    assert!(result.warnings[0].contains("primary key"));
+}
+
+#[test]
+fn warns_sqlserver_cannot_alter_primary_key_without_drop_strategy() {
+    // alter_primary_key is false for SQL Server; fail closed (no partial ADD-only SQL).
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::SqlServer,
+        Some("dbo"),
+        "users",
+        vec![existing_pk_column("id", "int", true, false)],
+    ));
+
+    assert_eq!(result.statements, Vec::<String>::new());
+    assert_eq!(result.warnings.len(), 1);
+    assert!(result.warnings[0].contains("primary key"));
+}
+
+#[test]
+fn mysql_create_table_with_auto_increment() {
+    let mut col = column("id");
+    col.data_type = "int".to_string();
+    col.is_nullable = false;
+    col.is_primary_key = true;
+    col.extra = Some(ColumnExtra { auto_increment: Some(true), ..Default::default() });
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements.len(), 1);
+    assert!(result.statements[0].contains("AUTO_INCREMENT"));
+}
+
+#[test]
+fn mysql_create_table_keeps_column_charset_collation_and_comment() {
+    let mut name = column("name");
+    name.data_type = "varchar(255)".to_string();
+    name.character_set = "gbk".to_string();
+    name.collation = "gbk_bin".to_string();
+    name.comment = "测试".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![name],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: Some("User accounts".to_string()),
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "CREATE TABLE `users` (\n  `name` varchar(255) CHARACTER SET `gbk` COLLATE `gbk_bin` COMMENT '测试'\n) COMMENT = 'User accounts';"
+        ]
+    );
+}
+
+#[test]
+fn mysql_compatible_databases_do_not_emit_mysql_column_charset_clauses() {
+    for database_type in [DatabaseType::StarRocks, DatabaseType::Databend, DatabaseType::Gbase] {
+        let mut name = column("name");
+        name.data_type = "varchar(255)".to_string();
+        name.character_set = "utf8mb4".to_string();
+        name.collation = "utf8mb4_bin".to_string();
+
+        let result = build_create_table_sql(TableStructureSqlOptions {
+            database_type: Some(database_type),
+            schema: None,
+            table_name: "users".to_string(),
+            columns: vec![name],
+            indexes: Vec::new(),
+            foreign_keys: Vec::new(),
+            triggers: Vec::new(),
+            table_comment: None,
+            original_table_comment: None,
+        });
+
+        assert_eq!(result.warnings, Vec::<String>::new());
+        assert!(!result.statements[0].contains("CHARACTER SET"));
+        assert!(!result.statements[0].contains("COLLATE"));
+    }
+}
+
+#[test]
+fn mysql_create_table_with_on_update_current_timestamp() {
+    let mut col = column("updated_at");
+    col.data_type = "timestamp".to_string();
+    col.is_nullable = false;
+    col.default_value = "CURRENT_TIMESTAMP".to_string();
+    col.extra = Some(ColumnExtra { on_update_current_timestamp: Some(true), ..Default::default() });
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("ON UPDATE CURRENT_TIMESTAMP"));
+}
+
+#[test]
+fn postgres_create_table_with_identity() {
+    let mut col = column("id");
+    col.data_type = "integer".to_string();
+    col.is_nullable = false;
+    col.extra = Some(ColumnExtra {
+        identity: Some(ColumnIdentity { generation: Some("BY DEFAULT".to_string()), seed: None, increment: None }),
+        ..Default::default()
+    });
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("GENERATED BY DEFAULT AS IDENTITY"));
+}
+
+#[test]
+fn dameng_create_table_with_identity() {
+    let mut col = column("ID");
+    col.data_type = "INT".to_string();
+    col.is_nullable = false;
+    col.is_primary_key = true;
+    col.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(100), increment: Some(5) }),
+        ..Default::default()
+    });
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "USERS".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("\"ID\" INT IDENTITY(100, 5)"), "ddl: {}", result.statements[0]);
+    assert!(result.statements[0].contains("PRIMARY KEY (\"ID\")"), "ddl: {}", result.statements[0]);
+}
+
+#[test]
+fn dameng_create_table_preserves_character_length_units() {
+    let mut name = column("NAME");
+    name.data_type = "VARCHAR2(255 CHAR)".to_string();
+    let mut code = column("CODE");
+    code.data_type = "VARCHAR(64 BYTE)".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "USERS".to_string(),
+        columns: vec![name, code],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("\"NAME\" VARCHAR2(255 CHAR)"), "ddl: {}", result.statements[0]);
+    assert!(result.statements[0].contains("\"CODE\" VARCHAR(64 BYTE)"), "ddl: {}", result.statements[0]);
+}
+
+#[test]
+fn dameng_alter_column_preserves_character_length_unit() {
+    let mut name = column("NAME");
+    name.data_type = "VARCHAR2(64 BYTE)".to_string();
+    name.original = Some(ColumnInfo {
+        name: "NAME".to_string(),
+        data_type: "VARCHAR2(64 CHAR)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "USERS".to_string(),
+        columns: vec![name],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"SYSDBA\".\"USERS\" MODIFY (\"NAME\" VARCHAR2(64 BYTE));"]);
+}
+
+#[test]
+fn dameng_rejects_multiple_identity_columns() {
+    let mut first = column("ID");
+    first.data_type = "INT".to_string();
+    first.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(1) }),
+        ..Default::default()
+    });
+    let mut second = column("SEQ");
+    second.data_type = "BIGINT".to_string();
+    second.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(1) }),
+        ..Default::default()
+    });
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "USERS".to_string(),
+        columns: vec![first, second],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert!(result.statements.is_empty());
+    assert_eq!(result.warnings, vec!["Dameng tables can have only one identity column."]);
+}
+
+#[test]
+fn dameng_rejects_zero_identity_increment() {
+    let mut col = column("ID");
+    col.data_type = "INT".to_string();
+    col.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(1), increment: Some(0) }),
+        ..Default::default()
+    });
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Dameng),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "USERS".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert!(result.statements.is_empty());
+    assert_eq!(result.warnings, vec!["Dameng identity column \"ID\" increment cannot be 0."]);
+}
+
+#[test]
+fn sqlserver_create_table_with_identity() {
+    let mut col = column("id");
+    col.data_type = "int".to_string();
+    col.is_nullable = false;
+    col.extra = Some(ColumnExtra {
+        auto_increment: Some(true),
+        identity: Some(ColumnIdentity { generation: None, seed: Some(100), increment: Some(5) }),
+        ..Default::default()
+    });
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::SqlServer),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("IDENTITY(100, 5)"));
+}
+
+#[test]
+fn mysql_quotes_datetime_literal_default() {
+    let mut col = column("created_at");
+    col.data_type = "datetime".to_string();
+    col.default_value = "2024-01-01 00:00:00".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "events".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT '2024-01-01 00:00:00'"));
+}
+
+#[test]
+fn mysql_does_not_quote_current_timestamp() {
+    let mut col = column("updated_at");
+    col.data_type = "timestamp".to_string();
+    col.default_value = "CURRENT_TIMESTAMP".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "events".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT CURRENT_TIMESTAMP"));
+    assert!(!result.statements[0].contains("DEFAULT 'CURRENT_TIMESTAMP'"));
+}
+
+#[test]
+fn mysql_does_not_quote_temporal_function_with_parens() {
+    let mut col = column("created_at");
+    col.data_type = "datetime".to_string();
+    col.default_value = "NOW()".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "events".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT NOW()"));
+}
+
+#[test]
+fn mysql_date_literal_default_is_quoted() {
+    let mut col = column("birth_date");
+    col.data_type = "date".to_string();
+    col.default_value = "2000-01-01".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT '2000-01-01'"));
+}
+
+#[test]
+fn mysql_time_literal_default_is_quoted() {
+    let mut col = column("start_time");
+    col.data_type = "time".to_string();
+    col.default_value = "09:00:00".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "shifts".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT '09:00:00'"));
+}
+
+#[test]
+fn non_temporal_types_are_not_quoted() {
+    let mut col = column("score");
+    col.data_type = "int".to_string();
+    col.default_value = "0".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "games".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT 0"));
+    assert!(!result.statements[0].contains("DEFAULT '0'"));
+}
+
+#[test]
+fn postgres_timestamp_literal_is_quoted() {
+    let mut col = column("logged_at");
+    col.data_type = "timestamp".to_string();
+    col.default_value = "2024-06-01 12:00:00".to_string();
+    col.original = Some(ColumnInfo {
+        name: "logged_at".to_string(),
+        data_type: "timestamp".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("public".to_string()),
+        table_name: "events".to_string(),
+        column: col,
+    });
+
+    assert!(result.statements.iter().any(|s| s.contains("SET DEFAULT '2024-06-01 12:00:00'")));
+}
+
+#[test]
+fn mysql_single_column_alter_quotes_datetime_literal() {
+    let mut col = column("created_at");
+    col.data_type = "datetime".to_string();
+    col.default_value = "2024-01-01 00:00:00".to_string();
+    col.original = Some(ColumnInfo {
+        name: "created_at".to_string(),
+        data_type: "datetime".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "events".to_string(),
+        column: col,
+    });
+
+    assert!(result.statements.iter().any(|s| s.contains("DEFAULT '2024-01-01 00:00:00'")));
+}
+
+#[test]
+fn builds_mysql_foreign_key_changes() {
+    let mut existing = foreign_key("fk_orders_users", "user_id", "users", "id");
+    existing.on_delete = "CASCADE".to_string();
+    existing.original = Some(ForeignKeyInfo {
+        name: "fk_orders_users_old".to_string(),
+        column: "customer_id".to_string(),
+        ref_schema: None,
+        ref_table: "customers".to_string(),
+        ref_column: "id".to_string(),
+        on_update: None,
+        on_delete: Some("RESTRICT".to_string()),
+    });
+
+    let mut dropped = foreign_key("fk_orders_accounts", "account_id", "accounts", "id");
+    dropped.marked_for_drop = true;
+    dropped.original = Some(ForeignKeyInfo {
+        name: "fk_orders_accounts".to_string(),
+        column: "account_id".to_string(),
+        ref_schema: None,
+        ref_table: "accounts".to_string(),
+        ref_column: "id".to_string(),
+        on_update: None,
+        on_delete: None,
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "orders".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: vec![existing, dropped],
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE `orders` DROP FOREIGN KEY `fk_orders_users_old`;",
+            "ALTER TABLE `orders` ADD CONSTRAINT `fk_orders_users` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;",
+            "ALTER TABLE `orders` DROP FOREIGN KEY `fk_orders_accounts`;",
+        ]
+    );
+}
+
+#[test]
+fn builds_mysql_composite_foreign_key() {
+    let composite = foreign_key("fk_order_items_product", "tenant_id, product_id", "products", "tenant_id, id");
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "order_items".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: vec![composite],
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE `order_items` ADD CONSTRAINT `fk_order_items_product` FOREIGN KEY (`tenant_id`, `product_id`) REFERENCES `products` (`tenant_id`, `id`);",
+        ]
+    );
+}
+
+#[test]
+fn builds_mysql_trigger_changes() {
+    let mut existing = trigger("orders_bu", "BEFORE", "UPDATE", "BEGIN\n  SET NEW.updated_at = NOW();\nEND");
+    existing.original = Some(TriggerInfo {
+        name: "orders_bu".to_string(),
+        event: "UPDATE".to_string(),
+        timing: "BEFORE".to_string(),
+        statement: Some("SET NEW.updated_at = CURRENT_TIMESTAMP".to_string()),
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "orders".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: vec![existing],
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "DROP TRIGGER `orders_bu`;",
+            "CREATE TRIGGER `orders_bu` BEFORE UPDATE ON `orders` FOR EACH ROW\nBEGIN\n  SET NEW.updated_at = NOW();\nEND;",
+        ]
+    );
+}
+
+#[test]
+fn unchanged_postgres_trigger_does_not_block_column_rename() {
+    let mut renamed = column("display_name");
+    renamed.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+    let mut existing = trigger("users_audit", "AFTER", "UPDATE", "EXECUTE FUNCTION audit_users()");
+    existing.original = Some(TriggerInfo {
+        name: "users_audit".to_string(),
+        event: "UPDATE".to_string(),
+        timing: "AFTER".to_string(),
+        statement: Some("EXECUTE FUNCTION audit_users()".to_string()),
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("public".to_string()),
+        table_name: "users".to_string(),
+        columns: vec![renamed],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: vec![existing],
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"public\".\"users\" RENAME COLUMN \"name\" TO \"display_name\";"]);
+}
+
+#[test]
+fn changed_postgres_trigger_remains_unsupported() {
+    let mut existing = trigger("users_audit", "AFTER", "INSERT", "EXECUTE FUNCTION audit_users()");
+    existing.original = Some(TriggerInfo {
+        name: "users_audit".to_string(),
+        event: "UPDATE".to_string(),
+        timing: "AFTER".to_string(),
+        statement: Some("EXECUTE FUNCTION audit_users()".to_string()),
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("public".to_string()),
+        table_name: "users".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: vec![existing],
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert!(result.statements.is_empty());
+    assert_eq!(result.warnings, vec!["Editing triggers is not supported for postgres from this editor."]);
+}
+
+#[test]
+fn rejects_editing_existing_oracle_trigger_without_complete_source() {
+    let mut existing = trigger(
+        "DBX_TRIGGER_4320_AUDIT",
+        "AFTER EACH ROW",
+        "INSERT OR UPDATE OR DELETE",
+        "DECLARE\n  v_event VARCHAR2(10);\nBEGIN\n  v_event := CASE WHEN INSERTING THEN 'INSERT' WHEN UPDATING THEN 'UPDATE' ELSE 'DELETE' END;\nEND;",
+    );
+    existing.original = Some(TriggerInfo {
+        name: "DBX_TRIGGER_4320_AUDIT".to_string(),
+        event: "INSERT OR UPDATE OR DELETE".to_string(),
+        timing: "AFTER EACH ROW".to_string(),
+        statement: Some("BEGIN\n  NULL;\nEND;".to_string()),
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Oracle),
+        schema: Some("APP".to_string()),
+        table_name: "DBX_TRIGGER_4320".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: vec![existing],
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert!(result.statements.is_empty());
+    assert_eq!(
+        result.warnings,
+        vec!["Editing existing Oracle trigger \"DBX_TRIGGER_4320_AUDIT\" requires its complete source definition."]
+    );
+}
+
+#[test]
+fn builds_oracle_statement_trigger_without_row_clause() {
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Oracle),
+        schema: Some("APP".to_string()),
+        table_name: "ORDERS".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: vec![trigger("ORDERS_AUDIT", "BEFORE STATEMENT", "UPDATE OF STATUS", "BEGIN\n  NULL;\nEND;\n/")],
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "CREATE OR REPLACE TRIGGER \"APP\".\"ORDERS_AUDIT\" BEFORE UPDATE OF STATUS ON \"APP\".\"ORDERS\"\nBEGIN\n  NULL;\nEND;",
+        ]
+    );
+}
+
+#[test]
+fn drops_existing_oracle_trigger_without_reconstructing_it() {
+    let mut existing = trigger("ORDERS_AUDIT", "AFTER EACH ROW", "INSERT", "BEGIN\n  NULL;\nEND;");
+    existing.original = Some(TriggerInfo {
+        name: "ORDERS_AUDIT".to_string(),
+        event: "INSERT".to_string(),
+        timing: "AFTER EACH ROW".to_string(),
+        statement: Some("BEGIN\n  NULL;\nEND;".to_string()),
+    });
+    existing.marked_for_drop = true;
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Oracle),
+        schema: Some("APP".to_string()),
+        table_name: "ORDERS".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: vec![existing],
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["DROP TRIGGER \"APP\".\"ORDERS_AUDIT\";"]);
+}
+
+#[test]
+fn rejects_unsupported_oracle_compound_trigger_shape() {
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Oracle),
+        schema: Some("APP".to_string()),
+        table_name: "ORDERS".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: vec![trigger("ORDERS_CT", "COMPOUND", "UPDATE", "BEGIN\n  NULL;\nEND;")],
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert!(result.statements.is_empty());
+    assert_eq!(result.warnings, vec!["Unsupported Oracle trigger timing \"COMPOUND\"."]);
+}
+
+#[test]
+fn mysql_varchar_default_is_quoted() {
+    let mut col = column("name");
+    col.data_type = "varchar(255)".to_string();
+    col.default_value = "hello".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT 'hello'"));
+    assert!(!result.statements[0].contains("DEFAULT hello "));
+}
+
+#[test]
+fn mysql_char_default_is_quoted() {
+    let mut col = column("code");
+    col.data_type = "char(10)".to_string();
+    col.default_value = "abc".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "items".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT 'abc'"));
+}
+
+#[test]
+fn mysql_text_default_is_quoted() {
+    let mut col = column("description");
+    col.data_type = "text".to_string();
+    col.default_value = "default value".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "products".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT 'default value'"));
+}
+
+#[test]
+fn mysql_enum_default_is_quoted() {
+    let mut col = column("status");
+    col.data_type = "enum('active','inactive')".to_string();
+    col.default_value = "active".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT 'active'"));
+}
+
+#[test]
+fn mysql_int_default_is_not_quoted() {
+    let mut col = column("score");
+    col.data_type = "int".to_string();
+    col.default_value = "100".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "games".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("DEFAULT 100"));
+    assert!(!result.statements[0].contains("DEFAULT '100'"));
+}
+
+#[test]
+fn postgres_varchar_default_is_quoted() {
+    let mut col = column("label");
+    col.data_type = "varchar(100)".to_string();
+    col.default_value = "test label".to_string();
+    col.original = Some(ColumnInfo {
+        name: "label".to_string(),
+        data_type: "varchar(100)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: None,
+        table_name: "items".to_string(),
+        column: col,
+    });
+
+    assert!(result.statements.iter().any(|s| s.contains("SET DEFAULT 'test label'")));
+}
+
+#[test]
+fn postgres_empty_string_default_is_not_quoted_again() {
+    let mut col = column("sku");
+    col.data_type = "character varying".to_string();
+    col.default_value = "''".to_string();
+    col.original = Some(ColumnInfo {
+        name: "sku".to_string(),
+        data_type: "character varying".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("core".to_string()),
+        table_name: "products".to_string(),
+        column: col,
+    });
+
+    assert_eq!(result.statements, vec!["ALTER TABLE \"core\".\"products\" ALTER COLUMN \"sku\" SET DEFAULT '';"]);
+}
+
+#[test]
+fn postgres_string_default_cast_matches_plain_literal() {
+    let mut col = column("category");
+    col.data_type = "character varying".to_string();
+    col.default_value = "''".to_string();
+    col.original = Some(ColumnInfo {
+        name: "category".to_string(),
+        data_type: "character varying".to_string(),
+        is_nullable: true,
+        column_default: Some("''::character varying".to_string()),
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("core".to_string()),
+        table_name: "products".to_string(),
+        column: col,
+    });
+
+    assert_eq!(result.statements, Vec::<String>::new());
+}
+
+#[test]
+fn postgres_integer_default_is_not_quoted() {
+    let mut col = column("stock");
+    col.data_type = "integer".to_string();
+    col.default_value = "0".to_string();
+    col.original = Some(ColumnInfo {
+        name: "stock".to_string(),
+        data_type: "integer".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: Some(String::new()),
+        ..Default::default()
+    });
+
+    let result = build_single_column_alter_sql(SingleColumnAlterSqlOptions {
+        database_type: Some(DatabaseType::Postgres),
+        schema: Some("core".to_string()),
+        table_name: "products".to_string(),
+        column: col,
+    });
+
+    assert_eq!(result.statements, vec!["ALTER TABLE \"core\".\"products\" ALTER COLUMN \"stock\" SET DEFAULT 0;"]);
+}
+
+#[test]
+fn mysql_character_column_add_with_charset_collation() {
+    let mut col = column("name");
+    col.data_type = "varchar(255)".to_string();
+    col.character_set = "utf8mb4".to_string();
+    col.collation = "utf8mb4_unicode_ci".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE `users` ADD COLUMN `name` varchar(255) CHARACTER SET `utf8mb4` COLLATE `utf8mb4_unicode_ci`;"
+        ]
+    );
+}
+
+#[test]
+fn mysql_numeric_column_omits_charset_collation_in_column_definition() {
+    let mut col = column("score");
+    col.data_type = "int".to_string();
+    // Even if charset/collation are set on the editable column, they must NOT
+    // appear in the DDL because int does not accept CHARACTER SET or COLLATE.
+    col.character_set = "utf8mb4".to_string();
+    col.collation = "utf8mb4_unicode_ci".to_string();
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "games".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements.len() == 1);
+    let sql = &result.statements[0];
+    assert!(!sql.contains("CHARACTER SET"));
+    assert!(!sql.contains("COLLATE"));
+    assert!(sql.contains("int"));
+}
+
+#[test]
+fn mysql_numeric_column_ignores_charset_collation_in_change_detection() {
+    // When an existing INT column has no original character_set / collation but
+    // the editable draft carries stale values, the column should NOT be flagged
+    // as having an attribute change.
+    let mut col = column("score");
+    col.data_type = "int".to_string();
+    col.character_set = "utf8mb4".to_string();
+    col.collation = "utf8mb4_unicode_ci".to_string();
+    col.original = Some(ColumnInfo {
+        name: "score".to_string(),
+        data_type: "int".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "games".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    // No ALTER should be emitted — charset/collation changes on
+    // non-character columns are no-ops.
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, Vec::<String>::new());
+}
+
+#[test]
+fn mysql_character_column_detects_charset_collation_change() {
+    let mut col = column("name");
+    col.data_type = "varchar(255)".to_string();
+    col.character_set = "utf8mb4".to_string();
+    col.collation = "utf8mb4_unicode_ci".to_string();
+    col.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE `users` MODIFY COLUMN `name` varchar(255) CHARACTER SET `utf8mb4` COLLATE `utf8mb4_unicode_ci`;"]
+    );
+}
+
+#[test]
+fn mysql_character_column_preserves_charset_collation_on_other_change() {
+    // Changing the default value on a character column should still
+    // re-emit the charset/collation clauses so they are not lost.
+    let mut col = column("name");
+    col.data_type = "varchar(255)".to_string();
+    col.character_set = "utf8mb4".to_string();
+    col.collation = "utf8mb4_unicode_ci".to_string();
+    col.default_value = "guest".to_string();
+    col.original = Some(ColumnInfo {
+        name: "name".to_string(),
+        data_type: "varchar(255)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        character_set: Some("utf8mb4".to_string()),
+        collation: Some("utf8mb4_unicode_ci".to_string()),
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Mysql),
+        schema: None,
+        table_name: "users".to_string(),
+        columns: vec![col],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE `users` MODIFY COLUMN `name` varchar(255) CHARACTER SET `utf8mb4` COLLATE `utf8mb4_unicode_ci` DEFAULT 'guest';"]
+    );
+}
+
+// ---- Oscar (神通) ----
+// 神通 v7 是 Oracle 兼容方言，且实测支持 ALTER TABLE DROP/ADD PRIMARY KEY（与 Dameng 一致，
+// 不同于 Oracle）。DDL 生成走 StructureDialect::Oscar，与 Dameng 共享 Oracle-like 分支。
+// 这些测试锁定 issue #5505 的核心场景：建表/改列/主键/索引/注释，防回归。
+
+#[test]
+fn oscar_create_table_with_primary_key_and_comments() {
+    let mut id = column("ID");
+    id.data_type = "NUMBER(10)".to_string();
+    id.is_nullable = false;
+    id.is_primary_key = true;
+    let mut name = column("NAME");
+    name.data_type = "VARCHAR2(100)".to_string();
+    name.is_nullable = false;
+    name.comment = "name col".to_string();
+
+    let result = build_create_table_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Oscar),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "USERS".to_string(),
+        columns: vec![id, name],
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: Some("user table".to_string()),
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert!(result.statements[0].contains("CREATE TABLE \"SYSDBA\".\"USERS\""), "ddl: {}", result.statements[0]);
+    // Oracle 风格：PK 在表定义末尾单独声明；PK 列省略 NOT NULL（主键隐含），非 PK 非空列显式 NOT NULL。
+    assert!(result.statements[0].contains("\"ID\" NUMBER(10),"), "ddl: {}", result.statements[0]);
+    assert!(result.statements[0].contains("\"NAME\" VARCHAR2(100) NOT NULL,"), "ddl: {}", result.statements[0]);
+    assert!(result.statements[0].contains("PRIMARY KEY (\"ID\")"), "ddl: {}", result.statements[0]);
+    assert!(
+        result.statements.iter().any(|s| s == "COMMENT ON TABLE \"SYSDBA\".\"USERS\" IS 'user table';"),
+        "comments: {:?}",
+        result.statements
+    );
+    assert!(
+        result.statements.iter().any(|s| s == "COMMENT ON COLUMN \"SYSDBA\".\"USERS\".\"NAME\" IS 'name col';"),
+        "comments: {:?}",
+        result.statements
+    );
+}
+
+#[test]
+fn oscar_add_column_with_comment() {
+    let mut age = column("AGE");
+    age.data_type = "NUMBER(3)".to_string();
+    age.is_nullable = true;
+    age.comment = "age col".to_string();
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Oscar,
+        Some("SYSDBA"),
+        "users",
+        vec![age],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    // Oracle 风格：ADD 用圆括号包裹列定义，可空列省略 NULL 关键字。
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"SYSDBA\".\"users\" ADD (\"AGE\" NUMBER(3));",
+            "COMMENT ON COLUMN \"SYSDBA\".\"users\".\"AGE\" IS 'age col';",
+        ]
+    );
+}
+
+#[test]
+fn oscar_alter_existing_column_modify_type_and_nullability() {
+    let mut name = column("NAME");
+    name.data_type = "VARCHAR2(100)".to_string();
+    name.is_nullable = false;
+    name.original = Some(ColumnInfo {
+        name: "NAME".to_string(),
+        data_type: "VARCHAR2(50)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Oscar,
+        Some("SYSDBA"),
+        "users",
+        vec![name],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    // 神通 MODIFY 语法差异：类型变更与可空性变更需拆成两条（带括号的 MODIFY 不允许 NULL/NOT NULL）。
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"SYSDBA\".\"users\" MODIFY (\"NAME\" VARCHAR2(100));",
+            "ALTER TABLE \"SYSDBA\".\"users\" MODIFY \"NAME\" NOT NULL;",
+        ]
+    );
+}
+
+#[test]
+fn oscar_alter_only_nullability_emits_single_unparenthesized_modify() {
+    // 只改可空性（类型不变）：应只生成一条不带括号的 MODIFY col NOT NULL，不重复发类型变更。
+    let mut name = column("NAME");
+    name.data_type = "VARCHAR2(100)".to_string();
+    name.is_nullable = false;
+    name.original = Some(ColumnInfo {
+        name: "NAME".to_string(),
+        data_type: "VARCHAR2(100)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Oscar,
+        Some("SYSDBA"),
+        "users",
+        vec![name],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["ALTER TABLE \"SYSDBA\".\"users\" MODIFY \"NAME\" NOT NULL;"]);
+}
+
+#[test]
+fn oscar_alter_only_default_keeps_parenthesized_modify() {
+    // 只改默认值（类型与可空性不变）：带括号的 MODIFY 允许 DEFAULT，不触发可空性单独语句。
+    let mut name = column("NAME");
+    name.data_type = "VARCHAR2(100)".to_string();
+    name.is_nullable = true;
+    name.default_value = "'guest'".to_string();
+    name.original = Some(ColumnInfo {
+        name: "NAME".to_string(),
+        data_type: "VARCHAR2(100)".to_string(),
+        is_nullable: true,
+        column_default: None,
+        is_primary_key: false,
+        extra: None,
+        comment: None,
+        ..Default::default()
+    });
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Oscar,
+        Some("SYSDBA"),
+        "users",
+        vec![name],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec!["ALTER TABLE \"SYSDBA\".\"users\" MODIFY (\"NAME\" VARCHAR2(100) DEFAULT 'guest');"]
+    );
+}
+
+#[test]
+fn oscar_drop_and_readd_primary_key() {
+    // 神通实测支持 ALTER TABLE DROP/ADD PRIMARY KEY（与 Dameng 一致）。
+    let mut old_pk = existing_pk_column("id", "INT", true, false);
+    old_pk.id = "old_id".to_string();
+    let mut new_pk = existing_pk_column("code", "VARCHAR(50)", false, true);
+    new_pk.id = "new_code".to_string();
+
+    let result = build_table_structure_change_sql(structure_change_options(
+        DatabaseType::Oscar,
+        Some("SYSDBA"),
+        "users",
+        vec![old_pk, new_pk],
+    ));
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(
+        result.statements,
+        vec![
+            "ALTER TABLE \"SYSDBA\".\"users\" DROP PRIMARY KEY;",
+            "ALTER TABLE \"SYSDBA\".\"users\" ADD PRIMARY KEY (\"code\");",
+        ]
+    );
+}
+
+#[test]
+fn oscar_drop_index_with_schema_qualifier() {
+    let mut idx = index("DBX_PROBE_IDX", &["NAME"]);
+    idx.marked_for_drop = true;
+    idx.original = Some(IndexInfo {
+        name: "DBX_PROBE_IDX".to_string(),
+        columns: vec!["NAME".to_string()],
+        is_unique: false,
+        is_primary: false,
+        filter: None,
+        index_type: None,
+        included_columns: None,
+        comment: None,
+    });
+
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Oscar),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "users".to_string(),
+        columns: Vec::new(),
+        indexes: vec![idx],
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: None,
+        original_table_comment: None,
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["DROP INDEX \"SYSDBA\".\"DBX_PROBE_IDX\";"]);
+}
+
+#[test]
+fn oscar_table_comment_uses_comment_on_table() {
+    let result = build_table_structure_change_sql(TableStructureSqlOptions {
+        database_type: Some(DatabaseType::Oscar),
+        schema: Some("SYSDBA".to_string()),
+        table_name: "users".to_string(),
+        columns: Vec::new(),
+        indexes: Vec::new(),
+        foreign_keys: Vec::new(),
+        triggers: Vec::new(),
+        table_comment: Some("new comment".to_string()),
+        original_table_comment: Some("old comment".to_string()),
+    });
+
+    assert_eq!(result.warnings, Vec::<String>::new());
+    assert_eq!(result.statements, vec!["COMMENT ON TABLE \"SYSDBA\".\"users\" IS 'new comment';"]);
+}

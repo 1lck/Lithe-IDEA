@@ -1,0 +1,26 @@
+[package]
+name = "lithe-db-sidecar"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+csv = "1"
+futures-util = "0.3"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+redis = { version = "0.27", default-features = false, features = ["tokio-rustls-comp"] }
+mongodb = "=3.2.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rust_decimal = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "any", "mysql", "postgres", "sqlite", "json", "chrono", "rust_decimal", "uuid"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+tiberius = { version = "0.12.3", default-features = false, features = ["tds73", "chrono", "rust_decimal", "rustls", "sql-browser-tokio"] }
+urlencoding = "2"
+uuid = { version = "1", features = ["serde"] }

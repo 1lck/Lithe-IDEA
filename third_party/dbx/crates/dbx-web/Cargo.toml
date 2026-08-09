@@ -1,0 +1,41 @@
+[package]
+name = "dbx-web"
+version = "0.5.77"
+edition = "2021"
+license = "Apache-2.0"
+
+[[bin]]
+name = "dbx-web"
+path = "src/main.rs"
+
+[features]
+default = ["duckdb-sidecar", "mq-admin", "sqlite-sqlcipher", "system-fonts"]
+duckdb-sidecar = ["dbx-core/duckdb-sidecar"]
+mq-admin = ["dbx-core/mq-admin"]
+sqlite-sqlcipher = ["dbx-core/sqlite-sqlcipher"]
+system-fonts = ["dbx-core/system-fonts"]
+
+[dependencies]
+dbx-core = { path = "../dbx-core", default-features = false, features = ["openapi"] }
+redis = { version = "0.32", features = ["tokio-comp"] }
+axum = { version = "0.8", features = ["multipart", "ws"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "compression-gzip", "trace"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+utoipa = { version = "5.5", features = ["axum_extras"] }
+uuid = { version = "1", features = ["v4"] }
+argon2 = "0.5"
+log = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "tracing-log"] }
+tracing = "0.1"
+async-stream = "0.3"
+futures = "0.3"
+rustls = { version = "0.23", features = ["aws-lc-rs"] }
+tokio-util = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+chrono = "0.4"
+aes-gcm = "0.10"
+base64 = "0.22"
+pbkdf2 = "0.12"
+sha2 = "0.10"
