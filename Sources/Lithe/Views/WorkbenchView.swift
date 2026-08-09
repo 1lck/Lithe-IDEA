@@ -1180,13 +1180,7 @@ private struct RunConfigurationPickerPopover: View {
                     isPresented = false
                 } label: {
                     HStack(spacing: 9) {
-                        Image(systemName: configuration.systemImage)
-                            .font(.system(size: 13))
-                            .foregroundStyle(
-                                configuration.id == selectedConfigurationID
-                                    ? LitheTheme.primaryText
-                                    : LitheTheme.secondaryText
-                            )
+                        RunConfigurationIcon(kind: configuration.kind, size: 16)
                             .frame(width: 18)
 
                         Text(LocalizedStringKey(configuration.name))

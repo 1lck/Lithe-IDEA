@@ -57,8 +57,12 @@ struct JavaDebugView: View {
                 }
             case .runConfiguration:
                 HStack(spacing: 7) {
-                    Image(systemName: selectedDebugConfiguration?.systemImage ?? "shippingbox")
-                        .foregroundStyle(LitheTheme.secondaryText)
+                    if let selectedDebugConfiguration {
+                        RunConfigurationIcon(kind: selectedDebugConfiguration.kind, size: 16)
+                    } else {
+                        LitheSystemIcon(systemImage: "shippingbox")
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
                     Menu {
                         if debugConfigurations.isEmpty {
                             Text("No Spring Boot or Maven Module configurations")
@@ -67,7 +71,10 @@ struct JavaDebugView: View {
                                 Button {
                                     model.selectRunConfiguration(configuration)
                                 } label: {
-                                    Label(configuration.name, systemImage: configuration.systemImage)
+                                    HStack {
+                                        RunConfigurationIcon(kind: configuration.kind, size: 16)
+                                        Text(configuration.name)
+                                    }
                                 }
                             }
                         }

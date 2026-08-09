@@ -4,6 +4,11 @@ struct RunView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: JavaRunFeatureModel
     @State private var selectedSessionID: String?
+    @AppStorage("lithe.run.collapsedExecutions") private var collapsedExecutionIDs = ""
+    @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
+    @AppStorage("lithe.run.configurationListWidth") private var configurationListWidth = 230.0
+    @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
+    @State private var configurationListDragStart: CGFloat = 230
     /// The configuration whose editor popover is open. Held separately from the list
     /// selection so opening an editor does not switch which log is shown.
     @State private var editingConfigurationID: String?
@@ -28,21 +33,54 @@ struct RunView: View {
                 OutputTextView(
                     output: feature.output,
                     searchRoots: feature.sourceSearchRoots,
-                    emptyMessage: "Run a configuration to see process output."
+                    emptyMessage: String(localized: "Run a configuration to see process output.")
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
             } else {
-                HStack(spacing: 0) {
-                    moduleSessionList
-                        .frame(width: 230)
-                    Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                    OutputTextView(
-                        output: selectedOutput,
-                        searchRoots: feature.sourceSearchRoots,
-                        emptyMessage: "Select a run configuration to see its output."
-                    ) { url, line, column in
-                        model.openSourceLocation(url: url, line: line, column: column)
+                GeometryReader { geometry in
+                    let minimumListWidth: CGFloat = 180
+                    let minimumContentWidth: CGFloat = 320
+                    let maximumListWidth = max(
+                        minimumListWidth,
+                        min(420, geometry.size.width - SplitHandleView.thickness - minimumContentWidth)
+                    )
+                    let resolvedListWidth = constrained(
+                        CGFloat(configurationListWidth),
+                        minimum: minimumListWidth,
+                        maximum: maximumListWidth
+                    )
+
+                    HStack(spacing: 0) {
+                        if isConfigurationListCollapsed {
+                            collapsedConfigurationListBar
+                                .frame(width: 32)
+                            Rectangle()
+                                .fill(LitheTheme.divider)
+                                .frame(width: 1)
+                        } else {
+                            moduleSessionList
+                                .frame(width: resolvedListWidth)
+
+                            SplitHandleView(
+                                axis: .horizontal,
+                                onDragStarted: {
+                                    configurationListDragStart = resolvedListWidth
+                                },
+                                onDragChanged: { translation in
+                                    configurationListWidth = Double(
+                                        constrained(
+                                            configurationListDragStart + translation,
+                                            minimum: minimumListWidth,
+                                            maximum: maximumListWidth
+                                        )
+                                    )
+                                },
+                                onDragEnded: {}
+                            )
+                        }
+
+                        selectedConfigurationContent
                     }
                 }
             }
@@ -358,67 +396,438 @@ struct RunView: View {
         return selectedModuleSession?.output ?? ""
     }
 
+    @ViewBuilder
+    private var selectedConfigurationContent: some View {
+        if let configuration = selectedRunnableConfiguration {
+            configurationContent(configuration)
+        } else {
+            OutputTextView(
+                output: selectedOutput,
+                searchRoots: feature.sourceSearchRoots,
+                emptyMessage: String(localized: "Select a run configuration to see its output.")
+            ) { url, line, column in
+                model.openSourceLocation(url: url, line: line, column: column)
+            }
+        }
+    }
+
+    private var collapsedExecutions: Set<String> {
+        Set(collapsedExecutionIDs.split(separator: ",").map(String.init))
+    }
+
+    private var pinnedConfigurationTokenSet: Set<String> {
+        Set(pinnedConfigurationTokens.split(separator: "\n").map(String.init))
+    }
+
+    private func pinToken(for configuration: JavaRunConfiguration) -> String {
+        let project = model.workspaceURL?.standardizedFileURL.path ?? ""
+        return project + "::" + configuration.id
+    }
+
+    private func isPinned(_ configuration: JavaRunConfiguration) -> Bool {
+        pinnedConfigurationTokenSet.contains(pinToken(for: configuration))
+    }
+
+    private func toggleCollapsed(_ execution: RunConfigurationExecution) {
+        var values = collapsedExecutions
+        if values.contains(execution.rawValue) {
+            values.remove(execution.rawValue)
+        } else {
+            values.insert(execution.rawValue)
+        }
+        collapsedExecutionIDs = values.sorted().joined(separator: ",")
+    }
+
+    private func togglePinned(_ configuration: JavaRunConfiguration) {
+        var values = pinnedConfigurationTokenSet
+        let token = pinToken(for: configuration)
+        if values.contains(token) {
+            values.remove(token)
+        } else {
+            values.insert(token)
+        }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            pinnedConfigurationTokens = values.sorted().joined(separator: "\n")
+        }
+    }
+
+    private var pinnedRunnableConfigurations: [JavaRunConfiguration] {
+        runnableConfigurations
+            .filter(isPinned)
+            .sorted(by: configurationNamePrecedes)
+    }
+
+    private func unpinnedConfigurations(
+        for execution: RunConfigurationExecution
+    ) -> [JavaRunConfiguration] {
+        runnableConfigurations
+            .filter { $0.execution == execution && !isPinned($0) }
+            .sorted(by: configurationNamePrecedes)
+    }
+
+    private func configurationNamePrecedes(
+        _ left: JavaRunConfiguration,
+        _ right: JavaRunConfiguration
+    ) -> Bool {
+        left.name.localizedStandardCompare(right.name) == .orderedAscending
+    }
+
     private var moduleSessionList: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 2) {
-                sessionRow(
-                    title: String(localized: "Current run"),
-                    subtitle: feature.runningTitle ?? String(localized: "Primary configuration"),
-                    isRunning: feature.isRunning,
-                    exitCode: feature.lastExitCode,
-                    isSelected: selectedSessionID == nil,
-                    onToggle: nil
-                ) {
-                    selectedSessionID = nil
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text("Run configurations")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Spacer(minLength: 0)
+                Button {
+                    isConfigurationListCollapsed = true
+                } label: {
+                    Image(systemName: "chevron.left")
                 }
+                .litheIconButton()
+                .help("Hide configuration list")
+                .accessibilityLabel("Hide configuration list")
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 5)
+            .frame(height: 30)
 
-                ForEach(RunConfigurationExecution.displayOrder, id: \.self) { execution in
-                    let configurations = runnableConfigurations.filter { $0.execution == execution }
-                    if !configurations.isEmpty {
-                        Text(String(localized: String.LocalizationValue(execution.sectionTitle)))
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .padding(.horizontal, 6)
-                            .padding(.top, 8)
+            Rectangle()
+                .fill(LitheTheme.divider)
+                .frame(height: 1)
 
-                        ForEach(configurations) { configuration in
-                            let session = feature.moduleSessions.first { $0.id == configuration.id }
-                            sessionRow(
-                                title: configuration.name,
-                                subtitle: String(localized: String.LocalizationValue(configuration.kind.title)),
-                                isRunning: session?.isRunning ?? false,
-                                exitCode: session?.exitCode,
-                                isSelected: selectedSessionID == configuration.id,
-                                onEdit: {
-                                    editingConfigurationID = configuration.id
-                                },
-                                isEditing: Binding(
-                                    get: { editingConfigurationID == configuration.id },
-                                    set: { isPresented in
-                                        if !isPresented, editingConfigurationID == configuration.id {
-                                            editingConfigurationID = nil
-                                        }
-                                    }
-                                ),
-                                editorConfiguration: configuration,
-                                onToggle: {
-                                    if let session, session.isRunning {
-                                        feature.stopModule(session)
-                                    } else {
-                                        feature.startConfiguration(configuration)
-                                        selectedSessionID = configuration.id
-                                    }
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 2) {
+                    let pinnedConfigurations = pinnedRunnableConfigurations
+                    if !pinnedConfigurations.isEmpty {
+                        pinnedSectionHeader(count: pinnedConfigurations.count)
+
+                        ForEach(pinnedConfigurations) { configuration in
+                            configurationRow(configuration)
+                        }
+                    }
+
+                    sessionRow(
+                        title: String(localized: "Current run"),
+                        subtitle: feature.runningTitle ?? String(localized: "Primary configuration"),
+                        isRunning: feature.isRunning,
+                        exitCode: feature.lastExitCode,
+                        isSelected: selectedSessionID == nil,
+                        onToggle: nil
+                    ) {
+                        selectedSessionID = nil
+                    }
+
+                    ForEach(RunConfigurationExecution.displayOrder, id: \.self) { execution in
+                        let configurations = unpinnedConfigurations(for: execution)
+                        if !configurations.isEmpty {
+                            sectionHeader(execution, count: configurations.count)
+
+                            if !collapsedExecutions.contains(execution.rawValue) {
+                                ForEach(configurations) { configuration in
+                                    configurationRow(configuration)
                                 }
-                            ) {
-                                selectedSessionID = configuration.id
                             }
                         }
                     }
                 }
             }
-            .padding(7)
+                .padding(7)
         }
         .background(LitheTheme.sidebar)
+    }
+
+    private func pinnedSectionHeader(count: Int) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 10)
+            Text("Pinned")
+            Spacer(minLength: 0)
+            Text(String(count))
+                .font(.system(size: 10))
+                .foregroundStyle(LitheTheme.secondaryText)
+        }
+        .font(.system(size: 10.5, weight: .semibold))
+        .foregroundStyle(LitheTheme.accent)
+        .padding(.horizontal, 6)
+        .padding(.top, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func configurationRow(_ configuration: JavaRunConfiguration) -> some View {
+        let session = feature.moduleSessions.first { $0.id == configuration.id }
+
+        return sessionRow(
+            title: configuration.name,
+            subtitle: String(localized: String.LocalizationValue(configuration.kind.title)),
+            configurationKind: configuration.kind,
+            isRunning: session?.isRunning ?? false,
+            exitCode: session?.exitCode,
+            isSelected: selectedSessionID == configuration.id,
+            isPinned: isPinned(configuration),
+            onPin: { togglePinned(configuration) },
+            onEdit: {
+                editingConfigurationID = configuration.id
+            },
+            isEditing: Binding(
+                get: { editingConfigurationID == configuration.id },
+                set: { isPresented in
+                    if !isPresented, editingConfigurationID == configuration.id {
+                        editingConfigurationID = nil
+                    }
+                }
+            ),
+            editorConfiguration: configuration,
+            onToggle: {
+                if let session, session.isRunning {
+                    feature.stopModule(session)
+                } else {
+                    feature.startConfiguration(configuration)
+                    selectedSessionID = configuration.id
+                }
+            }
+        ) {
+            selectedSessionID = configuration.id
+        }
+    }
+
+    private var collapsedConfigurationListBar: some View {
+        VStack(spacing: 0) {
+            Button {
+                isConfigurationListCollapsed = false
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .litheIconButton()
+            .help("Show configuration list")
+            .accessibilityLabel("Show configuration list")
+            .frame(height: 30)
+            Spacer(minLength: 0)
+        }
+        .frame(maxHeight: .infinity)
+        .background(LitheTheme.sidebar)
+    }
+
+    private func configurationContent(_ configuration: JavaRunConfiguration) -> some View {
+        let session = feature.moduleSessions.first { $0.id == configuration.id }
+
+        return VStack(spacing: 0) {
+            configurationDetail(configuration, session: session)
+                .frame(maxHeight: session == nil ? .infinity : 220, alignment: .top)
+
+            if let session {
+                Rectangle()
+                    .fill(LitheTheme.divider)
+                    .frame(height: 1)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "terminal")
+                    Text("Process output")
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .padding(.horizontal, 12)
+                .frame(height: 28)
+                .background(LitheTheme.sidebar.opacity(0.45))
+
+                OutputTextView(
+                    output: session.output,
+                    searchRoots: feature.sourceSearchRoots,
+                    emptyMessage: String(localized: "Process output will appear here.")
+                ) { url, line, column in
+                    model.openSourceLocation(url: url, line: line, column: column)
+                }
+            }
+        }
+        .background(LitheTheme.editor)
+    }
+
+    private func configurationDetail(
+        _ configuration: JavaRunConfiguration,
+        session: JavaRunSession?
+    ) -> some View {
+        let options = feature.options(for: configuration)
+        let workingDirectory = options.workingDirectoryPath.isEmpty
+            ? (model.workspaceURL?.standardizedFileURL.path ?? String(localized: "Project root"))
+            : options.workingDirectoryPath
+
+        return ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 11) {
+                    RunConfigurationIcon(kind: configuration.kind, size: 22)
+                        .frame(width: 34, height: 34)
+                        .background(LitheTheme.accent.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(configuration.name)
+                            .font(.system(size: 14, weight: .semibold))
+                            .textSelection(.enabled)
+                        Text(String(localized: String.LocalizationValue(configuration.kind.title)))
+                            .font(.system(size: 11))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
+
+                    Spacer(minLength: 10)
+                    statusLabel(for: session)
+                }
+
+                Rectangle()
+                    .fill(LitheTheme.divider)
+                    .frame(height: 1)
+
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Configuration details")
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Spacer(minLength: 8)
+                    Text("Read-only")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .padding(.horizontal, 7)
+                        .frame(height: 20)
+                        .background(LitheTheme.sidebar.opacity(0.8))
+                        .clipShape(Capsule())
+                }
+
+                VStack(spacing: 8) {
+                    configurationDetailRow(
+                        "Type",
+                        value: String(localized: String.LocalizationValue(configuration.kind.title))
+                    )
+                    configurationDetailRow("Category", value: localizedExecution(configuration.execution))
+                    configurationDetailRow("Provider", value: configuration.kind.id, monospaced: true)
+                    configurationDetailRow("Working directory", value: workingDirectory, monospaced: true)
+
+                    if let modulePath = nonEmpty(configuration.modulePath) {
+                        configurationDetailRow("Module", value: modulePath, monospaced: true)
+                    }
+                    if let mainClass = nonEmpty(configuration.mainClass) {
+                        configurationDetailRow("Main class", value: mainClass, monospaced: true)
+                    }
+                    if let javaHome = nonEmpty(options.javaHomePath) {
+                        configurationDetailRow("JDK home", value: javaHome, monospaced: true)
+                    }
+                    if let vmArguments = nonEmpty(options.vmArguments) {
+                        configurationDetailRow("VM arguments", value: vmArguments, monospaced: true)
+                    }
+                    if let programArguments = nonEmpty(options.programArguments) {
+                        configurationDetailRow("Program arguments", value: programArguments, monospaced: true)
+                    }
+                    if !options.activeProfiles.isEmpty {
+                        configurationDetailRow(
+                            "Active profiles",
+                            value: options.activeProfiles.sorted().joined(separator: ", "),
+                            monospaced: true
+                        )
+                    }
+                    if options.javaHomePath.isEmpty,
+                       options.vmArguments.isEmpty,
+                       options.programArguments.isEmpty,
+                       options.activeProfiles.isEmpty {
+                        configurationDetailRow("Options", value: String(localized: "Default options"))
+                    }
+
+                    configurationDetailRow("Source", value: localizedSource(feature.source(for: configuration)))
+                    configurationDetailRow("Configuration ID", value: configuration.id, monospaced: true)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func configurationDetailRow(
+        _ label: LocalizedStringKey,
+        value: String,
+        monospaced: Bool = false
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(label)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(width: 118, alignment: .trailing)
+
+            Text(value)
+                .font(.system(size: 11.5, design: monospaced ? .monospaced : .default))
+                .foregroundStyle(LitheTheme.primaryText)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func statusLabel(for session: JavaRunSession?) -> some View {
+        let title: LocalizedStringKey
+        let color: Color
+        if let session, session.isRunning {
+            title = "Running"
+            color = LitheTheme.success
+        } else if let exitCode = session?.exitCode {
+            title = exitCode == 0 ? "Finished" : "Failed"
+            color = exitCode == 0 ? LitheTheme.success : LitheTheme.error
+        } else {
+            title = "Not run"
+            color = LitheTheme.secondaryText
+        }
+
+        return Text(title)
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(color.opacity(0.10))
+            .clipShape(Capsule())
+    }
+
+    private func localizedExecution(_ execution: RunConfigurationExecution) -> String {
+        String(localized: String.LocalizationValue(execution.sectionTitle))
+    }
+
+    private func localizedSource(_ source: RunConfigurationSource) -> String {
+        switch source {
+        case .generated: String(localized: "Automatically identified")
+        case .project: String(localized: "Shared with project")
+        case .local: String(localized: "This Mac only")
+        }
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
+        min(max(value, minimum), maximum)
+    }
+
+    private func sectionHeader(_ execution: RunConfigurationExecution, count: Int) -> some View {
+        Button {
+            toggleCollapsed(execution)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: collapsedExecutions.contains(execution.rawValue) ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 10)
+                Text(String(localized: String.LocalizationValue(execution.sectionTitle)))
+                Spacer(minLength: 0)
+                Text(String(count))
+                    .font(.system(size: 10))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(.horizontal, 6)
+            .padding(.top, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .lithePointer()
+        .help(collapsedExecutions.contains(execution.rawValue) ? "Expand" : "Collapse")
+        .accessibilityLabel(String(localized: String.LocalizationValue(execution.sectionTitle)))
+        .accessibilityValue(collapsedExecutions.contains(execution.rawValue) ? "Collapsed" : "Expanded")
     }
 
     private func sessionStatus(isRunning: Bool, exitCode: Int32?) -> some View {
@@ -439,9 +848,12 @@ struct RunView: View {
     private func sessionRow(
         title: String,
         subtitle: String,
+        configurationKind: JavaRunConfigurationKind? = nil,
         isRunning: Bool,
         exitCode: Int32?,
         isSelected: Bool,
+        isPinned: Bool = false,
+        onPin: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
         isEditing: Binding<Bool> = .constant(false),
         editorConfiguration: JavaRunConfiguration? = nil,
@@ -450,9 +862,30 @@ struct RunView: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: isRunning ? "circle.fill" : (exitCode == 0 ? "checkmark.circle.fill" : "play.rectangle"))
-                    .foregroundStyle(isRunning ? LitheTheme.success : (exitCode == 0 ? LitheTheme.success : LitheTheme.secondaryText))
-                    .frame(width: 16)
+                ZStack(alignment: .bottomTrailing) {
+                    if let configurationKind {
+                        RunConfigurationIcon(kind: configurationKind, size: 16)
+                    } else {
+                        Image(systemName: isRunning ? "circle.fill" : (exitCode == 0 ? "checkmark.circle.fill" : "play.rectangle"))
+                            .foregroundStyle(
+                                isRunning
+                                    ? LitheTheme.success
+                                    : (exitCode == 0 ? LitheTheme.success : LitheTheme.secondaryText)
+                            )
+                            .frame(width: 16, height: 16)
+                    }
+
+                    if configurationKind != nil, isRunning || exitCode != nil {
+                        Circle()
+                            .fill(isRunning || exitCode == 0 ? LitheTheme.success : LitheTheme.error)
+                            .frame(width: 6, height: 6)
+                            .overlay {
+                                Circle().stroke(LitheTheme.sidebar, lineWidth: 1)
+                            }
+                            .offset(x: 1, y: 1)
+                    }
+                }
+                .frame(width: 16, height: 16)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .lineLimit(1)
@@ -462,6 +895,18 @@ struct RunView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                if let onPin {
+                    Button(action: onPin) {
+                        Image(systemName: isPinned ? "pin.fill" : "pin")
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: 20, height: 24)
+                    .contentShape(Rectangle())
+                    .lithePointer()
+                    .foregroundStyle(isPinned ? LitheTheme.accent : LitheTheme.secondaryText)
+                    .help(isPinned ? "Unpin configuration" : "Pin configuration")
+                    .accessibilityLabel(isPinned ? "Unpin configuration" : "Pin configuration")
+                }
                 if let onEdit, let editorConfiguration {
                     Button(action: onEdit) {
                         Image(systemName: "gearshape")

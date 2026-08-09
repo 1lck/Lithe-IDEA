@@ -89,8 +89,7 @@ struct JavaRunConfigurationEditorView: View {
 
     private var header: some View {
         HStack(spacing: 9) {
-            Image(systemName: configuration.systemImage)
-                .foregroundStyle(LitheTheme.accent)
+            RunConfigurationIcon(kind: configuration.kind, size: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Run Configuration")
                     .font(.system(size: 14, weight: .semibold))
