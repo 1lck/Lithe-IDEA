@@ -542,6 +542,20 @@ final class GitFeatureModel: ObservableObject {
         await refreshGit()
     }
 
+    func setChanges(_ changes: [GitChange], staged: Bool) async {
+        let pendingChanges = changes.filter { $0.isStaged != staged }
+        guard !pendingChanges.isEmpty else { return }
+
+        let result = await withGitOperation {
+            await service.setStaged(pendingChanges, staged: staged)
+        }
+        showResult(
+            result,
+            success: staged ? "Staged all files" : "Unstaged all files"
+        )
+        await refreshGit()
+    }
+
     func stageAllChanges() async {
         guard let gitRepositoryRoot else { return }
         let result = await withGitOperation { await service.stageAll(at: gitRepositoryRoot) }

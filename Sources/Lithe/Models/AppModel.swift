@@ -1237,6 +1237,10 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.toggleStaging(change)
     }
 
+    func setChanges(_ changes: [GitChange], staged: Bool) async {
+        await gitFeature.setChanges(changes, staged: staged)
+    }
+
     func stageAllChanges() async {
         await gitFeature.stageAllChanges()
     }

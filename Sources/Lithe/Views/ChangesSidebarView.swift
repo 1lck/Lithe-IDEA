@@ -521,33 +521,58 @@ struct ChangesSidebarView: View {
         showsParentPaths: Bool
     ) -> some View {
         if !changes.isEmpty {
-            Button {
-                expanded.wrappedValue.toggle()
-            } label: {
-                HStack(spacing: 7) {
+            let allStaged = changes.allSatisfy(\.isStaged)
+            let someStaged = changes.contains(where: \.isStaged)
+            let stagingIcon = allStaged
+                ? "checkmark.square.fill"
+                : someStaged ? "minus.square.fill" : "square"
+
+            HStack(spacing: 7) {
+                Button {
+                    expanded.wrappedValue.toggle()
+                } label: {
                     Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right")
                         .font(.system(size: 8, weight: .bold))
                         .frame(width: 10)
-                    Image(systemName: "square")
-                        .font(.system(size: 16))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Text(LocalizedStringKey(title))
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                    Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
-                        .font(.system(size: 11))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Spacer()
                 }
-                .padding(.horizontal, 7)
-                .frame(maxWidth: .infinity)
-                .frame(height: 30)
-                .background(LitheTheme.subtleSelection.opacity(0.72))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help(LocalizedStringKey(expanded.wrappedValue ? "Collapse" : "Expand"))
+
+                Button {
+                    Task { await model.setChanges(changes, staged: !allStaged) }
+                } label: {
+                    Image(systemName: stagingIcon)
+                        .font(.system(size: 16))
+                        .foregroundStyle(someStaged ? LitheTheme.accent : LitheTheme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help(LocalizedStringKey(allStaged ? "Unstage all files" : "Stage all files"))
+
+                Button {
+                    expanded.wrappedValue.toggle()
+                } label: {
+                    HStack(spacing: 7) {
+                        Text(LocalizedStringKey(title))
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(LitheTheme.primaryText)
+                        Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
+                            .font(.system(size: 11))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
             }
-            .buttonStyle(.plain)
-            .lithePointer()
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .background(LitheTheme.subtleSelection.opacity(0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
 
             if expanded.wrappedValue {
                 ForEach(changes) { change in

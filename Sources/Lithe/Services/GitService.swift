@@ -53,6 +53,7 @@ protocol GitOperations: Sendable {
 
     func stage(_ change: GitChange) -> ProcessResult?
     func unstage(_ change: GitChange) -> ProcessResult?
+    func setStaged(_ changes: [GitChange], staged: Bool) -> ProcessResult?
     func discard(_ change: GitChange) -> ProcessResult?
     func discardAll(_ change: GitChange) -> ProcessResult?
     func commit(at rootURL: URL, message: String, amend: Bool) -> ProcessResult?
@@ -219,6 +220,10 @@ struct GitService: Sendable {
 
     func unstage(_ change: GitChange) async -> CommandResult {
         await command { $0.unstage(change) }
+    }
+
+    func setStaged(_ changes: [GitChange], staged: Bool) async -> CommandResult {
+        await command { $0.setStaged(changes, staged: staged) }
     }
 
     func discard(_ change: GitChange) async -> CommandResult {

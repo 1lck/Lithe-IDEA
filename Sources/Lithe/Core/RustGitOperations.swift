@@ -89,6 +89,25 @@ struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
         write(at: change.repositoryRoot, operation: "unstage", paths: change.pathspecs)
     }
 
+    func setStaged(_ changes: [GitChange], staged: Bool) -> ProcessResult? {
+        guard let repositoryRoot = changes.first?.repositoryRoot else {
+            return ProcessResult(output: "No changes selected", exitCode: 1)
+        }
+        guard changes.allSatisfy({ $0.repositoryRoot == repositoryRoot }) else {
+            return ProcessResult(output: "Changes belong to different repositories", exitCode: 1)
+        }
+
+        var seenPaths = Set<String>()
+        let paths = changes
+            .flatMap(\.pathspecs)
+            .filter { seenPaths.insert($0).inserted }
+        return write(
+            at: repositoryRoot,
+            operation: staged ? "stage" : "unstage",
+            paths: paths
+        )
+    }
+
     func discard(_ change: GitChange) -> ProcessResult? {
         return write(at: change.repositoryRoot, operation: "discard", paths: change.pathspecs)
     }
