@@ -158,7 +158,9 @@ final class AppModel: ObservableObject, Identifiable {
         )
         documentFeature = DocumentFeatureModel(
             operations: services.workspaceOperations,
-            fileOperations: services.fileOperations
+            fileOperations: services.fileOperations,
+            fileStorage: services.fileStorage,
+            binaryFileViewerRegistry: services.binaryFileViewerRegistry
         )
         javaFeature = JavaFeatureModel(
             service: services.javaLanguageService,

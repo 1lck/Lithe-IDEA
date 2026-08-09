@@ -662,10 +662,47 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func textFilePolicyRecognizesMarkdownAndExtensionlessFiles() {
-        #expect(WorkspaceTextFilePolicy.isReadableTextFile(URL(fileURLWithPath: "/tmp/README.MD")))
-        #expect(WorkspaceTextFilePolicy.isReadableTextFile(URL(fileURLWithPath: "/tmp/Makefile")))
-        #expect(!WorkspaceTextFilePolicy.isReadableTextFile(URL(fileURLWithPath: "/tmp/archive.png")))
+    func textFilePolicyRecognizesPlainTextRegardlessOfExtension() {
+        #expect(WorkspaceTextFilePolicy.isPlainText("{\n  \"version\": 3\n}\n"))
+        #expect(WorkspaceTextFilePolicy.isPlainText("plain text with an unknown suffix"))
+        #expect(WorkspaceTextFilePolicy.isPlainText(Data("Package.resolved\n".utf8)))
+        #expect(!WorkspaceTextFilePolicy.isPlainText("text\0binary"))
+        #expect(!WorkspaceTextFilePolicy.isPlainText("text\u{1B}[31m"))
+        #expect(!WorkspaceTextFilePolicy.isPlainText(Data([0x00, 0x01, 0x02])))
+    }
+
+    @Test @MainActor
+    func binaryFileViewerRegistryPrefersMagicAndDefaultsToDeny() async {
+        let registry = BinaryFileViewerRegistry()
+        var opened: [BinaryFileOpenRequest] = []
+
+        // This deliberately uses a fictional suffix and magic value. It tests
+        // the extension point without implying that the app supports any real
+        // binary format such as PNG or JPEG.
+        registry.register(BinaryFileViewerRegistration(
+            identifier: "test.fixture-viewer",
+            fileExtensions: [".lithe-binary-fixture"],
+            magicSignatures: [BinaryFileMagicSignature(
+                bytes: Data([0xDE, 0xAD, 0xBE, 0xEF])
+            )],
+            open: { opened.append($0) }
+        ))
+
+        // A magic match must work even when the filename suffix does not match.
+        let magicMatchedURL = URL(fileURLWithPath: "/tmp/fixture.bin")
+        let fixtureHeader = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x00])
+        #expect(await registry.openIfSupported(url: magicMatchedURL, header: fixtureHeader))
+        #expect(opened.last?.match == .magicSignature)
+
+        // Extensions are normalized and used only when no magic value matches.
+        let extensionURL = URL(fileURLWithPath: "/tmp/fixture.LITHE-BINARY-FIXTURE")
+        #expect(await registry.openIfSupported(url: extensionURL, header: Data([0x00])))
+        #expect(opened.last?.match == .fileExtension("lithe-binary-fixture"))
+
+        // Anything not explicitly registered remains denied by default.
+        let unsupportedURL = URL(fileURLWithPath: "/tmp/archive.bin")
+        #expect(!(await registry.openIfSupported(url: unsupportedURL, header: Data([0x00]))))
+        #expect(opened.count == 2)
     }
 
     @Test
@@ -2038,6 +2075,10 @@ private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
             throw CocoaError(.fileReadNoSuchFile)
         }
         return value
+    }
+
+    func readPrefix(from url: URL, byteCount: Int) throws -> Data {
+        try readData(from: url, options: []).prefix(byteCount)
     }
 
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = []) throws {
