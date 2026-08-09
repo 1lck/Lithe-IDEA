@@ -542,6 +542,26 @@ mod tests {
         .expect("read response should be JSON");
         assert_eq!(read_response["data"]["text"], "hello");
 
+        let oversized_path = root.join("oversized.txt");
+        fs::File::create(&oversized_path)
+            .expect("oversized fixture should be creatable")
+            .set_len(32 * 1024 * 1024 + 1)
+            .expect("oversized fixture should be resizable");
+        let oversized = serde_json::json!({
+            "id": "oversized",
+            "command": "file.read",
+            "payload": {"root": root, "path": "oversized.txt"}
+        });
+        let oversized_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&oversized).expect("oversized request should encode"),
+        ))
+        .expect("oversized response should be JSON");
+        assert_eq!(oversized_response["ok"], false);
+        assert_eq!(
+            oversized_response["error"]["message"],
+            "File is too large to open"
+        );
+
         let traversal = serde_json::json!({
             "id": "traversal",
             "command": "file.read",

@@ -25,6 +25,7 @@ const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
 ];
 const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store"];
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
+const MAX_OPEN_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -339,6 +340,13 @@ pub fn replace_preview(
 pub fn read_file(request: FileReadRequest) -> Result<FileReadResponse, CoreError> {
     let root = existing_root(&request.root)?;
     let path = safe_relative_path(&root, &request.path)?;
+    let metadata = fs::metadata(&path)?;
+    if metadata.len() > MAX_OPEN_FILE_SIZE {
+        return Err(
+            CoreError::new(ErrorCode::ParseFailed, "File is too large to open")
+                .with_details("The maximum supported file size is 32 MB"),
+        );
+    }
     let text = fs::read_to_string(&path).map_err(|error| {
         CoreError::new(ErrorCode::ParseFailed, "File is not valid UTF-8")
             .with_details(error.to_string())
