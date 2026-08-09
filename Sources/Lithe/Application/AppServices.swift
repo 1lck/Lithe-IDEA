@@ -20,6 +20,8 @@ final class AppServices {
     let store: any KeyValueStore
     let fileStorage: any FileStorage
     let fileOperations: any WorkspaceFileOperations
+    /// Empty by default; binary support exists only after an explicit registration.
+    let binaryFileViewerRegistry: BinaryFileViewerRegistry
     let projectRuntimeService: ProjectRuntimeService
     let javaLanguageService: JavaLanguageService
     let javaImplementationMarkerService: JavaImplementationMarkerService
@@ -49,6 +51,7 @@ final class AppServices {
         store: any KeyValueStore,
         fileStorage: any FileStorage,
         fileOperations: any WorkspaceFileOperations,
+        binaryFileViewerRegistry: BinaryFileViewerRegistry,
         projectRuntimeService: ProjectRuntimeService,
         javaLanguageService: JavaLanguageService,
         javaImplementationMarkerService: JavaImplementationMarkerService,
@@ -77,6 +80,7 @@ final class AppServices {
         self.store = store
         self.fileStorage = fileStorage
         self.fileOperations = fileOperations
+        self.binaryFileViewerRegistry = binaryFileViewerRegistry
         self.projectRuntimeService = projectRuntimeService
         self.javaLanguageService = javaLanguageService
         self.javaImplementationMarkerService = javaImplementationMarkerService

@@ -85,6 +85,9 @@ final class MacServiceContainer {
             transport: MacURLSessionTransport(),
             credentialResolver: credentialResolver
         )
+        // Keep binary formats default-denied. Future format support must be
+        // registered explicitly at this composition boundary.
+        let binaryFileViewerRegistry = BinaryFileViewerRegistry()
         services = AppServices(
             workspaceOperations: workspaceOperations,
             localHistoryOperations: localHistoryOperations,
@@ -94,6 +97,7 @@ final class MacServiceContainer {
             store: store,
             fileStorage: fileStorage,
             fileOperations: fileOperations,
+            binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
             javaLanguageService: languageService,
             javaImplementationMarkerService: javaImplementationMarkerService,

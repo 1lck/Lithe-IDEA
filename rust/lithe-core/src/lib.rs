@@ -302,6 +302,60 @@ mod tests {
     }
 
     #[test]
+    fn search_accepts_utf8_text_with_an_unknown_extension() {
+        let root = temporary_root("unknown-text-extension");
+        fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+        fs::write(root.join("Package.resolved"), "needle in a text file\n")
+            .expect("text file should be writable");
+        fs::write(root.join("binary.data"), b"needle\0binary")
+            .expect("binary file should be writable");
+
+        let request = serde_json::json!({
+            "id": "unknown-extension",
+            "command": "workspace.search",
+            "payload": {"root": root, "query": "needle"}
+        });
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("search request should encode"),
+        ))
+        .expect("search response should be JSON");
+        assert_eq!(response["ok"], true);
+        let matches = response["data"]["matches"]
+            .as_array()
+            .expect("matches should be an array");
+        assert!(matches
+            .iter()
+            .any(|value| { value["kind"] == "content" && value["path"] == "Package.resolved" }));
+        assert!(!matches.iter().any(|value| value["path"] == "binary.data"));
+
+        let read_request = serde_json::json!({
+            "id": "read-unknown-extension",
+            "command": "file.read",
+            "payload": {"root": root, "path": "Package.resolved"}
+        });
+        let read_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&read_request).expect("read request should encode"),
+        ))
+        .expect("read response should be JSON");
+        assert_eq!(read_response["ok"], true);
+        assert_eq!(read_response["data"]["text"], "needle in a text file\n");
+
+        let binary_read_request = serde_json::json!({
+            "id": "read-binary",
+            "command": "file.read",
+            "payload": {"root": root, "path": "binary.data"}
+        });
+        let binary_read_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&binary_read_request)
+                .expect("binary read request should encode"),
+        ))
+        .expect("binary read response should be JSON");
+        assert_eq!(binary_read_response["ok"], false);
+
+        fs::remove_dir_all(root).expect("temporary fixture should be removable");
+    }
+
+    #[test]
     fn preserve_case_matches_original_occurrence_shape() {
         let root = temporary_root("preserve-case");
         fs::create_dir_all(&root).expect("fixture directory should be creatable");
@@ -379,6 +433,24 @@ mod tests {
         let invalid = request("history.record", invalid_reason);
         assert_eq!(invalid["ok"], false);
         assert_eq!(invalid["error"]["code"], "invalid_request");
+
+        let oversized_path = root.join("oversized.bin");
+        let oversized = fs::File::create(&oversized_path)
+            .expect("oversized history fixture should be creatable");
+        oversized
+            .set_len(3 * 1024 * 1024)
+            .expect("oversized history fixture should be sparse");
+        let skipped_oversized = request(
+            "history.record",
+            serde_json::json!({
+                "workspaceRoot": root,
+                "storageRoot": storage,
+                "path": "oversized.bin",
+                "reason": "saved"
+            }),
+        );
+        assert_eq!(skipped_oversized["ok"], true);
+        assert!(skipped_oversized["data"].is_null());
 
         let second = request("history.record", record_payload("two\n"));
         assert_eq!(second["ok"], true);

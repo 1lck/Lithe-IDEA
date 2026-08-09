@@ -175,19 +175,8 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
             continue;
         }
         let file = root.join(path);
-        if !is_readable_text_file(&file) {
+        let Some(text) = read_searchable_text(&file) else {
             continue;
-        }
-        let metadata = match fs::metadata(&file) {
-            Ok(metadata) if metadata.len() <= MAX_FILE_SIZE => metadata,
-            _ => continue,
-        };
-        if !metadata.is_file() {
-            continue;
-        }
-        let text = match fs::read_to_string(&file) {
-            Ok(text) => text,
-            Err(_) => continue,
         };
         for (index, line) in text.split('\n').enumerate() {
             crate::cancellation::check()?;
@@ -354,6 +343,12 @@ pub fn read_file(request: FileReadRequest) -> Result<FileReadResponse, CoreError
         CoreError::new(ErrorCode::ParseFailed, "File is not valid UTF-8")
             .with_details(error.to_string())
     })?;
+    if !is_plain_text(&text) {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "File is not plain text",
+        ));
+    }
     Ok(FileReadResponse {
         path: relative_path(&path, &root),
         text,
@@ -892,55 +887,21 @@ fn safe_relative_path_string(value: &str) -> Result<String, CoreError> {
 }
 
 fn read_searchable_text(path: &Path) -> Option<String> {
-    if !is_readable_text_file(path) || fs::metadata(path).ok()?.len() > MAX_FILE_SIZE {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_FILE_SIZE {
         return None;
     }
-    fs::read_to_string(path).ok()
+    let text = fs::read_to_string(path).ok()?;
+    is_plain_text(&text).then_some(text)
+}
+
+pub(crate) fn is_plain_text(text: &str) -> bool {
+    text.chars().all(|character| {
+        let value = character as u32;
+        value != 0 && !(value < 0x09 || (value > 0x0D && value < 0x20) || value == 0x7F)
+    })
 }
 
 fn is_word_character(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '_' || character == '$'
-}
-
-fn is_readable_text_file(path: &Path) -> bool {
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_lowercase();
-    matches!(
-        extension.as_str(),
-        "c" | "cc"
-            | "cpp"
-            | "css"
-            | "go"
-            | "h"
-            | "hpp"
-            | "html"
-            | "java"
-            | "js"
-            | "json"
-            | "jsx"
-            | "kt"
-            | "kts"
-            | "md"
-            | "m"
-            | "mm"
-            | "php"
-            | "plist"
-            | "properties"
-            | "py"
-            | "rb"
-            | "rs"
-            | "sh"
-            | "sql"
-            | "swift"
-            | "toml"
-            | "ts"
-            | "tsx"
-            | "txt"
-            | "xml"
-            | "yaml"
-            | "yml"
-    ) || extension.is_empty()
 }
