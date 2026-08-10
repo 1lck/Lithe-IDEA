@@ -338,6 +338,22 @@ protocol LanguageServerSession: AnyObject {
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
     func start(rootURL: URL) throws
     func synchronize(fileURL: URL, text: String, languageID: String) throws
+    func completions(
+        fileURL: URL,
+        position: LanguageServerPosition,
+        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) throws
+    func hover(
+        fileURL: URL,
+        position: LanguageServerPosition,
+        completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
+    ) throws
+    func navigate(
+        method: String,
+        fileURL: URL,
+        position: LanguageServerPosition,
+        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) throws
     func stop()
 }
 

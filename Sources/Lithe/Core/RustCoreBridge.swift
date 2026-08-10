@@ -421,20 +421,25 @@ struct RustCoreBridge: Sendable {
             let insertText: String
             let kind: Int?
             let detail: String?
-            let textEdit: LspTextEditPayload
+            let documentation: String?
+            let sortText: String?
+            let filterText: String?
+            let textEdit: LspTextEditPayload?
+            let additionalTextEdits: [LspTextEditPayload]?
+            let data: ToolingJSONValue?
 
             func makeModel() -> LanguageServerCompletionItem {
                 LanguageServerCompletionItem(
                     label: label,
                     detail: detail,
-                    documentation: nil,
+                    documentation: documentation,
                     insertText: insertText,
-                    sortText: nil,
-                    filterText: nil,
+                    sortText: sortText,
+                    filterText: filterText,
                     kind: kind,
-                    textEdit: textEdit.makeModel(),
-                    additionalTextEdits: [],
-                    data: nil
+                    textEdit: textEdit?.makeModel(),
+                    additionalTextEdits: additionalTextEdits?.map { $0.makeModel() } ?? [],
+                    data: data
                 )
             }
         }
@@ -450,13 +455,13 @@ struct RustCoreBridge: Sendable {
         struct Hover: Decodable, Sendable {
             let contents: String
             let isMarkdown: Bool
-            let range: LspRangePayload
+            let range: LspRangePayload?
 
             func makeModel() -> LanguageServerHover {
                 LanguageServerHover(
                     contents: contents,
                     isMarkdown: isMarkdown,
-                    range: range.makeModel()
+                    range: range?.makeModel()
                 )
             }
         }
@@ -984,6 +989,14 @@ struct RustCoreBridge: Sendable {
         let state: ToolingJSONValue
         let uri: String
         let text: String
+    }
+
+    private struct LspClientFeatureRequest: Encodable {
+        let state: ToolingJSONValue
+        let uri: String
+        let method: String
+        let position: LspTextEditsRequest.TextEdit.Range.Position?
+        let newName: String?
     }
 
     private struct LspClientApplyServerMessageRequest: Encodable {
@@ -1962,6 +1975,27 @@ struct RustCoreBridge: Sendable {
                 state: state,
                 uri: fileURL.standardizedFileURL.absoluteString,
                 text: text
+            )
+        )
+    }
+
+    func lspClientRequest(
+        state: ToolingJSONValue,
+        fileURL: URL,
+        method: String,
+        position: LanguageServerPosition? = nil,
+        newName: String? = nil
+    ) -> LspClientResponsePayload? {
+        execute(
+            command: "lsp.clientRequest",
+            payload: LspClientFeatureRequest(
+                state: state,
+                uri: fileURL.standardizedFileURL.absoluteString,
+                method: method,
+                position: position.map {
+                    .init(line: $0.line, utf16Column: $0.utf16Column)
+                },
+                newName: newName
             )
         )
     }

@@ -1067,6 +1067,32 @@ struct RunConfigurationIntegrationTests {
         ])
         await Self.drainMainActorTasks()
         #expect(manager.diagnostics[source.standardizedFileURL]?.first?.message == "example warning")
+
+        var completionsResult: Result<[LanguageServerCompletionItem], Error>?
+        try manager.completions(
+            fileURL: source,
+            text: "struct App { let tit }\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 20),
+            rootURL: root
+        ) { result in
+            completionsResult = result
+        }
+        #expect(process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+            .contains("\"method\":\"textDocument/completion\""))
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "2",
+            "result": [
+                "items": [[
+                    "label": "title",
+                    "insertText": "title",
+                    "kind": 6,
+                    "detail": "String"
+                ]]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try completionsResult?.get().first?.label == "title")
     }
 
     @Test
@@ -2734,6 +2760,18 @@ private struct TestLspClientCore: LspClientCore {
         response()
     }
 
+    func lspClientRequest(
+        state _: ToolingJSONValue,
+        fileURL _: URL,
+        method: String,
+        position _: LanguageServerPosition?,
+        newName _: String?
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        response(messages: [
+            #"{"jsonrpc":"2.0","id":"2","method":"\#(method)","params":{}}"#
+        ])
+    }
+
     func lspClientApplyServerMessage(
         state _: ToolingJSONValue,
         message: String
@@ -2758,6 +2796,30 @@ private struct TestLspClientCore: LspClientCore {
                         )
                     ],
                     result: nil,
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"2""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "2",
+                    method: "textDocument/completion",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "items": .array([
+                            .object([
+                                "label": .string("title"),
+                                "insertText": .string("title"),
+                                "kind": .integer(6),
+                                "detail": .string("String"),
+                                "additionalTextEdits": .array([]),
+                                "data": .null
+                            ])
+                        ])
+                    ]),
                     error: nil
                 )
             ])

@@ -13,6 +13,13 @@ protocol LspClientCore: Sendable {
         fileURL: URL,
         text: String
     ) -> RustCoreBridge.LspClientResponsePayload?
+    func lspClientRequest(
+        state: ToolingJSONValue,
+        fileURL: URL,
+        method: String,
+        position: LanguageServerPosition?,
+        newName: String?
+    ) -> RustCoreBridge.LspClientResponsePayload?
     func lspClientApplyServerMessage(
         state: ToolingJSONValue,
         message: String
@@ -32,6 +39,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private var readBuffer = Data()
     private var openedDocumentURIs: Set<String> = []
     private var pendingDocuments: [String: PendingDocument] = [:]
+    private var responseHandlers: [String: (RustCoreBridge.LspClientEventPayload) -> Void] = [:]
     private var isInitialized = false
 
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
@@ -98,6 +106,48 @@ final class StdioLanguageServerSession: LanguageServerSession {
         if let response { apply(response) }
     }
 
+    func completions(
+        fileURL: URL,
+        position: LanguageServerPosition,
+        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) throws {
+        try requestFeature(
+            method: "textDocument/completion",
+            fileURL: fileURL,
+            position: position
+        ) { event in
+            completion(Self.decodeEventResult(event, as: RustCoreBridge.BuiltinCompletionPayload.self)
+                .map { $0.makeModels() })
+        }
+    }
+
+    func hover(
+        fileURL: URL,
+        position: LanguageServerPosition,
+        completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
+    ) throws {
+        try requestFeature(
+            method: "textDocument/hover",
+            fileURL: fileURL,
+            position: position
+        ) { event in
+            completion(Self.decodeEventResult(event, as: RustCoreBridge.BuiltinHoverPayload.self)
+                .map { $0.hover?.makeModel() })
+        }
+    }
+
+    func navigate(
+        method: String,
+        fileURL: URL,
+        position: LanguageServerPosition,
+        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) throws {
+        try requestFeature(method: method, fileURL: fileURL, position: position) { event in
+            completion(Self.decodeEventResult(event, as: RustCoreBridge.BuiltinNavigationPayload.self)
+                .map { $0.makeModels() })
+        }
+    }
+
     func stop() {
         process.stop()
         resetTransientState()
@@ -106,7 +156,15 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private func apply(_ response: RustCoreBridge.LspClientResponsePayload) {
         state = response.state
         response.messages.forEach(sendRawJSON)
-        for event in response.events {
+        handle(response.events)
+    }
+
+    private func handle(_ events: [RustCoreBridge.LspClientEventPayload]) {
+        for event in events {
+            if let requestID = event.requestId,
+               let handler = responseHandlers.removeValue(forKey: requestID) {
+                handler(event)
+            }
             if event.method == "initialize", event.kind == "response" {
                 isInitialized = true
                 flushPendingDocuments()
@@ -118,6 +176,37 @@ final class StdioLanguageServerSession: LanguageServerSession {
                 onDiagnostics?(url.standardizedFileURL, diagnostics.map { $0.makeModel() })
             }
         }
+    }
+
+    private func requestFeature(
+        method: String,
+        fileURL: URL,
+        position: LanguageServerPosition,
+        completion: @escaping (RustCoreBridge.LspClientEventPayload) -> Void
+    ) throws {
+        guard let state, isInitialized else {
+            throw StdioLanguageServerSessionError.notReady
+        }
+        guard openedDocumentURIs.contains(fileURL.standardizedFileURL.absoluteString) else {
+            throw StdioLanguageServerSessionError.documentNotOpen
+        }
+        guard let response = core.lspClientRequest(
+            state: state,
+            fileURL: fileURL,
+            method: method,
+            position: position,
+            newName: nil
+        ) else {
+            throw StdioLanguageServerSessionError.requestRejected
+        }
+        self.state = response.state
+        for message in response.messages {
+            if let requestID = Self.requestID(from: message) {
+                responseHandlers[requestID] = completion
+            }
+            sendRawJSON(message)
+        }
+        handle(response.events)
     }
 
     private func flushPendingDocuments() {
@@ -170,12 +259,63 @@ final class StdioLanguageServerSession: LanguageServerSession {
         readBuffer = Data()
         openedDocumentURIs = []
         pendingDocuments = [:]
+        responseHandlers = [:]
         isInitialized = false
+    }
+
+    private static func requestID(from message: String) -> String? {
+        guard let data = message.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = object["id"] else { return nil }
+        if let string = id as? String { return string }
+        if let number = id as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private static func decodeEventResult<Payload: Decodable>(
+        _ event: RustCoreBridge.LspClientEventPayload,
+        as _: Payload.Type
+    ) -> Result<Payload, Error> {
+        if let error = event.error {
+            return .failure(StdioLanguageServerSessionError.serverError(error))
+        }
+        guard let result = event.result else {
+            return .failure(StdioLanguageServerSessionError.missingResult)
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: result.foundationObject)
+            return .success(try JSONDecoder().decode(Payload.self, from: data))
+        } catch {
+            return .failure(error)
+        }
     }
 
     private struct PendingDocument {
         let fileURL: URL
         let text: String
         let languageID: String
+    }
+
+    private enum StdioLanguageServerSessionError: LocalizedError {
+        case notReady
+        case documentNotOpen
+        case requestRejected
+        case missingResult
+        case serverError(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .notReady:
+                "Language server is not ready."
+            case .documentNotOpen:
+                "Document is not open in the language server."
+            case .requestRejected:
+                "Language server request was rejected by Rust core."
+            case .missingResult:
+                "Language server response did not include a result."
+            case .serverError(let message):
+                message
+            }
+        }
     }
 }

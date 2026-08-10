@@ -720,6 +720,7 @@ pub fn client_apply_server_message(
                 responses.push(json_rpc_notification("initialized", json!({}))?);
             }
         }
+        let result = lsp_feature_result_for_method(pending.as_deref(), message.get("result"));
         events.push(LspClientEvent {
             kind: if message.get("error").is_some() {
                 "error".to_string()
@@ -730,7 +731,7 @@ pub fn client_apply_server_message(
             method: pending,
             uri: None,
             diagnostics: None,
-            result: message.get("result").cloned(),
+            result,
             error: message.get("error").map(|value| value.to_string()),
         });
     }
@@ -1016,6 +1017,182 @@ fn parse_lsp_position(value: &Value) -> Option<LspPositionResponse> {
         line: value.get("line")?.as_i64()?,
         utf16_column: value.get("character")?.as_i64()?,
     })
+}
+
+fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -> Option<Value> {
+    let result = result?;
+    match method {
+        Some("textDocument/completion") => Some(json!({
+            "items": parse_completion_items(result)
+        })),
+        Some("textDocument/hover") => Some(json!({
+            "hover": parse_hover(result)
+        })),
+        Some("textDocument/definition")
+        | Some("textDocument/declaration")
+        | Some("textDocument/typeDefinition")
+        | Some("textDocument/implementation")
+        | Some("textDocument/references") => Some(json!({
+            "locations": parse_locations(result)
+        })),
+        _ => Some(result.clone()),
+    }
+}
+
+fn parse_completion_items(result: &Value) -> Vec<Value> {
+    let values = result
+        .as_array()
+        .or_else(|| result.get("items").and_then(Value::as_array));
+    let Some(values) = values else {
+        return Vec::new();
+    };
+    values
+        .iter()
+        .filter_map(|item| {
+            let label = item.get("label").and_then(Value::as_str)?;
+            let insert_text = item
+                .get("insertText")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    item.get("textEdit")
+                        .and_then(|edit| edit.get("newText"))
+                        .and_then(Value::as_str)
+                })
+                .unwrap_or(label);
+            Some(json!({
+                "label": label,
+                "insertText": insert_text,
+                "kind": item.get("kind").and_then(Value::as_i64),
+                "detail": item.get("detail").and_then(Value::as_str),
+                "documentation": completion_documentation(item.get("documentation")),
+                "sortText": item.get("sortText").and_then(Value::as_str),
+                "filterText": item.get("filterText").and_then(Value::as_str),
+                "textEdit": item.get("textEdit").and_then(parse_lsp_text_edit_value),
+                "additionalTextEdits": item
+                    .get("additionalTextEdits")
+                    .and_then(Value::as_array)
+                    .map(|edits| edits.iter().filter_map(parse_lsp_text_edit_value).collect::<Vec<_>>())
+                    .unwrap_or_default(),
+                "data": item.get("data").cloned().unwrap_or(Value::Null)
+            }))
+        })
+        .collect()
+}
+
+fn completion_documentation(value: Option<&Value>) -> Option<String> {
+    match value? {
+        Value::String(text) => Some(text.clone()),
+        Value::Object(object) => object
+            .get("value")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        _ => None,
+    }
+}
+
+fn parse_hover(result: &Value) -> Option<Value> {
+    if result.is_null() {
+        return None;
+    }
+    let contents = hover_contents(result.get("contents").unwrap_or(result))?;
+    let range = result.get("range").and_then(parse_lsp_range_value);
+    Some(json!({
+        "contents": contents.0,
+        "isMarkdown": contents.1,
+        "range": range
+    }))
+}
+
+fn hover_contents(value: &Value) -> Option<(String, bool)> {
+    match value {
+        Value::String(text) => Some((text.clone(), false)),
+        Value::Object(object) => {
+            if let Some(value) = object.get("value").and_then(Value::as_str) {
+                let is_markdown = object
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .map(|kind| kind == "markdown")
+                    .unwrap_or(false);
+                Some((value.to_string(), is_markdown))
+            } else if let Some(value) = object.get("language").and_then(Value::as_str) {
+                Some((value.to_string(), true))
+            } else {
+                None
+            }
+        }
+        Value::Array(values) => {
+            let parts: Vec<_> = values
+                .iter()
+                .filter_map(hover_contents)
+                .map(|(text, _)| text)
+                .collect();
+            if parts.is_empty() {
+                None
+            } else {
+                Some((parts.join("\n\n"), true))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn parse_locations(result: &Value) -> Vec<Value> {
+    let values: Vec<&Value> = if let Some(array) = result.as_array() {
+        array.iter().collect()
+    } else if result.is_object() {
+        vec![result]
+    } else {
+        Vec::new()
+    };
+    values
+        .into_iter()
+        .filter_map(|location| {
+            let uri = location
+                .get("uri")
+                .or_else(|| location.get("targetUri"))
+                .and_then(Value::as_str)?;
+            let range = location
+                .get("range")
+                .or_else(|| location.get("targetSelectionRange"))
+                .or_else(|| location.get("targetRange"))
+                .and_then(parse_lsp_range_value)?;
+            Some(json!({
+                "filePath": file_path_from_uri(uri),
+                "range": range,
+                "isReadOnly": false,
+                "displayPath": Value::Null
+            }))
+        })
+        .collect()
+}
+
+fn parse_lsp_text_edit_value(value: &Value) -> Option<Value> {
+    Some(json!({
+        "range": parse_lsp_range_value(value.get("range")?)?,
+        "newText": value.get("newText").and_then(Value::as_str).unwrap_or_default()
+    }))
+}
+
+fn parse_lsp_range_value(value: &Value) -> Option<Value> {
+    Some(json!({
+        "start": parse_lsp_position_value(value.get("start")?)?,
+        "end": parse_lsp_position_value(value.get("end")?)?
+    }))
+}
+
+fn parse_lsp_position_value(value: &Value) -> Option<Value> {
+    Some(json!({
+        "line": value.get("line").and_then(Value::as_i64).unwrap_or(0),
+        "utf16Column": value
+            .get("character")
+            .or_else(|| value.get("utf16Column"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+    }))
+}
+
+fn file_path_from_uri(uri: &str) -> String {
+    uri.strip_prefix("file://").unwrap_or(uri).to_string()
 }
 
 fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
@@ -2043,6 +2220,58 @@ mod tests {
         let request_message: Value = serde_json::from_str(&requested.messages[0]).unwrap();
         assert_eq!(request_message["method"], "textDocument/definition");
         assert_eq!(request_message["params"]["position"]["character"], 12);
+    }
+
+    #[test]
+    fn client_core_shapes_feature_responses_for_swift_models() {
+        let opened = client_open_document(ClientOpenDocumentRequest {
+            state: LspClientState::default(),
+            uri: "file:///tmp/project/main.rs".to_string(),
+            language_id: "rust".to_string(),
+            text: "fn main() { la }\n".to_string(),
+        })
+        .unwrap();
+        let requested = client_feature_request(ClientFeatureRequest {
+            state: opened.state,
+            uri: "file:///tmp/project/main.rs".to_string(),
+            method: "textDocument/completion".to_string(),
+            position: Some(LspPosition {
+                line: 0,
+                utf16_column: 14,
+            }),
+            new_name: None,
+        })
+        .unwrap();
+        let completed = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: requested.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "1",
+                "result": {
+                    "items": [{
+                        "label": "launch",
+                        "kind": 3,
+                        "detail": "fn()",
+                        "textEdit": {
+                            "range": {
+                                "start": { "line": 0, "character": 12 },
+                                "end": { "line": 0, "character": 14 }
+                            },
+                            "newText": "launch"
+                        }
+                    }]
+                }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+
+        let result = completed.events[0].result.as_ref().unwrap();
+        assert_eq!(result["items"][0]["label"], "launch");
+        assert_eq!(
+            result["items"][0]["textEdit"]["range"]["start"]["utf16Column"],
+            12
+        );
     }
 
     #[test]

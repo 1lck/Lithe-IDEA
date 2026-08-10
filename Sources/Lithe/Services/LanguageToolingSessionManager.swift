@@ -163,6 +163,18 @@ final class LanguageToolingSessionManager: ObservableObject {
         rootURL _: URL,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws {
+        if let session = languageServerSession(for: fileURL),
+           session.isRunning {
+            do {
+                try session.navigate(
+                    method: method,
+                    fileURL: fileURL,
+                    position: position,
+                    completion: completion
+                )
+                return
+            } catch {}
+        }
         guard supportsBuiltinLanguageServer(for: fileURL) else {
             throw unavailableLanguageServerError(for: fileURL)
         }
@@ -181,6 +193,13 @@ final class LanguageToolingSessionManager: ObservableObject {
         rootURL _: URL,
         completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
     ) throws {
+        if let session = languageServerSession(for: fileURL),
+           session.isRunning {
+            do {
+                try session.hover(fileURL: fileURL, position: position, completion: completion)
+                return
+            } catch {}
+        }
         guard supportsBuiltinLanguageServer(for: fileURL) else {
             throw unavailableLanguageServerError(for: fileURL)
         }
@@ -198,6 +217,13 @@ final class LanguageToolingSessionManager: ObservableObject {
         rootURL _: URL,
         completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
     ) throws {
+        if let session = languageServerSession(for: fileURL),
+           session.isRunning {
+            do {
+                try session.completions(fileURL: fileURL, position: position, completion: completion)
+                return
+            } catch {}
+        }
         guard supportsBuiltinLanguageServer(for: fileURL) else {
             throw unavailableLanguageServerError(for: fileURL)
         }
@@ -410,6 +436,11 @@ final class LanguageToolingSessionManager: ObservableObject {
     private func supportsBuiltinLanguageServer(for fileURL: URL) -> Bool {
         catalog.provider(for: fileURL)?.capabilities.contains(.languageServer) == true
             && core.isAvailable
+    }
+
+    private func languageServerSession(for fileURL: URL) -> (any LanguageServerSession)? {
+        guard let descriptor = catalog.provider(for: fileURL) else { return nil }
+        return languageServers[descriptor.id]
     }
 
     private func configureLanguageServerCallbacks(

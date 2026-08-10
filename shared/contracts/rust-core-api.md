@@ -220,6 +220,9 @@ implementation, references, rename, formatting, code action, resolve, and
 execute-command methods. `lsp.clientApplyServerMessage` parses server
 responses, derives feature names from initialize capabilities, stores
 `publishDiagnostics`, and handles dynamic register/unregister notifications.
+Completion, hover, and navigation responses are normalized by Rust into the
+same completion item, hover, and location payload shapes used by the lightweight
+fallback commands.
 
 The `history.*` commands accept an adapter-selected `storageRoot`; history
 metadata never stores an absolute workspace or storage path. `history.record`
