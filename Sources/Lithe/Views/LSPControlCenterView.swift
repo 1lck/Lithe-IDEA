@@ -3,11 +3,13 @@ import SwiftUI
 struct LSPControlCenterView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
+    @State private var selectedProviderID: String?
 
     private let metricColumns = [
         GridItem(.flexible(), spacing: 8),
         GridItem(.flexible(), spacing: 8)
     ]
+    private let serverListHeight: CGFloat = 176
 
     private var copy: LSPControlCenterCopy {
         LSPControlCenterCopy(language: settings.language)
@@ -98,11 +100,22 @@ struct LSPControlCenterView: View {
         VStack(alignment: .leading, spacing: 7) {
             sectionTitle(copy.languageServers)
 
-            VStack(spacing: 1) {
-                ForEach(languageServerDescriptors) { descriptor in
-                    serverRow(descriptor)
+            ScrollView(.vertical) {
+                if languageServerDescriptors.isEmpty {
+                    Text(copy.noProjectLanguageServers)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .frame(maxWidth: .infinity, minHeight: serverListHeight, alignment: .leading)
+                } else {
+                    VStack(spacing: 1) {
+                        ForEach(languageServerDescriptors) { descriptor in
+                            serverRow(descriptor)
+                        }
+                    }
                 }
             }
+            .frame(height: serverListHeight)
+            .litheScrollViewChrome(hideHorizontal: true)
         }
         .padding(10)
         .panelChrome()
@@ -131,21 +144,23 @@ struct LSPControlCenterView: View {
             Text(copy.title(for: metrics.status))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(statusColor(metrics.status))
-            Button {
-                model.languageToolingSessions.stopLanguageServer(providerID: descriptor.id)
-            } label: {
-                Image(systemName: metrics.status == .active ? "stop" : "play")
+            if metrics.status == .active || metrics.status == .error {
+                Button {
+                    model.languageToolingSessions.stopLanguageServer(providerID: descriptor.id)
+                } label: {
+                    Image(systemName: "stop")
+                }
+                .litheIconButton()
+                .help(copy.stopProvider(descriptor.displayName))
             }
-            .litheIconButton()
-            .help(
-                metrics.status == .active
-                    ? copy.stopProvider(descriptor.displayName)
-                    : copy.providerStartsOnDemand(descriptor.displayName)
-            )
         }
         .padding(.horizontal, 7)
         .frame(height: 38)
+        .contentShape(Rectangle())
         .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+        .onTapGesture {
+            selectedProviderID = descriptor.id
+        }
     }
 
     private func serverDetail(_ descriptor: LanguageProviderDescriptor) -> some View {
@@ -173,16 +188,15 @@ struct LSPControlCenterView: View {
             }
 
             HStack(spacing: 0) {
-                summaryStat(copy.rootFiles, value: "\(metrics.fileCount)")
-                summaryStat(copy.openFiles, value: "\(metrics.openFileCount)")
-                summaryStat(copy.diagnostics, value: "\(metrics.diagnosticCount)")
-            }
-
-            LazyVGrid(columns: metricColumns, spacing: 8) {
-                metricCard(title: copy.features, value: "\(metrics.featureCount)", color: LitheTheme.accent, progress: metrics.featureProgress)
-                metricCard(title: copy.indexed, value: metrics.indexProgressText, color: LitheTheme.success, progress: metrics.indexProgress)
-                metricCard(title: copy.errors, value: "\(metrics.errorCount)", color: LitheTheme.error, progress: metrics.errorProgress)
-                metricCard(title: copy.warnings, value: "\(metrics.warningCount)", color: LitheTheme.warning, progress: metrics.warningProgress)
+                summaryButton(copy.rootFiles, value: "\(metrics.fileCount)") {
+                    openFirstProjectFile(for: descriptor)
+                }
+                summaryButton(copy.openFiles, value: "\(metrics.openFileCount)") {
+                    openFirstOpenDocument(for: descriptor)
+                }
+                summaryButton(copy.diagnostics, value: "\(metrics.diagnosticCount)") {
+                    openFirstDiagnostic(for: descriptor)
+                }
             }
 
             capabilityGrid(descriptor)
@@ -259,39 +273,68 @@ struct LSPControlCenterView: View {
     }
 
     private func capabilityGrid(_ descriptor: LanguageProviderDescriptor) -> some View {
-        let rows: [(String, String, Bool)] = [
-            (copy.definition, "arrowshape.turn.up.right", descriptor.capabilities.contains(.languageServer)),
-            (copy.completion, "text.cursor", descriptor.capabilities.contains(.languageServer)),
-            (copy.formatting, "text.alignleft", descriptor.capabilities.contains(.formatting)),
-            (copy.testing, "checkmark.seal", descriptor.capabilities.contains(.testing)),
-            (copy.debug, "ladybug", descriptor.capabilities.contains(.debugAdapter)),
-            (copy.run, "play", descriptor.capabilities.contains(.run))
+        let features = model.languageToolingSessions.languageServerFeatures[descriptor.id] ?? []
+        let rows: [LSPCapabilityRow] = [
+            LSPCapabilityRow(
+                title: copy.languageServerCapability,
+                icon: "chevron.left.forwardslash.chevron.right",
+                declared: descriptor.capabilities.contains(.languageServer),
+                active: !features.isEmpty || model.languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
+            ),
+            LSPCapabilityRow(
+                title: copy.formatting,
+                icon: "text.alignleft",
+                declared: descriptor.capabilities.contains(.formatting),
+                active: features.contains(.formatting)
+            ),
+            LSPCapabilityRow(
+                title: copy.testing,
+                icon: "checkmark.seal",
+                declared: descriptor.capabilities.contains(.testing),
+                active: false
+            ),
+            LSPCapabilityRow(
+                title: copy.debug,
+                icon: "ladybug",
+                declared: descriptor.capabilities.contains(.debugAdapter),
+                active: model.languageToolingSessions.activeDebugAdapterIDs.contains(descriptor.id)
+            ),
+            LSPCapabilityRow(
+                title: copy.run,
+                icon: "play",
+                declared: descriptor.capabilities.contains(.run),
+                active: false
+            )
         ]
 
         return VStack(alignment: .leading, spacing: 7) {
             sectionTitle(copy.capabilities)
             LazyVGrid(columns: metricColumns, spacing: 6) {
-                ForEach(rows, id: \.0) { row in
-                    HStack(spacing: 7) {
-                        Image(systemName: row.1)
-                            .frame(width: 15)
-                        Text(row.0)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Toggle("", isOn: .constant(row.2))
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .scaleEffect(0.62)
-                            .allowsHitTesting(false)
+                ForEach(rows) { row in
+                    Button {
+                        model.showNotification(copy.capabilityState(row.title, declared: row.declared, active: row.active))
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: row.icon)
+                                .frame(width: 15)
+                            Text(row.title)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Image(systemName: row.active ? "bolt.fill" : row.declared ? "checkmark.circle" : "xmark.circle")
+                                .foregroundStyle(row.active ? LitheTheme.success : row.declared ? LitheTheme.accent : LitheTheme.secondaryText)
+                        }
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(row.declared ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                        .padding(.horizontal, 7)
+                        .frame(height: 30)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(LitheTheme.raised.opacity(0.55))
+                        )
                     }
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(row.2 ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                    .padding(.horizontal, 7)
-                    .frame(height: 30)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(LitheTheme.raised.opacity(0.55))
-                    )
+                    .buttonStyle(.plain)
+                    .lithePointer()
                 }
             }
         }
@@ -311,10 +354,18 @@ struct LSPControlCenterView: View {
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
-                configRow(title: copy.providerID, value: descriptor.id)
-                configRow(title: copy.activation, value: copy.activationPolicy(descriptor.activationPolicy))
-                configRow(title: copy.builtinCatalog, value: "rust/lithe-core/resources/lsp/language-providers.json")
-                configRow(title: copy.projectOverride, value: projectLSPConfigPath)
+                configActionRow(title: copy.providerID, value: descriptor.id, systemImage: "doc.on.doc") {
+                    model.showNotification(copy.providerIDCopied(descriptor.id))
+                }
+                configActionRow(title: copy.activation, value: copy.activationPolicy(descriptor.activationPolicy), systemImage: "bolt.badge.clock") {
+                    model.showNotification(copy.activationPolicy(descriptor.activationPolicy))
+                }
+                configActionRow(title: copy.builtinCatalog, value: builtinCatalogPath, systemImage: "curlybraces") {
+                    openFileIfPresent(URL(fileURLWithPath: builtinCatalogPath), missingMessage: copy.builtinCatalogUnavailable)
+                }
+                configActionRow(title: copy.projectOverride, value: projectLSPConfigPath, systemImage: "folder.badge.gearshape") {
+                    openFileIfPresent(URL(fileURLWithPath: projectLSPConfigPath), missingMessage: copy.projectOverrideMissing)
+                }
             }
             .padding(8)
             .background(
@@ -329,61 +380,57 @@ struct LSPControlCenterView: View {
         }
     }
 
-    private func configRow(title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 82, alignment: .leading)
-            Text(value)
-                .font(.system(size: 10.5, design: .monospaced))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
+    private func configActionRow(
+        title: String,
+        value: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(width: 82, alignment: .leading)
+                Image(systemName: systemImage)
+                    .font(.system(size: 10))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(width: 14)
+                Text(value)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .lithePointer()
     }
 
-    private func metricCard(title: String, value: String, color: Color, progress: Double) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text(value)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-            ProgressView(value: min(max(progress, 0), 1))
-                .tint(color)
-                .controlSize(.small)
+    private func summaryButton(_ title: String, value: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(LitheTheme.primaryText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 10)
+            .contentShape(Rectangle())
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(LitheTheme.divider)
+                    .frame(width: 1)
+            }
         }
-        .padding(9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(LitheTheme.raised.opacity(0.58))
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(LitheTheme.panelBorder, lineWidth: 1)
-        }
-    }
-
-    private func summaryStat(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.system(size: 10.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text(value)
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .foregroundStyle(LitheTheme.primaryText)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 10)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1)
-        }
+        .buttonStyle(.plain)
+        .lithePointer()
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -426,8 +473,6 @@ struct LSPControlCenterView: View {
     private func statusColor(_ status: LSPServerStatus) -> Color {
         switch status {
         case .active: LitheTheme.success
-        case .indexing: LitheTheme.warning
-        case .available: LitheTheme.accent
         case .stopped: LitheTheme.secondaryText
         case .error: LitheTheme.error
         }
@@ -436,12 +481,18 @@ struct LSPControlCenterView: View {
     private var languageServerDescriptors: [LanguageProviderDescriptor] {
         model.languageProviderCatalog.descriptors
             .filter { $0.capabilities.contains(.languageServer) }
+            .filter { descriptor in
+                model.projectFiles.contains { descriptor.handles(fileURL: $0) }
+            }
     }
 
     private var selectedDescriptor: LanguageProviderDescriptor? {
+        if let selectedProviderID,
+           let selected = languageServerDescriptors.first(where: { $0.id == selectedProviderID }) {
+            return selected
+        }
         if let document = model.activeDocument,
-           let descriptor = model.languageProviderCatalog.provider(for: document.url),
-           descriptor.capabilities.contains(.languageServer) {
+           let descriptor = languageServerDescriptors.first(where: { $0.handles(fileURL: document.url) }) {
             return descriptor
         }
         return languageServerDescriptors.first
@@ -449,6 +500,19 @@ struct LSPControlCenterView: View {
 
     private var activeServerCount: Int {
         languageServerDescriptors.filter { providerMetrics(for: $0).status == .active }.count
+    }
+
+    private var builtinCatalogPath: String {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("rust")
+            .appendingPathComponent("lithe-core")
+            .appendingPathComponent("resources")
+            .appendingPathComponent("lsp")
+            .appendingPathComponent("language-providers.json")
+            .path
     }
 
     private var projectLSPConfigPath: String {
@@ -462,6 +526,26 @@ struct LSPControlCenterView: View {
             .path
     }
 
+    private func matchingProjectFiles(for descriptor: LanguageProviderDescriptor) -> [URL] {
+        model.projectFiles.filter { descriptor.handles(fileURL: $0) }
+    }
+
+    private func matchingOpenDocuments(for descriptor: LanguageProviderDescriptor) -> [EditorDocument] {
+        model.openDocuments.filter { descriptor.handles(fileURL: $0.url) }
+    }
+
+    private func matchingDiagnostics(for descriptor: LanguageProviderDescriptor) -> [EditorDiagnostic] {
+        model.editorDiagnostics
+            .filter { descriptor.handles(fileURL: $0.key) }
+            .values
+            .flatMap { $0 }
+            .sorted {
+                if $0.severity != $1.severity { return $0.severity.sortOrder < $1.severity.sortOrder }
+                if $0.line != $1.line { return $0.line < $1.line }
+                return $0.message < $1.message
+            }
+    }
+
     private var allDiagnostics: [EditorDiagnostic] {
         model.editorDiagnostics.values
             .flatMap { $0 }
@@ -472,47 +556,66 @@ struct LSPControlCenterView: View {
             }
     }
 
+    private func openFirstProjectFile(for descriptor: LanguageProviderDescriptor) {
+        guard let fileURL = matchingProjectFiles(for: descriptor).first else {
+            model.showNotification(copy.noMatchingFiles)
+            return
+        }
+        model.openFile(fileURL)
+    }
+
+    private func openFirstOpenDocument(for descriptor: LanguageProviderDescriptor) {
+        guard let document = matchingOpenDocuments(for: descriptor).first else {
+            model.showNotification(copy.noOpenFilesForProvider)
+            return
+        }
+        model.openFile(document.url)
+    }
+
+    private func openFirstDiagnostic(for descriptor: LanguageProviderDescriptor) {
+        guard let diagnostic = matchingDiagnostics(for: descriptor).first else {
+            model.showNotification(copy.noLanguageServerDiagnostics)
+            return
+        }
+        model.openDiagnostic(diagnostic)
+    }
+
+    private func openFileIfPresent(_ url: URL, missingMessage: String) {
+        if model.workspaceFileOperations.fileExists(at: url) {
+            model.openFile(url)
+        } else {
+            model.showNotification(missingMessage)
+        }
+    }
+
     private func providerMetrics(for descriptor: LanguageProviderDescriptor) -> LSPProviderMetrics {
-        let files = model.projectFiles.filter { descriptor.handles(fileURL: $0) }
-        let openFiles = model.openDocuments.filter { descriptor.handles(fileURL: $0.url) }
-        let diagnostics = model.editorDiagnostics
-            .filter { descriptor.handles(fileURL: $0.key) }
-            .values
-            .flatMap { $0 }
+        let files = matchingProjectFiles(for: descriptor)
+        let openFiles = matchingOpenDocuments(for: descriptor)
+        let diagnostics = matchingDiagnostics(for: descriptor)
         let features = model.languageToolingSessions.languageServerFeatures[descriptor.id] ?? []
         let status: LSPServerStatus
+        let hasServerState = model.languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
+            || !features.isEmpty
+            || !diagnostics.isEmpty
+
         if diagnostics.contains(where: { $0.severity == .error }) {
             status = .error
         } else if model.languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id) || !features.isEmpty {
             status = .active
-        } else if !openFiles.isEmpty {
-            status = .indexing
-        } else if !files.isEmpty {
-            status = .available
+        } else if hasServerState {
+            status = .active
         } else {
             status = .stopped
         }
-
-        let totalDiagnostics = max(diagnostics.count, 1)
-        let errorCount = diagnostics.filter { $0.severity == .error }.count
-        let warningCount = diagnostics.filter { $0.severity == .warning }.count
-        let indexProgress = files.isEmpty ? 0 : min(1, Double(openFiles.count == 0 ? files.count / 2 : files.count) / Double(max(files.count, 1)))
 
         return LSPProviderMetrics(
             status: status,
             subtitle: files.isEmpty ? copy.noMatchingFiles : copy.matchingFiles(files.count),
             workspacePath: model.workspaceURL?.path ?? copy.noWorkspace,
-            version: copy.providerVersion,
+            version: copy.title(for: status),
             fileCount: files.count,
             openFileCount: openFiles.count,
-            diagnosticCount: diagnostics.count,
-            errorCount: errorCount,
-            warningCount: warningCount,
-            featureCount: features.enabledFeatureCount,
-            featureProgress: Double(features.enabledFeatureCount) / 11.0,
-            indexProgress: indexProgress,
-            errorProgress: Double(errorCount) / Double(totalDiagnostics),
-            warningProgress: Double(warningCount) / Double(totalDiagnostics)
+            diagnosticCount: diagnostics.count
         )
     }
 
@@ -520,10 +623,17 @@ struct LSPControlCenterView: View {
 
 private enum LSPServerStatus {
     case active
-    case indexing
-    case available
     case stopped
     case error
+}
+
+private struct LSPCapabilityRow: Identifiable {
+    let title: String
+    let icon: String
+    let declared: Bool
+    let active: Bool
+
+    var id: String { title }
 }
 
 private struct LSPControlCenterCopy {
@@ -541,13 +651,12 @@ private struct LSPControlCenterCopy {
     var restartAll: String { usesChinese ? "全部重启" : "Restart all" }
     var clearDiagnostics: String { usesChinese ? "清空诊断" : "Clear diagnostics" }
     var languageServers: String { usesChinese ? "语言服务器" : "Language Servers" }
+    var noProjectLanguageServers: String {
+        usesChinese ? "当前项目没有匹配的语言服务器。" : "No matching language servers in this project."
+    }
     var rootFiles: String { usesChinese ? "项目文件" : "Root files" }
     var openFiles: String { usesChinese ? "打开文件" : "Open files" }
     var diagnostics: String { usesChinese ? "诊断" : "Diagnostics" }
-    var features: String { usesChinese ? "功能" : "Features" }
-    var indexed: String { usesChinese ? "索引" : "Indexed" }
-    var errors: String { usesChinese ? "错误" : "Errors" }
-    var warnings: String { usesChinese ? "警告" : "Warnings" }
     var openSupportedFile: String { usesChinese ? "打开一个受支持的源码文件" : "Open a supported source file" }
     var matchingServerWillAppear: String {
         usesChinese ? "匹配的语言服务器会显示在这里。" : "The matching language server will appear here."
@@ -556,6 +665,7 @@ private struct LSPControlCenterCopy {
         usesChinese ? "暂无语言服务器诊断。" : "No language server diagnostics."
     }
     var capabilities: String { usesChinese ? "能力" : "Capabilities" }
+    var languageServerCapability: String { usesChinese ? "语言服务器" : "Language Server" }
     var definition: String { usesChinese ? "定义" : "Definition" }
     var completion: String { usesChinese ? "补全" : "Completion" }
     var formatting: String { usesChinese ? "格式化" : "Formatting" }
@@ -564,7 +674,7 @@ private struct LSPControlCenterCopy {
     var run: String { usesChinese ? "运行" : "Run" }
     var noMatchingFiles: String { usesChinese ? "没有匹配文件" : "No matching files" }
     var noWorkspace: String { usesChinese ? "未打开工作区" : "No workspace" }
-    var providerVersion: String { usesChinese ? "兼容层" : "provider" }
+    var notRunning: String { usesChinese ? "未运行" : "Not running" }
     var providerConfiguration: String { usesChinese ? "Provider 配置" : "Provider Configuration" }
     var rustOwnedConfiguration: String {
         usesChinese ? "由 Rust LSP 配置加载" : "Loaded by Rust LSP configuration"
@@ -573,6 +683,15 @@ private struct LSPControlCenterCopy {
     var activation: String { usesChinese ? "启动策略" : "Activation" }
     var builtinCatalog: String { usesChinese ? "内置 JSON" : "Built-in JSON" }
     var projectOverride: String { usesChinese ? "项目覆盖" : "Project override" }
+    var noOpenFilesForProvider: String {
+        usesChinese ? "这个语言服务器当前没有打开的文件。" : "No open files for this language server."
+    }
+    var builtinCatalogUnavailable: String {
+        usesChinese ? "内置 LSP catalog 文件不可用。" : "The built-in LSP catalog file is unavailable."
+    }
+    var projectOverrideMissing: String {
+        usesChinese ? "当前项目还没有 LSP 覆盖配置。" : "This project has no LSP override configuration yet."
+    }
     var configurationHint: String {
         usesChinese
             ? "语言、扩展名、能力、命令和平台覆盖只允许写入独立 LSP JSON，由 Rust 兼容层注册。"
@@ -597,26 +716,31 @@ private struct LSPControlCenterCopy {
         usesChinese ? "停止 \(name)" : "Stop \(name)"
     }
 
-    func providerStartsOnDemand(_ name: String) -> String {
-        usesChinese
-            ? "\(name) 会在打开匹配文件时启动"
-            : "\(name) starts when a matching file opens"
+    func providerIDCopied(_ id: String) -> String {
+        usesChinese ? "Provider ID：\(id)" : "Provider ID: \(id)"
+    }
+
+    func capabilityState(_ name: String, declared: Bool, active: Bool) -> String {
+        if usesChinese {
+            if active { return "\(name) 当前会话已启用。" }
+            if declared { return "\(name) 由 catalog 声明，但当前没有运行中的 LSP 会话。" }
+            return "\(name) 未由 catalog 声明。"
+        }
+        if active { return "\(name) is enabled in the current session." }
+        if declared { return "\(name) is declared by the catalog, but no LSP session is running." }
+        return "\(name) is not declared by the catalog."
     }
 
     func title(for status: LSPServerStatus) -> String {
         if usesChinese {
             switch status {
             case .active: "运行中"
-            case .indexing: "索引中"
-            case .available: "可用"
             case .stopped: "已停止"
             case .error: "错误"
             }
         } else {
             switch status {
             case .active: "Running"
-            case .indexing: "Indexing"
-            case .available: "Available"
             case .stopped: "Stopped"
             case .error: "Error"
             }
@@ -632,17 +756,6 @@ private struct LSPProviderMetrics {
     let fileCount: Int
     let openFileCount: Int
     let diagnosticCount: Int
-    let errorCount: Int
-    let warningCount: Int
-    let featureCount: Int
-    let featureProgress: Double
-    let indexProgress: Double
-    let errorProgress: Double
-    let warningProgress: Double
-
-    var indexProgressText: String {
-        "\(Int((indexProgress * 100).rounded()))%"
-    }
 }
 
 private extension DiagnosticSeverity {
