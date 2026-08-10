@@ -123,3 +123,58 @@ guard let builtinNavigationData = builtinNavigationResponse.data(using: .utf8),
 }
 
 print("Rust Core builtin LSP bridge passed")
+
+let clientInitializeRequest = """
+{"id":"lsp-client-init-test","command":"lsp.clientInitialize","payload":{"state":{},"rootUri":"file:///tmp/project","processId":42}}
+"""
+guard let clientInitializePointer = clientInitializeRequest.withCString({ executeJSON($0) }) else {
+    fputs("Rust Core LSP client initialize bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(clientInitializePointer) }
+
+let clientInitializeResponse = String(cString: clientInitializePointer)
+guard let clientInitializeData = clientInitializeResponse.data(using: .utf8),
+      let clientInitializeEnvelope = try? JSONSerialization.jsonObject(with: clientInitializeData) as? [String: Any],
+      let clientInitializePayload = clientInitializeEnvelope["data"] as? [String: Any],
+      let clientMessages = clientInitializePayload["messages"] as? [String],
+      let initializeMessageData = clientMessages.first?.data(using: .utf8),
+      let initializeMessage = try? JSONSerialization.jsonObject(with: initializeMessageData) as? [String: Any],
+      initializeMessage["method"] as? String == "initialize",
+      let clientState = clientInitializePayload["state"] as? [String: Any] else {
+    fputs("Unexpected Rust Core LSP client initialize response: \(clientInitializeResponse)\n", stderr)
+    exit(1)
+}
+
+let stateData = try JSONSerialization.data(withJSONObject: clientState)
+let serverMessage = #"{"jsonrpc":"2.0","id":"1","result":{"capabilities":{"definitionProvider":true,"completionProvider":{"resolveProvider":true}}}}"#
+let stateObject = try JSONSerialization.jsonObject(with: stateData)
+let clientApplyRequestData = try JSONSerialization.data(withJSONObject: [
+    "id": "lsp-client-apply-test",
+    "command": "lsp.clientApplyServerMessage",
+    "payload": [
+        "state": stateObject,
+        "message": serverMessage
+    ]
+])
+let clientApplyRequest = String(data: clientApplyRequestData, encoding: .utf8)!
+guard let clientApplyPointer = clientApplyRequest.withCString({ executeJSON($0) }) else {
+    fputs("Rust Core LSP client apply bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(clientApplyPointer) }
+
+let clientApplyResponse = String(cString: clientApplyPointer)
+guard let clientApplyData = clientApplyResponse.data(using: .utf8),
+      let clientApplyEnvelope = try? JSONSerialization.jsonObject(with: clientApplyData) as? [String: Any],
+      let clientApplyPayload = clientApplyEnvelope["data"] as? [String: Any],
+      let appliedState = clientApplyPayload["state"] as? [String: Any],
+      appliedState["initialized"] as? Bool == true,
+      let serverCapabilities = appliedState["serverCapabilities"] as? [String],
+      serverCapabilities.contains("definition"),
+      serverCapabilities.contains("completionResolve") else {
+    fputs("Unexpected Rust Core LSP client apply response: \(clientApplyResponse)\n", stderr)
+    exit(1)
+}
+
+print("Rust Core LSP client bridge passed")

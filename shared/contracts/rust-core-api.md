@@ -75,6 +75,11 @@ stable error code and a user-facing message:
 | `lsp.builtinCompletions` | Return lightweight current-file identifier completions |
 | `lsp.builtinHover` | Return lightweight current-symbol hover text |
 | `lsp.builtinNavigation` | Return lightweight current-file definition/reference locations |
+| `lsp.clientInitialize` | Create an LSP initialize JSON-RPC request and client state |
+| `lsp.clientOpenDocument` | Track an open document and emit `textDocument/didOpen` |
+| `lsp.clientChangeDocument` | Track a full-text document change and emit `textDocument/didChange` |
+| `lsp.clientRequest` | Emit a typed LSP feature request and record the pending request |
+| `lsp.clientApplyServerMessage` | Apply LSP server responses, diagnostics, and dynamic registrations |
 | `java.runConfigurations` | Scan Java sources for main classes and return Maven/Spring run configurations |
 | `java.codeVision` | Return Java declaration usage counts for editor code vision |
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
@@ -195,6 +200,20 @@ definition prefers declaration-looking occurrences, while references returns
 all matching identifier occurrences. These commands are deliberately
 text-level fallbacks; precise type-aware behavior belongs to a started language
 server.
+
+`lsp.client*` commands are the transport-independent LSP client core. The
+platform adapter owns the process/stdin/stdout transport and passes a
+serialized `state` object through these commands. Responses return
+`{ "state": object, "messages": string[], "events": [] }`; `messages` are raw
+JSON-RPC payloads for the adapter to frame and write to the language server.
+`lsp.clientInitialize` records the pending initialize request and emits
+`initialize`. `lsp.clientOpenDocument` and `lsp.clientChangeDocument` maintain
+document versions and emit full-text sync notifications. `lsp.clientRequest`
+supports completion, hover, definition/declaration/typeDefinition,
+implementation, references, rename, formatting, code action, resolve, and
+execute-command methods. `lsp.clientApplyServerMessage` parses server
+responses, derives feature names from initialize capabilities, stores
+`publishDiagnostics`, and handles dynamic register/unregister notifications.
 
 The `history.*` commands accept an adapter-selected `storageRoot`; history
 metadata never stores an absolute workspace or storage path. `history.record`

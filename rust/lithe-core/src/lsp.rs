@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -176,14 +177,14 @@ pub struct LspTextEditResponse {
     pub new_text: String,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LspRangeResponse {
     pub start: LspPositionResponse,
     pub end: LspPositionResponse,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LspPositionResponse {
     pub line: i64,
@@ -225,6 +226,131 @@ struct IdentifierOccurrence {
     start: usize,
     end: usize,
     range: LspRangeResponse,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspClientState {
+    #[serde(default = "default_next_request_id")]
+    pub next_request_id: u64,
+    #[serde(default)]
+    pub initialized: bool,
+    #[serde(default)]
+    pub server_capabilities: Vec<String>,
+    #[serde(default)]
+    pub open_documents: BTreeMap<String, LspClientDocument>,
+    #[serde(default)]
+    pub pending_requests: BTreeMap<String, String>,
+    #[serde(default)]
+    pub diagnostics: BTreeMap<String, Vec<LspClientDiagnostic>>,
+}
+
+impl Default for LspClientState {
+    fn default() -> Self {
+        Self {
+            next_request_id: default_next_request_id(),
+            initialized: false,
+            server_capabilities: Vec::new(),
+            open_documents: BTreeMap::new(),
+            pending_requests: BTreeMap::new(),
+            diagnostics: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspClientDocument {
+    pub uri: String,
+    pub language_id: String,
+    pub version: i64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspClientDiagnostic {
+    pub range: LspRangeResponse,
+    pub severity: Option<i64>,
+    pub message: String,
+    pub source: Option<String>,
+    pub code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientInitializeRequest {
+    #[serde(default)]
+    pub state: LspClientState,
+    pub root_uri: String,
+    #[serde(default)]
+    pub process_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientOpenDocumentRequest {
+    #[serde(default)]
+    pub state: LspClientState,
+    pub uri: String,
+    pub language_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientChangeDocumentRequest {
+    #[serde(default)]
+    pub state: LspClientState,
+    pub uri: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientFeatureRequest {
+    #[serde(default)]
+    pub state: LspClientState,
+    pub uri: String,
+    pub method: String,
+    #[serde(default)]
+    pub position: Option<LspPosition>,
+    #[serde(default)]
+    pub new_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientApplyServerMessageRequest {
+    #[serde(default)]
+    pub state: LspClientState,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspClientResponse {
+    pub state: LspClientState,
+    pub messages: Vec<String>,
+    pub events: Vec<LspClientEvent>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspClientEvent {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Vec<LspClientDiagnostic>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 pub fn provider_catalog_json(workspace_root: Option<&Path>) -> String {
@@ -381,6 +507,226 @@ pub fn builtin_navigation(
     Ok(BuiltinNavigationResponse { locations })
 }
 
+pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientResponse, CoreError> {
+    validate_uri(&request.root_uri)?;
+    let mut state = request.state;
+    let id = allocate_request(&mut state, "initialize");
+    let message = json_rpc_request(
+        &id,
+        "initialize",
+        json!({
+            "processId": request.process_id,
+            "rootUri": request.root_uri,
+            "capabilities": {
+                "textDocument": {
+                    "synchronization": {
+                        "didSave": true
+                    },
+                    "completion": {
+                        "dynamicRegistration": true,
+                        "completionItem": {
+                            "snippetSupport": true,
+                            "documentationFormat": ["markdown", "plaintext"]
+                        }
+                    },
+                    "hover": {
+                        "dynamicRegistration": true,
+                        "contentFormat": ["markdown", "plaintext"]
+                    },
+                    "definition": { "dynamicRegistration": true },
+                    "declaration": { "dynamicRegistration": true },
+                    "typeDefinition": { "dynamicRegistration": true },
+                    "implementation": { "dynamicRegistration": true },
+                    "references": { "dynamicRegistration": true },
+                    "rename": { "dynamicRegistration": true },
+                    "formatting": { "dynamicRegistration": true },
+                    "codeAction": {
+                        "dynamicRegistration": true,
+                        "codeActionLiteralSupport": {
+                            "codeActionKind": {
+                                "valueSet": ["quickfix", "refactor", "source"]
+                            }
+                        }
+                    },
+                    "publishDiagnostics": {
+                        "relatedInformation": true
+                    }
+                },
+                "workspace": {
+                    "applyEdit": true,
+                    "workspaceEdit": {
+                        "documentChanges": true
+                    },
+                    "executeCommand": { "dynamicRegistration": true }
+                }
+            }
+        }),
+    )?;
+    Ok(client_response(state, vec![message], Vec::new()))
+}
+
+pub fn client_open_document(
+    request: ClientOpenDocumentRequest,
+) -> Result<LspClientResponse, CoreError> {
+    validate_uri(&request.uri)?;
+    let mut state = request.state;
+    let document = LspClientDocument {
+        uri: request.uri.clone(),
+        language_id: request.language_id,
+        version: 1,
+        text: request.text,
+    };
+    let message = json_rpc_notification(
+        "textDocument/didOpen",
+        json!({
+            "textDocument": {
+                "uri": document.uri,
+                "languageId": document.language_id,
+                "version": document.version,
+                "text": document.text
+            }
+        }),
+    )?;
+    state.open_documents.insert(request.uri, document);
+    Ok(client_response(state, vec![message], Vec::new()))
+}
+
+pub fn client_change_document(
+    request: ClientChangeDocumentRequest,
+) -> Result<LspClientResponse, CoreError> {
+    validate_uri(&request.uri)?;
+    let mut state = request.state;
+    let Some(document) = state.open_documents.get_mut(&request.uri) else {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Cannot change a document that is not open in the LSP client.",
+        ));
+    };
+    document.version += 1;
+    document.text = request.text;
+    let message = json_rpc_notification(
+        "textDocument/didChange",
+        json!({
+            "textDocument": {
+                "uri": document.uri,
+                "version": document.version
+            },
+            "contentChanges": [{
+                "text": document.text
+            }]
+        }),
+    )?;
+    Ok(client_response(state, vec![message], Vec::new()))
+}
+
+pub fn client_feature_request(
+    request: ClientFeatureRequest,
+) -> Result<LspClientResponse, CoreError> {
+    validate_uri(&request.uri)?;
+    validate_lsp_method(&request.method)?;
+    let params = feature_request_params(&request)?;
+    let uri = request.uri.clone();
+    let method = request.method.clone();
+    let mut state = request.state;
+    if !state.open_documents.contains_key(&uri) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Cannot request LSP features for a document that is not open.",
+        ));
+    }
+    let id = allocate_request(&mut state, &method);
+    let message = json_rpc_request(&id, &method, params)?;
+    Ok(client_response(state, vec![message], Vec::new()))
+}
+
+pub fn client_apply_server_message(
+    request: ClientApplyServerMessageRequest,
+) -> Result<LspClientResponse, CoreError> {
+    let mut state = request.state;
+    let message: Value = serde_json::from_str(&request.message).map_err(|error| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP server JSON message")
+            .with_details(error.to_string())
+    })?;
+    let mut responses = Vec::new();
+    let mut events = Vec::new();
+
+    if let Some(method) = message.get("method").and_then(Value::as_str) {
+        match method {
+            "textDocument/publishDiagnostics" => {
+                if let Some(params) = message.get("params") {
+                    let uri = params
+                        .get("uri")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    validate_uri(uri)?;
+                    let diagnostics = parse_diagnostics(params.get("diagnostics"));
+                    state
+                        .diagnostics
+                        .insert(uri.to_string(), diagnostics.clone());
+                    events.push(LspClientEvent {
+                        kind: "diagnostics".to_string(),
+                        request_id: None,
+                        method: None,
+                        uri: Some(uri.to_string()),
+                        diagnostics: Some(diagnostics),
+                        result: None,
+                        error: None,
+                    });
+                }
+            }
+            "client/registerCapability" => {
+                apply_dynamic_registration(&mut state, &message);
+                if let Some(id) = lsp_message_id(&message) {
+                    responses.push(json_rpc_result(&id, Value::Null)?);
+                }
+            }
+            "client/unregisterCapability" => {
+                apply_dynamic_unregistration(&mut state, &message);
+                if let Some(id) = lsp_message_id(&message) {
+                    responses.push(json_rpc_result(&id, Value::Null)?);
+                }
+            }
+            _ => {
+                events.push(LspClientEvent {
+                    kind: "notification".to_string(),
+                    request_id: None,
+                    method: Some(method.to_string()),
+                    uri: None,
+                    diagnostics: None,
+                    result: message.get("params").cloned(),
+                    error: None,
+                });
+            }
+        }
+    } else if let Some(id) = lsp_message_id(&message) {
+        let pending = state.pending_requests.remove(&id);
+        if pending.as_deref() == Some("initialize") {
+            if let Some(result) = message.get("result") {
+                state.server_capabilities = feature_names_from_capabilities(
+                    result.get("capabilities").unwrap_or(&Value::Null),
+                );
+                state.initialized = true;
+                responses.push(json_rpc_notification("initialized", json!({}))?);
+            }
+        }
+        events.push(LspClientEvent {
+            kind: if message.get("error").is_some() {
+                "error".to_string()
+            } else {
+                "response".to_string()
+            },
+            request_id: Some(id),
+            method: pending,
+            uri: None,
+            diagnostics: None,
+            result: message.get("result").cloned(),
+            error: message.get("error").map(|value| value.to_string()),
+        });
+    }
+
+    Ok(client_response(state, responses, events))
+}
+
 pub fn provider_catalog(workspace_root: Option<&Path>) -> LspProviderCatalog {
     let mut diagnostics = Vec::new();
     let mut document = match parse_document(BUILTIN_LANGUAGE_PROVIDERS, "builtin:lsp") {
@@ -463,6 +809,369 @@ fn project_config_path(root: &Path) -> PathBuf {
 
 fn default_config_version() -> u32 {
     1
+}
+
+fn default_next_request_id() -> u64 {
+    1
+}
+
+fn client_response(
+    state: LspClientState,
+    messages: Vec<String>,
+    events: Vec<LspClientEvent>,
+) -> LspClientResponse {
+    LspClientResponse {
+        state,
+        messages,
+        events,
+    }
+}
+
+fn allocate_request(state: &mut LspClientState, method: &str) -> String {
+    let id = state.next_request_id.to_string();
+    state.next_request_id += 1;
+    state
+        .pending_requests
+        .insert(id.clone(), method.to_string());
+    id
+}
+
+fn json_rpc_request(id: &str, method: &str, params: Value) -> Result<String, CoreError> {
+    encode_json_rpc(json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": method,
+        "params": params
+    }))
+}
+
+fn json_rpc_notification(method: &str, params: Value) -> Result<String, CoreError> {
+    encode_json_rpc(json!({
+        "jsonrpc": "2.0",
+        "method": method,
+        "params": params
+    }))
+}
+
+fn json_rpc_result(id: &str, result: Value) -> Result<String, CoreError> {
+    encode_json_rpc(json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": result
+    }))
+}
+
+fn encode_json_rpc(value: Value) -> Result<String, CoreError> {
+    serde_json::to_string(&value).map_err(|error| {
+        CoreError::new(ErrorCode::Unknown, "Could not encode LSP JSON-RPC message")
+            .with_details(error.to_string())
+    })
+}
+
+fn validate_uri(value: &str) -> Result<(), CoreError> {
+    if value.trim().is_empty() || value.contains('\0') {
+        Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "LSP request requires a valid URI.",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_lsp_method(method: &str) -> Result<(), CoreError> {
+    match method {
+        "textDocument/completion"
+        | "textDocument/hover"
+        | "textDocument/definition"
+        | "textDocument/declaration"
+        | "textDocument/typeDefinition"
+        | "textDocument/implementation"
+        | "textDocument/references"
+        | "textDocument/rename"
+        | "textDocument/formatting"
+        | "textDocument/codeAction"
+        | "completionItem/resolve"
+        | "codeAction/resolve"
+        | "workspace/executeCommand" => Ok(()),
+        _ => Err(CoreError::new(
+            ErrorCode::NotSupported,
+            "Unsupported LSP client request method.",
+        )
+        .with_details(method.to_string())),
+    }
+}
+
+fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreError> {
+    let text_document = json!({ "uri": request.uri });
+    match request.method.as_str() {
+        "textDocument/completion"
+        | "textDocument/hover"
+        | "textDocument/definition"
+        | "textDocument/declaration"
+        | "textDocument/typeDefinition"
+        | "textDocument/implementation" => Ok(json!({
+            "textDocument": text_document,
+            "position": lsp_position_json(required_position(request)?)
+        })),
+        "textDocument/references" => Ok(json!({
+            "textDocument": text_document,
+            "position": lsp_position_json(required_position(request)?),
+            "context": { "includeDeclaration": true }
+        })),
+        "textDocument/rename" => Ok(json!({
+            "textDocument": text_document,
+            "position": lsp_position_json(required_position(request)?),
+            "newName": request.new_name.clone().unwrap_or_default()
+        })),
+        "textDocument/formatting" => Ok(json!({
+            "textDocument": text_document,
+            "options": {
+                "tabSize": 4,
+                "insertSpaces": true,
+                "trimTrailingWhitespace": true,
+                "insertFinalNewline": true,
+                "trimFinalNewlines": true
+            }
+        })),
+        _ => Ok(json!({ "textDocument": text_document })),
+    }
+}
+
+fn required_position(request: &ClientFeatureRequest) -> Result<LspPosition, CoreError> {
+    request.position.ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "This LSP request requires a text document position.",
+        )
+    })
+}
+
+fn lsp_position_json(position: LspPosition) -> Value {
+    json!({
+        "line": position.line,
+        "character": position.utf16_column
+    })
+}
+
+fn lsp_message_id(message: &Value) -> Option<String> {
+    message.get("id").and_then(|id| match id {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    })
+}
+
+fn parse_diagnostics(value: Option<&Value>) -> Vec<LspClientDiagnostic> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    Some(LspClientDiagnostic {
+                        range: parse_lsp_range(item.get("range")?)?,
+                        severity: item.get("severity").and_then(Value::as_i64),
+                        message: item
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        source: item
+                            .get("source")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        code: item.get("code").and_then(|code| match code {
+                            Value::String(value) => Some(value.clone()),
+                            Value::Number(value) => Some(value.to_string()),
+                            _ => None,
+                        }),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_lsp_range(value: &Value) -> Option<LspRangeResponse> {
+    Some(LspRangeResponse {
+        start: parse_lsp_position(value.get("start")?)?,
+        end: parse_lsp_position(value.get("end")?)?,
+    })
+}
+
+fn parse_lsp_position(value: &Value) -> Option<LspPositionResponse> {
+    Some(LspPositionResponse {
+        line: value.get("line")?.as_i64()?,
+        utf16_column: value.get("character")?.as_i64()?,
+    })
+}
+
+fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
+    let mut values = Vec::new();
+    add_capability(
+        &mut values,
+        capabilities,
+        "definitionProvider",
+        "definition",
+    );
+    add_capability(
+        &mut values,
+        capabilities,
+        "declarationProvider",
+        "declaration",
+    );
+    add_capability(
+        &mut values,
+        capabilities,
+        "typeDefinitionProvider",
+        "typeDefinition",
+    );
+    add_capability(
+        &mut values,
+        capabilities,
+        "implementationProvider",
+        "implementation",
+    );
+    add_capability(
+        &mut values,
+        capabilities,
+        "referencesProvider",
+        "references",
+    );
+    add_capability(&mut values, capabilities, "hoverProvider", "hover");
+    add_capability(
+        &mut values,
+        capabilities,
+        "completionProvider",
+        "completion",
+    );
+    add_capability(&mut values, capabilities, "renameProvider", "rename");
+    add_capability(
+        &mut values,
+        capabilities,
+        "documentFormattingProvider",
+        "formatting",
+    );
+    add_capability(
+        &mut values,
+        capabilities,
+        "codeActionProvider",
+        "codeActions",
+    );
+    add_capability(
+        &mut values,
+        capabilities,
+        "executeCommandProvider",
+        "executeCommand",
+    );
+    if capabilities
+        .get("completionProvider")
+        .and_then(|value| value.get("resolveProvider"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        insert_unique(&mut values, "completionResolve");
+    }
+    if capabilities
+        .get("codeActionProvider")
+        .and_then(|value| value.get("resolveProvider"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        insert_unique(&mut values, "codeActionResolve");
+    }
+    values
+}
+
+fn add_capability(values: &mut Vec<String>, capabilities: &Value, key: &str, feature: &str) {
+    match capabilities.get(key) {
+        Some(Value::Bool(true)) => insert_unique(values, feature),
+        Some(Value::Object(_)) => insert_unique(values, feature),
+        _ => {}
+    }
+}
+
+fn apply_dynamic_registration(state: &mut LspClientState, message: &Value) {
+    let Some(registrations) = message
+        .get("params")
+        .and_then(|params| params.get("registrations"))
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    for registration in registrations {
+        if let Some(feature) = registration
+            .get("method")
+            .and_then(Value::as_str)
+            .and_then(feature_name_for_method)
+        {
+            insert_unique(&mut state.server_capabilities, feature);
+        }
+        if registration
+            .get("registerOptions")
+            .and_then(|options| options.get("resolveProvider"))
+            .and_then(Value::as_bool)
+            == Some(true)
+        {
+            if registration.get("method").and_then(Value::as_str) == Some("textDocument/completion")
+            {
+                insert_unique(&mut state.server_capabilities, "completionResolve");
+            }
+            if registration.get("method").and_then(Value::as_str) == Some("textDocument/codeAction")
+            {
+                insert_unique(&mut state.server_capabilities, "codeActionResolve");
+            }
+        }
+    }
+}
+
+fn apply_dynamic_unregistration(state: &mut LspClientState, message: &Value) {
+    let Some(unregistrations) = message
+        .get("params")
+        .and_then(|params| {
+            params
+                .get("unregistrations")
+                .or_else(|| params.get("unregisterations"))
+        })
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    for unregistration in unregistrations {
+        if let Some(feature) = unregistration
+            .get("method")
+            .and_then(Value::as_str)
+            .and_then(feature_name_for_method)
+        {
+            state
+                .server_capabilities
+                .retain(|existing| existing != feature);
+        }
+    }
+}
+
+fn feature_name_for_method(method: &str) -> Option<&'static str> {
+    match method {
+        "textDocument/definition" => Some("definition"),
+        "textDocument/declaration" => Some("declaration"),
+        "textDocument/typeDefinition" => Some("typeDefinition"),
+        "textDocument/implementation" => Some("implementation"),
+        "textDocument/references" => Some("references"),
+        "textDocument/hover" => Some("hover"),
+        "textDocument/completion" => Some("completion"),
+        "textDocument/rename" => Some("rename"),
+        "textDocument/formatting" => Some("formatting"),
+        "textDocument/codeAction" => Some("codeActions"),
+        "workspace/executeCommand" => Some("executeCommand"),
+        _ => None,
+    }
+}
+
+fn insert_unique(values: &mut Vec<String>, value: &str) {
+    if !values.iter().any(|existing| existing == value) {
+        values.push(value.to_string());
+    }
 }
 
 impl LspProviderPatch {
@@ -1180,5 +1889,177 @@ mod tests {
         })
         .unwrap();
         assert_eq!(references.locations.len(), 2);
+    }
+
+    #[test]
+    fn client_core_initializes_and_applies_server_capabilities() {
+        let initialized = client_initialize(ClientInitializeRequest {
+            state: LspClientState::default(),
+            root_uri: "file:///tmp/project".to_string(),
+            process_id: Some(42),
+        })
+        .unwrap();
+        assert_eq!(
+            initialized.state.pending_requests.get("1").unwrap(),
+            "initialize"
+        );
+        let initialize_message: Value =
+            serde_json::from_str(&initialized.messages[0]).expect("initialize JSON");
+        assert_eq!(initialize_message["method"], "initialize");
+        assert_eq!(
+            initialize_message["params"]["rootUri"],
+            "file:///tmp/project"
+        );
+
+        let applied = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: initialized.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "1",
+                "result": {
+                    "capabilities": {
+                        "definitionProvider": true,
+                        "hoverProvider": true,
+                        "completionProvider": { "resolveProvider": true },
+                        "codeActionProvider": { "resolveProvider": true }
+                    }
+                }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+
+        assert!(applied.state.initialized);
+        assert!(applied.state.pending_requests.is_empty());
+        assert!(applied
+            .state
+            .server_capabilities
+            .contains(&"definition".to_string()));
+        assert!(applied
+            .state
+            .server_capabilities
+            .contains(&"completionResolve".to_string()));
+        assert_eq!(applied.messages.len(), 1);
+        let initialized_notification: Value =
+            serde_json::from_str(&applied.messages[0]).expect("initialized JSON");
+        assert_eq!(initialized_notification["method"], "initialized");
+    }
+
+    #[test]
+    fn client_core_tracks_documents_and_feature_requests() {
+        let opened = client_open_document(ClientOpenDocumentRequest {
+            state: LspClientState::default(),
+            uri: "file:///tmp/project/main.rs".to_string(),
+            language_id: "rust".to_string(),
+            text: "fn main() {}\n".to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            opened
+                .state
+                .open_documents
+                .get("file:///tmp/project/main.rs")
+                .unwrap()
+                .version,
+            1
+        );
+        let did_open: Value = serde_json::from_str(&opened.messages[0]).unwrap();
+        assert_eq!(did_open["method"], "textDocument/didOpen");
+
+        let changed = client_change_document(ClientChangeDocumentRequest {
+            state: opened.state,
+            uri: "file:///tmp/project/main.rs".to_string(),
+            text: "fn main() { launch(); }\n".to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            changed
+                .state
+                .open_documents
+                .get("file:///tmp/project/main.rs")
+                .unwrap()
+                .version,
+            2
+        );
+        let did_change: Value = serde_json::from_str(&changed.messages[0]).unwrap();
+        assert_eq!(did_change["method"], "textDocument/didChange");
+
+        let requested = client_feature_request(ClientFeatureRequest {
+            state: changed.state,
+            uri: "file:///tmp/project/main.rs".to_string(),
+            method: "textDocument/definition".to_string(),
+            position: Some(LspPosition {
+                line: 0,
+                utf16_column: 12,
+            }),
+            new_name: None,
+        })
+        .unwrap();
+        assert_eq!(
+            requested.state.pending_requests.get("1").unwrap(),
+            "textDocument/definition"
+        );
+        let request_message: Value = serde_json::from_str(&requested.messages[0]).unwrap();
+        assert_eq!(request_message["method"], "textDocument/definition");
+        assert_eq!(request_message["params"]["position"]["character"], 12);
+    }
+
+    #[test]
+    fn client_core_applies_diagnostics_and_dynamic_registrations() {
+        let state = LspClientState::default();
+        let diagnostics = client_apply_server_message(ClientApplyServerMessageRequest {
+            state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "method": "textDocument/publishDiagnostics",
+                "params": {
+                    "uri": "file:///tmp/project/main.py",
+                    "diagnostics": [{
+                        "range": {
+                            "start": { "line": 2, "character": 4 },
+                            "end": { "line": 2, "character": 9 }
+                        },
+                        "severity": 1,
+                        "source": "pyright",
+                        "code": "reportGeneralTypeIssues",
+                        "message": "Example diagnostic"
+                    }]
+                }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+        let stored = diagnostics
+            .state
+            .diagnostics
+            .get("file:///tmp/project/main.py")
+            .unwrap();
+        assert_eq!(stored[0].message, "Example diagnostic");
+        assert_eq!(stored[0].range.start.utf16_column, 4);
+        assert_eq!(diagnostics.events[0].kind, "diagnostics");
+
+        let registered = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: diagnostics.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": 77,
+                "method": "client/registerCapability",
+                "params": {
+                    "registrations": [{
+                        "id": "formatting",
+                        "method": "textDocument/formatting",
+                        "registerOptions": {}
+                    }]
+                }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+        assert!(registered
+            .state
+            .server_capabilities
+            .contains(&"formatting".to_string()));
+        let response: Value = serde_json::from_str(&registered.messages[0]).unwrap();
+        assert_eq!(response["id"], "77");
     }
 }
