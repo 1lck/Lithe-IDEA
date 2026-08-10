@@ -4,6 +4,21 @@ import SwiftUI
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     weak var projectSessions: ProjectSessionManager?
+    var mainWindow: NSWindow?
+
+    func registerMainWindow(_ window: NSWindow) {
+        mainWindow = window
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows: Bool
+    ) -> Bool {
+        guard !hasVisibleWindows, let mainWindow else { return true }
+        mainWindow.makeKeyAndOrderFront(nil)
+        sender.activate(ignoringOtherApps: true)
+        return false
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let projectSessions else { return .terminateNow }

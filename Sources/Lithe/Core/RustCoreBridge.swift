@@ -188,6 +188,15 @@ struct RustCoreBridge: Sendable {
             let packaging: String
             let modules: [Module]
 
+            enum CodingKeys: String, CodingKey {
+                case relativePath
+                case groupID = "groupId"
+                case artifactID = "artifactId"
+                case version
+                case packaging
+                case modules
+            }
+
             func makeModel(rootURL: URL) -> MavenModule {
                 MavenModule(
                     relativePath: relativePath,
@@ -208,6 +217,16 @@ struct RustCoreBridge: Sendable {
         let modules: [Module]
         let profiles: [Profile]
         let hasWrapper: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case groupID = "groupId"
+            case artifactID = "artifactId"
+            case version
+            case packaging
+            case modules
+            case profiles
+            case hasWrapper
+        }
 
         func makeProject(rootURL: URL) -> MavenProject {
             MavenProject(

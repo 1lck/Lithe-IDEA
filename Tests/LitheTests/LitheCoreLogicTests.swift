@@ -6,6 +6,54 @@ import Testing
 @Suite("Lithe core logic")
 struct LitheCoreLogicTests {
     @Test
+    @MainActor
+    func closingAWorkspaceWindowClosesTheProjectInsteadOfTheWindow() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            registerWindow: { _ in }
+        )
+        let window = NSWindow()
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(sessions.closeActiveProjectCallCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func closingTheWelcomeWindowKeepsItAvailableForDockReopen() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: false)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            registerWindow: { _ in }
+        )
+        let window = NSWindow()
+        window.orderFront(nil)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(!window.isVisible)
+        #expect(sessions.closeActiveProjectCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func dockReopenShowsTheHiddenWelcomeWindow() {
+        let appDelegate = LitheAppDelegate()
+        let window = NSWindow()
+        appDelegate.registerMainWindow(window)
+        window.orderOut(nil)
+        defer { window.orderOut(nil) }
+
+        let shouldPerformDefaultReopen = appDelegate.applicationShouldHandleReopen(
+            NSApplication.shared,
+            hasVisibleWindows: false
+        )
+
+        #expect(!shouldPerformDefaultReopen)
+        #expect(window.isVisible)
+    }
+
+    @Test
     func databaseSidecarParsesCapabilitiesWithoutStartingUntilRequested() throws {
         let runner = RecordingProcessRunner { request in
             let input = try! #require(request.standardInput)
@@ -2111,6 +2159,20 @@ struct LitheCoreLogicTests {
     }
 }
 
+@MainActor
+private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
+    var hasActiveProject: Bool
+    private(set) var closeActiveProjectCallCount = 0
+
+    init(hasActiveProject: Bool) {
+        self.hasActiveProject = hasActiveProject
+    }
+
+    func closeActiveProject() {
+        closeActiveProjectCallCount += 1
+    }
+}
+
 private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
     private let handler: (ProcessRequest) -> ProcessResult
     private let requestsLock = NSLock()
@@ -2573,6 +2635,56 @@ struct EditorDocumentTests {
         #expect(model.gitOperationFreezeDepth == 0)
         #expect(refreshCount == 1)
     }
+
+    @Test
+    @MainActor
+    func openDocumentOrderCanBeMovedAndRestored() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-editor-order-tests")
+        let urls = [
+            workspace.appendingPathComponent("A.swift"),
+            workspace.appendingPathComponent("B.swift"),
+            workspace.appendingPathComponent("C.swift")
+        ]
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "text"),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        for url in urls {
+            await model.openFileAsync(
+                url,
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: false
+            )
+        }
+
+        let ids = model.openDocuments.map(\.id)
+        model.moveDocument(ids[0], before: ids[2])
+        #expect(model.openDocuments.map(\.url.lastPathComponent) == ["B.swift", "A.swift", "C.swift"])
+
+        model.moveDocument(ids[0], after: ids[2])
+        #expect(model.openDocuments.map(\.url.lastPathComponent) == ["B.swift", "C.swift", "A.swift"])
+
+        model.reorderDocuments(orderedPaths: urls.reversed().map(\.path))
+        #expect(model.openDocuments.map(\.url.lastPathComponent) == ["C.swift", "B.swift", "A.swift"])
+    }
 }
 
 @MainActor
@@ -2772,6 +2884,12 @@ private let dbxEncryptedConnectionExport = #"""
 """#
 
 private struct EmptyWorkspaceOperations: WorkspaceOperations {
+    let readFileValue: String?
+
+    init(readFileValue: String? = nil) {
+        self.readFileValue = readFileValue
+    }
+
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
 
     func search(
@@ -2798,7 +2916,7 @@ private struct EmptyWorkspaceOperations: WorkspaceOperations {
         visibilityRules: FileVisibilityRules
     ) -> [ProjectReplacementFile]? { nil }
 
-    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func readFile(at rootURL: URL, relativePath: String) -> String? { readFileValue }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
 }
 

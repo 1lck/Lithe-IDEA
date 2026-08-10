@@ -349,15 +349,27 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Display") {
                 row("Font size") {
-                        Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
+                    Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
                         Text("\(Int(settings.editorFontSize)) pt")
                             .monospacedDigit()
                             .frame(width: 42, alignment: .trailing)
-                        }
-                        .lithePointer()
                     }
+                    .lithePointer()
+                }
                 Toggle("Show usages and Git author", isOn: $settings.showCodeVision)
                     .lithePointer()
+            }
+            group("Editor tabs") {
+                row("Layout") {
+                    Picker("", selection: $settings.editorTabLayoutMode) {
+                        ForEach(EditorTabLayoutMode.allCases) { mode in
+                            Text(LocalizedStringKey(mode.title)).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                    .lithePointer()
+                }
             }
             group("Indentation") {
                 row("Tab width") {

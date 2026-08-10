@@ -136,6 +136,10 @@
 "File patterns" = "文件模式";
 "Apply" = "应用";
 "Display" = "显示";
+"Editor tabs" = "编辑器标签栏";
+"Single row" = "单行";
+"Wrap into rows" = "多行展开";
+"Layout" = "布局";
 "Font size" = "字体大小";
 "Show usages and Git author" = "显示引用数量和 Git 作者";
 "Indentation" = "缩进";
