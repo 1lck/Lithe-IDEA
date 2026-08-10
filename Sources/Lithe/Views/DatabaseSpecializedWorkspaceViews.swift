@@ -28,10 +28,10 @@ struct RedisWorkspaceView: View {
         .task(id: feature.selectedProfileID) {
             await feature.loadRedisKeys(pattern: pattern)
         }
-        .onChange(of: feature.redisIncludeSize) { _, _ in
+        .onChange(of: feature.redisIncludeSize) { _ in
             Task { await feature.loadRedisKeys(pattern: pattern) }
         }
-        .onChange(of: feature.redisSelectedKey) { _, detail in
+        .onChange(of: feature.redisSelectedKey) { detail in
             guard let detail else {
                 stringDraft = ""; hashDraft = "{}"; ttlDraft = ""; renameDraft = ""
                 return
@@ -394,7 +394,7 @@ struct NacosWorkspaceView: View {
             await feature.loadNacosConfigs(dataId: dataIDSearch, group: groupSearch)
             await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch)
         }
-        .onChange(of: feature.nacosSelectedConfig) { _, detail in
+        .onChange(of: feature.nacosSelectedConfig) { detail in
             guard let detail else {
                 draftDataID = ""
                 draftGroup = "DEFAULT_GROUP"

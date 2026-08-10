@@ -64,7 +64,7 @@ struct DatabaseTableView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: model.databaseFeature.selectedTable) { _, _ in
+        .onChange(of: model.databaseFeature.selectedTable) { _ in
             discard()
             appliedFilters = []
             appliedSort = []
@@ -72,7 +72,7 @@ struct DatabaseTableView: View {
             filterJoin = .and
             filterConditions = [.init()]
         }
-        .onChange(of: model.databaseFeature.columns) { _, columns in
+        .onChange(of: model.databaseFeature.columns) { columns in
             if filterConditions.count == 1, filterConditions[0].column.isEmpty {
                 filterConditions[0].column = columns.first ?? ""
             }
@@ -510,7 +510,7 @@ struct DatabaseTableView: View {
                         alignment: .topLeading
                     )
                 }
-                .onChange(of: jumpTargetColumn) { _, column in
+                .onChange(of: jumpTargetColumn) { column in
                     guard let column else { return }
                     withAnimation { proxy.scrollTo("column-\(column)", anchor: .center) }
                     jumpTargetColumn = nil

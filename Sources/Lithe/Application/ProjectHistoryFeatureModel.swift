@@ -152,7 +152,7 @@ final class ProjectHistoryFeatureModel: ObservableObject {
     }
 
     func showLocalHistory(for fileURL: URL) {
-        guard isWorkspaceURL(fileURL), WorkspaceTextFilePolicy.isReadableTextFile(fileURL) else { return }
+        guard isWorkspaceURL(fileURL) else { return }
         localHistoryRequest = LocalHistoryRequest(fileURL: fileURL.standardizedFileURL)
         localHistoryEntries = []
         selectedLocalHistoryEntry = nil
@@ -238,7 +238,7 @@ final class ProjectHistoryFeatureModel: ObservableObject {
         let targetURL = workspaceURL
             .appendingPathComponent(entry.relativePath)
             .standardizedFileURL
-        guard isWorkspaceURL(targetURL), WorkspaceTextFilePolicy.isReadableTextFile(targetURL),
+        guard isWorkspaceURL(targetURL),
               let relativePath = workspaceRelativePath(for: targetURL, root: workspaceURL) else { return nil }
         do {
             let restoredText = try await localHistoryService.content(for: entry)

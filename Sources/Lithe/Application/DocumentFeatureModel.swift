@@ -12,6 +12,8 @@ final class DocumentFeatureModel: ObservableObject {
 
     private let operations: any WorkspaceOperations
     private let fileOperations: any WorkspaceFileOperations
+    private let fileStorage: any FileStorage
+    private let binaryFileViewerRegistry: BinaryFileViewerRegistry
     private var workspaceURLProvider: (@MainActor () -> URL?)?
     private var autoSaveEnabledProvider: (@MainActor () -> Bool)?
     private var autoSaveDelayProvider: (@MainActor () -> TimeInterval)?
@@ -32,10 +34,14 @@ final class DocumentFeatureModel: ObservableObject {
 
     init(
         operations: any WorkspaceOperations,
-        fileOperations: any WorkspaceFileOperations
+        fileOperations: any WorkspaceFileOperations,
+        fileStorage: any FileStorage,
+        binaryFileViewerRegistry: BinaryFileViewerRegistry
     ) {
         self.operations = operations
         self.fileOperations = fileOperations
+        self.fileStorage = fileStorage
+        self.binaryFileViewerRegistry = binaryFileViewerRegistry
     }
 
     func configure(
@@ -120,11 +126,6 @@ final class DocumentFeatureModel: ObservableObject {
             return
         }
 
-        guard WorkspaceTextFilePolicy.isReadableTextFile(normalizedURL) else {
-            notify?("This file cannot be displayed as text")
-            return
-        }
-
         let requestID = UUID()
         guard pendingFileOpenRequests[normalizedURL.path] == nil else { return }
         pendingFileOpenRequests[normalizedURL.path] = requestID
@@ -149,6 +150,24 @@ final class DocumentFeatureModel: ObservableObject {
             operations.readFile(at: openingWorkspaceURL, relativePath: relativePath)
         }.value
         guard let text else {
+            // `file.read` accepts plain text regardless of suffix and rejects
+            // binary content. Only after that path fails do we probe a small
+            // header for an explicitly registered binary viewer. With the
+            // default empty registry this falls through to the rejection below.
+            let fileStorage = self.fileStorage
+            let header = await Task.detached(priority: .userInitiated) {
+                try? fileStorage.readPrefix(
+                    from: normalizedURL,
+                    byteCount: BinaryFileViewerRegistry.headerByteCount
+                )
+            }.value
+            if let header,
+               await binaryFileViewerRegistry.openIfSupported(
+                   url: normalizedURL,
+                   header: header
+               ) {
+                return
+            }
             notify?("This file cannot be displayed as text")
             return
         }

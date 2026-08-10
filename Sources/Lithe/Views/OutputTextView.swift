@@ -59,7 +59,7 @@ struct OutputTextView: View {
                 onOpenLocation(location.url, location.line, location.column)
                 return .handled
             })
-            .onChange(of: output) {
+            .onChange(of: output) { _ in
                 guard isAtBottom else { return }
                 withAnimation(.easeOut(duration: 0.15)) {
                     proxy.scrollTo(Self.contentID, anchor: .bottom)

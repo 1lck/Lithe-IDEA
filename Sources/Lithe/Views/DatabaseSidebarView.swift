@@ -279,7 +279,7 @@ struct DatabaseSidebarView: View {
         .fileImporter(isPresented: $showsDBXImporter, allowedContentTypes: [.json]) { result in
             importDBXFile(result)
         }
-        .onChange(of: model.databaseFeature.selectedProfileID) { _, selectedID in
+        .onChange(of: model.databaseFeature.selectedProfileID) { selectedID in
             if let selectedID { expandedProfileIDs = [selectedID] }
         }
     }
@@ -1760,7 +1760,7 @@ struct DatabaseConnectionEditor: View {
                     )
                     if kind == .redis {
                         TextField("Redis database index", text: $database)
-                            .onChange(of: database) { _, value in
+                            .onChange(of: database) { value in
                                 let digitsOnly = value.filter(\.isNumber)
                                 if digitsOnly != value { database = digitsOnly }
                             }
@@ -1840,7 +1840,7 @@ struct DatabaseConnectionEditor: View {
             .frame(height: 58)
             .background(LitheTheme.toolHeader)
         }
-        .onChange(of: kind) { _, newKind in
+        .onChange(of: kind) { newKind in
             guard profile == nil else { return }
             switch newKind {
             case .mysql: port = "3306"; username = "root"; database = ""; path = ""

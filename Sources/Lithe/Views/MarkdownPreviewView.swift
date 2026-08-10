@@ -72,10 +72,10 @@ struct MarkdownPreviewView: View {
         .onAppear {
             scheduleRender(immediate: true)
         }
-        .onChange(of: document.text) { _, _ in
+        .onChange(of: document.text) { _ in
             scheduleRender(immediate: false)
         }
-        .onChange(of: document.url) { _, _ in
+        .onChange(of: document.url) { _ in
             scheduleRender(immediate: true)
         }
         .onDisappear {
