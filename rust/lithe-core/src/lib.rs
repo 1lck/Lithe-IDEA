@@ -10,6 +10,7 @@ mod markdown;
 mod maven;
 mod model;
 mod runtime;
+mod search_index;
 mod workspace;
 
 pub use command::{CoreCommand, CoreRequest};
@@ -249,6 +250,143 @@ mod tests {
             override_response["data"]["files"][0]["matches"][0]["before"],
             "    void fetchUser() {}"
         );
+
+        fs::remove_dir_all(root).expect("temporary fixture should be removable");
+    }
+
+    #[test]
+    fn shared_search_index_warms_and_tracks_file_changes() {
+        let root = temporary_root("search-index-updates");
+        fs::create_dir_all(&root).expect("fixture directory should be creatable");
+        let source = root.join("source.txt");
+        fs::write(&source, "oldneedle\n").expect("fixture should be writable");
+
+        let request = |command: &str, payload: Value| -> Value {
+            let request = serde_json::json!({
+                "id": command,
+                "command": command,
+                "payload": payload
+            });
+            serde_json::from_str(&execute_json(
+                &serde_json::to_string(&request).expect("search index request should encode"),
+            ))
+            .expect("search index response should be JSON")
+        };
+        let search = |query: &str| -> Vec<String> {
+            let response = request(
+                "workspace.search",
+                serde_json::json!({"root": root, "query": query}),
+            );
+            assert_eq!(response["ok"], true);
+            response["data"]["matches"]
+                .as_array()
+                .expect("matches should be an array")
+                .iter()
+                .filter(|value| value["kind"] == "content")
+                .filter_map(|value| value["path"].as_str().map(str::to_string))
+                .collect()
+        };
+
+        let warm = request(
+            "workspace.searchIndex.warm",
+            serde_json::json!({"root": root}),
+        );
+        assert_eq!(warm["ok"], true);
+        assert_eq!(warm["data"]["fileCount"], 1);
+        assert_eq!(search("oldneedle"), vec!["source.txt"]);
+
+        fs::write(&source, "newneedle\n").expect("fixture should be updateable");
+        let update = request(
+            "workspace.searchIndex.update",
+            serde_json::json!({"root": root, "paths": [source]}),
+        );
+        assert_eq!(update["ok"], true);
+        assert_eq!(update["data"]["rebuilt"], false);
+        assert!(search("oldneedle").is_empty());
+        assert_eq!(search("newneedle"), vec!["source.txt"]);
+
+        let write = request(
+            "file.write",
+            serde_json::json!({
+                "root": root,
+                "path": "source.txt",
+                "text": "directwritetoken\n"
+            }),
+        );
+        assert_eq!(write["ok"], true);
+        assert!(search("newneedle").is_empty());
+        assert_eq!(search("directwritetoken"), vec!["source.txt"]);
+
+        let added = root.join("added.txt");
+        fs::write(&added, "brandnewtoken\n").expect("new fixture should be writable");
+        let add = request(
+            "workspace.searchIndex.update",
+            serde_json::json!({"root": root, "paths": [added]}),
+        );
+        assert_eq!(add["data"]["rebuilt"], false);
+        assert_eq!(search("brandnewtoken"), vec!["added.txt"]);
+
+        fs::remove_file(&added).expect("new fixture should be removable");
+        let remove = request(
+            "workspace.searchIndex.update",
+            serde_json::json!({"root": root, "paths": [added]}),
+        );
+        assert_eq!(remove["data"]["rebuilt"], false);
+        assert!(search("brandnewtoken").is_empty());
+
+        let nested = root.join("generated");
+        fs::create_dir_all(&nested).expect("nested fixture should be creatable");
+        fs::write(nested.join("result.txt"), "directorytoken\n")
+            .expect("nested fixture should be writable");
+        let rebuild = request(
+            "workspace.searchIndex.update",
+            serde_json::json!({"root": root, "paths": [nested]}),
+        );
+        assert_eq!(rebuild["data"]["rebuilt"], true);
+        assert_eq!(search("directorytoken"), vec!["generated/result.txt"]);
+
+        fs::remove_dir_all(&root).expect("temporary fixture should be removable");
+        let invalidate = request(
+            "workspace.searchIndex.invalidate",
+            serde_json::json!({"root": root}),
+        );
+        assert_eq!(invalidate["ok"], true);
+    }
+
+    #[test]
+    fn shared_search_index_preserves_fallback_query_semantics() {
+        let root = temporary_root("search-index-fallbacks");
+        fs::create_dir_all(&root).expect("fixture directory should be creatable");
+        fs::write(root.join("foo.txt"), "foo xy 你好\n").expect("fixture should be writable");
+        fs::write(root.join("bar.txt"), "bar\n").expect("fixture should be writable");
+
+        let search = |query: &str, regular_expression: bool| -> Vec<String> {
+            let request = serde_json::json!({
+                "id": "fallback-search",
+                "command": "workspace.search",
+                "payload": {
+                    "root": root,
+                    "query": query,
+                    "regularExpression": regular_expression
+                }
+            });
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::to_string(&request).expect("fallback search should encode"),
+            ))
+            .expect("fallback search response should be JSON");
+            assert_eq!(response["ok"], true);
+            response["data"]["matches"]
+                .as_array()
+                .expect("matches should be an array")
+                .iter()
+                .filter(|value| value["kind"] == "content")
+                .filter_map(|value| value["path"].as_str().map(str::to_string))
+                .collect()
+        };
+
+        assert_eq!(search("foo|bar", true), vec!["bar.txt", "foo.txt"]);
+        assert_eq!(search("xy", false), vec!["foo.txt"]);
+        assert_eq!(search("你好", false), vec!["foo.txt"]);
 
         fs::remove_dir_all(root).expect("temporary fixture should be removable");
     }

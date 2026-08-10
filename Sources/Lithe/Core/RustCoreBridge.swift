@@ -61,6 +61,15 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    private struct SearchIndexStatusPayload: Decodable {
+        let fileCount: Int
+        let symbolCount: Int
+        let postingCount: Int
+        let rebuilt: Bool
+    }
+
+    private struct EmptyResponsePayload: Decodable {}
+
     struct SearchMatchPayload: Decodable, Sendable {
         let kind: String
         let path: String
@@ -612,6 +621,13 @@ struct RustCoreBridge: Sendable {
         let hiddenFilePatterns: [String]
     }
 
+    private struct SearchIndexUpdateRequest: Encodable {
+        let root: String
+        let paths: [String]
+        let hiddenDirectoryNames: [String]
+        let hiddenFilePatterns: [String]
+    }
+
     private struct SearchRequest: Encodable {
         let root: String
         let query: String
@@ -844,6 +860,53 @@ struct RustCoreBridge: Sendable {
     ) -> WorkspaceSnapshotPayload? {
         execute(
             command: "workspace.snapshot",
+            payload: SnapshotRequest(
+                root: rootURL.standardizedFileURL.path,
+                hiddenDirectoryNames: hiddenDirectoryNames,
+                hiddenFilePatterns: hiddenFilePatterns
+            )
+        )
+    }
+
+    func warmSearchIndex(
+        at rootURL: URL,
+        hiddenDirectoryNames: [String] = [],
+        hiddenFilePatterns: [String] = []
+    ) {
+        let _: SearchIndexStatusPayload? = execute(
+            command: "workspace.searchIndex.warm",
+            payload: SnapshotRequest(
+                root: rootURL.standardizedFileURL.path,
+                hiddenDirectoryNames: hiddenDirectoryNames,
+                hiddenFilePatterns: hiddenFilePatterns
+            )
+        )
+    }
+
+    func updateSearchIndex(
+        at rootURL: URL,
+        changedPaths: [String],
+        hiddenDirectoryNames: [String] = [],
+        hiddenFilePatterns: [String] = []
+    ) {
+        let _: SearchIndexStatusPayload? = execute(
+            command: "workspace.searchIndex.update",
+            payload: SearchIndexUpdateRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: changedPaths,
+                hiddenDirectoryNames: hiddenDirectoryNames,
+                hiddenFilePatterns: hiddenFilePatterns
+            )
+        )
+    }
+
+    func invalidateSearchIndex(
+        at rootURL: URL,
+        hiddenDirectoryNames: [String] = [],
+        hiddenFilePatterns: [String] = []
+    ) {
+        let _: EmptyResponsePayload? = execute(
+            command: "workspace.searchIndex.invalidate",
             payload: SnapshotRequest(
                 root: rootURL.standardizedFileURL.path,
                 hiddenDirectoryNames: hiddenDirectoryNames,
