@@ -111,6 +111,7 @@ struct RedisWorkspaceView: View {
                     .onSubmit { Task { await feature.loadRedisKeys(pattern: pattern) } }
                 Button { Task { await feature.loadRedisKeys(pattern: pattern) } } label: { Image(systemName: "magnifyingglass") }
                     .litheIconButton().help("Search keys with SCAN")
+                    .disabled(feature.isLoading || profile == nil)
             }
             .padding(10)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -121,8 +122,22 @@ struct RedisWorkspaceView: View {
                 }
             }
 
-            if feature.redisKeys.isEmpty && !feature.isLoading {
-                specializedEmptyState(symbol: "magnifyingglass", title: "No keys loaded", detail: "Search with a Redis pattern to scan this database incrementally.")
+            if feature.redisKeys.isEmpty && feature.isLoading {
+                VStack(spacing: 9) {
+                    ProgressView().controlSize(.small)
+                    Text("Scanning keys…")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if feature.redisKeys.isEmpty {
+                specializedEmptyState(
+                    symbol: "magnifyingglass",
+                    title: feature.errorMessage == nil ? "No matching keys" : "No keys loaded",
+                    detail: feature.errorMessage == nil
+                        ? "No keys matched this pattern. Try a broader pattern to search again."
+                        : "Retry the scan after fixing the connection or authentication settings."
+                )
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
@@ -380,7 +395,13 @@ struct NacosWorkspaceView: View {
             await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch)
         }
         .onChange(of: feature.nacosSelectedConfig) { _, detail in
-            guard let detail else { return }
+            guard let detail else {
+                draftDataID = ""
+                draftGroup = "DEFAULT_GROUP"
+                draftType = ""
+                draftContent = ""
+                return
+            }
             draftDataID = detail.dataId; draftGroup = detail.group; draftType = detail.type ?? ""; draftContent = detail.content
         }
         .alert("Confirm Nacos configuration change", isPresented: $showsWriteConfirmation, presenting: pendingAction) { _ in

@@ -1736,7 +1736,7 @@ struct DatabaseConnectionEditor: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             Form {
                 TextField("Name", text: $name)
-                Picker("Database", selection: $kind) {
+                Picker("Engine", selection: $kind) {
                     Text("MySQL").tag(DatabaseKind.mysql)
                     Text("MariaDB").tag(DatabaseKind.mariadb)
                     Text("PostgreSQL").tag(DatabaseKind.postgresql)
@@ -1779,7 +1779,7 @@ struct DatabaseConnectionEditor: View {
                             .font(.system(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                     } else {
-                        TextField("Database", text: $database)
+                        TextField("Database name", text: $database)
                     }
                     Toggle("Use TLS", isOn: $ssl)
                 }
@@ -1823,9 +1823,16 @@ struct DatabaseConnectionEditor: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: 8) {
                 Spacer()
-                Button("Cancel") { isPresented = false }
+                Button("Cancel") { cancel() }
                     .buttonStyle(LitheSecondaryButtonStyle())
-                Button("Connect") { connect() }
+                Button {
+                    connect()
+                } label: {
+                    HStack(spacing: 6) {
+                        if model.databaseFeature.isLoading { ProgressView().controlSize(.small) }
+                        Text(model.databaseFeature.isLoading ? "Connecting…" : "Connect")
+                    }
+                }
                     .buttonStyle(LithePrimaryButtonStyle())
                     .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || redisDatabaseValidationMessage != nil || model.databaseFeature.isLoading)
             }
@@ -1847,11 +1854,18 @@ struct DatabaseConnectionEditor: View {
             }
         }
         .onAppear {
+            model.databaseFeature.errorMessage = nil
             if let profile {
                 hasSavedPassword = model.databaseFeature.hasSavedPassword(for: profile)
             }
         }
+        .onDisappear { model.databaseFeature.errorMessage = nil }
         .frame(width: 500, height: kind == .sqlite ? 640 : (kind.supportsDataGrid ? 750 : 710)).background(LitheTheme.raised)
+    }
+
+    private func cancel() {
+        model.databaseFeature.errorMessage = nil
+        isPresented = false
     }
 
     private func connect() {

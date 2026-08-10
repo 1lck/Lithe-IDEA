@@ -42,6 +42,18 @@ struct DatabaseTableView: View {
                 queryClauseBar
                 dataActionBar
             }
+            if let error = model.databaseFeature.errorMessage, model.databaseFeature.selectedTable != nil {
+                Label {
+                    DatabaseLocalization.error(error)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.error)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                .background(LitheTheme.toolHeader)
+            }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             if model.databaseFeature.selectedTable == nil {
                 DatabaseTableEmptyState(hasConnection: model.databaseFeature.selectedProfile != nil)
@@ -256,6 +268,15 @@ struct DatabaseTableView: View {
                 Button("Paste TSV from Clipboard") { pasteFromClipboard() }
             } label: { Text("TSV") }
                 .menuStyle(.borderlessButton).frame(width: 52)
+            Button {
+                rowDetailsIndex = selectedRows.first
+            } label: {
+                Image(systemName: "list.bullet.rectangle")
+            }
+            .litheIconButton()
+            .help("Row details")
+            .accessibilityLabel("Row details")
+            .disabled(selectedRows.count != 1)
             Button { insertedRows.append([:]) } label: { Label("Add Row", systemImage: "plus") }
                 .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
                 .disabled(model.databaseFeature.selectedProfile?.readOnly == true)

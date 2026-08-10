@@ -26,6 +26,7 @@ enum DatabaseSQLStatementKind: String, Codable, Equatable, Sendable {
     case mutation
     case definition
     case transaction
+    case batch
     case unknown
 
     var usesQueryEndpoint: Bool {
@@ -38,8 +39,28 @@ struct DatabaseSQLAnalysis: Equatable, Sendable {
     let statementCount: Int
     let requiresConfirmation: Bool
     let warning: String?
+    let statements: [String]
 
-    var canExecute: Bool { statementCount == 1 }
+    var canExecute: Bool { !statements.isEmpty || statementCount == 1 }
+
+    init(
+        kind: DatabaseSQLStatementKind,
+        statementCount: Int,
+        requiresConfirmation: Bool,
+        warning: String?,
+        statements: [String] = []
+    ) {
+        self.kind = kind
+        self.statementCount = statementCount
+        self.requiresConfirmation = requiresConfirmation
+        self.warning = warning
+        self.statements = statements
+    }
+}
+
+enum DatabaseSQLExecutionScope: Equatable, Sendable {
+    case all
+    case selection(String)
 }
 
 struct DatabaseSQLTab: Identifiable, Equatable, Sendable {
@@ -111,18 +132,37 @@ struct DatabaseSQLHistoryEntry: Codable, Equatable, Identifiable, Sendable {
 enum DatabaseSQLAnalyzer {
     static func analyze(_ sql: String) -> DatabaseSQLAnalysis {
         let statements = DatabaseSQLLexing.statements(in: sql)
-        guard statements.count == 1, let statement = statements.first else {
+        guard !statements.isEmpty else {
             return DatabaseSQLAnalysis(
                 kind: .unknown,
                 statementCount: statements.count,
                 requiresConfirmation: false,
-                warning: statements.isEmpty ? "Enter a SQL statement." : "Run one SQL statement at a time."
+                warning: "Enter a SQL statement.",
+                statements: statements
             )
         }
 
+        let analyses = statements.map(analyzeSingle)
+        let kinds = analyses.map(\.kind)
+        let kind = statements.count > 1 ? .batch : kinds[0]
+        return DatabaseSQLAnalysis(
+            kind: kind,
+            statementCount: statements.count,
+            requiresConfirmation: analyses.contains(where: \.requiresConfirmation),
+            warning: warning(for: analyses),
+            statements: statements
+        )
+    }
+
+    private static func warning(for analyses: [DatabaseSQLAnalysis]) -> String? {
+        let warnings = analyses.compactMap(\.warning)
+        return warnings.first(where: { !$0.contains("not recognized") }) ?? warnings.first
+    }
+
+    private static func analyzeSingle(_ statement: String) -> DatabaseSQLAnalysis {
         let tokens = DatabaseSQLLexing.keywords(in: statement)
         guard let first = tokens.first else {
-            return DatabaseSQLAnalysis(kind: .unknown, statementCount: 0, requiresConfirmation: false, warning: "Enter a SQL statement.")
+            return DatabaseSQLAnalysis(kind: .unknown, statementCount: 0, requiresConfirmation: false, warning: "Enter a SQL statement.", statements: [])
         }
 
         let kind: DatabaseSQLStatementKind
@@ -151,7 +191,7 @@ enum DatabaseSQLAnalyzer {
         } else {
             warning = nil
         }
-        return DatabaseSQLAnalysis(kind: kind, statementCount: 1, requiresConfirmation: requiresConfirmation, warning: warning)
+        return DatabaseSQLAnalysis(kind: kind, statementCount: 1, requiresConfirmation: requiresConfirmation, warning: warning, statements: [statement])
     }
 }
 
@@ -287,41 +327,99 @@ private enum DatabaseSQLLexing {
         var lineComment = false
         var blockComment = false
 
+        func appendCurrentStatement() {
+            guard !sanitized(current).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            statements.append(current)
+        }
+
         while index < characters.count {
             let character = characters[index]
             let next = index + 1 < characters.count ? characters[index + 1] : nil
             if lineComment {
-                if character == "\n" { lineComment = false; current.append(" ") }
-                index += 1; continue
+                current.append(character)
+                if character == "\n" { lineComment = false }
+                index += 1
+                continue
             }
             if blockComment {
-                if character == "*", next == "/" { blockComment = false; index += 2; current.append(" ") }
-                else { index += 1 }
+                current.append(character)
+                if character == "*", next == "/" {
+                    current.append("/")
+                    blockComment = false
+                    index += 2
+                } else {
+                    index += 1
+                }
                 continue
             }
             if let activeQuote = quote {
-                current.append(" ")
+                current.append(character)
+                if character == "\\", next != nil {
+                    current.append(next!)
+                    index += 2
+                    continue
+                }
                 if character == activeQuote {
-                    if next == activeQuote { index += 1; current.append(" ") }
+                    if next == activeQuote { index += 1; current.append(activeQuote) }
                     else { quote = nil }
                 }
                 index += 1; continue
             }
-            if character == "-", next == "-" { lineComment = true; index += 2; current.append(" "); continue }
-            if character == "/", next == "*" { blockComment = true; index += 2; current.append(" "); continue }
-            if character == "'" || character == "\"" || character == "`" { quote = character; current.append(" "); index += 1; continue }
+            if character == "-", next == "-" { lineComment = true; current.append(character); current.append(next!); index += 2; continue }
+            if character == "/", next == "*" { blockComment = true; current.append(character); current.append(next!); index += 2; continue }
+            if character == "'" || character == "\"" || character == "`" { quote = character; current.append(character); index += 1; continue }
             if character == ";" {
-                if !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { statements.append(current) }
+                appendCurrentStatement()
                 current = ""; index += 1; continue
             }
             current.append(character)
             index += 1
         }
-        if !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { statements.append(current) }
+        appendCurrentStatement()
         return statements
     }
 
     private static func sanitized(_ sql: String) -> String {
-        statements(in: sql).joined(separator: " ")
+        let characters = Array(sql)
+        var output = ""
+        var index = 0
+        var quote: Character?
+        var lineComment = false
+        var blockComment = false
+        while index < characters.count {
+            let character = characters[index]
+            let next = index + 1 < characters.count ? characters[index + 1] : nil
+            if lineComment {
+                if character == "\n" { lineComment = false; output.append(" ") }
+                index += 1
+                continue
+            }
+            if blockComment {
+                if character == "*", next == "/" { blockComment = false; index += 2; output.append(" ") }
+                else { index += 1 }
+                continue
+            }
+            if let activeQuote = quote {
+                if character == "\\", next != nil {
+                    output.append("  ")
+                    index += 2
+                    continue
+                }
+                if character == activeQuote {
+                    if next == activeQuote { index += 2 }
+                    else { quote = nil; index += 1 }
+                } else {
+                    index += 1
+                }
+                output.append(" ")
+                continue
+            }
+            if character == "-", next == "-" { lineComment = true; index += 2; output.append(" "); continue }
+            if character == "/", next == "*" { blockComment = true; index += 2; output.append(" "); continue }
+            if character == "'" || character == "\"" || character == "`" { quote = character; index += 1; output.append(" "); continue }
+            output.append(character)
+            index += 1
+        }
+        return output
     }
 }
