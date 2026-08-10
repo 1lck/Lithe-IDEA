@@ -1,0 +1,64 @@
+
+名称：Windows CI
+
+关于：
+  pull_request：
+    路径：
+      - “Windows/**”
+      - “锈迹/**”
+      - “共享/**”
+      - “脚本/build-windows.ps1”
+      - “脚本/verify-windows-boundaries.ps1”
+      - “.github/workflows/ci-windows.yml”
+  推：
+    分支：
+      - 主要角色
+    路径：
+      - “Windows/**”
+      - “锈迹/**”
+      - “共享/**”
+      - “脚本/build-windows.ps1”
+      - “脚本/verify-windows-boundaries.ps1”
+      - “.github/workflows/ci-windows.yml”
+  workflow_dispatch：
+
+许可：
+  目录：已阅读
+
+职位：
+  构建：
+    名称：构建与测试 Windows 实现
+    运行：Windows-Latest
+
+    步骤：
+      - 名称：查看来源
+        用途：行动/checkout@v4
+
+      - 名称：设立Rust
+        用途：Dtolnay/Rust-toolchain@stable
+        与：
+          目标：x86_64-PC-Windows-MSVC
+
+      - 名称：设置Qt
+        用途：Jurplel/Install-QT-action@v4
+        与：
+          版本：“6.8.2”
+          ARCH：win64_msvc2022_64
+          档案：QTBASE
+          缓存：正确
+
+      - 名称：构建 Rust 核心和 C++ 目标
+        壳牌：PWSH
+        run： ./scripts/build-windows.ps1 -配置发布 -BuildQt
+
+      - 名称：验证Windows边界
+        壳牌：PWSH
+        运行：./scripts/verify-windows-boundaries.ps1
+
+      - 名称：运行C++测试
+        壳牌：PWSH
+        run： ctest --test-dir windows/build-windows -C 发布 --output-on-failure（失败时输出）
+
+      - 名称：运行锈蚀测试
+        壳牌：PWSH
+        run： cargo test --manifest-path rust/Cargo.toml
