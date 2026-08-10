@@ -83,3 +83,43 @@ guard let snippetData = snippetResponse.data(using: .utf8),
 }
 
 print("Rust Core LSP text edit and snippet bridge passed")
+
+let builtinCompletionRequest = """
+{"id":"lsp-builtin-completion-test","command":"lsp.builtinCompletions","payload":{"filePath":"/tmp/main.swift","text":"struct RocketShip {}\\nlet value = Roc\\n","position":{"line":1,"utf16Column":15}}}
+"""
+guard let builtinCompletionPointer = builtinCompletionRequest.withCString({ executeJSON($0) }) else {
+    fputs("Rust Core builtin completion bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(builtinCompletionPointer) }
+
+let builtinCompletionResponse = String(cString: builtinCompletionPointer)
+guard let builtinCompletionData = builtinCompletionResponse.data(using: .utf8),
+      let builtinCompletionEnvelope = try? JSONSerialization.jsonObject(with: builtinCompletionData) as? [String: Any],
+      let builtinCompletionPayload = builtinCompletionEnvelope["data"] as? [String: Any],
+      let builtinCompletionItems = builtinCompletionPayload["items"] as? [[String: Any]],
+      builtinCompletionItems.contains(where: { $0["label"] as? String == "RocketShip" }) else {
+    fputs("Unexpected Rust Core builtin completion response: \(builtinCompletionResponse)\n", stderr)
+    exit(1)
+}
+
+let builtinNavigationRequest = """
+{"id":"lsp-builtin-navigation-test","command":"lsp.builtinNavigation","payload":{"filePath":"/tmp/main.swift","text":"let service = 1\\nprint(service)\\n","position":{"line":1,"utf16Column":8},"method":"textDocument/definition"}}
+"""
+guard let builtinNavigationPointer = builtinNavigationRequest.withCString({ executeJSON($0) }) else {
+    fputs("Rust Core builtin navigation bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(builtinNavigationPointer) }
+
+let builtinNavigationResponse = String(cString: builtinNavigationPointer)
+guard let builtinNavigationData = builtinNavigationResponse.data(using: .utf8),
+      let builtinNavigationEnvelope = try? JSONSerialization.jsonObject(with: builtinNavigationData) as? [String: Any],
+      let builtinNavigationPayload = builtinNavigationEnvelope["data"] as? [String: Any],
+      let builtinNavigationLocations = builtinNavigationPayload["locations"] as? [[String: Any]],
+      builtinNavigationLocations.count == 1 else {
+    fputs("Unexpected Rust Core builtin navigation response: \(builtinNavigationResponse)\n", stderr)
+    exit(1)
+}
+
+print("Rust Core builtin LSP bridge passed")

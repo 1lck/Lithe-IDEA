@@ -72,6 +72,9 @@ stable error code and a user-facing message:
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `lsp.applyTextEdits` | Apply LSP UTF-16 text edits with range validation |
 | `lsp.plainSnippet` | Convert LSP snippet insert text into plain editor text |
+| `lsp.builtinCompletions` | Return lightweight current-file identifier completions |
+| `lsp.builtinHover` | Return lightweight current-symbol hover text |
+| `lsp.builtinNavigation` | Return lightweight current-file definition/reference locations |
 | `java.runConfigurations` | Scan Java sources for main classes and return Maven/Spring run configurations |
 | `java.codeVision` | Return Java declaration usage counts for editor code vision |
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
@@ -182,6 +185,16 @@ details `invalidRange`. Successful responses return `{ "text": string }`.
 `lsp.plainSnippet` accepts `{ "value": string }` and returns `{ "text": string }`
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
+
+`lsp.builtinCompletions`, `lsp.builtinHover`, and `lsp.builtinNavigation` are
+the no-process lightweight language path. They accept current-file text, an
+absolute `filePath`, and a zero-based LSP position. Completion returns
+current-file identifiers with text edits for the active prefix. Hover returns
+the current identifier as markdown. Navigation returns current-file locations;
+definition prefers declaration-looking occurrences, while references returns
+all matching identifier occurrences. These commands are deliberately
+text-level fallbacks; precise type-aware behavior belongs to a started language
+server.
 
 The `history.*` commands accept an adapter-selected `storageRoot`; history
 metadata never stores an absolute workspace or storage path. `history.record`

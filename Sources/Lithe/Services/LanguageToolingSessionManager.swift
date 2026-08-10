@@ -35,6 +35,7 @@ final class LanguageToolingSessionManager: ObservableObject {
     var onDebugEvent: ((String, DebugAdapterEvent) -> Void)?
 
     private var catalog: LanguageProviderCatalog
+    private let core: RustCoreBridge
     private var runtimesByID: [String: any LanguageProviderRuntime]
     private var debugAdapters: [String: any DebugAdapterSession] = [:]
     private var debugAdapterRoots: [String: URL] = [:]
@@ -42,9 +43,11 @@ final class LanguageToolingSessionManager: ObservableObject {
 
     init(
         catalog: LanguageProviderCatalog = .standard,
-        runtimes: [any LanguageProviderRuntime] = []
+        runtimes: [any LanguageProviderRuntime] = [],
+        core: RustCoreBridge = RustCoreBridge()
     ) {
         self.catalog = catalog
+        self.core = core
         runtimesByID = Dictionary(uniqueKeysWithValues: runtimes.map { ($0.descriptor.id, $0) })
     }
 
@@ -81,7 +84,9 @@ final class LanguageToolingSessionManager: ObservableObject {
 
     func features(for fileURL: URL) -> LanguageServerFeatureSet {
         guard let descriptor = catalog.provider(for: fileURL) else { return [] }
-        return languageServerFeatures[descriptor.id] ?? []
+        if let features = languageServerFeatures[descriptor.id] { return features }
+        guard descriptor.capabilities.contains(.languageServer), core.isAvailable else { return [] }
+        return [.definition, .references, .implementation, .hover, .completion]
     }
 
     func synchronizeLanguageServer(
@@ -114,34 +119,56 @@ final class LanguageToolingSessionManager: ObservableObject {
     }
 
     func navigate(
-        method _: String,
+        method: String,
         fileURL: URL,
-        text _: String,
-        position _: LanguageServerPosition,
+        text: String,
+        position: LanguageServerPosition,
         rootURL _: URL,
-        completion _: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws {
-        throw unavailableLanguageServerError(for: fileURL)
+        guard supportsBuiltinLanguageServer(for: fileURL) else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        completion(.success(core.builtinLanguageNavigation(
+            method: method,
+            fileURL: fileURL,
+            text: text,
+            position: position
+        ) ?? []))
     }
 
     func hover(
         fileURL: URL,
-        text _: String,
-        position _: LanguageServerPosition,
+        text: String,
+        position: LanguageServerPosition,
         rootURL _: URL,
-        completion _: @escaping (Result<LanguageServerHover?, Error>) -> Void
+        completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
     ) throws {
-        throw unavailableLanguageServerError(for: fileURL)
+        guard supportsBuiltinLanguageServer(for: fileURL) else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        completion(.success(core.builtinLanguageHover(
+            fileURL: fileURL,
+            text: text,
+            position: position
+        )))
     }
 
     func completions(
         fileURL: URL,
-        text _: String,
-        position _: LanguageServerPosition,
+        text: String,
+        position: LanguageServerPosition,
         rootURL _: URL,
-        completion _: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
     ) throws {
-        throw unavailableLanguageServerError(for: fileURL)
+        guard supportsBuiltinLanguageServer(for: fileURL) else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        completion(.success(core.builtinLanguageCompletions(
+            fileURL: fileURL,
+            text: text,
+            position: position
+        ) ?? []))
     }
 
     func rename(
@@ -338,6 +365,11 @@ final class LanguageToolingSessionManager: ObservableObject {
         return .toolingUnavailable(
             "\(provider) language server is waiting for the Rust LSP host integration."
         )
+    }
+
+    private func supportsBuiltinLanguageServer(for fileURL: URL) -> Bool {
+        catalog.provider(for: fileURL)?.capabilities.contains(.languageServer) == true
+            && core.isAvailable
     }
 
     private func configureDebugCallbacks(

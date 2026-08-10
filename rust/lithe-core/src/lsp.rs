@@ -136,6 +136,97 @@ pub struct PlainSnippetRequest {
     pub value: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinRequest {
+    pub file_path: String,
+    pub text: String,
+    pub position: LspPosition,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinNavigationRequest {
+    pub file_path: String,
+    pub text: String,
+    pub position: LspPosition,
+    pub method: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinCompletionResponse {
+    pub items: Vec<BuiltinCompletionItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinCompletionItem {
+    pub label: String,
+    pub insert_text: String,
+    pub kind: Option<i32>,
+    pub detail: Option<String>,
+    pub text_edit: LspTextEditResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspTextEditResponse {
+    pub range: LspRangeResponse,
+    pub new_text: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspRangeResponse {
+    pub start: LspPositionResponse,
+    pub end: LspPositionResponse,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspPositionResponse {
+    pub line: i64,
+    pub utf16_column: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinHoverResponse {
+    pub hover: Option<BuiltinHover>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinHover {
+    pub contents: String,
+    pub is_markdown: bool,
+    pub range: LspRangeResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinNavigationResponse {
+    pub locations: Vec<BuiltinLocation>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinLocation {
+    pub file_path: String,
+    pub range: LspRangeResponse,
+    pub is_read_only: bool,
+    pub display_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct IdentifierOccurrence {
+    value: String,
+    start: usize,
+    end: usize,
+    range: LspRangeResponse,
+}
+
 pub fn provider_catalog_json(workspace_root: Option<&Path>) -> String {
     let catalog = provider_catalog(workspace_root);
     serde_json::to_string(&catalog)
@@ -178,6 +269,116 @@ pub fn plain_snippet(request: PlainSnippetRequest) -> TextResponse {
     TextResponse {
         text: snippet_plain_text(&request.value),
     }
+}
+
+pub fn builtin_completions(
+    request: BuiltinRequest,
+) -> Result<BuiltinCompletionResponse, CoreError> {
+    validate_file_path(&request.file_path)?;
+    let cursor = utf16_position_to_byte_offset(&request.text, request.position)?;
+    let prefix = identifier_prefix_at(&request.text, cursor);
+    let start_column = request.position.utf16_column - prefix.encode_utf16().count() as i64;
+    let replacement_range = LspRangeResponse {
+        start: LspPositionResponse {
+            line: request.position.line,
+            utf16_column: start_column.max(0),
+        },
+        end: LspPositionResponse {
+            line: request.position.line,
+            utf16_column: request.position.utf16_column,
+        },
+    };
+
+    let mut seen = BTreeMap::<String, i32>::new();
+    for occurrence in identifier_occurrences(&request.text) {
+        if occurrence.value == prefix {
+            continue;
+        }
+        if !prefix.is_empty() && !occurrence.value.starts_with(&prefix) {
+            continue;
+        }
+        let kind = builtin_completion_kind(&request.text, occurrence.start);
+        seen.entry(occurrence.value).or_insert(kind);
+    }
+
+    let items = seen
+        .into_iter()
+        .take(80)
+        .map(|(label, kind)| BuiltinCompletionItem {
+            insert_text: label.clone(),
+            label,
+            kind: Some(kind),
+            detail: Some("Current file symbol".to_string()),
+            text_edit: LspTextEditResponse {
+                range: replacement_range,
+                new_text: String::new(),
+            },
+        })
+        .map(|mut item| {
+            item.text_edit.new_text = item.insert_text.clone();
+            item
+        })
+        .collect();
+    Ok(BuiltinCompletionResponse { items })
+}
+
+pub fn builtin_hover(request: BuiltinRequest) -> Result<BuiltinHoverResponse, CoreError> {
+    validate_file_path(&request.file_path)?;
+    let cursor = utf16_position_to_byte_offset(&request.text, request.position)?;
+    let Some(identifier) = identifier_at(&request.text, cursor) else {
+        return Ok(BuiltinHoverResponse { hover: None });
+    };
+    Ok(BuiltinHoverResponse {
+        hover: Some(BuiltinHover {
+            contents: format!("`{}`", identifier.value),
+            is_markdown: true,
+            range: identifier.range,
+        }),
+    })
+}
+
+pub fn builtin_navigation(
+    request: BuiltinNavigationRequest,
+) -> Result<BuiltinNavigationResponse, CoreError> {
+    validate_file_path(&request.file_path)?;
+    let cursor = utf16_position_to_byte_offset(&request.text, request.position)?;
+    let Some(identifier) = identifier_at(&request.text, cursor) else {
+        return Ok(BuiltinNavigationResponse {
+            locations: Vec::new(),
+        });
+    };
+    let mut occurrences: Vec<_> = identifier_occurrences(&request.text)
+        .into_iter()
+        .filter(|occurrence| occurrence.value == identifier.value)
+        .collect();
+
+    if request.method == "textDocument/definition"
+        || request.method == "textDocument/declaration"
+        || request.method == "textDocument/typeDefinition"
+    {
+        let declarations: Vec<_> = occurrences
+            .iter()
+            .filter(|occurrence| looks_like_declaration(&request.text, occurrence.start))
+            .cloned()
+            .collect();
+        if !declarations.is_empty() {
+            occurrences = declarations;
+        }
+    } else if request.method == "textDocument/implementation" {
+        occurrences.retain(|occurrence| occurrence.start != identifier.start);
+    }
+
+    let locations = occurrences
+        .into_iter()
+        .take(200)
+        .map(|occurrence| BuiltinLocation {
+            file_path: request.file_path.clone(),
+            range: occurrence.range,
+            is_read_only: false,
+            display_path: None,
+        })
+        .collect();
+    Ok(BuiltinNavigationResponse { locations })
 }
 
 pub fn provider_catalog(workspace_root: Option<&Path>) -> LspProviderCatalog {
@@ -371,6 +572,17 @@ fn normalized_key(value: &str, trim_dot: bool) -> String {
     value
 }
 
+fn validate_file_path(value: &str) -> Result<(), CoreError> {
+    if value.trim().is_empty() {
+        Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "LSP builtin request requires a file path.",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn utf16_position_to_byte_offset(text: &str, position: LspPosition) -> Result<usize, CoreError> {
     if position.line < 0 || position.utf16_column < 0 {
         return Err(invalid_range_error());
@@ -439,6 +651,201 @@ fn byte_offset_for_utf16_column(
         }
     }
     contents_end
+}
+
+fn byte_offset_to_lsp_position(text: &str, offset: usize) -> LspPositionResponse {
+    let offset = offset.min(text.len());
+    let mut line = 0_i64;
+    let mut column = 0_i64;
+    for (index, character) in text.char_indices() {
+        if index >= offset {
+            break;
+        }
+        if character == '\n' {
+            line += 1;
+            column = 0;
+        } else {
+            column += character.len_utf16() as i64;
+        }
+    }
+    LspPositionResponse {
+        line,
+        utf16_column: column,
+    }
+}
+
+fn range_for_offsets(text: &str, start: usize, end: usize) -> LspRangeResponse {
+    LspRangeResponse {
+        start: byte_offset_to_lsp_position(text, start),
+        end: byte_offset_to_lsp_position(text, end),
+    }
+}
+
+fn identifier_occurrences(text: &str) -> Vec<IdentifierOccurrence> {
+    let mut values = Vec::new();
+    let mut current_start: Option<usize> = None;
+    for (index, character) in text.char_indices() {
+        if is_identifier_character(character) {
+            if current_start.is_none() {
+                current_start = Some(index);
+            }
+        } else if let Some(start) = current_start.take() {
+            push_identifier(text, start, index, &mut values);
+        }
+    }
+    if let Some(start) = current_start {
+        push_identifier(text, start, text.len(), &mut values);
+    }
+    values
+}
+
+fn push_identifier(text: &str, start: usize, end: usize, values: &mut Vec<IdentifierOccurrence>) {
+    let value = &text[start..end];
+    if value.chars().next().is_some_and(is_identifier_start)
+        && !is_language_keyword(value)
+        && value.len() <= 120
+    {
+        values.push(IdentifierOccurrence {
+            value: value.to_string(),
+            start,
+            end,
+            range: range_for_offsets(text, start, end),
+        });
+    }
+}
+
+fn identifier_at(text: &str, cursor: usize) -> Option<IdentifierOccurrence> {
+    identifier_occurrences(text)
+        .into_iter()
+        .find(|occurrence| occurrence.start <= cursor && cursor <= occurrence.end)
+}
+
+fn identifier_prefix_at(text: &str, cursor: usize) -> String {
+    let mut start = cursor.min(text.len());
+    while start > 0 {
+        let Some((previous_index, previous)) = text[..start].char_indices().next_back() else {
+            break;
+        };
+        if !is_identifier_character(previous) {
+            break;
+        }
+        start = previous_index;
+    }
+    text[start..cursor.min(text.len())].to_string()
+}
+
+fn is_identifier_start(character: char) -> bool {
+    character == '_' || character.is_alphabetic()
+}
+
+fn is_identifier_character(character: char) -> bool {
+    character == '_' || character.is_alphanumeric()
+}
+
+fn is_language_keyword(value: &str) -> bool {
+    matches!(
+        value,
+        "as" | "async"
+            | "await"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "def"
+            | "default"
+            | "defer"
+            | "do"
+            | "else"
+            | "enum"
+            | "export"
+            | "extends"
+            | "false"
+            | "final"
+            | "fn"
+            | "for"
+            | "func"
+            | "function"
+            | "if"
+            | "impl"
+            | "import"
+            | "in"
+            | "interface"
+            | "let"
+            | "match"
+            | "mod"
+            | "mut"
+            | "nil"
+            | "null"
+            | "package"
+            | "private"
+            | "protected"
+            | "public"
+            | "return"
+            | "self"
+            | "static"
+            | "struct"
+            | "switch"
+            | "this"
+            | "throw"
+            | "throws"
+            | "trait"
+            | "true"
+            | "try"
+            | "type"
+            | "var"
+            | "while"
+    )
+}
+
+fn builtin_completion_kind(text: &str, start: usize) -> i32 {
+    if looks_like_declaration_with_keywords(
+        text,
+        start,
+        &["class", "struct", "enum", "interface", "trait"],
+    ) {
+        7
+    } else if looks_like_declaration_with_keywords(text, start, &["func", "function", "def", "fn"])
+    {
+        3
+    } else {
+        6
+    }
+}
+
+fn looks_like_declaration(text: &str, start: usize) -> bool {
+    looks_like_declaration_with_keywords(
+        text,
+        start,
+        &[
+            "class",
+            "struct",
+            "enum",
+            "interface",
+            "trait",
+            "func",
+            "function",
+            "def",
+            "fn",
+            "let",
+            "var",
+            "const",
+            "type",
+        ],
+    )
+}
+
+fn looks_like_declaration_with_keywords(text: &str, start: usize, keywords: &[&str]) -> bool {
+    let line_start = text[..start].rfind('\n').map_or(0, |index| index + 1);
+    let prefix = &text[line_start..start];
+    let tokens: Vec<&str> = prefix
+        .split(|character: char| !is_identifier_character(character))
+        .filter(|token| !token.is_empty())
+        .collect();
+    tokens
+        .last()
+        .is_some_and(|token| keywords.iter().any(|keyword| keyword == token))
 }
 
 fn snippet_plain_text(value: &str) -> String {
@@ -703,5 +1110,75 @@ mod tests {
     fn snippet_plain_text_removes_tab_stops_and_keeps_defaults() {
         assert_eq!(snippet_plain_text("print(${1:value})$0"), "print(value)");
         assert_eq!(snippet_plain_text("${1:let} ${2:name} = $3"), "let name = ");
+    }
+
+    #[test]
+    fn builtin_completion_returns_current_file_identifiers_for_prefix() {
+        let response = builtin_completions(BuiltinRequest {
+            file_path: "/tmp/main.swift".to_string(),
+            text: "struct RocketShip {}\nlet rocketSpeed = Roc\n".to_string(),
+            position: LspPosition {
+                line: 1,
+                utf16_column: 19,
+            },
+        })
+        .unwrap();
+
+        assert!(response.items.iter().any(|item| item.label == "RocketShip"));
+        let item = response
+            .items
+            .iter()
+            .find(|item| item.label == "RocketShip")
+            .unwrap();
+        assert_eq!(item.text_edit.range.start.utf16_column, 18);
+        assert_eq!(item.text_edit.new_text, "RocketShip");
+    }
+
+    #[test]
+    fn builtin_hover_returns_current_identifier_range() {
+        let response = builtin_hover(BuiltinRequest {
+            file_path: "/tmp/main.rs".to_string(),
+            text: "fn launch() {}\n".to_string(),
+            position: LspPosition {
+                line: 0,
+                utf16_column: 4,
+            },
+        })
+        .unwrap();
+
+        let hover = response.hover.unwrap();
+        assert_eq!(hover.contents, "`launch`");
+        assert_eq!(hover.range.start.utf16_column, 3);
+        assert_eq!(hover.range.end.utf16_column, 9);
+    }
+
+    #[test]
+    fn builtin_navigation_prefers_declarations_and_finds_references() {
+        let text = "let service = 1\nprint(service)\n";
+        let definitions = builtin_navigation(BuiltinNavigationRequest {
+            file_path: "/tmp/main.swift".to_string(),
+            text: text.to_string(),
+            position: LspPosition {
+                line: 1,
+                utf16_column: 8,
+            },
+            method: "textDocument/definition".to_string(),
+        })
+        .unwrap();
+        assert_eq!(definitions.locations.len(), 1);
+        assert_eq!(definitions.locations[0].range.start.line, 0);
+        assert_eq!(definitions.locations[0].range.start.utf16_column, 4);
+
+        let references = builtin_navigation(BuiltinNavigationRequest {
+            file_path: "/tmp/main.swift".to_string(),
+            text: text.to_string(),
+            position: LspPosition {
+                line: 1,
+                utf16_column: 8,
+            },
+            method: "textDocument/references".to_string(),
+        })
+        .unwrap();
+        assert_eq!(references.locations.len(), 2);
     }
 }

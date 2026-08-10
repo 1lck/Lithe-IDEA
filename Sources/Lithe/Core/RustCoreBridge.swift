@@ -388,6 +388,106 @@ struct RustCoreBridge: Sendable {
         let text: String
     }
 
+    struct LspPositionPayload: Decodable, Sendable {
+        let line: Int
+        let utf16Column: Int
+
+        func makeModel() -> LanguageServerPosition {
+            LanguageServerPosition(line: line, utf16Column: utf16Column)
+        }
+    }
+
+    struct LspRangePayload: Decodable, Sendable {
+        let start: LspPositionPayload
+        let end: LspPositionPayload
+
+        func makeModel() -> LanguageServerRange {
+            LanguageServerRange(start: start.makeModel(), end: end.makeModel())
+        }
+    }
+
+    struct LspTextEditPayload: Decodable, Sendable {
+        let range: LspRangePayload
+        let newText: String
+
+        func makeModel() -> LanguageServerTextEdit {
+            LanguageServerTextEdit(range: range.makeModel(), newText: newText)
+        }
+    }
+
+    struct BuiltinCompletionPayload: Decodable, Sendable {
+        struct Item: Decodable, Sendable {
+            let label: String
+            let insertText: String
+            let kind: Int?
+            let detail: String?
+            let textEdit: LspTextEditPayload
+
+            func makeModel() -> LanguageServerCompletionItem {
+                LanguageServerCompletionItem(
+                    label: label,
+                    detail: detail,
+                    documentation: nil,
+                    insertText: insertText,
+                    sortText: nil,
+                    filterText: nil,
+                    kind: kind,
+                    textEdit: textEdit.makeModel(),
+                    additionalTextEdits: [],
+                    data: nil
+                )
+            }
+        }
+
+        let items: [Item]
+
+        func makeModels() -> [LanguageServerCompletionItem] {
+            items.map { $0.makeModel() }
+        }
+    }
+
+    struct BuiltinHoverPayload: Decodable, Sendable {
+        struct Hover: Decodable, Sendable {
+            let contents: String
+            let isMarkdown: Bool
+            let range: LspRangePayload
+
+            func makeModel() -> LanguageServerHover {
+                LanguageServerHover(
+                    contents: contents,
+                    isMarkdown: isMarkdown,
+                    range: range.makeModel()
+                )
+            }
+        }
+
+        let hover: Hover?
+    }
+
+    struct BuiltinNavigationPayload: Decodable, Sendable {
+        struct Location: Decodable, Sendable {
+            let filePath: String
+            let range: LspRangePayload
+            let isReadOnly: Bool
+            let displayPath: String?
+
+            func makeModel() -> LanguageServerLocation {
+                LanguageServerLocation(
+                    url: URL(fileURLWithPath: filePath),
+                    range: range.makeModel(),
+                    isReadOnly: isReadOnly,
+                    displayPath: displayPath
+                )
+            }
+        }
+
+        let locations: [Location]
+
+        func makeModels() -> [LanguageServerLocation] {
+            locations.map { $0.makeModel() }
+        }
+    }
+
     struct JavaStructurePayload: Decodable, Sendable {
         struct FoldRegion: Decodable, Sendable {
             let kind: String
@@ -818,6 +918,19 @@ struct RustCoreBridge: Sendable {
 
     private struct LspPlainSnippetRequest: Encodable {
         let value: String
+    }
+
+    private struct LspBuiltinRequest: Encodable {
+        let filePath: String
+        let text: String
+        let position: LspTextEditsRequest.TextEdit.Range.Position
+    }
+
+    private struct LspBuiltinNavigationRequest: Encodable {
+        let filePath: String
+        let text: String
+        let position: LspTextEditsRequest.TextEdit.Range.Position
+        let method: String
     }
 
     private struct MavenDiagnosticsRequest: Encodable {
@@ -1700,6 +1813,56 @@ struct RustCoreBridge: Sendable {
             payload: LspPlainSnippetRequest(value: value)
         )
         return response?.text
+    }
+
+    func builtinLanguageCompletions(
+        fileURL: URL,
+        text: String,
+        position: LanguageServerPosition
+    ) -> [LanguageServerCompletionItem]? {
+        let response: BuiltinCompletionPayload? = execute(
+            command: "lsp.builtinCompletions",
+            payload: LspBuiltinRequest(
+                filePath: fileURL.standardizedFileURL.path,
+                text: text,
+                position: .init(line: position.line, utf16Column: position.utf16Column)
+            )
+        )
+        return response?.makeModels()
+    }
+
+    func builtinLanguageHover(
+        fileURL: URL,
+        text: String,
+        position: LanguageServerPosition
+    ) -> LanguageServerHover? {
+        let response: BuiltinHoverPayload? = execute(
+            command: "lsp.builtinHover",
+            payload: LspBuiltinRequest(
+                filePath: fileURL.standardizedFileURL.path,
+                text: text,
+                position: .init(line: position.line, utf16Column: position.utf16Column)
+            )
+        )
+        return response?.hover?.makeModel()
+    }
+
+    func builtinLanguageNavigation(
+        method: String,
+        fileURL: URL,
+        text: String,
+        position: LanguageServerPosition
+    ) -> [LanguageServerLocation]? {
+        let response: BuiltinNavigationPayload? = execute(
+            command: "lsp.builtinNavigation",
+            payload: LspBuiltinNavigationRequest(
+                filePath: fileURL.standardizedFileURL.path,
+                text: text,
+                position: .init(line: position.line, utf16Column: position.utf16Column),
+                method: method
+            )
+        )
+        return response?.makeModels()
     }
 
     private func execute<Payload: Encodable, Data: Decodable>(

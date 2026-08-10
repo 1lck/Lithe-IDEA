@@ -294,6 +294,51 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspBuiltinCompletions => {
+            match serde_json::from_value::<crate::lsp::BuiltinRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP completion request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::builtin_completions)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP completion response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspBuiltinHover => {
+            match serde_json::from_value::<crate::lsp::BuiltinRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP hover request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::builtin_hover)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP hover response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspBuiltinNavigation => {
+            match serde_json::from_value::<crate::lsp::BuiltinNavigationRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP navigation request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::builtin_navigation)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP navigation response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaRunConfigurations => {
             match serde_json::from_value::<JavaRunConfigurationsRequest>(parsed.payload)
                 .map_err(|error| {
