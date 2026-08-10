@@ -336,6 +336,8 @@ pub struct ClientFeatureRequest {
     pub completion_item: Option<Value>,
     #[serde(default)]
     pub code_action: Option<Value>,
+    #[serde(default)]
+    pub command: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -985,6 +987,16 @@ fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreE
                     "This LSP request requires a code action.",
                 )
             }),
+        "workspace/executeCommand" => request
+            .command
+            .as_ref()
+            .and_then(swift_command_to_lsp)
+            .ok_or_else(|| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "This LSP request requires a command.",
+                )
+            }),
         _ => Ok(json!({ "textDocument": text_document })),
     }
 }
@@ -1238,6 +1250,7 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
                 "action": action
             })
         }),
+        Some("workspace/executeCommand") => Some(json!({ "ok": true })),
         Some("textDocument/definition")
         | Some("textDocument/declaration")
         | Some("textDocument/typeDefinition")
@@ -2509,6 +2522,7 @@ mod tests {
             diagnostics: Vec::new(),
             completion_item: None,
             code_action: None,
+            command: None,
         })
         .unwrap();
         assert_eq!(
@@ -2542,6 +2556,7 @@ mod tests {
             diagnostics: Vec::new(),
             completion_item: None,
             code_action: None,
+            command: None,
         })
         .unwrap();
         let completed = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2588,6 +2603,7 @@ mod tests {
             diagnostics: Vec::new(),
             completion_item: None,
             code_action: None,
+            command: None,
         })
         .unwrap();
         let renamed = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2626,6 +2642,7 @@ mod tests {
             diagnostics: Vec::new(),
             completion_item: None,
             code_action: None,
+            command: None,
         })
         .unwrap();
         let formatted = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2684,6 +2701,7 @@ mod tests {
             }],
             completion_item: None,
             code_action: None,
+            command: None,
         })
         .unwrap();
         let code_action_request: Value = serde_json::from_str(&code_actions.messages[0]).unwrap();
@@ -2750,6 +2768,7 @@ mod tests {
                 "isPreferred": true,
                 "data": { "id": "action-1" }
             })),
+            command: None,
         })
         .unwrap();
         let code_action_resolve_request: Value =
@@ -2813,6 +2832,7 @@ mod tests {
                 "data": { "id": "completion-1" }
             })),
             code_action: None,
+            command: None,
         })
         .unwrap();
         let completion_resolve_request: Value =
@@ -2847,6 +2867,41 @@ mod tests {
             completion_resolve_result["item"]["documentation"],
             "Launches the app."
         );
+
+        let execute_command = client_feature_request(ClientFeatureRequest {
+            state: completion_resolved.state,
+            uri: "file:///tmp/project/main.rs".to_string(),
+            method: "workspace/executeCommand".to_string(),
+            position: None,
+            new_name: None,
+            range: None,
+            diagnostics: Vec::new(),
+            completion_item: None,
+            code_action: None,
+            command: Some(json!({
+                "title": "Apply",
+                "command": "rust-analyzer.applySourceChange",
+                "arguments": [{ "label": "rename" }]
+            })),
+        })
+        .unwrap();
+        let execute_request: Value = serde_json::from_str(&execute_command.messages[0]).unwrap();
+        assert_eq!(execute_request["method"], "workspace/executeCommand");
+        assert_eq!(
+            execute_request["params"]["command"],
+            "rust-analyzer.applySourceChange"
+        );
+        let executed = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: execute_command.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "7",
+                "result": null
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+        assert_eq!(executed.events[0].result.as_ref().unwrap()["ok"], true);
     }
 
     #[test]

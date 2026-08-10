@@ -1084,6 +1084,7 @@ struct RustCoreBridge: Sendable {
         let diagnostics: [LspClientDiagnosticRequest]
         let completionItem: LspClientCompletionItemRequest?
         let codeAction: LspClientCodeActionRequest?
+        let command: LspClientCommandRequest?
     }
 
     private struct LspClientDiagnosticRequest: Encodable {
@@ -2120,7 +2121,8 @@ struct RustCoreBridge: Sendable {
         range: LanguageServerRange? = nil,
         diagnostics: [LanguageServerDiagnostic] = [],
         completionItem: LanguageServerCompletionItem? = nil,
-        codeAction: LanguageServerCodeAction? = nil
+        codeAction: LanguageServerCodeAction? = nil,
+        command: LanguageServerCommand? = nil
     ) -> LspClientResponsePayload? {
         execute(
             command: "lsp.clientRequest",
@@ -2151,7 +2153,8 @@ struct RustCoreBridge: Sendable {
                     )
                 },
                 completionItem: completionItem.map(Self.makeCompletionItemRequest),
-                codeAction: codeAction.map(Self.makeCodeActionRequest)
+                codeAction: codeAction.map(Self.makeCodeActionRequest),
+                command: command.map(Self.makeCommandRequest)
             )
         )
     }
@@ -2194,13 +2197,19 @@ struct RustCoreBridge: Sendable {
             isPreferred: action.isPreferred,
             edit: action.edit.map(makeWorkspaceEditRequest),
             command: action.command.map {
-                LspClientCommandRequest(
-                    title: $0.title,
-                    command: $0.command,
-                    arguments: $0.arguments
-                )
+                makeCommandRequest($0)
             },
             data: action.data
+        )
+    }
+
+    private static func makeCommandRequest(
+        _ command: LanguageServerCommand
+    ) -> LspClientCommandRequest {
+        LspClientCommandRequest(
+            title: command.title,
+            command: command.command,
+            arguments: command.arguments
         )
     }
 

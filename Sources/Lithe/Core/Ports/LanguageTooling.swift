@@ -380,6 +380,11 @@ protocol LanguageServerSession: AnyObject {
         fileURL: URL,
         completion: @escaping (Result<LanguageServerCodeAction, Error>) -> Void
     ) throws
+    func execute(
+        _ command: LanguageServerCommand,
+        fileURL: URL,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws
     func stop()
 }
 

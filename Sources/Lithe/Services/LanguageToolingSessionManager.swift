@@ -308,13 +308,20 @@ final class LanguageToolingSessionManager: ObservableObject {
         fileURL: URL,
         text _: String,
         rootURL _: URL,
-        completion _: @escaping (Result<Void, Error>) -> Void
+        completion: @escaping (Result<Void, Error>) -> Void
     ) throws {
         guard command.command.isEmpty == false else {
             throw LanguageToolingSessionError.capabilityUnavailable(
                 provider: catalog.provider(for: fileURL)?.displayName ?? fileURL.pathExtension,
                 capability: "execute command"
             )
+        }
+        if let session = languageServerSession(for: fileURL),
+           session.isRunning {
+            do {
+                try session.execute(command, fileURL: fileURL, completion: completion)
+                return
+            } catch {}
         }
         throw unavailableLanguageServerError(for: fileURL)
     }

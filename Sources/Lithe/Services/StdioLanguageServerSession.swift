@@ -22,7 +22,8 @@ protocol LspClientCore: Sendable {
         range: LanguageServerRange?,
         diagnostics: [LanguageServerDiagnostic],
         completionItem: LanguageServerCompletionItem?,
-        codeAction: LanguageServerCodeAction?
+        codeAction: LanguageServerCodeAction?,
+        command: LanguageServerCommand?
     ) -> RustCoreBridge.LspClientResponsePayload?
     func lspClientApplyServerMessage(
         state: ToolingJSONValue,
@@ -233,6 +234,25 @@ final class StdioLanguageServerSession: LanguageServerSession {
         }
     }
 
+    func execute(
+        _ command: LanguageServerCommand,
+        fileURL: URL,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        try requestFeature(
+            method: "workspace/executeCommand",
+            fileURL: fileURL,
+            position: nil,
+            command: command
+        ) { event in
+            if let error = event.error {
+                completion(.failure(StdioLanguageServerSessionError.serverError(error)))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
+
     func stop() {
         process.stop()
         resetTransientState()
@@ -272,6 +292,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
         diagnostics: [LanguageServerDiagnostic] = [],
         completionItem: LanguageServerCompletionItem? = nil,
         codeAction: LanguageServerCodeAction? = nil,
+        command: LanguageServerCommand? = nil,
         completion: @escaping (RustCoreBridge.LspClientEventPayload) -> Void
     ) throws {
         guard let state, isInitialized else {
@@ -289,7 +310,8 @@ final class StdioLanguageServerSession: LanguageServerSession {
             range: range,
             diagnostics: diagnostics,
             completionItem: completionItem,
-            codeAction: codeAction
+            codeAction: codeAction,
+            command: command
         ) else {
             throw StdioLanguageServerSessionError.requestRejected
         }

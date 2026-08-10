@@ -1260,6 +1260,28 @@ struct RunConfigurationIntegrationTests {
         ])
         await Self.drainMainActorTasks()
         #expect(try actionResolveResult?.get().edit?.changes[source.standardizedFileURL]?.first?.newText == " ")
+
+        var executeResult: Result<Void, Error>?
+        try manager.execute(
+            LanguageServerCommand(
+                title: "Apply fix",
+                command: "source.fix",
+                arguments: [.object(["uri": .string(source.standardizedFileURL.absoluteString)])]
+            ),
+            fileURL: source,
+            text: "struct App{ }\n",
+            rootURL: root
+        ) { result in
+            executeResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "8",
+            "result": NSNull()
+        ])
+        await Self.drainMainActorTasks()
+        #expect(executeResult != nil)
+        try executeResult?.get()
     }
 
     @Test
@@ -2936,7 +2958,8 @@ private struct TestLspClientCore: LspClientCore {
         range _: LanguageServerRange?,
         diagnostics _: [LanguageServerDiagnostic],
         completionItem _: LanguageServerCompletionItem?,
-        codeAction _: LanguageServerCodeAction?
+        codeAction _: LanguageServerCodeAction?,
+        command _: LanguageServerCommand?
     ) -> RustCoreBridge.LspClientResponsePayload? {
         let id: String
         switch method {
@@ -2950,6 +2973,8 @@ private struct TestLspClientCore: LspClientCore {
             id = "6"
         case "codeAction/resolve":
             id = "7"
+        case "workspace/executeCommand":
+            id = "8"
         default:
             id = "2"
         }
@@ -3139,6 +3164,19 @@ private struct TestLspClientCore: LspClientCore {
                             "data": .object(["token": .string("fix-1")])
                         ])
                     ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"8""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "8",
+                    method: "workspace/executeCommand",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object(["ok": .bool(true)]),
                     error: nil
                 )
             ])
