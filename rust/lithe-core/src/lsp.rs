@@ -334,6 +334,8 @@ pub struct ClientFeatureRequest {
     pub diagnostics: Vec<LspClientDiagnostic>,
     #[serde(default)]
     pub completion_item: Option<Value>,
+    #[serde(default)]
+    pub code_action: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -973,6 +975,16 @@ fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreE
                     "This LSP request requires a completion item.",
                 )
             }),
+        "codeAction/resolve" => request
+            .code_action
+            .as_ref()
+            .map(swift_code_action_to_lsp)
+            .ok_or_else(|| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "This LSP request requires a code action.",
+                )
+            }),
         _ => Ok(json!({ "textDocument": text_document })),
     }
 }
@@ -1055,6 +1067,60 @@ fn swift_completion_item_to_lsp(item: &Value) -> Value {
         object.insert("data".to_string(), data.clone());
     }
     Value::Object(object)
+}
+
+fn swift_code_action_to_lsp(action: &Value) -> Value {
+    let mut object = serde_json::Map::new();
+    copy_string_field(action, &mut object, "title");
+    copy_string_field(action, &mut object, "kind");
+    if let Some(is_preferred) = action.get("isPreferred").and_then(Value::as_bool) {
+        object.insert("isPreferred".to_string(), json!(is_preferred));
+    }
+    if let Some(edit) = action.get("edit").and_then(swift_workspace_edit_to_lsp) {
+        object.insert("edit".to_string(), edit);
+    }
+    if let Some(command) = action.get("command").and_then(swift_command_to_lsp) {
+        object.insert("command".to_string(), command);
+    }
+    if let Some(data) = action.get("data") {
+        object.insert("data".to_string(), data.clone());
+    }
+    Value::Object(object)
+}
+
+fn swift_workspace_edit_to_lsp(value: &Value) -> Option<Value> {
+    let changes = value.get("changes")?.as_object()?;
+    let mut parsed_changes = serde_json::Map::new();
+    for (path, edits) in changes {
+        let uri = if path.starts_with("file://") {
+            path.clone()
+        } else {
+            format!("file://{path}")
+        };
+        parsed_changes.insert(
+            uri,
+            json!(edits
+                .as_array()
+                .map(|values| values
+                    .iter()
+                    .filter_map(swift_text_edit_to_lsp)
+                    .collect::<Vec<_>>())
+                .unwrap_or_default()),
+        );
+    }
+    Some(json!({ "changes": parsed_changes }))
+}
+
+fn swift_command_to_lsp(value: &Value) -> Option<Value> {
+    Some(json!({
+        "title": value.get("title").and_then(Value::as_str).unwrap_or_default(),
+        "command": value.get("command").and_then(Value::as_str)?,
+        "arguments": value
+            .get("arguments")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    }))
 }
 
 fn copy_string_field(source: &Value, target: &mut serde_json::Map<String, Value>, field: &str) {
@@ -1167,6 +1233,11 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
         Some("textDocument/codeAction") => Some(json!({
             "actions": parse_code_actions(result)
         })),
+        Some("codeAction/resolve") => parse_code_action(result).map(|action| {
+            json!({
+                "action": action
+            })
+        }),
         Some("textDocument/definition")
         | Some("textDocument/declaration")
         | Some("textDocument/typeDefinition")
@@ -1311,30 +1382,29 @@ fn parse_code_actions(result: &Value) -> Vec<Value> {
     let Some(values) = result.as_array() else {
         return Vec::new();
     };
-    values
-        .iter()
-        .filter_map(|action| {
-            let title = action.get("title").and_then(Value::as_str)?;
-            let command = if action.get("command").and_then(Value::as_str).is_some() {
-                parse_lsp_command(action)
-            } else {
-                action.get("command").and_then(parse_lsp_command)
-            };
-            Some(json!({
-                "title": title,
-                "kind": action.get("kind").and_then(Value::as_str),
-                "isPreferred": action
-                    .get("isPreferred")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                "edit": action.get("edit").map(|edit| json!({
-                    "changes": parse_workspace_edit(edit)
-                })),
-                "command": command,
-                "data": action.get("data").cloned().unwrap_or(Value::Null)
-            }))
-        })
-        .collect()
+    values.iter().filter_map(parse_code_action).collect()
+}
+
+fn parse_code_action(action: &Value) -> Option<Value> {
+    let title = action.get("title").and_then(Value::as_str)?;
+    let command = if action.get("command").and_then(Value::as_str).is_some() {
+        parse_lsp_command(action)
+    } else {
+        action.get("command").and_then(parse_lsp_command)
+    };
+    Some(json!({
+        "title": title,
+        "kind": action.get("kind").and_then(Value::as_str),
+        "isPreferred": action
+            .get("isPreferred")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        "edit": action.get("edit").map(|edit| json!({
+            "changes": parse_workspace_edit(edit)
+        })),
+        "command": command,
+        "data": action.get("data").cloned().unwrap_or(Value::Null)
+    }))
 }
 
 fn parse_lsp_command(value: &Value) -> Option<Value> {
@@ -2438,6 +2508,7 @@ mod tests {
             range: None,
             diagnostics: Vec::new(),
             completion_item: None,
+            code_action: None,
         })
         .unwrap();
         assert_eq!(
@@ -2470,6 +2541,7 @@ mod tests {
             range: None,
             diagnostics: Vec::new(),
             completion_item: None,
+            code_action: None,
         })
         .unwrap();
         let completed = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2515,6 +2587,7 @@ mod tests {
             range: None,
             diagnostics: Vec::new(),
             completion_item: None,
+            code_action: None,
         })
         .unwrap();
         let renamed = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2552,6 +2625,7 @@ mod tests {
             range: None,
             diagnostics: Vec::new(),
             completion_item: None,
+            code_action: None,
         })
         .unwrap();
         let formatted = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2609,6 +2683,7 @@ mod tests {
                 code: None,
             }],
             completion_item: None,
+            code_action: None,
         })
         .unwrap();
         let code_action_request: Value = serde_json::from_str(&code_actions.messages[0]).unwrap();
@@ -2660,8 +2735,64 @@ mod tests {
             "rust-analyzer.applySourceChange"
         );
 
-        let completion_resolve = client_feature_request(ClientFeatureRequest {
+        let code_action_resolve = client_feature_request(ClientFeatureRequest {
             state: code_actioned.state,
+            uri: "file:///tmp/project/main.rs".to_string(),
+            method: "codeAction/resolve".to_string(),
+            position: None,
+            new_name: None,
+            range: None,
+            diagnostics: Vec::new(),
+            completion_item: None,
+            code_action: Some(json!({
+                "title": "Apply rename",
+                "kind": "quickfix",
+                "isPreferred": true,
+                "data": { "id": "action-1" }
+            })),
+        })
+        .unwrap();
+        let code_action_resolve_request: Value =
+            serde_json::from_str(&code_action_resolve.messages[0]).unwrap();
+        assert_eq!(code_action_resolve_request["method"], "codeAction/resolve");
+        assert_eq!(
+            code_action_resolve_request["params"]["title"],
+            "Apply rename"
+        );
+        let code_action_resolved = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: code_action_resolve.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "5",
+                "result": {
+                    "title": "Apply rename",
+                    "kind": "quickfix",
+                    "edit": {
+                        "changes": {
+                            "file:///tmp/project/main.rs": [{
+                                "range": {
+                                    "start": { "line": 0, "character": 12 },
+                                    "end": { "line": 0, "character": 18 }
+                                },
+                                "newText": "start"
+                            }]
+                        }
+                    },
+                    "data": { "id": "action-1" }
+                }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+        let code_action_resolve_result = code_action_resolved.events[0].result.as_ref().unwrap();
+        assert_eq!(
+            code_action_resolve_result["action"]["edit"]["changes"]["/tmp/project/main.rs"][0]
+                ["newText"],
+            "start"
+        );
+
+        let completion_resolve = client_feature_request(ClientFeatureRequest {
+            state: code_action_resolved.state,
             uri: "file:///tmp/project/main.rs".to_string(),
             method: "completionItem/resolve".to_string(),
             position: None,
@@ -2681,6 +2812,7 @@ mod tests {
                 },
                 "data": { "id": "completion-1" }
             })),
+            code_action: None,
         })
         .unwrap();
         let completion_resolve_request: Value =
@@ -2697,7 +2829,7 @@ mod tests {
             state: completion_resolve.state,
             message: r#"{
                 "jsonrpc": "2.0",
-                "id": "5",
+                "id": "6",
                 "result": {
                     "label": "launch",
                     "kind": 3,

@@ -375,6 +375,11 @@ protocol LanguageServerSession: AnyObject {
         fileURL: URL,
         completion: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
     ) throws
+    func resolveCodeAction(
+        _ action: LanguageServerCodeAction,
+        fileURL: URL,
+        completion: @escaping (Result<LanguageServerCodeAction, Error>) -> Void
+    ) throws
     func stop()
 }
 

@@ -568,6 +568,14 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct LspCodeActionResolvePayload: Decodable, Sendable {
+        let action: LspCodeActionsPayload.Action
+
+        func makeModel() -> LanguageServerCodeAction {
+            action.makeModel()
+        }
+    }
+
     struct JavaStructurePayload: Decodable, Sendable {
         struct FoldRegion: Decodable, Sendable {
             let kind: String
@@ -1075,6 +1083,7 @@ struct RustCoreBridge: Sendable {
         let range: LspTextEditsRequest.TextEdit.Range?
         let diagnostics: [LspClientDiagnosticRequest]
         let completionItem: LspClientCompletionItemRequest?
+        let codeAction: LspClientCodeActionRequest?
     }
 
     private struct LspClientDiagnosticRequest: Encodable {
@@ -1101,6 +1110,25 @@ struct RustCoreBridge: Sendable {
     private struct LspClientTextEditRequest: Encodable {
         let range: LspTextEditsRequest.TextEdit.Range
         let newText: String
+    }
+
+    private struct LspClientWorkspaceEditRequest: Encodable {
+        let changes: [String: [LspClientTextEditRequest]]
+    }
+
+    private struct LspClientCommandRequest: Encodable {
+        let title: String
+        let command: String
+        let arguments: [ToolingJSONValue]
+    }
+
+    private struct LspClientCodeActionRequest: Encodable {
+        let title: String
+        let kind: String?
+        let isPreferred: Bool
+        let edit: LspClientWorkspaceEditRequest?
+        let command: LspClientCommandRequest?
+        let data: ToolingJSONValue?
     }
 
     private struct LspClientApplyServerMessageRequest: Encodable {
@@ -2091,7 +2119,8 @@ struct RustCoreBridge: Sendable {
         newName: String? = nil,
         range: LanguageServerRange? = nil,
         diagnostics: [LanguageServerDiagnostic] = [],
-        completionItem: LanguageServerCompletionItem? = nil
+        completionItem: LanguageServerCompletionItem? = nil,
+        codeAction: LanguageServerCodeAction? = nil
     ) -> LspClientResponsePayload? {
         execute(
             command: "lsp.clientRequest",
@@ -2121,7 +2150,8 @@ struct RustCoreBridge: Sendable {
                         code: $0.code
                     )
                 },
-                completionItem: completionItem.map(Self.makeCompletionItemRequest)
+                completionItem: completionItem.map(Self.makeCompletionItemRequest),
+                codeAction: codeAction.map(Self.makeCodeActionRequest)
             )
         )
     }
@@ -2152,6 +2182,37 @@ struct RustCoreBridge: Sendable {
                 end: .init(line: edit.range.end.line, utf16Column: edit.range.end.utf16Column)
             ),
             newText: edit.newText
+        )
+    }
+
+    private static func makeCodeActionRequest(
+        _ action: LanguageServerCodeAction
+    ) -> LspClientCodeActionRequest {
+        LspClientCodeActionRequest(
+            title: action.title,
+            kind: action.kind,
+            isPreferred: action.isPreferred,
+            edit: action.edit.map(makeWorkspaceEditRequest),
+            command: action.command.map {
+                LspClientCommandRequest(
+                    title: $0.title,
+                    command: $0.command,
+                    arguments: $0.arguments
+                )
+            },
+            data: action.data
+        )
+    }
+
+    private static func makeWorkspaceEditRequest(
+        _ edit: LanguageServerWorkspaceEdit
+    ) -> LspClientWorkspaceEditRequest {
+        LspClientWorkspaceEditRequest(
+            changes: Dictionary(
+                uniqueKeysWithValues: edit.changes.map { url, edits in
+                    (url.standardizedFileURL.path, edits.map(makeTextEditRequest))
+                }
+            )
         )
     }
 

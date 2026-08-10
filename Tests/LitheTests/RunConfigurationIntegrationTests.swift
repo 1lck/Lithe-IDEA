@@ -1221,6 +1221,45 @@ struct RunConfigurationIntegrationTests {
         let actions = try actionsResult?.get()
         #expect(actions?.first?.title == "Fix warning")
         #expect(actions?.first?.command?.command == "source.fix")
+
+        var actionResolveResult: Result<LanguageServerCodeAction, Error>?
+        try manager.resolveCodeAction(
+            LanguageServerCodeAction(
+                title: "Fix warning",
+                kind: "quickfix",
+                isPreferred: true,
+                edit: nil,
+                command: nil,
+                data: .object(["token": .string("fix-1")])
+            ),
+            fileURL: source,
+            text: "struct App{ }\n",
+            rootURL: root
+        ) { result in
+            actionResolveResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "7",
+            "result": [
+                "title": "Fix warning",
+                "kind": "quickfix",
+                "edit": [
+                    "changes": [
+                        source.standardizedFileURL.absoluteString: [[
+                            "range": [
+                                "start": ["line": 0, "character": 10],
+                                "end": ["line": 0, "character": 10]
+                            ],
+                            "newText": " "
+                        ]]
+                    ]
+                ],
+                "data": ["token": "fix-1"]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try actionResolveResult?.get().edit?.changes[source.standardizedFileURL]?.first?.newText == " ")
     }
 
     @Test
@@ -2896,7 +2935,8 @@ private struct TestLspClientCore: LspClientCore {
         newName _: String?,
         range _: LanguageServerRange?,
         diagnostics _: [LanguageServerDiagnostic],
-        completionItem _: LanguageServerCompletionItem?
+        completionItem _: LanguageServerCompletionItem?,
+        codeAction _: LanguageServerCodeAction?
     ) -> RustCoreBridge.LspClientResponsePayload? {
         let id: String
         switch method {
@@ -2908,6 +2948,8 @@ private struct TestLspClientCore: LspClientCore {
             id = "5"
         case "completionItem/resolve":
             id = "6"
+        case "codeAction/resolve":
+            id = "7"
         default:
             id = "2"
         }
@@ -3062,6 +3104,39 @@ private struct TestLspClientCore: LspClientCore {
                             "documentation": .string("Resolved docs"),
                             "additionalTextEdits": .array([]),
                             "data": .object(["id": .string("completion-1")])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"7""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "7",
+                    method: "codeAction/resolve",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "action": .object([
+                            "title": .string("Fix warning"),
+                            "kind": .string("quickfix"),
+                            "isPreferred": .bool(false),
+                            "edit": .object([
+                                "changes": .object([
+                                    diagnosticURL.standardizedFileURL.path: .array([
+                                        .object([
+                                            "range": .object([
+                                                "start": .object(["line": .integer(0), "utf16Column": .integer(10)]),
+                                                "end": .object(["line": .integer(0), "utf16Column": .integer(10)])
+                                            ]),
+                                            "newText": .string(" ")
+                                        ])
+                                    ])
+                                ])
+                            ]),
+                            "data": .object(["token": .string("fix-1")])
                         ])
                     ]),
                     error: nil
