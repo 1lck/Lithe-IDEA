@@ -48,12 +48,12 @@ struct SettingsView: View {
             model.refreshAIConfigurations()
             syncAIProviderDraft()
         }
-        .onChange(of: settings.hiddenDirectoryNames) { syncVisibilityDrafts() }
-        .onChange(of: settings.hiddenFilePatterns) { syncVisibilityDrafts() }
-        .onChange(of: projectRuntime.settings.javaHomePath) { javaHomeDraft = projectRuntime.settings.javaHomePath }
-        .onChange(of: projectRuntime.settings.mavenHomePath) { mavenHomeDraft = projectRuntime.settings.mavenHomePath }
-        .onChange(of: projectRuntime.settings.mavenJavaHomePath) { mavenJavaHomeDraft = projectRuntime.settings.mavenJavaHomePath }
-        .onChange(of: settings.commitMessageAI.activeProviderID) { syncAIProviderDraft() }
+        .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
+        .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
+        .onChange(of: projectRuntime.settings.javaHomePath) { _ in javaHomeDraft = projectRuntime.settings.javaHomePath }
+        .onChange(of: projectRuntime.settings.mavenHomePath) { _ in mavenHomeDraft = projectRuntime.settings.mavenHomePath }
+        .onChange(of: projectRuntime.settings.mavenJavaHomePath) { _ in mavenJavaHomeDraft = projectRuntime.settings.mavenJavaHomePath }
+        .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
         .onDisappear(perform: commitRuntimeDrafts)
     }
 
@@ -397,7 +397,7 @@ struct SettingsView: View {
                 .labelsHidden()
                 .frame(width: 180)
                 .lithePointer()
-                .onChange(of: settings.terminalShell) {
+                .onChange(of: settings.terminalShell) { _ in
                     guard model.activeTerminalSession?.isRunning == true else { return }
                     let path = settings.terminalShellPath
                         ?? ProcessInfo.processInfo.environment["SHELL"]

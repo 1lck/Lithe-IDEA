@@ -615,7 +615,7 @@ private struct TextLineIndex {
     }
 }
 
-final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
+final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var indentationWidth = 4
     var isJavaNavigationEnabled = false
     var onWindowAttached: (() -> Void)?

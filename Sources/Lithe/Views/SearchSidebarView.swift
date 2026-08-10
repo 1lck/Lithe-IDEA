@@ -120,7 +120,7 @@ struct SearchSidebarView: View {
         }
         .onAppear { searchFocused = true }
         // 侧栏已经打开时再次按 Cmd+Shift+F，靠令牌变化把焦点移回输入框。
-        .onChange(of: model.searchSidebarFocusRequest) { searchFocused = true }
+        .onChange(of: model.searchSidebarFocusRequest) { _ in searchFocused = true }
     }
 
     private var fileMaskField: some View {

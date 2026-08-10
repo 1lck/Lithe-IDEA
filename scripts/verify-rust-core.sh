@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
-cargo fmt --manifest-path rust/Cargo.toml -- --check
+cargo fmt --manifest-path rust/Cargo.toml --all --check
 cargo test --manifest-path rust/Cargo.toml
 
 case "$(uname -m)" in
@@ -27,7 +27,7 @@ MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 swiftc scripts/RustCoreBridgeVerification.swift \
     Sources/LitheRustCore/bridge.c \
     -sdk "$MACOS_SDK" \
-    -target "${TRIPLE}14.0" \
+    -target "${TRIPLE}13.0" \
     -Xlinker -force_load \
     -Xlinker "$RUST_LIBRARY" \
     -o "$BRIDGE_BINARY"

@@ -50,6 +50,13 @@ struct MacFileStorage: FileStorage {
         )) ?? []
     }
 
+    func readPrefix(from url: URL, byteCount: Int) throws -> Data {
+        precondition(byteCount >= 0)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        return try handle.read(upToCount: byteCount) ?? Data()
+    }
+
     func readData(from url: URL, options: Data.ReadingOptions = []) throws -> Data {
         try Data(contentsOf: url, options: options)
     }

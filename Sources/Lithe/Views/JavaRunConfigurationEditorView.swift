@@ -51,7 +51,7 @@ struct JavaRunConfigurationEditorView: View {
         .frame(width: 520, height: 470)
         .background(LitheTheme.window)
         .preferredColorScheme(.dark)
-        .onChange(of: options) {
+        .onChange(of: options) { _ in
             feature.updateOptions(options, for: configuration)
         }
     }
