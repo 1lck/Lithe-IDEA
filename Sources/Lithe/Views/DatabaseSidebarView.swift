@@ -957,16 +957,18 @@ struct DatabaseSidebarView: View {
 
     @ViewBuilder
     private func tableContextMenu(_ profile: DatabaseProfile, table: String) -> some View {
-        Button("View Data") { openTable(profile, table: table, section: .data) }
-        Button("New Query") {
-            openTable(profile, table: table, section: .sql, sql: "SELECT * FROM \(quotedIdentifier(table, kind: profile.kind));\n")
-        }
-        Button("View Structure") { openTable(profile, table: table, section: .structure) }
-        Button("Copy Name") { copyToPasteboard(table) }
-        Divider()
-        Menu("Export Data…") {
-            Button("CSV") { exportTable(profile, table: table, format: .csv) }
-            Button("JSON") { exportTable(profile, table: table, format: .json) }
+        Group {
+            Button("View Data") { openTable(profile, table: table, section: .data) }
+            Button("New Query") {
+                openTable(profile, table: table, section: .sql, sql: "SELECT * FROM \(quotedIdentifier(table, kind: profile.kind));\n")
+            }
+            Button("View Structure") { openTable(profile, table: table, section: .structure) }
+            Button("Copy Name") { copyToPasteboard(table) }
+            Divider()
+            Menu("Export Data…") {
+                Button("CSV") { exportTable(profile, table: table, format: .csv) }
+                Button("JSON") { exportTable(profile, table: table, format: .json) }
+            }
         }
         Button("Import Data…") { beginImport(.csv, profile: profile, table: table) }
             .disabled(profile.readOnly)

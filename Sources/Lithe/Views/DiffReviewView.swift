@@ -98,29 +98,29 @@ struct DiffReviewView: View {
     private func diffToolbar(proxy: ScrollViewProxy) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                Button {
-                    navigateDifference(by: -1, proxy: proxy)
-                } label: {
-                    Image(systemName: "arrow.up")
+                Group {
+                    Button {
+                        navigateDifference(by: -1, proxy: proxy)
+                    } label: {
+                        Image(systemName: "arrow.up")
+                    }
+                    .litheIconButton()
+                    .disabled(differenceStarts.isEmpty)
+                    .help("Previous difference")
+
+                    Button {
+                        navigateDifference(by: 1, proxy: proxy)
+                    } label: {
+                        Image(systemName: "arrow.down")
+                    }
+                    .litheIconButton()
+                    .disabled(differenceStarts.isEmpty)
+                    .help("Next difference")
+
+                    toolbarDivider
+                    diffSearchControl(proxy: proxy)
+                    toolbarDivider
                 }
-                .litheIconButton()
-                .disabled(differenceStarts.isEmpty)
-                .help("Previous difference")
-
-                Button {
-                    navigateDifference(by: 1, proxy: proxy)
-                } label: {
-                    Image(systemName: "arrow.down")
-                }
-                .litheIconButton()
-                .disabled(differenceStarts.isEmpty)
-                .help("Next difference")
-
-                toolbarDivider
-
-                diffSearchControl(proxy: proxy)
-
-                toolbarDivider
 
                 toolbarLabel(
                     usesSingleFileDiff ? "Single file" : "Side-by-side",
@@ -179,20 +179,22 @@ struct DiffReviewView: View {
                         : "Collapse long unchanged regions"
                 )
 
-                toolbarDivider
+                Group {
+                    toolbarDivider
 
-                Text(change.path)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .frame(maxWidth: 260, alignment: .leading)
+                    Text(change.path)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                        .frame(maxWidth: 260, alignment: .leading)
 
-                Text(differenceStarts.count == 1 ? "1 difference" : "\(differenceStarts.count) differences")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .padding(.horizontal, 7)
+                    Text(differenceStarts.count == 1 ? "1 difference" : "\(differenceStarts.count) differences")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .padding(.horizontal, 7)
 
-                toolbarDivider
+                    toolbarDivider
+                }
 
                 if change.isStaged && !change.hasWorkingTreeChange {
                     Button("Unstage") {
@@ -466,7 +468,7 @@ struct DiffReviewView: View {
                 .font(.system(size: 11.5))
                 .frame(width: 145)
                 .focused($diffSearchFocused)
-                .litheOnReturn { isShiftPressed in
+                .macReturnKeyHandler(isEnabled: diffSearchFocused) { isShiftPressed in
                     navigateDiffSearch(
                         by: isShiftPressed ? -1 : 1,
                         proxy: proxy

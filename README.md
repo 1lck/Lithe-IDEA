@@ -19,7 +19,7 @@
 
   <p>
     <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=for-the-badge&label=latest%20release&logo=github&logoColor=white" alt="Latest release"></a>
-    <img src="https://img.shields.io/badge/platform-macOS%2014%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14+">
+    <img src="https://img.shields.io/badge/platform-macOS%2013%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13+">
     <img src="https://img.shields.io/badge/Swift-6.2%2B-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 6.2+">
   </p>
   <p>
@@ -104,7 +104,7 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
 
 ## Use Lithe
 
-Lithe requires macOS 14 or later. Java project features require a JDK; JDK 17 or JDK 21 is recommended. Semantic navigation requires Eclipse JDT LS. Maven projects need either a project `mvnw` or a system Maven installation.
+Lithe requires macOS 13 or later. Java project features require a JDK; JDK 17 or JDK 21 is recommended. Semantic navigation requires Eclipse JDT LS. Maven projects need either a project `mvnw` or a system Maven installation.
 
 Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). If a release provides architecture-specific installers, choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. Open the disk image, drag `Lithe.app` into `/Applications`, and launch it.
 
@@ -225,7 +225,7 @@ open dist/Lithe.app
 Before submitting a change, run:
 
 ```bash
-swift test --disable-sandbox
+./scripts/test-macos.sh
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
 ./scripts/verify-service-boundaries.sh

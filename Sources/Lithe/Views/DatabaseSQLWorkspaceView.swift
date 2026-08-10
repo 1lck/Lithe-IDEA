@@ -430,7 +430,7 @@ private struct DatabaseHistoryView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if entries.isEmpty {
-                LitheContentUnavailableView("No query history", systemImage: "clock.arrow.circlepath")
+                LitheUnavailableView("No query history", systemImage: "clock.arrow.circlepath")
             } else {
                 List(entries) { entry in
                     Button {
@@ -675,7 +675,7 @@ struct DatabaseSQLWorkspaceView: View {
                 }
             }
         } else {
-            LitheContentUnavailableView("No Query Tab", systemImage: "terminal")
+            LitheUnavailableView("No Query Tab", systemImage: "terminal")
         }
     }
 
@@ -694,10 +694,10 @@ struct DatabaseSQLWorkspaceView: View {
                 }
         } else if let affected = model.databaseFeature.selectedSQLTab?.rowsAffected {
             let count = model.databaseFeature.selectedSQLTab.map { model.databaseFeature.analysis(forSQLTab: $0.id).statementCount } ?? 1
-            LitheContentUnavailableView(count > 1 ? "Statements completed" : "Statement completed", systemImage: "checkmark.circle", description: Text("Rows affected: \(affected)"))
+            LitheUnavailableView(count > 1 ? "Statements completed" : "Statement completed", systemImage: "checkmark.circle", description: Text("Rows affected: \(affected)"))
                 .foregroundStyle(LitheTheme.secondaryText)
         } else {
-            LitheContentUnavailableView("Query Results", systemImage: "tablecells", description: Text("Run a SELECT, SHOW, DESCRIBE, or EXPLAIN statement to inspect results."))
+            LitheUnavailableView("Query Results", systemImage: "tablecells", description: Text("Run a SELECT, SHOW, DESCRIBE, or EXPLAIN statement to inspect results."))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
     }
@@ -900,7 +900,7 @@ private struct DatabaseStructureView: View {
                 Text("Dropping \(change.name) cannot be undone by the table editor. A recovery snapshot should be taken before this operation.")
             }
         } else {
-            LitheContentUnavailableView("No Table Selected", systemImage: "list.bullet.rectangle", description: Text("Choose a table to inspect its columns, indexes, and foreign keys."))
+            LitheUnavailableView("No Table Selected", systemImage: "list.bullet.rectangle", description: Text("Choose a table to inspect its columns, indexes, and foreign keys."))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
     }

@@ -22,7 +22,7 @@ struct FindBarView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .focused($focused)
-                .litheOnReturn { isShiftPressed in
+                .macReturnKeyHandler(isEnabled: focused) { isShiftPressed in
                     if isShiftPressed {
                         model.navigateFind(offset: -1)
                     } else {

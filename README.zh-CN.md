@@ -19,7 +19,7 @@
 
   <p>
     <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=for-the-badge&label=latest%20release&logo=github&logoColor=white" alt="最新版本"></a>
-    <img src="https://img.shields.io/badge/platform-macOS%2014%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14+">
+    <img src="https://img.shields.io/badge/platform-macOS%2013%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13+">
     <img src="https://img.shields.io/badge/Swift-6.2%2B-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 6.2+">
   </p>
   <p>
@@ -104,7 +104,7 @@ Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ ID
 
 ## 如何使用
 
-Lithe 需要 macOS 14 或更高版本。Java 项目功能需要 JDK，推荐使用 JDK 17 或 JDK 21；语义导航需要 Eclipse JDT LS；Maven 项目需要项目自带 `mvnw` 或系统中可用的 Maven。
+Lithe 需要 macOS 13 或更高版本。Java 项目功能需要 JDK，推荐使用 JDK 17 或 JDK 21；语义导航需要 Eclipse JDT LS；Maven 项目需要项目自带 `mvnw` 或系统中可用的 Maven。
 
 从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。如果该版本提供独立架构安装包，M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。
 
@@ -219,7 +219,7 @@ open dist/Lithe.app
 提交改动前运行：
 
 ```bash
-swift test --disable-sandbox
+./scripts/test-macos.sh
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
 ./scripts/verify-service-boundaries.sh
