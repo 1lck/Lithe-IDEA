@@ -160,6 +160,8 @@ struct Params {
     pattern: String,
     #[serde(default)]
     count: usize,
+    #[serde(default = "default_true")]
+    include_size: bool,
     #[serde(default)]
     key: String,
     #[serde(default)]
@@ -324,6 +326,7 @@ async fn sql_database_method(method: &str, params: Params) -> DbResult {
     let pool = connect(&connection).await?;
     let result = match method {
         "testConnection" => Ok(json!({"connected": true})),
+        "listDatabases" => list_databases(&pool, kind).await,
         "listTables" => list_tables(&pool, kind, &params.schema).await,
         "describeTable" => describe_table(&pool, kind, &params.schema, &params.table).await,
         "listIndexes" => list_indexes(&pool, kind, &params.schema, &params.table).await,
@@ -740,25 +743,75 @@ async fn redis_scan(
         .query_async(redis)
         .await
         .map_err(|e| redis_error(e, connection))?;
+    let (replies, size_enabled) = match redis_scan_metadata(redis, &keys, params.include_size).await
+    {
+        Ok(replies) => (replies, params.include_size),
+        Err(error) if params.include_size && redis_memory_usage_unsupported(&error) => {
+            let replies = redis_scan_metadata(redis, &keys, false)
+                .await
+                .map_err(|e| redis_error(e, connection))?;
+            (replies, false)
+        }
+        Err(error) => return Err(redis_error(error, connection)),
+    };
+    let stride = if size_enabled { 3 } else { 2 };
+    if replies.len() != keys.len() * stride {
+        return Err((
+            "redis_error".into(),
+            "Redis returned an incomplete scan metadata response".into(),
+        ));
+    }
     let mut summaries = Vec::with_capacity(keys.len());
-    for key in keys {
-        let kind: String = redis::cmd("TYPE")
-            .arg(&key)
-            .query_async(redis)
-            .await
-            .map_err(|e| redis_error(e, connection))?;
+    for (index, key) in keys.into_iter().enumerate() {
+        let offset = index * stride;
+        let kind: String = redis::from_redis_value(&replies[offset]).map_err(|e| {
+            (
+                "redis_error".into(),
+                format!("Redis returned an invalid key type: {e}"),
+            )
+        })?;
         if kind == "none" {
             continue;
         }
-        let ttl: i64 = redis::cmd("TTL")
-            .arg(&key)
-            .query_async(redis)
-            .await
-            .map_err(|e| redis_error(e, connection))?;
-        let size = redis_key_size(redis, &key, &kind, connection).await?;
+        let ttl: i64 = redis::from_redis_value(&replies[offset + 1]).map_err(|e| {
+            (
+                "redis_error".into(),
+                format!("Redis returned an invalid key TTL: {e}"),
+            )
+        })?;
+        let size = if size_enabled {
+            redis::from_redis_value::<Option<i64>>(&replies[offset + 2])
+                .unwrap_or(None)
+                .unwrap_or(-1)
+        } else {
+            -1
+        };
         summaries.push(json!({"key": key, "type": kind, "ttl": ttl, "size": size}));
     }
     Ok(json!({"keys": summaries, "nextCursor": next_cursor.to_string()}))
+}
+
+async fn redis_scan_metadata(
+    redis: &mut redis::aio::MultiplexedConnection,
+    keys: &[String],
+    include_size: bool,
+) -> redis::RedisResult<Vec<redis::Value>> {
+    let mut pipeline = redis::pipe();
+    for key in keys {
+        pipeline.cmd("TYPE").arg(key);
+        pipeline.cmd("TTL").arg(key);
+        if include_size {
+            pipeline.cmd("MEMORY").arg("USAGE").arg(key);
+        }
+    }
+    pipeline.query_async(redis).await
+}
+
+fn redis_memory_usage_unsupported(error: &redis::RedisError) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("unknown command")
+        || message.contains("unknown subcommand")
+        || message.contains("unsupported")
 }
 
 async fn redis_key_size(
@@ -1720,6 +1773,23 @@ async fn list_tables(pool: &AnyPool, kind: &str, schema: &str) -> DbResult {
     rows_value(q.fetch_all(pool).await.map_err(db_error)?)
 }
 
+async fn list_databases(pool: &AnyPool, kind: &str) -> DbResult {
+    let sql = match kind {
+        "mysql" => "SELECT SCHEMA_NAME AS name FROM information_schema.schemata ORDER BY SCHEMA_NAME",
+        "postgresql" => "SELECT schema_name AS name FROM information_schema.schemata WHERE catalog_name = current_database() ORDER BY schema_name",
+        _ => return Ok(json!([])),
+    };
+    let rows = rows_value(sqlx::query(sql).fetch_all(pool).await.map_err(db_error)?)?;
+    let names = rows
+        .as_array()
+        .into_iter()
+        .flat_map(|rows| rows.iter())
+        .filter_map(|row| row.get("name").and_then(Value::as_str))
+        .map(|name| Value::String(name.to_string()))
+        .collect();
+    Ok(Value::Array(names))
+}
+
 async fn describe_table(pool: &AnyPool, kind: &str, schema: &str, table: &str) -> DbResult {
     validate_identifier(table)?;
     let sql = match kind {
@@ -2131,7 +2201,7 @@ async fn query_direct(pool: &DirectPool, sql: &str, values: &[Value], limit: u32
     require_sql(sql)?;
     let maximum = limit.clamp(1, 100_000) as usize;
     let mut rows = Vec::with_capacity(maximum.min(200));
-    let truncated = match pool {
+    let (truncated, columns) = match pool {
         DirectPool::MySql(pool) => {
             let mut stream = bind_mysql(sqlx::query(sql), values)?.fetch(pool);
             collect_query_rows(&mut stream, maximum, &mut rows, mysql_row_json).await?
@@ -2145,7 +2215,7 @@ async fn query_direct(pool: &DirectPool, sql: &str, values: &[Value], limit: u32
             collect_query_rows(&mut stream, maximum, &mut rows, sqlite_row_json).await?
         }
     };
-    Ok(json!({"truncated": truncated, "rows": rows}))
+    Ok(json!({"columns": columns, "truncated": truncated, "rows": rows}))
 }
 
 async fn collect_query_rows<'a, R, S>(
@@ -2153,17 +2223,26 @@ async fn collect_query_rows<'a, R, S>(
     maximum: usize,
     destination: &mut Vec<Value>,
     decode: fn(&R) -> Result<Value, (String, String)>,
-) -> Result<bool, (String, String)>
+) -> Result<(bool, Vec<String>), (String, String)>
 where
     S: futures_util::TryStream<Ok = R, Error = sqlx::Error> + Unpin,
+    R: Row,
 {
+    let mut columns = Vec::new();
     while let Some(row) = stream.try_next().await.map_err(db_error)? {
+        if columns.is_empty() {
+            columns = row
+                .columns()
+                .iter()
+                .map(|column| column.name().to_string())
+                .collect();
+        }
         if destination.len() == maximum {
-            return Ok(true);
+            return Ok((true, columns));
         }
         destination.push(decode(&row)?);
     }
-    Ok(false)
+    Ok((false, columns))
 }
 
 fn bind_mysql<'q>(
@@ -2192,6 +2271,20 @@ fn bind_sqlite<'q>(
         query = bind_sqlite_value(query, value);
     }
     Ok(query)
+}
+
+fn binary_input(object: &Map<String, Value>) -> Option<&str> {
+    if object.len() != 1 {
+        return None;
+    }
+    object
+        .get("binary")
+        .or_else(|| object.get("base64"))
+        .and_then(Value::as_str)
+}
+
+fn tagged_binary(bytes: impl AsRef<[u8]>) -> Value {
+    json!({"binary": BASE64.encode(bytes.as_ref())})
 }
 
 macro_rules! bind_value_fn {
@@ -2260,8 +2353,8 @@ macro_rules! bind_value_fn {
                 Value::Object(v) if v.get("json").is_some() => {
                     query.bind(sqlx::types::Json(v["json"].clone()))
                 }
-                Value::Object(v) if v.get("base64").and_then(Value::as_str).is_some() => {
-                    match BASE64.decode(v["base64"].as_str().unwrap()) {
+                Value::Object(v) if binary_input(v).is_some() => {
+                    match BASE64.decode(binary_input(v).unwrap()) {
                         Ok(value) => query.bind(value),
                         Err(_) => query.bind(Vec::<u8>::new()),
                     }
@@ -2285,11 +2378,9 @@ fn bind_sqlite_value<'q>(
         Value::Number(v) if v.is_u64() => query.bind(v.as_u64().unwrap() as i64),
         Value::Number(v) => query.bind(v.as_f64().unwrap()),
         Value::String(v) => query.bind(v),
-        Value::Object(v) if v.get("base64").and_then(Value::as_str).is_some() => query.bind(
-            BASE64
-                .decode(v["base64"].as_str().unwrap())
-                .unwrap_or_default(),
-        ),
+        Value::Object(v) if binary_input(v).is_some() => {
+            query.bind(BASE64.decode(binary_input(v).unwrap()).unwrap_or_default())
+        }
         Value::Object(v) if v.get("json").is_some() => query.bind(v["json"].to_string()),
         Value::Object(v) => {
             let tagged = [
@@ -2345,7 +2436,7 @@ fn mysql_value(row: &MySqlRow, index: usize, kind: &str) -> Value {
     match kind.to_ascii_uppercase().as_str() {
         "DECIMAL" | "NEWDECIMAL" => row
             .try_get::<rust_decimal::Decimal, _>(index)
-            .map(|v| Value::String(v.to_string()))
+            .map(|v| json!({"decimal": v.to_string()}))
             .unwrap_or_else(|_| mysql_text(row, index)),
         "DATE" => row
             .try_get::<chrono::NaiveDate, _>(index)
@@ -2355,20 +2446,51 @@ fn mysql_value(row: &MySqlRow, index: usize, kind: &str) -> Value {
             .try_get::<chrono::NaiveTime, _>(index)
             .map(|v| Value::String(v.to_string()))
             .unwrap_or_else(|_| mysql_text(row, index)),
-        "DATETIME" | "TIMESTAMP" => row
+        "DATETIME" => row
             .try_get::<chrono::NaiveDateTime, _>(index)
             .map(|v| Value::String(v.to_string()))
+            .or_else(|_| {
+                row.try_get::<chrono::DateTime<chrono::Utc>, _>(index)
+                    .map(|v| Value::String(v.to_rfc3339()))
+            })
+            .unwrap_or_else(|_| mysql_text(row, index)),
+        "TIMESTAMP" => row
+            .try_get::<chrono::DateTime<chrono::Utc>, _>(index)
+            .map(|v| Value::String(v.to_rfc3339()))
+            .or_else(|_| {
+                row.try_get::<chrono::NaiveDateTime, _>(index)
+                    .map(|v| Value::String(v.to_string()))
+            })
+            .or_else(|_| {
+                row.try_get::<chrono::DateTime<chrono::Local>, _>(index)
+                    .map(|v| Value::String(v.to_rfc3339()))
+            })
+            .unwrap_or_else(|_| mysql_text(row, index)),
+        "BOOLEAN" | "BOOL" => row
+            .try_get::<bool, _>(index)
+            .map(Value::Bool)
+            .or_else(|_| row.try_get::<i8, _>(index).map(|v| Value::Bool(v != 0)))
+            .or_else(|_| row.try_get::<u8, _>(index).map(|v| Value::Bool(v != 0)))
+            .or_else(|_| row.try_get::<i64, _>(index).map(|v| Value::Bool(v != 0)))
             .unwrap_or_else(|_| mysql_text(row, index)),
         "JSON" => row
             .try_get::<Value, _>(index)
             .unwrap_or_else(|_| mysql_text(row, index)),
         "BLOB" | "BINARY" | "VARBINARY" => row
             .try_get::<Vec<u8>, _>(index)
-            .map(|v| json!({"base64": BASE64.encode(v)}))
+            .map(tagged_binary)
             .unwrap_or_else(|_| mysql_text(row, index)),
         "FLOAT" | "DOUBLE" => row
             .try_get::<f64, _>(index)
             .map(|v| json!(v))
+            .unwrap_or_else(|_| mysql_text(row, index)),
+        value if value == "TINYINT" => row
+            .try_get::<i8, _>(index)
+            .map(|v| json!(v))
+            .or_else(|_| row.try_get::<u8, _>(index).map(|v| json!(v)))
+            .or_else(|_| row.try_get::<i16, _>(index).map(|v| json!(v)))
+            .or_else(|_| row.try_get::<i64, _>(index).map(|v| json!(v)))
+            .or_else(|_| row.try_get::<u64, _>(index).map(|v| json!(v)))
             .unwrap_or_else(|_| mysql_text(row, index)),
         value if value.contains("INT") || value == "YEAR" => row
             .try_get::<i64, _>(index)
@@ -2381,14 +2503,33 @@ fn mysql_value(row: &MySqlRow, index: usize, kind: &str) -> Value {
 fn mysql_text(row: &MySqlRow, index: usize) -> Value {
     row.try_get::<String, _>(index)
         .map(Value::String)
+        .or_else(|_| row.try_get_unchecked::<String, _>(index).map(Value::String))
+        .or_else(|_| {
+            row.try_get::<Vec<u8>, _>(index)
+                .map(|value| mysql_bytes_value(&value))
+        })
+        .or_else(|_| {
+            row.try_get_unchecked::<Vec<u8>, _>(index)
+                .map(|value| mysql_bytes_value(&value))
+        })
+        .or_else(|_| row.try_get::<i64, _>(index).map(|value| json!(value)))
+        .or_else(|_| row.try_get::<u64, _>(index).map(|value| json!(value)))
+        .or_else(|_| row.try_get::<f64, _>(index).map(|value| json!(value)))
         .unwrap_or_else(|_| Value::String("<unsupported>".into()))
+}
+
+fn mysql_bytes_value(value: &[u8]) -> Value {
+    match String::from_utf8(value.to_vec()) {
+        Ok(text) => Value::String(text),
+        Err(_) => tagged_binary(value),
+    }
 }
 
 fn postgres_value(row: &PgRow, index: usize, kind: &str) -> Value {
     match kind.to_ascii_uppercase().as_str() {
         "NUMERIC" => row
             .try_get::<rust_decimal::Decimal, _>(index)
-            .map(|v| Value::String(v.to_string()))
+            .map(|v| json!({"decimal": v.to_string()}))
             .unwrap_or_else(|_| pg_text(row, index)),
         "DATE" => row
             .try_get::<chrono::NaiveDate, _>(index)
@@ -2415,7 +2556,7 @@ fn postgres_value(row: &PgRow, index: usize, kind: &str) -> Value {
             .unwrap_or_else(|_| pg_text(row, index)),
         "BYTEA" => row
             .try_get::<Vec<u8>, _>(index)
-            .map(|v| json!({"base64":BASE64.encode(v)}))
+            .map(tagged_binary)
             .unwrap_or_else(|_| pg_text(row, index)),
         "BOOL" => row
             .try_get::<bool, _>(index)
@@ -2462,7 +2603,7 @@ fn sqlite_value(row: &SqliteRow, index: usize, kind: &str) -> Value {
             .unwrap_or_else(|_| sqlite_text(row, index)),
         "BLOB" => row
             .try_get::<Vec<u8>, _>(index)
-            .map(|v| json!({"base64":BASE64.encode(v)}))
+            .map(tagged_binary)
             .unwrap_or_else(|_| sqlite_text(row, index)),
         "BOOL" | "BOOLEAN" => row
             .try_get::<bool, _>(index)
@@ -2908,11 +3049,22 @@ fn placeholder(kind: &str, index: usize) -> String {
 async fn export_csv(pool: &DirectPool, sql: &str, values: &[Value], limit: u32) -> DbResult {
     let result = query_direct(pool, sql, values, limit).await?;
     let rows = result["rows"].as_array().cloned().unwrap_or_default();
-    let headers: Vec<String> = rows
-        .first()
-        .and_then(Value::as_object)
-        .map(|row| row.keys().cloned().collect())
-        .unwrap_or_default();
+    let headers: Vec<String> = result["columns"]
+        .as_array()
+        .map(|columns| {
+            columns
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .filter(|columns: &Vec<String>| !columns.is_empty())
+        .unwrap_or_else(|| {
+            rows.first()
+                .and_then(Value::as_object)
+                .map(|row| row.keys().cloned().collect())
+                .unwrap_or_default()
+        });
     let mut writer = csv::Writer::from_writer(Vec::new());
     writer.write_record(&headers).map_err(csv_error)?;
     for row in rows {
@@ -3658,9 +3810,9 @@ fn sql_literal(kind: &str, value: &Value) -> Result<String, (String, String)> {
         Value::Bool(value) => Ok(if *value { "TRUE" } else { "FALSE" }.into()),
         Value::Number(value) => Ok(value.to_string()),
         Value::String(value) => Ok(format!("'{}'", value.replace('\'', "''"))),
-        Value::Object(object) if object.get("base64").and_then(Value::as_str).is_some() => {
+        Value::Object(object) if binary_input(object).is_some() => {
             let bytes = BASE64
-                .decode(object["base64"].as_str().unwrap())
+                .decode(binary_input(object).unwrap())
                 .map_err(|e| ("export_failed".into(), e.to_string()))?;
             let hex = bytes
                 .iter()
@@ -3713,7 +3865,7 @@ fn metadata_rows_value(rows: Vec<sqlx::any::AnyRow>) -> DbResult {
                 let Some(Value::Object(binary)) = object.get(key) else {
                     continue;
                 };
-                let Some(encoded) = binary.get("base64").and_then(Value::as_str) else {
+                let Some(encoded) = binary_input(binary) else {
                     continue;
                 };
                 let Ok(bytes) = BASE64.decode(encoded) else {
@@ -3761,7 +3913,7 @@ fn typed_value(row: &sqlx::any::AnyRow, index: usize, kind: &str) -> Value {
             .unwrap_or_else(|_| text_value(row, index)),
         "BLOB" | "BYTEA" | "BINARY" | "VARBINARY" => row
             .try_get::<Vec<u8>, _>(index)
-            .map(|v| json!({"base64": BASE64.encode(v)}))
+            .map(tagged_binary)
             .unwrap_or_else(|_| text_value(row, index)),
         _ => text_value(row, index),
     }
@@ -3957,9 +4109,30 @@ mod tests {
             "X'00ff'"
         );
         assert_eq!(
+            sql_literal("sqlite", &json!({"binary":"AP8="})).unwrap(),
+            "X'00ff'"
+        );
+        assert_eq!(
             sql_literal("postgresql", &json!({"base64":"AP8="})).unwrap(),
             "decode('00ff','hex')"
         );
+    }
+
+    #[test]
+    fn binary_values_use_an_explicit_tag_without_accepting_mixed_objects() {
+        assert_eq!(tagged_binary([0, 255]), json!({"binary":"AP8="}));
+        let explicit = json!({"binary":"AP8="});
+        assert_eq!(binary_input(explicit.as_object().unwrap()), Some("AP8="));
+        let legacy = json!({"base64":"AP8="});
+        assert_eq!(binary_input(legacy.as_object().unwrap()), Some("AP8="));
+        let mixed = json!({"binary":"AP8=","label":"payload"});
+        assert_eq!(binary_input(mixed.as_object().unwrap()), None);
+    }
+
+    #[test]
+    fn mysql_text_fallback_preserves_utf8_names_and_binary_payloads() {
+        assert_eq!(mysql_bytes_value(b"analytics"), json!("analytics"));
+        assert_eq!(mysql_bytes_value(&[0, 255]), json!({"binary":"AP8="}));
     }
 
     #[test]

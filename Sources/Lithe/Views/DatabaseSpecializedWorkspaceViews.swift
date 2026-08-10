@@ -28,6 +28,9 @@ struct RedisWorkspaceView: View {
         .task(id: feature.selectedProfileID) {
             await feature.loadRedisKeys(pattern: pattern)
         }
+        .onChange(of: feature.redisIncludeSize) { _ in
+            Task { await feature.loadRedisKeys(pattern: pattern) }
+        }
         .onChange(of: feature.redisSelectedKey) { detail in
             guard let detail else {
                 stringDraft = ""; hashDraft = "{}"; ttlDraft = ""; renameDraft = ""
@@ -82,6 +85,13 @@ struct RedisWorkspaceView: View {
                     .background(LitheTheme.inputBackground)
                     .clipShape(Capsule())
             }
+            Toggle("Estimate size", isOn: Binding(
+                get: { feature.redisIncludeSize },
+                set: { feature.redisIncludeSize = $0 }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .help("Estimate key size during SCAN")
             Button { Task { await feature.loadRedisKeys(pattern: pattern) } } label: { Image(systemName: "arrow.clockwise") }
                 .litheIconButton().help("Rescan from the beginning")
                 .disabled(feature.isLoading || profile == nil)
@@ -101,12 +111,33 @@ struct RedisWorkspaceView: View {
                     .onSubmit { Task { await feature.loadRedisKeys(pattern: pattern) } }
                 Button { Task { await feature.loadRedisKeys(pattern: pattern) } } label: { Image(systemName: "magnifyingglass") }
                     .litheIconButton().help("Search keys with SCAN")
+                    .disabled(feature.isLoading || profile == nil)
             }
             .padding(10)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if feature.redisKeys.isEmpty && !feature.isLoading {
-                specializedEmptyState(symbol: "magnifyingglass", title: "No keys loaded", detail: "Search with a Redis pattern to scan this database incrementally.")
+            if let profile, feature.connectionStatuses[profile.id] == .failed, let error = feature.errorMessage {
+                specializedErrorBanner(message: error) {
+                    Task { await feature.loadRedisKeys(pattern: pattern) }
+                }
+            }
+
+            if feature.redisKeys.isEmpty && feature.isLoading {
+                VStack(spacing: 9) {
+                    ProgressView().controlSize(.small)
+                    Text("Scanning keys…")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if feature.redisKeys.isEmpty {
+                specializedEmptyState(
+                    symbol: "magnifyingglass",
+                    title: feature.errorMessage == nil ? "No matching keys" : "No keys loaded",
+                    detail: feature.errorMessage == nil
+                        ? "No keys matched this pattern. Try a broader pattern to search again."
+                        : "Retry the scan after fixing the connection or authentication settings."
+                )
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
@@ -123,7 +154,7 @@ struct RedisWorkspaceView: View {
                                         .clipShape(RoundedRectangle(cornerRadius: 5))
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(key.key).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
-                                        Text("\(key.type.uppercased()) · \(redisTTLText(key.ttl)) · \(key.size)")
+                                        Text("\(key.type.uppercased()) · \(redisTTLText(key.ttl)) · \(redisSizeText(key.size))")
                                             .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
                                     }
                                     Spacer(minLength: 0)
@@ -166,7 +197,7 @@ struct RedisWorkspaceView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 7))
                     VStack(alignment: .leading, spacing: 3) {
                         Text(detail.key).font(.system(size: 12.5, weight: .semibold)).textSelection(.enabled)
-                        Text("\(detail.type.uppercased()) · \(detail.size) entries / bytes · \(redisTTLText(detail.ttl))")
+                        Text("\(detail.type.uppercased()) · \(redisSizeText(detail.size)) · \(redisTTLText(detail.ttl))")
                             .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
                     }
                     Spacer()
@@ -348,6 +379,14 @@ struct NacosWorkspaceView: View {
             }
             .labelsHidden().pickerStyle(.segmented).frame(width: 250).padding(10)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            if let profile, feature.connectionStatuses[profile.id] == .failed, let error = feature.errorMessage {
+                specializedErrorBanner(message: error) {
+                    Task {
+                        await feature.loadNacosConfigs(dataId: dataIDSearch, group: groupSearch)
+                        await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch)
+                    }
+                }
+            }
             if section == .configs { configurations } else { services }
         }
         .background(LitheTheme.editor)
@@ -356,7 +395,13 @@ struct NacosWorkspaceView: View {
             await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch)
         }
         .onChange(of: feature.nacosSelectedConfig) { detail in
-            guard let detail else { return }
+            guard let detail else {
+                draftDataID = ""
+                draftGroup = "DEFAULT_GROUP"
+                draftType = ""
+                draftContent = ""
+                return
+            }
             draftDataID = detail.dataId; draftGroup = detail.group; draftType = detail.type ?? ""; draftContent = detail.content
         }
         .alert("Confirm Nacos configuration change", isPresented: $showsWriteConfirmation, presenting: pendingAction) { _ in
@@ -573,6 +618,28 @@ private func specializedEmptyState(symbol: String, title: LocalizedStringKey, de
     .padding(22)
 }
 
+private func specializedErrorBanner(message: String, retry: @escaping () -> Void) -> some View {
+    HStack(spacing: 8) {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .foregroundStyle(LitheTheme.error)
+        Text(message)
+            .font(.system(size: 10.5))
+            .foregroundStyle(LitheTheme.primaryText)
+            .lineLimit(3)
+            .textSelection(.enabled)
+        Spacer(minLength: 4)
+        Button(action: retry) {
+            Image(systemName: "arrow.clockwise")
+        }
+        .litheIconButton()
+        .help("Retry")
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 8)
+    .background(LitheTheme.error.opacity(0.1))
+    .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.error.opacity(0.35)).frame(height: 1) }
+}
+
 private func redisTypeSymbol(_ type: String) -> String {
     switch type.lowercased() {
     case "string": "text.alignleft"
@@ -604,4 +671,8 @@ private func redisTTLText(_ ttl: Int64) -> String {
     case 0...: "TTL \(ttl)s"
     default: "TTL unknown"
     }
+}
+
+private func redisSizeText(_ size: Int64) -> String {
+    size < 0 ? "size not estimated" : "size \(size)"
 }
