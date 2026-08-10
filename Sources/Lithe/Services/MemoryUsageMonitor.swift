@@ -12,13 +12,21 @@ final class MemoryUsageMonitor: ObservableObject {
 
     private let sampleInterval: TimeInterval
     private let startedAt: Date
+    private let logsPerformanceBaseline: Bool
+    private let baselineReporter: (String) -> Void
     private var sampleTimer: Timer?
     private var sampleCount: UInt64 = 0
     private var totalSampledBytes: UInt64 = 0
 
-    init(sampleInterval: TimeInterval = 1.0) {
+    init(
+        sampleInterval: TimeInterval = 1.0,
+        startedAt: Date = Date(),
+        baselineReporter: @escaping (String) -> Void = { _ in }
+    ) {
         self.sampleInterval = sampleInterval
-        startedAt = Date()
+        self.startedAt = startedAt
+        self.baselineReporter = baselineReporter
+        logsPerformanceBaseline = ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1"
     }
 
     deinit {
@@ -81,6 +89,10 @@ final class MemoryUsageMonitor: ObservableObject {
         sampleCount += 1
         totalSampledBytes += bytes
         averageBytes = totalSampledBytes / sampleCount
+        if logsPerformanceBaseline, sampleCount == 1 {
+            let milliseconds = Int((elapsedTime * 1_000).rounded())
+            baselineReporter("LITHE_BASELINE_READY elapsed_ms=\(milliseconds) resident_bytes=\(bytes)")
+        }
     }
 
     private func formatted(_ bytes: UInt64?) -> String {

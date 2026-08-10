@@ -5,7 +5,7 @@ import SwiftUI
 /// these marks crisp in compact IDE rows and preserves their recognizable
 /// brand colors in both light and dark appearances.
 struct RunConfigurationIcon: View {
-    let kind: JavaRunConfigurationKind
+    let kind: RunConfigurationKind
     var size: CGFloat = 16
 
     var body: some View {
@@ -22,7 +22,7 @@ struct RunConfigurationIcon: View {
         .accessibilityHidden(true)
     }
 
-    static func iconKind(for kind: JavaRunConfigurationKind) -> LitheIconKind? {
+    static func iconKind(for kind: RunConfigurationKind) -> LitheIconKind? {
         switch kind {
         case .currentFile:
             return .plainText

@@ -85,7 +85,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             let kind = configurationKind(value.provider)
             let maven = value.maven
             return EffectiveRunConfiguration(
-                configuration: JavaRunConfiguration(
+                configuration: RunConfiguration(
                     id: value.id,
                     name: value.name,
                     kind: kind,
@@ -93,11 +93,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     modulePath: maven?.module == "." ? nil : maven?.module,
                     mainClass: maven?.mainClass
                 ),
-                options: JavaRunOptions(
+                options: RunOptions(
                     workingDirectoryPath: (value.cwd ?? ".") == "." ? "" : (value.cwd ?? "."),
                     vmArguments: (maven?.jvmArguments ?? []).joined(separator: " "),
-                    programArguments: (maven?.programArguments ?? []).joined(separator: " "),
-                    activeProfiles: Set(maven?.profiles ?? [])
+                    programArguments: (maven?.programArguments ?? value.args ?? []).joined(separator: " "),
+                    activeProfiles: Set(maven?.profiles ?? []),
+                    environment: value.env ?? [:]
                 ),
                 source: RunConfigurationSource(rawValue: value.source ?? "generated") ?? .generated
             )
@@ -146,7 +147,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     }
 
     func saveOptions(
-        _ options: JavaRunOptions,
+        _ options: RunOptions,
         configurationID: String,
         scope: RunConfigurationSaveScope,
         at projectURL: URL
@@ -234,7 +235,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             for id in configurationIDs {
                 let key = "lithe.java-run-options.\(projectKey).\(id)"
                 guard let data = preferences.data(forKey: key),
-                      let options = try? JSONDecoder().decode(JavaRunOptions.self, from: data) else { continue }
+                      let options = try? JSONDecoder().decode(RunOptions.self, from: data) else { continue }
                 let mutation = try documentMutator.updateOptionsDocument(
                     at: root,
                     configurationID: id,
@@ -405,7 +406,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
     }
 
-    private func configurationKind(_ value: String) -> JavaRunConfigurationKind {
+    private func configurationKind(_ value: String) -> RunConfigurationKind {
         switch value {
         case "java.current-file": .currentFile
         case "spring-boot.maven": .springBoot
@@ -423,7 +424,7 @@ private struct RustRunConfigurationDocumentMutator: RunConfigurationDocumentMuta
         at projectURL: URL,
         configurationID: String,
         scope: RunConfigurationSaveScope,
-        options: JavaRunOptions
+        options: RunOptions
     ) throws -> RunConfigurationDocumentMutation {
         try mutation(from: core.updateRunConfigurationOptions(
             at: projectURL,

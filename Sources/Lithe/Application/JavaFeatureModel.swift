@@ -1,13 +1,11 @@
 import Combine
 import Foundation
 
-/// Owns Java language-server lifecycle, diagnostics, and navigation protocol
-/// state. Opening files and presenting the result panel remain UI callbacks.
+/// Owns Java-only code vision, inlay hints, Maven integration, and legacy Java
+/// debug behavior. Shared LSP navigation and editing live in the generic
+/// language-tooling pipeline.
 @MainActor
 final class JavaFeatureModel: ObservableObject {
-    @Published private(set) var javaNavigationLocations: [JavaNavigationLocation] = []
-    @Published private(set) var javaNavigationResultKind = JavaNavigationResultKind.references
-    @Published private(set) var isLoadingJavaNavigation = false
     @Published private(set) var javaDiagnostics: [URL: [JavaDiagnostic]] = [:]
     @Published private(set) var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] = [:]
     @Published private(set) var javaInlayHints: [URL: [JavaInlayHint]] = [:]
@@ -19,12 +17,9 @@ final class JavaFeatureModel: ObservableObject {
     private var documentProvider: (@MainActor () -> EditorDocument?)?
     private var caretProvider: (@MainActor () -> EditorCaret?)?
     private var notify: (@MainActor (String) -> Void)?
-    private var navigateToLocation: (@MainActor (JavaNavigationLocation) -> Void)?
-    private var presentResults: (@MainActor (JavaNavigationResultKind) -> Void)?
     private var loadBlame: (@MainActor (URL) async -> [GitBlameLine])?
     private var inlayHintTasks: [UUID: Task<Void, Never>] = [:]
     private var mavenFeature: MavenFeatureModel?
-    private var runFeature: JavaRunFeatureModel?
     private var debugFeature: JavaDebugFeatureModel?
 
     init(
@@ -46,96 +41,56 @@ final class JavaFeatureModel: ObservableObject {
         documentProvider: @escaping @MainActor () -> EditorDocument?,
         caretProvider: @escaping @MainActor () -> EditorCaret?,
         notify: @escaping @MainActor (String) -> Void,
-        navigateToLocation: @escaping @MainActor (JavaNavigationLocation) -> Void,
-        presentResults: @escaping @MainActor (JavaNavigationResultKind) -> Void,
         loadBlame: @escaping @MainActor (URL) async -> [GitBlameLine]
     ) {
         self.documentProvider = documentProvider
         self.caretProvider = caretProvider
         self.notify = notify
-        self.navigateToLocation = navigateToLocation
-        self.presentResults = presentResults
         self.loadBlame = loadBlame
     }
 
     func configureRuntime(
         mavenFeature: MavenFeatureModel,
-        runFeature: JavaRunFeatureModel,
         debugFeature: JavaDebugFeatureModel
     ) {
         self.mavenFeature = mavenFeature
-        self.runFeature = runFeature
         self.debugFeature = debugFeature
-    }
-
-    func prepareProject(at workspaceURL: URL, files: [URL]) {
-        guard files.contains(where: { $0.pathExtension.lowercased() == "java" }) else { return }
-        service.prepare(for: workspaceURL)
-    }
-
-    func loadProject(at workspaceURL: URL, files: [URL]) async {
-        guard let mavenFeature, let runFeature else { return }
-        await mavenFeature.loadProject(at: workspaceURL)
-        await runFeature.loadProject(
-            at: workspaceURL,
-            files: files,
-            mavenProject: mavenFeature.project
-        )
     }
 
     var statusMessage: String { service.statusMessage }
 
-    func configureProjectRoot(_ url: URL) {
-        service.configureProjectRoot(url)
+    /// Explicit boundary for Java-only editor adornments and legacy services.
+    /// Callers can avoid scheduling Java work for every supported language.
+    func handles(fileURL: URL) -> Bool {
+        fileURL.pathExtension.lowercased() == "java"
     }
 
-    func prepare(for rootURL: URL) {
-        service.prepare(for: rootURL)
+    func supportsLegacyDebugging(fileURL: URL) -> Bool {
+        handles(fileURL: fileURL)
+    }
+
+    func configureProjectRoot(_ url: URL) {
+        service.configureProjectRoot(url)
     }
 
     func stop() {
         inlayHintTasks.values.forEach { $0.cancel() }
         inlayHintTasks.removeAll()
         service.stop()
-        javaNavigationLocations = []
-        javaNavigationResultKind = .references
-        isLoadingJavaNavigation = false
         javaDiagnostics = [:]
         javaCodeVisionHints = [:]
         javaInlayHints = [:]
     }
 
     @discardableResult
-    func runSelectedConfiguration(
-        currentDocument: EditorDocument?,
-        saveDocument: @escaping @MainActor (EditorDocument) throws -> Void,
-        recordSave: @escaping @MainActor (EditorDocument, String) -> Void
-    ) -> Bool {
-        guard let runFeature, let configuration = runFeature.selectedConfiguration else { return false }
-        if configuration.kind == .currentFile,
-           let currentDocument,
-           currentDocument.isDirty {
-            do {
-                let previousText = currentDocument.savedText
-                try saveDocument(currentDocument)
-                recordSave(currentDocument, previousText)
-            } catch {
-                notify?("Could not save \(currentDocument.url.lastPathComponent)")
-                return false
-            }
-        }
-        runFeature.runSelected(currentFileURL: currentDocument?.url)
-        return true
-    }
-
-    @discardableResult
     func startDebugging(
         currentDocument: EditorDocument?,
         workspaceURL: URL?,
+        runFeature: RunFeatureModel,
         saveDocument: @escaping @MainActor (EditorDocument) throws -> Void,
         recordSave: @escaping @MainActor (EditorDocument, String) -> Void
     ) -> Bool {
-        guard let debugFeature, let runFeature else { return false }
+        guard let debugFeature else { return false }
         if debugFeature.targetKind != .remote, let currentDocument, currentDocument.isDirty {
             do {
                 let previousText = currentDocument.savedText
@@ -207,12 +162,7 @@ final class JavaFeatureModel: ObservableObject {
         toggleDebugBreakpoint(at: document.url, line: caret.line + 1, documents: [document])
     }
 
-    func update(_ document: EditorDocument) {
-        service.update(document)
-    }
-
     func close(_ document: EditorDocument) {
-        service.close(document)
         javaDiagnostics[document.url.standardizedFileURL] = nil
         javaCodeVisionHints[document.url.standardizedFileURL] = nil
         javaInlayHints[document.url.standardizedFileURL] = nil
@@ -385,137 +335,4 @@ final class JavaFeatureModel: ObservableObject {
         service.inlayHints(document: document, completion: completion)
     }
 
-    func clearNavigation() {
-        javaNavigationLocations = []
-        isLoadingJavaNavigation = false
-    }
-
-    func goToDefinition() {
-        performNavigation(method: "textDocument/definition", kind: .definitions)
-    }
-
-    func goToUsages() {
-        performNavigation(
-            method: "textDocument/references",
-            kind: .references,
-            navigateToSingleReference: true
-        )
-    }
-
-    func goToImplementation() {
-        performNavigation(method: "textDocument/implementation", kind: .implementations)
-    }
-
-    func findJavaReferences() {
-        performNavigation(method: "textDocument/references", kind: .references)
-    }
-
-    func findJavaImplementations() {
-        performNavigation(method: "textDocument/implementation", kind: .implementations)
-    }
-
-    func navigateToDefinition(fallbackToImplementationsIfSelf: Bool) {
-        performNavigation(
-            method: "textDocument/definition",
-            kind: .definitions,
-            fallbackToImplementationsIfSelf: fallbackToImplementationsIfSelf
-        )
-    }
-
-    private func performNavigation(
-        method: String,
-        kind: JavaNavigationResultKind,
-        fallbackToImplementationsIfSelf: Bool = false,
-        navigateToSingleReference: Bool = false
-    ) {
-        guard !isLoadingJavaNavigation,
-              let document = documentProvider?(),
-              let caret = caretProvider?(),
-              caret.url.standardizedFileURL == document.url.standardizedFileURL else {
-            notify?("Place the caret on a Java symbol first")
-            return
-        }
-        guard document.url.pathExtension.lowercased() == "java" else {
-            notify?("Java navigation is available for .java files")
-            return
-        }
-
-        isLoadingJavaNavigation = true
-        notify?("Starting Java navigation...")
-        service.locations(
-            method: method,
-            document: document,
-            line: caret.line,
-            utf16Column: caret.utf16Column
-        ) { [weak self] result in
-            guard let self else { return }
-            self.isLoadingJavaNavigation = false
-            switch result {
-            case .failure(let error):
-                self.notify?(error.localizedDescription)
-            case .success(let locations):
-                if fallbackToImplementationsIfSelf,
-                   kind == .definitions,
-                   locations.count == 1,
-                   locations[0].url.standardizedFileURL == document.url.standardizedFileURL {
-                    self.isLoadingJavaNavigation = true
-                    self.service.locations(
-                        method: "textDocument/implementation",
-                        document: document,
-                        line: caret.line,
-                        utf16Column: caret.utf16Column
-                    ) { [weak self] implementationResult in
-                        guard let self else { return }
-                        self.isLoadingJavaNavigation = false
-                        if case .success(let implementations) = implementationResult,
-                           !implementations.isEmpty {
-                            self.present(implementations, kind: .implementations)
-                        } else {
-                            self.present(locations, kind: .definitions)
-                        }
-                    }
-                    return
-                }
-                self.present(
-                    locations,
-                    kind: kind,
-                    navigateToSingleReference: navigateToSingleReference
-                )
-            }
-        }
-    }
-
-    private func present(
-        _ locations: [JavaNavigationLocation],
-        kind: JavaNavigationResultKind,
-        navigateToSingleReference: Bool = false
-    ) {
-        guard !locations.isEmpty else {
-            let message: String
-            switch kind {
-            case .definitions: message = "Definition not found"
-            case .references: message = "No usages found"
-            case .implementations: message = "No implementations found"
-            }
-            notify?(message)
-            return
-        }
-
-        if (kind != .references || navigateToSingleReference),
-           locations.count == 1,
-           let location = locations.first {
-            navigateToLocation?(location)
-            let message: String
-            switch kind {
-            case .definitions: message = "Opened definition"
-            case .references: message = "Opened call site"
-            case .implementations: message = "Opened implementation"
-            }
-            notify?(message)
-        } else {
-            javaNavigationResultKind = kind
-            javaNavigationLocations = locations
-            presentResults?(kind)
-        }
-    }
 }

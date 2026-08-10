@@ -1,9 +1,9 @@
 import Foundation
 
 @MainActor
-final class JavaRunService: ObservableObject {
-    @Published private(set) var configurations: [JavaRunConfiguration] = [.currentFile]
-    @Published var selectedConfigurationID = JavaRunConfiguration.currentFileID {
+final class RunService: ObservableObject {
+    @Published private(set) var configurations: [RunConfiguration] = [.currentFile]
+    @Published var selectedConfigurationID = RunConfiguration.currentFileID {
         didSet {
             guard let projectURL else { return }
             selectedConfigurationIDsByProject[projectURL.path] = selectedConfigurationID
@@ -15,11 +15,11 @@ final class JavaRunService: ObservableObject {
     @Published private(set) var runningTitle: String?
     @Published private(set) var output = ""
     @Published private(set) var lastExitCode: Int32?
-    @Published private(set) var optionsByConfigurationID: [String: JavaRunOptions] = [:]
+    @Published private(set) var optionsByConfigurationID: [String: RunOptions] = [:]
     @Published private(set) var effectiveSourcesByConfigurationID: [String: RunConfigurationSource] = [:]
     @Published private(set) var mavenProfiles: [MavenProfile] = []
-    @Published private(set) var moduleSessions: [JavaRunSession] = []
-    @Published private(set) var portConflicts: [JavaRunPortConflict] = []
+    @Published private(set) var moduleSessions: [RunSession] = []
+    @Published private(set) var portConflicts: [RunPortConflict] = []
     @Published private(set) var configurationStatus: ProjectRunConfigurationStatus = .missing
     @Published private(set) var configurationDiagnostics: [RunConfigurationDiagnostic] = []
     @Published private(set) var generationState: RunConfigurationGenerationState = .idle
@@ -33,18 +33,21 @@ final class JavaRunService: ObservableObject {
     private let preferences: any KeyValueStore
     private let javaMavenOperations: any JavaMavenOperations
     private let runConfigurationOperations: any RunConfigurationOperations
+    private let languageProviderCatalog: LanguageProviderCatalog
+    private let languageRunProviders: LanguageRunProviderRegistry
     private var projectURL: URL?
     private var projectFiles: [URL] = []
     private var mavenProject: MavenProject?
     private var projectLoadID = UUID()
     private var selectedConfigurationIDsByProject: [String: String] = [:]
-    private var lastRunConfiguration: JavaRunConfiguration?
+    private var lastRunConfiguration: RunConfiguration?
     private var lastCurrentFileURL: URL?
     private var moduleProcesses: [String: any StreamingProcess] = [:]
     private var activeOperationID: String?
     private var moduleOperationIDs: [String: String] = [:]
     private let maximumOutputCharacters = 500_000
     private let runtimeService: ProjectRuntimeService
+    private let executableResolver: any RunExecutableResolving
 
     init(
         runtimeService: ProjectRuntimeService,
@@ -53,7 +56,11 @@ final class JavaRunService: ObservableObject {
         fileStorage: any FileStorage,
         preferences: any KeyValueStore,
         javaMavenOperations: any JavaMavenOperations,
-        runConfigurationOperations: any RunConfigurationOperations
+        runConfigurationOperations: any RunConfigurationOperations,
+        executableResolver: (any RunExecutableResolving)? = nil,
+        languageProviderCatalog: LanguageProviderCatalog = .standard,
+        languageRunProviders: LanguageRunProviderRegistry? = nil,
+        languagePackRegistry: LanguagePackRegistry? = nil
     ) {
         self.runtimeService = runtimeService
         self.process = process
@@ -62,6 +69,11 @@ final class JavaRunService: ObservableObject {
         self.preferences = preferences
         self.javaMavenOperations = javaMavenOperations
         self.runConfigurationOperations = runConfigurationOperations
+        self.languageProviderCatalog = languagePackRegistry?.catalog ?? languageProviderCatalog
+        self.languageRunProviders = languagePackRegistry?.runProviders
+            ?? languageRunProviders
+            ?? .standard(catalog: languageProviderCatalog)
+        self.executableResolver = executableResolver ?? RunExecutableResolver(runtimeService: runtimeService)
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 self?.append(chunk)
@@ -79,7 +91,7 @@ final class JavaRunService: ObservableObject {
         }
     }
 
-    var selectedConfiguration: JavaRunConfiguration? {
+    var selectedConfiguration: RunConfiguration? {
         configurations.first { $0.id == selectedConfigurationID }
     }
 
@@ -119,10 +131,9 @@ final class JavaRunService: ObservableObject {
         generationState = .idle
         if inspection.status == .ready {
             do {
-                let candidates = runtimeService.runConfigurationToolchainCandidates(
-                    for: mavenProject,
-                    projectRoot: projectURL
-                )
+                await executableResolver.refreshCandidates(projectURL: projectURL)
+                guard !Task.isCancelled, projectLoadID == loadID else { return }
+                let candidates = toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
                 let resolution = try operations.resolve(at: projectURL, toolchainCandidates: candidates)
                 configurationDiagnostics += resolution.diagnostics
                 apply(
@@ -168,10 +179,9 @@ final class JavaRunService: ObservableObject {
         switch result {
         case .success(let result):
             do {
-                let candidates = runtimeService.runConfigurationToolchainCandidates(
-                    for: mavenProject,
-                    projectRoot: projectURL
-                )
+                await executableResolver.refreshCandidates(projectURL: projectURL)
+                guard !Task.isCancelled, projectLoadID == loadID else { return }
+                let candidates = toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
                 var resolution = try operations.resolve(at: projectURL, toolchainCandidates: candidates)
                 try operations.migrateLegacySettings(
                     at: projectURL,
@@ -205,7 +215,7 @@ final class JavaRunService: ObservableObject {
         isLoadingProject = false
     }
 
-    func select(_ configuration: JavaRunConfiguration) {
+    func select(_ configuration: RunConfiguration) {
         selectedConfigurationID = configuration.id
     }
 
@@ -214,18 +224,18 @@ final class JavaRunService: ObservableObject {
             + projectURL.standardizedFileURL.path.replacingOccurrences(of: "/", with: "_")
     }
 
-    func options(for configuration: JavaRunConfiguration) -> JavaRunOptions {
-        optionsByConfigurationID[configuration.id] ?? JavaRunOptions()
+    func options(for configuration: RunConfiguration) -> RunOptions {
+        optionsByConfigurationID[configuration.id] ?? RunOptions()
     }
 
-    func source(for configuration: JavaRunConfiguration) -> RunConfigurationSource {
+    func source(for configuration: RunConfiguration) -> RunConfigurationSource {
         effectiveSourcesByConfigurationID[configuration.id] ?? .generated
     }
 
     @discardableResult
     func updateOptions(
-        _ options: JavaRunOptions,
-        for configuration: JavaRunConfiguration,
+        _ options: RunOptions,
+        for configuration: RunConfiguration,
         scope: RunConfigurationSaveScope = .local
     ) -> Bool {
         configurationSaveError = nil
@@ -249,8 +259,8 @@ final class JavaRunService: ObservableObject {
         return true
     }
 
-    func resetOptions(for configuration: JavaRunConfiguration) {
-        let options = JavaRunOptions()
+    func resetOptions(for configuration: RunConfiguration) {
+        let options = RunOptions()
         updateOptions(options, for: configuration)
     }
 
@@ -263,10 +273,7 @@ final class JavaRunService: ObservableObject {
         }
         do {
             let id = try runConfigurationOperations.createConfiguration(draft, at: projectURL)
-            let candidates = runtimeService.runConfigurationToolchainCandidates(
-                for: mavenProject,
-                projectRoot: projectURL
-            )
+            let candidates = toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
             let resolution = try runConfigurationOperations.resolve(
                 at: projectURL,
                 toolchainCandidates: candidates
@@ -297,17 +304,21 @@ final class JavaRunService: ObservableObject {
         run(configuration: lastRunConfiguration, currentFileURL: lastCurrentFileURL)
     }
 
-    func run(configuration: JavaRunConfiguration, currentFileURL: URL?) {
+    func run(configuration: RunConfiguration, currentFileURL: URL?) {
         stop()
         output = ""
         lastExitCode = nil
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
         let options = self.options(for: configuration)
-        let configuredJavaHome = options.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configuredJavaHome.isEmpty && runtimeService.javaHomeURL(overridePath: configuredJavaHome) == nil {
-            fail("JDK Home does not point to a directory: " + configuredJavaHome)
-            return
+        let usesGenericCurrentFile = configuration.kind == .currentFile
+            && isGenericCurrentFile(currentFileURL)
+        if !usesGenericCurrentFile {
+            let configuredJavaHome = options.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !configuredJavaHome.isEmpty && runtimeService.javaHomeURL(overridePath: configuredJavaHome) == nil {
+                fail("JDK Home does not point to a directory: " + configuredJavaHome)
+                return
+            }
         }
 
         guard configurationStatus == .ready, let projectURL else {
@@ -318,39 +329,38 @@ final class JavaRunService: ObservableObject {
             fail(diagnostic.message)
             return
         }
-        if configuration.kind == .currentFile,
-           currentFileURL?.pathExtension.lowercased() != "java" {
-            fail(String(localized: "Select a Java file before running Current File."))
+        if configuration.kind == .currentFile, currentFileURL == nil {
+            fail(String(localized: "Open a source file before running Current File."))
             return
         }
         let currentFile = currentFileURL.flatMap { relativePath(for: $0, root: projectURL) }
         let planClassPath = currentFileURL.flatMap(classPath(for:))
         let plan: SharedLaunchPlan
         do {
-            plan = try runConfigurationOperations.launchPlan(
-                at: projectURL,
-                configurationID: configuration.id,
-                currentFile: currentFile,
-                classPath: planClassPath,
-                debugPort: nil
-            )
+            if usesGenericCurrentFile, let currentFileURL {
+                plan = try languageRunProviders.launchPlan(
+                    for: currentFileURL,
+                    workspaceURL: projectURL,
+                    options: options
+                )
+            } else {
+                plan = try runConfigurationOperations.launchPlan(
+                    at: projectURL,
+                    configurationID: configuration.id,
+                    currentFile: currentFile,
+                    classPath: planClassPath,
+                    debugPort: nil
+                )
+            }
         } catch {
             fail(error.localizedDescription)
             return
         }
-        let executable: URL
-        let environment: [String: String]?
-        switch resolveExecutable(
-            for: plan,
-            projectURL: projectURL,
-            javaHomePath: options.javaHomePath,
-            configuredJavaHome: configuredJavaHome
-        ) {
-        case .resolved(let resolvedExecutable, let resolvedEnvironment):
-            executable = resolvedExecutable
-            environment = resolvedEnvironment
-        case .unavailable(let message):
-            fail(message)
+        let resolved: ResolvedRunExecutable
+        do {
+            resolved = try executableResolver.resolve(plan, projectURL: projectURL, options: options)
+        } catch {
+            fail(error.localizedDescription)
             return
         }
         let arguments = plan.arguments
@@ -358,17 +368,17 @@ final class JavaRunService: ObservableObject {
 
         runningTitle = configuration.name
         isRunning = true
-        append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
+        append("$ " + resolved.executableURL.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
 
         let operationID = UUID().uuidString
         activeOperationID = operationID
         do {
             try process.start(ProcessRequest(
                 operationID: operationID,
-                executablePath: executable.path,
+                executablePath: resolved.executableURL.path,
                 arguments: arguments,
                 workingDirectory: workingDirectory.path,
-                environment: environment
+                environment: resolved.environment
             ))
         } catch {
             fail("Unable to start " + configuration.name + ": " + error.localizedDescription)
@@ -388,17 +398,17 @@ final class JavaRunService: ObservableObject {
         }
     }
 
-    func startConfiguration(_ configuration: JavaRunConfiguration) {
+    func startConfiguration(_ configuration: RunConfiguration) {
         guard configuration.kind != .currentFile else { return }
         stopModule(sessionID: configuration.id)
         startModuleSession(configuration)
     }
 
-    func stopModule(_ session: JavaRunSession) {
+    func stopModule(_ session: RunSession) {
         stopModule(sessionID: session.id)
     }
 
-    func restartModule(_ session: JavaRunSession) {
+    func restartModule(_ session: RunSession) {
         guard let configuration = configurations.first(where: { $0.id == session.configurationID }) else { return }
         stopModule(sessionID: session.id)
         moduleSessions.removeAll { $0.id == session.id }
@@ -417,7 +427,7 @@ final class JavaRunService: ObservableObject {
         }
     }
 
-    func clearModuleOutput(_ session: JavaRunSession) {
+    func clearModuleOutput(_ session: RunSession) {
         guard let index = moduleSessions.firstIndex(where: { $0.id == session.id }) else { return }
         moduleSessions[index].output = ""
     }
@@ -438,7 +448,7 @@ final class JavaRunService: ObservableObject {
         projectFiles = []
         mavenProject = nil
         configurations = [.currentFile]
-        selectedConfigurationID = JavaRunConfiguration.currentFileID
+        selectedConfigurationID = RunConfiguration.currentFileID
         optionsByConfigurationID = [:]
         effectiveSourcesByConfigurationID = [:]
         mavenProfiles = []
@@ -469,19 +479,58 @@ final class JavaRunService: ObservableObject {
         runningTitle = nil
     }
 
+    private func isGenericCurrentFile(_ fileURL: URL?) -> Bool {
+        guard let fileURL else { return false }
+        guard let descriptor = languageProviderCatalog.provider(for: fileURL) else {
+            return true
+        }
+        return descriptor.id != "java"
+    }
+
     private static func isBlockingToolchainDiagnostic(_ diagnostic: RunConfigurationDiagnostic) -> Bool {
         diagnostic.code == "missingToolchain" || diagnostic.code == "toolchainVersionMismatch"
+    }
+
+    private func toolchainCandidates(
+        projectURL: URL,
+        mavenProject: MavenProject?
+    ) -> [ProjectToolchainCandidate] {
+        let runtimeCandidates = runtimeService.runConfigurationToolchainCandidates(
+            for: mavenProject,
+            projectRoot: projectURL
+        )
+        var candidatesByID = Dictionary(uniqueKeysWithValues: runtimeCandidates.map { ($0.id, $0) })
+        for candidate in executableResolver.candidates(projectURL: projectURL)
+            where candidatesByID[candidate.id] == nil {
+            candidatesByID[candidate.id] = candidate
+        }
+        return candidatesByID.values.sorted { $0.id < $1.id }
     }
 
     private func apply(
         _ effective: [EffectiveRunConfiguration],
         preferredConfigurationID: String? = nil
     ) {
-        configurations = effective.map(\.configuration)
-        optionsByConfigurationID = Dictionary(uniqueKeysWithValues: effective.map {
+        // Keep the language-neutral Current File entry available even when a
+        // project has no declared service. Its launch plan is selected by the
+        // active language Provider at run time; Java projects still fall back
+        // to the legacy core path.
+        var resolved = effective
+        if !resolved.contains(where: { $0.configuration.id == RunConfiguration.currentFileID }) {
+            resolved.insert(
+                EffectiveRunConfiguration(
+                    configuration: .currentFile,
+                    options: RunOptions(),
+                    source: .generated
+                ),
+                at: 0
+            )
+        }
+        configurations = resolved.map(\.configuration)
+        optionsByConfigurationID = Dictionary(uniqueKeysWithValues: resolved.map {
             ($0.configuration.id, $0.options)
         })
-        effectiveSourcesByConfigurationID = Dictionary(uniqueKeysWithValues: effective.map {
+        effectiveSourcesByConfigurationID = Dictionary(uniqueKeysWithValues: resolved.map {
             ($0.configuration.id, $0.source)
         })
         reconcileModuleSessions(validConfigurationIDs: Set(configurations.map(\.id)))
@@ -492,7 +541,7 @@ final class JavaRunService: ObservableObject {
         } else if !configurations.contains(where: { $0.id == selectedConfigurationID }) {
             selectedConfigurationID = configurations.first(where: { $0.kind == .springBoot })?.id
                 ?? configurations.first?.id
-                ?? JavaRunConfiguration.currentFileID
+                ?? RunConfiguration.currentFileID
         }
     }
 
@@ -563,14 +612,14 @@ final class JavaRunService: ObservableObject {
         return nil
     }
 
-    private func startModuleSession(_ configuration: JavaRunConfiguration) {
+    private func startModuleSession(_ configuration: RunConfiguration) {
         guard configurationStatus == .ready,
               let projectURL else { return }
         moduleSessions.removeAll { $0.id == configuration.id }
         let options = self.options(for: configuration)
         let configuredJavaHome = options.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !configuredJavaHome.isEmpty && runtimeService.mavenJavaHomeURL(overridePath: configuredJavaHome) == nil {
-            moduleSessions.append(JavaRunSession(
+            moduleSessions.append(RunSession(
                 id: configuration.id,
                 configurationID: configuration.id,
                 title: configuration.name,
@@ -591,7 +640,7 @@ final class JavaRunService: ObservableObject {
                 debugPort: nil
             )
         } catch {
-            moduleSessions.append(JavaRunSession(
+            moduleSessions.append(RunSession(
                 id: configuration.id,
                 configurationID: configuration.id,
                 title: configuration.name,
@@ -602,25 +651,17 @@ final class JavaRunService: ObservableObject {
             return
         }
 
-        let executable: URL
-        let environment: [String: String]?
-        switch resolveExecutable(
-            for: plan,
-            projectURL: projectURL,
-            javaHomePath: options.javaHomePath,
-            configuredJavaHome: configuredJavaHome
-        ) {
-        case .resolved(let resolvedExecutable, let resolvedEnvironment):
-            executable = resolvedExecutable
-            environment = resolvedEnvironment
-        case .unavailable(let message):
+        let resolved: ResolvedRunExecutable
+        do {
+            resolved = try executableResolver.resolve(plan, projectURL: projectURL, options: options)
+        } catch {
             // A service that cannot start still becomes a session so the panel
             // shows which one failed and why, rather than silently omitting it.
-            moduleSessions.append(JavaRunSession(
+            moduleSessions.append(RunSession(
                 id: configuration.id,
                 configurationID: configuration.id,
                 title: configuration.name,
-                output: message + "\n",
+                output: error.localizedDescription + "\n",
                 isRunning: false,
                 exitCode: 1
             ))
@@ -629,11 +670,11 @@ final class JavaRunService: ObservableObject {
         let arguments = plan.arguments
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
 
-        let session = JavaRunSession(
+        let session = RunSession(
             id: configuration.id,
             configurationID: configuration.id,
             title: configuration.name,
-            output: "$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n",
+            output: "$ " + resolved.executableURL.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n",
             isRunning: true,
             exitCode: nil
         )
@@ -662,10 +703,10 @@ final class JavaRunService: ObservableObject {
         do {
             try process.start(ProcessRequest(
                 operationID: operationID,
-                executablePath: executable.path,
+                executablePath: resolved.executableURL.path,
                 arguments: arguments,
                 workingDirectory: workingDirectory.path,
-                environment: environment
+                environment: resolved.environment
             ))
         } catch {
             moduleProcesses[configuration.id] = nil
@@ -678,51 +719,6 @@ final class JavaRunService: ObservableObject {
                     sessionID: configuration.id
                 )
             }
-        }
-    }
-
-    private enum ExecutableResolution {
-        case resolved(executable: URL, environment: [String: String]?)
-        case unavailable(String)
-    }
-
-    /// Resolves a launch plan's executable and environment. Shared by the
-    /// single-slot run path and by concurrent service sessions: a `.command`
-    /// plan carries its own environment and must not inherit the Maven one.
-    private func resolveExecutable(
-        for plan: SharedLaunchPlan,
-        projectURL: URL,
-        javaHomePath: String,
-        configuredJavaHome: String
-    ) -> ExecutableResolution {
-        switch plan.executable {
-        case .toolchain("project-jdk"):
-            guard let value = runtimeService.javaExecutableURL(overridePath: javaHomePath) else {
-                return .unavailable(String(localized: "No Java runtime was found. Set JAVA_HOME or install a JDK."))
-            }
-            return .resolved(executable: value, environment: runtimeService.environment(
-                for: .java,
-                javaHomeOverride: configuredJavaHome
-            ))
-        case .toolchain:
-            guard let value = runtimeService.mavenExecutable(at: projectURL) else {
-                return .unavailable(String(localized: "No Maven executable was found. Configure Maven in Project Settings."))
-            }
-            return .resolved(executable: value, environment: runtimeService.environment(
-                for: .maven,
-                javaHomeOverride: configuredJavaHome
-            ))
-        case .command(let command):
-            guard let value = runtimeService.executableOnPath(command) else {
-                return .unavailable(String(
-                    format: String(localized: "%@ was not found on your PATH."),
-                    command
-                ))
-            }
-            return .resolved(
-                executable: value,
-                environment: plan.environment.isEmpty ? nil : plan.environment
-            )
         }
     }
 
@@ -803,7 +799,7 @@ final class JavaRunService: ObservableObject {
         portConflicts = configurationsByPort
             .filter { $0.value.count > 1 }
             .map { port, names in
-                JavaRunPortConflict(
+                RunPortConflict(
                     port: port,
                     configurationNames: names.sorted {
                         $0.localizedStandardCompare($1) == .orderedAscending
@@ -813,7 +809,7 @@ final class JavaRunService: ObservableObject {
             .sorted { $0.port < $1.port }
     }
 
-    private func configuredPort(for configuration: JavaRunConfiguration) -> Int? {
+    private func configuredPort(for configuration: RunConfiguration) -> Int? {
         let options = self.options(for: configuration)
         if let port = Self.port(in: options.programArguments) ?? Self.port(in: options.vmArguments) {
             return port
@@ -845,7 +841,7 @@ final class JavaRunService: ObservableObject {
     }
 
     private static func port(in input: String) -> Int? {
-        let tokens = arguments(from: input)
+        let tokens = RunArgumentParser.parse(input)
         for (index, token) in tokens.enumerated() {
             let keys = ["--server.port=", "-Dserver.port=", "--server.port", "-Dserver.port"]
             for key in keys where token.hasPrefix(key) {
@@ -879,64 +875,28 @@ final class JavaRunService: ObservableObject {
         return standardized
     }
 
-    private static func arguments(from input: String) -> [String] {
-        var result: [String] = []
-        var current = ""
-        var quote: Character?
-        var escaped = false
-
-        for character in input {
-            if escaped {
-                current.append(character)
-                escaped = false
-                continue
-            }
-            if character == "\\" && quote != "'" {
-                escaped = true
-                continue
-            }
-            if character == "'" || character == "\"" {
-                if quote == character {
-                    quote = nil
-                } else if quote == nil {
-                    quote = character
-                } else {
-                    current.append(character)
-                }
-                continue
-            }
-            if character.isWhitespace && quote == nil {
-                if !current.isEmpty {
-                    result.append(current)
-                    current = ""
-                }
-            } else {
-                current.append(character)
-            }
-        }
-        if escaped { current.append("\\") }
-        if !current.isEmpty { result.append(current) }
-        return result
-    }
-
     private func optionsKey(for configurationID: String) -> String? {
         guard let projectURL else { return nil }
         let projectKey = projectURL.path.replacingOccurrences(of: "/", with: "_")
         return "lithe.java-run-options.\(projectKey).\(configurationID)"
     }
 
-    private func loadOptions(for configurationID: String) -> JavaRunOptions {
+    private func loadOptions(for configurationID: String) -> RunOptions {
         guard let key = optionsKey(for: configurationID),
               let data = preferences.data(forKey: key),
-              let options = try? JSONDecoder().decode(JavaRunOptions.self, from: data) else {
-            return JavaRunOptions()
+              let options = try? JSONDecoder().decode(RunOptions.self, from: data) else {
+            return RunOptions()
         }
         return options
     }
 
-    private func persist(_ options: JavaRunOptions, for configurationID: String) {
+    private func persist(_ options: RunOptions, for configurationID: String) {
         guard let key = optionsKey(for: configurationID),
               let data = try? JSONEncoder().encode(options) else { return }
         preferences.set(data, forKey: key)
     }
 }
+
+/// Compatibility name retained while Java debug remains a provider-specific
+/// consumer of the generic run service.
+typealias JavaRunService = RunService

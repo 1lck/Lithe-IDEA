@@ -6,6 +6,1890 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func providerCapabilitiesKeepProcessEditorsLanguageNeutral() {
+        let process = RunConfigurationKind.process(provider: "python.script").capabilities
+        #expect(process.contains(.workingDirectory))
+        #expect(process.contains(.arguments))
+        #expect(process.contains(.environment))
+        #expect(!process.contains(.javaRuntime))
+        #expect(!process.contains(.javaVMArguments))
+        #expect(!process.contains(.mavenProfiles))
+
+        let maven = RunConfigurationKind.springBoot.capabilities
+        #expect(maven.contains(.javaRuntime))
+        #expect(maven.contains(.javaVMArguments))
+        #expect(maven.contains(.mavenProfiles))
+        #expect(maven.contains(.jdwpDebug))
+
+        let current = RunConfiguration.currentFile
+        let pythonCapabilities = current.effectiveCapabilities(
+            for: URL(fileURLWithPath: "/tmp/scripts/main.py")
+        )
+        #expect(pythonCapabilities == .process)
+        let unknownCapabilities = current.effectiveCapabilities(
+            for: URL(fileURLWithPath: "/tmp/scripts/main.rb")
+        )
+        #expect(unknownCapabilities == .process)
+        let javaCapabilities = current.effectiveCapabilities(
+            for: URL(fileURLWithPath: "/tmp/Main.java")
+        )
+        #expect(javaCapabilities.contains(.javaRuntime))
+    }
+
+    @Test
+    func currentFileRunProvidersBuildPlansWithoutJavaAssumptions() throws {
+        let registry = LanguageRunProviderRegistry.standard()
+        let root = URL(fileURLWithPath: "/tmp/current-file-runners", isDirectory: true)
+        let python = root.appendingPathComponent("scripts/server.py")
+        let node = root.appendingPathComponent("web/index.js")
+        let go = root.appendingPathComponent("cmd/api/main.go")
+
+        let pythonPlan = try registry.launchPlan(
+            for: python,
+            workspaceURL: root,
+            options: RunOptions(programArguments: "--port 8080 \"hello world\"")
+        )
+        #expect(pythonPlan.toolchainID == "project-python")
+        #expect(pythonPlan.arguments == ["scripts/server.py", "--port", "8080", "hello world"])
+
+        let nodePlan = try registry.launchPlan(for: node, workspaceURL: root)
+        #expect(nodePlan.toolchainID == "project-node")
+        #expect(nodePlan.arguments == ["web/index.js"])
+
+        let typeScriptPlan = try registry.launchPlan(
+            for: root.appendingPathComponent("web/index.ts"),
+            workspaceURL: root
+        )
+        #expect(typeScriptPlan.toolchainID == "project-tsx")
+
+        let goPlan = try registry.launchPlan(for: go, workspaceURL: root)
+        #expect(goPlan.toolchainID == "project-go")
+        #expect(goPlan.arguments == ["run", "cmd/api/main.go"])
+
+        #expect(throws: LanguageRunPlanError.noProvider(fileExtension: "java")) {
+            _ = try registry.launchPlan(
+                for: root.appendingPathComponent("Main.java"),
+                workspaceURL: root
+            )
+        }
+        #expect(throws: LanguageRunPlanError.fileOutsideWorkspace(
+            URL(fileURLWithPath: "/tmp/outside.py")
+        )) {
+            _ = try registry.launchPlan(
+                for: URL(fileURLWithPath: "/tmp/outside.py"),
+                workspaceURL: root
+            )
+        }
+    }
+
+    @Test
+    func languageProviderCatalogIsOnDemandAndDescribesCrossLanguageCapabilities() {
+        let catalog = LanguageProviderCatalog.standard
+        let go = catalog.provider(for: URL(fileURLWithPath: "/tmp/cmd/main.go"))
+        let python = catalog.provider(for: URL(fileURLWithPath: "/tmp/api/server.py"))
+
+        #expect(go?.id == "go")
+        #expect(python?.id == "python")
+        #expect(go?.activationPolicy == .onDemand)
+        #expect(go?.capabilities.contains(.languageServer) == true)
+        #expect(go?.capabilities.contains(.debugAdapter) == true)
+        #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java"))?.capabilities.contains(.debugAdapter) == false)
+    }
+
+    @Test
+    func standardLanguagePackRegistryDerivesAllFocusedRegistries() {
+        let registry = LanguagePackRegistry.standard()
+
+        #expect(registry.packs.map { $0.descriptor.id } == ["java", "go", "python", "node", "rust"])
+        #expect(registry.catalog.provider(for: URL(fileURLWithPath: "/tmp/main.go"))?.id == "go")
+        #expect(registry.runProviders.provider(for: URL(fileURLWithPath: "/tmp/main.py"))?.descriptor.id == "python")
+        #expect(registry.testProviders.provider(id: "python")?.descriptor.id == "python")
+        #expect(registry.toolchainRegistry.contains(identifier: "project-go"))
+        #expect(registry.toolchainRegistry.contains(identifier: "project-python"))
+        #expect(registry.toolchainRegistry.contains(identifier: "project-tsx"))
+        #expect(registry.toolchainRegistry.contains(identifier: "project-cargo"))
+        #expect(registry.pack(id: "go")?.toolchainProviders.contains {
+            $0.languageProviderID == "go" && $0.identifiers.contains("project-go")
+        } == true)
+        #expect(registry.pack(id: "go")?.languageServerLaunch?.executableNames == ["gopls"])
+        #expect(registry.pack(id: "go")?.debugAdapterLaunch?.executableNames == ["dlv"])
+        #expect(registry.pack(id: "python")?.debugAdapterLaunch?.adapterID == "python")
+        #expect(registry.pack(id: "rust")?.debugAdapterLaunch?.fallbacks.first?.executableName == "xcrun")
+        #expect(registry.pack(id: "java")?.debugAdapterLaunch?.adapterID == "java")
+    }
+
+    @Test
+    func customLanguagePackRegistersWithoutChangingCoreServices() {
+        let descriptor = LanguageProviderDescriptor(
+            id: "ruby",
+            displayName: "Ruby",
+            fileExtensions: ["rb"],
+            capabilities: [.run, .testing],
+            activationPolicy: .onDemand
+        )
+        let registry = LanguagePackRegistry(packs: [
+            LanguagePack(
+                descriptor: descriptor,
+                runProvider: StandardLanguageRunProvider(descriptor: descriptor),
+                testProviders: [StandardLanguageTestProvider(descriptor: descriptor)]
+            )
+        ])
+
+        #expect(registry.catalog.provider(for: URL(fileURLWithPath: "/tmp/app.rb"))?.id == "ruby")
+        #expect(registry.runProviders.provider(id: "ruby")?.descriptor.id == "ruby")
+        #expect(registry.testProviders.provider(id: "ruby")?.descriptor.id == "ruby")
+    }
+
+    @Test
+    func genericDebugCapabilityReflectsTheRuntimeFactoryWithoutStartingIt() throws {
+        let catalog = LanguageProviderCatalog.standard
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        var nodeFactoryCalls = 0
+        let nodeRuntime = try #require(StdioLanguageProviderRuntime.standard(
+            catalog: catalog,
+            runtimeService: runtimeService,
+            processFactory: { RecordingRawProcessSession() },
+            debugSessionFactories: ["node": {
+                nodeFactoryCalls += 1
+                return TestDebugAdapterSession()
+            }]
+        ).first { $0.descriptor.id == "node" })
+        let javaDescriptor = try #require(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java")))
+        let javaRuntime = TestLanguageProviderRuntime(descriptor: javaDescriptor)
+        let manager = LanguageToolingSessionManager(
+            catalog: catalog,
+            runtimes: [nodeRuntime, javaRuntime]
+        )
+
+        #expect(manager.supportsGenericDebugging(for: URL(fileURLWithPath: "/tmp/app.ts")))
+        #expect(!manager.supportsGenericDebugging(for: URL(fileURLWithPath: "/tmp/Main.java")))
+        #expect(nodeFactoryCalls == 0)
+        #expect(manager.activeDebugAdapterIDs.isEmpty)
+    }
+
+    @Test
+    func aFutureJavaDAPRuntimeCanOverrideTheLegacyDebugBoundary() throws {
+        let catalog = LanguageProviderCatalog.standard
+        let javaDescriptor = try #require(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java")))
+        let runtime = TestDebugLanguageProviderRuntime(
+            descriptor: javaDescriptor,
+            supportsDebugAdapter: true
+        )
+        let manager = LanguageToolingSessionManager(
+            catalog: catalog,
+            runtimes: [runtime]
+        )
+        let source = URL(fileURLWithPath: "/tmp/Main.java")
+
+        #expect(manager.supportsGenericDebugging(for: source))
+        _ = try manager.activateDebugAdapter(
+            for: source,
+            rootURL: URL(fileURLWithPath: "/tmp/java-project")
+        )
+        #expect(runtime.debugAdapters.count == 1)
+    }
+
+    @Test
+    func javaGenericDebugConfigurationUsesLanguageNeutralDapArguments() throws {
+        let provider = try #require(LanguageProviderCatalog.standard.provider(
+            for: URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
+        ))
+        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
+        let root = URL(fileURLWithPath: "/tmp/java-project", isDirectory: true)
+        let configuration = try resolver.resolve(
+            provider: provider,
+            documentURL: root.appendingPathComponent("src/main/java/com/acme/Main.java"),
+            workspaceURL: root,
+            configurations: [],
+            selectedConfiguration: nil,
+            options: { _ in RunOptions() }
+        )
+
+        #expect(configuration.request == .launch)
+        #expect(configuration.arguments["mainClass"] == .string("com.acme.Main"))
+        #expect(configuration.arguments["cwd"] == .string(root.path))
+    }
+
+    @Test
+    func macToolDiscoveryReportsProjectHomebrewAndXcodeSources() {
+        let root = URL(fileURLWithPath: "/tmp/mac-tool-project", isDirectory: true)
+        let executablePaths: Set<String> = [
+            root.appendingPathComponent(".lithe/toolchains/bin/gopls").path,
+            "/custom/bin/gopls",
+            "/opt/homebrew/bin/gopls",
+            "/Library/Developer/CommandLineTools/usr/bin/lldb-dap"
+        ]
+        let discovery = MacRuntimeToolDiscovery(
+            homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
+            isExecutable: { executablePaths.contains($0.path) }
+        )
+
+        let goCandidates = discovery.candidates(
+            for: "gopls",
+            projectURL: root,
+            environment: ["PATH": "/custom/bin"]
+        )
+        #expect(goCandidates.map(\.source) == [.project, .path, .homebrew])
+        #expect(goCandidates.map(\.executableURL.path) == [
+            root.appendingPathComponent(".lithe/toolchains/bin/gopls").path,
+            "/custom/bin/gopls",
+            "/opt/homebrew/bin/gopls"
+        ])
+
+        let lldbCandidates = discovery.candidates(
+            for: "lldb-dap",
+            projectURL: root,
+            environment: [:]
+        )
+        #expect(lldbCandidates.first?.source == .xcode)
+        #expect(discovery.guidance(for: "java-debug-adapter", projectURL: root, environment: [:])
+            .recovery.contains("LITHE_JAVA_DEBUG_PATH"))
+    }
+
+    @Test
+    func legacyJavaDoesNotAcceptGenericDAPBreakpointsWithoutAnAdapter() throws {
+        let source = URL(fileURLWithPath: "/tmp/Main.java")
+        #expect(throws: LanguageToolingSessionError.capabilityUnavailable(
+            provider: "Java",
+            capability: "debug adapter breakpoints"
+        )) {
+            try LanguageToolingSessionManager(catalog: .standard).setDebugBreakpoints(
+                [DebugSourceBreakpoint(line: 1)],
+                in: source
+            )
+        }
+    }
+
+    @Test
+    func standardTestProvidersDiscoverFilesAndBuildLanguageNeutralPlans() throws {
+        let root = URL(fileURLWithPath: "/tmp/polyglot-tests", isDirectory: true)
+        let files = [
+            root.appendingPathComponent("src/test/java/UserServiceTest.java"),
+            root.appendingPathComponent("cmd/api/api_test.go"),
+            root.appendingPathComponent("tests/test_api.py"),
+            root.appendingPathComponent("web/src/app.spec.ts"),
+            root.appendingPathComponent("tests/parser.rs"),
+            root.appendingPathComponent("src/production.py")
+        ]
+        let registry = LanguageTestProviderRegistry.standard()
+
+        for (providerID, source) in [
+            ("java", files[0]), ("go", files[1]), ("python", files[2]),
+            ("node", files[3]), ("rust", files[4])
+        ] {
+            let provider = try #require(registry.provider(for: source))
+            #expect(provider.descriptor.id == providerID)
+            let items = provider.discoverTests(workspaceURL: root, files: files)
+            #expect(items.first?.kind == .workspace)
+            #expect(items.count == 2)
+            #expect(items.last?.fileURL == source.standardizedFileURL)
+        }
+
+        let goProvider = try #require(registry.provider(id: "go"))
+        let goPlan = try goProvider.testPlan(scope: .file(files[1]), workspaceURL: root)
+        #expect(goPlan.launchPlan.toolchainID == "project-go")
+        #expect(goPlan.launchPlan.arguments == ["test", "./cmd/api"])
+
+        let pythonProvider = try #require(registry.provider(id: "python"))
+        let pythonPlan = try pythonProvider.testPlan(
+            scope: .testCase(identifier: "test_health", fileURL: files[2]),
+            workspaceURL: root
+        )
+        #expect(pythonPlan.launchPlan.toolchainID == "project-python")
+        #expect(pythonPlan.launchPlan.arguments == ["-m", "pytest", "tests/test_api.py::test_health"])
+
+        let javaProvider = try #require(registry.provider(id: "java"))
+        let javaPlan = try javaProvider.testPlan(scope: .file(files[0]), workspaceURL: root)
+        #expect(javaPlan.launchPlan.toolchainID == "project-maven")
+        #expect(javaPlan.launchPlan.arguments == ["-Dtest=UserServiceTest", "test"])
+
+        let gradlePlan = try javaProvider.testPlan(
+            scope: .workspace,
+            context: LanguageTestContext(
+                workspaceURL: root,
+                projectFiles: [root.appendingPathComponent("build.gradle.kts")]
+            )
+        )
+        #expect(gradlePlan.frameworkID == "gradle")
+        #expect(gradlePlan.launchPlan.arguments == ["test"])
+        if case .toolchain(let executable) = gradlePlan.launchPlan.executable {
+            #expect(executable == "project-gradle")
+        } else {
+            Issue.record("Expected Gradle projects to use the registered Gradle toolchain")
+        }
+
+        let nodeProvider = try #require(registry.provider(id: "node"))
+        let nodePlan = try nodeProvider.testPlan(scope: .workspace, workspaceURL: root)
+        if case .command(let executable) = nodePlan.launchPlan.executable {
+            #expect(executable == "npm")
+        } else {
+            Issue.record("Expected the Node test provider to use npm")
+        }
+        #expect(nodePlan.launchPlan.arguments == ["test", "--"])
+
+        let pnpmPlan = try nodeProvider.testPlan(
+            scope: .testCase(identifier: "parses", fileURL: files[3]),
+            context: LanguageTestContext(
+                workspaceURL: root,
+                projectFiles: [root.appendingPathComponent("pnpm-lock.yaml")]
+            )
+        )
+        #expect(pnpmPlan.frameworkID == "pnpm")
+        #expect(pnpmPlan.launchPlan.arguments == ["test", "--", "web/src/app.spec.ts", "-t", "parses"])
+
+        let rustProvider = try #require(registry.provider(id: "rust"))
+        let rustPlan = try rustProvider.testPlan(scope: .file(files[4]), workspaceURL: root)
+        #expect(rustPlan.launchPlan.toolchainID == "project-cargo")
+        #expect(rustPlan.launchPlan.arguments == ["test", "--test", "parser"])
+    }
+
+    @Test
+    func testDiscoveryDoesNotInventAFrameworkForAPlainWorkspace() throws {
+        let root = URL(fileURLWithPath: "/tmp/plain-polyglot", isDirectory: true)
+        let javaFile = root.appendingPathComponent("src/test/java/PlainTest.java")
+        let nodeFile = root.appendingPathComponent("src/app.spec.ts")
+        let registry = LanguageTestProviderRegistry.standard()
+        let javaProvider = try #require(registry.provider(id: "java"))
+        let nodeProvider = try #require(registry.provider(id: "node"))
+
+        #expect(javaProvider.discoverTests(context: LanguageTestContext(
+            workspaceURL: root,
+            projectFiles: [javaFile]
+        )).isEmpty)
+        #expect(nodeProvider.discoverTests(context: LanguageTestContext(
+            workspaceURL: root,
+            projectFiles: [nodeFile]
+        )).isEmpty)
+        #expect(throws: LanguageTestPlanError.unsupportedProvider("Java")) {
+            _ = try javaProvider.testPlan(
+                scope: .file(javaFile),
+                context: LanguageTestContext(
+                    workspaceURL: root,
+                    projectFiles: [javaFile]
+                )
+            )
+        }
+
+        let mavenItems = javaProvider.discoverTests(context: LanguageTestContext(
+            workspaceURL: root,
+            projectFiles: [
+                javaFile,
+                root.appendingPathComponent("pom.xml")
+            ]
+        ))
+        #expect(mavenItems.count == 2)
+        #expect(mavenItems.last?.fileURL == javaFile.standardizedFileURL)
+    }
+
+    @Test
+    func testProvidersRejectFilesOutsideTheWorkspace() throws {
+        let provider = try #require(LanguageTestProviderRegistry.standard().provider(id: "python"))
+        #expect(throws: LanguageTestPlanError.fileOutsideWorkspace(
+            URL(fileURLWithPath: "/tmp/outside/test_api.py")
+        )) {
+            _ = try provider.testPlan(
+                scope: .file(URL(fileURLWithPath: "/tmp/outside/test_api.py")),
+                workspaceURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true)
+            )
+        }
+    }
+
+    @Test
+    func languageTestServiceDiscoversWithoutStartingAndRunsOnDemand() async throws {
+        let root = URL(fileURLWithPath: "/tmp/language-test-service", isDirectory: true)
+        let source = root.appendingPathComponent("cmd/api/api_test.go")
+        let manifest = root.appendingPathComponent("go.mod")
+        let processFactory = RecordingProcessFactory()
+        let resolver = RecordingRunExecutableResolver()
+        let service = LanguageTestService(
+            executableResolver: resolver,
+            processFactory: { processFactory.make() }
+        )
+
+        service.discover(workspaceURL: root, files: [source, manifest])
+        #expect(processFactory.processes.isEmpty)
+        #expect(service.itemsByProviderID["go"]?.count == 2)
+
+        let didStart = service.run(
+            providerID: "go",
+            scope: .file(source),
+            workspaceURL: root,
+            projectFiles: [source, manifest]
+        )
+        #expect(didStart)
+        #expect(processFactory.processes.count == 1)
+        #expect(resolver.resolveCalls == 1)
+        #expect(service.state == .running)
+        #expect(processFactory.processes[0].requests.first?.arguments == ["test", "./cmd/api"])
+
+        processFactory.processes[0].onOutput?("ok\n")
+        processFactory.processes[0].onTermination?(0)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(service.state == .passed)
+        #expect(service.output.contains("ok"))
+    }
+
+    @Test
+    func rustDebugLaunchResolvesTheClosestCargoBinaryArtifact() throws {
+        let root = URL(fileURLWithPath: "/tmp/rust-debug-workspace", isDirectory: true)
+        let source = root.appendingPathComponent("worker/src/main.rs")
+        let expectedExecutable = root.appendingPathComponent("worker/build/debug/worker-api")
+        let configuration = RunConfiguration(
+            id: "cargo.binary:worker/worker-api",
+            name: "worker-api",
+            kind: .process(provider: "cargo.binary"),
+            execution: .application,
+            modulePath: "worker",
+            mainClass: nil
+        )
+        let resolver = DebugLaunchConfigurationResolver { url in
+            url.standardizedFileURL == expectedExecutable.standardizedFileURL
+        }
+        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
+
+        let launch = try resolver.resolve(
+            provider: provider,
+            documentURL: source,
+            workspaceURL: root,
+            configurations: [configuration],
+            selectedConfiguration: nil,
+            options: { _ in RunOptions(environment: ["CARGO_TARGET_DIR": "build"]) }
+        )
+
+        #expect(launch.name == "worker-api")
+        #expect(launch.arguments["program"] == .string(expectedExecutable.path))
+        #expect(launch.arguments["cwd"] == .string(root.appendingPathComponent("worker").path))
+    }
+
+    @Test
+    func rustDebugLaunchExplainsHowToBuildAMissingArtifact() throws {
+        let root = URL(fileURLWithPath: "/tmp/rust-debug-missing", isDirectory: true)
+        let source = root.appendingPathComponent("src/main.rs")
+        let configuration = RunConfiguration(
+            id: "cargo.binary:server",
+            name: "server",
+            kind: .process(provider: "cargo.binary"),
+            execution: .application,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in false })
+        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
+
+        do {
+            _ = try resolver.resolve(
+                provider: provider,
+                documentURL: source,
+                workspaceURL: root,
+                configurations: [configuration],
+                selectedConfiguration: configuration,
+                options: { _ in RunOptions() }
+            )
+            Issue.record("Expected a missing Rust artifact error")
+        } catch let error as DebugLaunchConfigurationResolutionError {
+            guard case .rustExecutableNotBuilt(let url, let binary) = error else {
+                Issue.record("Unexpected resolver error: \(error)")
+                return
+            }
+            #expect(binary == "server")
+            #expect(url.path == root.appendingPathComponent("target/debug/server").path)
+            #expect(error.localizedDescription.contains("cargo build --bin server"))
+        }
+    }
+
+    @Test
+    func goDebugLaunchUsesTheNearestDetectedCommandDirectory() throws {
+        let root = URL(fileURLWithPath: "/tmp/go-debug-workspace", isDirectory: true)
+        let source = root.appendingPathComponent("cmd/gateway/main.go")
+        let configuration = RunConfiguration(
+            id: "go.command:cmd/gateway/gateway",
+            name: "gateway",
+            kind: .process(provider: "go.command"),
+            execution: .application,
+            modulePath: "cmd/gateway",
+            mainClass: nil
+        )
+        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in false })
+        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
+
+        let launch = try resolver.resolve(
+            provider: provider,
+            documentURL: source,
+            workspaceURL: root,
+            configurations: [configuration],
+            selectedConfiguration: nil,
+            options: { _ in RunOptions() }
+        )
+
+        let commandURL = root.appendingPathComponent("cmd/gateway").standardizedFileURL
+        #expect(launch.name == "gateway")
+        #expect(launch.arguments["mode"] == .string("debug"))
+        #expect(launch.arguments["program"] == .string(commandURL.path))
+        #expect(launch.arguments["cwd"] == .string(commandURL.path))
+    }
+
+    @Test
+    func nodeDebugLaunchUsesTheNearestNPMScriptAndGenericOptions() throws {
+        let root = URL(fileURLWithPath: "/tmp/node-debug-workspace", isDirectory: true)
+        let source = root.appendingPathComponent("apps/web/src/server.ts")
+        let configuration = RunConfiguration(
+            id: "npm.script:apps/web/dev",
+            name: "dev",
+            kind: .process(provider: "npm.script"),
+            execution: .service,
+            modulePath: "apps/web",
+            mainClass: nil
+        )
+        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in false })
+        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
+
+        let launch = try resolver.resolve(
+            provider: provider,
+            documentURL: source,
+            workspaceURL: root,
+            configurations: [configuration],
+            selectedConfiguration: nil,
+            options: { _ in
+                RunOptions(
+                    programArguments: "--port 4100 --name \"web api\"",
+                    environment: ["NODE_ENV": "development"]
+                )
+            }
+        )
+
+        #expect(launch.name == "dev")
+        #expect(launch.arguments["type"] == .string("pwa-node"))
+        #expect(launch.arguments["runtimeExecutable"] == .string("npm"))
+        #expect(launch.arguments["runtimeArgs"] == .array([.string("run"), .string("dev")]))
+        #expect(launch.arguments["cwd"] == .string(root.appendingPathComponent("apps/web").path))
+        #expect(launch.arguments["args"] == .array([
+            .string("--port"), .string("4100"), .string("--name"), .string("web api")
+        ]))
+        #expect(launch.arguments["env"] == .object(["NODE_ENV": .string("development")]))
+    }
+
+    @Test
+    func nodeDebugLaunchFallsBackToTheCurrentJavaScriptFile() throws {
+        let root = URL(fileURLWithPath: "/tmp/node-current-file", isDirectory: true)
+        let source = root.appendingPathComponent("scripts/worker.mjs")
+        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in false })
+        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
+
+        let launch = try resolver.resolve(
+            provider: provider,
+            documentURL: source,
+            workspaceURL: root,
+            configurations: [],
+            selectedConfiguration: nil,
+            options: { _ in RunOptions() }
+        )
+
+        #expect(launch.name == "worker.mjs")
+        #expect(launch.arguments["program"] == .string(source.path))
+        #expect(launch.arguments["runtimeExecutable"] == nil)
+    }
+
+    @Test
+    func delveTransportQueuesDAPBytesUntilTheTCPAnnouncementIsReady() async throws {
+        let process = RecordingRawProcessSession()
+        let socket = TestDlvSocketConnection()
+        var endpoint: (String, UInt16)?
+        let transport = MacDlvDebugAdapterTransport(
+            executableURL: URL(fileURLWithPath: "/toolchains/dlv"),
+            environment: ["PATH": "/toolchains"],
+            process: process,
+            socketFactory: { host, port in
+                endpoint = (host, port)
+                return socket
+            }
+        )
+        var received: [Data] = []
+        transport.onData = { received.append($0) }
+        let initializeFrame = Data("Content-Length: 2\r\n\r\n{}".utf8)
+
+        try transport.start(rootURL: URL(fileURLWithPath: "/tmp/go-dap"))
+        try transport.send(initializeFrame)
+        #expect(socket.sent.isEmpty)
+        let request = try #require(process.requests.first)
+        #expect(request.executablePath == "/toolchains/dlv")
+        #expect(request.arguments == ["dap", "--listen=127.0.0.1:0"])
+        #expect(request.keepsStandardInputOpen == false)
+
+        process.onError?(Data("DAP server listening at: 127.0.0.1:43127\n".utf8))
+        await Self.drainMainActorTasks()
+        #expect(endpoint?.0 == "127.0.0.1")
+        #expect(endpoint?.1 == 43127)
+        #expect(socket.startCount == 1)
+        #expect(socket.sent.isEmpty)
+
+        socket.onReady?()
+        #expect(socket.sent == [initializeFrame])
+        let response = Data("Content-Length: 2\r\n\r\n{}".utf8)
+        socket.onData?(response)
+        #expect(received == [response])
+    }
+
+    @Test
+    func nodeTransportDiscoversTheOfficialBundleAndQueuesUntilTCPIsReady() async throws {
+        let root = URL(fileURLWithPath: "/tmp/node-dap", isDirectory: true)
+        let adapterRoot = root.appendingPathComponent(".lithe/toolchains/js-debug")
+        let adapterScript = adapterRoot.appendingPathComponent("js-debug/src/dapDebugServer.js")
+        let process = RecordingRawProcessSession()
+        let socket = TestDlvSocketConnection()
+        var endpoint: (String, UInt16)?
+        let locator = MacJavaScriptDebugAdapterLocator(
+            environment: ["PATH": "/toolchains"],
+            homeDirectoryURL: URL(fileURLWithPath: "/users/test", isDirectory: true),
+            fileExists: { $0.standardizedFileURL.path == adapterScript.standardizedFileURL.path },
+            isDirectory: { $0.standardizedFileURL.path == adapterRoot.standardizedFileURL.path },
+            executableOnPath: { _ in nil }
+        )
+        let transport = MacNodeDebugAdapterTransport(
+            nodeExecutableURL: URL(fileURLWithPath: "/toolchains/node"),
+            locator: locator,
+            process: process,
+            socketFactory: { host, port in
+                endpoint = (host, port)
+                return socket
+            }
+        )
+        let initializeFrame = Data("Content-Length: 2\r\n\r\n{}".utf8)
+
+        try transport.start(rootURL: root)
+        try transport.send(initializeFrame)
+        let request = try #require(process.requests.first)
+        #expect(request.executablePath == "/toolchains/node")
+        #expect(request.arguments == [adapterScript.path, "0", "127.0.0.1"])
+        #expect(request.keepsStandardInputOpen == false)
+        #expect(socket.sent.isEmpty)
+
+        process.onOutput?(Data("Debug server listening at 127.0.0.1:49321\n".utf8))
+        await Self.drainMainActorTasks()
+        #expect(endpoint?.0 == "127.0.0.1")
+        #expect(endpoint?.1 == 49321)
+        socket.onReady?()
+        #expect(socket.sent == [initializeFrame])
+    }
+
+    @Test
+    func nodeProviderCreatesItsDebugSessionOnlyOnDemand() throws {
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        var factoryCalls = 0
+        let expected = TestDebugAdapterSession()
+        let runtimes = StdioLanguageProviderRuntime.standard(
+            catalog: .standard,
+            runtimeService: runtimeService,
+            processFactory: { RecordingRawProcessSession() },
+            debugSessionFactories: [
+                "node": {
+                    factoryCalls += 1
+                    return expected
+                }
+            ]
+        )
+        let node = try #require(runtimes.first(where: { $0.descriptor.id == "node" }))
+
+        #expect(factoryCalls == 0)
+        let created = try #require(node.makeDebugAdapterSession())
+        #expect(factoryCalls == 1)
+        #expect(created === expected)
+    }
+
+    @Test
+    func goProviderCreatesItsInjectedTCPDebugSessionOnlyOnDemand() throws {
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        var factoryCalls = 0
+        let expected = TestDebugAdapterSession()
+        let runtimes = StdioLanguageProviderRuntime.standard(
+            catalog: .standard,
+            runtimeService: runtimeService,
+            processFactory: { RecordingRawProcessSession() },
+            debugSessionFactories: [
+                "go": {
+                    factoryCalls += 1
+                    return expected
+                }
+            ]
+        )
+        let go = try #require(runtimes.first(where: { $0.descriptor.id == "go" }))
+
+        #expect(factoryCalls == 0)
+        let created = try #require(go.makeDebugAdapterSession())
+        #expect(factoryCalls == 1)
+        #expect(created === expected)
+    }
+
+    @Test
+    func editorDiagnosticsMergeLanguagesAndMapLSPSeverities() throws {
+        let javaURL = URL(fileURLWithPath: "/tmp/mixed/src/Main.java")
+        let pythonURL = URL(fileURLWithPath: "/tmp/mixed/api/main.py")
+        let javaDiagnostic = EditorDiagnostic(
+            id: "java-warning",
+            fileURL: javaURL,
+            line: 2,
+            utf16Column: 4,
+            endLine: 2,
+            endUTF16Column: 8,
+            severity: .warning,
+            message: "Java warning",
+            source: "jdtls",
+            code: "java-warning",
+            tags: [],
+            relatedInformation: []
+        )
+        let severities = [1, 2, 3, 4]
+        let languageDiagnostics = severities.map { severity in
+            LanguageServerDiagnostic(
+                range: LanguageServerRange(
+                    start: LanguageServerPosition(line: severity, utf16Column: 0),
+                    end: LanguageServerPosition(line: severity, utf16Column: 3)
+                ),
+                severity: severity,
+                message: "Python diagnostic \(severity)",
+                source: "pyright",
+                code: "python-\(severity)"
+            )
+        }
+
+        let merged = EditorDiagnostic.merging(
+            [javaURL: [javaDiagnostic]],
+            languageServerDiagnostics: [pythonURL: languageDiagnostics]
+        )
+
+        #expect(merged[javaURL.standardizedFileURL] == [javaDiagnostic])
+        let python = try #require(merged[pythonURL.standardizedFileURL])
+        #expect(python.map(\.severity) == [.error, .warning, .information, .hint])
+        #expect(python.allSatisfy { $0.source == "pyright" })
+    }
+
+    @Test
+    func editorDiagnosticsDeduplicateTheSameProviderResult() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/mixed/src/Main.java")
+        let lsp = LanguageServerDiagnostic(
+            range: LanguageServerRange(
+                start: LanguageServerPosition(line: 3, utf16Column: 7),
+                end: LanguageServerPosition(line: 3, utf16Column: 10)
+            ),
+            severity: 1,
+            message: "Cannot resolve symbol",
+            source: "jdtls",
+            code: "resolve"
+        )
+        let existing = EditorDiagnostic(languageServerDiagnostic: lsp, fileURL: fileURL)
+
+        let merged = EditorDiagnostic.merging(
+            [fileURL: [existing]],
+            languageServerDiagnostics: [fileURL: [lsp]]
+        )
+
+        #expect(merged[fileURL.standardizedFileURL] == [existing])
+    }
+
+    @Test
+    func runOptionsDecodeLegacyJavaPreferencesIntoGenericFields() throws {
+        let data = Data(
+            #"{"javaHomePath":"/jdk","workingDirectoryPath":"backend","vmArguments":"-Xmx1g","programArguments":"--port 8080","activeProfiles":["dev"]}"#.utf8
+        )
+        let options = try JSONDecoder().decode(RunOptions.self, from: data)
+
+        #expect(options.javaHomePath == "/jdk")
+        #expect(options.workingDirectoryPath == "backend")
+        #expect(options.vmArguments == "-Xmx1g")
+        #expect(options.arguments == "--port 8080")
+        #expect(options.activeProfiles == ["dev"])
+    }
+
+    @Test
+    func executableResolverRejectsUnknownToolchainsInsteadOfUsingMaven() throws {
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let resolver = RunExecutableResolver(runtimeService: runtime)
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-unknown"),
+            arguments: [],
+            workingDirectory: "."
+        )
+
+        #expect(throws: RunExecutableResolutionError.self) {
+            try resolver.resolve(
+                plan,
+                projectURL: URL(fileURLWithPath: "/tmp/lithe-toolchain-test"),
+                options: RunOptions()
+            )
+        }
+    }
+
+    @Test
+    func commandResolverLayersGenericEnvironmentWithoutJavaInjection() throws {
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let resolver = RunExecutableResolver(runtimeService: runtime)
+        let plan = SharedLaunchPlan(
+            executable: .command("python3"),
+            arguments: ["app.py"],
+            workingDirectory: ".",
+            environment: ["FROM_PLAN": "yes"]
+        )
+        let resolved = try resolver.resolve(
+            plan,
+            projectURL: URL(fileURLWithPath: "/tmp/lithe-command-test"),
+            options: RunOptions(environment: ["APP_ENV": "test"])
+        )
+
+        #expect(resolved.executableURL.path == "/usr/bin/python3")
+        #expect(resolved.environment["PATH"] == "/usr/bin")
+        #expect(resolved.environment["FROM_PLAN"] == "yes")
+        #expect(resolved.environment["APP_ENV"] == "test")
+        #expect(resolved.environment["JAVA_HOME"] == nil)
+    }
+
+    @Test
+    func registeredGoToolchainResolvesWithoutMavenFallback() throws {
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let resolver = RunExecutableResolver(runtimeService: runtime)
+        let resolved = try resolver.resolve(
+            SharedLaunchPlan(
+                executable: .toolchain("project-go"),
+                arguments: ["run", "."],
+                workingDirectory: "."
+            ),
+            projectURL: URL(fileURLWithPath: "/tmp/lithe-go-toolchain"),
+            options: RunOptions(environment: ["GO_ENV": "test"])
+        )
+
+        #expect(resolved.executableURL.path == "/usr/bin/go")
+        #expect(resolved.environment["GO_ENV"] == "test")
+        #expect(resolved.environment["JAVA_HOME"] == nil)
+    }
+
+    @Test
+    func registeredGradleToolchainPrefersTheProjectWrapper() throws {
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let resolver = RunExecutableResolver(runtimeService: runtime)
+        let resolved = try resolver.resolve(
+            SharedLaunchPlan(
+                executable: .toolchain("project-gradle"),
+                arguments: ["test"],
+                workingDirectory: "."
+            ),
+            projectURL: URL(fileURLWithPath: "/tmp/gradle-project"),
+            options: RunOptions()
+        )
+
+        #expect(resolved.executableURL.path == "/tmp/gradle-project/gradlew")
+        #expect(resolved.environment["JAVA_HOME"] == nil)
+    }
+
+    @Test
+    func genericToolchainVersionsAreProbedOffTheResolutionPathAndCachedPerAlias() async throws {
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let runner = ToolchainVersionProcessRunner()
+        let resolver = RunExecutableResolver(
+            runtimeService: runtime,
+            metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: runner)
+        )
+        let root = URL(fileURLWithPath: "/tmp/lithe-version-probes")
+
+        #expect(resolver.candidates(projectURL: root).first { $0.id == "project-go" }?.version == "")
+        await resolver.refreshCandidates(projectURL: root)
+        let candidates = Dictionary(uniqueKeysWithValues: resolver.candidates(projectURL: root).map {
+            ($0.id, $0)
+        })
+
+        #expect(candidates["project-go"]?.version == "1.24.3")
+        #expect(candidates["project-python"]?.version == "3.13.5")
+        #expect(candidates["project-node"]?.version == "22.18.0")
+        #expect(candidates["project-cargo"]?.version == "1.89.0")
+        #expect(runner.executedCommands.sorted() == ["go", "node", "python3", "rustc"])
+    }
+
+    @Test
+    func toolingSessionsStartLazilyAndReuseOneSessionPerProvider() throws {
+        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
+            for: URL(fileURLWithPath: "/tmp/main.go")
+        ))
+        let runtime = TestLanguageProviderRuntime(descriptor: descriptor)
+        let manager = LanguageToolingSessionManager(
+            catalog: .standard,
+            runtimes: [runtime]
+        )
+        #expect(manager.activeLanguageServerIDs.isEmpty)
+
+        let first = try manager.activateLanguageServer(
+            for: URL(fileURLWithPath: "/tmp/main.go"),
+            rootURL: URL(fileURLWithPath: "/tmp/project")
+        )
+        let second = try manager.activateLanguageServer(
+            for: URL(fileURLWithPath: "/tmp/other.go"),
+            rootURL: URL(fileURLWithPath: "/tmp/project")
+        )
+
+        _ = first
+        _ = second
+        #expect(runtime.makeCount == 1)
+        #expect(runtime.languageServer.startCount == 1)
+        #expect(manager.activeLanguageServerIDs == ["go"])
+
+        manager.stopAll()
+        #expect(runtime.languageServer.stopCount == 1)
+        #expect(manager.activeLanguageServerIDs.isEmpty)
+    }
+
+    @Test
+    func toolingSessionsReplaceExitedOrWrongWorkspaceProcesses() throws {
+        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
+            for: URL(fileURLWithPath: "/tmp/main.go")
+        ))
+        let runtime = TestLanguageProviderRuntime(descriptor: descriptor)
+        let manager = LanguageToolingSessionManager(catalog: .standard, runtimes: [runtime])
+        let firstRoot = URL(fileURLWithPath: "/tmp/first-project")
+        let secondRoot = URL(fileURLWithPath: "/tmp/second-project")
+
+        let first = try manager.activateLanguageServer(
+            for: firstRoot.appendingPathComponent("main.go"),
+            rootURL: firstRoot
+        )
+        first.stop()
+        let restarted = try manager.activateLanguageServer(
+            for: firstRoot.appendingPathComponent("other.go"),
+            rootURL: firstRoot
+        )
+        let moved = try manager.activateLanguageServer(
+            for: secondRoot.appendingPathComponent("main.go"),
+            rootURL: secondRoot
+        )
+
+        #expect(first !== restarted)
+        #expect(restarted !== moved)
+        #expect(runtime.makeCount == 3)
+        #expect(runtime.languageServers.map(\.startCount) == [1, 1, 1])
+        #expect(runtime.languageServers[1].stopCount == 1)
+    }
+
+    @Test
+    func stoppingToolingSessionsClearsProjectScopedBreakpoints() throws {
+        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
+            for: URL(fileURLWithPath: "/tmp/main.py")
+        ))
+        let runtime = TestDebugLanguageProviderRuntime(descriptor: descriptor)
+        let manager = LanguageToolingSessionManager(catalog: .standard, runtimes: [runtime])
+        let firstRoot = URL(fileURLWithPath: "/tmp/first-python-project")
+        let firstSource = firstRoot.appendingPathComponent("main.py")
+        try manager.setDebugBreakpoints([DebugSourceBreakpoint(line: 12)], in: firstSource)
+
+        _ = try manager.activateDebugAdapter(for: firstSource, rootURL: firstRoot)
+        #expect(runtime.debugAdapters.first?.breakpointUpdates.count == 1)
+        manager.stopAll()
+
+        let secondRoot = URL(fileURLWithPath: "/tmp/second-python-project")
+        _ = try manager.activateDebugAdapter(
+            for: secondRoot.appendingPathComponent("main.py"),
+            rootURL: secondRoot
+        )
+        #expect(runtime.debugAdapters.count == 2)
+        #expect(runtime.debugAdapters.last?.breakpointUpdates.isEmpty == true)
+    }
+
+    @Test
+    func stdioLanguageProvidersInitializeOnlyWhenActivated() async throws {
+        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
+            for: URL(fileURLWithPath: "/tmp/main.go")
+        ))
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let process = RecordingRawProcessSession()
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            processFactory: { process },
+            launch: StdioLanguageServerLaunch(executableNames: ["gopls"], arguments: [])
+        )
+        let manager = LanguageToolingSessionManager(runtimes: [runtime])
+        let root = URL(fileURLWithPath: "/tmp/go-project", isDirectory: true)
+
+        #expect(process.requests.isEmpty)
+        #expect(manager.supportsGenericEditing(for: root.appendingPathComponent("main.go")))
+        #expect(process.sentData.isEmpty)
+        let session = try manager.activateLanguageServer(
+            for: root.appendingPathComponent("main.go"),
+            rootURL: root
+        )
+        let request = try #require(process.requests.first)
+        #expect(request.executablePath == "/usr/bin/gopls")
+        #expect(request.keepsStandardInputOpen)
+        let initialize = try #require(Self.framedJSON(process.sentData.first))
+        #expect(initialize["method"] as? String == "initialize")
+        #expect(initialize["id"] as? Int == 1)
+        #expect(!session.isReady)
+        try manager.synchronizeLanguageServer(
+            for: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() {}\n",
+            rootURL: root
+        )
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": ["capabilities": [
+                "definitionProvider": true,
+                "referencesProvider": true,
+                "implementationProvider": true,
+                "hoverProvider": true,
+                "completionProvider": ["resolveProvider": true],
+                "renameProvider": ["prepareProvider": true],
+                "documentFormattingProvider": true,
+                "codeActionProvider": ["resolveProvider": true],
+                "executeCommandProvider": ["commands": ["gopls.organizeImports"]]
+            ]]
+        ], splitAt: 12)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(session.isReady)
+        let features = manager.features(for: root.appendingPathComponent("main.go"))
+        #expect(features.contains([.definition, .completion, .completionResolve]))
+        #expect(features.contains([.rename, .formatting, .codeActions, .codeActionResolve]))
+        let initialized = try #require(Self.framedJSON(process.sentData.dropFirst().first))
+        #expect(initialized["method"] as? String == "initialized")
+        let didOpen = try #require(Self.framedJSON(process.sentData.last))
+        #expect(didOpen["method"] as? String == "textDocument/didOpen")
+        let openParameters = try #require(didOpen["params"] as? [String: Any])
+        let openedDocument = try #require(openParameters["textDocument"] as? [String: Any])
+        #expect(openedDocument["languageId"] as? String == "go")
+
+        try manager.synchronizeLanguageServer(
+            for: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { broken }\n",
+            rootURL: root
+        )
+        let didChange = try #require(Self.framedJSON(process.sentData.last))
+        #expect(didChange["method"] as? String == "textDocument/didChange")
+        let changeParameters = try #require(didChange["params"] as? [String: Any])
+        let changedDocument = try #require(changeParameters["textDocument"] as? [String: Any])
+        #expect(changedDocument["version"] as? Int == 2)
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": [
+                "uri": root.appendingPathComponent("main.go").absoluteString,
+                "diagnostics": [[
+                    "range": [
+                        "start": ["line": 1, "character": 14],
+                        "end": ["line": 1, "character": 20]
+                    ],
+                    "severity": 1,
+                    "source": "gopls",
+                    "message": "undefined: broken"
+                ]]
+            ]
+        ])
+        await Task.yield()
+        await Task.yield()
+        let diagnostics = manager.diagnostics[root.appendingPathComponent("main.go").standardizedFileURL]
+        #expect(diagnostics?.first?.message == "undefined: broken")
+
+        var navigationResult: Result<[LanguageServerLocation], Error>?
+        try manager.navigate(
+            method: "textDocument/definition",
+            fileURL: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { broken }\n",
+            position: LanguageServerPosition(line: 1, utf16Column: 16),
+            rootURL: root
+        ) { navigationResult = $0 }
+        let definitionRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(definitionRequest["method"] as? String == "textDocument/definition")
+        let definitionID = try #require(definitionRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": definitionID,
+            "result": [[
+                "targetUri": root.appendingPathComponent("helper.go").absoluteString,
+                "targetRange": [
+                    "start": ["line": 4, "character": 0],
+                    "end": ["line": 4, "character": 6]
+                ],
+                "targetSelectionRange": [
+                    "start": ["line": 4, "character": 2],
+                    "end": ["line": 4, "character": 6]
+                ]
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        let definition = try #require(try navigationResult?.get().first)
+        #expect(definition.url == root.appendingPathComponent("helper.go").standardizedFileURL)
+        #expect(definition.range.start == LanguageServerPosition(line: 4, utf16Column: 2))
+
+        var hoverResult: Result<LanguageServerHover?, Error>?
+        try manager.hover(
+            fileURL: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { broken }\n",
+            position: LanguageServerPosition(line: 1, utf16Column: 16),
+            rootURL: root
+        ) { hoverResult = $0 }
+        let hoverRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(hoverRequest["method"] as? String == "textDocument/hover")
+        let hoverID = try #require(hoverRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": hoverID,
+            "result": [
+                "contents": ["kind": "markdown", "value": "```go\nfunc broken()\n```"],
+                "range": [
+                    "start": ["line": 1, "character": 14],
+                    "end": ["line": 1, "character": 20]
+                ]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        let hover = try #require(try hoverResult?.get())
+        #expect(hover.isMarkdown)
+        #expect(hover.contents.contains("func broken()"))
+        #expect(hover.range?.start == LanguageServerPosition(line: 1, utf16Column: 14))
+
+        var completionResult: Result<[LanguageServerCompletionItem], Error>?
+        try manager.completions(
+            fileURL: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { bro }\n",
+            position: LanguageServerPosition(line: 1, utf16Column: 17),
+            rootURL: root
+        ) { completionResult = $0 }
+        let completionRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(completionRequest["method"] as? String == "textDocument/completion")
+        let completionID = try #require(completionRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": completionID,
+            "result": [
+                "isIncomplete": false,
+                "items": [
+                    [
+                        "label": "brokenValue",
+                        "detail": "var brokenValue int",
+                        "documentation": ["kind": "markdown", "value": "A test value"],
+                        "insertText": "brokenValue",
+                        "sortText": "2"
+                    ],
+                    [
+                        "label": "broken",
+                        "textEdit": [
+                            "range": [
+                                "start": ["line": 1, "character": 14],
+                                "end": ["line": 1, "character": 17]
+                            ],
+                            "newText": "broken()"
+                        ],
+                        "additionalTextEdits": [[
+                            "range": [
+                                "start": ["line": 1, "character": 0],
+                                "end": ["line": 1, "character": 0]
+                            ],
+                            "newText": "// imported\n"
+                        ]],
+                        "data": ["token": 17, "lazy": true],
+                        "sortText": "1"
+                    ]
+                ]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        let completions = try #require(try completionResult?.get())
+        #expect(completions.map(\.label) == ["broken", "brokenValue"])
+        #expect(completions.first?.insertText == "broken()")
+        #expect(completions.first?.textEdit?.range.start.utf16Column == 14)
+        #expect(completions.first?.additionalTextEdits.first?.newText == "// imported\n")
+        #expect(completions.first?.data == .object(["token": .integer(17), "lazy": .bool(true)]))
+        #expect(completions.last?.documentation == "A test value")
+
+        let unresolvedCompletion = try #require(completions.first)
+        var resolvedCompletionResult: Result<LanguageServerCompletionItem, Error>?
+        try manager.resolveCompletion(
+            unresolvedCompletion,
+            fileURL: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { bro }\n",
+            rootURL: root
+        ) { resolvedCompletionResult = $0 }
+        let resolveCompletionRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(resolveCompletionRequest["method"] as? String == "completionItem/resolve")
+        let resolveCompletionID = try #require(resolveCompletionRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0", "id": resolveCompletionID,
+            "result": [
+                "label": "broken",
+                "detail": "resolved function",
+                "textEdit": [
+                    "range": [
+                        "start": ["line": 1, "character": 14],
+                        "end": ["line": 1, "character": 17]
+                    ],
+                    "newText": "broken()"
+                ],
+                "data": ["token": 17, "lazy": true]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try resolvedCompletionResult?.get().detail == "resolved function")
+
+        var renameResult: Result<LanguageServerWorkspaceEdit, Error>?
+        try manager.rename(
+            fileURL: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { broken() }\n",
+            position: LanguageServerPosition(line: 1, utf16Column: 19),
+            newName: "fixed",
+            rootURL: root
+        ) { renameResult = $0 }
+        let renameRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(renameRequest["method"] as? String == "textDocument/rename")
+        let renameID = try #require(renameRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0", "id": renameID,
+            "result": ["changes": [
+                root.appendingPathComponent("main.go").absoluteString: [[
+                    "range": [
+                        "start": ["line": 1, "character": 17],
+                        "end": ["line": 1, "character": 23]
+                    ],
+                    "newText": "fixed"
+                ]]
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        let rename = try #require(try renameResult?.get())
+        #expect(rename.changes[root.appendingPathComponent("main.go").standardizedFileURL]?.first?.newText == "fixed")
+
+        var formattingResult: Result<[LanguageServerTextEdit], Error>?
+        try manager.format(
+            fileURL: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { broken() }\n",
+            rootURL: root
+        ) { formattingResult = $0 }
+        let formattingRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(formattingRequest["method"] as? String == "textDocument/formatting")
+        let formattingID = try #require(formattingRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0", "id": formattingID,
+            "result": [[
+                "range": [
+                    "start": ["line": 1, "character": 0],
+                    "end": ["line": 1, "character": 29]
+                ],
+                "newText": "func main() {\n\tbroken()\n}"
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try formattingResult?.get().first?.newText.contains("broken()") == true)
+
+        var actionsResult: Result<[LanguageServerCodeAction], Error>?
+        try manager.codeActions(
+            fileURL: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { broken() }\n",
+            range: LanguageServerRange(
+                start: LanguageServerPosition(line: 1, utf16Column: 17),
+                end: LanguageServerPosition(line: 1, utf16Column: 23)
+            ),
+            diagnostics: [LanguageServerDiagnostic(
+                range: LanguageServerRange(
+                    start: LanguageServerPosition(line: 1, utf16Column: 17),
+                    end: LanguageServerPosition(line: 1, utf16Column: 23)
+                ),
+                severity: 1,
+                message: "undefined: broken",
+                source: "gopls",
+                code: nil
+            )],
+            rootURL: root
+        ) { actionsResult = $0 }
+        let actionsRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(actionsRequest["method"] as? String == "textDocument/codeAction")
+        let actionsID = try #require(actionsRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0", "id": actionsID,
+            "result": [[
+                "title": "Fix symbol",
+                "kind": "quickfix",
+                "isPreferred": true,
+                "edit": ["changes": [
+                    root.appendingPathComponent("main.go").absoluteString: []
+                ]],
+                "command": [
+                    "title": "Organize imports",
+                    "command": "gopls.organizeImports",
+                    "arguments": [["uri": root.appendingPathComponent("main.go").absoluteString]]
+                ],
+                "data": ["action": 4]
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        let action = try #require(try actionsResult?.get().first)
+        #expect(action.isPreferred)
+        #expect(action.data == .object(["action": .integer(4)]))
+
+        var resolvedActionResult: Result<LanguageServerCodeAction, Error>?
+        try manager.resolveCodeAction(
+            action,
+            fileURL: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { broken() }\n",
+            rootURL: root
+        ) { resolvedActionResult = $0 }
+        let resolveActionRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(resolveActionRequest["method"] as? String == "codeAction/resolve")
+        let resolveActionID = try #require(resolveActionRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0", "id": resolveActionID,
+            "result": [
+                "title": "Fix symbol",
+                "kind": "quickfix",
+                "command": [
+                    "title": "Organize imports",
+                    "command": "gopls.organizeImports",
+                    "arguments": [["uri": root.appendingPathComponent("main.go").absoluteString]]
+                ],
+                "data": ["action": 4]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        let resolvedAction = try #require(try resolvedActionResult?.get())
+        let actionCommand = try #require(resolvedAction.command)
+        #expect(actionCommand.command == "gopls.organizeImports")
+        #expect(actionCommand.arguments.first == .object([
+            "uri": .string(root.appendingPathComponent("main.go").absoluteString)
+        ]))
+
+        var commandResult: Result<Void, Error>?
+        try manager.execute(
+            actionCommand,
+            fileURL: root.appendingPathComponent("main.go"),
+            text: "package main\nfunc main() { broken() }\n",
+            rootURL: root
+        ) { commandResult = $0 }
+        let commandRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(commandRequest["method"] as? String == "workspace/executeCommand")
+        let commandID = try #require(commandRequest["id"] as? Int)
+        process.emitJSON(["jsonrpc": "2.0", "id": commandID, "result": NSNull()])
+        await Self.drainMainActorTasks()
+        #expect(commandResult != nil)
+        _ = try commandResult?.get()
+
+        manager.closeDocument(root.appendingPathComponent("main.go"))
+        let didClose = try #require(Self.framedJSON(process.sentData.last))
+        #expect(didClose["method"] as? String == "textDocument/didClose")
+        #expect(manager.diagnostics[root.appendingPathComponent("main.go").standardizedFileURL] == nil)
+    }
+
+    @Test
+    func languageServerDynamicRegistrationsUpdateFeaturesAndRequestGuards() async throws {
+        let source = URL(fileURLWithPath: "/tmp/dynamic-go-project/main.go")
+        let root = source.deletingLastPathComponent()
+        let descriptor = try #require(LanguageProviderCatalog.standard.provider(for: source))
+        let process = RecordingRawProcessSession()
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: ProjectRuntimeService(
+                runtimeLocator: RunTestRuntimeLocator(),
+                store: RunTestKeyValueStore()
+            ),
+            processFactory: { process },
+            launch: StdioLanguageServerLaunch(executableNames: ["gopls"], arguments: [])
+        )
+        let manager = LanguageToolingSessionManager(runtimes: [runtime])
+
+        _ = try manager.activateLanguageServer(for: source, rootURL: root)
+        let initialize = try #require(Self.framedJSON(process.sentData.first))
+        let capabilities = try #require(initialize["params"] as? [String: Any])
+        let clientCapabilities = try #require(capabilities["capabilities"] as? [String: Any])
+        let textDocument = try #require(clientCapabilities["textDocument"] as? [String: Any])
+        let formatting = try #require(textDocument["formatting"] as? [String: Any])
+        #expect(formatting["dynamicRegistration"] as? Bool == true)
+        let initializeID = try #require(initialize["id"] as? Int)
+
+        var earlyFormattingResult: Result<[LanguageServerTextEdit], Error>?
+        try manager.format(fileURL: source, text: "package main\n", rootURL: root) {
+            earlyFormattingResult = $0
+        }
+        #expect(process.sentData.count == 1)
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": initializeID,
+            "result": ["capabilities": ["definitionProvider": true]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(manager.features(for: source) == .definition)
+        #expect(throws: (any Error).self) {
+            _ = try earlyFormattingResult?.get()
+        }
+        #expect(!process.sentData.compactMap(Self.framedJSON).contains {
+            $0["method"] as? String == "textDocument/formatting"
+        })
+
+        let countBeforeRejectedFormat = process.sentData.count
+        #expect(throws: LanguageToolingSessionError.self) {
+            try manager.format(fileURL: source, text: "package main\n", rootURL: root) { _ in }
+        }
+        #expect(process.sentData.count == countBeforeRejectedFormat)
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": 70,
+            "method": "client/registerCapability",
+            "params": ["registrations": [
+                [
+                    "id": "formatting-registration",
+                    "method": "textDocument/formatting",
+                    "registerOptions": [:]
+                ],
+                [
+                    "id": "completion-registration",
+                    "method": "textDocument/completion",
+                    "registerOptions": ["resolveProvider": true]
+                ]
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        let registeredFeatures = manager.features(for: source)
+        #expect(registeredFeatures.contains([.definition, .formatting, .completion, .completionResolve]))
+        let registrationResponse = try #require(Self.framedJSON(process.sentData.last))
+        #expect(registrationResponse["id"] as? Int == 70)
+        #expect(registrationResponse["result"] is NSNull)
+
+        try manager.format(fileURL: source, text: "package main\n", rootURL: root) { _ in }
+        let formattingRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(formattingRequest["method"] as? String == "textDocument/formatting")
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": 71,
+            "method": "client/unregisterCapability",
+            "params": ["unregisterations": [[
+                "id": "formatting-registration",
+                "method": "textDocument/formatting"
+            ]]]
+        ])
+        await Self.drainMainActorTasks()
+        let unregisteredFeatures = manager.features(for: source)
+        #expect(!unregisteredFeatures.contains(.formatting))
+        #expect(unregisteredFeatures.contains([.definition, .completion, .completionResolve]))
+        let unregistrationResponse = try #require(Self.framedJSON(process.sentData.last))
+        #expect(unregistrationResponse["id"] as? Int == 71)
+
+        let countBeforeSecondRejectedFormat = process.sentData.count
+        #expect(throws: LanguageToolingSessionError.self) {
+            try manager.format(fileURL: source, text: "package main\n", rootURL: root) { _ in }
+        }
+        #expect(process.sentData.count == countBeforeSecondRejectedFormat)
+    }
+
+    @Test
+    func stdioDebugAdapterImplementsLaunchBreakpointsInspectionAndControl() async throws {
+        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
+            for: URL(fileURLWithPath: "/tmp/main.py")
+        ))
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let process = RecordingRawProcessSession()
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            processFactory: { process },
+            launch: StdioLanguageServerLaunch(
+                executableNames: ["pyright-langserver"],
+                arguments: ["--stdio"]
+            ),
+            debugLaunch: StdioDebugAdapterLaunch(
+                adapterID: "python",
+                executableNames: ["python3"],
+                arguments: ["-m", "debugpy.adapter"]
+            )
+        )
+        let manager = LanguageToolingSessionManager(runtimes: [runtime])
+        let root = URL(fileURLWithPath: "/tmp/python-project", isDirectory: true)
+        let source = root.appendingPathComponent("main.py")
+        try manager.setDebugBreakpoints([DebugSourceBreakpoint(line: 7)], in: source)
+
+        let session = try manager.activateDebugAdapter(for: source, rootURL: root)
+        let controlling = try #require(session as? any DebugAdapterControllingSession)
+        let processRequest = try #require(process.requests.first)
+        #expect(processRequest.executablePath == "/usr/bin/python3")
+        #expect(processRequest.arguments == ["-m", "debugpy.adapter"])
+        #expect(manager.debugStates["python"] == .initializing)
+        let initialize = try #require(Self.debugRequest(named: "initialize", in: process.sentData))
+        let initializeSequence = try #require(initialize["seq"] as? Int)
+
+        _ = try manager.launchDebugAdapter(
+            for: source,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "Python Current File",
+                request: .launch,
+                arguments: [
+                    "program": .string(source.path),
+                    "console": .string("internalConsole"),
+                    "justMyCode": .bool(true)
+                ]
+            )
+        )
+        #expect(Self.debugRequest(named: "launch", in: process.sentData) == nil)
+
+        process.emitJSON([
+            "seq": 1,
+            "type": "response",
+            "request_seq": initializeSequence,
+            "success": true,
+            "command": "initialize",
+            "body": ["supportsConfigurationDoneRequest": true]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(controlling.state == .launching)
+        #expect(manager.debugStates["python"] == .launching)
+        let launch = try #require(Self.debugRequest(named: "launch", in: process.sentData))
+        let launchSequence = try #require(launch["seq"] as? Int)
+        let launchArguments = try #require(launch["arguments"] as? [String: Any])
+        #expect(launchArguments["program"] as? String == source.path)
+        #expect(launchArguments["cwd"] as? String == root.path)
+
+        process.emitJSON(["seq": 2, "type": "event", "event": "initialized", "body": [:]])
+        await Self.drainMainActorTasks()
+        let setBreakpoints = try #require(Self.debugRequest(named: "setBreakpoints", in: process.sentData))
+        let breakpointSequence = try #require(setBreakpoints["seq"] as? Int)
+        let breakpointArguments = try #require(setBreakpoints["arguments"] as? [String: Any])
+        let requested = try #require(breakpointArguments["breakpoints"] as? [[String: Any]])
+        #expect(requested.first?["line"] as? Int == 7)
+        let configurationDone = try #require(Self.debugRequest(named: "configurationDone", in: process.sentData))
+        let configurationDoneSequence = try #require(configurationDone["seq"] as? Int)
+
+        process.emitJSON([
+            "seq": 3,
+            "type": "response",
+            "request_seq": breakpointSequence,
+            "success": true,
+            "command": "setBreakpoints",
+            "body": ["breakpoints": [[
+                "id": 91,
+                "verified": true,
+                "line": 7,
+                "source": ["path": source.path]
+            ]]]
+        ])
+        process.emitJSON([
+            "seq": 4, "type": "response", "request_seq": configurationDoneSequence,
+            "success": true, "command": "configurationDone", "body": [:]
+        ])
+        process.emitJSON([
+            "seq": 5, "type": "response", "request_seq": launchSequence,
+            "success": true, "command": "launch", "body": [:]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(manager.verifiedBreakpoints["python"]?.first?.verified == true)
+        #expect(controlling.state == .running)
+
+        process.emitJSON([
+            "seq": 6,
+            "type": "event",
+            "event": "stopped",
+            "body": ["reason": "breakpoint", "threadId": 42, "description": "Paused on breakpoint"]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(controlling.state == .paused)
+        #expect(manager.lastDebugEvents["python"] == .stopped(
+            reason: "breakpoint",
+            threadID: 42,
+            description: "Paused on breakpoint"
+        ))
+
+        var threadsResult: Result<[DebugThread], Error>?
+        controlling.requestThreads { threadsResult = $0 }
+        let threadsRequest = try #require(Self.debugRequest(named: "threads", in: process.sentData))
+        process.emitJSON([
+            "seq": 7, "type": "response", "request_seq": threadsRequest["seq"] as! Int,
+            "success": true, "command": "threads",
+            "body": ["threads": [["id": 42, "name": "MainThread"]]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try threadsResult?.get() == [DebugThread(id: 42, name: "MainThread")])
+
+        var stackResult: Result<[DebugStackFrame], Error>?
+        controlling.requestStackTrace(threadID: 42) { stackResult = $0 }
+        let stackRequest = try #require(Self.debugRequest(named: "stackTrace", in: process.sentData))
+        process.emitJSON([
+            "seq": 8, "type": "response", "request_seq": stackRequest["seq"] as! Int,
+            "success": true, "command": "stackTrace",
+            "body": ["stackFrames": [[
+                "id": 100, "name": "main", "line": 7, "column": 1,
+                "source": ["path": source.path]
+            ]]]
+        ])
+        await Self.drainMainActorTasks()
+        let frame = try #require(try stackResult?.get().first)
+        #expect(frame.id == 100)
+        #expect(frame.sourceURL == source.standardizedFileURL)
+
+        var scopesResult: Result<[DebugScope], Error>?
+        controlling.requestScopes(frameID: frame.id) { scopesResult = $0 }
+        let scopesRequest = try #require(Self.debugRequest(named: "scopes", in: process.sentData))
+        process.emitJSON([
+            "seq": 9, "type": "response", "request_seq": scopesRequest["seq"] as! Int,
+            "success": true, "command": "scopes",
+            "body": ["scopes": [[
+                "name": "Locals", "variablesReference": 200, "expensive": false
+            ]]]
+        ])
+        await Self.drainMainActorTasks()
+        let scope = try #require(try scopesResult?.get().first)
+        #expect(scope.variablesReference == 200)
+
+        var variablesResult: Result<[DebugVariable], Error>?
+        controlling.requestVariables(reference: scope.variablesReference) { variablesResult = $0 }
+        let variablesRequest = try #require(Self.debugRequest(named: "variables", in: process.sentData))
+        process.emitJSON([
+            "seq": 10, "type": "response", "request_seq": variablesRequest["seq"] as! Int,
+            "success": true, "command": "variables",
+            "body": ["variables": [[
+                "name": "count", "value": "3", "type": "int",
+                "evaluateName": "count", "variablesReference": 0
+            ]]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try variablesResult?.get().first?.value == "3")
+
+        var evaluateResult: Result<DebugVariable, Error>?
+        controlling.evaluate("count + 1", frameID: frame.id) { evaluateResult = $0 }
+        let evaluateRequest = try #require(Self.debugRequest(named: "evaluate", in: process.sentData))
+        process.emitJSON([
+            "seq": 11, "type": "response", "request_seq": evaluateRequest["seq"] as! Int,
+            "success": true, "command": "evaluate",
+            "body": ["result": "4", "type": "int", "variablesReference": 0]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try evaluateResult?.get().value == "4")
+
+        controlling.execute(.next, threadID: 42)
+        let next = try #require(Self.debugRequest(named: "next", in: process.sentData))
+        process.emitJSON([
+            "seq": 12, "type": "response", "request_seq": next["seq"] as! Int,
+            "success": true, "command": "next", "body": [:]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(controlling.state == .running)
+
+        manager.stopDebugAdapter(providerID: "python")
+        #expect(!process.isRunning)
+        #expect(manager.debugStates["python"] == .idle)
+    }
+
+    @Test
+    func dapStartDebuggingCreatesAChildSessionAndRoutesInspection() async throws {
+        let root = URL(fileURLWithPath: "/tmp/node-child-session", isDirectory: true)
+        let source = root.appendingPathComponent("server.js")
+        let parentTransport = RecordingDebugAdapterTransport()
+        let session = DebugAdapterProtocolSession(adapterID: "pwa-node", transport: parentTransport)
+        session.setBreakpoints([DebugSourceBreakpoint(line: 2)], in: source)
+
+        try session.start(rootURL: root)
+        try session.launch(DebugLaunchConfiguration(
+            name: "Node root",
+            request: .launch,
+            arguments: ["type": .string("pwa-node"), "program": .string(source.path)]
+        ))
+        let parentInitialize = try #require(Self.debugRequest(named: "initialize", in: parentTransport.sentData))
+        let parentInitializeSequence = try #require(parentInitialize["seq"] as? Int)
+        parentTransport.emitJSON([
+            "seq": 1, "type": "response", "request_seq": parentInitializeSequence,
+            "success": true, "command": "initialize",
+            "body": ["supportsConfigurationDoneRequest": true]
+        ])
+        parentTransport.emitJSON(["seq": 2, "type": "event", "event": "initialized", "body": [:]])
+        await Self.drainMainActorTasks()
+        #expect(Self.debugRequest(named: "launch", in: parentTransport.sentData) != nil)
+
+        parentTransport.emitJSON([
+            "seq": 8,
+            "type": "request",
+            "command": "startDebugging",
+            "arguments": [
+                "request": "launch",
+                "configuration": [
+                    "name": "server.js",
+                    "type": "pwa-node",
+                    "request": "launch",
+                    "__pendingTargetId": "target-1",
+                    "program": source.path
+                ]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+
+        let childTransport = try #require(parentTransport.children.first)
+        let startResponse = try #require(parentTransport.sentData.compactMap(Self.framedJSON).first {
+            $0["type"] as? String == "response" && $0["request_seq"] as? Int == 8
+        })
+        #expect(startResponse["success"] as? Bool == true)
+        let childInitialize = try #require(Self.debugRequest(named: "initialize", in: childTransport.sentData))
+        let childInitializeSequence = try #require(childInitialize["seq"] as? Int)
+        childTransport.emitJSON([
+            "seq": 1, "type": "response", "request_seq": childInitializeSequence,
+            "success": true, "command": "initialize",
+            "body": ["supportsConfigurationDoneRequest": true]
+        ])
+        childTransport.emitJSON(["seq": 2, "type": "event", "event": "initialized", "body": [:]])
+        await Self.drainMainActorTasks()
+
+        let childLaunch = try #require(Self.debugRequest(named: "launch", in: childTransport.sentData))
+        let childArguments = try #require(childLaunch["arguments"] as? [String: Any])
+        #expect(childArguments["__pendingTargetId"] as? String == "target-1")
+        #expect(Self.debugRequest(named: "setBreakpoints", in: childTransport.sentData) != nil)
+
+        childTransport.emitJSON([
+            "seq": 3, "type": "event", "event": "stopped",
+            "body": ["reason": "breakpoint", "threadId": 17]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(session.state == .paused)
+
+        var threadsResult: Result<[DebugThread], Error>?
+        session.requestThreads { threadsResult = $0 }
+        let threadsRequest = try #require(Self.debugRequest(named: "threads", in: childTransport.sentData))
+        let threadsSequence = try #require(threadsRequest["seq"] as? Int)
+        childTransport.emitJSON([
+            "seq": 4, "type": "response", "request_seq": threadsSequence,
+            "success": true, "command": "threads",
+            "body": ["threads": [["id": 17, "name": "Main Thread"]]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try threadsResult?.get().first?.id == 17)
+    }
+
+    @Test
+    func rustDebugAdapterFallsBackToXcrunDeveloperToolDiscovery() throws {
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: XcrunOnlyRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let process = RecordingRawProcessSession()
+        let runtime = try #require(StdioLanguageProviderRuntime.standard(
+            catalog: .standard,
+            runtimeService: runtimeService,
+            processFactory: { process }
+        ).first(where: { $0.descriptor.id == "rust" }))
+        let adapter = try #require(runtime.makeDebugAdapterSession())
+
+        try adapter.start(rootURL: URL(fileURLWithPath: "/tmp/rust-xcrun"))
+
+        let request = try #require(process.requests.first)
+        #expect(request.executablePath == "/usr/bin/xcrun")
+        #expect(request.arguments == ["lldb-dap"])
+    }
+
+    @Test
+    func genericDebugFeatureQueuesPythonLaunchDuringAdapterInitialization() async throws {
+        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
+            for: URL(fileURLWithPath: "/tmp/app.py")
+        ))
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let process = RecordingRawProcessSession()
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            processFactory: { process },
+            launch: StdioLanguageServerLaunch(executableNames: ["pyright-langserver"], arguments: ["--stdio"]),
+            debugLaunch: StdioDebugAdapterLaunch(
+                adapterID: "python",
+                executableNames: ["python3"],
+                arguments: ["-m", "debugpy.adapter"]
+            )
+        )
+        let manager = LanguageToolingSessionManager(runtimes: [runtime])
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/python-feature", isDirectory: true)
+        let source = root.appendingPathComponent("app.py")
+        feature.toggleBreakpoint(fileURL: source, line: 4)
+
+        let started = feature.start(
+            fileURL: source,
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(
+                name: "app.py",
+                request: .launch,
+                arguments: ["program": .string(source.path)]
+            )
+        )
+
+        #expect(started)
+        #expect(feature.providerID == "python")
+        #expect(feature.state == .initializing)
+        #expect(feature.breakpoints.map(\.line) == [4])
+        #expect(Self.debugRequest(named: "launch", in: process.sentData) == nil)
+        let initialize = try #require(Self.debugRequest(named: "initialize", in: process.sentData))
+        process.emitJSON([
+            "seq": 1, "type": "response", "request_seq": initialize["seq"] as! Int,
+            "success": true, "command": "initialize", "body": [:]
+        ])
+        await Self.drainMainActorTasks()
+
+        #expect(feature.state == .launching)
+        #expect(Self.debugRequest(named: "launch", in: process.sentData) != nil)
+    }
+
+    @Test
+    func reloadingRunConfigurationsDoesNotStopAnUnrelatedProcessSession() async {
+        let configuration = RunConfiguration(
+            id: "python:api",
+            name: "API",
+            kind: .process(provider: "python.script"),
+            modulePath: nil,
+            mainClass: nil
+        )
+        let plan = SharedLaunchPlan(
+            executable: .command("python3"),
+            arguments: ["app.py"],
+            workingDirectory: "."
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
+            plans: [configuration.id: plan]
+        )
+
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        fixture.service.run(configuration: configuration, currentFileURL: nil)
+        #expect(fixture.process.isRunning)
+        let stopCountAfterStart = fixture.process.stopCount
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        #expect(fixture.process.isRunning)
+        #expect(fixture.process.stopCount == stopCountAfterStart)
+    }
+
+    @Test
     func missingConfigurationLeavesRunUnavailableWithoutScanningLegacySettings() async {
         let fixture = makeFixture(status: .missing)
 
@@ -55,6 +1939,64 @@ struct RunConfigurationIntegrationTests {
         #expect(request.workingDirectory == fixture.root.appendingPathComponent("backend").path)
         #expect(request.environment?["JAVA_HOME"] == "/toolchains/jdk")
         #expect(fixture.operations.launchPlanIDs == [configuration.id])
+    }
+
+    @Test
+    func toolchainBackedGoPlanUsesTheRegisteredProviderInRunService() async throws {
+        let configuration = RunConfiguration(
+            id: "go:api",
+            name: "Go API",
+            kind: .process(provider: "go.main"),
+            modulePath: nil,
+            mainClass: nil
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-go"),
+            arguments: ["run", "./cmd/api"],
+            workingDirectory: ".",
+            environment: ["APP_ENV": "test"]
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
+            plans: [configuration.id: plan]
+        )
+
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        fixture.service.run(configuration: configuration, currentFileURL: nil)
+
+        let request = try #require(fixture.process.requests.last)
+        #expect(request.executablePath == "/usr/bin/go")
+        #expect(request.arguments == ["run", "./cmd/api"])
+        #expect(request.environment?["APP_ENV"] == "test")
+        #expect(request.environment?["JAVA_HOME"] == nil)
+        #expect(fixture.operations.lastToolchainCandidates.contains {
+            $0.id == "project-go" && $0.type == "go"
+        })
+    }
+
+    @Test
+    func currentFilePythonRunUsesTheLanguageProviderInsteadOfJavaCore() async throws {
+        let current = RunConfiguration.currentFile
+        let fixture = makeFixture(
+            status: .ready,
+            effective: []
+        )
+        let source = fixture.root.appendingPathComponent("scripts/main.py")
+
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [source],
+            mavenProject: nil
+        )
+        #expect(fixture.service.configurations == [current])
+        fixture.service.run(configuration: current, currentFileURL: source)
+
+        let request = try #require(fixture.process.requests.last)
+        #expect(request.executablePath == "/usr/bin/python3")
+        #expect(request.arguments == ["scripts/main.py"])
+        #expect(request.environment?["JAVA_HOME"] == nil)
+        #expect(fixture.operations.launchPlanIDs.isEmpty)
     }
 
     @Test
@@ -295,6 +2237,41 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func projectRuntimePublishesAReadyJavaEnvironmentReport() async throws {
+        let root = URL(fileURLWithPath: "/tmp/lithe-java-health", isDirectory: true)
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        runtime.openProject(at: root)
+        await runtime.refreshAvailableRuntimes()
+
+        let report = try #require(runtime.javaEnvironmentReport)
+        #expect(report.status == .ready)
+        #expect(report.javaHomePath == "/toolchains/jdk")
+        #expect(report.jdbExecutablePath == "/toolchains/jdk/bin/jdb")
+        #expect(!report.status.blocksJavaRun)
+        #expect(!report.status.blocksJavaEditing)
+    }
+
+    @Test
+    func projectRuntimeStronglyReportsMissingJDK() async throws {
+        let root = URL(fileURLWithPath: "/tmp/lithe-java-health-missing", isDirectory: true)
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: MissingJavaRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        runtime.openProject(at: root)
+        await runtime.refreshAvailableRuntimes()
+
+        let report = try #require(runtime.javaEnvironmentReport)
+        #expect(report.status == .jdkMissing)
+        #expect(report.status.blocksJavaRun)
+        #expect(report.status.blocksJavaEditing)
+        #expect(report.recovery.contains("JAVA_HOME"))
+    }
+
+    @Test
     func javaLanguageServerUsesTheSameProjectJDKWithSpaces() throws {
         let root = URL(fileURLWithPath: "/tmp/lithe-language-toolchain", isDirectory: true)
         let runtime = ProjectRuntimeService(
@@ -322,6 +2299,153 @@ struct RunConfigurationIntegrationTests {
         #expect(request.executablePath == "/toolchains/jdtls")
         #expect(request.arguments.contains("--java-executable"))
         #expect(request.arguments.contains("/local/JDK 21/bin/java"))
+    }
+
+    @Test
+    func javaLanguageServerParticipatesInTheGenericOnDemandLifecycle() async throws {
+        let root = URL(fileURLWithPath: "/tmp/lithe-generic-java-lsp", isDirectory: true)
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        runtime.openProject(at: root)
+        let process = RecordingRawProcessSession()
+        let service = JavaLanguageService(
+            runtimeService: runtime,
+            process: process,
+            archiveReader: EmptyArchiveEntryReader(),
+            fileStorage: RunTestFileStorage(),
+            javaMavenOperations: RunTestJavaMavenOperations()
+        )
+        let provider = JavaLanguageProviderRuntime(service: service)
+        let manager = LanguageToolingSessionManager(runtimes: [provider])
+
+        #expect(process.requests.isEmpty)
+        let source = root.appendingPathComponent("src/Main.java")
+        #expect(manager.supportsGenericEditing(for: source))
+        _ = try manager.activateLanguageServer(
+            for: source,
+            rootURL: root
+        )
+        #expect(process.requests.count == 1)
+        #expect(manager.activeLanguageServerIDs == ["java"])
+
+        let initialize = try #require(Self.framedJSON(process.sentData.first))
+        let initializeID = try #require(initialize["id"] as? Int)
+        let initializeParameters = try #require(initialize["params"] as? [String: Any])
+        let clientCapabilities = try #require(initializeParameters["capabilities"] as? [String: Any])
+        let textDocumentCapabilities = try #require(clientCapabilities["textDocument"] as? [String: Any])
+        let formattingCapability = try #require(textDocumentCapabilities["formatting"] as? [String: Any])
+        #expect(formattingCapability["dynamicRegistration"] as? Bool == true)
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": initializeID,
+            "result": ["capabilities": [
+                "definitionProvider": true,
+                "renameProvider": true,
+                "codeActionProvider": ["resolveProvider": true]
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        let javaFeatures = manager.features(for: source)
+        #expect(javaFeatures.contains([.definition, .rename, .codeActions, .codeActionResolve]))
+        #expect(!javaFeatures.contains(.formatting))
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": 501,
+            "method": "client/registerCapability",
+            "params": ["registrations": [[
+                "id": "java-formatting",
+                "method": "textDocument/formatting",
+                "registerOptions": [:]
+            ]]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(manager.features(for: source).contains(.formatting))
+        #expect(Self.framedJSON(process.sentData.last)?["id"] as? Int == 501)
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": 502,
+            "method": "client/unregisterCapability",
+            "params": ["unregistrations": [[
+                "id": "java-formatting",
+                "method": "textDocument/formatting"
+            ]]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(!manager.features(for: source).contains(.formatting))
+        #expect(Self.framedJSON(process.sentData.last)?["id"] as? Int == 502)
+
+        let countBeforeRejectedFormat = process.sentData.count
+        #expect(throws: LanguageToolingSessionError.self) {
+            try manager.format(fileURL: source, text: "class Main {}\n", rootURL: root) { _ in }
+        }
+        #expect(process.sentData.count == countBeforeRejectedFormat)
+
+        let text = "class Main { void oldName() {} }\n"
+        try manager.synchronizeLanguageServer(for: source, text: text, rootURL: root)
+        #expect(Self.framedJSON(process.sentData.last)?["method"] as? String == "textDocument/didOpen")
+
+        var renameResult: Result<LanguageServerWorkspaceEdit, Error>?
+        try manager.rename(
+            fileURL: source,
+            text: text,
+            position: LanguageServerPosition(line: 0, utf16Column: 20),
+            newName: "newName",
+            rootURL: root
+        ) { renameResult = $0 }
+        let renameRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(renameRequest["method"] as? String == "textDocument/rename")
+        let renameID = try #require(renameRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": renameID,
+            "result": ["changes": [source.absoluteString: [[
+                "range": [
+                    "start": ["line": 0, "character": 18],
+                    "end": ["line": 0, "character": 25]
+                ],
+                "newText": "newName"
+            ]]]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try renameResult?.get().changes[source.standardizedFileURL]?.first?.newText == "newName")
+
+        let unresolvedAction = LanguageServerCodeAction(
+            title: "Add import",
+            kind: "quickfix",
+            isPreferred: true,
+            edit: nil,
+            command: nil,
+            data: .object(["proposal": .integer(3)])
+        )
+        var resolvedActionResult: Result<LanguageServerCodeAction, Error>?
+        try manager.resolveCodeAction(
+            unresolvedAction,
+            fileURL: source,
+            text: text,
+            rootURL: root
+        ) { resolvedActionResult = $0 }
+        let resolveRequest = try #require(Self.framedJSON(process.sentData.last))
+        #expect(resolveRequest["method"] as? String == "codeAction/resolve")
+        let resolveID = try #require(resolveRequest["id"] as? Int)
+        process.emitJSON([
+            "jsonrpc": "2.0", "id": resolveID,
+            "result": [
+                "title": "Add import",
+                "kind": "quickfix",
+                "edit": ["changes": [source.absoluteString: []]],
+                "data": ["proposal": 3]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try resolvedActionResult?.get().edit != nil)
+
+        manager.stopAll()
+        #expect(!process.isRunning)
+        #expect(manager.activeLanguageServerIDs.isEmpty)
     }
 
     @Test
@@ -525,6 +2649,54 @@ struct RunConfigurationIntegrationTests {
         let configurations = try #require(document["configurations"] as? [[String: Any]])
         #expect(configurations.count == 2)
         #expect(configurations.first?["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx2g"])
+    }
+
+    @Test
+    func goRuntimeToolchainFlowsFromSharedJSONIntoProcessRequest() async throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-go-runtime-toolchain-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".lithe/run"),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"version":2,"configurations":[{"id":"go:api","name":"Go API","provider":"go.main","execution":"application","args":["run","./cmd/api"],"cwd":".","env":{"APP_ENV":"test"},"toolchains":{"runtime":"project-go"}}]}"#.utf8)
+            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
+
+        let preferences = RunTestKeyValueStore()
+        let store = MacRunConfigurationStore(
+            core: core,
+            storage: MacFileStorage(),
+            preferences: preferences
+        )
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: preferences,
+            toolchainSource: store
+        )
+        let process = RecordingStreamingProcess()
+        let service = RunService(
+            runtimeService: runtime,
+            process: process,
+            processFactory: { RecordingStreamingProcess() },
+            fileStorage: MacFileStorage(),
+            preferences: preferences,
+            javaMavenOperations: RunTestJavaMavenOperations(),
+            runConfigurationOperations: store
+        )
+
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+        let configuration = try #require(service.configurations.first { $0.id == "go:api" })
+        service.run(configuration: configuration, currentFileURL: nil)
+
+        let request = try #require(process.requests.last)
+        #expect(request.executablePath == "/usr/bin/go")
+        #expect(request.arguments == ["run", "./cmd/api"])
+        #expect(request.workingDirectory == root.path)
+        #expect(request.environment?["APP_ENV"] == "test")
+        #expect(request.environment?["JAVA_HOME"] == nil)
     }
 
     @Test
@@ -889,6 +3061,26 @@ struct RunConfigurationIntegrationTests {
             processFactory: processFactory
         )
     }
+
+    private static func framedJSON(_ data: Data?) -> [String: Any]? {
+        guard let data,
+              let separator = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+        let body = data.subdata(in: separator.upperBound..<data.endIndex)
+        return try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+    }
+
+    private static func debugRequest(named command: String, in frames: [Data]) -> [String: Any]? {
+        frames.lazy
+            .compactMap(framedJSON)
+            .first { message in
+                message["type"] as? String == "request" && message["command"] as? String == command
+            }
+    }
+
+    private static func drainMainActorTasks() async {
+        await Task.yield()
+        await Task.yield()
+    }
 }
 
 @MainActor
@@ -912,6 +3104,7 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     private(set) var launchPlanIDs: [String] = []
     private(set) var debugPorts: [Int?] = []
     private(set) var createdDrafts: [RunConfigurationDraft] = []
+    private(set) var lastToolchainCandidates: [ProjectToolchainCandidate] = []
 
     init(
         status: ProjectRunConfigurationStatus,
@@ -938,6 +3131,7 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
         toolchainCandidates: [ProjectToolchainCandidate]
     ) throws -> RunConfigurationResolution {
         resolveCalls += 1
+        lastToolchainCandidates = toolchainCandidates
         return RunConfigurationResolution(
             configurations: effective,
             diagnostics: [],
@@ -1058,13 +3252,34 @@ private final class RecordingStreamingProcess: StreamingProcess, @unchecked Send
     var onTermination: (@Sendable (Int32) -> Void)?
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
     private(set) var requests: [ProcessRequest] = []
+    private(set) var stopCount = 0
 
     func start(_ request: ProcessRequest) throws {
         requests.append(request)
         isRunning = true
     }
     func send(_ input: Data) throws {}
-    func stop() { isRunning = false }
+    func stop() {
+        stopCount += 1
+        isRunning = false
+    }
+}
+
+@MainActor
+private final class RecordingRunExecutableResolver: RunExecutableResolving {
+    private(set) var resolveCalls = 0
+
+    func resolve(
+        _ plan: SharedLaunchPlan,
+        projectURL: URL,
+        options: RunOptions
+    ) throws -> ResolvedRunExecutable {
+        resolveCalls += 1
+        return ResolvedRunExecutable(
+            executableURL: URL(fileURLWithPath: "/usr/bin/go"),
+            environment: [:]
+        )
+    }
 }
 
 private final class RecordingRawProcessSession: RawProcessSession, @unchecked Sendable {
@@ -1074,13 +3289,53 @@ private final class RecordingRawProcessSession: RawProcessSession, @unchecked Se
     var onTermination: (@Sendable (Int32) -> Void)?
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
     private(set) var requests: [ProcessRequest] = []
+    private(set) var sentData: [Data] = []
 
     func start(_ request: ProcessRequest) throws {
         requests.append(request)
         isRunning = true
     }
-    func send(_ input: Data) throws {}
+    func send(_ input: Data) throws { sentData.append(input) }
     func stop() { isRunning = false }
+
+    func emitJSON(_ object: [String: Any], splitAt: Int? = nil) {
+        let body = try! JSONSerialization.data(withJSONObject: object)
+        var framed = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
+        framed.append(body)
+        if let splitAt, splitAt > 0, splitAt < framed.count {
+            onOutput?(framed.subdata(in: 0..<splitAt))
+            onOutput?(framed.subdata(in: splitAt..<framed.count))
+        } else {
+            onOutput?(framed)
+        }
+    }
+}
+
+@MainActor
+private final class RecordingDebugAdapterTransport: DebugAdapterTransport, DebugAdapterChildTransportProviding {
+    private(set) var isRunning = false
+    var onData: ((Data) -> Void)?
+    var onErrorOutput: ((Data) -> Void)?
+    var onTermination: ((Int) -> Void)?
+    private(set) var sentData: [Data] = []
+    private(set) var children: [RecordingDebugAdapterTransport] = []
+
+    func start(rootURL: URL) throws { isRunning = true }
+    func send(_ data: Data) throws { sentData.append(data) }
+    func stop() { isRunning = false }
+
+    func makeChildTransport() -> (any DebugAdapterTransport)? {
+        let child = RecordingDebugAdapterTransport()
+        children.append(child)
+        return child
+    }
+
+    func emitJSON(_ object: [String: Any]) {
+        let body = try! JSONSerialization.data(withJSONObject: object)
+        var framed = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
+        framed.append(body)
+        onData?(framed)
+    }
 }
 
 private struct EmptyArchiveEntryReader: ArchiveEntryReader {
@@ -1094,6 +3349,29 @@ private final class RecordingProcessFactory: @unchecked Sendable {
         let process = RecordingStreamingProcess()
         processes.append(process)
         return process
+    }
+}
+
+private final class ToolchainVersionProcessRunner: ProcessRunner, @unchecked Sendable {
+    private let lock = NSLock()
+    private var commands: [String] = []
+
+    var executedCommands: [String] {
+        lock.withLock { commands }
+    }
+
+    func run(_ request: ProcessRequest) -> ProcessResult {
+        let command = URL(fileURLWithPath: request.executablePath).lastPathComponent
+        lock.withLock { commands.append(command) }
+        let output: String
+        switch command {
+        case "go": output = "go version go1.24.3 darwin/arm64"
+        case "python3": output = "Python 3.13.5"
+        case "node": output = "v22.18.0"
+        case "rustc": output = "rustc 1.89.0 (29483883e 2025-08-04)"
+        default: output = ""
+        }
+        return ProcessResult(output: output, exitCode: output.isEmpty ? 1 : 0)
     }
 }
 
@@ -1137,6 +3415,143 @@ private struct RunTestRuntimeLocator: RuntimeLocator {
     }
     func systemJDBExecutable() -> URL? { URL(fileURLWithPath: "/toolchains/jdk/bin/jdb") }
     func javaLanguageServerExecutable() -> URL? { URL(fileURLWithPath: "/toolchains/jdtls") }
+}
+
+private struct MissingJavaRuntimeLocator: RuntimeLocator {
+    func environment() -> [String: String] { ["PATH": "/usr/bin"] }
+    func discover() -> RuntimeDiscoveryResult {
+        RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
+    }
+    func validJavaHome(path: String) -> URL? { nil }
+    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
+    func isExecutable(at url: URL) -> Bool { false }
+    func systemMavenExecutable() -> URL? { nil }
+    func mavenExecutable(forHomePath path: String) -> URL? { nil }
+    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
+    func systemJDBExecutable() -> URL? { nil }
+    func javaLanguageServerExecutable() -> URL? { nil }
+}
+
+private struct XcrunOnlyRuntimeLocator: RuntimeLocator {
+    func environment() -> [String: String] { ["PATH": "/usr/bin"] }
+    func discover() -> RuntimeDiscoveryResult { RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: []) }
+    func validJavaHome(path: String) -> URL? { nil }
+    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
+    func isExecutable(at url: URL) -> Bool { url.path == "/usr/bin/xcrun" }
+    func systemMavenExecutable() -> URL? { nil }
+    func mavenExecutable(forHomePath path: String) -> URL? { nil }
+    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
+    func systemJDBExecutable() -> URL? { nil }
+    func javaLanguageServerExecutable() -> URL? { nil }
+}
+
+@MainActor
+private final class TestLanguageServerSession: LanguageServerSession {
+    private(set) var isRunning = false
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+
+    func start(rootURL: URL) throws {
+        startCount += 1
+        isRunning = true
+    }
+
+    func stop() {
+        stopCount += 1
+        isRunning = false
+    }
+}
+
+@MainActor
+private final class TestLanguageProviderRuntime: LanguageProviderRuntime {
+    let descriptor: LanguageProviderDescriptor
+    private(set) var languageServers: [TestLanguageServerSession] = []
+    private(set) var makeCount = 0
+
+    var languageServer: TestLanguageServerSession { languageServers[0] }
+
+    init(descriptor: LanguageProviderDescriptor) {
+        self.descriptor = descriptor
+    }
+
+    func makeLanguageServerSession() -> (any LanguageServerSession)? {
+        makeCount += 1
+        let session = TestLanguageServerSession()
+        languageServers.append(session)
+        return session
+    }
+
+    func makeDebugAdapterSession() -> (any DebugAdapterSession)? { nil }
+}
+
+@MainActor
+private final class TestDebugAdapterSession: DebugAdapterControllingSession {
+    private(set) var isRunning = false
+    var state: DebugAdapterState { isRunning ? .ready : .idle }
+    var onStateChange: ((DebugAdapterState) -> Void)?
+    var onEvent: ((DebugAdapterEvent) -> Void)?
+    private(set) var breakpointUpdates: [(URL, [DebugSourceBreakpoint])] = []
+
+    func start(rootURL: URL) throws { isRunning = true }
+    func stop() { isRunning = false }
+    func launch(_ configuration: DebugLaunchConfiguration) throws {}
+    func setBreakpoints(_ breakpoints: [DebugSourceBreakpoint], in fileURL: URL) {
+        breakpointUpdates.append((fileURL.standardizedFileURL, breakpoints))
+    }
+    func execute(_ command: DebugExecutionCommand, threadID: Int?) {}
+    func requestThreads(_ completion: @escaping (Result<[DebugThread], Error>) -> Void) {
+        completion(.success([]))
+    }
+    func requestStackTrace(
+        threadID: Int,
+        completion: @escaping (Result<[DebugStackFrame], Error>) -> Void
+    ) { completion(.success([])) }
+    func requestScopes(
+        frameID: Int,
+        completion: @escaping (Result<[DebugScope], Error>) -> Void
+    ) { completion(.success([])) }
+    func requestVariables(
+        reference: Int,
+        completion: @escaping (Result<[DebugVariable], Error>) -> Void
+    ) { completion(.success([])) }
+    func evaluate(
+        _ expression: String,
+        frameID: Int?,
+        completion: @escaping (Result<DebugVariable, Error>) -> Void
+    ) {}
+}
+
+@MainActor
+private final class TestDebugLanguageProviderRuntime: LanguageProviderRuntime {
+    let descriptor: LanguageProviderDescriptor
+    let supportsDebugAdapterSession: Bool
+    private(set) var debugAdapters: [TestDebugAdapterSession] = []
+
+    init(descriptor: LanguageProviderDescriptor, supportsDebugAdapter: Bool = false) {
+        self.descriptor = descriptor
+        supportsDebugAdapterSession = supportsDebugAdapter
+    }
+    func makeLanguageServerSession() -> (any LanguageServerSession)? { nil }
+    func makeDebugAdapterSession() -> (any DebugAdapterSession)? {
+        let session = TestDebugAdapterSession()
+        debugAdapters.append(session)
+        return session
+    }
+}
+
+@MainActor
+private final class TestDlvSocketConnection: DlvSocketConnection {
+    var onReady: (() -> Void)?
+    var onData: ((Data) -> Void)?
+    var onFailure: ((Error) -> Void)?
+    var onComplete: (() -> Void)?
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+    private(set) var sent: [Data] = []
+
+    func start() { startCount += 1 }
+    func send(_ data: Data) { sent.append(data) }
+    func stop() { stopCount += 1 }
 }
 
 private struct RunTestFileStorage: FileStorage {

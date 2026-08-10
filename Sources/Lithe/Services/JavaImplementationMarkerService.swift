@@ -92,7 +92,7 @@ final class JavaImplementationMarkerService: @unchecked Sendable {
     private func requestLocations(
         for document: EditorDocument,
         candidate: JavaImplementationMarker
-    ) async -> [JavaNavigationLocation] {
+    ) async -> [LanguageNavigationLocation] {
         await withCheckedContinuation { continuation in
             languageService.locations(
                 method: "textDocument/implementation",

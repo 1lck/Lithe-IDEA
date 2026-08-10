@@ -2,7 +2,7 @@ import SwiftUI
 
 struct RunView: View {
     @EnvironmentObject private var model: AppModel
-    @ObservedObject var feature: JavaRunFeatureModel
+    @ObservedObject var feature: RunFeatureModel
     @State private var selectedSessionID: String?
     @AppStorage("lithe.run.collapsedExecutions") private var collapsedExecutionIDs = ""
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
@@ -185,7 +185,7 @@ struct RunView: View {
         case .noEntries:
             return (
                 String(localized: "No project entry point detected"),
-                String(localized: "Current File remains available. Add a supported Java or Maven entry point, then identify the project again."),
+                String(localized: "Current File remains available. Add a supported project entry point, then identify the project again."),
                 "info.circle.fill"
             )
         case .failed(let message):
@@ -343,11 +343,11 @@ struct RunView: View {
         }
     }
 
-    private var runnableConfigurations: [JavaRunConfiguration] {
+    private var runnableConfigurations: [RunConfiguration] {
         feature.configurations.filter { $0.kind != .currentFile }
     }
 
-    private var serviceConfigurations: [JavaRunConfiguration] {
+    private var serviceConfigurations: [RunConfiguration] {
         runnableConfigurations.filter { $0.execution == .service }
     }
 
@@ -374,14 +374,14 @@ struct RunView: View {
         .background(Color.orange.opacity(0.10))
     }
 
-    private var selectedModuleSession: JavaRunSession? {
+    private var selectedModuleSession: RunSession? {
         guard let selectedSessionID else { return nil }
         return feature.moduleSessions.first(where: { $0.id == selectedSessionID })
     }
 
     /// The list shows every service, running or not, so a selection can name a
     /// configuration that has no session yet.
-    private var selectedRunnableConfiguration: JavaRunConfiguration? {
+    private var selectedRunnableConfiguration: RunConfiguration? {
         guard let selectedSessionID else { return nil }
         return runnableConfigurations.first(where: { $0.id == selectedSessionID })
     }
@@ -419,12 +419,12 @@ struct RunView: View {
         Set(pinnedConfigurationTokens.split(separator: "\n").map(String.init))
     }
 
-    private func pinToken(for configuration: JavaRunConfiguration) -> String {
+    private func pinToken(for configuration: RunConfiguration) -> String {
         let project = model.workspaceURL?.standardizedFileURL.path ?? ""
         return project + "::" + configuration.id
     }
 
-    private func isPinned(_ configuration: JavaRunConfiguration) -> Bool {
+    private func isPinned(_ configuration: RunConfiguration) -> Bool {
         pinnedConfigurationTokenSet.contains(pinToken(for: configuration))
     }
 
@@ -438,7 +438,7 @@ struct RunView: View {
         collapsedExecutionIDs = values.sorted().joined(separator: ",")
     }
 
-    private func togglePinned(_ configuration: JavaRunConfiguration) {
+    private func togglePinned(_ configuration: RunConfiguration) {
         var values = pinnedConfigurationTokenSet
         let token = pinToken(for: configuration)
         if values.contains(token) {
@@ -451,7 +451,7 @@ struct RunView: View {
         }
     }
 
-    private var pinnedRunnableConfigurations: [JavaRunConfiguration] {
+    private var pinnedRunnableConfigurations: [RunConfiguration] {
         runnableConfigurations
             .filter(isPinned)
             .sorted(by: configurationNamePrecedes)
@@ -459,15 +459,15 @@ struct RunView: View {
 
     private func unpinnedConfigurations(
         for execution: RunConfigurationExecution
-    ) -> [JavaRunConfiguration] {
+    ) -> [RunConfiguration] {
         runnableConfigurations
             .filter { $0.execution == execution && !isPinned($0) }
             .sorted(by: configurationNamePrecedes)
     }
 
     private func configurationNamePrecedes(
-        _ left: JavaRunConfiguration,
-        _ right: JavaRunConfiguration
+        _ left: RunConfiguration,
+        _ right: RunConfiguration
     ) -> Bool {
         left.name.localizedStandardCompare(right.name) == .orderedAscending
     }
@@ -555,7 +555,7 @@ struct RunView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func configurationRow(_ configuration: JavaRunConfiguration) -> some View {
+    private func configurationRow(_ configuration: RunConfiguration) -> some View {
         let session = feature.moduleSessions.first { $0.id == configuration.id }
 
         return sessionRow(
@@ -609,7 +609,7 @@ struct RunView: View {
         .background(LitheTheme.sidebar)
     }
 
-    private func configurationContent(_ configuration: JavaRunConfiguration) -> some View {
+    private func configurationContent(_ configuration: RunConfiguration) -> some View {
         let session = feature.moduleSessions.first { $0.id == configuration.id }
 
         return VStack(spacing: 0) {
@@ -645,10 +645,14 @@ struct RunView: View {
     }
 
     private func configurationDetail(
-        _ configuration: JavaRunConfiguration,
-        session: JavaRunSession?
+        _ configuration: RunConfiguration,
+        session: RunSession?
     ) -> some View {
         let options = feature.options(for: configuration)
+        let capabilities = configuration.effectiveCapabilities(
+            for: model.activeDocument?.url,
+            catalog: model.languageProviderCatalog
+        )
         let workingDirectory = options.workingDirectoryPath.isEmpty
             ? (model.workspaceURL?.standardizedFileURL.path ?? String(localized: "Project root"))
             : options.workingDirectoryPath
@@ -706,26 +710,28 @@ struct RunView: View {
                     if let mainClass = nonEmpty(configuration.mainClass) {
                         configurationDetailRow("Main class", value: mainClass, monospaced: true)
                     }
-                    if let javaHome = nonEmpty(options.javaHomePath) {
+                    if capabilities.contains(.javaRuntime),
+                       let javaHome = nonEmpty(options.javaHomePath) {
                         configurationDetailRow("JDK home", value: javaHome, monospaced: true)
                     }
-                    if let vmArguments = nonEmpty(options.vmArguments) {
+                    if capabilities.contains(.javaVMArguments),
+                       let vmArguments = nonEmpty(options.vmArguments) {
                         configurationDetailRow("VM arguments", value: vmArguments, monospaced: true)
                     }
                     if let programArguments = nonEmpty(options.programArguments) {
                         configurationDetailRow("Program arguments", value: programArguments, monospaced: true)
                     }
-                    if !options.activeProfiles.isEmpty {
+                    if capabilities.contains(.mavenProfiles), !options.activeProfiles.isEmpty {
                         configurationDetailRow(
                             "Active profiles",
                             value: options.activeProfiles.sorted().joined(separator: ", "),
                             monospaced: true
                         )
                     }
-                    if options.javaHomePath.isEmpty,
-                       options.vmArguments.isEmpty,
+                    if (!capabilities.contains(.javaRuntime) || options.javaHomePath.isEmpty),
+                       (!capabilities.contains(.javaVMArguments) || options.vmArguments.isEmpty),
                        options.programArguments.isEmpty,
-                       options.activeProfiles.isEmpty {
+                       (!capabilities.contains(.mavenProfiles) || options.activeProfiles.isEmpty) {
                         configurationDetailRow("Options", value: String(localized: "Default options"))
                     }
 
@@ -758,7 +764,7 @@ struct RunView: View {
         }
     }
 
-    private func statusLabel(for session: JavaRunSession?) -> some View {
+    private func statusLabel(for session: RunSession?) -> some View {
         let title: LocalizedStringKey
         let color: Color
         if let session, session.isRunning {
@@ -848,7 +854,7 @@ struct RunView: View {
     private func sessionRow(
         title: String,
         subtitle: String,
-        configurationKind: JavaRunConfigurationKind? = nil,
+        configurationKind: RunConfigurationKind? = nil,
         isRunning: Bool,
         exitCode: Int32?,
         isSelected: Bool,
@@ -856,7 +862,7 @@ struct RunView: View {
         onPin: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
         isEditing: Binding<Bool> = .constant(false),
-        editorConfiguration: JavaRunConfiguration? = nil,
+        editorConfiguration: RunConfiguration? = nil,
         onToggle: (() -> Void)?,
         action: @escaping () -> Void
     ) -> some View {
@@ -916,7 +922,7 @@ struct RunView: View {
                     .help("Edit run configuration")
                     .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
                     .popover(isPresented: isEditing, arrowEdge: .trailing) {
-                        JavaRunConfigurationEditorView(
+                        RunConfigurationEditorView(
                             feature: feature,
                             configuration: editorConfiguration
                         )

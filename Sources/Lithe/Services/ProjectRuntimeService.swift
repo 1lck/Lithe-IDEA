@@ -11,11 +11,13 @@ final class ProjectRuntimeService: ObservableObject {
     @Published private(set) var settings = ProjectRuntimeSettings()
     @Published private(set) var javaRuntimes: [JavaRuntimeCandidate] = []
     @Published private(set) var mavenRuntimes: [MavenRuntimeCandidate] = []
+    @Published private(set) var javaEnvironmentReport: JavaEnvironmentReport?
     @Published private(set) var isDiscovering = false
 
     var onRuntimeChanged: (() -> Void)?
 
     private let runtimeLocator: any RuntimeLocator
+    private let toolDiscovery: any RuntimeToolDiscovery
     private let toolchainSource: (any ProjectToolchainConfigurationSource)?
     private var discoveryTask: Task<Void, Never>?
     private var localToolchains = ProjectToolchainSelection()
@@ -25,11 +27,13 @@ final class ProjectRuntimeService: ObservableObject {
     init(
         runtimeLocator: any RuntimeLocator,
         store: any KeyValueStore,
-        toolchainSource: (any ProjectToolchainConfigurationSource)? = nil
+        toolchainSource: (any ProjectToolchainConfigurationSource)? = nil,
+        toolDiscovery: (any RuntimeToolDiscovery)? = nil
     ) {
         self.runtimeLocator = runtimeLocator
         self.settingsStore = ProjectRuntimeSettingsStore(store: store)
         self.toolchainSource = toolchainSource
+        self.toolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
     }
 
     deinit {
@@ -45,6 +49,7 @@ final class ProjectRuntimeService: ObservableObject {
         apply(localToolchains, to: &settings)
         javaRuntimes = []
         mavenRuntimes = []
+        javaEnvironmentReport = .checking(for: normalizedURL)
         discoveryTask = Task { [weak self] in
             await self?.refreshAvailableRuntimes()
         }
@@ -58,6 +63,7 @@ final class ProjectRuntimeService: ObservableObject {
         localToolchains = ProjectToolchainSelection()
         javaRuntimes = []
         mavenRuntimes = []
+        javaEnvironmentReport = nil
         isDiscovering = false
     }
 
@@ -92,6 +98,7 @@ final class ProjectRuntimeService: ObservableObject {
             localToolchains = toolchainSelection(from: next)
             try? toolchainSource?.saveLocalToolchains(localToolchains, at: projectURL)
         }
+        refreshJavaEnvironmentReport(using: javaRuntimes)
         onRuntimeChanged?()
     }
 
@@ -105,6 +112,7 @@ final class ProjectRuntimeService: ObservableObject {
         guard !Task.isCancelled, projectURL == targetProjectURL else { return }
         javaRuntimes = result.javaRuntimes
         mavenRuntimes = result.mavenRuntimes
+        refreshJavaEnvironmentReport(using: result.javaRuntimes)
         isDiscovering = false
         onRuntimeChanged?()
     }
@@ -126,6 +134,28 @@ final class ProjectRuntimeService: ObservableObject {
 
     func javaExecutableURL(overridePath: String? = nil) -> URL? {
         javaHomeURL(overridePath: overridePath)?.appendingPathComponent("bin/java")
+    }
+
+    /// Resolves only explicit project/settings/environment JDK paths.  Unlike
+    /// `javaExecutableURL()`, this method never falls back to discovery or
+    /// probes `java -version`, so capability checks can remain inert.
+    func configuredJavaExecutableURL(overridePath: String? = nil) -> URL? {
+        let paths: [String?]
+        if let overridePath, !normalizedPath(overridePath).isEmpty {
+            paths = [overridePath]
+        } else {
+            paths = [
+                localToolchains.javaHomePath,
+                settings.javaHomePath,
+                runtimeLocator.environment()["JAVA_HOME"]
+            ]
+        }
+        for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
+            if let home = runtimeLocator.validJavaHome(path: path) {
+                return home.appendingPathComponent("bin/java")
+            }
+        }
+        return nil
     }
 
     func jdbExecutableURL(
@@ -179,19 +209,124 @@ final class ProjectRuntimeService: ObservableObject {
         return environment
     }
 
-    /// Resolves a bare program name against PATH. Returns nil when the tool is
-    /// not installed, so callers can say which runtime is missing instead of
-    /// failing with a generic spawn error.
-    func executableOnPath(_ command: String) -> URL? {
-        guard !command.isEmpty, !command.contains("/") else { return nil }
-        let path = runtimeLocator.environment()["PATH"] ?? ""
-        for directory in path.split(separator: ":") where !directory.isEmpty {
-            let candidate = URL(fileURLWithPath: String(directory))
+    /// Base environment for language-neutral processes such as Go, Python and
+    /// Node. Overrides are layered on top without injecting Java variables.
+    func processEnvironment(overrides: [String: String] = [:]) -> [String: String] {
+        runtimeLocator.environment().merging(overrides) { _, override in override }
+    }
+
+    /// Returns all known candidates in preference order.  The platform
+    /// adapter can add project-local, Homebrew, Xcode, or registry sources;
+    /// the locator fallback keeps existing non-platform implementations fully
+    /// compatible.
+    func executableCandidates(_ command: String) -> [RuntimeToolCandidate] {
+        guard !command.isEmpty, !command.contains("/") else { return [] }
+        let environment = runtimeLocator.environment()
+        let discovered = toolDiscovery.candidates(
+            for: command,
+            projectURL: projectURL,
+            environment: environment
+        )
+        var candidates = discovered
+        var seen = Set(discovered.map { $0.executableURL.standardizedFileURL.path })
+        for directory in (environment["PATH"] ?? "").split(separator: ":") where !directory.isEmpty {
+            let candidateURL = URL(fileURLWithPath: String(directory))
                 .appendingPathComponent(command)
                 .standardizedFileURL
-            if runtimeLocator.isExecutable(at: candidate) { return candidate }
+            guard runtimeLocator.isExecutable(at: candidateURL),
+                  seen.insert(candidateURL.path).inserted else { continue }
+            candidates.append(RuntimeToolCandidate(
+                command: command,
+                executableURL: candidateURL,
+                source: .path,
+                detail: String(directory)
+            ))
         }
-        return nil
+        return candidates
+    }
+
+    func toolGuidance(_ command: String) -> RuntimeToolGuidance {
+        toolDiscovery.guidance(
+            for: command,
+            projectURL: projectURL,
+            environment: runtimeLocator.environment()
+        )
+    }
+
+    func missingToolMessage(_ command: String) -> String {
+        let guidance = toolGuidance(command)
+        return guidance.message
+    }
+
+    private func refreshJavaEnvironmentReport(using discoveredJavaRuntimes: [JavaRuntimeCandidate]) {
+        guard let projectURL else {
+            javaEnvironmentReport = nil
+            return
+        }
+
+        let configuredPath = normalizedPath(settings.javaHomePath)
+        if !configuredPath.isEmpty,
+           runtimeLocator.validJavaHome(path: configuredPath) == nil {
+            javaEnvironmentReport = JavaEnvironmentReport(
+                status: .configuredJDKInvalid(path: configuredPath),
+                projectURL: projectURL,
+                javaHomePath: configuredPath,
+                javaExecutablePath: nil,
+                jdbExecutablePath: nil,
+                languageServerExecutablePath: runtimeLocator.javaLanguageServerExecutable()?.path
+            )
+            return
+        }
+
+        let javaHome: URL? = if !configuredPath.isEmpty {
+            runtimeLocator.validJavaHome(path: configuredPath)
+        } else {
+            discoveredJavaRuntimes.first.flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
+        }
+        guard let javaHome else {
+            javaEnvironmentReport = JavaEnvironmentReport(
+                status: .jdkMissing,
+                projectURL: projectURL,
+                javaHomePath: nil,
+                javaExecutablePath: nil,
+                jdbExecutablePath: runtimeLocator.systemJDBExecutable()?.path,
+                languageServerExecutablePath: runtimeLocator.javaLanguageServerExecutable()?.path
+            )
+            return
+        }
+
+        let javaExecutable = javaHome.appendingPathComponent("bin/java")
+        let bundledJDB = javaHome.appendingPathComponent("bin/jdb")
+        let jdbExecutable = runtimeLocator.isExecutable(at: bundledJDB)
+            ? bundledJDB
+            : runtimeLocator.systemJDBExecutable()
+        guard let jdbExecutable else {
+            javaEnvironmentReport = JavaEnvironmentReport(
+                status: .jdbMissing,
+                projectURL: projectURL,
+                javaHomePath: javaHome.path,
+                javaExecutablePath: javaExecutable.path,
+                jdbExecutablePath: nil,
+                languageServerExecutablePath: runtimeLocator.javaLanguageServerExecutable()?.path
+            )
+            return
+        }
+
+        let languageServer = runtimeLocator.javaLanguageServerExecutable()
+        javaEnvironmentReport = JavaEnvironmentReport(
+            status: languageServer == nil ? .languageServerMissing : .ready,
+            projectURL: projectURL,
+            javaHomePath: javaHome.path,
+            javaExecutablePath: javaExecutable.path,
+            jdbExecutablePath: jdbExecutable.path,
+            languageServerExecutablePath: languageServer?.path
+        )
+    }
+
+    /// Resolves a bare program name without starting a process. Returns nil
+    /// when no candidate is executable.
+    func executableOnPath(_ command: String) -> URL? {
+        executableCandidates(command).first?.executableURL
     }
 
     func mavenExecutable(for project: MavenProject) -> URL? {
@@ -220,6 +355,21 @@ final class ProjectRuntimeService: ObservableObject {
             }
             return runtimeLocator.systemMavenExecutable()
         }
+    }
+
+    /// Resolves a Gradle wrapper before falling back to a system Gradle. The
+    /// executable check is delegated to RuntimeLocator so platform adapters
+    /// can apply their own permissions and path rules.
+    func gradleExecutable(at rootURL: URL) -> URL? {
+        let normalizedRoot = rootURL.standardizedFileURL
+        let wrappers = [
+            normalizedRoot.appendingPathComponent("gradlew"),
+            normalizedRoot.appendingPathComponent("gradlew.bat")
+        ]
+        if let wrapper = wrappers.first(where: { runtimeLocator.isExecutable(at: $0) }) {
+            return wrapper
+        }
+        return executableOnPath("gradle")
     }
 
     func activeJavaRuntime() -> JavaRuntimeCandidate? {

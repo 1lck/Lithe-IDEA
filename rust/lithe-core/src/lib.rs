@@ -2799,6 +2799,212 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn toolchain_backed_process_uses_the_generic_runtime_binding() {
+        let root = temporary_root("run-config-go-toolchain");
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            r#"{"version":2,"configurations":[{
+                "id":"go:api","name":"Go API","provider":"go.main",
+                "execution":"application","args":["run","./cmd/api"],"cwd":".",
+                "env":{"APP_ENV":"dev"},"toolchains":{"runtime":"project-go"}
+            }]}"#,
+        )
+        .unwrap();
+
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "go-toolchain-plan",
+                "command": "runConfig.createLaunchPlan",
+                "payload": {"root": root, "configurationId": "go:api"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(plan["ok"], true, "{plan}");
+        assert_eq!(plan["data"]["executable"]["toolchain"], "project-go");
+        assert!(plan["data"]["executable"]["command"].is_null());
+        assert_eq!(plan["data"]["arguments"], serde_json::json!(["run", "./cmd/api"]));
+        assert_eq!(plan["data"]["env"]["APP_ENV"], "dev");
+        assert!(plan["data"]["environment"]["JAVA_HOME"].is_null());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pure_go_generation_does_not_require_java_or_add_java_current_file() {
+        let root = temporary_root("pure-go-no-jdk");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("go.mod"), "module example.com/api\n\ngo 1.24\n").unwrap();
+        fs::write(root.join("main.go"), "package main\nfunc main() {}\n").unwrap();
+
+        let generated: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "generate-pure-go",
+                "command": "runConfig.generate",
+                "payload": {"root": root, "paths": ["go.mod", "main.go"], "modulePaths": []}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(generated["ok"], true, "{generated}");
+        let configurations = generated["data"]["generated"]["configurations"]
+            .as_array()
+            .unwrap();
+        assert!(configurations.iter().any(|value| value["provider"] == "go.main"));
+        assert!(!configurations.iter().any(|value| value["id"] == "current-file"));
+        assert!(generated["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]
+            .is_null());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn multi_language_generation_declares_runtime_requirements_and_versions() {
+        let root = temporary_root("generic-toolchain-requirements");
+        for directory in ["python", "web", "worker/src"] {
+            fs::create_dir_all(root.join(directory)).unwrap();
+        }
+        fs::write(root.join("go.mod"), "module example.com/api\n\ngo 1.24\n").unwrap();
+        fs::write(root.join("main.go"), "package main\nfunc main() {}\n").unwrap();
+        fs::write(
+            root.join("python/pyproject.toml"),
+            "[project]\nname = \"api\"\nrequires-python = \">=3.12\"\n[project.scripts]\napi = \"api:main\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("web/package.json"),
+            r#"{"engines":{"node":">=22.4"},"scripts":{"dev":"vite"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("worker/Cargo.toml"),
+            "[package]\nname = \"worker\"\nversion = \"0.1.0\"\nrust-version = \"1.82\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("worker/src/main.rs"), "fn main() {}\n").unwrap();
+
+        let generated: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "generate-generic-requirements",
+                "command": "runConfig.generate",
+                "payload": {"root": root}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(generated["ok"], true, "{generated}");
+        let requirements = &generated["data"]["toolchainRequirements"]["toolchains"];
+        for (id, kind, version) in [
+            ("project-go", "go", "1.24"),
+            ("project-python", "python", "3.12"),
+            ("project-node", "node", "22.4"),
+            ("project-cargo", "rust", "1.82"),
+        ] {
+            assert_eq!(requirements[id]["type"], kind, "{requirements}");
+            assert_eq!(requirements[id]["minimumVersion"], version, "{requirements}");
+        }
+        assert!(requirements["project-jdk"].is_null(), "{requirements}");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unknown_provider_without_an_executable_never_falls_into_maven() {
+        let root = temporary_root("run-config-unknown-provider");
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            r#"{"version":2,"configurations":[{
+                "id":"zig:app","name":"Zig App","provider":"zig.main",
+                "args":[],"cwd":".","toolchains":{}
+            }]}"#,
+        )
+        .unwrap();
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "unknown-provider-plan",
+                "command": "runConfig.createLaunchPlan",
+                "payload": {"root": root, "configurationId": "zig:app"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(plan["ok"], false, "{plan}");
+        assert_eq!(plan["error"]["code"], "invalid_request");
+        assert!(plan["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("command or runtime toolchain"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Generic editor options must patch the common process shape. Writing
+    /// them into extensions.maven makes the UI appear to save successfully
+    /// while Go/Python/Node launch plans continue using the old arguments.
+    #[test]
+    fn process_options_update_common_arguments_and_environment() {
+        let root = temporary_root("run-config-process-options");
+        fs::create_dir_all(root.join(".lithe/run")).unwrap();
+        fs::create_dir_all(root.join("backend")).unwrap();
+        fs::write(
+            root.join(".lithe/run/generated.json"),
+            r#"{"version":2,"configurations":[{
+                "id":"python:api","name":"API","provider":"python.script",
+                "command":"python3","args":["app.py"],"cwd":".","toolchains":{}
+            }]}"#,
+        )
+        .unwrap();
+
+        let updated: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "update-process-options",
+                "command": "runConfig.updateOptions",
+                "payload": {
+                    "root": root,
+                    "scope": "local",
+                    "configurationId": "python:api",
+                    "workingDirectory": "backend",
+                    "arguments": "app.py --port 9000",
+                    "environment": {"APP_ENV": "test"}
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(updated["ok"], true, "{updated}");
+        let document: Value = serde_json::from_str(
+            updated["data"]["document"].as_str().expect("document string"),
+        )
+        .unwrap();
+        let patch = &document["configurations"][0];
+        assert_eq!(patch["args"], serde_json::json!(["app.py", "--port", "9000"]));
+        assert_eq!(patch["env"]["APP_ENV"], "test");
+        assert!(patch["extensions"]["maven"].is_null());
+
+        fs::write(
+            root.join(".lithe/run/local.json"),
+            updated["data"]["document"].as_str().unwrap(),
+        )
+        .unwrap();
+        let plan: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "updated-process-plan",
+                "command": "runConfig.createLaunchPlan",
+                "payload": {"root": root, "configurationId": "python:api"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(plan["ok"], true, "{plan}");
+        assert_eq!(plan["data"]["arguments"], serde_json::json!(["app.py", "--port", "9000"]));
+        assert_eq!(plan["data"]["env"]["APP_ENV"], "test");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
     /// An absolute or relative path would let a project manifest point the IDE
     /// at an executable of its choosing. Commands resolve on PATH only.
     #[test]
@@ -3066,8 +3272,26 @@ mod tests {
         let root = temporary_root("detect-no-clobber");
         fs::create_dir_all(&root).unwrap();
         multi_language_project(&root);
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("src/Main.java"),
+            "class Main { public static void main(String[] args) {} }",
+        )
+        .unwrap();
 
-        let ids = generated_configurations(&root)
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "generate-with-java",
+                "command": "runConfig.generate",
+                "payload": {"root": root, "paths": ["src/Main.java"]}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        let ids = response["data"]["generated"]["configurations"]
+            .as_array()
+            .unwrap()
             .iter()
             .map(|item| item["id"].as_str().unwrap().to_string())
             .collect::<Vec<_>>();

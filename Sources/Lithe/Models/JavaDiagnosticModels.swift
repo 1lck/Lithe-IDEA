@@ -1,6 +1,6 @@
 import Foundation
 
-enum JavaDiagnosticSeverity: Int, CaseIterable, Hashable, Sendable {
+enum DiagnosticSeverity: Int, CaseIterable, Hashable, Sendable {
     case error = 1
     case warning = 2
     case information = 3
@@ -25,12 +25,12 @@ enum JavaDiagnosticSeverity: Int, CaseIterable, Hashable, Sendable {
     }
 }
 
-enum JavaDiagnosticTag: Int, Hashable, Sendable {
+enum DiagnosticTag: Int, Hashable, Sendable {
     case unnecessary = 1
     case deprecated = 2
 }
 
-struct JavaDiagnosticRelatedInformation: Hashable, Sendable {
+struct DiagnosticRelatedInformation: Hashable, Sendable {
     let fileURL: URL
     let line: Int
     let utf16Column: Int
@@ -41,19 +41,47 @@ struct JavaDiagnosticRelatedInformation: Hashable, Sendable {
     }
 }
 
-struct JavaDiagnostic: Identifiable, Hashable, Sendable {
+struct EditorDiagnostic: Identifiable, Hashable, Sendable {
     let id: String
     let fileURL: URL
     let line: Int
     let utf16Column: Int
     let endLine: Int
     let endUTF16Column: Int
-    let severity: JavaDiagnosticSeverity
+    let severity: DiagnosticSeverity
     let message: String
     let source: String?
     let code: String?
-    let tags: Set<JavaDiagnosticTag>
-    let relatedInformation: [JavaDiagnosticRelatedInformation]
+    let tags: Set<DiagnosticTag>
+    let relatedInformation: [DiagnosticRelatedInformation]
+
+    init(
+        id: String,
+        fileURL: URL,
+        line: Int,
+        utf16Column: Int,
+        endLine: Int,
+        endUTF16Column: Int,
+        severity: DiagnosticSeverity,
+        message: String,
+        source: String?,
+        code: String?,
+        tags: Set<DiagnosticTag>,
+        relatedInformation: [DiagnosticRelatedInformation]
+    ) {
+        self.id = id
+        self.fileURL = fileURL
+        self.line = line
+        self.utf16Column = utf16Column
+        self.endLine = endLine
+        self.endUTF16Column = endUTF16Column
+        self.severity = severity
+        self.message = message
+        self.source = source
+        self.code = code
+        self.tags = tags
+        self.relatedInformation = relatedInformation
+    }
 
     var isUnnecessary: Bool {
         if tags.contains(.unnecessary) { return true }
@@ -85,4 +113,67 @@ struct JavaDiagnostic: Identifiable, Hashable, Sendable {
     var locationTitle: String {
         fileURL.lastPathComponent + ":" + String(line + 1) + ":" + String(utf16Column + 1)
     }
+
+    init(languageServerDiagnostic diagnostic: LanguageServerDiagnostic, fileURL: URL) {
+        let normalizedURL = fileURL.standardizedFileURL
+        let line = max(0, diagnostic.range.start.line)
+        let column = max(0, diagnostic.range.start.utf16Column)
+        let endLine = max(line, diagnostic.range.end.line)
+        let endColumn = max(0, diagnostic.range.end.utf16Column)
+        self.init(
+            id: [
+                normalizedURL.path,
+                String(line),
+                String(column),
+                diagnostic.source ?? "lsp",
+                diagnostic.code ?? "",
+                diagnostic.message
+            ].joined(separator: ":"),
+            fileURL: normalizedURL,
+            line: line,
+            utf16Column: column,
+            endLine: endLine,
+            endUTF16Column: endColumn,
+            severity: DiagnosticSeverity(rawValue: diagnostic.severity ?? 1) ?? .error,
+            message: diagnostic.message,
+            source: diagnostic.source,
+            code: diagnostic.code,
+            tags: [],
+            relatedInformation: []
+        )
+    }
+
+    static func merging(
+        _ editorDiagnostics: [URL: [EditorDiagnostic]],
+        languageServerDiagnostics: [URL: [LanguageServerDiagnostic]]
+    ) -> [URL: [EditorDiagnostic]] {
+        var merged = Dictionary(uniqueKeysWithValues: editorDiagnostics.map {
+            ($0.key.standardizedFileURL, $0.value)
+        })
+        for (fileURL, diagnostics) in languageServerDiagnostics {
+            let normalizedURL = fileURL.standardizedFileURL
+            var existing = merged[normalizedURL] ?? []
+            for diagnostic in diagnostics.map({
+                EditorDiagnostic(languageServerDiagnostic: $0, fileURL: normalizedURL)
+            }) where !existing.contains(where: { $0.semanticIdentity == diagnostic.semanticIdentity }) {
+                existing.append(diagnostic)
+            }
+            merged[normalizedURL] = existing
+        }
+        return merged
+    }
+
+    private var semanticIdentity: String {
+        [
+            String(line), String(utf16Column), String(endLine), String(endUTF16Column),
+            source ?? "", code ?? "", message
+        ].joined(separator: "\u{1F}")
+    }
 }
+
+// Transitional source compatibility while the Java feature moves onto the
+// editor-wide diagnostics capability.
+typealias JavaDiagnosticSeverity = DiagnosticSeverity
+typealias JavaDiagnosticTag = DiagnosticTag
+typealias JavaDiagnosticRelatedInformation = DiagnosticRelatedInformation
+typealias JavaDiagnostic = EditorDiagnostic

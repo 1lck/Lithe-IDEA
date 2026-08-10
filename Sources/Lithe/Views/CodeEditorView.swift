@@ -81,18 +81,51 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
-        textView.isJavaNavigationEnabled = document.url.pathExtension.lowercased() == "java"
+        textView.languageServerFeatures = model.languageToolingSessions.features(for: document.url)
+        textView.isLanguageNavigationEnabled = !textView.languageServerFeatures.intersection([
+            .definition, .references, .implementation
+        ]).isEmpty
         textView.onNavigateToSymbol = { [weak model] line, utf16Column in
             model?.navigateToSymbol(line: line, utf16Column: utf16Column, in: document.url)
         }
         textView.onGoToDefinition = { [weak model] in model?.goToDefinition() }
         textView.onGoToImplementation = { [weak model] in model?.goToImplementation() }
-        textView.onFindUsages = { [weak model] in model?.findJavaReferences() }
+        textView.onFindUsages = { [weak model] in model?.findReferences() }
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
         textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
         textView.onFindStateChange = { [weak model] index, count in
             model?.updateFindState(currentIndex: index, count: count)
+        }
+        textView.isLanguageIntelligenceEnabled = !textView.languageServerFeatures.intersection([
+            .hover, .completion, .rename, .formatting, .codeActions
+        ]).isEmpty
+        textView.onQuickDocumentation = { [weak model, weak textView] line, column in
+            model?.requestLanguageHover(line: line, utf16Column: column) { [weak textView] hover in
+                guard let textView else { return }
+                if let hover {
+                    textView.presentLanguageHover(hover)
+                } else {
+                    model?.showNotification("No documentation is available for this symbol")
+                }
+            }
+        }
+        textView.onCompletionRequested = { [weak model, weak textView] line, column in
+            model?.requestLanguageCompletions(line: line, utf16Column: column) { [weak textView] items in
+                textView?.presentLanguageCompletions(items)
+            }
+        }
+        textView.onCompletionSelected = { [weak model] item, range in
+            model?.applyLanguageCompletion(item, fallbackRange: range)
+        }
+        textView.onRenameRequested = { [weak model] line, column, newName in
+            model?.requestLanguageRename(line: line, utf16Column: column, newName: newName)
+        }
+        textView.onFormatRequested = { [weak model] in model?.requestLanguageFormatting() }
+        textView.onCodeActionsRequested = { [weak model, weak textView] line, column in
+            model?.requestLanguageCodeActions(line: line, utf16Column: column) { [weak textView, weak model] actions in
+                textView?.presentLanguageCodeActions(actions) { action in model?.applyLanguageCodeAction(action) }
+            }
         }
         textView.onPasteImage = { [weak coordinator = context.coordinator] in
             coordinator?.pasteMarkdownImage() ?? false
@@ -137,6 +170,13 @@ struct CodeEditorView: NSViewRepresentable {
         textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
         if let codeTextView = textView as? CodeTextView {
             codeTextView.indentationWidth = settings.tabWidth
+            codeTextView.languageServerFeatures = model.languageToolingSessions.features(for: document.url)
+            codeTextView.isLanguageNavigationEnabled = !codeTextView.languageServerFeatures.intersection([
+                .definition, .references, .implementation
+            ]).isEmpty
+            codeTextView.isLanguageIntelligenceEnabled = !codeTextView.languageServerFeatures.intersection([
+                .hover, .completion, .rename, .formatting, .codeActions
+            ]).isEmpty
         }
         textView.isEditable = !document.isReadOnly
         textView.isSelectable = true
@@ -484,14 +524,18 @@ struct CodeEditorView: NSViewRepresentable {
 
             let isBlameVisible = model.blameVisibleURL == url
             let blameLines = model.gitBlameLines[url] ?? []
-            let debugBreakpoints = debugService?.breakpoints.filter {
+            let javaBreakpointLines = debugService?.breakpoints.filter {
                 $0.fileURL.standardizedFileURL == url
-            } ?? []
+            }.map(\.line) ?? []
+            let genericBreakpointLines = model.genericDebugFeature.breakpoints.filter {
+                $0.fileURL.standardizedFileURL == url
+            }.map(\.line)
+            let debugBreakpointLines = Set(javaBreakpointLines + genericBreakpointLines)
             container?.gutterWidthConstraint?.constant = isBlameVisible ? 224 : 52
             gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                 Task { await model?.showGitCommit(blame.commitHash) }
             }
-            gutter?.updateDebugBreakpoints(debugBreakpoints) { [weak model] line in
+            gutter?.updateDebugBreakpointLines(debugBreakpointLines) { [weak model] line in
                 model?.toggleDebugBreakpoint(fileURL: url, line: line)
             }
         }
@@ -500,7 +544,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard let document, let model,
                   let textView = textView as? CodeTextView else { return }
             textView.updateDiagnostics(
-                model.javaDiagnostics[document.url.standardizedFileURL] ?? []
+                model.editorDiagnostics[document.url.standardizedFileURL] ?? []
             )
         }
 
@@ -617,7 +661,9 @@ private struct TextLineIndex {
 
 final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var indentationWidth = 4
-    var isJavaNavigationEnabled = false
+    var isLanguageNavigationEnabled = false
+    var isLanguageIntelligenceEnabled = false
+    var languageServerFeatures: LanguageServerFeatureSet = []
     var onWindowAttached: (() -> Void)?
     var onNavigateToSymbol: ((Int, Int) -> Void)?
     var onGoToDefinition: (() -> Void)?
@@ -627,10 +673,18 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var onFindNextRequested: (() -> Void)?
     var onFindPreviousRequested: (() -> Void)?
     var onFindStateChange: ((Int, Int) -> Void)?
+    var onQuickDocumentation: ((Int, Int) -> Void)?
+    var onCompletionRequested: ((Int, Int) -> Void)?
+    var onCompletionSelected: ((LanguageServerCompletionItem, LanguageServerRange) -> Void)?
+    var onRenameRequested: ((Int, Int, String) -> Void)?
+    var onFormatRequested: (() -> Void)?
+    var onCodeActionsRequested: ((Int, Int) -> Void)?
     var onPasteImage: (() -> Bool)?
 
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
+    private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
+    private var languageHoverPopover: NSPopover?
 
     private let currentLineColor = NSColor(white: 1, alpha: 0.035)
     private let bracketColor = NSColor(white: 0.72, alpha: 0.22)
@@ -656,6 +710,14 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if Self.isStandardPasteShortcut(event), onPasteImage?() == true {
+            return true
+        }
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let character = event.charactersIgnoringModifiers
+        if languageServerFeatures.contains(.completion),
+           (modifiers == .control && character == " "
+            || modifiers == .option && character == "\u{1B}") {
+            requestLanguageCompletions()
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -716,7 +778,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
             layoutManager.addTemporaryAttribute(.backgroundColor, value: bracketColor, forCharacterRange: range)
         }
 
-        if isJavaNavigationEnabled,
+        if isLanguageNavigationEnabled,
            let symbol = identifier(at: caret, in: source),
            let scope = enclosingCodeScope(at: caret, in: source) {
             let escaped = NSRegularExpression.escapedPattern(for: symbol.text)
@@ -1249,7 +1311,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
 
     override func flagsChanged(with event: NSEvent) {
         super.flagsChanged(with: event)
-        guard isJavaNavigationEnabled, hasNavigationModifier(event.modifierFlags) else {
+        guard isLanguageNavigationEnabled, hasNavigationModifier(event.modifierFlags) else {
             clearLinkHighlight()
             return
         }
@@ -1267,7 +1329,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         super.mouseMoved(with: event)
         let point = convert(event.locationInWindow, from: nil)
         updateFoldHover(at: point)
-        guard isJavaNavigationEnabled,
+        guard isLanguageNavigationEnabled,
               hasNavigationModifier(event.modifierFlags) else { return }
         updateLinkHighlight(at: point)
     }
@@ -1296,7 +1358,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     }
 
     private func updateLinkHighlight(at point: NSPoint) {
-        guard isJavaNavigationEnabled,
+        guard isLanguageNavigationEnabled,
               let target = linkRange(at: point) else {
             clearLinkHighlight()
             return
@@ -1321,7 +1383,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     }
 
     private func applyLinkHighlight() {
-        guard isJavaNavigationEnabled,
+        guard isLanguageNavigationEnabled,
               let linkRange,
               linkRange.location >= 0,
               NSMaxRange(linkRange) <= string.utf16.count,
@@ -1535,37 +1597,185 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         }
 
         let menu = super.menu(for: event) ?? NSMenu()
-        guard isJavaNavigationEnabled else { return menu }
+        let languageItems = languageContextMenuItems()
+        guard !languageItems.isEmpty else { return menu }
         menu.insertItem(.separator(), at: 0)
-
-        let usages = NSMenuItem(
-            title: "Find Usages",
-            action: #selector(findUsagesFromMenu),
-            keyEquivalent: ""
-        )
-        usages.target = self
-        menu.insertItem(usages, at: 0)
-
-        let definition = NSMenuItem(
-            title: "Go to Definition",
-            action: #selector(goToDefinitionFromMenu),
-            keyEquivalent: ""
-        )
-        definition.target = self
-        menu.insertItem(definition, at: 0)
-
-        let implementation = NSMenuItem(
-            title: "Go to Implementation",
-            action: #selector(goToImplementationFromMenu),
-            keyEquivalent: ""
-        )
-        implementation.target = self
-        menu.insertItem(implementation, at: 0)
+        for item in languageItems.reversed() { menu.insertItem(item, at: 0) }
         return menu
+    }
+
+    func languageContextMenuItems() -> [NSMenuItem] {
+        var languageItems: [NSMenuItem] = []
+        func add(_ feature: LanguageServerFeatureSet, _ title: String, _ action: Selector) {
+            guard languageServerFeatures.contains(feature) else { return }
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            languageItems.append(item)
+        }
+        add(.implementation, "Go to Implementation", #selector(goToImplementationFromMenu))
+        add(.definition, "Go to Definition", #selector(goToDefinitionFromMenu))
+        add(.references, "Find Usages", #selector(findUsagesFromMenu))
+        add(.hover, "Quick Documentation", #selector(showQuickDocumentationFromMenu))
+        add(.completion, "Complete Symbol", #selector(completeSymbolFromMenu))
+        add(.rename, "Rename Symbol", #selector(renameSymbolFromMenu))
+        add(.formatting, "Format Document", #selector(formatDocumentFromMenu))
+        add(.codeActions, "Source Actions…", #selector(codeActionsFromMenu))
+        return languageItems
     }
 
     @objc private func goToDefinitionFromMenu() {
         onGoToDefinition?()
+    }
+
+    @objc private func showQuickDocumentationFromMenu() {
+        let position = languageServerPosition(at: selectedRange().location)
+        onQuickDocumentation?(position.line, position.utf16Column)
+    }
+
+    @objc private func completeSymbolFromMenu() {
+        requestLanguageCompletions()
+    }
+
+    @objc private func renameSymbolFromMenu() {
+        let position = languageServerPosition(at: selectedRange().location)
+        let alert = NSAlert()
+        alert.messageText = "Rename Symbol"
+        alert.informativeText = "Enter the new symbol name."
+        let field = NSTextField(string: "")
+        field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn,
+              !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        onRenameRequested?(position.line, position.utf16Column, field.stringValue)
+    }
+
+    @objc private func formatDocumentFromMenu() { onFormatRequested?() }
+
+    @objc private func codeActionsFromMenu() {
+        let position = languageServerPosition(at: selectedRange().location)
+        onCodeActionsRequested?(position.line, position.utf16Column)
+    }
+
+    private func requestLanguageCompletions() {
+        let position = languageServerPosition(at: selectedRange().location)
+        onCompletionRequested?(position.line, position.utf16Column)
+    }
+
+    func presentLanguageCompletions(_ items: [LanguageServerCompletionItem]) {
+        guard !items.isEmpty, window != nil else { return }
+        completionItemsByID = [:]
+        for item in items.prefix(200) { completionItemsByID[item.id] = item }
+        let menu = NSMenu(title: "Completions")
+        for item in items.prefix(200) {
+            let title = item.detail.map { "\(item.label)  —  \($0)" } ?? item.label
+            let entry = NSMenuItem(
+                title: title,
+                action: #selector(insertLanguageCompletion(_:)),
+                keyEquivalent: ""
+            )
+            entry.target = self
+            entry.representedObject = item.id
+            menu.addItem(entry)
+        }
+        menu.popUp(positioning: nil, at: caretMenuPoint(), in: self)
+    }
+
+    func presentLanguageCodeActions(
+        _ actions: [LanguageServerCodeAction],
+        onSelect: @escaping (LanguageServerCodeAction) -> Void
+    ) {
+        guard !actions.isEmpty, window != nil else { return }
+        let menu = NSMenu(title: "Source Actions")
+        for action in actions.prefix(50) {
+            let item = NSMenuItem(title: action.title, action: #selector(selectLanguageCodeAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = action
+            menu.addItem(item)
+        }
+        languageCodeActionHandler = onSelect
+        menu.popUp(positioning: nil, at: caretMenuPoint(), in: self)
+    }
+
+    private var languageCodeActionHandler: ((LanguageServerCodeAction) -> Void)?
+
+    @objc private func selectLanguageCodeAction(_ sender: NSMenuItem) {
+        guard let action = sender.representedObject as? LanguageServerCodeAction else { return }
+        languageCodeActionHandler?(action)
+        languageCodeActionHandler = nil
+    }
+
+    func presentLanguageHover(_ hover: LanguageServerHover) {
+        languageHoverPopover?.close()
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 220))
+        textView.string = hover.contents
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textColor = NSColor(white: 0.88, alpha: 1)
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textContainerInset = NSSize(width: 10, height: 9)
+        let scrollView = NSScrollView(frame: textView.frame)
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = NSColor(red: 0.105, green: 0.11, blue: 0.12, alpha: 1)
+        let controller = NSViewController()
+        controller.view = scrollView
+        controller.preferredContentSize = NSSize(width: 480, height: 220)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = controller
+        popover.show(relativeTo: caretAnchorRect(), of: self, preferredEdge: .maxY)
+        languageHoverPopover = popover
+    }
+
+    @objc private func insertLanguageCompletion(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let item = completionItemsByID[id] else { return }
+        let fallbackRange = rangeForUserCompletion
+        let start = languageServerPosition(at: fallbackRange.location)
+        let end = languageServerPosition(at: NSMaxRange(fallbackRange))
+        let languageRange = LanguageServerRange(
+            start: LanguageServerPosition(line: start.line, utf16Column: start.utf16Column),
+            end: LanguageServerPosition(line: end.line, utf16Column: end.utf16Column)
+        )
+        if let onCompletionSelected {
+            onCompletionSelected(item, languageRange)
+        } else {
+            insertText(LanguageServerSnippet.plainText(item.insertText), replacementRange: fallbackRange)
+        }
+        completionItemsByID = [:]
+    }
+
+    private func languageServerPosition(at location: Int) -> (line: Int, utf16Column: Int) {
+        let line = lineIndex.lineNumber(at: location)
+        let start = lineIndex.characterOffset(forLine: line)
+        return (line, max(0, location - start))
+    }
+
+    private func caretAnchorRect() -> NSRect {
+        guard let layoutManager, let textContainer else {
+            return NSRect(x: textContainerInset.width, y: textContainerInset.height, width: 1, height: 18)
+        }
+        let length = string.utf16.count
+        let location = length == 0 ? 0 : min(selectedRange().location, length - 1)
+        let glyph = length == 0 ? 0 : layoutManager.glyphIndexForCharacter(at: location)
+        var rect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyph, length: 0),
+            in: textContainer
+        )
+        rect.origin.x += textContainerOrigin.x
+        rect.origin.y += textContainerOrigin.y
+        rect.size = NSSize(width: max(1, rect.width), height: max(18, rect.height))
+        return rect
+    }
+
+    private func caretMenuPoint() -> NSPoint {
+        let rect = caretAnchorRect()
+        return NSPoint(x: rect.minX, y: rect.maxY)
     }
 
     @objc private func goToImplementationFromMenu() {
@@ -1774,11 +1984,11 @@ final class LineNumberGutterView: NSView {
         needsDisplay = true
     }
 
-    func updateDebugBreakpoints(
-        _ breakpoints: [JavaDebugBreakpoint],
+    func updateDebugBreakpointLines(
+        _ lines: Set<Int>,
         onToggle: @escaping (Int) -> Void
     ) {
-        debugBreakpointLines = Set(breakpoints.map { max(0, $0.line - 1) })
+        debugBreakpointLines = Set(lines.map { max(0, $0 - 1) })
         onToggleDebugBreakpoint = onToggle
         needsDisplay = true
     }

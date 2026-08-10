@@ -50,8 +50,8 @@ enum RunConfigurationSource: String, Sendable {
 }
 
 struct EffectiveRunConfiguration: Sendable {
-    let configuration: JavaRunConfiguration
-    let options: JavaRunOptions
+    let configuration: RunConfiguration
+    let options: RunOptions
     var source: RunConfigurationSource = .generated
 }
 
@@ -92,7 +92,7 @@ struct RunConfigurationGenerationResult: Sendable {
 
 struct RunConfigurationDraft: Sendable {
     let name: String
-    let kind: JavaRunConfigurationKind
+    let kind: RunConfigurationKind
     let modulePath: String
     let mainClass: String
     let scope: RunConfigurationSaveScope
@@ -108,7 +108,7 @@ protocol RunConfigurationDocumentMutating: Sendable {
         at projectURL: URL,
         configurationID: String,
         scope: RunConfigurationSaveScope,
-        options: JavaRunOptions
+        options: RunOptions
     ) throws -> RunConfigurationDocumentMutation
     func createConfigurationDocument(
         at projectURL: URL,
@@ -153,7 +153,7 @@ protocol RunConfigurationOperations: ProjectToolchainConfigurationSource, Sendab
         debugPort: Int?
     ) throws -> SharedLaunchPlan
     func saveOptions(
-        _ options: JavaRunOptions,
+        _ options: RunOptions,
         configurationID: String,
         scope: RunConfigurationSaveScope,
         at projectURL: URL

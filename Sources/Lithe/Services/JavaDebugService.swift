@@ -63,7 +63,7 @@ final class JavaDebugService: ObservableObject {
     var isSessionActive: Bool { state != .idle }
     var canControl: Bool { jdbProcess?.isRunning == true }
 
-    func start(fileURL: URL, sourceText: String, projectURL: URL?, options: JavaRunOptions) {
+    func start(fileURL: URL, sourceText: String, projectURL: URL?, options: RunOptions) {
         stop()
         guard fileURL.pathExtension.lowercased() == "java" else {
             fail("Select a Java file before starting Debug.")
@@ -82,7 +82,7 @@ final class JavaDebugService: ObservableObject {
         do {
             plan = try runConfigurationOperations.launchPlan(
                 at: projectURL,
-                configurationID: JavaRunConfiguration.currentFileID,
+                configurationID: RunConfiguration.currentFileID,
                 currentFile: currentFile,
                 classPath: nil,
                 debugPort: debugPort
@@ -124,10 +124,10 @@ final class JavaDebugService: ObservableObject {
     }
 
     func startMaven(
-        configuration: JavaRunConfiguration,
+        configuration: RunConfiguration,
         project: MavenProject,
         projectURL: URL,
-        options: JavaRunOptions
+        options: RunOptions
     ) {
         stop()
         guard configuration.kind.isMavenBacked else {

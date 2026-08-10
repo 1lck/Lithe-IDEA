@@ -1,18 +1,22 @@
 import AppKit
 import SwiftUI
 
-struct JavaRunConfigurationEditorView: View {
+struct RunConfigurationEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var feature: JavaRunFeatureModel
-    let configuration: JavaRunConfiguration
-    @State private var options: JavaRunOptions
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var feature: RunFeatureModel
+    let configuration: RunConfiguration
+    @State private var options: RunOptions
+    @State private var environmentText: String
     @State private var saveScope: RunConfigurationSaveScope = .local
     @State private var saveError: String?
 
-    init(feature: JavaRunFeatureModel, configuration: JavaRunConfiguration) {
+    init(feature: RunFeatureModel, configuration: RunConfiguration) {
         self.feature = feature
         self.configuration = configuration
-        _options = State(initialValue: feature.options(for: configuration))
+        let initialOptions = feature.options(for: configuration)
+        _options = State(initialValue: initialOptions)
+        _environmentText = State(initialValue: Self.environmentText(from: initialOptions.environment))
     }
 
     var body: some View {
@@ -26,7 +30,10 @@ struct JavaRunConfigurationEditorView: View {
                     configurationSummary
                     runtimeSection
                     argumentsSection
-                    if configuration.kind.isMavenBacked && !feature.mavenProfiles.isEmpty {
+                    if effectiveCapabilities.contains(.environment) {
+                        environmentSection
+                    }
+                    if effectiveCapabilities.contains(.mavenProfiles) && !feature.mavenProfiles.isEmpty {
                         profilesSection
                     }
                 }
@@ -36,7 +43,8 @@ struct JavaRunConfigurationEditorView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack {
                 Button("Reset") {
-                    options = JavaRunOptions()
+                    options = RunOptions()
+                    environmentText = ""
                 }
                 .buttonStyle(.borderless)
                 .lithePointer()
@@ -50,6 +58,7 @@ struct JavaRunConfigurationEditorView: View {
                         .frame(maxWidth: 250, alignment: .trailing)
                 }
                 Button("Done") {
+                    options.environment = Self.environment(from: environmentText)
                     if feature.updateOptions(options, for: configuration, scope: saveScope) {
                         dismiss()
                     } else {
@@ -66,6 +75,13 @@ struct JavaRunConfigurationEditorView: View {
         .frame(width: 520, height: 470)
         .background(LitheTheme.window)
         .preferredColorScheme(.dark)
+    }
+
+    private var effectiveCapabilities: RunConfigurationCapabilities {
+        configuration.effectiveCapabilities(
+            for: model.activeDocument?.url,
+            catalog: model.languageProviderCatalog
+        )
     }
 
     private var saveScopeSection: some View {
@@ -138,13 +154,15 @@ struct JavaRunConfigurationEditorView: View {
 
     private var runtimeSection: some View {
         section(title: "Runtime") {
-            pathRow(
-                title: "JDK Home",
-                placeholder: "Use project JDK or system default",
-                text: stringBinding(\.javaHomePath),
-                chooseDirectory: { chooseDirectory(for: \.javaHomePath) }
-            )
-            .disabled(saveScope == .project)
+            if effectiveCapabilities.contains(.javaRuntime) {
+                pathRow(
+                    title: "JDK Home",
+                    placeholder: "Use project JDK or system default",
+                    text: stringBinding(\.javaHomePath),
+                    chooseDirectory: { chooseDirectory(for: \.javaHomePath) }
+                )
+                .disabled(saveScope == .project)
+            }
             pathRow(
                 title: "Working directory",
                 placeholder: "Use project or file directory",
@@ -156,16 +174,38 @@ struct JavaRunConfigurationEditorView: View {
 
     private var argumentsSection: some View {
         section(title: "Arguments") {
-            argumentField(
-                title: "VM options",
-                placeholder: "-Xmx1g -Dserver.port=8080",
-                text: stringBinding(\.vmArguments)
-            )
+            if effectiveCapabilities.contains(.javaVMArguments) {
+                argumentField(
+                    title: "VM options",
+                    placeholder: "-Xmx1g -Dserver.port=8080",
+                    text: stringBinding(\.vmArguments)
+                )
+            }
             argumentField(
                 title: "Program arguments",
-                placeholder: "--spring.profiles.active=dev",
-                text: stringBinding(\.programArguments)
+                placeholder: configuration.kind.isMavenBacked
+                    ? "--spring.profiles.active=dev"
+                    : "Arguments passed to the program",
+                text: stringBinding(\.arguments)
             )
+        }
+    }
+
+    private var environmentSection: some View {
+        section(title: "Environment") {
+            TextEditor(text: $environmentText)
+                .font(.system(size: 11.5, design: .monospaced))
+                .frame(minHeight: 72)
+                .padding(5)
+                .background(LitheTheme.inputBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(LitheTheme.divider, lineWidth: 1)
+                }
+            Text("One NAME=value entry per line")
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.secondaryText)
         }
     }
 
@@ -250,7 +290,7 @@ struct JavaRunConfigurationEditorView: View {
         }
     }
 
-    private func stringBinding(_ keyPath: WritableKeyPath<JavaRunOptions, String>) -> Binding<String> {
+    private func stringBinding(_ keyPath: WritableKeyPath<RunOptions, String>) -> Binding<String> {
         Binding(
             get: { options[keyPath: keyPath] },
             set: { options[keyPath: keyPath] = $0 }
@@ -270,7 +310,7 @@ struct JavaRunConfigurationEditorView: View {
         )
     }
 
-    private func chooseDirectory(for keyPath: WritableKeyPath<JavaRunOptions, String>) {
+    private func chooseDirectory(for keyPath: WritableKeyPath<RunOptions, String>) {
         let panel = NSOpenPanel()
         panel.title = "Choose Directory"
         panel.prompt = "Choose"
@@ -281,4 +321,24 @@ struct JavaRunConfigurationEditorView: View {
             options[keyPath: keyPath] = url.path
         }
     }
+
+    private static func environmentText(from environment: [String: String]) -> String {
+        environment.keys.sorted().map { key in
+            key + "=" + (environment[key] ?? "")
+        }.joined(separator: "\n")
+    }
+
+    private static func environment(from text: String) -> [String: String] {
+        var result: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            let value = String(line)
+            guard let separator = value.firstIndex(of: "=") else { continue }
+            let key = value[..<separator].trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty else { continue }
+            result[key] = String(value[value.index(after: separator)...])
+        }
+        return result
+    }
 }
+
+typealias JavaRunConfigurationEditorView = RunConfigurationEditorView

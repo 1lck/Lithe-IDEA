@@ -23,6 +23,61 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func languageServerTextEditsUseUTF16AndApplyFromTheEnd() throws {
+        let result = try LanguageServerTextEditApplicator.apply([
+            LanguageServerTextEdit(
+                range: LanguageServerRange(
+                    start: LanguageServerPosition(line: 0, utf16Column: 4),
+                    end: LanguageServerPosition(line: 0, utf16Column: 6)
+                ),
+                newText: "rocket"
+            ),
+            LanguageServerTextEdit(
+                range: LanguageServerRange(
+                    start: LanguageServerPosition(line: 1, utf16Column: 4),
+                    end: LanguageServerPosition(line: 1, utf16Column: 9)
+                ),
+                newText: "four"
+            )
+        ], to: "one 😀\ntwo three\n")
+
+        #expect(result == "one rocket\ntwo four\n")
+    }
+
+    @Test
+    func languageServerTextEditsRejectInvalidAndOverlappingRanges() {
+        #expect(throws: LanguageServerTextEditApplicator.Error.invalidRange) {
+            try LanguageServerTextEditApplicator.apply([
+                LanguageServerTextEdit(
+                    range: LanguageServerRange(
+                        start: LanguageServerPosition(line: 9, utf16Column: 0),
+                        end: LanguageServerPosition(line: 9, utf16Column: 1)
+                    ),
+                    newText: "x"
+                )
+            ], to: "one line")
+        }
+        #expect(throws: LanguageServerTextEditApplicator.Error.overlappingEdits) {
+            try LanguageServerTextEditApplicator.apply([
+                LanguageServerTextEdit(
+                    range: LanguageServerRange(
+                        start: LanguageServerPosition(line: 0, utf16Column: 0),
+                        end: LanguageServerPosition(line: 0, utf16Column: 4)
+                    ),
+                    newText: "a"
+                ),
+                LanguageServerTextEdit(
+                    range: LanguageServerRange(
+                        start: LanguageServerPosition(line: 0, utf16Column: 2),
+                        end: LanguageServerPosition(line: 0, utf16Column: 6)
+                    ),
+                    newText: "b"
+                )
+            ], to: "one line")
+        }
+    }
+
+    @Test
     func fileVisibilityRulesHideBuiltInAndCustomPatterns() {
         let root = URL(fileURLWithPath: "/tmp/lithe-visibility-tests")
         let rules = FileVisibilityRules(hiddenDirectoryNames: ["generated"], hiddenFilePatterns: ["*.generated.swift"])
@@ -679,6 +734,25 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    @MainActor
+    func codeEditorLanguageMenuTracksCurrentServerFeatures() {
+        let textView = CodeTextView(frame: .zero)
+
+        textView.languageServerFeatures = [.definition, .hover]
+        #expect(textView.languageContextMenuItems().map(\.title) == [
+            "Go to Definition", "Quick Documentation"
+        ])
+
+        textView.languageServerFeatures = [.completion, .formatting, .codeActions]
+        #expect(textView.languageContextMenuItems().map(\.title) == [
+            "Complete Symbol", "Format Document", "Source Actions…"
+        ])
+
+        textView.languageServerFeatures = []
+        #expect(textView.languageContextMenuItems().isEmpty)
+    }
+
+    @Test
     func markdownImageInsertionSeparatesTheReferenceFromRawHTML() {
         let source = "<table>\n</table>\n"
         let reference = "![pasted image](assets/pasted-image.png)"
@@ -1177,7 +1251,8 @@ struct EditorDocumentTests {
 
         let target = TerminalLinkResolver.resolve(
             "Sources/App.swift:12:4",
-            relativeTo: workspace
+            relativeTo: workspace,
+            fileExists: { fileManager.fileExists(atPath: $0.path) }
         )
 
         #expect(target == .file(
@@ -1189,7 +1264,8 @@ struct EditorDocumentTests {
     func terminalLinkResolverKeepsExternalURLsAsExternalTargets() {
         let target = TerminalLinkResolver.resolve(
             "https://example.com/docs",
-            relativeTo: URL(fileURLWithPath: "/tmp")
+            relativeTo: URL(fileURLWithPath: "/tmp"),
+            fileExists: { _ in false }
         )
 
         #expect(target == .external(URL(string: "https://example.com/docs")!))
@@ -1437,6 +1513,7 @@ private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
     func removeItem(at url: URL) throws {}
     func trashItem(at url: URL) throws {}
     func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { "" }
 }
 
 private final class TestDirectoryChangeSource: DirectoryChangeSource {

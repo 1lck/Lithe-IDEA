@@ -5,7 +5,7 @@ struct WorkbenchView: View {
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var memoryUsageMonitor: MemoryUsageMonitor
-    @EnvironmentObject private var runFeature: JavaRunFeatureModel
+    @EnvironmentObject private var runFeature: RunFeatureModel
     @State private var sidebarWidth: CGFloat = 320
     @State private var sidebarDragStart: CGFloat = 320
     @State private var topPaneHeight: CGFloat?
@@ -29,6 +29,14 @@ struct WorkbenchView: View {
 
             if projectSessions.openProjects.count > 1 {
                 projectTabBar
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
+
+            if model.shouldShowJavaEnvironmentBanner,
+               let report = model.javaEnvironmentReport {
+                JavaEnvironmentBanner(report: report) {
+                    model.showSettings(category: .project)
+                }
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
 
@@ -560,13 +568,15 @@ struct WorkbenchView: View {
                         model.toggleProblems()
                     }
 
-                    activityToolButton(
-                        systemImage: "shippingbox",
-                        ideaAssetPath: "maven/toolWindowMaven.svg",
-                        help: "Maven",
-                        isSelected: model.isMavenVisible
-                    ) {
-                        model.toggleMaven()
+                    if model.hasMavenProject {
+                        activityToolButton(
+                            systemImage: "shippingbox",
+                            ideaAssetPath: "maven/toolWindowMaven.svg",
+                            help: "Maven",
+                            isSelected: model.isMavenVisible
+                        ) {
+                            model.toggleMaven()
+                        }
                     }
 
                     activityToolButton(
@@ -576,6 +586,14 @@ struct WorkbenchView: View {
                         isSelected: model.isRunVisible
                     ) {
                         model.toggleRun()
+                    }
+
+                    activityToolButton(
+                        systemImage: "checkmark.seal",
+                        help: "Tests",
+                        isSelected: model.isTestsVisible
+                    ) {
+                        model.toggleTests()
                     }
 
                     activityToolButton(
@@ -663,7 +681,7 @@ struct WorkbenchView: View {
             .disabled(runFeature.selectedConfiguration == nil || runFeature.configurationStatus != .ready)
             .popover(isPresented: $isRunConfigurationEditorPresented, arrowEdge: .bottom) {
                 if let configuration = runFeature.selectedConfiguration {
-                    JavaRunConfigurationEditorView(
+                    RunConfigurationEditorView(
                         feature: runFeature,
                         configuration: configuration
                     )
@@ -846,16 +864,22 @@ struct WorkbenchView: View {
                             TerminalView(session: session)
                                 .id(session.id)
                         } else if model.isReferencesVisible {
-                            JavaReferencesView()
+                            LanguageReferencesView()
                         } else if model.isProblemsVisible {
-                            JavaProblemsView()
+                            ProblemsView()
                         } else if model.isDebugVisible {
-                            JavaDebugView(
-                                feature: model.debugFeature,
-                                runFeature: runFeature
-                            )
+                            if model.prefersGenericDebugUI {
+                                GenericDebugView(feature: model.genericDebugFeature)
+                            } else {
+                                JavaDebugView(
+                                    feature: model.debugFeature,
+                                    runFeature: runFeature
+                                )
+                            }
                         } else if model.isRunVisible {
                             RunView(feature: runFeature)
+                        } else if model.isTestsVisible {
+                            LanguageTestsView(service: model.languageTestService)
                         } else if model.isMavenVisible {
                             MavenView(feature: model.mavenFeature)
                         } else {
@@ -893,7 +917,7 @@ struct WorkbenchView: View {
     }
 
     private var isBottomToolVisible: Bool {
-        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible || model.isProblemsVisible || model.isMavenVisible || model.isDebugVisible || model.isRunVisible
+        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible || model.isProblemsVisible || model.isMavenVisible || model.isDebugVisible || model.isRunVisible || model.isTestsVisible
     }
 
     private var statusBar: some View {
@@ -1037,7 +1061,7 @@ struct WorkbenchView: View {
     private var gitStatus: some View {
         HStack(spacing: 7) {
             if model.isReferencesVisible {
-                Label("\(model.javaNavigationLocations.count) usages", systemImage: "scope")
+                Label("\(model.languageNavigationResults.count) usages", systemImage: "scope")
             }
             Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
             Image(systemName: "checkmark.circle.fill")
@@ -1166,8 +1190,38 @@ struct WorkbenchView: View {
     }
 }
 
+private struct JavaEnvironmentBanner: View {
+    let report: JavaEnvironmentReport
+    let openSettings: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(report.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text(report.message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            Button("Open Project Settings", action: openSettings)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .lithePointer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.10))
+    }
+}
+
 private struct RunConfigurationPickerPopover: View {
-    let configurations: [JavaRunConfiguration]
+    let configurations: [RunConfiguration]
     @Binding var selectedConfigurationID: String
     @Binding var isPresented: Bool
     let onCreate: () -> Void
@@ -1229,10 +1283,10 @@ private struct RunConfigurationPickerPopover: View {
 
 private struct NewRunConfigurationView: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var feature: JavaRunFeatureModel
+    @ObservedObject var feature: RunFeatureModel
     let onCreated: () -> Void
     @State private var name = ""
-    @State private var kind: JavaRunConfigurationKind = .springBoot
+    @State private var kind: RunConfigurationKind = .springBoot
     @State private var modulePath = "."
     @State private var mainClass = ""
     @State private var scope: RunConfigurationSaveScope = .local
@@ -1258,8 +1312,8 @@ private struct NewRunConfigurationView: View {
             Form {
                 TextField("Name", text: $name)
                 Picker("Type", selection: $kind) {
-                    Text("Spring Boot").tag(JavaRunConfigurationKind.springBoot)
-                    Text("Maven Module").tag(JavaRunConfigurationKind.mavenModule)
+                    Text("Spring Boot").tag(RunConfigurationKind.springBoot)
+                    Text("Maven Module").tag(RunConfigurationKind.mavenModule)
                 }
                 TextField("Module path", text: $modulePath)
                 if kind == .springBoot {

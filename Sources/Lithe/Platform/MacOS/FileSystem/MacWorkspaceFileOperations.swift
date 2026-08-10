@@ -40,4 +40,8 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
     func writeText(_ text: String, to url: URL) throws {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
+
+    func readText(from url: URL) throws -> String {
+        try String(contentsOf: url, encoding: .utf8)
+    }
 }

@@ -38,7 +38,14 @@ final class MacServiceContainer {
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store,
-            toolchainSource: runConfigurationStore
+            toolchainSource: runConfigurationStore,
+            toolDiscovery: MacRuntimeToolDiscovery()
+        )
+        let languageProviderCatalog = LanguageProviderCatalog.standard
+        // Build the catalog once so every standard runtime consumes the
+        // language-pack launch metadata instead of maintaining a second map.
+        let languagePackDefinitions = LanguagePackRegistry.standard(
+            catalog: languageProviderCatalog
         )
         let languageService = JavaLanguageService(
             runtimeService: runtimeService,
@@ -47,20 +54,119 @@ final class MacServiceContainer {
             fileStorage: fileStorage,
             javaMavenOperations: javaMavenOperations
         )
+        let javaDebugLaunch = languagePackDefinitions.pack(id: "java")?.debugAdapterLaunch
+        let javaRuntime = JavaLanguageProviderRuntime(
+            service: languageService,
+            catalog: languageProviderCatalog,
+            debugAdapterAvailability: {
+                guard let projectURL = runtimeService.projectURL else { return false }
+                let locator = MacJavaDebugAdapterLocator(
+                    environment: runtimeService.processEnvironment(),
+                    launchDefinition: javaDebugLaunch
+                )
+                return locator.resolve(
+                    rootURL: projectURL,
+                    javaExecutableURL: runtimeService.configuredJavaExecutableURL()
+                ) != nil
+            },
+            debugAdapterUnavailableMessage: {
+                MacJavaDebugAdapterLocator(
+                    environment: runtimeService.processEnvironment(),
+                    launchDefinition: javaDebugLaunch
+                ).unavailableMessage
+            },
+            debugAdapterFactory: { rootURL in
+                let locator = MacJavaDebugAdapterLocator(
+                    environment: runtimeService.environment(for: .java),
+                    launchDefinition: javaDebugLaunch
+                )
+                guard let launch = locator.resolve(
+                    rootURL: rootURL,
+                    javaExecutableURL: runtimeService.javaExecutableURL()
+                ) else { return nil }
+                return DebugAdapterProtocolSession(
+                    adapterID: "java",
+                    executableURL: launch.executableURL,
+                    arguments: launch.arguments,
+                    environment: launch.environment,
+                    process: MacRawProcessSession()
+                )
+            }
+        )
+        let languageToolingRuntimes: [any LanguageProviderRuntime] = [
+            javaRuntime
+        ] + StdioLanguageProviderRuntime.standard(
+            packs: languagePackDefinitions.packs,
+            runtimeService: runtimeService,
+            processFactory: { MacRawProcessSession() },
+            debugSessionFactories: [
+                "go": {
+                    guard let dlv = runtimeService.executableOnPath("dlv") else { return nil }
+                    return DebugAdapterProtocolSession(
+                        adapterID: "go",
+                        transport: MacDlvDebugAdapterTransport(
+                            executableURL: dlv,
+                            environment: runtimeService.processEnvironment(),
+                            process: MacRawProcessSession()
+                        )
+                    )
+                },
+                "node": {
+                    guard let node = runtimeService.executableOnPath("node") else { return nil }
+                    let environment = runtimeService.processEnvironment()
+                    let locator = MacJavaScriptDebugAdapterLocator(
+                        environment: environment,
+                        executableOnPath: { runtimeService.executableOnPath($0) }
+                    )
+                    return DebugAdapterProtocolSession(
+                        adapterID: "pwa-node",
+                        transport: MacNodeDebugAdapterTransport(
+                            nodeExecutableURL: node,
+                            locator: locator,
+                            process: MacRawProcessSession()
+                        )
+                    )
+                }
+            ]
+        )
+        let languagePackRegistry = LanguagePackRegistry.standard(
+            catalog: languageProviderCatalog,
+            runtimes: languageToolingRuntimes
+        )
+        let runToolchainRegistry = languagePackRegistry.toolchainRegistry
+        let languageToolingSessions = LanguageToolingSessionManager(
+            registry: languagePackRegistry
+        )
+        let testExecutableResolver = RunExecutableResolver(
+            runtimeService: runtimeService,
+            toolchainRegistry: runToolchainRegistry,
+            metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+        )
+        let languageTestService = LanguageTestService(
+            registry: languagePackRegistry,
+            executableResolver: testExecutableResolver,
+            processFactory: { MacStreamingProcess() }
+        )
 
         let mavenService = MavenService(
             runtimeService: runtimeService,
             process: MacStreamingProcess(),
             javaMavenOperations: javaMavenOperations
         )
-        let javaRunService = JavaRunService(
+        let runService = RunService(
             runtimeService: runtimeService,
             process: MacStreamingProcess(),
             processFactory: { MacStreamingProcess() },
             fileStorage: fileStorage,
             preferences: store,
             javaMavenOperations: javaMavenOperations,
-            runConfigurationOperations: runConfigurationStore
+            runConfigurationOperations: runConfigurationStore,
+            executableResolver: RunExecutableResolver(
+                runtimeService: runtimeService,
+                toolchainRegistry: runToolchainRegistry,
+                metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+            ),
+            languagePackRegistry: languagePackRegistry
         )
         let javaDebugService = JavaDebugService(
             runtimeService: runtimeService,
@@ -95,6 +201,11 @@ final class MacServiceContainer {
             credentialResolver: credentialResolver
         )
         services = AppServices(
+            languageProviderCatalog: languagePackRegistry.catalog,
+            languagePacks: languagePackRegistry,
+            runToolchainRegistry: runToolchainRegistry,
+            languageToolingSessions: languageToolingSessions,
+            languageTestService: languageTestService,
             workspaceOperations: workspaceOperations,
             localHistoryOperations: localHistoryOperations,
             javaMavenOperations: javaMavenOperations,
@@ -107,7 +218,7 @@ final class MacServiceContainer {
             javaLanguageService: languageService,
             javaImplementationMarkerService: javaImplementationMarkerService,
             mavenService: mavenService,
-            javaRunService: javaRunService,
+            runService: runService,
             javaDebugService: javaDebugService,
             gitService: gitService,
             shelveService: shelveService,

@@ -819,7 +819,8 @@ struct RustCoreBridge: Sendable {
         let configurationId: String
         let workingDirectory: String
         let jvmArguments: String
-        let programArguments: String
+        let arguments: String
+        let environment: [String: String]
         let mavenProfiles: [String]
     }
     private struct RunConfigurationCreateUserRequest: Encodable {
@@ -1261,7 +1262,7 @@ struct RustCoreBridge: Sendable {
         at rootURL: URL,
         configurationID: String,
         scope: RunConfigurationSaveScope,
-        options: JavaRunOptions
+        options: RunOptions
     ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
         executeResult(
             command: "runConfig.updateOptions",
@@ -1271,7 +1272,8 @@ struct RustCoreBridge: Sendable {
                 configurationId: configurationID,
                 workingDirectory: options.workingDirectoryPath,
                 jvmArguments: options.vmArguments,
-                programArguments: options.programArguments,
+                arguments: options.arguments,
+                environment: options.environment,
                 mavenProfiles: options.activeProfiles.sorted()
             )
         )

@@ -18,6 +18,10 @@ final class MacPlatformUI: PlatformUI {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    func open(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
+
     func copyToClipboard(_ value: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(value, forType: .string)

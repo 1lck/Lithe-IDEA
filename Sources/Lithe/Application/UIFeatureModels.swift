@@ -43,7 +43,7 @@ final class MavenFeatureModel: ObservableObject {
 
 }
 
-/// UI-facing projection for Java run configurations and process sessions.
+/// UI-facing projection for language-neutral run configurations and process sessions.
 enum RunConfigurationGenerationIntent: Sendable {
     case identifyOnly
     case run
@@ -51,13 +51,13 @@ enum RunConfigurationGenerationIntent: Sendable {
 }
 
 @MainActor
-final class JavaRunFeatureModel: ObservableObject {
-    private let service: JavaRunService
+final class RunFeatureModel: ObservableObject {
+    private let service: RunService
     private var observation: AnyCancellable?
     @Published var isGenerationConfirmationPresented = false
     private(set) var generationIntent: RunConfigurationGenerationIntent = .identifyOnly
 
-    init(service: JavaRunService) {
+    init(service: RunService) {
         self.service = service
         observation = service.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
@@ -69,16 +69,16 @@ final class JavaRunFeatureModel: ObservableObject {
         set { service.selectedConfigurationID = newValue }
     }
 
-    var configurations: [JavaRunConfiguration] { service.configurations }
-    var selectedConfiguration: JavaRunConfiguration? { service.selectedConfiguration }
+    var configurations: [RunConfiguration] { service.configurations }
+    var selectedConfiguration: RunConfiguration? { service.selectedConfiguration }
     var isLoadingProject: Bool { service.isLoadingProject }
     var isRunning: Bool { service.isRunning }
     var runningTitle: String? { service.runningTitle }
     var output: String { service.output }
     var lastExitCode: Int32? { service.lastExitCode }
     var mavenProfiles: [MavenProfile] { service.mavenProfiles }
-    var moduleSessions: [JavaRunSession] { service.moduleSessions }
-    var portConflicts: [JavaRunPortConflict] { service.portConflicts }
+    var moduleSessions: [RunSession] { service.moduleSessions }
+    var portConflicts: [RunPortConflict] { service.portConflicts }
     var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }
     var configurationDiagnostics: [RunConfigurationDiagnostic] { service.configurationDiagnostics }
     var generationState: RunConfigurationGenerationState { service.generationState }
@@ -92,24 +92,24 @@ final class JavaRunFeatureModel: ObservableObject {
     }
     var sourceSearchRoots: [URL] { service.sourceSearchRoots }
 
-    func options(for configuration: JavaRunConfiguration) -> JavaRunOptions {
+    func options(for configuration: RunConfiguration) -> RunOptions {
         service.options(for: configuration)
     }
 
-    func source(for configuration: JavaRunConfiguration) -> RunConfigurationSource {
+    func source(for configuration: RunConfiguration) -> RunConfigurationSource {
         service.source(for: configuration)
     }
 
     @discardableResult
     func updateOptions(
-        _ options: JavaRunOptions,
-        for configuration: JavaRunConfiguration,
+        _ options: RunOptions,
+        for configuration: RunConfiguration,
         scope: RunConfigurationSaveScope = .local
     ) -> Bool {
         service.updateOptions(options, for: configuration, scope: scope)
     }
 
-    func resetOptions(for configuration: JavaRunConfiguration) {
+    func resetOptions(for configuration: RunConfiguration) {
         service.resetOptions(for: configuration)
     }
 
@@ -126,19 +126,19 @@ final class JavaRunFeatureModel: ObservableObject {
         service.stopAllServices()
     }
 
-    func startConfiguration(_ configuration: JavaRunConfiguration) {
+    func startConfiguration(_ configuration: RunConfiguration) {
         service.startConfiguration(configuration)
     }
 
-    func stopModule(_ session: JavaRunSession) {
+    func stopModule(_ session: RunSession) {
         service.stopModule(session)
     }
 
-    func restartModule(_ session: JavaRunSession) {
+    func restartModule(_ session: RunSession) {
         service.restartModule(session)
     }
 
-    func clearModuleOutput(_ session: JavaRunSession) {
+    func clearModuleOutput(_ session: RunSession) {
         service.clearModuleOutput(session)
     }
 
@@ -165,12 +165,47 @@ final class JavaRunFeatureModel: ObservableObject {
         isGenerationConfirmationPresented = true
     }
 
-    func select(_ configuration: JavaRunConfiguration) { service.select(configuration) }
+    func select(_ configuration: RunConfiguration) { service.select(configuration) }
     func runSelected(currentFileURL: URL?) { service.runSelected(currentFileURL: currentFileURL) }
     func restart() { service.restart() }
     func stop() { service.stop() }
     func reset() { service.reset() }
 }
+
+/// Coordinates project-scoped build and run loading without making AppModel
+/// own build-system sequencing. Language-specific project loaders can later be
+/// added here without changing the workspace/UI composition boundary.
+@MainActor
+final class ProjectDevelopmentFeatureModel {
+    private let mavenFeature: MavenFeatureModel
+    private let runFeature: RunFeatureModel
+
+    init(mavenFeature: MavenFeatureModel, runFeature: RunFeatureModel) {
+        self.mavenFeature = mavenFeature
+        self.runFeature = runFeature
+    }
+
+    func loadProject(at workspaceURL: URL, files: [URL]) async {
+        // Maven is one build-system Provider, not a workspace prerequisite.
+        // Avoid scanning every project as Maven; non-Maven ecosystems should
+        // reach the generic run pipeline without paying for Java discovery.
+        let hasMavenDescriptor = files.contains { file in
+            file.lastPathComponent.lowercased() == "pom.xml"
+        }
+        if hasMavenDescriptor {
+            await mavenFeature.loadProject(at: workspaceURL)
+        } else {
+            mavenFeature.reset()
+        }
+        await runFeature.loadProject(
+            at: workspaceURL,
+            files: files,
+            mavenProject: mavenFeature.project
+        )
+    }
+}
+
+typealias JavaRunFeatureModel = RunFeatureModel
 
 /// UI-facing projection for Java debugger state and commands.
 @MainActor
@@ -256,13 +291,13 @@ final class JavaDebugFeatureModel: ObservableObject {
         fileURL: URL,
         sourceText: String,
         projectURL: URL?,
-        options: JavaRunOptions
+        options: RunOptions
     ) { service.start(fileURL: fileURL, sourceText: sourceText, projectURL: projectURL, options: options) }
     func startMaven(
-        configuration: JavaRunConfiguration,
+        configuration: RunConfiguration,
         project: MavenProject,
         projectURL: URL,
-        options: JavaRunOptions
+        options: RunOptions
     ) { service.startMaven(configuration: configuration, project: project, projectURL: projectURL, options: options) }
     func attachRemote() { service.attachRemote() }
     func toggleBreakpoint(fileURL: URL, line: Int, className: String) {
@@ -283,6 +318,7 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
     @Published private(set) var settings: ProjectRuntimeSettings
     @Published private(set) var javaRuntimes: [JavaRuntimeCandidate]
     @Published private(set) var mavenRuntimes: [MavenRuntimeCandidate]
+    @Published private(set) var javaEnvironmentReport: JavaEnvironmentReport?
     @Published private(set) var isDiscovering: Bool
 
     init(service: ProjectRuntimeService) {
@@ -290,12 +326,14 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
         _settings = Published(initialValue: service.settings)
         _javaRuntimes = Published(initialValue: service.javaRuntimes)
         _mavenRuntimes = Published(initialValue: service.mavenRuntimes)
+        _javaEnvironmentReport = Published(initialValue: service.javaEnvironmentReport)
         _isDiscovering = Published(initialValue: service.isDiscovering)
         observation = service.objectWillChange.sink { [weak self] _ in
             guard let self else { return }
             self.settings = self.service.settings
             self.javaRuntimes = self.service.javaRuntimes
             self.mavenRuntimes = self.service.mavenRuntimes
+            self.javaEnvironmentReport = self.service.javaEnvironmentReport
             self.isDiscovering = self.service.isDiscovering
         }
     }

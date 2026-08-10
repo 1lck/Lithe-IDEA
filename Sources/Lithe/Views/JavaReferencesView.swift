@@ -1,12 +1,12 @@
 import SwiftUI
 
-struct JavaReferencesView: View {
+struct LanguageReferencesView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            if model.javaNavigationLocations.isEmpty {
+            if model.languageNavigationResults.isEmpty {
                 emptyState
             } else {
                 results
@@ -17,13 +17,13 @@ struct JavaReferencesView: View {
 
     private var toolbar: some View {
         LitheToolWindowHeader(
-            title: model.javaNavigationResultKind.title,
+            title: model.languageNavigationKind.title,
             systemImage: "scope",
             ideaAssetPath: "toolwindows/toolWindowFind.svg",
-            subtitle: "\(model.javaNavigationLocations.count) results",
-            onMinimize: { model.closeJavaNavigationResults() }
+            subtitle: "\(model.languageNavigationResults.count) results",
+            onMinimize: { model.closeLanguageNavigationResults() }
         ) {
-            Text(LocalizedStringKey(model.javaLanguageStatusMessage))
+            Text(LocalizedStringKey(model.languageServerStatusMessage))
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
@@ -33,14 +33,14 @@ struct JavaReferencesView: View {
     private var results: some View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 1) {
-                ForEach(model.javaNavigationLocations) { location in
+                ForEach(model.languageNavigationResults) { location in
                     Button {
                         model.navigate(to: location)
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: "cup.and.saucer.fill")
+                            Image(systemName: "chevron.left.forwardslash.chevron.right")
                                 .font(.system(size: 11))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(LitheTheme.accent)
                                 .frame(width: 16)
                             Text(location.displayName)
                                 .font(.system(size: 12.5, weight: .medium))
@@ -68,14 +68,14 @@ struct JavaReferencesView: View {
     }
 
     private var emptyState: some View {
-        Text("No Java navigation results")
+        Text("No navigation results")
             .font(LitheTheme.uiFont)
             .foregroundStyle(LitheTheme.secondaryText)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-struct JavaImplementationChooserView: View {
+struct LanguageImplementationChooserView: View {
     @EnvironmentObject private var model: AppModel
     @State private var query = ""
 
@@ -85,7 +85,7 @@ struct JavaImplementationChooserView: View {
                 title: "Choose Implementation",
                 systemImage: "arrow.triangle.branch",
                 subtitle: "\(filteredLocations.count) found",
-                onMinimize: { model.closeJavaNavigationResults() }
+                onMinimize: { model.closeLanguageNavigationResults() }
             )
 
             HStack(spacing: 7) {
@@ -136,9 +136,9 @@ struct JavaImplementationChooserView: View {
         .lithePopupChrome(cornerRadius: 7)
     }
 
-    private var filteredLocations: [JavaNavigationLocation] {
-        guard !query.isEmpty else { return model.javaNavigationLocations }
-        return model.javaNavigationLocations.filter {
+    private var filteredLocations: [LanguageNavigationLocation] {
+        guard !query.isEmpty else { return model.languageNavigationResults }
+        return model.languageNavigationResults.filter {
             $0.displayName.localizedCaseInsensitiveContains(query) ||
             ($0.displayPath ?? model.relativePath(for: $0.url)).localizedCaseInsensitiveContains(query)
         }

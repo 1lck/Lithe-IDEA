@@ -137,6 +137,10 @@ struct SettingsView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .textSelection(.enabled)
 
+                if let report = projectRuntime.javaEnvironmentReport {
+                    javaEnvironmentStatusCard(report)
+                }
+
                 group("Java SDK") {
                     runtimePickerRow(
                         title: "Project JDK",
@@ -239,6 +243,30 @@ struct SettingsView: View {
             return "\(runtime.displayName) · \(runtime.executablePath)"
         }
         return projectRuntime.mavenExecutable(for: project)?.path ?? "Maven executable not resolved"
+    }
+
+    private func javaEnvironmentStatusCard(_ report: JavaEnvironmentReport) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: report.status == .ready ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(report.status == .ready ? Color.green : Color.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(report.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Text(report.message)
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                if !report.recovery.isEmpty {
+                    Text(report.recovery)
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background((report.status == .ready ? Color.green : Color.orange).opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 
     private var generalSettings: some View {

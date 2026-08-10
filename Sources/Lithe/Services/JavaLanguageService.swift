@@ -6,6 +6,7 @@ final class JavaLanguageService: ObservableObject {
         case serverNotInstalled
         case serverStopped
         case invalidResponse
+        case capabilityUnavailable(String)
 
         var errorDescription: String? {
             switch self {
@@ -15,6 +16,8 @@ final class JavaLanguageService: ObservableObject {
                 "Java language server stopped unexpectedly"
             case .invalidResponse:
                 "Java language server returned an invalid response"
+            case .capabilityUnavailable(let method):
+                "Java language server does not support \(method)"
             }
         }
     }
@@ -25,13 +28,18 @@ final class JavaLanguageService: ObservableObject {
     @Published private(set) var diagnostics: [URL: [JavaDiagnostic]] = [:]
 
     var onDiagnostics: ((URL, [JavaDiagnostic]) -> Void)?
+    var onLanguageServerDiagnostics: ((URL, [JavaDiagnostic]) -> Void)?
+    var onLanguageServerFeatures: ((LanguageServerFeatureSet) -> Void)?
 
     private let process: any RawProcessSession
     private var readBuffer = Data()
     private var nextRequestID = 1
     private var responseHandlers: [Int: (Result<Any, Error>) -> Void] = [:]
+    private var initializedLanguageServerFeatures: LanguageServerFeatureSet = .standardEditing
+    private var dynamicallyRegisteredLanguageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     private var readyHandlers: [(Result<Void, Error>) -> Void] = []
     private var openedDocumentVersions: [String: Int] = [:]
+    private var lastSentDocumentTextByURI: [String: String] = [:]
     private var projectURL: URL?
     private let runtimeService: ProjectRuntimeService
     private let archiveReader: any ArchiveEntryReader
@@ -88,7 +96,7 @@ final class JavaLanguageService: ObservableObject {
         document: EditorDocument,
         line: Int,
         utf16Column: Int,
-        completion: @escaping (Result<[JavaNavigationLocation], Error>) -> Void
+        completion: @escaping (Result<[LanguageNavigationLocation], Error>) -> Void
     ) {
         guard document.url.pathExtension.lowercased() == "java" else {
             completion(.failure(ServiceError.invalidResponse))
@@ -205,17 +213,66 @@ final class JavaLanguageService: ObservableObject {
         }
     }
 
+    func languageServerRequest(
+        method: String,
+        document: EditorDocument,
+        parameters: [String: Any],
+        completion: @escaping (Result<Any, Error>) -> Void
+    ) {
+        guard document.url.pathExtension.lowercased() == "java" else {
+            completion(.failure(ServiceError.invalidResponse))
+            return
+        }
+        ensureReady(for: document.url.deletingLastPathComponent()) { [weak self, weak document] result in
+            guard let self, let document else { return }
+            switch result {
+            case .failure(let error): completion(.failure(error))
+            case .success:
+                self.synchronize(document)
+                self.sendRequest(method: method, parameters: parameters, completion: completion)
+            }
+        }
+    }
+
+    func languageServerRequest(
+        method: String,
+        parameters: [String: Any],
+        completion: @escaping (Result<Any, Error>) -> Void
+    ) {
+        ensureReady(for: projectURL ?? fileStorage.homeDirectory()) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure(let error): completion(.failure(error))
+            case .success: self.sendRequest(method: method, parameters: parameters, completion: completion)
+            }
+        }
+    }
+
+    func executeLanguageServerCommand(
+        _ command: LanguageServerCommand,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        executeCommand(
+            command: command.command,
+            arguments: command.arguments.map(\.foundationObject)
+        ) { result in
+            completion(result.map { _ in () })
+        }
+    }
+
     func close(_ document: EditorDocument) {
         guard document.url.pathExtension.lowercased() == "java" else { return }
         let uri = document.url.absoluteString
-        if isReady, !document.isReadOnly {
+        if openedDocumentVersions[uri] != nil, isReady, !document.isReadOnly {
             sendNotification(method: "textDocument/didClose", parameters: [
                 "textDocument": ["uri": uri]
             ])
         }
         openedDocumentVersions[uri] = nil
+        lastSentDocumentTextByURI[uri] = nil
         diagnostics[document.url.standardizedFileURL] = nil
         onDiagnostics?(document.url.standardizedFileURL, [])
+        onLanguageServerDiagnostics?(document.url.standardizedFileURL, [])
     }
 
     func stop() {
@@ -230,7 +287,10 @@ final class JavaLanguageService: ObservableObject {
         responseHandlers = [:]
         readyHandlers = []
         openedDocumentVersions = [:]
+        lastSentDocumentTextByURI = [:]
         diagnostics = [:]
+        initializedLanguageServerFeatures = .standardEditing
+        dynamicallyRegisteredLanguageServerFeatures = [:]
         readBuffer = Data()
         isStarting = false
         isReady = false
@@ -310,9 +370,24 @@ final class JavaLanguageService: ObservableObject {
     private func initialize(root: URL) {
         let capabilities: [String: Any] = [
             "textDocument": [
-                "definition": ["dynamicRegistration": false, "linkSupport": true],
-                "references": ["dynamicRegistration": false],
-                "implementation": ["dynamicRegistration": false, "linkSupport": true],
+                "definition": ["dynamicRegistration": true, "linkSupport": true],
+                "references": ["dynamicRegistration": true],
+                "implementation": ["dynamicRegistration": true, "linkSupport": true],
+                "hover": ["dynamicRegistration": true, "contentFormat": ["markdown", "plaintext"]],
+                "completion": ["dynamicRegistration": true, "completionItem": [
+                    "documentationFormat": ["markdown", "plaintext"],
+                    "snippetSupport": true,
+                    "resolveSupport": ["properties": ["detail", "documentation", "textEdit", "additionalTextEdits"]]
+                ]],
+                "rename": ["dynamicRegistration": true, "prepareSupport": true],
+                "formatting": ["dynamicRegistration": true],
+                "codeAction": [
+                    "dynamicRegistration": true,
+                    "resolveSupport": ["properties": ["edit", "command"]],
+                    "codeActionLiteralSupport": [
+                        "codeActionKind": ["valueSet": ["quickfix", "refactor", "source"]]
+                    ]
+                ],
                 "inlayHint": ["dynamicRegistration": false, "resolveSupport": ["properties": []]],
                 "publishDiagnostics": ["relatedInformation": true],
                 "synchronization": ["dynamicRegistration": false, "didSave": true]
@@ -320,6 +395,8 @@ final class JavaLanguageService: ObservableObject {
             "workspace": [
                 "workspaceFolders": true,
                 "configuration": true,
+                "applyEdit": true,
+                "executeCommand": ["dynamicRegistration": true],
                 "symbol": ["dynamicRegistration": false]
             ],
             "window": ["workDoneProgress": true]
@@ -336,7 +413,12 @@ final class JavaLanguageService: ObservableObject {
             switch result {
             case .failure(let error):
                 self.finishStartup(.failure(error))
-            case .success:
+            case .success(let value):
+                self.initializedLanguageServerFeatures = LanguageServerResponseParser.serverFeatures(
+                    fromInitializeResult: value
+                )
+                self.dynamicallyRegisteredLanguageServerFeatures = [:]
+                self.publishLanguageServerFeatures()
                 self.sendNotification(method: "initialized", parameters: [:])
                 self.sendNotification(method: "workspace/didChangeConfiguration", parameters: [
                     "settings": [
@@ -358,14 +440,17 @@ final class JavaLanguageService: ObservableObject {
     private func synchronize(_ document: EditorDocument) {
         let uri = document.url.absoluteString
         if let version = openedDocumentVersions[uri] {
+            guard lastSentDocumentTextByURI[uri] != document.text else { return }
             let nextVersion = version + 1
             openedDocumentVersions[uri] = nextVersion
+            lastSentDocumentTextByURI[uri] = document.text
             sendNotification(method: "textDocument/didChange", parameters: [
                 "textDocument": ["uri": uri, "version": nextVersion],
                 "contentChanges": [["text": document.text]]
             ])
         } else {
             openedDocumentVersions[uri] = 1
+            lastSentDocumentTextByURI[uri] = document.text
             sendNotification(method: "textDocument/didOpen", parameters: [
                 "textDocument": [
                     "uri": uri,
@@ -382,6 +467,14 @@ final class JavaLanguageService: ObservableObject {
         parameters: [String: Any],
         completion: @escaping (Result<Any, Error>) -> Void
     ) {
+        let requiredFeature = LanguageServerResponseParser.requiredFeature(forRequestMethod: method)
+        let supportedFeatures = dynamicallyRegisteredLanguageServerFeatures.values.reduce(
+            initializedLanguageServerFeatures
+        ) { $0.union($1) }
+        guard requiredFeature.isEmpty || supportedFeatures.contains(requiredFeature) else {
+            completion(.failure(ServiceError.capabilityUnavailable(method)))
+            return
+        }
         let id = nextRequestID
         nextRequestID += 1
         responseHandlers[id] = completion
@@ -466,6 +559,12 @@ final class JavaLanguageService: ObservableObject {
         }
         guard let id = message["id"] else { return }
         switch method {
+        case "client/registerCapability":
+            registerCapabilities(message["params"] as? [String: Any])
+            sendResponse(id: id, result: NSNull())
+        case "client/unregisterCapability":
+            unregisterCapabilities(message["params"] as? [String: Any])
+            sendResponse(id: id, result: NSNull())
         case "workspace/configuration":
             let items = ((message["params"] as? [String: Any])?["items"] as? [[String: Any]]) ?? []
             sendResponse(id: id, result: items.map { item -> Any in
@@ -487,6 +586,37 @@ final class JavaLanguageService: ObservableObject {
         }
     }
 
+    private func registerCapabilities(_ parameters: [String: Any]?) {
+        let registrations = parameters?["registrations"] as? [[String: Any]] ?? []
+        for registration in registrations {
+            guard let id = registration["id"] as? String,
+                  let method = registration["method"] as? String else { continue }
+            dynamicallyRegisteredLanguageServerFeatures[id] = LanguageServerResponseParser.registeredFeatures(
+                for: method,
+                registerOptions: registration["registerOptions"]
+            )
+        }
+        publishLanguageServerFeatures()
+    }
+
+    private func unregisterCapabilities(_ parameters: [String: Any]?) {
+        let registrations = (parameters?["unregisterations"] as? [[String: Any]])
+            ?? (parameters?["unregistrations"] as? [[String: Any]])
+            ?? []
+        for registration in registrations {
+            guard let id = registration["id"] as? String else { continue }
+            dynamicallyRegisteredLanguageServerFeatures[id] = nil
+        }
+        publishLanguageServerFeatures()
+    }
+
+    private func publishLanguageServerFeatures() {
+        let features = dynamicallyRegisteredLanguageServerFeatures.values.reduce(
+            initializedLanguageServerFeatures
+        ) { $0.union($1) }
+        onLanguageServerFeatures?(features)
+    }
+
     private func handleNotification(method: String, parameters: [String: Any]?) {
         guard method == "textDocument/publishDiagnostics",
               let parameters,
@@ -499,6 +629,7 @@ final class JavaLanguageService: ObservableObject {
         )
         diagnostics[normalizedURL] = parsed
         onDiagnostics?(normalizedURL, parsed)
+        onLanguageServerDiagnostics?(normalizedURL, parsed)
     }
 
     private func finishStartup(_ result: Result<Void, Error>) {
@@ -537,12 +668,12 @@ final class JavaLanguageService: ObservableObject {
     }
 
     private func resolveExternalLocations(
-        _ locations: [JavaNavigationLocation],
-        completion: @escaping (Result<[JavaNavigationLocation], Error>) -> Void
+        _ locations: [LanguageNavigationLocation],
+        completion: @escaping (Result<[LanguageNavigationLocation], Error>) -> Void
     ) {
         func resolveNext(
             at index: Int,
-            resolved: [JavaNavigationLocation]
+            resolved: [LanguageNavigationLocation]
         ) {
             guard index < locations.count else {
                 completion(.success(resolved))
@@ -557,7 +688,7 @@ final class JavaLanguageService: ObservableObject {
 
             if let source = jdkSource(for: location.url),
                let sourceURL = materializeLibrarySource(source, for: location.url) {
-                let materialized = JavaNavigationLocation(
+                let materialized = LanguageNavigationLocation(
                     url: sourceURL,
                     line: location.line,
                     utf16Column: location.utf16Column,
@@ -573,7 +704,7 @@ final class JavaLanguageService: ObservableObject {
                 case .success(let value) where value is String:
                     let content = value as! String
                     if let sourceURL = self.materializeLibrarySource(content, for: location.url) {
-                        let materialized = JavaNavigationLocation(
+                        let materialized = LanguageNavigationLocation(
                             url: sourceURL,
                             line: location.line,
                             utf16Column: location.utf16Column,
@@ -598,7 +729,7 @@ final class JavaLanguageService: ObservableObject {
         line: Int,
         utf16Column: Int,
         parameters: [String: Any],
-        completion: @escaping (Result<[JavaNavigationLocation], Error>) -> Void
+        completion: @escaping (Result<[LanguageNavigationLocation], Error>) -> Void
     ) {
         let finish: (String?) -> Void = { qualifiedName in
             guard let qualifiedName,
@@ -637,7 +768,7 @@ final class JavaLanguageService: ObservableObject {
         }
     }
 
-    private static func parseLocations(_ value: Any) -> [JavaNavigationLocation] {
+    private static func parseLocations(_ value: Any) -> [LanguageNavigationLocation] {
         let rawLocations: [[String: Any]]
         if let array = value as? [[String: Any]] {
             rawLocations = array
@@ -656,7 +787,7 @@ final class JavaLanguageService: ObservableObject {
             guard let uri, let url = URL(string: uri),
                   let line = start?["line"] as? Int,
                   let column = start?["character"] as? Int else { return nil }
-            return JavaNavigationLocation(url: url, line: line, utf16Column: column)
+            return LanguageNavigationLocation(url: url, line: line, utf16Column: column)
         }
     }
 
@@ -783,7 +914,7 @@ final class JavaLanguageService: ObservableObject {
     private func jdkDefinitionLocation(
         for qualifiedName: String,
         symbol: String
-    ) -> JavaNavigationLocation? {
+    ) -> LanguageNavigationLocation? {
         let parts = qualifiedName.split(separator: ".").map(String.init)
         guard parts.count >= 2,
               ["java", "javax", "jdk", "sun"].contains(parts[0]) else { return nil }
@@ -822,7 +953,7 @@ final class JavaLanguageService: ObservableObject {
                 declarationName: declarationName,
                 memberName: memberName
             ) ?? (line: 0, utf16Column: 0)
-        return JavaNavigationLocation(
+        return LanguageNavigationLocation(
             url: sourceURL,
             line: position.line,
             utf16Column: position.utf16Column,

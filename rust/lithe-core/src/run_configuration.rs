@@ -73,8 +73,12 @@ pub struct UpdateOptionsRequest {
     pub working_directory: String,
     #[serde(default)]
     pub jvm_arguments: String,
+    /// Common program arguments. `programArguments` remains a wire alias for
+    /// clients from before the generic run-options migration.
+    #[serde(default, alias = "programArguments")]
+    pub arguments: String,
     #[serde(default)]
-    pub program_arguments: String,
+    pub environment: BTreeMap<String, String>,
     #[serde(default)]
     pub maven_profiles: Vec<String>,
 }
@@ -372,6 +376,12 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
 
 pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
+    let has_java_sources = request
+        .paths
+        .iter()
+        .any(|path| path.to_lowercase().ends_with(".java"));
+    let has_maven_project = root.join("pom.xml").is_file() || root.join("mvnw").is_file();
+    let has_java_ecosystem = has_java_sources || has_maven_project;
     let module_paths = inferred_maven_module_paths(&root, &request.paths, request.module_paths);
     let scanned = crate::java::run_configurations(JavaRunConfigurationsRequest {
         root: request.root.clone(),
@@ -435,29 +445,31 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             }
         })
         .collect::<Vec<_>>();
-    configurations.push(RunConfiguration {
-        id: "current-file".to_string(),
-        name: "Current File".to_string(),
-        provider: "java.current-file".to_string(),
-        execution: Execution::Application,
-        command: None,
-        args: Vec::new(),
-        cwd: ".".to_string(),
-        env: BTreeMap::new(),
-        confidence: Confidence::Native,
-        toolchains: [("java".to_string(), "project-jdk".to_string())]
-            .into_iter()
-            .collect(),
-        debug: Some(DebugCapability {
-            adapter: "jdwp".to_string(),
-        }),
-        members: Vec::new(),
-        extensions: [("maven".to_string(), json!({ "module": "." }))]
-            .into_iter()
-            .collect(),
-        disabled: false,
-        source: None,
-    });
+    if has_java_sources {
+        configurations.push(RunConfiguration {
+            id: "current-file".to_string(),
+            name: "Current File".to_string(),
+            provider: "java.current-file".to_string(),
+            execution: Execution::Application,
+            command: None,
+            args: Vec::new(),
+            cwd: ".".to_string(),
+            env: BTreeMap::new(),
+            confidence: Confidence::Native,
+            toolchains: [("java".to_string(), "project-jdk".to_string())]
+                .into_iter()
+                .collect(),
+            debug: Some(DebugCapability {
+                adapter: "jdwp".to_string(),
+            }),
+            members: Vec::new(),
+            extensions: [("maven".to_string(), json!({ "module": "." }))]
+                .into_iter()
+                .collect(),
+            disabled: false,
+            source: None,
+        });
+    }
     let inputs = project_inputs(&root)?;
     // Detectors run after the Java scan so a Java configuration always keeps its
     // id: `detected_configurations` skips ids the Java pass already claimed
@@ -472,6 +484,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     // say so, while a detected npm service correctly reports one.
     let entry_count = java_entry_count + detected.len();
     configurations.extend(detected);
+    let requirements = detect_requirements(&root, has_java_ecosystem, &configurations)?;
     let generated = RunConfigurationDocument {
         version: VERSION,
         generator: Some(GeneratorMetadata {
@@ -480,7 +493,6 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         }),
         configurations,
     };
-    let requirements = detect_requirements(&root)?;
     Ok(
         json!({ "generated": generated, "toolchainRequirements": requirements, "entryCount": entry_count }),
     )
@@ -668,6 +680,19 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
 pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
     let relative = scope_document(&request.scope)?;
+    let resolved = resolve(ResolveRequest {
+        root: request.root.clone(),
+        toolchain_candidates: Vec::new(),
+    })?;
+    let provider = resolved["configurations"]
+        .as_array()
+        .and_then(|items| items.iter().find(|value| value["id"] == request.configuration_id))
+        .and_then(|value| value["provider"].as_str())
+        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Run configuration was not found"))?;
+    let uses_maven_capability = matches!(
+        provider,
+        "java.current-file" | "java.main" | "spring-boot.maven" | "maven.module"
+    );
     let working_directory = normalize_project_directory(
         &root,
         if request.working_directory.trim().is_empty() {
@@ -683,16 +708,22 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
     let configurations = document["configurations"]
         .as_array_mut()
         .ok_or_else(|| CoreError::new(ErrorCode::ParseFailed, "configurations must be an array"))?;
-    let maven_patch = json!({
-        "jvmArguments": split_arguments(&request.jvm_arguments),
-        "programArguments": split_arguments(&request.program_arguments),
-        "profiles": request.maven_profiles.into_iter().collect::<BTreeSet<_>>()
-    });
     let mut patch = json!({
         "id": request.configuration_id,
         "cwd": working_directory,
-        "extensions": { "maven": maven_patch }
+        "env": request.environment
     });
+    if uses_maven_capability {
+        patch["extensions"] = json!({
+            "maven": {
+                "jvmArguments": split_arguments(&request.jvm_arguments),
+                "programArguments": split_arguments(&request.arguments),
+                "profiles": request.maven_profiles.into_iter().collect::<BTreeSet<_>>()
+            }
+        });
+    } else {
+        patch["args"] = json!(split_arguments(&request.arguments));
+    }
     if let Some(existing) = configurations
         .iter_mut()
         .find(|value| value["id"] == patch["id"])
@@ -847,6 +878,22 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     if let Some(command) = config["command"].as_str().filter(|value| !value.is_empty()) {
         return process_launch_plan(config, command);
     }
+    if let Some(toolchain) = config["toolchains"]["runtime"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+    {
+        return toolchain_process_launch_plan(config, toolchain);
+    }
+    if !matches!(
+        provider,
+        "java.current-file" | "java.main" | "spring-boot.maven" | "maven.module"
+    ) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Run provider must declare a command or runtime toolchain",
+        )
+        .with_details(provider));
+    }
 
     let maven = &config["extensions"]["maven"];
     let mut jvm_arguments = maven["jvmArguments"]
@@ -992,6 +1039,26 @@ fn process_launch_plan(config: &Value, command: &str) -> Result<Value, CoreError
         // `environment` is reserved for toolchain-derived values the host must
         // resolve. Literal key/value pairs stay in `env` so the two never
         // collide in one field.
+        "environment": {},
+        "env": config["env"].as_object().cloned().unwrap_or_default()
+    }))
+}
+
+/// Launch plan for a language provider whose executable is supplied by the
+/// host Toolchain Registry. The shared contract uses the stable `runtime` key;
+/// provider-specific SDK metadata stays in other toolchain/extension entries.
+fn toolchain_process_launch_plan(config: &Value, toolchain: &str) -> Result<Value, CoreError> {
+    let arguments = config["args"].as_array().cloned().unwrap_or_default();
+    if arguments.iter().any(|value| !value.is_string()) {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "Run configuration arguments must be strings",
+        ));
+    }
+    Ok(json!({
+        "executable": { "toolchain": toolchain },
+        "arguments": arguments,
+        "workingDirectory": config["cwd"].as_str().unwrap_or("."),
         "environment": {},
         "env": config["env"].as_object().cloned().unwrap_or_default()
     }))
@@ -1456,7 +1523,11 @@ fn read_requirements(root: &Path) -> Result<Option<ToolchainRequirementsDocument
     })
 }
 
-fn detect_requirements(root: &Path) -> Result<ToolchainRequirementsDocument, CoreError> {
+fn detect_requirements(
+    root: &Path,
+    has_java_ecosystem: bool,
+    configurations: &[RunConfiguration],
+) -> Result<ToolchainRequirementsDocument, CoreError> {
     let mut jdk = ToolchainRequirement {
         kind: "java".to_string(),
         minimum_version: None,
@@ -1488,14 +1559,65 @@ fn detect_requirements(root: &Path) -> Result<ToolchainRequirementsDocument, Cor
         maven.wrapper = Some("./mvnw".to_string());
     }
     maven.version = maven_wrapper_version(root);
-    let mut toolchains = BTreeMap::from([("project-jdk".to_string(), jdk)]);
+    let mut toolchains = BTreeMap::new();
+    if has_java_ecosystem {
+        toolchains.insert("project-jdk".to_string(), jdk);
+    }
     if root.join("pom.xml").is_file() || root.join("mvnw").is_file() {
         toolchains.insert("project-maven".to_string(), maven);
+    }
+    let providers = configurations
+        .iter()
+        .map(|configuration| configuration.provider.as_str())
+        .collect::<Vec<_>>();
+    if providers.iter().any(|provider| provider.starts_with("go.")) {
+        toolchains.insert(
+            "project-go".to_string(),
+            generic_requirement("go", declared_go_version(root)),
+        );
+    }
+    if providers
+        .iter()
+        .any(|provider| provider.starts_with("python."))
+    {
+        toolchains.insert(
+            "project-python".to_string(),
+            generic_requirement("python", declared_python_version(root)),
+        );
+    }
+    if providers
+        .iter()
+        .any(|provider| provider.starts_with("npm."))
+    {
+        toolchains.insert(
+            "project-node".to_string(),
+            generic_requirement("node", declared_node_version(root)),
+        );
+    }
+    if providers
+        .iter()
+        .any(|provider| provider.starts_with("cargo."))
+    {
+        toolchains.insert(
+            "project-cargo".to_string(),
+            generic_requirement("rust", declared_rust_version(root)),
+        );
     }
     Ok(ToolchainRequirementsDocument {
         version: SIDECAR_VERSION,
         toolchains,
     })
+}
+
+fn generic_requirement(kind: &str, minimum_version: Option<String>) -> ToolchainRequirement {
+    ToolchainRequirement {
+        kind: kind.to_string(),
+        minimum_version,
+        preferred_vendor: None,
+        wrapper: None,
+        version: None,
+        java: None,
+    }
 }
 
 fn toolchain_diagnostics(
@@ -1681,6 +1803,8 @@ fn fingerprint_input(path: &Path) -> bool {
                 | "pyproject.toml"
                 | "manage.py"
                 | "Cargo.toml"
+                | "rust-toolchain"
+                | "rust-toolchain.toml"
                 | "go.mod"
                 | "Procfile"
                 | "Procfile.dev"
@@ -1693,6 +1817,125 @@ fn fingerprint_input(path: &Path) -> bool {
                 | ".justfile"
         )
     )
+}
+
+fn declared_go_version(root: &Path) -> Option<String> {
+    highest_version(
+        project_manifest_paths(root, &["go.mod"])
+            .into_iter()
+            .filter_map(|path| fs::read_to_string(path).ok())
+            .filter_map(|text| {
+                text.lines().find_map(|line| {
+                    line.trim()
+                        .strip_prefix("go ")
+                        .and_then(first_numeric_version)
+                })
+            })
+            .collect(),
+    )
+}
+
+fn declared_python_version(root: &Path) -> Option<String> {
+    let expression = regex::Regex::new(
+        r#"(?m)^\s*(?:requires-python|python)\s*=\s*[\"']([^\"']+)[\"']"#,
+    )
+    .ok()?;
+    highest_version(
+        project_manifest_paths(root, &["pyproject.toml"])
+            .into_iter()
+            .filter_map(|path| fs::read_to_string(path).ok())
+            .filter_map(|text| {
+                expression
+                    .captures(&text)
+                    .and_then(|capture| capture.get(1))
+                    .and_then(|value| first_numeric_version(value.as_str()))
+            })
+            .collect(),
+    )
+}
+
+fn declared_node_version(root: &Path) -> Option<String> {
+    highest_version(
+        project_manifest_paths(root, &["package.json"])
+            .into_iter()
+            .filter_map(|path| fs::read_to_string(path).ok())
+            .filter_map(|text| serde_json::from_str::<Value>(&text).ok())
+            .filter_map(|document| {
+                document
+                    .get("engines")?
+                    .get("node")?
+                    .as_str()
+                    .and_then(first_numeric_version)
+            })
+            .collect(),
+    )
+}
+
+fn declared_rust_version(root: &Path) -> Option<String> {
+    let mut versions = Vec::new();
+    for path in project_manifest_paths(root, &["Cargo.toml"]) {
+        let Some(document) = fs::read_to_string(path)
+            .ok()
+            .and_then(|text| text.parse::<toml::Table>().ok())
+        else {
+            continue;
+        };
+        if let Some(version) = document
+            .get("package")
+            .and_then(|package| package.get("rust-version"))
+            .and_then(|value| value.as_str())
+            .and_then(first_numeric_version)
+        {
+            versions.push(version);
+        }
+    }
+    for path in project_manifest_paths(root, &["rust-toolchain", "rust-toolchain.toml"]) {
+        let Ok(text) = fs::read_to_string(path) else {
+            continue;
+        };
+        if let Some(version) = first_numeric_version(&text) {
+            versions.push(version);
+        }
+    }
+    highest_version(versions)
+}
+
+fn first_numeric_version(value: &str) -> Option<String> {
+    regex::Regex::new(r"[0-9]+(?:\.[0-9]+)+")
+        .ok()?
+        .find(value)
+        .map(|value| value.as_str().to_string())
+}
+
+fn highest_version(versions: Vec<String>) -> Option<String> {
+    versions
+        .into_iter()
+        .max_by(|left, right| version_parts(left).cmp(&version_parts(right)))
+}
+
+fn project_manifest_paths(root: &Path, names: &[&str]) -> Vec<PathBuf> {
+    let mut result = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(directory) = stack.pop() {
+        let Ok(entries) = fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if !ignored_directory(&path) {
+                    stack.push(path);
+                }
+            } else if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| names.contains(&name))
+            {
+                result.push(path);
+            }
+        }
+    }
+    result
 }
 
 fn declared_java_version(root: &Path) -> Option<(String, Option<String>)> {
