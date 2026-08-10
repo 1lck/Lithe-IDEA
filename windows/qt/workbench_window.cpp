@@ -2885,8 +2885,30 @@ void WorkbenchWindow::applyWorkspaceState(const app::WorkspaceFeatureState& stat
         return;
     }
     if (state.isLoading || !state.snapshot) return;
+    std::vector<QString> expandedPaths;
+    std::function<void(QTreeWidgetItem*)> collectExpanded =
+        [&](QTreeWidgetItem* parent) {
+        if (parent->isExpanded() && parent->data(0, DirectoryRole).toBool()) {
+            expandedPaths.push_back(parent->data(0, RelativePathRole).toString());
+        }
+        for (int index = 0; index < parent->childCount(); ++index) {
+            collectExpanded(parent->child(index));
+        }
+    };
+    for (int index = 0; index < tree_->topLevelItemCount(); ++index) {
+        collectExpanded(tree_->topLevelItem(index));
+    }
+    const auto selectedPath = tree_->currentItem() == nullptr
+        ? QString() : tree_->currentItem()->data(0, RelativePathRole).toString();
+
     tree_->clear();
     appendTreeNode(nullptr, state.snapshot->root);
+    for (const auto& path : expandedPaths) {
+        if (auto* item = findTreeItem(path)) item->setExpanded(true);
+    }
+    if (!selectedPath.isEmpty()) {
+        if (auto* item = findTreeItem(selectedPath)) tree_->setCurrentItem(item);
+    }
     sidebar_->showProjectReady();
     restoreWorkspaceSession();
     statusBar()->showMessage(uiText(QStringLiteral("Workspace loaded with %1 files")).arg(
