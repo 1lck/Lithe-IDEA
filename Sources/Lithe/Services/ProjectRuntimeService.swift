@@ -17,6 +17,7 @@ final class ProjectRuntimeService: ObservableObject {
 
     private let runtimeLocator: any RuntimeLocator
     private var discoveryTask: Task<Void, Never>?
+    private var activeDiscoveryID: UUID?
 
     private let settingsStore: ProjectRuntimeSettingsStore
 
@@ -31,6 +32,7 @@ final class ProjectRuntimeService: ObservableObject {
 
     func openProject(at url: URL) {
         discoveryTask?.cancel()
+        activeDiscoveryID = nil
         let normalizedURL = url.standardizedFileURL
         projectURL = normalizedURL
         settings = settingsStore.load(for: normalizedURL)
@@ -44,6 +46,7 @@ final class ProjectRuntimeService: ObservableObject {
     func closeProject() {
         discoveryTask?.cancel()
         discoveryTask = nil
+        activeDiscoveryID = nil
         projectURL = nil
         settings = ProjectRuntimeSettings()
         javaRuntimes = []
@@ -85,15 +88,24 @@ final class ProjectRuntimeService: ObservableObject {
 
     func refreshAvailableRuntimes() async {
         let targetProjectURL = projectURL
+        let discoveryID = UUID()
+        activeDiscoveryID = discoveryID
         isDiscovering = true
+        defer {
+            if activeDiscoveryID == discoveryID {
+                activeDiscoveryID = nil
+                isDiscovering = false
+            }
+        }
         let runtimeLocator = runtimeLocator
         let result = await Task.detached(priority: .utility) {
             runtimeLocator.discover()
         }.value
-        guard !Task.isCancelled, projectURL == targetProjectURL else { return }
+        guard !Task.isCancelled,
+              projectURL == targetProjectURL,
+              activeDiscoveryID == discoveryID else { return }
         javaRuntimes = result.javaRuntimes
         mavenRuntimes = result.mavenRuntimes
-        isDiscovering = false
     }
 
     func javaHomeURL(overridePath: String? = nil) -> URL? {
