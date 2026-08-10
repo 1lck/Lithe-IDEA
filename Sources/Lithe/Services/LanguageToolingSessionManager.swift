@@ -237,11 +237,23 @@ final class LanguageToolingSessionManager: ObservableObject {
     func rename(
         fileURL: URL,
         text _: String,
-        position _: LanguageServerPosition,
-        newName _: String,
+        position: LanguageServerPosition,
+        newName: String,
         rootURL _: URL,
-        completion _: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
+        completion: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
     ) throws {
+        if let session = languageServerSession(for: fileURL),
+           session.isRunning {
+            do {
+                try session.rename(
+                    fileURL: fileURL,
+                    position: position,
+                    newName: newName,
+                    completion: completion
+                )
+                return
+            } catch {}
+        }
         throw unavailableLanguageServerError(for: fileURL)
     }
 
@@ -256,8 +268,15 @@ final class LanguageToolingSessionManager: ObservableObject {
             "insertFinalNewline": true,
             "trimFinalNewlines": true
         ],
-        completion _: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
+        completion: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
     ) throws {
+        if let session = languageServerSession(for: fileURL),
+           session.isRunning {
+            do {
+                try session.format(fileURL: fileURL, completion: completion)
+                return
+            } catch {}
+        }
         throw unavailableLanguageServerError(for: fileURL)
     }
 

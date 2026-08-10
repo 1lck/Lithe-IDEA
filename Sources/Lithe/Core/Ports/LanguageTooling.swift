@@ -354,6 +354,16 @@ protocol LanguageServerSession: AnyObject {
         position: LanguageServerPosition,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws
+    func rename(
+        fileURL: URL,
+        position: LanguageServerPosition,
+        newName: String,
+        completion: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
+    ) throws
+    func format(
+        fileURL: URL,
+        completion: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
+    ) throws
     func stop()
 }
 

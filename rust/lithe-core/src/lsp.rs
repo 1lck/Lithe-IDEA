@@ -1028,6 +1028,15 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
         Some("textDocument/hover") => Some(json!({
             "hover": parse_hover(result)
         })),
+        Some("textDocument/rename") => Some(json!({
+            "changes": parse_workspace_edit(result)
+        })),
+        Some("textDocument/formatting") => Some(json!({
+            "edits": result
+                .as_array()
+                .map(|edits| edits.iter().filter_map(parse_lsp_text_edit_value).collect::<Vec<_>>())
+                .unwrap_or_default()
+        })),
         Some("textDocument/definition")
         | Some("textDocument/declaration")
         | Some("textDocument/typeDefinition")
@@ -1164,6 +1173,47 @@ fn parse_locations(result: &Value) -> Vec<Value> {
             }))
         })
         .collect()
+}
+
+fn parse_workspace_edit(result: &Value) -> serde_json::Map<String, Value> {
+    let mut changes = serde_json::Map::new();
+    if let Some(entries) = result.get("changes").and_then(Value::as_object) {
+        for (uri, edits) in entries {
+            let parsed = edits
+                .as_array()
+                .map(|edits| {
+                    edits
+                        .iter()
+                        .filter_map(parse_lsp_text_edit_value)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            changes.insert(file_path_from_uri(uri), json!(parsed));
+        }
+    }
+    if let Some(document_changes) = result.get("documentChanges").and_then(Value::as_array) {
+        for change in document_changes {
+            let Some(uri) = change
+                .get("textDocument")
+                .and_then(|document| document.get("uri"))
+                .and_then(Value::as_str)
+            else {
+                continue;
+            };
+            let parsed = change
+                .get("edits")
+                .and_then(Value::as_array)
+                .map(|edits| {
+                    edits
+                        .iter()
+                        .filter_map(parse_lsp_text_edit_value)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            changes.insert(file_path_from_uri(uri), json!(parsed));
+        }
+    }
+    changes
 }
 
 fn parse_lsp_text_edit_value(value: &Value) -> Option<Value> {
@@ -2271,6 +2321,73 @@ mod tests {
         assert_eq!(
             result["items"][0]["textEdit"]["range"]["start"]["utf16Column"],
             12
+        );
+
+        let rename = client_feature_request(ClientFeatureRequest {
+            state: completed.state,
+            uri: "file:///tmp/project/main.rs".to_string(),
+            method: "textDocument/rename".to_string(),
+            position: Some(LspPosition {
+                line: 0,
+                utf16_column: 12,
+            }),
+            new_name: Some("start".to_string()),
+        })
+        .unwrap();
+        let renamed = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: rename.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "2",
+                "result": {
+                    "changes": {
+                        "file:///tmp/project/main.rs": [{
+                            "range": {
+                                "start": { "line": 0, "character": 12 },
+                                "end": { "line": 0, "character": 18 }
+                            },
+                            "newText": "start"
+                        }]
+                    }
+                }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+        let rename_result = renamed.events[0].result.as_ref().unwrap();
+        assert_eq!(
+            rename_result["changes"]["/tmp/project/main.rs"][0]["newText"],
+            "start"
+        );
+
+        let formatting = client_feature_request(ClientFeatureRequest {
+            state: renamed.state,
+            uri: "file:///tmp/project/main.rs".to_string(),
+            method: "textDocument/formatting".to_string(),
+            position: None,
+            new_name: None,
+        })
+        .unwrap();
+        let formatted = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: formatting.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "3",
+                "result": [{
+                    "range": {
+                        "start": { "line": 0, "character": 2 },
+                        "end": { "line": 0, "character": 2 }
+                    },
+                    "newText": " "
+                }]
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+        let format_result = formatted.events[0].result.as_ref().unwrap();
+        assert_eq!(
+            format_result["edits"][0]["range"]["start"]["utf16Column"],
+            2
         );
     }
 

@@ -1093,6 +1093,56 @@ struct RunConfigurationIntegrationTests {
         ])
         await Self.drainMainActorTasks()
         #expect(try completionsResult?.get().first?.label == "title")
+
+        var renameResult: Result<LanguageServerWorkspaceEdit, Error>?
+        try manager.rename(
+            fileURL: source,
+            text: "struct App { let title = 1 }\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 17),
+            newName: "headline",
+            rootURL: root
+        ) { result in
+            renameResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "3",
+            "result": [
+                "changes": [
+                    source.standardizedFileURL.absoluteString: [[
+                        "range": [
+                            "start": ["line": 0, "character": 17],
+                            "end": ["line": 0, "character": 22]
+                        ],
+                        "newText": "headline"
+                    ]]
+                ]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try renameResult?.get().changes[source.standardizedFileURL]?.first?.newText == "headline")
+
+        var formatResult: Result<[LanguageServerTextEdit], Error>?
+        try manager.format(
+            fileURL: source,
+            text: "struct App{ }\n",
+            rootURL: root
+        ) { result in
+            formatResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "4",
+            "result": [[
+                "range": [
+                    "start": ["line": 0, "character": 10],
+                    "end": ["line": 0, "character": 10]
+                ],
+                "newText": " "
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try formatResult?.get().first?.newText == " ")
     }
 
     @Test
@@ -2767,8 +2817,17 @@ private struct TestLspClientCore: LspClientCore {
         position _: LanguageServerPosition?,
         newName _: String?
     ) -> RustCoreBridge.LspClientResponsePayload? {
-        response(messages: [
-            #"{"jsonrpc":"2.0","id":"2","method":"\#(method)","params":{}}"#
+        let id: String
+        switch method {
+        case "textDocument/rename":
+            id = "3"
+        case "textDocument/formatting":
+            id = "4"
+        default:
+            id = "2"
+        }
+        return response(messages: [
+            #"{"jsonrpc":"2.0","id":"\#(id)","method":"\#(method)","params":{}}"#
         ])
     }
 
@@ -2817,6 +2876,54 @@ private struct TestLspClientCore: LspClientCore {
                                 "detail": .string("String"),
                                 "additionalTextEdits": .array([]),
                                 "data": .null
+                            ])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"3""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "3",
+                    method: "textDocument/rename",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "changes": .object([
+                            diagnosticURL.standardizedFileURL.path: .array([
+                                .object([
+                                    "range": .object([
+                                        "start": .object(["line": .integer(0), "utf16Column": .integer(17)]),
+                                        "end": .object(["line": .integer(0), "utf16Column": .integer(22)])
+                                    ]),
+                                    "newText": .string("headline")
+                                ])
+                            ])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"4""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "4",
+                    method: "textDocument/formatting",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "edits": .array([
+                            .object([
+                                "range": .object([
+                                    "start": .object(["line": .integer(0), "utf16Column": .integer(10)]),
+                                    "end": .object(["line": .integer(0), "utf16Column": .integer(10)])
+                                ]),
+                                "newText": .string(" ")
                             ])
                         ])
                     ]),

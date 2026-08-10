@@ -493,6 +493,31 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct LspWorkspaceEditPayload: Decodable, Sendable {
+        let changes: [String: [LspTextEditPayload]]
+
+        func makeModel() -> LanguageServerWorkspaceEdit {
+            LanguageServerWorkspaceEdit(
+                changes: Dictionary(
+                    uniqueKeysWithValues: changes.map { path, edits in
+                        (
+                            URL(fileURLWithPath: path).standardizedFileURL,
+                            edits.map { $0.makeModel() }
+                        )
+                    }
+                )
+            )
+        }
+    }
+
+    struct LspFormattingPayload: Decodable, Sendable {
+        let edits: [LspTextEditPayload]
+
+        func makeModels() -> [LanguageServerTextEdit] {
+            edits.map { $0.makeModel() }
+        }
+    }
+
     struct JavaStructurePayload: Decodable, Sendable {
         struct FoldRegion: Decodable, Sendable {
             let kind: String

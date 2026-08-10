@@ -148,6 +148,37 @@ final class StdioLanguageServerSession: LanguageServerSession {
         }
     }
 
+    func rename(
+        fileURL: URL,
+        position: LanguageServerPosition,
+        newName: String,
+        completion: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
+    ) throws {
+        try requestFeature(
+            method: "textDocument/rename",
+            fileURL: fileURL,
+            position: position,
+            newName: newName
+        ) { event in
+            completion(Self.decodeEventResult(event, as: RustCoreBridge.LspWorkspaceEditPayload.self)
+                .map { $0.makeModel() })
+        }
+    }
+
+    func format(
+        fileURL: URL,
+        completion: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
+    ) throws {
+        try requestFeature(
+            method: "textDocument/formatting",
+            fileURL: fileURL,
+            position: nil
+        ) { event in
+            completion(Self.decodeEventResult(event, as: RustCoreBridge.LspFormattingPayload.self)
+                .map { $0.makeModels() })
+        }
+    }
+
     func stop() {
         process.stop()
         resetTransientState()
@@ -181,7 +212,8 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private func requestFeature(
         method: String,
         fileURL: URL,
-        position: LanguageServerPosition,
+        position: LanguageServerPosition?,
+        newName: String? = nil,
         completion: @escaping (RustCoreBridge.LspClientEventPayload) -> Void
     ) throws {
         guard let state, isInitialized else {
@@ -195,7 +227,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
             fileURL: fileURL,
             method: method,
             position: position,
-            newName: nil
+            newName: newName
         ) else {
             throw StdioLanguageServerSessionError.requestRejected
         }
