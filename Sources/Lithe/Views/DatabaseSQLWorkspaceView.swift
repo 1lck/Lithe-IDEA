@@ -12,8 +12,11 @@ struct DatabaseWorkspaceView: View {
                         Task { await model.databaseFeature.select(profile) }
                     },
                     onNewQuery: { profile in
-                        Task { await model.databaseFeature.select(profile) }
-                        model.databaseFeature.workspaceSection = .sql
+                        Task {
+                            await model.databaseFeature.select(profile)
+                            guard model.databaseFeature.selectedProfileID == profile.id else { return }
+                            model.databaseFeature.workspaceSection = .sql
+                        }
                     }
                 )
             } else if model.databaseFeature.selectedProfile?.kind == .redis {
@@ -108,6 +111,7 @@ private struct DatabaseDashboardView: View {
     let onNewQuery: (DatabaseProfile) -> Void
 
     private var profiles: [DatabaseProfile] { model.databaseFeature.profiles }
+    private var sqlProfiles: [DatabaseProfile] { profiles.filter { $0.kind.isSQLDatabase } }
     private var databaseTypeCount: Int { Set(profiles.map(\.kind)).count }
     private var connectedCount: Int { model.databaseFeature.connectedProfileCount }
     private let dashboardColumns = [
@@ -134,8 +138,8 @@ private struct DatabaseDashboardView: View {
                             dashboardSection(title: "Common Actions", symbol: "wand.and.stars") {
                                 LazyVGrid(columns: dashboardColumns, spacing: 1) {
                                     dashboardAction("New Connection", symbol: "plus") { showsConnectionEditor = true }
-                                    dashboardAction("New Query", symbol: "doc.badge.plus", isEnabled: !profiles.isEmpty) {
-                                        if let first = profiles.first { onNewQuery(first) }
+                                    dashboardAction("New Query", symbol: "doc.badge.plus", isEnabled: !sqlProfiles.isEmpty) {
+                                        if let first = sqlProfiles.first { onNewQuery(first) }
                                     }
                                     dashboardAction("Browse Database", symbol: "tablecells", isEnabled: !profiles.isEmpty) {
                                         if let first = profiles.first { onOpenConnection(first) }
@@ -152,25 +156,31 @@ private struct DatabaseDashboardView: View {
                         dashboardSection(
                             title: "Recent SQL",
                             symbol: "clock.arrow.circlepath",
-                            minHeight: max(160, geometry.size.height - 288)
+                            minHeight: max(160, min(320, geometry.size.height - 288))
                         ) {
                             if model.databaseFeature.sqlHistory.isEmpty {
                                 dashboardEmpty("No SQL history yet.")
                             } else {
                                 ForEach(Array(model.databaseFeature.sqlHistory.prefix(8))) { entry in
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "terminal")
-                                            .foregroundStyle(LitheTheme.accent)
-                                        Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
-                                            .font(.system(size: 10.5, design: .monospaced))
-                                            .lineLimit(1)
-                                        Spacer()
-                                        Text(entry.executedAt, style: .relative)
-                                            .font(.system(size: 9.5))
-                                            .foregroundStyle(LitheTheme.tertiaryText)
+                                    Button { openHistoryEntry(entry) } label: {
+                                        HStack(spacing: 10) {
+                                            Image(systemName: "terminal")
+                                                .foregroundStyle(LitheTheme.accent)
+                                            Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
+                                                .font(.system(size: 10.5, design: .monospaced))
+                                                .lineLimit(1)
+                                            Spacer()
+                                            Text(entry.executedAt, style: .relative)
+                                                .font(.system(size: 9.5))
+                                                .foregroundStyle(LitheTheme.tertiaryText)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .frame(height: 36)
                                     }
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 36)
+                                    .buttonStyle(.plain)
+                                    .disabled(profiles.first(where: { $0.id == entry.profileID })?.kind.isSQLDatabase != true)
+                                    .litheRowHover(cornerRadius: 0)
                                 }
                             }
                         }
@@ -217,7 +227,7 @@ private struct DatabaseDashboardView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 97)
         } else {
-            let quickProfiles = Array(profiles.prefix(2))
+            let quickProfiles = profiles
             ForEach(quickProfiles) { profile in
                 quickStartRow(profile)
                 if profile.id != quickProfiles.last?.id || quickProfiles.count == 1 {
@@ -269,21 +279,33 @@ private struct DatabaseDashboardView: View {
             }
             .buttonStyle(.plain)
 
-            Button { onNewQuery(profile) } label: {
-                Image(systemName: "doc.badge.plus")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 40, height: 40)
-                    .contentShape(Rectangle())
+            if profile.kind.isSQLDatabase {
+                Button { onNewQuery(profile) } label: {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help("New Query")
+                .accessibilityLabel("New Query")
+                .padding(.trailing, 6)
             }
-            .buttonStyle(.plain)
-            .lithePointer()
-            .help("New Query")
-            .accessibilityLabel("New Query")
-            .padding(.trailing, 6)
         }
         .lithePointer()
         .litheRowHover(cornerRadius: 0)
+    }
+
+    private func openHistoryEntry(_ entry: DatabaseSQLHistoryEntry) {
+        guard let profile = profiles.first(where: { $0.id == entry.profileID }), profile.kind.isSQLDatabase else { return }
+        Task {
+            await model.databaseFeature.select(profile)
+            guard model.databaseFeature.selectedProfileID == profile.id else { return }
+            model.databaseFeature.workspaceSection = .sql
+            model.databaseFeature.restoreSQLHistory(entry)
+        }
     }
 
     private func metricCard(title: LocalizedStringKey, value: Int, symbol: String) -> some View {
@@ -470,7 +492,10 @@ private extension DatabaseKind {
 struct DatabaseSQLWorkspaceView: View {
     @EnvironmentObject private var model: AppModel
     @State private var pendingRisk: DatabaseSQLAnalysis?
+    @State private var pendingScope: DatabaseSQLExecutionScope = .all
+    @State private var pendingTabID: UUID?
     @State private var showsRiskConfirmation = false
+    @State private var sqlSelection = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -484,15 +509,22 @@ struct DatabaseSQLWorkspaceView: View {
         }
         .background(LitheTheme.editor)
         .alert("Confirm database change", isPresented: $showsRiskConfirmation, presenting: pendingRisk) { analysis in
-            Button("Cancel", role: .cancel) { pendingRisk = nil }
-            Button("Run statement", role: .destructive) {
-                if let tabID = model.databaseFeature.selectedSQLTabID {
-                    Task { await model.databaseFeature.runSQL(in: tabID, confirmedRisk: true) }
+            Button("Cancel", role: .cancel) {
+                pendingRisk = nil
+                pendingTabID = nil
+            }
+            Button(analysis.statementCount > 1 ? "Run batch" : "Run statement", role: .destructive) {
+                if let tabID = pendingTabID {
+                    Task { await model.databaseFeature.runSQL(in: tabID, scope: pendingScope, confirmedRisk: true) }
                 }
                 pendingRisk = nil
+                pendingTabID = nil
             }
         } message: { analysis in
             DatabaseLocalization.text(analysis.warning ?? "This statement can change the database.")
+        }
+        .onChange(of: model.databaseFeature.selectedSQLTabID) { _ in
+            sqlSelection = ""
         }
     }
 
@@ -550,7 +582,24 @@ struct DatabaseSQLWorkspaceView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .disabled(model.databaseFeature.selectedSQLTab?.isRunning == true || model.databaseFeature.selectedProfile == nil)
-            .help("Run SQL (Command-Return)")
+            .help(hasSQLSelection ? "Run selected SQL (Command-Return)" : "Run all SQL (Command-Return)")
+
+            Menu {
+                Button { runAllQuery() } label: {
+                    Label("Run All", systemImage: "play.fill")
+                }
+                Button { runSelectionQuery() } label: {
+                    Label("Run Selection", systemImage: "text.cursor")
+                }
+                .disabled(!hasSQLSelection)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 18)
+            .disabled(model.databaseFeature.selectedSQLTab?.isRunning == true || model.databaseFeature.selectedProfile == nil)
+            .help("Choose SQL execution scope")
 
             Button { if let id = model.databaseFeature.selectedSQLTabID { model.databaseFeature.formatSQL(in: id) } } label: {
                 Image(systemName: "text.alignleft")
@@ -605,8 +654,10 @@ struct DatabaseSQLWorkspaceView: View {
                     set: { model.databaseFeature.updateSQL($0, in: tab.id) }
                 ),
                 completions: model.databaseFeature.sqlCompletionItems,
-                onRun: runSelectedQuery
+                onRun: runSelectedQuery,
+                onSelectionChange: { sqlSelection = $0 }
             )
+            .id(tab.id)
             .frame(minHeight: 180, idealHeight: 240, maxHeight: 320)
             .overlay(alignment: .bottomLeading) {
                 if let error = tab.errorMessage {
@@ -642,7 +693,8 @@ struct DatabaseSQLWorkspaceView: View {
                     }
                 }
         } else if let affected = model.databaseFeature.selectedSQLTab?.rowsAffected {
-            LitheUnavailableView("Statement completed", systemImage: "checkmark.circle", description: Text("Rows affected: \(affected)"))
+            let count = model.databaseFeature.selectedSQLTab.map { model.databaseFeature.analysis(forSQLTab: $0.id).statementCount } ?? 1
+            LitheUnavailableView(count > 1 ? "Statements completed" : "Statement completed", systemImage: "checkmark.circle", description: Text("Rows affected: \(affected)"))
                 .foregroundStyle(LitheTheme.secondaryText)
         } else {
             LitheUnavailableView("Query Results", systemImage: "tablecells", description: Text("Run a SELECT, SHOW, DESCRIBE, or EXPLAIN statement to inspect results."))
@@ -656,17 +708,43 @@ struct DatabaseSQLWorkspaceView: View {
     }
 
     private func runSelectedQuery() {
-        guard let tabID = model.databaseFeature.selectedSQLTabID else { return }
-        let analysis = model.databaseFeature.analysis(forSQLTab: tabID)
-        if analysis.requiresConfirmation {
-            pendingRisk = analysis
-            showsRiskConfirmation = true
+        if hasSQLSelection {
+            run(scope: .selection(sqlSelection))
         } else {
-            Task { await model.databaseFeature.runSQL(in: tabID) }
+            runAllQuery()
         }
     }
 
+    private func runAllQuery() {
+        run(scope: .all)
+    }
+
+    private func runSelectionQuery() {
+        guard hasSQLSelection else { return }
+        run(scope: .selection(sqlSelection))
+    }
+
+    private func run(scope: DatabaseSQLExecutionScope) {
+        guard let tabID = model.databaseFeature.selectedSQLTabID else { return }
+        let analysis = model.databaseFeature.analysis(forSQLTab: tabID, scope: scope)
+        if analysis.requiresConfirmation {
+            pendingRisk = analysis
+            pendingScope = scope
+            pendingTabID = tabID
+            showsRiskConfirmation = true
+        } else {
+            Task { await model.databaseFeature.runSQL(in: tabID, scope: scope) }
+        }
+    }
+
+    private var hasSQLSelection: Bool {
+        !sqlSelection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func executionLabel(_ execution: DatabaseSQLExecution) -> Text {
+        if let rows = execution.rowsReturned, let affected = execution.rowsAffected {
+            return Text("\(rows) rows, \(affected) affected  \(execution.durationMilliseconds) ms")
+        }
         if let rows = execution.rowsReturned { return Text("\(rows) rows  \(execution.durationMilliseconds) ms") }
         if let affected = execution.rowsAffected { return Text("\(affected) affected  \(execution.durationMilliseconds) ms") }
         return Text("\(execution.durationMilliseconds) ms")
@@ -728,15 +806,7 @@ private struct DatabaseQueryResultGrid: View {
     }
 
     private func display(_ value: DatabaseValue?) -> String {
-        switch value {
-        case nil, .null: "NULL"
-        case let .string(value): value
-        case let .integer(value): String(value)
-        case let .number(value): String(value)
-        case let .bool(value): value ? "true" : "false"
-        case let .object(value): String(describing: value)
-        case let .array(value): String(describing: value)
-        }
+        value?.displayText ?? "NULL"
     }
 }
 
@@ -843,15 +913,7 @@ private struct DatabaseStructureView: View {
     }
 
     private func display(_ value: DatabaseValue) -> String {
-        switch value {
-        case .null: "NULL"
-        case let .string(value): value
-        case let .integer(value): String(value)
-        case let .number(value): String(value)
-        case let .bool(value): value ? "true" : "false"
-        case let .object(value): String(describing: value)
-        case let .array(value): String(describing: value)
-        }
+        value.displayText
     }
 }
 
@@ -1017,18 +1079,62 @@ private struct DatabaseDiagnosticsView: View {
                             .foregroundStyle(LitheTheme.success)
                     }
                 }
+                Section("Execution log") {
+                    let events = model.databaseFeature.executionEvents
+                        .filter { $0.profileID == model.databaseFeature.selectedProfileID }
+                        .prefix(20)
+                    if events.isEmpty {
+                        Text("No execution events yet").foregroundStyle(LitheTheme.secondaryText)
+                    } else {
+                        ForEach(events) { event in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: event.status == .succeeded ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundStyle(event.status == .succeeded ? LitheTheme.success : LitheTheme.error)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack {
+                                        Text("\(event.source.rawValue.uppercased()) · \(event.operation)")
+                                            .font(.system(size: 11, weight: .medium))
+                                        Spacer()
+                                        Text("\(event.durationMilliseconds) ms")
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                    }
+                                    if let error = event.errorMessage {
+                                        Text(error)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(LitheTheme.error)
+                                            .lineLimit(2)
+                                    } else if let rows = event.rowsReturned {
+                                        Text("\(rows) rows returned")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Section("Recent executions") {
-                    let entries = model.databaseFeature.sqlHistory.prefix(10)
+                    let entries = model.databaseFeature.sqlHistory
+                        .filter { $0.profileID == model.databaseFeature.selectedProfileID }
+                        .prefix(10)
                     if entries.isEmpty {
                         Text("No executed SQL yet").foregroundStyle(LitheTheme.secondaryText)
                     } else {
                         ForEach(entries) { entry in
-                            HStack {
-                                DatabaseLocalization.statementKind(entry.kind)
-                                Spacer()
-                                Text("\(entry.durationMilliseconds) ms")
-                                    .font(.system(size: 11, design: .monospaced))
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    DatabaseLocalization.statementKind(entry.kind)
+                                    Spacer()
+                                    Text("\(entry.durationMilliseconds) ms")
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(LitheTheme.secondaryText)
+                                }
+                                Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
+                                    .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(1)
+                                    .textSelection(.enabled)
                             }
                         }
                     }
@@ -1051,7 +1157,13 @@ private struct DatabaseDiagnosticsView: View {
                     }
                 }
                 Section("Audit") {
-                    ForEach(model.databaseFeature.auditEntries.prefix(10)) { entry in
+                    let entries = model.databaseFeature.auditEntries
+                        .filter { $0.profileID == model.databaseFeature.selectedProfileID }
+                        .prefix(10)
+                    if entries.isEmpty {
+                        Text("No audit entries yet").foregroundStyle(LitheTheme.secondaryText)
+                    }
+                    ForEach(entries) { entry in
                         HStack {
                             Image(systemName: entry.succeeded ? "checkmark.circle" : "xmark.circle")
                                 .foregroundStyle(entry.succeeded ? LitheTheme.success : LitheTheme.error)
@@ -1065,7 +1177,10 @@ private struct DatabaseDiagnosticsView: View {
             .listStyle(.inset)
             if let result = model.databaseFeature.lastDiagnostics {
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                DatabaseQueryResultGrid(columns: result.rows.reduce(into: [String]()) { result, row in for key in row.keys where !result.contains(key) { result.append(key) } }.sorted(), rows: result.rows)
+                let columns = result.columns ?? result.rows.reduce(into: [String]()) { columns, row in
+                    for key in row.keys where !columns.contains(key) { columns.append(key) }
+                }
+                DatabaseQueryResultGrid(columns: columns, rows: result.rows)
                     .frame(minHeight: 170)
             }
         }
@@ -1140,8 +1255,9 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
     @Binding var text: String
     let completions: [String]
     let onRun: () -> Void
+    let onSelectionChange: (String) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text, completions: completions, onRun: onRun) }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, completions: completions, onRun: onRun, onSelectionChange: onSelectionChange) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -1174,6 +1290,7 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = false
         textView.completionItems = completions
         textView.onRun = onRun
+        context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.textView = textView
         context.coordinator.highlight()
         scrollView.documentView = textView
@@ -1183,12 +1300,15 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? SQLTextView else { return }
         context.coordinator.completions = completions
+        context.coordinator.onSelectionChange = onSelectionChange
         textView.completionItems = completions
         textView.onRun = onRun
         if textView.string != text, !textView.hasMarkedText(), !context.coordinator.isApplyingChange {
             let selection = textView.selectedRange()
             textView.string = text
-            textView.setSelectedRange(NSRange(location: min(selection.location, text.utf16.count), length: 0))
+            let location = min(selection.location, text.utf16.count)
+            let length = min(selection.length, text.utf16.count - location)
+            textView.setSelectedRange(NSRange(location: location, length: length))
             context.coordinator.highlight()
         }
     }
@@ -1198,13 +1318,15 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
         private var text: Binding<String>
         var completions: [String]
         let onRun: () -> Void
+        var onSelectionChange: (String) -> Void
         weak var textView: SQLTextView?
         var isApplyingChange = false
 
-        init(text: Binding<String>, completions: [String], onRun: @escaping () -> Void) {
+        init(text: Binding<String>, completions: [String], onRun: @escaping () -> Void, onSelectionChange: @escaping (String) -> Void) {
             self.text = text
             self.completions = completions
             self.onRun = onRun
+            self.onSelectionChange = onSelectionChange
         }
 
         func textDidChange(_ notification: Notification) {
@@ -1213,6 +1335,16 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
             text.wrappedValue = textView.string
             highlight()
             isApplyingChange = false
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView else { return }
+            let range = textView.selectedRange()
+            guard range.length > 0, range.location + range.length <= textView.string.utf16.count else {
+                onSelectionChange("")
+                return
+            }
+            onSelectionChange((textView.string as NSString).substring(with: range))
         }
 
         func textView(
