@@ -75,10 +75,12 @@ bool hasVisibleWindow(DWORD processId) {
     return search.visible;
 }
 
-std::string commandShell() {
-    char value[32768]{};
-    const auto length = GetEnvironmentVariableA("ComSpec", value, sizeof(value));
-    return length > 0 && length < sizeof(value) ? std::string(value, length) : "cmd.exe";
+std::string pingExecutable() {
+    char systemRoot[MAX_PATH] = {};
+    const DWORD length = GetEnvironmentVariableA("SystemRoot", systemRoot, sizeof(systemRoot));
+    return (length > 0 && length < sizeof(systemRoot))
+        ? std::string(systemRoot) + "\\System32\\ping.exe"
+        : std::string("ping.exe");
 }
 
 #endif
@@ -92,8 +94,15 @@ int main() {
     lithe::windows::Win32TerminalTransport terminal;
     lithe::windows::ProcessRequest request;
     request.operationID = "terminal-lifecycle-test";
-    request.executablePath = commandShell();
-    request.arguments = {"/d", "/k", "ver"};
+    // Use ping (a deterministic ~30s process) instead of `cmd /d /k ver`:
+    // commandLine() quotes each argument, so `ver` became `"ver"` and cmd
+    // treated it as an unknown program (and sometimes failed to recognize the
+    // quoted `/k` switch), nondeterministically exiting on a headless CI
+    // ConPTY and failing assert(isRunning()). ping has no quoting pitfalls and
+    // no visible window, so the transport's start/descendants/stop checks stay
+    // stable on CI.
+    request.executablePath = pingExecutable();
+    request.arguments = {"-n", "31", "127.0.0.1"};
     terminal.setErrorHandler([](const std::string& error) {
         std::cerr << "Terminal startup error: " << error << '\n';
     });
