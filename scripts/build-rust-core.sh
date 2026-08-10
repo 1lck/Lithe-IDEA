@@ -14,7 +14,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 cd "$ROOT_DIR"
-export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 export CARGO_TARGET_DIR="${LITHE_RUST_TARGET_DIR:-$ROOT_DIR/rust/target/macos}"
 if [[ -n "$TARGET" ]]; then
     TARGET_LIBDIR="$(rustc --print target-libdir --target "$TARGET")"

@@ -203,13 +203,13 @@ struct WorkbenchView: View {
         .onAppear {
             restoreLayout()
         }
-        .onChange(of: sidebarWidth) { _, _ in
+        .onChange(of: sidebarWidth) { _ in
             saveLayout()
         }
-        .onChange(of: topPaneHeight) { _, _ in
+        .onChange(of: topPaneHeight) { _ in
             saveLayout()
         }
-        .onChange(of: model.workspaceURL?.standardizedFileURL.path) { _, _ in
+        .onChange(of: model.workspaceURL?.standardizedFileURL.path) { _ in
             didRestoreLayout = false
             restoreLayout()
         }
@@ -240,7 +240,7 @@ struct WorkbenchView: View {
                 .onAppear {
                     proxy.scrollTo(projectSessions.activeSessionID, anchor: .center)
                 }
-                .onChange(of: projectSessions.activeSessionID) { _, id in
+                .onChange(of: projectSessions.activeSessionID) { id in
                     withAnimation(.easeOut(duration: 0.12)) {
                         proxy.scrollTo(id, anchor: .center)
                     }

@@ -63,7 +63,7 @@ struct EditorAreaView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: model.openDocuments.map(\.id)) { _, ids in
+        .onChange(of: model.openDocuments.map(\.id)) { ids in
             if let splitDocumentID, !ids.contains(splitDocumentID) {
                 self.splitDocumentID = nil
             }

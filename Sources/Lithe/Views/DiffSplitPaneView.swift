@@ -105,7 +105,7 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                 )
             }
         }
-        .onChange(of: contentWidth) { _, _ in
+        .onChange(of: contentWidth) { _ in
             horizontalOffset = min(horizontalOffset, maximumHorizontalOffset)
         }
     }

@@ -27,7 +27,7 @@ MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 swiftc scripts/RustCoreBridgeVerification.swift \
     Sources/LitheRustCore/bridge.c \
     -sdk "$MACOS_SDK" \
-    -target "${TRIPLE}14.0" \
+    -target "${TRIPLE}13.0" \
     -Xlinker -force_load \
     -Xlinker "$RUST_LIBRARY" \
     -o "$BRIDGE_BINARY"
