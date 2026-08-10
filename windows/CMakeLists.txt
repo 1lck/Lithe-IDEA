@@ -414,6 +414,28 @@ if(LITHE_BUILD_QT_UI)
         lithe_windows_adapters
     )
     add_test(NAME lithe_windows_terminal_transport COMMAND lithe_windows_terminal_transport_tests)
+    # Real-ConPTY integration test for the multi-session terminal feature model
+    # (issue #31): concurrent sessions, IO isolation, switch, interrupt, restart,
+    # and whole-process-tree teardown on closeAll(). Compiles the model + session
+    # directly (no core/Rust) and links the Win32 adapters + algorithms; the test
+    # body is an empty main off-Windows.
+    add_executable(lithe_windows_terminal_integration_tests
+        tests/terminal_integration_test.cpp
+        app/services/terminal_model.cpp
+        app/services/terminal_session.cpp
+    )
+    target_compile_features(lithe_windows_terminal_integration_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_terminal_integration_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
+        "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+    )
+    target_link_libraries(lithe_windows_terminal_integration_tests PRIVATE
+        lithe_windows_adapters
+        lithe_windows_algorithms
+    )
+    add_test(NAME lithe_windows_terminal_integration COMMAND lithe_windows_terminal_integration_tests)
     add_executable(lithe_windows_workbench_sidebar_tests
         tests/workbench_sidebar_test.cpp
         qt/lithe.qrc
@@ -601,6 +623,9 @@ if(TARGET lithe_windows_ui_translation_tests)
 endif()
 if(TARGET lithe_windows_terminal_transport_tests)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_terminal_transport_tests)
+endif()
+if(TARGET lithe_windows_terminal_integration_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_terminal_integration_tests)
 endif()
 if(MSVC)
     set(LITHE_UNDEFINE_NDEBUG_FLAG /UNDEBUG)
