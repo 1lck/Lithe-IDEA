@@ -2635,6 +2635,56 @@ struct EditorDocumentTests {
         #expect(model.gitOperationFreezeDepth == 0)
         #expect(refreshCount == 1)
     }
+
+    @Test
+    @MainActor
+    func openDocumentOrderCanBeMovedAndRestored() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-editor-order-tests")
+        let urls = [
+            workspace.appendingPathComponent("A.swift"),
+            workspace.appendingPathComponent("B.swift"),
+            workspace.appendingPathComponent("C.swift")
+        ]
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "text"),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        for url in urls {
+            await model.openFileAsync(
+                url,
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: false
+            )
+        }
+
+        let ids = model.openDocuments.map(\.id)
+        model.moveDocument(ids[0], before: ids[2])
+        #expect(model.openDocuments.map(\.url.lastPathComponent) == ["B.swift", "A.swift", "C.swift"])
+
+        model.moveDocument(ids[0], after: ids[2])
+        #expect(model.openDocuments.map(\.url.lastPathComponent) == ["B.swift", "C.swift", "A.swift"])
+
+        model.reorderDocuments(orderedPaths: urls.reversed().map(\.path))
+        #expect(model.openDocuments.map(\.url.lastPathComponent) == ["C.swift", "B.swift", "A.swift"])
+    }
 }
 
 @MainActor
@@ -2834,6 +2884,12 @@ private let dbxEncryptedConnectionExport = #"""
 """#
 
 private struct EmptyWorkspaceOperations: WorkspaceOperations {
+    let readFileValue: String?
+
+    init(readFileValue: String? = nil) {
+        self.readFileValue = readFileValue
+    }
+
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
 
     func search(
@@ -2860,7 +2916,7 @@ private struct EmptyWorkspaceOperations: WorkspaceOperations {
         visibilityRules: FileVisibilityRules
     ) -> [ProjectReplacementFile]? { nil }
 
-    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func readFile(at rootURL: URL, relativePath: String) -> String? { readFileValue }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
 }
 

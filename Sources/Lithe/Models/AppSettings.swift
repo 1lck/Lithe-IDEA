@@ -6,6 +6,7 @@ final class AppSettings: ObservableObject {
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
         static let tabWidth = "settings.tabWidth"
+        static let editorTabLayoutMode = "settings.editorTabLayoutMode"
         static let showCodeVision = "settings.showCodeVision"
         static let autoSave = "settings.autoSave"
         static let autoSaveDelay = "settings.autoSaveDelay"
@@ -22,6 +23,9 @@ final class AppSettings: ObservableObject {
     @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
     @Published var tabWidth: Int { didSet { defaults.set(tabWidth, forKey: Key.tabWidth) } }
+    @Published var editorTabLayoutMode: EditorTabLayoutMode {
+        didSet { defaults.set(editorTabLayoutMode.rawValue, forKey: Key.editorTabLayoutMode) }
+    }
     @Published var showCodeVision: Bool { didSet { defaults.set(showCodeVision, forKey: Key.showCodeVision) } }
     @Published var autoSave: Bool { didSet { defaults.set(autoSave, forKey: Key.autoSave) } }
     @Published var autoSaveDelay: Double { didSet { defaults.set(autoSaveDelay, forKey: Key.autoSaveDelay) } }
@@ -55,6 +59,9 @@ final class AppSettings: ObservableObject {
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
+        editorTabLayoutMode = EditorTabLayoutMode(
+            rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
+        ) ?? .singleLine
         showCodeVision = defaults.object(forKey: Key.showCodeVision) as? Bool ?? true
         autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? false
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
@@ -107,6 +114,7 @@ final class AppSettings: ObservableObject {
         language = .english
         editorFontSize = 13
         tabWidth = 4
+        editorTabLayoutMode = .singleLine
         showCodeVision = true
         autoSave = false
         autoSaveDelay = 1.5
@@ -202,6 +210,21 @@ final class AppSettings: ObservableObject {
         guard let data = try? JSONEncoder().encode(commitMessageAI) else { return }
         defaults.set(data, forKey: Key.commitMessageAI)
     }
+}
+
+enum EditorTabLayoutMode: String, CaseIterable, Identifiable {
+    case singleLine
+    case multipleRows
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .singleLine: "Single row"
+        case .multipleRows: "Wrap into rows"
+        }
+    }
+
 }
 
 enum ProjectOpenBehavior: String, CaseIterable, Identifiable {

@@ -1,4 +1,8 @@
 /* English is the default UI language. */
+"Editor tabs" = "Editor tabs";
+"Single row" = "Single row";
+"Wrap into rows" = "Wrap into rows";
+"Layout" = "Layout";
 
 "Could not load project" = "Could not load project";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
