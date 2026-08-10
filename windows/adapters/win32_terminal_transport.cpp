@@ -337,9 +337,8 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
         COORD size{120, 40};
         HPCON console = nullptr;
         const auto ptyResult = CreatePseudoConsole(size, ptyInput, ptyOutput, 0, &console);
-        close(ptyInput);
-        close(ptyOutput);
         if (FAILED(ptyResult)) {
+            close(ptyInput); close(ptyOutput);
             close(parentInput); close(parentOutput);
             reportError("Could not create ConPTY: HRESULT " + std::to_string(ptyResult));
             reportExit();
@@ -367,6 +366,7 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
             const auto message = winError();
             destroyAttributes();
             ClosePseudoConsole(console);
+            close(ptyInput); close(ptyOutput);
             close(parentInput); close(parentOutput);
             reportError("Could not configure ConPTY process attributes: " + message);
             reportExit();
@@ -381,6 +381,7 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
         if (!directory || !environment || !command) {
             destroyAttributes();
             ClosePseudoConsole(console);
+            close(ptyInput); close(ptyOutput);
             close(parentInput); close(parentOutput);
             reportError("Terminal request contains invalid UTF-8");
             reportExit();
@@ -392,6 +393,7 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
         if (job == nullptr) {
             const auto message = winError();
             ClosePseudoConsole(console);
+            close(ptyInput); close(ptyOutput);
             close(parentInput); close(parentOutput);
             reportError("Could not create terminal job: " + message);
             reportExit();
@@ -404,6 +406,7 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
             const auto message = winError();
             close(job);
             ClosePseudoConsole(console);
+            close(ptyInput); close(ptyOutput);
             close(parentInput); close(parentOutput);
             reportError("Could not configure terminal job: " + message);
             reportExit();
@@ -422,6 +425,8 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
             &startup.StartupInfo, &processInfo);
         const auto createError = GetLastError();
         destroyAttributes();
+        close(ptyInput);
+        close(ptyOutput);
         if (!created) {
             close(job);
             ClosePseudoConsole(console);

@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <iostream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -93,6 +94,9 @@ int main() {
     request.operationID = "terminal-lifecycle-test";
     request.executablePath = commandShell();
     request.arguments = {"/d", "/k"};
+    terminal.setErrorHandler([](const std::string& error) {
+        std::cerr << "Terminal startup error: " << error << '\n';
+    });
 
     terminal.start(request);
     for (int index = 0; index < 100 && !terminal.isRunning(); ++index) {
