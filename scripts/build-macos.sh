@@ -48,6 +48,13 @@ else
         -Xswiftc -disable-round-trip-debug-types
     )
 fi
+
+if ! /usr/bin/xcrun ld -help 2>&1 | /usr/bin/grep -q -- '-no_warn_duplicate_libraries'; then
+    SWIFT_CONFIGURATION_ARGS+=(
+        -Xswiftc "-ld-path=$ROOT_DIR/scripts/ld-macos13-compat.sh"
+    )
+fi
+
 if [[ -n "$RUST_TARGET" ]]; then
     RUST_BUILD_ARGS+=(--target "$RUST_TARGET")
 fi
