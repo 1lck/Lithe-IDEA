@@ -15,6 +15,12 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusRequest {
@@ -450,7 +456,7 @@ fn execute_git(
     input: Option<String>,
 ) -> Result<GitCommandResponse, CoreError> {
     crate::cancellation::check()?;
-    let mut process = Command::new("git");
+    let mut process = git_process();
     process.args(arguments).current_dir(root);
     process.stdin(if input.is_some() {
         std::process::Stdio::piped()
@@ -2467,7 +2473,7 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
-    Command::new("git")
+    git_process()
         .args(arguments)
         .current_dir(directory)
         .output()
@@ -2475,6 +2481,13 @@ fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output,
             CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git")
                 .with_details(error.to_string())
         })
+}
+
+fn git_process() -> Command {
+    let mut command = Command::new("git");
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
 }
 
 fn parse_status(output: &[u8]) -> Vec<GitChange> {
