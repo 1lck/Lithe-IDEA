@@ -944,6 +944,13 @@ final class DatabaseFeatureModel: ObservableObject {
             return
         }
         let analysis = DatabaseSQLAnalyzer.analyze(tab.sql)
+        updateSQLTab(tabID) { tab in
+            tab.errorMessage = nil
+            tab.result = nil
+            tab.resultColumns = []
+            tab.rowsAffected = nil
+            tab.execution = nil
+        }
         guard analysis.canExecute else {
             updateSQLTab(tabID) { $0.errorMessage = analysis.warning }
             return
@@ -1152,6 +1159,7 @@ final class DatabaseFeatureModel: ObservableObject {
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "GET \(key)", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: 1, rowsAffected: nil, errorMessage: nil))
             guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            setConnectionStatus(.connected, for: profile.id)
             redisSelectedKey = detail
         } catch {
             let sanitizedError = executionError(error)
@@ -1233,6 +1241,7 @@ final class DatabaseFeatureModel: ObservableObject {
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: summary, startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: nil, rowsAffected: nil, errorMessage: nil))
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "redis", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: true, errorMessage: nil))
             guard isCurrent(profileID: profile.id, generation: generation) else { return true }
+            setConnectionStatus(.connected, for: profile.id)
             await afterSuccess()
             isLoading = false
             return true
@@ -1243,6 +1252,7 @@ final class DatabaseFeatureModel: ObservableObject {
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "redis", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
             if isCurrent(profileID: profile.id, generation: generation) {
                 errorMessage = sanitizedError
+                setConnectionStatus(.failed, for: profile.id)
                 isLoading = false
             }
             return false
@@ -1294,6 +1304,7 @@ final class DatabaseFeatureModel: ObservableObject {
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "GET CONFIG \(group)/\(dataId)", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: 1, rowsAffected: nil, errorMessage: nil))
             guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            setConnectionStatus(.connected, for: profile.id)
             nacosSelectedConfig = detail
         } catch {
             let sanitizedError = executionError(error)
@@ -1370,6 +1381,7 @@ final class DatabaseFeatureModel: ObservableObject {
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST INSTANCES", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: items.count, rowsAffected: nil, errorMessage: nil))
             guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            setConnectionStatus(.connected, for: profile.id)
             nacosInstances = items
         } catch {
             let sanitizedError = executionError(error)
@@ -1377,6 +1389,7 @@ final class DatabaseFeatureModel: ObservableObject {
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST INSTANCES", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
             guard isCurrent(profileID: profile.id, generation: generation) else { return }
             errorMessage = sanitizedError
+            setConnectionStatus(.failed, for: profile.id)
         }
         if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
     }
@@ -1398,6 +1411,7 @@ final class DatabaseFeatureModel: ObservableObject {
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: summary, startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: nil, rowsAffected: nil, errorMessage: nil))
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "nacos", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: true, errorMessage: nil))
             guard isCurrent(profileID: profile.id, generation: generation) else { return true }
+            setConnectionStatus(.connected, for: profile.id)
             await afterSuccess()
             isLoading = false
             return true
@@ -1408,6 +1422,7 @@ final class DatabaseFeatureModel: ObservableObject {
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "nacos", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
             if isCurrent(profileID: profile.id, generation: generation) {
                 errorMessage = sanitizedError
+                setConnectionStatus(.failed, for: profile.id)
                 isLoading = false
             }
             return false

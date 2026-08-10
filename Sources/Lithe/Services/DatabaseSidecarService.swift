@@ -415,10 +415,17 @@ enum DatabaseSidecarError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .executableNotFound: return "The Lithe database helper is not installed."
-        case let .processFailed(exitCode, output): return "The database helper exited with code \(exitCode): \(output)"
-        case let .invalidResponse(message): return "The database helper returned invalid JSON: \(message)"
-        case let .requestFailed(code, message): return "Database request failed (\(code)): \(message)"
+        case let .processFailed(exitCode, output): return "The database helper exited with code \(exitCode): \(Self.bounded(output))"
+        case let .invalidResponse(message): return "The database helper returned invalid JSON: \(Self.bounded(message))"
+        case let .requestFailed(code, message): return "Database request failed (\(code)): \(Self.bounded(message))"
         }
+    }
+
+    private static func bounded(_ value: String) -> String {
+        let normalized = value
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.count > 500 ? "\(normalized.prefix(497))..." : normalized
     }
 }
 
@@ -448,23 +455,28 @@ final class DatabaseSidecarService: DatabaseOperations, @unchecked Sendable {
     }
 
     func listTables(connection: DatabaseConnection, schema: String = "") throws -> [DatabaseRow] {
-        try request(method: "listTables", params: TableParams(connection: connection, schema: schema))
+        let result: DatabaseRowsResult = try request(method: "listTables", params: TableParams(connection: connection, schema: schema))
+        return result.rows
     }
 
     func describeTable(connection: DatabaseConnection, schema: String = "", table: String) throws -> [DatabaseRow] {
-        try request(method: "describeTable", params: TableParams(connection: connection, schema: schema, table: table))
+        let result: DatabaseRowsResult = try request(method: "describeTable", params: TableParams(connection: connection, schema: schema, table: table))
+        return result.rows
     }
 
     func listIndexes(connection: DatabaseConnection, schema: String = "", table: String) throws -> [DatabaseRow] {
-        try request(method: "listIndexes", params: TableParams(connection: connection, schema: schema, table: table))
+        let result: DatabaseRowsResult = try request(method: "listIndexes", params: TableParams(connection: connection, schema: schema, table: table))
+        return result.rows
     }
 
     func listForeignKeys(connection: DatabaseConnection, schema: String = "", table: String) throws -> [DatabaseRow] {
-        try request(method: "listForeignKeys", params: TableParams(connection: connection, schema: schema, table: table))
+        let result: DatabaseRowsResult = try request(method: "listForeignKeys", params: TableParams(connection: connection, schema: schema, table: table))
+        return result.rows
     }
 
     func listObjects(connection: DatabaseConnection, schema: String = "", kind: DatabaseObjectKind) throws -> [DatabaseRow] {
-        try request(method: "listObjects", params: ObjectParams(connection: connection, schema: schema, objectKind: kind.rawValue))
+        let result: DatabaseRowsResult = try request(method: "listObjects", params: ObjectParams(connection: connection, schema: schema, objectKind: kind.rawValue))
+        return result.rows
     }
 
     func pageTable(connection: DatabaseConnection, schema: String = "", table: String, limit: Int = 200, offset: Int = 0, filters: [DatabaseFilter] = [], sort: [DatabaseSort] = []) throws -> DatabaseQueryResult {
@@ -657,6 +669,20 @@ private struct EmptyParams: Codable {}
 private struct ConnectionParams: Codable { let connection: DatabaseConnection }
 private struct ConnectedResult: Codable { let connected: Bool }
 private struct EmptyResult: Codable {}
+private struct DatabaseRowsResult: Decodable {
+    let rows: [DatabaseRow]
+
+    init(from decoder: Decoder) throws {
+        if let rows = try? decoder.singleValueContainer().decode([DatabaseRow].self) {
+            self.rows = rows
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rows = try container.decode([DatabaseRow].self, forKey: .rows)
+    }
+
+    private enum CodingKeys: String, CodingKey { case rows }
+}
 private struct ExportResult: Codable { let encoding: String; let data: String }
 private struct ExplainResult: Codable { let format: String; let rows: [DatabaseRow]; let truncated: Bool }
 private struct DiagnosticsResult: Codable { let rows: [DatabaseRow]; let truncated: Bool }

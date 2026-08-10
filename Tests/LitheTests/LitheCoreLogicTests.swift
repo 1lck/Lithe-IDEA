@@ -94,6 +94,38 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func databaseSidecarDecodesLegacyMongoMetadataRowsEnvelope() throws {
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            switch method {
+            case "listTables": result = #"{"rows":[{"table_name":"events","table_type":"collection"}],"truncated":false}"#
+            case "describeTable": result = #"{"rows":[{"column_name":"_id","data_type":"objectId"}],"truncated":false}"#
+            case "listIndexes": result = #"{"rows":[{"index_name":"_id_","definition":"{\"_id\":1}"}],"truncated":false}"#
+            case "listForeignKeys": result = #"{"rows":[],"truncated":false}"#
+            case "listObjects": result = #"{"rows":[{"object_name":"events","object_kind":"collection"}],"truncated":false}"#
+            default: result = "[]"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let service = DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar"))
+        let mongo = DatabaseConnection(kind: .mongodb, host: "127.0.0.1", port: 27017, database: "lithe_test")
+        func stringValue(_ row: DatabaseRow?, _ key: String) -> String? {
+            guard case let .string(value) = row?[key] else { return nil }
+            return value
+        }
+
+        #expect(stringValue(try service.listTables(connection: mongo).first, "table_name") == "events")
+        #expect(stringValue(try service.describeTable(connection: mongo, table: "events").first, "column_name") == "_id")
+        #expect(stringValue(try service.listIndexes(connection: mongo, table: "events").first, "index_name") == "_id_")
+        #expect((try service.listForeignKeys(connection: mongo, table: "events")).isEmpty)
+        #expect(stringValue(try service.listObjects(connection: mongo, kind: DatabaseObjectKind.tables).first, "object_name") == "events")
+    }
+
+    @Test
     func databaseSidecarMapsFailedProcessToStableError() {
         let runner = RecordingProcessRunner(result: ProcessResult(output: "connection store failed", exitCode: 2))
         let service = DatabaseSidecarService(
@@ -104,6 +136,15 @@ struct LitheCoreLogicTests {
         #expect(throws: DatabaseSidecarError.processFailed(exitCode: 2, output: "connection store failed")) {
             try service.capabilities()
         }
+    }
+
+    @Test
+    func databaseSidecarErrorsAreSingleLineAndBounded() {
+        let error = DatabaseSidecarError.requestFailed(code: "database_error", message: String(repeating: "x", count: 800) + "\nnext line")
+        let description = error.localizedDescription
+        #expect(description.count <= 500 + "Database request failed (database_error): ".count)
+        #expect(!description.contains("\n"))
+        #expect(description.hasSuffix("..."))
     }
 
     @Test
@@ -439,6 +480,76 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func databaseInvalidSQLClearsPreviousExecutionState() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "SQLite", kind: .sqlite, path: "/tmp/lithe-test.sqlite")
+        try store.save([profile])
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            if method == "query" {
+                result = #"{"rows":[{"value":1}],"columns":["value"],"truncated":false}"#
+            } else {
+                result = "[]"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        feature.addSQLTab(sql: "SELECT 1")
+        let tabID = try #require(feature.selectedSQLTabID)
+        await feature.runSQL(in: tabID)
+        #expect(feature.selectedSQLTab?.result?.rows.count == 1)
+        #expect(feature.selectedSQLTab?.execution != nil)
+
+        feature.updateSQL("SELEC 1", in: tabID)
+        await feature.runSQL(in: tabID)
+        #expect(feature.selectedSQLTab?.result == nil)
+        #expect(feature.selectedSQLTab?.execution == nil)
+        #expect(feature.selectedSQLTab?.rowsAffected == nil)
+        #expect(feature.selectedSQLTab?.errorMessage != nil)
+    }
+
+    @Test
+    @MainActor
+    func databaseRedisStatusRecoversAfterSuccessfulKeyLoad() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "Redis", kind: .redis, host: "127.0.0.1", port: 6379, database: "0")
+        try store.save([profile])
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            if method == "redisScan" {
+                return ProcessResult(output: #"{"id":"\#(id)","ok":false,"error":{"code":"redis_error","message":"NOAUTH"}}"#, exitCode: 0)
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"key":"session:42","type":"string","ttl":60,"size":9,"stringValue":"ready","hashEntries":[]}}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        await feature.loadRedisKeys(pattern: "*")
+        #expect(feature.connectionStatus(for: profile) == .failed)
+        await feature.loadRedisKey("session:42")
+        #expect(feature.connectionStatus(for: profile) == .connected)
+        #expect(feature.redisSelectedKey?.stringValue == "ready")
+    }
+
+    @Test
+    @MainActor
     func databaseConnectionStatusTracksSuccessfulConnection() async throws {
         let preferences = DatabaseTestKeyValueStore()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
@@ -564,6 +675,18 @@ struct LitheCoreLogicTests {
         let result = try JSONDecoder().decode(DatabaseQueryResult.self, from: data)
         #expect(result.columns == ["z_col", "a_col"])
         #expect(result.rows.first?["z_col"] == .integer(1))
+    }
+
+    @Test
+    func databaseMongoQueryFixtureDecodesExtendedJSONWithoutLosingDocuments() throws {
+        let data = Data(#"{"rows":[{"_id":{"$oid":"507f1f77bcf86cd799439011"},"empty":"","null":null,"nested":{"base64":"AAEC"},"array":[1,{"$date":"2024-01-01T00:00:00Z"}],"binary":{"$binary":{"base64":"AAEC","subType":"00"}}}],"truncated":false}"#.utf8)
+        let result = try JSONDecoder().decode(DatabaseQueryResult.self, from: data)
+        let row = try #require(result.rows.first)
+        #expect(row["empty"] == .string(""))
+        #expect(row["null"] == .null)
+        #expect(row["_id"] == .object(["$oid": .string("507f1f77bcf86cd799439011")]))
+        #expect(row["nested"] == .object(["base64": .string("AAEC")]))
+        #expect(row["binary"] == .object(["$binary": .object(["base64": .string("AAEC"), "subType": .string("00")])]))
     }
 
     @Test

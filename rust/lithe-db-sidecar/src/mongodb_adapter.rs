@@ -39,24 +39,30 @@ pub(super) async fn method(method: &str, params: Params) -> DbResult {
                 .list_collection_names()
                 .await
                 .map_err(driver_error)?;
-            Ok(
-                json!({"rows": names.into_iter().map(|name| json!({"table_name": name, "table_type": "collection"})).collect::<Vec<_>>(), "truncated": false}),
-            )
+            Ok(Value::Array(
+                names
+                    .into_iter()
+                    .map(|name| json!({"table_name": name, "table_type": "collection"}))
+                    .collect(),
+            ))
         }
         "describeTable" => describe_collection(&database, &params.table).await,
         "listIndexes" => list_indexes(&database, &params.table).await,
-        "listForeignKeys" => Ok(json!({"rows": [], "truncated": false})),
+        "listForeignKeys" => Ok(Value::Array(Vec::new())),
         "listObjects" => {
             if !params.object_kind.is_empty() && params.object_kind != "tables" {
-                return Ok(json!({"rows": [], "truncated": false}));
+                return Ok(Value::Array(Vec::new()));
             }
             let names = database
                 .list_collection_names()
                 .await
                 .map_err(driver_error)?;
-            Ok(
-                json!({"rows": names.into_iter().map(|name| json!({"object_name": name, "object_kind": "collection"})).collect::<Vec<_>>(), "truncated": false}),
-            )
+            Ok(Value::Array(
+                names
+                    .into_iter()
+                    .map(|name| json!({"object_name": name, "object_kind": "collection"}))
+                    .collect(),
+            ))
         }
         "pageTable" => page_collection(&database, &params).await,
         "query" => find_json(&database, &params).await,
@@ -168,16 +174,20 @@ async fn describe_collection(database: &mongodb::Database, collection_name: &str
     if fields.is_empty() {
         fields.insert("_id".into(), "objectId".into());
     }
-    Ok(json!({
-        "rows": fields.into_iter().map(|(name, data_type)| json!({
-            "column_name": name,
-            "data_type": data_type,
-            "is_nullable": "YES",
-            "column_default": Value::Null,
-            "column_key": if name == "_id" { "PRI" } else { "" }
-        })).collect::<Vec<_>>(),
-        "truncated": false
-    }))
+    Ok(Value::Array(
+        fields
+            .into_iter()
+            .map(|(name, data_type)| {
+                json!({
+                    "column_name": name,
+                    "data_type": data_type,
+                    "is_nullable": "YES",
+                    "column_default": Value::Null,
+                    "column_key": if name == "_id" { "PRI" } else { "" }
+                })
+            })
+            .collect(),
+    ))
 }
 
 async fn list_indexes(database: &mongodb::Database, collection_name: &str) -> DbResult {
@@ -187,7 +197,7 @@ async fn list_indexes(database: &mongodb::Database, collection_name: &str) -> Db
     while let Some(index) = cursor.try_next().await.map_err(driver_error)? {
         rows.push(index_json(index));
     }
-    Ok(json!({"rows": rows, "truncated": false}))
+    Ok(Value::Array(rows))
 }
 
 fn index_json(index: IndexModel) -> Value {
