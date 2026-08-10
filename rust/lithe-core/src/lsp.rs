@@ -332,6 +332,8 @@ pub struct ClientFeatureRequest {
     pub range: Option<LspRange>,
     #[serde(default)]
     pub diagnostics: Vec<LspClientDiagnostic>,
+    #[serde(default)]
+    pub completion_item: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -961,6 +963,16 @@ fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreE
                     .collect::<Vec<_>>()
             }
         })),
+        "completionItem/resolve" => request
+            .completion_item
+            .as_ref()
+            .map(swift_completion_item_to_lsp)
+            .ok_or_else(|| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "This LSP request requires a completion item.",
+                )
+            }),
         _ => Ok(json!({ "textDocument": text_document })),
     }
 }
@@ -1014,6 +1026,66 @@ fn lsp_diagnostic_json(diagnostic: &LspClientDiagnostic) -> Value {
         "source": diagnostic.source,
         "code": diagnostic.code
     })
+}
+
+fn swift_completion_item_to_lsp(item: &Value) -> Value {
+    let mut object = serde_json::Map::new();
+    copy_string_field(item, &mut object, "label");
+    copy_string_field(item, &mut object, "detail");
+    copy_string_field(item, &mut object, "documentation");
+    copy_string_field(item, &mut object, "insertText");
+    copy_string_field(item, &mut object, "sortText");
+    copy_string_field(item, &mut object, "filterText");
+    if let Some(kind) = item.get("kind").and_then(Value::as_i64) {
+        object.insert("kind".to_string(), json!(kind));
+    }
+    if let Some(edit) = item.get("textEdit").and_then(swift_text_edit_to_lsp) {
+        object.insert("textEdit".to_string(), edit);
+    }
+    if let Some(edits) = item.get("additionalTextEdits").and_then(Value::as_array) {
+        object.insert(
+            "additionalTextEdits".to_string(),
+            json!(edits
+                .iter()
+                .filter_map(swift_text_edit_to_lsp)
+                .collect::<Vec<_>>()),
+        );
+    }
+    if let Some(data) = item.get("data") {
+        object.insert("data".to_string(), data.clone());
+    }
+    Value::Object(object)
+}
+
+fn copy_string_field(source: &Value, target: &mut serde_json::Map<String, Value>, field: &str) {
+    if let Some(value) = source.get(field).and_then(Value::as_str) {
+        target.insert(field.to_string(), json!(value));
+    }
+}
+
+fn swift_text_edit_to_lsp(value: &Value) -> Option<Value> {
+    Some(json!({
+        "range": swift_range_to_lsp(value.get("range")?)?,
+        "newText": value.get("newText").and_then(Value::as_str).unwrap_or_default()
+    }))
+}
+
+fn swift_range_to_lsp(value: &Value) -> Option<Value> {
+    Some(json!({
+        "start": swift_position_to_lsp(value.get("start")?)?,
+        "end": swift_position_to_lsp(value.get("end")?)?
+    }))
+}
+
+fn swift_position_to_lsp(value: &Value) -> Option<Value> {
+    Some(json!({
+        "line": value.get("line").and_then(Value::as_i64).unwrap_or(0),
+        "character": value
+            .get("utf16Column")
+            .or_else(|| value.get("character"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+    }))
 }
 
 fn lsp_message_id(message: &Value) -> Option<String> {
@@ -1075,6 +1147,11 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
         Some("textDocument/completion") => Some(json!({
             "items": parse_completion_items(result)
         })),
+        Some("completionItem/resolve") => parse_completion_item(result).map(|item| {
+            json!({
+                "item": item
+            })
+        }),
         Some("textDocument/hover") => Some(json!({
             "hover": parse_hover(result)
         })),
@@ -1110,35 +1187,37 @@ fn parse_completion_items(result: &Value) -> Vec<Value> {
     };
     values
         .iter()
-        .filter_map(|item| {
-            let label = item.get("label").and_then(Value::as_str)?;
-            let insert_text = item
-                .get("insertText")
-                .and_then(Value::as_str)
-                .or_else(|| {
-                    item.get("textEdit")
-                        .and_then(|edit| edit.get("newText"))
-                        .and_then(Value::as_str)
-                })
-                .unwrap_or(label);
-            Some(json!({
-                "label": label,
-                "insertText": insert_text,
-                "kind": item.get("kind").and_then(Value::as_i64),
-                "detail": item.get("detail").and_then(Value::as_str),
-                "documentation": completion_documentation(item.get("documentation")),
-                "sortText": item.get("sortText").and_then(Value::as_str),
-                "filterText": item.get("filterText").and_then(Value::as_str),
-                "textEdit": item.get("textEdit").and_then(parse_lsp_text_edit_value),
-                "additionalTextEdits": item
-                    .get("additionalTextEdits")
-                    .and_then(Value::as_array)
-                    .map(|edits| edits.iter().filter_map(parse_lsp_text_edit_value).collect::<Vec<_>>())
-                    .unwrap_or_default(),
-                "data": item.get("data").cloned().unwrap_or(Value::Null)
-            }))
-        })
+        .filter_map(|item| parse_completion_item(item))
         .collect()
+}
+
+fn parse_completion_item(item: &Value) -> Option<Value> {
+    let label = item.get("label").and_then(Value::as_str)?;
+    let insert_text = item
+        .get("insertText")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            item.get("textEdit")
+                .and_then(|edit| edit.get("newText"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or(label);
+    Some(json!({
+        "label": label,
+        "insertText": insert_text,
+        "kind": item.get("kind").and_then(Value::as_i64),
+        "detail": item.get("detail").and_then(Value::as_str),
+        "documentation": completion_documentation(item.get("documentation")),
+        "sortText": item.get("sortText").and_then(Value::as_str),
+        "filterText": item.get("filterText").and_then(Value::as_str),
+        "textEdit": item.get("textEdit").and_then(parse_lsp_text_edit_value),
+        "additionalTextEdits": item
+            .get("additionalTextEdits")
+            .and_then(Value::as_array)
+            .map(|edits| edits.iter().filter_map(parse_lsp_text_edit_value).collect::<Vec<_>>())
+            .unwrap_or_default(),
+        "data": item.get("data").cloned().unwrap_or(Value::Null)
+    }))
 }
 
 fn completion_documentation(value: Option<&Value>) -> Option<String> {
@@ -2358,6 +2437,7 @@ mod tests {
             new_name: None,
             range: None,
             diagnostics: Vec::new(),
+            completion_item: None,
         })
         .unwrap();
         assert_eq!(
@@ -2389,6 +2469,7 @@ mod tests {
             new_name: None,
             range: None,
             diagnostics: Vec::new(),
+            completion_item: None,
         })
         .unwrap();
         let completed = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2433,6 +2514,7 @@ mod tests {
             new_name: Some("start".to_string()),
             range: None,
             diagnostics: Vec::new(),
+            completion_item: None,
         })
         .unwrap();
         let renamed = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2469,6 +2551,7 @@ mod tests {
             new_name: None,
             range: None,
             diagnostics: Vec::new(),
+            completion_item: None,
         })
         .unwrap();
         let formatted = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2525,6 +2608,7 @@ mod tests {
                 source: Some("rust-analyzer".to_string()),
                 code: None,
             }],
+            completion_item: None,
         })
         .unwrap();
         let code_action_request: Value = serde_json::from_str(&code_actions.messages[0]).unwrap();
@@ -2574,6 +2658,62 @@ mod tests {
         assert_eq!(
             action_result["actions"][0]["command"]["command"],
             "rust-analyzer.applySourceChange"
+        );
+
+        let completion_resolve = client_feature_request(ClientFeatureRequest {
+            state: code_actioned.state,
+            uri: "file:///tmp/project/main.rs".to_string(),
+            method: "completionItem/resolve".to_string(),
+            position: None,
+            new_name: None,
+            range: None,
+            diagnostics: Vec::new(),
+            completion_item: Some(json!({
+                "label": "launch",
+                "insertText": "launch",
+                "kind": 3,
+                "textEdit": {
+                    "range": {
+                        "start": { "line": 0, "utf16Column": 12 },
+                        "end": { "line": 0, "utf16Column": 14 }
+                    },
+                    "newText": "launch"
+                },
+                "data": { "id": "completion-1" }
+            })),
+        })
+        .unwrap();
+        let completion_resolve_request: Value =
+            serde_json::from_str(&completion_resolve.messages[0]).unwrap();
+        assert_eq!(
+            completion_resolve_request["method"],
+            "completionItem/resolve"
+        );
+        assert_eq!(
+            completion_resolve_request["params"]["textEdit"]["range"]["start"]["character"],
+            12
+        );
+        let completion_resolved = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: completion_resolve.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "5",
+                "result": {
+                    "label": "launch",
+                    "kind": 3,
+                    "detail": "fn launch()",
+                    "documentation": { "kind": "markdown", "value": "Launches the app." },
+                    "insertText": "launch",
+                    "data": { "id": "completion-1" }
+                }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+        let completion_resolve_result = completion_resolved.events[0].result.as_ref().unwrap();
+        assert_eq!(
+            completion_resolve_result["item"]["documentation"],
+            "Launches the app."
         );
     }
 

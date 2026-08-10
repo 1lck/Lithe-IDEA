@@ -370,6 +370,11 @@ protocol LanguageServerSession: AnyObject {
         diagnostics: [LanguageServerDiagnostic],
         completion: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
     ) throws
+    func resolveCompletion(
+        _ item: LanguageServerCompletionItem,
+        fileURL: URL,
+        completion: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
+    ) throws
     func stop()
 }
 

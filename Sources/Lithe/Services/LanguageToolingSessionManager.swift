@@ -324,13 +324,20 @@ final class LanguageToolingSessionManager: ObservableObject {
         fileURL: URL,
         text _: String,
         rootURL _: URL,
-        completion _: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
+        completion: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
     ) throws {
         guard item.label.isEmpty == false else {
             throw LanguageToolingSessionError.capabilityUnavailable(
                 provider: catalog.provider(for: fileURL)?.displayName ?? fileURL.pathExtension,
                 capability: "completion item resolve"
             )
+        }
+        if let session = languageServerSession(for: fileURL),
+           session.isRunning {
+            do {
+                try session.resolveCompletion(item, fileURL: fileURL, completion: completion)
+                return
+            } catch {}
         }
         throw unavailableLanguageServerError(for: fileURL)
     }

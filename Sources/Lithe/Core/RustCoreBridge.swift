@@ -451,6 +451,14 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct LspCompletionResolvePayload: Decodable, Sendable {
+        let item: BuiltinCompletionPayload.Item
+
+        func makeModel() -> LanguageServerCompletionItem {
+            item.makeModel()
+        }
+    }
+
     struct BuiltinHoverPayload: Decodable, Sendable {
         struct Hover: Decodable, Sendable {
             let contents: String
@@ -1066,6 +1074,7 @@ struct RustCoreBridge: Sendable {
         let newName: String?
         let range: LspTextEditsRequest.TextEdit.Range?
         let diagnostics: [LspClientDiagnosticRequest]
+        let completionItem: LspClientCompletionItemRequest?
     }
 
     private struct LspClientDiagnosticRequest: Encodable {
@@ -1074,6 +1083,24 @@ struct RustCoreBridge: Sendable {
         let message: String
         let source: String?
         let code: String?
+    }
+
+    private struct LspClientCompletionItemRequest: Encodable {
+        let label: String
+        let detail: String?
+        let documentation: String?
+        let insertText: String
+        let sortText: String?
+        let filterText: String?
+        let kind: Int?
+        let textEdit: LspClientTextEditRequest?
+        let additionalTextEdits: [LspClientTextEditRequest]
+        let data: ToolingJSONValue?
+    }
+
+    private struct LspClientTextEditRequest: Encodable {
+        let range: LspTextEditsRequest.TextEdit.Range
+        let newText: String
     }
 
     private struct LspClientApplyServerMessageRequest: Encodable {
@@ -2063,7 +2090,8 @@ struct RustCoreBridge: Sendable {
         position: LanguageServerPosition? = nil,
         newName: String? = nil,
         range: LanguageServerRange? = nil,
-        diagnostics: [LanguageServerDiagnostic] = []
+        diagnostics: [LanguageServerDiagnostic] = [],
+        completionItem: LanguageServerCompletionItem? = nil
     ) -> LspClientResponsePayload? {
         execute(
             command: "lsp.clientRequest",
@@ -2092,8 +2120,38 @@ struct RustCoreBridge: Sendable {
                         source: $0.source,
                         code: $0.code
                     )
-                }
+                },
+                completionItem: completionItem.map(Self.makeCompletionItemRequest)
             )
+        )
+    }
+
+    private static func makeCompletionItemRequest(
+        _ item: LanguageServerCompletionItem
+    ) -> LspClientCompletionItemRequest {
+        LspClientCompletionItemRequest(
+            label: item.label,
+            detail: item.detail,
+            documentation: item.documentation,
+            insertText: item.insertText,
+            sortText: item.sortText,
+            filterText: item.filterText,
+            kind: item.kind,
+            textEdit: item.textEdit.map(makeTextEditRequest),
+            additionalTextEdits: item.additionalTextEdits.map(makeTextEditRequest),
+            data: item.data
+        )
+    }
+
+    private static func makeTextEditRequest(
+        _ edit: LanguageServerTextEdit
+    ) -> LspClientTextEditRequest {
+        LspClientTextEditRequest(
+            range: .init(
+                start: .init(line: edit.range.start.line, utf16Column: edit.range.start.utf16Column),
+                end: .init(line: edit.range.end.line, utf16Column: edit.range.end.utf16Column)
+            ),
+            newText: edit.newText
         )
     }
 

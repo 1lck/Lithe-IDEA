@@ -1094,6 +1094,40 @@ struct RunConfigurationIntegrationTests {
         await Self.drainMainActorTasks()
         #expect(try completionsResult?.get().first?.label == "title")
 
+        var completionResolveResult: Result<LanguageServerCompletionItem, Error>?
+        try manager.resolveCompletion(
+            LanguageServerCompletionItem(
+                label: "title",
+                detail: nil,
+                documentation: nil,
+                insertText: "title",
+                sortText: nil,
+                filterText: nil,
+                kind: 6,
+                textEdit: nil,
+                additionalTextEdits: [],
+                data: .object(["id": .string("completion-1")])
+            ),
+            fileURL: source,
+            text: "struct App { let ti = 1 }\n",
+            rootURL: root
+        ) { result in
+            completionResolveResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "6",
+            "result": [
+                "label": "title",
+                "insertText": "title",
+                "kind": 6,
+                "detail": "String",
+                "documentation": "Resolved docs"
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try completionResolveResult?.get().documentation == "Resolved docs")
+
         var renameResult: Result<LanguageServerWorkspaceEdit, Error>?
         try manager.rename(
             fileURL: source,
@@ -2861,7 +2895,8 @@ private struct TestLspClientCore: LspClientCore {
         position _: LanguageServerPosition?,
         newName _: String?,
         range _: LanguageServerRange?,
-        diagnostics _: [LanguageServerDiagnostic]
+        diagnostics _: [LanguageServerDiagnostic],
+        completionItem _: LanguageServerCompletionItem?
     ) -> RustCoreBridge.LspClientResponsePayload? {
         let id: String
         switch method {
@@ -2871,6 +2906,8 @@ private struct TestLspClientCore: LspClientCore {
             id = "4"
         case "textDocument/codeAction":
             id = "5"
+        case "completionItem/resolve":
+            id = "6"
         default:
             id = "2"
         }
@@ -3002,6 +3039,29 @@ private struct TestLspClientCore: LspClientCore {
                                 ]),
                                 "data": .object(["token": .string("fix-1")])
                             ])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"6""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "6",
+                    method: "completionItem/resolve",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "item": .object([
+                            "label": .string("title"),
+                            "insertText": .string("title"),
+                            "kind": .integer(6),
+                            "detail": .string("String"),
+                            "documentation": .string("Resolved docs"),
+                            "additionalTextEdits": .array([]),
+                            "data": .object(["id": .string("completion-1")])
                         ])
                     ]),
                     error: nil

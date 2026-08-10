@@ -20,7 +20,8 @@ protocol LspClientCore: Sendable {
         position: LanguageServerPosition?,
         newName: String?,
         range: LanguageServerRange?,
-        diagnostics: [LanguageServerDiagnostic]
+        diagnostics: [LanguageServerDiagnostic],
+        completionItem: LanguageServerCompletionItem?
     ) -> RustCoreBridge.LspClientResponsePayload?
     func lspClientApplyServerMessage(
         state: ToolingJSONValue,
@@ -199,6 +200,22 @@ final class StdioLanguageServerSession: LanguageServerSession {
         }
     }
 
+    func resolveCompletion(
+        _ item: LanguageServerCompletionItem,
+        fileURL: URL,
+        completion: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
+    ) throws {
+        try requestFeature(
+            method: "completionItem/resolve",
+            fileURL: fileURL,
+            position: nil,
+            completionItem: item
+        ) { event in
+            completion(Self.decodeEventResult(event, as: RustCoreBridge.LspCompletionResolvePayload.self)
+                .map { $0.makeModel() })
+        }
+    }
+
     func stop() {
         process.stop()
         resetTransientState()
@@ -236,6 +253,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
         newName: String? = nil,
         range: LanguageServerRange? = nil,
         diagnostics: [LanguageServerDiagnostic] = [],
+        completionItem: LanguageServerCompletionItem? = nil,
         completion: @escaping (RustCoreBridge.LspClientEventPayload) -> Void
     ) throws {
         guard let state, isInitialized else {
@@ -251,7 +269,8 @@ final class StdioLanguageServerSession: LanguageServerSession {
             position: position,
             newName: newName,
             range: range,
-            diagnostics: diagnostics
+            diagnostics: diagnostics,
+            completionItem: completionItem
         ) else {
             throw StdioLanguageServerSessionError.requestRejected
         }
