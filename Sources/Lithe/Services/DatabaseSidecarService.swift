@@ -207,7 +207,9 @@ enum DatabaseValue: Codable, Equatable, Sendable {
     case bool(Bool)
     case integer(Int64)
     case number(Double)
+    case decimal(String)
     case string(String)
+    case binary(Data)
     case object([String: DatabaseValue])
     case array([DatabaseValue])
 
@@ -218,6 +220,13 @@ enum DatabaseValue: Codable, Equatable, Sendable {
         else if let value = try? container.decode(Int64.self) { self = .integer(value) }
         else if let value = try? container.decode(Double.self) { self = .number(value) }
         else if let value = try? container.decode(String.self) { self = .string(value) }
+        else if let tagged = try? container.decode([String: String].self), tagged.count == 1, let value = tagged["decimal"] {
+            self = .decimal(value)
+        } else if let tagged = try? container.decode([String: String].self), tagged.count == 1,
+                  let encoded = tagged["binary"],
+                  let value = Data(base64Encoded: encoded) {
+            self = .binary(value)
+        }
         else if let value = try? container.decode([String: DatabaseValue].self) { self = .object(value) }
         else { self = .array(try container.decode([DatabaseValue].self)) }
     }
@@ -229,10 +238,34 @@ enum DatabaseValue: Codable, Equatable, Sendable {
         case let .bool(value): try container.encode(value)
         case let .integer(value): try container.encode(value)
         case let .number(value): try container.encode(value)
+        case let .decimal(value): try container.encode(["decimal": value])
         case let .string(value): try container.encode(value)
+        case let .binary(value): try container.encode(["binary": value.base64EncodedString()])
         case let .object(value): try container.encode(value)
         case let .array(value): try container.encode(value)
         }
+    }
+
+    /// A stable value representation for grids, details panels, and metadata.
+    /// Keeping this on the protocol value prevents an empty string from being
+    /// rendered like a missing value in one of the database workspaces.
+    var displayText: String {
+        switch self {
+        case .null: "NULL"
+        case let .bool(value): value ? "true" : "false"
+        case let .integer(value): String(value)
+        case let .number(value): String(value)
+        case let .decimal(value): value
+        case let .string(value): value.isEmpty ? "\"\"" : value
+        case let .binary(value): "Binary (\(value.count) bytes)"
+        case let .object(value): Self.jsonText(.object(value))
+        case let .array(value): Self.jsonText(.array(value))
+        }
+    }
+
+    private static func jsonText(_ value: DatabaseValue) -> String {
+        guard let data = try? JSONEncoder().encode(value) else { return String(describing: value) }
+        return String(decoding: data, as: UTF8.self)
     }
 }
 
@@ -240,8 +273,26 @@ typealias DatabaseRow = [String: DatabaseValue]
 
 struct DatabaseQueryResult: Codable, Equatable, Sendable {
     let rows: [DatabaseRow]
+    let columns: [String]?
     let truncated: Bool
     var totalRows: Int64?
+
+    init(rows: [DatabaseRow], columns: [String]? = nil, truncated: Bool, totalRows: Int64? = nil) {
+        self.rows = rows
+        self.columns = columns
+        self.truncated = truncated
+        self.totalRows = totalRows
+    }
+
+    private enum CodingKeys: String, CodingKey { case rows, columns, truncated, totalRows }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rows = try container.decode([DatabaseRow].self, forKey: .rows)
+        columns = try container.decodeIfPresent([String].self, forKey: .columns)
+        truncated = try container.decode(Bool.self, forKey: .truncated)
+        totalRows = try container.decodeIfPresent(Int64.self, forKey: .totalRows)
+    }
 }
 
 struct DatabaseExecuteResult: Codable, Equatable, Sendable {
@@ -314,6 +365,7 @@ struct DatabaseDiagnosticsRequest: Codable, Equatable, Sendable {
 protocol DatabaseOperations: Sendable {
     func capabilities() throws -> DatabaseCapabilities
     func testConnection(_ connection: DatabaseConnection) throws
+    func listDatabases(connection: DatabaseConnection) throws -> [String]
     func listTables(connection: DatabaseConnection, schema: String) throws -> [DatabaseRow]
     func describeTable(connection: DatabaseConnection, schema: String, table: String) throws -> [DatabaseRow]
     func listIndexes(connection: DatabaseConnection, schema: String, table: String) throws -> [DatabaseRow]
@@ -338,7 +390,7 @@ protocol DatabaseOperations: Sendable {
     func restoreSQL(connection: DatabaseConnection, data: Data, confirmed: Bool, allowWrite: Bool) throws -> DatabaseExecuteResult
     func restoreSQLFile(connection: DatabaseConnection, fileURL: URL, confirmed: Bool, allowWrite: Bool) throws -> DatabaseExecuteResult
 
-    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int) throws -> RedisScanResult
+    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int, includeSize: Bool) throws -> RedisScanResult
     func redisGetKey(connection: DatabaseConnection, key: String) throws -> RedisKeyDetail
     func redisSetString(connection: DatabaseConnection, key: String, value: String, ttl: Int64?, confirmed: Bool, allowWrite: Bool) throws
     func redisReplaceHash(connection: DatabaseConnection, key: String, entries: [RedisHashEntry], confirmed: Bool, allowWrite: Bool) throws
@@ -356,7 +408,11 @@ protocol DatabaseOperations: Sendable {
 }
 
 extension DatabaseOperations {
-    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int) throws -> RedisScanResult { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
+    func listDatabases(connection: DatabaseConnection) throws -> [String] { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Database selection is not available for this database service.") }
+    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int) throws -> RedisScanResult {
+        try redisScan(connection: connection, cursor: cursor, pattern: pattern, count: count, includeSize: true)
+    }
+    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int, includeSize: Bool) throws -> RedisScanResult { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
     func redisGetKey(connection: DatabaseConnection, key: String) throws -> RedisKeyDetail { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
     func redisSetString(connection: DatabaseConnection, key: String, value: String, ttl: Int64?, confirmed: Bool, allowWrite: Bool) throws { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
     func redisReplaceHash(connection: DatabaseConnection, key: String, entries: [RedisHashEntry], confirmed: Bool, allowWrite: Bool) throws { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
@@ -381,10 +437,17 @@ enum DatabaseSidecarError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .executableNotFound: return "The Lithe database helper is not installed."
-        case let .processFailed(exitCode, output): return "The database helper exited with code \(exitCode): \(output)"
-        case let .invalidResponse(message): return "The database helper returned invalid JSON: \(message)"
-        case let .requestFailed(code, message): return "Database request failed (\(code)): \(message)"
+        case let .processFailed(exitCode, output): return "The database helper exited with code \(exitCode): \(Self.bounded(output))"
+        case let .invalidResponse(message): return "The database helper returned invalid JSON: \(Self.bounded(message))"
+        case let .requestFailed(code, message): return "Database request failed (\(code)): \(Self.bounded(message))"
         }
+    }
+
+    private static func bounded(_ value: String) -> String {
+        let normalized = value
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.count > 500 ? "\(normalized.prefix(497))..." : normalized
     }
 }
 
@@ -409,24 +472,33 @@ final class DatabaseSidecarService: DatabaseOperations, @unchecked Sendable {
         let _: ConnectedResult = try request(method: "testConnection", params: ConnectionParams(connection: connection))
     }
 
+    func listDatabases(connection: DatabaseConnection) throws -> [String] {
+        try request(method: "listDatabases", params: ConnectionParams(connection: connection))
+    }
+
     func listTables(connection: DatabaseConnection, schema: String = "") throws -> [DatabaseRow] {
-        try request(method: "listTables", params: TableParams(connection: connection, schema: schema))
+        let result: DatabaseRowsResult = try request(method: "listTables", params: TableParams(connection: connection, schema: schema))
+        return result.rows
     }
 
     func describeTable(connection: DatabaseConnection, schema: String = "", table: String) throws -> [DatabaseRow] {
-        try request(method: "describeTable", params: TableParams(connection: connection, schema: schema, table: table))
+        let result: DatabaseRowsResult = try request(method: "describeTable", params: TableParams(connection: connection, schema: schema, table: table))
+        return result.rows
     }
 
     func listIndexes(connection: DatabaseConnection, schema: String = "", table: String) throws -> [DatabaseRow] {
-        try request(method: "listIndexes", params: TableParams(connection: connection, schema: schema, table: table))
+        let result: DatabaseRowsResult = try request(method: "listIndexes", params: TableParams(connection: connection, schema: schema, table: table))
+        return result.rows
     }
 
     func listForeignKeys(connection: DatabaseConnection, schema: String = "", table: String) throws -> [DatabaseRow] {
-        try request(method: "listForeignKeys", params: TableParams(connection: connection, schema: schema, table: table))
+        let result: DatabaseRowsResult = try request(method: "listForeignKeys", params: TableParams(connection: connection, schema: schema, table: table))
+        return result.rows
     }
 
     func listObjects(connection: DatabaseConnection, schema: String = "", kind: DatabaseObjectKind) throws -> [DatabaseRow] {
-        try request(method: "listObjects", params: ObjectParams(connection: connection, schema: schema, objectKind: kind.rawValue))
+        let result: DatabaseRowsResult = try request(method: "listObjects", params: ObjectParams(connection: connection, schema: schema, objectKind: kind.rawValue))
+        return result.rows
     }
 
     func pageTable(connection: DatabaseConnection, schema: String = "", table: String, limit: Int = 200, offset: Int = 0, filters: [DatabaseFilter] = [], sort: [DatabaseSort] = []) throws -> DatabaseQueryResult {
@@ -514,8 +586,8 @@ final class DatabaseSidecarService: DatabaseOperations, @unchecked Sendable {
         try request(method: "restoreSqlFile", params: SQLFileImportParams(connection: connection, outputPath: fileURL.path, confirmed: confirmed, allowWrite: allowWrite), timeoutMilliseconds: 120_000)
     }
 
-    func redisScan(connection: DatabaseConnection, cursor: String = "0", pattern: String = "*", count: Int = 100) throws -> RedisScanResult {
-        try request(method: "redisScan", params: RedisScanParams(connection: connection, cursor: cursor, pattern: pattern, count: count))
+    func redisScan(connection: DatabaseConnection, cursor: String = "0", pattern: String = "*", count: Int = 100, includeSize: Bool = true) throws -> RedisScanResult {
+        try request(method: "redisScan", params: RedisScanParams(connection: connection, cursor: cursor, pattern: pattern, count: count, includeSize: includeSize))
     }
 
     func redisGetKey(connection: DatabaseConnection, key: String) throws -> RedisKeyDetail {
@@ -619,6 +691,20 @@ private struct EmptyParams: Codable {}
 private struct ConnectionParams: Codable { let connection: DatabaseConnection }
 private struct ConnectedResult: Codable { let connected: Bool }
 private struct EmptyResult: Codable {}
+private struct DatabaseRowsResult: Decodable {
+    let rows: [DatabaseRow]
+
+    init(from decoder: Decoder) throws {
+        if let rows = try? decoder.singleValueContainer().decode([DatabaseRow].self) {
+            self.rows = rows
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rows = try container.decode([DatabaseRow].self, forKey: .rows)
+    }
+
+    private enum CodingKeys: String, CodingKey { case rows }
+}
 private struct ExportResult: Codable { let encoding: String; let data: String }
 private struct ExplainResult: Codable { let format: String; let rows: [DatabaseRow]; let truncated: Bool }
 private struct DiagnosticsResult: Codable { let rows: [DatabaseRow]; let truncated: Bool }
@@ -744,6 +830,7 @@ private struct RedisScanParams: Codable {
     var cursor = "0"
     var pattern = "*"
     var count = 100
+    var includeSize = true
 }
 private struct RedisKeyParams: Codable { let connection: DatabaseConnection; let key: String }
 private struct RedisWriteParams: Codable {

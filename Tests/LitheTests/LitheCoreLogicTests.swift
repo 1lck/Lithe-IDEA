@@ -74,6 +74,58 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func databaseSidecarSerializesRedisSizePreference() throws {
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            return ProcessResult(
+                output: #"{"id":"\#(id)","ok":true,"result":{"keys":[],"nextCursor":"0"}}"#,
+                exitCode: 0
+            )
+        }
+        let service = DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar"))
+        let redis = DatabaseConnection(kind: .redis, host: "127.0.0.1", port: 6379, database: "0")
+
+        _ = try service.redisScan(connection: redis, includeSize: false)
+
+        let request = String(decoding: try #require(runner.requests[0].standardInput), as: UTF8.self)
+        #expect(request.contains(#""includeSize":false"#))
+    }
+
+    @Test
+    func databaseSidecarDecodesLegacyMongoMetadataRowsEnvelope() throws {
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            switch method {
+            case "listTables": result = #"{"rows":[{"table_name":"events","table_type":"collection"}],"truncated":false}"#
+            case "describeTable": result = #"{"rows":[{"column_name":"_id","data_type":"objectId"}],"truncated":false}"#
+            case "listIndexes": result = #"{"rows":[{"index_name":"_id_","definition":"{\"_id\":1}"}],"truncated":false}"#
+            case "listForeignKeys": result = #"{"rows":[],"truncated":false}"#
+            case "listObjects": result = #"{"rows":[{"object_name":"events","object_kind":"collection"}],"truncated":false}"#
+            default: result = "[]"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let service = DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar"))
+        let mongo = DatabaseConnection(kind: .mongodb, host: "127.0.0.1", port: 27017, database: "lithe_test")
+        func stringValue(_ row: DatabaseRow?, _ key: String) -> String? {
+            guard case let .string(value) = row?[key] else { return nil }
+            return value
+        }
+
+        #expect(stringValue(try service.listTables(connection: mongo).first, "table_name") == "events")
+        #expect(stringValue(try service.describeTable(connection: mongo, table: "events").first, "column_name") == "_id")
+        #expect(stringValue(try service.listIndexes(connection: mongo, table: "events").first, "index_name") == "_id_")
+        #expect((try service.listForeignKeys(connection: mongo, table: "events")).isEmpty)
+        #expect(stringValue(try service.listObjects(connection: mongo, kind: DatabaseObjectKind.tables).first, "object_name") == "events")
+    }
+
+    @Test
     func databaseSidecarMapsFailedProcessToStableError() {
         let runner = RecordingProcessRunner(result: ProcessResult(output: "connection store failed", exitCode: 2))
         let service = DatabaseSidecarService(
@@ -84,6 +136,23 @@ struct LitheCoreLogicTests {
         #expect(throws: DatabaseSidecarError.processFailed(exitCode: 2, output: "connection store failed")) {
             try service.capabilities()
         }
+    }
+
+    @Test
+    func databaseSidecarErrorsAreSingleLineAndBounded() {
+        let error = DatabaseSidecarError.requestFailed(code: "database_error", message: String(repeating: "x", count: 800) + "\nnext line")
+        let description = error.localizedDescription
+        #expect(description.count <= 500 + "Database request failed (database_error): ".count)
+        #expect(!description.contains("\n"))
+        #expect(description.hasSuffix("..."))
+    }
+
+    @Test
+    func databaseValueDisplayKeepsNullAndEmptyStringDistinct() {
+        #expect(DatabaseValue.null.displayText == "NULL")
+        #expect(DatabaseValue.string("").displayText == "\"\"")
+        #expect(DatabaseValue.string("NULL").displayText == "NULL")
+        #expect(DatabaseValue.object(["empty": .string("")]).displayText == #"{"empty":""}"#)
     }
 
     @Test
@@ -342,6 +411,315 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func databaseProfileSwitchResetsProfileScopedWorkspaceState() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let first = DatabaseProfile(name: "First", kind: .sqlite, host: "first", path: "/tmp/first.sqlite")
+        let second = DatabaseProfile(name: "Second", kind: .sqlite, host: "second", path: "/tmp/second.sqlite")
+        try store.save([first, second])
+        let tableRequestCounter = TestCounter()
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            switch method {
+            case "listTables":
+                tableRequestCounter.value += 1
+                let tableName = tableRequestCounter.value == 1 ? "first_table" : "second_table"
+                result = #"[{"table_name":"\#(tableName)"}]"#
+            default:
+                result = "[]"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(first)
+        #expect(feature.tables == ["first_table"])
+        feature.addSQLTab(sql: "SELECT from_first")
+        #expect(feature.selectedSQLTab?.sql == "SELECT from_first")
+
+        await feature.select(second)
+        #expect(feature.tables == ["second_table"])
+        #expect(feature.rows.isEmpty)
+        #expect(feature.selectedTable == nil)
+        #expect(feature.sqlTabs.count == 1)
+        #expect(feature.selectedSQLTab?.sql.isEmpty == true)
+    }
+
+    @Test
+    @MainActor
+    func databaseMySQLDatabaseSelectionPersistsAndRefreshesTables() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "MySQL", kind: .mysql, host: "localhost", username: "root")
+        try store.save([profile])
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            switch method {
+            case "listDatabases": result = #"["alpha","beta"]"#
+            case "listTables": result = #"[{"table_name":"items"}]"#
+            default: result = "[]"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        #expect(feature.databaseOptions == ["alpha", "beta"])
+        #expect(feature.connectionStatus(for: profile) == .connected)
+        await feature.selectDatabase("beta", for: profile)
+
+        #expect(feature.selectedProfile?.database == "beta")
+        #expect(feature.tables == ["items"])
+        #expect(store.load().first?.database == "beta")
+    }
+
+    @Test
+    @MainActor
+    func databaseRefreshingTablesReloadsTheCurrentlyOpenTable() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "SQLite", kind: .sqlite, path: "/tmp/lithe-refresh.sqlite")
+        try store.save([profile])
+        let pageCounter = TestCounter()
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            switch method {
+            case "listTables":
+                result = #"[{"table_name":"items"}]"#
+            case "describeTable":
+                result = #"[{"column_name":"id","data_type":"integer","column_key":"PRI"}]"#
+            case "pageTable":
+                pageCounter.value += 1
+                result = #"{"columns":["id"],"rows":[{"id":\#(pageCounter.value)}],"truncated":false,"totalRows":1}"#
+            default:
+                result = "[]"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        await feature.openTable("items")
+        #expect(feature.errorMessage == nil)
+        #expect(feature.rows.first?["id"] == DatabaseValue.integer(1))
+
+        await feature.refreshTables()
+
+        #expect(feature.tables == ["items"])
+        #expect(feature.selectedTable == "items")
+        #expect(feature.rows.first?["id"] == DatabaseValue.integer(2))
+        #expect(pageCounter.value == 2)
+    }
+
+    @Test
+    @MainActor
+    func databaseInvalidSQLClearsPreviousExecutionState() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "SQLite", kind: .sqlite, path: "/tmp/lithe-test.sqlite")
+        try store.save([profile])
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            if method == "query" {
+                result = #"{"rows":[{"value":1}],"columns":["value"],"truncated":false}"#
+            } else {
+                result = "[]"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        feature.addSQLTab(sql: "SELECT 1")
+        let tabID = try #require(feature.selectedSQLTabID)
+        await feature.runSQL(in: tabID)
+        #expect(feature.selectedSQLTab?.result?.rows.count == 1)
+        #expect(feature.selectedSQLTab?.execution != nil)
+
+        feature.updateSQL("SELEC 1", in: tabID)
+        await feature.runSQL(in: tabID)
+        #expect(feature.selectedSQLTab?.result == nil)
+        #expect(feature.selectedSQLTab?.execution == nil)
+        #expect(feature.selectedSQLTab?.rowsAffected == nil)
+        #expect(feature.selectedSQLTab?.errorMessage != nil)
+    }
+
+    @Test
+    @MainActor
+    func databaseRedisStatusRecoversAfterSuccessfulKeyLoad() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "Redis", kind: .redis, host: "127.0.0.1", port: 6379, database: "0")
+        try store.save([profile])
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            if method == "redisScan" {
+                return ProcessResult(output: #"{"id":"\#(id)","ok":false,"error":{"code":"redis_error","message":"NOAUTH"}}"#, exitCode: 0)
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"key":"session:42","type":"string","ttl":60,"size":9,"stringValue":"ready","hashEntries":[]}}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        await feature.loadRedisKeys(pattern: "*")
+        #expect(feature.connectionStatus(for: profile) == .failed)
+        await feature.loadRedisKey("session:42")
+        #expect(feature.connectionStatus(for: profile) == .connected)
+        #expect(feature.redisSelectedKey?.stringValue == "ready")
+    }
+
+    @Test
+    @MainActor
+    func databaseRedisRescanFailureDoesNotLeaveOldKeysVisible() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "Redis", kind: .redis, host: "127.0.0.1", port: 6379, database: "0")
+        try store.save([profile])
+        let calls = TestCounter()
+        let runner = RecordingProcessRunner { request in
+            calls.value += 1
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            if calls.value == 1 {
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"keys":[{"key":"session:42","type":"string","ttl":60,"size":9}],"nextCursor":"0"}}"#, exitCode: 0)
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":false,"error":{"code":"redis_error","message":"NOAUTH"}}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        await feature.loadRedisKeys(pattern: "*")
+        #expect(feature.redisKeys.map(\.key) == ["session:42"])
+        await feature.loadRedisKeys(pattern: "*")
+        #expect(feature.redisKeys.isEmpty)
+        #expect(feature.errorMessage?.contains("NOAUTH") == true)
+        #expect(feature.connectionStatus(for: profile) == .failed)
+    }
+
+    @Test
+    @MainActor
+    func databaseRedisWriteRefreshesKeySummaryAndDetail() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "Redis", kind: .redis, host: "127.0.0.1", port: 6379, database: "0")
+        try store.save([profile])
+        let scanCount = TestCounter()
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            switch method {
+            case "redisScan":
+                scanCount.value += 1
+                let key = scanCount.value == 1 ? "session:old" : "session:new"
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"keys":[{"key":"\#(key)","type":"string","ttl":60,"size":9}],"nextCursor":"0"}}"#, exitCode: 0)
+            case "redisSetString":
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{}}"#, exitCode: 0)
+            case "redisGetKey":
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"key":"session:new","type":"string","ttl":120,"size":12,"stringValue":"updated","hashEntries":[]}}"#, exitCode: 0)
+            default:
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{}}"#, exitCode: 0)
+            }
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        await feature.loadRedisKeys(pattern: "session:*")
+        #expect(feature.redisKeys.first?.key == "session:old")
+
+        #expect(await feature.saveRedisString(key: "session:new", value: "updated", ttl: 120, confirmed: true))
+        #expect(feature.redisKeys.first?.key == "session:new")
+        #expect(feature.redisSelectedKey?.key == "session:new")
+        #expect(feature.redisSelectedKey?.ttl == 120)
+        #expect(scanCount.value == 2)
+    }
+
+    @Test
+    @MainActor
+    func databaseNacosPublishRefreshesConfigListAndDetail() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "Nacos", kind: .nacos, host: "127.0.0.1", port: 8848, database: "public")
+        try store.save([profile])
+        let listCount = TestCounter()
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            switch method {
+            case "nacosListConfigs":
+                listCount.value += 1
+                let dataID = listCount.value == 1 ? "old.yaml" : "new.yaml"
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"items":[{"dataId":"\#(dataID)","group":"DEFAULT_GROUP","namespace":"public","type":"yaml","md5":"abc"}],"totalCount":1}}"#, exitCode: 0)
+            case "nacosPublishConfig":
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{}}"#, exitCode: 0)
+            case "nacosGetConfig":
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"dataId":"new.yaml","group":"DEFAULT_GROUP","namespace":"public","type":"yaml","md5":"def","content":"updated"}}"#, exitCode: 0)
+            default:
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{}}"#, exitCode: 0)
+            }
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        await feature.loadNacosConfigs(dataId: "", group: "")
+        #expect(feature.nacosConfigs.first?.dataId == "old.yaml")
+
+        #expect(await feature.publishNacosConfig(dataId: "new.yaml", group: "DEFAULT_GROUP", content: "updated", type: "yaml", confirmed: true))
+        #expect(feature.nacosConfigs.first?.dataId == "new.yaml")
+        #expect(feature.nacosSelectedConfig?.dataId == "new.yaml")
+        #expect(feature.nacosSelectedConfig?.content == "updated")
+        #expect(listCount.value == 2)
+    }
+
+    @Test
+    @MainActor
     func databaseConnectionStatusTracksSuccessfulConnection() async throws {
         let preferences = DatabaseTestKeyValueStore()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
@@ -454,6 +832,165 @@ struct LitheCoreLogicTests {
         let query = DatabaseSQLAnalyzer.analyze("SELECT 'UPDATE users SET x = 1' AS example")
         #expect(query.kind == .query)
         #expect(!query.requiresConfirmation)
+
+        let invalid = DatabaseSQLAnalyzer.analyze("SELEC 1")
+        #expect(invalid.kind == .unknown)
+        #expect(!invalid.requiresConfirmation)
+        #expect(invalid.warning?.contains("not recognized") == true)
+    }
+
+    @Test
+    func databaseSQLAnalyzerSplitsBatchesWithoutBreakingQuotedSemicolons() {
+        let analysis = DatabaseSQLAnalyzer.analyze("SELECT ';' AS marker; -- keep this comment\nSELECT 2;")
+
+        #expect(analysis.canExecute)
+        #expect(analysis.statementCount == 2)
+        #expect(analysis.kind == .batch)
+        #expect(analysis.statements.first?.contains("';'") == true)
+        #expect(analysis.statements.last?.contains("SELECT 2") == true)
+
+        let escapedQuote = DatabaseSQLAnalyzer.analyze(#"SELECT 'a\';b'; SELECT 2"#)
+        #expect(escapedQuote.statementCount == 2)
+
+        let commentsOnly = DatabaseSQLAnalyzer.analyze("-- review later\n/* no statement */")
+        #expect(!commentsOnly.canExecute)
+        #expect(commentsOnly.statementCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func databaseSQLBatchRunsInOrderAndAggregatesResults() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "SQLite", kind: .sqlite, path: "/tmp/lithe-batch.sqlite")
+        try store.save([profile])
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let params = object["params"] as? [String: Any]
+            let sql = params?["sql"] as? String ?? ""
+            switch method {
+            case "exportSqlToFile":
+                if let path = params?["outputPath"] as? String {
+                    try? Data().write(to: URL(fileURLWithPath: path))
+                }
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"path":"/tmp/backup.sql","byteCount":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}"#, exitCode: 0)
+            case "query":
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"rows":[{"value":1}],"columns":["value"],"truncated":false}}"#, exitCode: 0)
+            case "execute":
+                let affected = sql.contains("UPDATE") ? 3 : 2
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"rowsAffected":\#(affected)}}"#, exitCode: 0)
+            default:
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":[]}"#, exitCode: 0)
+            }
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        feature.addSQLTab(sql: "INSERT INTO items VALUES (1); SELECT 1; UPDATE items SET value = 2 WHERE id = 1;")
+        let tabID = try #require(feature.selectedSQLTabID)
+        await feature.runSQL(in: tabID)
+
+        let sqlRequests = runner.requests.compactMap { request -> (String, String)? in
+            guard let input = request.standardInput,
+                  let object = try? JSONSerialization.jsonObject(with: input) as? [String: Any],
+                  let method = object["method"] as? String,
+                  method == "query" || method == "execute",
+                  let params = object["params"] as? [String: Any],
+                  let sql = params["sql"] as? String else { return nil }
+            return (method, sql)
+        }
+        #expect(sqlRequests.map(\.0) == ["execute", "query", "execute"])
+        #expect(sqlRequests.map(\.1) == [
+            "INSERT INTO items VALUES (1)",
+            "SELECT 1",
+            "UPDATE items SET value = 2 WHERE id = 1"
+        ])
+        #expect(feature.selectedSQLTab?.result?.rows.count == 1)
+        #expect(feature.selectedSQLTab?.rowsAffected == 5)
+        #expect(feature.selectedSQLTab?.execution?.rowsReturned == 1)
+        #expect(feature.sqlHistory.first?.sql.contains("SELECT 1") == true)
+    }
+
+    @Test
+    @MainActor
+    func databaseSQLBatchStopsAfterTheFirstFailedStatement() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "SQLite", kind: .sqlite, path: "/tmp/lithe-batch-failure.sqlite")
+        try store.save([profile])
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let params = object["params"] as? [String: Any]
+            let sql = params?["sql"] as? String ?? ""
+            if method == "query", sql.contains("bad") {
+                return ProcessResult(output: #"{"id":"\#(id)","ok":false,"error":{"code":"syntax_error","message":"near bad"}}"#, exitCode: 0)
+            }
+            if method == "query" {
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"rows":[{"value":1}],"columns":["value"],"truncated":false}}"#, exitCode: 0)
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":[]}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        feature.addSQLTab(sql: "SELECT 1; SELECT bad; SELECT 3;")
+        let tabID = try #require(feature.selectedSQLTabID)
+        await feature.runSQL(in: tabID)
+
+        let querySQL = runner.requests.compactMap { request -> String? in
+            guard let input = request.standardInput,
+                  let object = try? JSONSerialization.jsonObject(with: input) as? [String: Any],
+                  object["method"] as? String == "query",
+                  let params = object["params"] as? [String: Any] else { return nil }
+            return params["sql"] as? String
+        }
+        #expect(querySQL == ["SELECT 1", "SELECT bad"])
+        #expect(feature.selectedSQLTab?.errorMessage?.contains("Statement 2 failed") == true)
+        #expect(feature.sqlHistory.isEmpty)
+    }
+
+    @Test
+    func databaseQueryResultPreservesProtocolColumnOrder() throws {
+        let data = Data(#"{"columns":["z_col","a_col"],"rows":[{"z_col":1,"a_col":2}],"truncated":false}"#.utf8)
+        let result = try JSONDecoder().decode(DatabaseQueryResult.self, from: data)
+        #expect(result.columns == ["z_col", "a_col"])
+        #expect(result.rows.first?["z_col"] == .integer(1))
+    }
+
+    @Test
+    func databaseMongoQueryFixtureDecodesExtendedJSONWithoutLosingDocuments() throws {
+        let data = Data(#"{"rows":[{"_id":{"$oid":"507f1f77bcf86cd799439011"},"empty":"","null":null,"nested":{"base64":"AAEC"},"array":[1,{"$date":"2024-01-01T00:00:00Z"}],"binary":{"$binary":{"base64":"AAEC","subType":"00"}}}],"truncated":false}"#.utf8)
+        let result = try JSONDecoder().decode(DatabaseQueryResult.self, from: data)
+        let row = try #require(result.rows.first)
+        #expect(row["empty"] == .string(""))
+        #expect(row["null"] == .null)
+        #expect(row["_id"] == .object(["$oid": .string("507f1f77bcf86cd799439011")]))
+        #expect(row["nested"] == .object(["base64": .string("AAEC")]))
+        #expect(row["binary"] == .object(["$binary": .object(["base64": .string("AAEC"), "subType": .string("00")])]))
+    }
+
+    @Test
+    func databaseValuePreservesTaggedDecimalAndBinaryValues() throws {
+        let data = Data(#"[{"decimal":"0.00"},{"binary":"AAEC"}]"#.utf8)
+        let values = try JSONDecoder().decode([DatabaseValue].self, from: data)
+        #expect(values == [.decimal("0.00"), .binary(Data([0, 1, 2]))])
+        let encoded = try JSONEncoder().encode(values)
+        #expect(String(decoding: encoded, as: UTF8.self).contains(#""decimal":"0.00""#))
+        #expect(String(decoding: encoded, as: UTF8.self).contains(#""binary":"AAEC""#))
+        let mongoObject = try JSONDecoder().decode(DatabaseValue.self, from: Data(#"{"base64":"AAEC"}"#.utf8))
+        #expect(mongoObject == .object(["base64": .string("AAEC")]))
     }
 
     @Test
@@ -511,6 +1048,17 @@ struct LitheCoreLogicTests {
         #expect(loadedAudit.profileID == profileID)
         #expect(loadedAudit.recoveryPointID == point.id)
         #expect(loadedAudit.summary == "snapshot")
+
+        let event = DatabaseExecutionEvent(
+            id: UUID(), profileID: profileID, profileName: "Test DB", source: .sql,
+            operation: "query", startedAt: Date(timeIntervalSince1970: 1_700_000_000), durationMilliseconds: 12,
+            status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: "syntax error"
+        )
+        try store.appendExecutionEvent(event)
+        let loadedEvent = try #require(store.executionEvents(for: profileID).first)
+        #expect(loadedEvent == event)
+        try store.deleteExecutionEvents(for: profileID)
+        #expect(store.executionEvents(for: profileID).isEmpty)
     }
 
     @Test
@@ -1565,6 +2113,7 @@ struct LitheCoreLogicTests {
 
 private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
     private let handler: (ProcessRequest) -> ProcessResult
+    private let lock = NSLock()
     private(set) var requests: [ProcessRequest] = []
 
     init(result: ProcessResult) {
@@ -1576,8 +2125,28 @@ private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
     }
 
     func run(_ request: ProcessRequest) -> ProcessResult {
+        lock.lock()
         requests.append(request)
+        lock.unlock()
         return handler(request)
+    }
+}
+
+private final class TestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var value: Int {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
     }
 }
 
