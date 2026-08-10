@@ -149,6 +149,17 @@ target_include_directories(lithe_windows_app_tests PRIVATE
 target_link_libraries(lithe_windows_app_tests PRIVATE lithe_windows_app)
 add_test(NAME lithe_windows_app COMMAND lithe_windows_app_tests)
 
+add_executable(lithe_windows_document_feature_tests
+    tests/document_feature_test.cpp
+)
+target_compile_features(lithe_windows_document_feature_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_document_feature_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core"
+)
+target_link_libraries(lithe_windows_document_feature_tests PRIVATE lithe_windows_app)
+add_test(NAME lithe_windows_document_feature COMMAND lithe_windows_document_feature_tests)
+
 add_executable(lithe_windows_workbench_ui_state_tests
     tests/workbench_ui_state_test.cpp
     qt/workbench_ui_state.cpp
@@ -513,6 +524,7 @@ set(LITHE_WINDOWS_TEST_TARGETS
     lithe_windows_phase0_tests
     lithe_windows_algorithms_tests
     lithe_windows_app_tests
+    lithe_windows_document_feature_tests
     lithe_windows_workbench_ui_state_tests
     lithe_windows_workbench_layout_persistence_tests
     lithe_windows_coordinator_tests

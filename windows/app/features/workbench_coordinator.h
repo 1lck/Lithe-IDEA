@@ -48,6 +48,7 @@ public:
     void searchEverywhere(std::string query, ResponseHandler handler);
     void replacementPreview(ReplacementPreviewRequestDto request, ResponseHandler handler);
     void writeFile(std::string relativePath, std::string text, ResponseHandler handler);
+    void writeFile(FileWriteRequestDto request, ResponseHandler handler);
     void gitStatus(ResponseHandler handler);
     void gitDiff(std::vector<std::string> pathspecs,
                  bool staged,
