@@ -283,11 +283,23 @@ final class LanguageToolingSessionManager: ObservableObject {
     func codeActions(
         fileURL: URL,
         text _: String,
-        range _: LanguageServerRange,
-        diagnostics _: [LanguageServerDiagnostic],
+        range: LanguageServerRange,
+        diagnostics: [LanguageServerDiagnostic],
         rootURL _: URL,
-        completion _: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
+        completion: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
     ) throws {
+        if let session = languageServerSession(for: fileURL),
+           session.isRunning {
+            do {
+                try session.codeActions(
+                    fileURL: fileURL,
+                    range: range,
+                    diagnostics: diagnostics,
+                    completion: completion
+                )
+                return
+            } catch {}
+        }
         throw unavailableLanguageServerError(for: fileURL)
     }
 

@@ -364,6 +364,12 @@ protocol LanguageServerSession: AnyObject {
         fileURL: URL,
         completion: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
     ) throws
+    func codeActions(
+        fileURL: URL,
+        range: LanguageServerRange,
+        diagnostics: [LanguageServerDiagnostic],
+        completion: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
+    ) throws
     func stop()
 }
 

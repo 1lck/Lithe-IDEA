@@ -518,6 +518,48 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct LspCommandPayload: Decodable, Sendable {
+        let title: String
+        let command: String
+        let arguments: [ToolingJSONValue]?
+
+        func makeModel() -> LanguageServerCommand {
+            LanguageServerCommand(
+                title: title,
+                command: command,
+                arguments: arguments ?? []
+            )
+        }
+    }
+
+    struct LspCodeActionsPayload: Decodable, Sendable {
+        struct Action: Decodable, Sendable {
+            let title: String
+            let kind: String?
+            let isPreferred: Bool
+            let edit: LspWorkspaceEditPayload?
+            let command: LspCommandPayload?
+            let data: ToolingJSONValue?
+
+            func makeModel() -> LanguageServerCodeAction {
+                LanguageServerCodeAction(
+                    title: title,
+                    kind: kind,
+                    isPreferred: isPreferred,
+                    edit: edit?.makeModel(),
+                    command: command?.makeModel(),
+                    data: data
+                )
+            }
+        }
+
+        let actions: [Action]
+
+        func makeModels() -> [LanguageServerCodeAction] {
+            actions.map { $0.makeModel() }
+        }
+    }
+
     struct JavaStructurePayload: Decodable, Sendable {
         struct FoldRegion: Decodable, Sendable {
             let kind: String
@@ -1022,6 +1064,16 @@ struct RustCoreBridge: Sendable {
         let method: String
         let position: LspTextEditsRequest.TextEdit.Range.Position?
         let newName: String?
+        let range: LspTextEditsRequest.TextEdit.Range?
+        let diagnostics: [LspClientDiagnosticRequest]
+    }
+
+    private struct LspClientDiagnosticRequest: Encodable {
+        let range: LspTextEditsRequest.TextEdit.Range
+        let severity: Int?
+        let message: String
+        let source: String?
+        let code: String?
     }
 
     private struct LspClientApplyServerMessageRequest: Encodable {
@@ -2009,7 +2061,9 @@ struct RustCoreBridge: Sendable {
         fileURL: URL,
         method: String,
         position: LanguageServerPosition? = nil,
-        newName: String? = nil
+        newName: String? = nil,
+        range: LanguageServerRange? = nil,
+        diagnostics: [LanguageServerDiagnostic] = []
     ) -> LspClientResponsePayload? {
         execute(
             command: "lsp.clientRequest",
@@ -2020,7 +2074,25 @@ struct RustCoreBridge: Sendable {
                 position: position.map {
                     .init(line: $0.line, utf16Column: $0.utf16Column)
                 },
-                newName: newName
+                newName: newName,
+                range: range.map {
+                    .init(
+                        start: .init(line: $0.start.line, utf16Column: $0.start.utf16Column),
+                        end: .init(line: $0.end.line, utf16Column: $0.end.utf16Column)
+                    )
+                },
+                diagnostics: diagnostics.map {
+                    LspClientDiagnosticRequest(
+                        range: .init(
+                            start: .init(line: $0.range.start.line, utf16Column: $0.range.start.utf16Column),
+                            end: .init(line: $0.range.end.line, utf16Column: $0.range.end.utf16Column)
+                        ),
+                        severity: $0.severity,
+                        message: $0.message,
+                        source: $0.source,
+                        code: $0.code
+                    )
+                }
             )
         )
     }

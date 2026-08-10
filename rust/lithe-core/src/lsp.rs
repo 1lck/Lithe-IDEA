@@ -328,6 +328,10 @@ pub struct ClientFeatureRequest {
     pub position: Option<LspPosition>,
     #[serde(default)]
     pub new_name: Option<String>,
+    #[serde(default)]
+    pub range: Option<LspRange>,
+    #[serde(default)]
+    pub diagnostics: Vec<LspClientDiagnostic>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -946,6 +950,17 @@ fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreE
                 "trimFinalNewlines": true
             }
         })),
+        "textDocument/codeAction" => Ok(json!({
+            "textDocument": text_document,
+            "range": lsp_range_json(required_range(request)?),
+            "context": {
+                "diagnostics": request
+                    .diagnostics
+                    .iter()
+                    .map(lsp_diagnostic_json)
+                    .collect::<Vec<_>>()
+            }
+        })),
         _ => Ok(json!({ "textDocument": text_document })),
     }
 }
@@ -959,10 +974,45 @@ fn required_position(request: &ClientFeatureRequest) -> Result<LspPosition, Core
     })
 }
 
+fn required_range(request: &ClientFeatureRequest) -> Result<LspRange, CoreError> {
+    request.range.ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "This LSP request requires a text document range.",
+        )
+    })
+}
+
 fn lsp_position_json(position: LspPosition) -> Value {
     json!({
         "line": position.line,
         "character": position.utf16_column
+    })
+}
+
+fn lsp_range_json(range: LspRange) -> Value {
+    json!({
+        "start": lsp_position_json(range.start),
+        "end": lsp_position_json(range.end)
+    })
+}
+
+fn lsp_diagnostic_json(diagnostic: &LspClientDiagnostic) -> Value {
+    json!({
+        "range": {
+            "start": {
+                "line": diagnostic.range.start.line,
+                "character": diagnostic.range.start.utf16_column
+            },
+            "end": {
+                "line": diagnostic.range.end.line,
+                "character": diagnostic.range.end.utf16_column
+            }
+        },
+        "severity": diagnostic.severity,
+        "message": diagnostic.message,
+        "source": diagnostic.source,
+        "code": diagnostic.code
     })
 }
 
@@ -1036,6 +1086,9 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
                 .as_array()
                 .map(|edits| edits.iter().filter_map(parse_lsp_text_edit_value).collect::<Vec<_>>())
                 .unwrap_or_default()
+        })),
+        Some("textDocument/codeAction") => Some(json!({
+            "actions": parse_code_actions(result)
         })),
         Some("textDocument/definition")
         | Some("textDocument/declaration")
@@ -1173,6 +1226,48 @@ fn parse_locations(result: &Value) -> Vec<Value> {
             }))
         })
         .collect()
+}
+
+fn parse_code_actions(result: &Value) -> Vec<Value> {
+    let Some(values) = result.as_array() else {
+        return Vec::new();
+    };
+    values
+        .iter()
+        .filter_map(|action| {
+            let title = action.get("title").and_then(Value::as_str)?;
+            let command = if action.get("command").and_then(Value::as_str).is_some() {
+                parse_lsp_command(action)
+            } else {
+                action.get("command").and_then(parse_lsp_command)
+            };
+            Some(json!({
+                "title": title,
+                "kind": action.get("kind").and_then(Value::as_str),
+                "isPreferred": action
+                    .get("isPreferred")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                "edit": action.get("edit").map(|edit| json!({
+                    "changes": parse_workspace_edit(edit)
+                })),
+                "command": command,
+                "data": action.get("data").cloned().unwrap_or(Value::Null)
+            }))
+        })
+        .collect()
+}
+
+fn parse_lsp_command(value: &Value) -> Option<Value> {
+    Some(json!({
+        "title": value.get("title").and_then(Value::as_str).unwrap_or_default(),
+        "command": value.get("command").and_then(Value::as_str)?,
+        "arguments": value
+            .get("arguments")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    }))
 }
 
 fn parse_workspace_edit(result: &Value) -> serde_json::Map<String, Value> {
@@ -2261,6 +2356,8 @@ mod tests {
                 utf16_column: 12,
             }),
             new_name: None,
+            range: None,
+            diagnostics: Vec::new(),
         })
         .unwrap();
         assert_eq!(
@@ -2290,6 +2387,8 @@ mod tests {
                 utf16_column: 14,
             }),
             new_name: None,
+            range: None,
+            diagnostics: Vec::new(),
         })
         .unwrap();
         let completed = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2332,6 +2431,8 @@ mod tests {
                 utf16_column: 12,
             }),
             new_name: Some("start".to_string()),
+            range: None,
+            diagnostics: Vec::new(),
         })
         .unwrap();
         let renamed = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2366,6 +2467,8 @@ mod tests {
             method: "textDocument/formatting".to_string(),
             position: None,
             new_name: None,
+            range: None,
+            diagnostics: Vec::new(),
         })
         .unwrap();
         let formatted = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -2388,6 +2491,89 @@ mod tests {
         assert_eq!(
             format_result["edits"][0]["range"]["start"]["utf16Column"],
             2
+        );
+
+        let code_actions = client_feature_request(ClientFeatureRequest {
+            state: formatted.state,
+            uri: "file:///tmp/project/main.rs".to_string(),
+            method: "textDocument/codeAction".to_string(),
+            position: None,
+            new_name: None,
+            range: Some(LspRange {
+                start: LspPosition {
+                    line: 0,
+                    utf16_column: 0,
+                },
+                end: LspPosition {
+                    line: 0,
+                    utf16_column: 0,
+                },
+            }),
+            diagnostics: vec![LspClientDiagnostic {
+                range: LspRangeResponse {
+                    start: LspPositionResponse {
+                        line: 0,
+                        utf16_column: 12,
+                    },
+                    end: LspPositionResponse {
+                        line: 0,
+                        utf16_column: 18,
+                    },
+                },
+                severity: Some(2),
+                message: "rename suggestion".to_string(),
+                source: Some("rust-analyzer".to_string()),
+                code: None,
+            }],
+        })
+        .unwrap();
+        let code_action_request: Value = serde_json::from_str(&code_actions.messages[0]).unwrap();
+        assert_eq!(code_action_request["method"], "textDocument/codeAction");
+        assert_eq!(
+            code_action_request["params"]["context"]["diagnostics"][0]["range"]["start"]
+                ["character"],
+            12
+        );
+        let code_actioned = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: code_actions.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "4",
+                "result": [{
+                    "title": "Apply rename",
+                    "kind": "quickfix",
+                    "isPreferred": true,
+                    "edit": {
+                        "changes": {
+                            "file:///tmp/project/main.rs": [{
+                                "range": {
+                                    "start": { "line": 0, "character": 12 },
+                                    "end": { "line": 0, "character": 18 }
+                                },
+                                "newText": "start"
+                            }]
+                        }
+                    },
+                    "command": {
+                        "title": "Apply",
+                        "command": "rust-analyzer.applySourceChange",
+                        "arguments": [{ "label": "rename" }]
+                    },
+                    "data": { "id": "action-1" }
+                }]
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+        let action_result = code_actioned.events[0].result.as_ref().unwrap();
+        assert_eq!(action_result["actions"][0]["title"], "Apply rename");
+        assert_eq!(
+            action_result["actions"][0]["edit"]["changes"]["/tmp/project/main.rs"][0]["newText"],
+            "start"
+        );
+        assert_eq!(
+            action_result["actions"][0]["command"]["command"],
+            "rust-analyzer.applySourceChange"
         );
     }
 

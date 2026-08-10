@@ -1143,6 +1143,50 @@ struct RunConfigurationIntegrationTests {
         ])
         await Self.drainMainActorTasks()
         #expect(try formatResult?.get().first?.newText == " ")
+
+        var actionsResult: Result<[LanguageServerCodeAction], Error>?
+        try manager.codeActions(
+            fileURL: source,
+            text: "struct App{ }\n",
+            range: LanguageServerRange(
+                start: LanguageServerPosition(line: 0, utf16Column: 0),
+                end: LanguageServerPosition(line: 0, utf16Column: 0)
+            ),
+            diagnostics: [
+                LanguageServerDiagnostic(
+                    range: LanguageServerRange(
+                        start: LanguageServerPosition(line: 0, utf16Column: 7),
+                        end: LanguageServerPosition(line: 0, utf16Column: 10)
+                    ),
+                    severity: 2,
+                    message: "example warning",
+                    source: "sourcekit-lsp",
+                    code: nil
+                )
+            ],
+            rootURL: root
+        ) { result in
+            actionsResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "5",
+            "result": [[
+                "title": "Fix warning",
+                "kind": "quickfix",
+                "isPreferred": true,
+                "command": [
+                    "title": "Apply fix",
+                    "command": "source.fix",
+                    "arguments": [["uri": source.standardizedFileURL.absoluteString]]
+                ],
+                "data": ["token": "fix-1"]
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        let actions = try actionsResult?.get()
+        #expect(actions?.first?.title == "Fix warning")
+        #expect(actions?.first?.command?.command == "source.fix")
     }
 
     @Test
@@ -2815,7 +2859,9 @@ private struct TestLspClientCore: LspClientCore {
         fileURL _: URL,
         method: String,
         position _: LanguageServerPosition?,
-        newName _: String?
+        newName _: String?,
+        range _: LanguageServerRange?,
+        diagnostics _: [LanguageServerDiagnostic]
     ) -> RustCoreBridge.LspClientResponsePayload? {
         let id: String
         switch method {
@@ -2823,6 +2869,8 @@ private struct TestLspClientCore: LspClientCore {
             id = "3"
         case "textDocument/formatting":
             id = "4"
+        case "textDocument/codeAction":
+            id = "5"
         default:
             id = "2"
         }
@@ -2924,6 +2972,35 @@ private struct TestLspClientCore: LspClientCore {
                                     "end": .object(["line": .integer(0), "utf16Column": .integer(10)])
                                 ]),
                                 "newText": .string(" ")
+                            ])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"5""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "5",
+                    method: "textDocument/codeAction",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "actions": .array([
+                            .object([
+                                "title": .string("Fix warning"),
+                                "kind": .string("quickfix"),
+                                "isPreferred": .bool(true),
+                                "command": .object([
+                                    "title": .string("Apply fix"),
+                                    "command": .string("source.fix"),
+                                    "arguments": .array([
+                                        .object(["uri": .string(diagnosticURL.standardizedFileURL.absoluteString)])
+                                    ])
+                                ]),
+                                "data": .object(["token": .string("fix-1")])
                             ])
                         ])
                     ]),
