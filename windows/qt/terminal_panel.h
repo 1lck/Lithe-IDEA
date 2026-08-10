@@ -13,6 +13,7 @@
 class QTabWidget;
 class QComboBox;
 class QPushButton;
+class QToolButton;
 class TerminalView;
 
 namespace lithe::windows::app {
@@ -67,9 +68,9 @@ private:
     QComboBox* shellBox_;
     QPushButton* newButton_;
     QPushButton* closeButton_;
-    QPushButton* clearButton_;
-    QPushButton* interruptButton_;
-    QPushButton* restartButton_;
+    QToolButton* clearButton_;
+    QToolButton* interruptButton_;
+    QToolButton* restartButton_;
     QTabWidget* tabs_;
 
     void attachModelSinks();

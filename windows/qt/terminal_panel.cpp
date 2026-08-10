@@ -7,7 +7,9 @@
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QPushButton>
+#include <QStyle>
 #include <QTabWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <optional>
@@ -18,15 +20,21 @@ TerminalPanel::TerminalPanel(QWidget* parent)
       shellBox_(new QComboBox(this)),
       newButton_(new QPushButton(TerminalPanel::tr("New"), this)),
       closeButton_(new QPushButton(TerminalPanel::tr("Close"), this)),
-      clearButton_(new QPushButton(TerminalPanel::tr("Clear"), this)),
-      interruptButton_(new QPushButton(TerminalPanel::tr("Interrupt"), this)),
-      restartButton_(new QPushButton(TerminalPanel::tr("Restart"), this)),
+      clearButton_(new QToolButton(this)),
+      interruptButton_(new QToolButton(this)),
+      restartButton_(new QToolButton(this)),
       tabs_(new QTabWidget(this)) {
     newButton_->setToolTip(TerminalPanel::tr("Open a new terminal session"));
     closeButton_->setToolTip(TerminalPanel::tr("Close the current terminal session"));
+    // Clear / Interrupt / Restart are icon-only buttons (issue #31): standard
+    // style pixmaps + tooltips, auto-raised so they read as a compact toolbar.
+    clearButton_->setIcon(style()->standardIcon(QStyle::SP_DialogResetButton));
     clearButton_->setToolTip(TerminalPanel::tr("Clear the current session output"));
+    interruptButton_->setIcon(style()->standardIcon(QStyle::SP_BrowserStop));
     interruptButton_->setToolTip(TerminalPanel::tr("Send Ctrl+C to the current session"));
+    restartButton_->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     restartButton_->setToolTip(TerminalPanel::tr("Restart the current session"));
+    for (auto* button : {clearButton_, interruptButton_, restartButton_}) button->setAutoRaise(true);
 
     tabs_->setTabsClosable(true);
     tabs_->setMovable(false);

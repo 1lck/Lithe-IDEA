@@ -4541,11 +4541,26 @@ void WorkbenchWindow::stopTerminal() {
 void WorkbenchWindow::applyTerminalWorkspace() {
     if (terminalPanel_ == nullptr) return;
     terminalPanel_->setWorkspace(workspaceRoot_, runtimeLocator_.environment());
+    terminalPanel_->setAvailableShells(availableShells());
+}
+
+QStringList WorkbenchWindow::availableShells() const {
+    // Offer the configured shell plus any detected Windows shells (issue #31:
+    // "支持配置或选择可用 Shell"). Existence is checked so the menu never
+    // offers a shell that is not actually installed.
     QStringList shells;
-    const auto configured = QString::fromStdString(appSettings_.terminalShellPath).trimmed();
+    const QString configured = QString::fromStdString(appSettings_.terminalShellPath).trimmed();
     if (!configured.isEmpty()) shells << configured;
-    if (!shells.contains(QStringLiteral("cmd.exe"))) shells << QStringLiteral("cmd.exe");
-    terminalPanel_->setAvailableShells(shells);
+    const auto addIfExists = [&](const QString& path) {
+        if (!path.isEmpty() && QFile::exists(path) && !shells.contains(path)) shells << path;
+    };
+    const QString systemRoot = qEnvironmentVariable("SystemRoot");
+    const QString base = systemRoot.isEmpty() ? QStringLiteral("C:/Windows") : systemRoot;
+    addIfExists(base + "/System32/cmd.exe");
+    addIfExists(base + "/System32/WindowsPowerShell/v1.0/powershell.exe");
+    const QString programFiles = qEnvironmentVariable("ProgramFiles");
+    if (!programFiles.isEmpty()) addIfExists(programFiles + "/PowerShell/7/pwsh.exe");
+    return shells;
 }
 
 void WorkbenchWindow::saveDocument() {

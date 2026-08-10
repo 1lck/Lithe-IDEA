@@ -144,6 +144,7 @@ private slots:
     void startTerminal();
     void stopTerminal();
     void applyTerminalWorkspace();
+    QStringList availableShells() const;
 
 private:
     bool eventFilter(QObject* watched, QEvent* event) override;
