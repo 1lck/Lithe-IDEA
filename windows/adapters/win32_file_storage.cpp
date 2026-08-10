@@ -98,6 +98,12 @@ std::optional<FileMetadata> Win32FileStorage::metadata(const std::string& path) 
     FileMetadata result;
     result.isRegularFile = std::filesystem::is_regular_file(status);
     result.isDirectory = std::filesystem::is_directory(status);
+#ifdef _WIN32
+    const auto attributes = GetFileAttributesW(native.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES) {
+        result.isWritable = (attributes & FILE_ATTRIBUTE_READONLY) == 0;
+    }
+#endif
     if (result.isRegularFile) {
         const auto size = std::filesystem::file_size(native, error);
         if (!error) result.byteCount = size;

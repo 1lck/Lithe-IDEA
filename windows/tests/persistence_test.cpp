@@ -79,12 +79,17 @@ int main() {
 
     lithe::windows::app::WorkspaceSessionStore sessions(store);
     const lithe::windows::app::WorkspaceSession session{
-        {"src/Main.java", "README.md"}, {"src"}, "src/Main.java"};
+        {"src/Main.java", "README.md"}, {"src"}, "src/Main.java",
+        {{"src/Main.java", 17, 4, 120, 8}}};
     assert(sessions.save("C:/project", session, error));
     const auto loadedSession = sessions.load("C:/project");
     assert(loadedSession.openPaths == session.openPaths);
     assert(loadedSession.expandedPaths == session.expandedPaths);
     assert(loadedSession.activePath == session.activePath);
+    assert(loadedSession.documentViews.size() == 1);
+    assert(loadedSession.documentViews[0].path == "src/Main.java");
+    assert(loadedSession.documentViews[0].cursor == 17);
+    assert(loadedSession.documentViews[0].verticalScroll == 120);
     assert(sessions.clear("C:/project", error));
     assert(sessions.load("C:/project").openPaths.empty());
     return 0;
