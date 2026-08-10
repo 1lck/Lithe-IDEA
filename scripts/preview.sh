@@ -41,4 +41,4 @@ for localization in en.lproj zh-Hans.lproj; do
 done
 codesign --force --deep --sign - "$APP_DIR"
 
-exec open -W "$APP_DIR"
+exec open -n -W "$APP_DIR"

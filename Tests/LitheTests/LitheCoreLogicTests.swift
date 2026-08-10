@@ -1565,7 +1565,14 @@ struct LitheCoreLogicTests {
 
 private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
     private let handler: (ProcessRequest) -> ProcessResult
-    private(set) var requests: [ProcessRequest] = []
+    private let requestsLock = NSLock()
+    private var recordedRequests: [ProcessRequest] = []
+
+    var requests: [ProcessRequest] {
+        requestsLock.lock()
+        defer { requestsLock.unlock() }
+        return recordedRequests
+    }
 
     init(result: ProcessResult) {
         handler = { _ in result }
@@ -1576,7 +1583,9 @@ private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
     }
 
     func run(_ request: ProcessRequest) -> ProcessResult {
-        requests.append(request)
+        requestsLock.lock()
+        recordedRequests.append(request)
+        requestsLock.unlock()
         return handler(request)
     }
 }
