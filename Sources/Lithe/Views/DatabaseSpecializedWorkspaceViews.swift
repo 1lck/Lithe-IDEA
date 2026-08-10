@@ -28,6 +28,9 @@ struct RedisWorkspaceView: View {
         .task(id: feature.selectedProfileID) {
             await feature.loadRedisKeys(pattern: pattern)
         }
+        .onChange(of: feature.redisIncludeSize) { _, _ in
+            Task { await feature.loadRedisKeys(pattern: pattern) }
+        }
         .onChange(of: feature.redisSelectedKey) { _, detail in
             guard let detail else {
                 stringDraft = ""; hashDraft = "{}"; ttlDraft = ""; renameDraft = ""
@@ -82,6 +85,13 @@ struct RedisWorkspaceView: View {
                     .background(LitheTheme.inputBackground)
                     .clipShape(Capsule())
             }
+            Toggle("Estimate size", isOn: Binding(
+                get: { feature.redisIncludeSize },
+                set: { feature.redisIncludeSize = $0 }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .help("Estimate key size during SCAN")
             Button { Task { await feature.loadRedisKeys(pattern: pattern) } } label: { Image(systemName: "arrow.clockwise") }
                 .litheIconButton().help("Rescan from the beginning")
                 .disabled(feature.isLoading || profile == nil)
@@ -129,7 +139,7 @@ struct RedisWorkspaceView: View {
                                         .clipShape(RoundedRectangle(cornerRadius: 5))
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(key.key).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
-                                        Text("\(key.type.uppercased()) · \(redisTTLText(key.ttl)) · \(key.size)")
+                                        Text("\(key.type.uppercased()) · \(redisTTLText(key.ttl)) · \(redisSizeText(key.size))")
                                             .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
                                     }
                                     Spacer(minLength: 0)
@@ -172,7 +182,7 @@ struct RedisWorkspaceView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 7))
                     VStack(alignment: .leading, spacing: 3) {
                         Text(detail.key).font(.system(size: 12.5, weight: .semibold)).textSelection(.enabled)
-                        Text("\(detail.type.uppercased()) · \(detail.size) entries / bytes · \(redisTTLText(detail.ttl))")
+                        Text("\(detail.type.uppercased()) · \(redisSizeText(detail.size)) · \(redisTTLText(detail.ttl))")
                             .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
                     }
                     Spacer()
@@ -640,4 +650,8 @@ private func redisTTLText(_ ttl: Int64) -> String {
     case 0...: "TTL \(ttl)s"
     default: "TTL unknown"
     }
+}
+
+private func redisSizeText(_ size: Int64) -> String {
+    size < 0 ? "size not estimated" : "size \(size)"
 }

@@ -74,6 +74,33 @@ struct DatabaseSidebarView: View {
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 Spacer()
+                if let selected = model.databaseFeature.selectedProfile,
+                   selected.kind == .mysql || selected.kind == .mariadb {
+                    Menu {
+                        Button("Refresh databases") {
+                            Task { await model.databaseFeature.refreshDatabases() }
+                        }
+                        Divider()
+                        if model.databaseFeature.databaseOptions.isEmpty {
+                            Text("No databases loaded")
+                        } else {
+                            ForEach(model.databaseFeature.databaseOptions, id: \.self) { database in
+                                Button {
+                                    Task { await model.databaseFeature.selectDatabase(database, for: selected) }
+                                } label: {
+                                    HStack {
+                                        Text(database)
+                                        if selected.database == database { Image(systemName: "checkmark") }
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "cylinder.split.1x2")
+                    }
+                    .litheIconButton()
+                    .help("Choose database")
+                }
                 Button { presentConnectionEditor() } label: { Image(systemName: "plus") }
                     .litheIconButton().help("Add database connection")
                 Button { editingFolder = nil; creatingFolderParentID = nil; showsFolderEditor = true } label: { Image(systemName: "folder.badge.plus") }

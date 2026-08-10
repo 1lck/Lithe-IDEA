@@ -23,6 +23,7 @@ final class DatabaseFeatureModel: ObservableObject {
     @Published private(set) var folders: [DatabaseConnectionFolder]
     @Published var selectedProfileID: UUID?
     @Published private(set) var tables: [String] = []
+    @Published private(set) var databaseOptions: [String] = []
     @Published var selectedTable: String?
     @Published private(set) var openTableTabs: [String] = []
     @Published private(set) var columns: [String] = []
@@ -52,6 +53,7 @@ final class DatabaseFeatureModel: ObservableObject {
     @Published private(set) var redisKeys: [RedisKeySummary] = []
     @Published private(set) var redisNextCursor = "0"
     @Published private(set) var redisSelectedKey: RedisKeyDetail?
+    @Published var redisIncludeSize = true
     @Published private(set) var nacosConfigs: [NacosConfigSummary] = []
     @Published private(set) var nacosConfigTotalCount = 0
     @Published var nacosSelectedConfig: NacosConfigDetail?
@@ -349,9 +351,14 @@ final class DatabaseFeatureModel: ObservableObject {
     }
 
     func refreshTables() async {
-        guard let profile = selectedProfile else { return }
+        guard let profile = selectedProfile else {
+            tables = []
+            databaseOptions = []
+            return
+        }
         guard profile.kind.supportsDataGrid else {
             tables = []
+            databaseOptions = []
             return
         }
         let generation = profileGeneration
@@ -360,6 +367,15 @@ final class DatabaseFeatureModel: ObservableObject {
         setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
+            if profile.kind == .mysql || profile.kind == .mariadb {
+                let databaseRows = try await Task.detached { [operations] in
+                    try operations.listDatabases(connection: connection)
+                }.value
+                guard isCurrent(profileID: profile.id, generation: generation) else { return }
+                databaseOptions = databaseRows
+            } else {
+                databaseOptions = []
+            }
             let result = try await Task.detached { [operations] in try operations.listTables(connection: connection, schema: "") }.value
             guard isCurrent(profileID: profile.id, generation: generation) else { return }
             setConnectionStatus(.connected, for: profile.id)
@@ -369,11 +385,52 @@ final class DatabaseFeatureModel: ObservableObject {
             if profile.kind.isSQLDatabase { await refreshObjects(profileID: profile.id, generation: generation) }
         } catch {
             guard isCurrent(profileID: profile.id, generation: generation) else { return }
-            tables = []; objects = [:]
+            tables = []; objects = [:]; databaseOptions = []
             errorMessage = executionError(error)
             setConnectionStatus(.failed, for: profile.id)
         }
         if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
+    }
+
+    func refreshDatabases() async {
+        guard let profile = selectedProfile, profile.kind == .mysql || profile.kind == .mariadb else { return }
+        let generation = profileGeneration
+        isLoading = true
+        errorMessage = nil
+        do {
+            let connection = connection(profile)
+            let rows = try await Task.detached { [operations] in
+                try operations.listDatabases(connection: connection)
+            }.value
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            databaseOptions = rows
+            isLoading = false
+        } catch {
+            if isCurrent(profileID: profile.id, generation: generation) {
+                databaseOptions = []
+                errorMessage = executionError(error)
+                isLoading = false
+            }
+        }
+    }
+
+    func selectDatabase(_ database: String, for profile: DatabaseProfile) async {
+        guard selectedProfileID == profile.id,
+              (profile.kind == .mysql || profile.kind == .mariadb),
+              databaseOptions.contains(database) else { return }
+        var updated = profiles
+        guard let index = updated.firstIndex(where: { $0.id == profile.id }) else { return }
+        var updatedProfile = updated[index]
+        updatedProfile.database = database
+        updated[index] = updatedProfile
+        do {
+            try connectionStore.save(updated)
+            profiles = sortedProfiles(updated)
+            activateProfile(updatedProfile)
+            await refreshTables()
+        } catch {
+            errorMessage = executionError(error)
+        }
     }
 
     private func refreshObjects(profileID: UUID, generation: UInt64) async {
@@ -1055,13 +1112,14 @@ final class DatabaseFeatureModel: ObservableObject {
         let cursor = reset ? "0" : redisNextCursor
         if !reset && cursor == "0" { return }
         let startedAt = Date()
+        let includeSize = redisIncludeSize
         isLoading = true
         errorMessage = nil
         setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations] in
-                try operations.redisScan(connection: connection, cursor: cursor, pattern: pattern.isEmpty ? "*" : pattern, count: 100)
+                try operations.redisScan(connection: connection, cursor: cursor, pattern: pattern.isEmpty ? "*" : pattern, count: 100, includeSize: includeSize)
             }.value
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "SCAN", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: result.keys.count, rowsAffected: nil, errorMessage: nil))
@@ -1477,6 +1535,7 @@ final class DatabaseFeatureModel: ObservableObject {
         indexes = []
         foreignKeys = []
         tables = []
+        databaseOptions = []
         objects = [:]
         lastExplainResult = nil
         lastDiagnostics = nil
@@ -1505,6 +1564,7 @@ final class DatabaseFeatureModel: ObservableObject {
         indexes = []
         foreignKeys = []
         tables = []
+        databaseOptions = []
         objects = [:]
         lastExplainResult = nil
         lastDiagnostics = nil
@@ -1578,7 +1638,7 @@ final class DatabaseFeatureModel: ObservableObject {
         guard case let .string(text) = value else { return value }
         let type = columnTypes[column] ?? ""
         if type.contains("int"), let number = Int64(text) { return .integer(number) }
-        if type.contains("numeric") || type.contains("decimal") { return .object(["decimal": .string(text)]) }
+        if type.contains("numeric") || type.contains("decimal") { return .decimal(text) }
         if type.contains("double") || type.contains("float") || type.contains("real"), let number = Double(text) { return .number(number) }
         if type == "boolean" || type == "bool" {
             if ["true", "1"].contains(text.lowercased()) { return .bool(true) }

@@ -207,7 +207,9 @@ enum DatabaseValue: Codable, Equatable, Sendable {
     case bool(Bool)
     case integer(Int64)
     case number(Double)
+    case decimal(String)
     case string(String)
+    case binary(Data)
     case object([String: DatabaseValue])
     case array([DatabaseValue])
 
@@ -218,6 +220,13 @@ enum DatabaseValue: Codable, Equatable, Sendable {
         else if let value = try? container.decode(Int64.self) { self = .integer(value) }
         else if let value = try? container.decode(Double.self) { self = .number(value) }
         else if let value = try? container.decode(String.self) { self = .string(value) }
+        else if let tagged = try? container.decode([String: String].self), tagged.count == 1, let value = tagged["decimal"] {
+            self = .decimal(value)
+        } else if let tagged = try? container.decode([String: String].self), tagged.count == 1,
+                  let encoded = tagged["binary"],
+                  let value = Data(base64Encoded: encoded) {
+            self = .binary(value)
+        }
         else if let value = try? container.decode([String: DatabaseValue].self) { self = .object(value) }
         else { self = .array(try container.decode([DatabaseValue].self)) }
     }
@@ -229,7 +238,9 @@ enum DatabaseValue: Codable, Equatable, Sendable {
         case let .bool(value): try container.encode(value)
         case let .integer(value): try container.encode(value)
         case let .number(value): try container.encode(value)
+        case let .decimal(value): try container.encode(["decimal": value])
         case let .string(value): try container.encode(value)
+        case let .binary(value): try container.encode(["binary": value.base64EncodedString()])
         case let .object(value): try container.encode(value)
         case let .array(value): try container.encode(value)
         }
@@ -332,6 +343,7 @@ struct DatabaseDiagnosticsRequest: Codable, Equatable, Sendable {
 protocol DatabaseOperations: Sendable {
     func capabilities() throws -> DatabaseCapabilities
     func testConnection(_ connection: DatabaseConnection) throws
+    func listDatabases(connection: DatabaseConnection) throws -> [String]
     func listTables(connection: DatabaseConnection, schema: String) throws -> [DatabaseRow]
     func describeTable(connection: DatabaseConnection, schema: String, table: String) throws -> [DatabaseRow]
     func listIndexes(connection: DatabaseConnection, schema: String, table: String) throws -> [DatabaseRow]
@@ -356,7 +368,7 @@ protocol DatabaseOperations: Sendable {
     func restoreSQL(connection: DatabaseConnection, data: Data, confirmed: Bool, allowWrite: Bool) throws -> DatabaseExecuteResult
     func restoreSQLFile(connection: DatabaseConnection, fileURL: URL, confirmed: Bool, allowWrite: Bool) throws -> DatabaseExecuteResult
 
-    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int) throws -> RedisScanResult
+    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int, includeSize: Bool) throws -> RedisScanResult
     func redisGetKey(connection: DatabaseConnection, key: String) throws -> RedisKeyDetail
     func redisSetString(connection: DatabaseConnection, key: String, value: String, ttl: Int64?, confirmed: Bool, allowWrite: Bool) throws
     func redisReplaceHash(connection: DatabaseConnection, key: String, entries: [RedisHashEntry], confirmed: Bool, allowWrite: Bool) throws
@@ -374,7 +386,11 @@ protocol DatabaseOperations: Sendable {
 }
 
 extension DatabaseOperations {
-    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int) throws -> RedisScanResult { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
+    func listDatabases(connection: DatabaseConnection) throws -> [String] { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Database selection is not available for this database service.") }
+    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int) throws -> RedisScanResult {
+        try redisScan(connection: connection, cursor: cursor, pattern: pattern, count: count, includeSize: true)
+    }
+    func redisScan(connection: DatabaseConnection, cursor: String, pattern: String, count: Int, includeSize: Bool) throws -> RedisScanResult { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
     func redisGetKey(connection: DatabaseConnection, key: String) throws -> RedisKeyDetail { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
     func redisSetString(connection: DatabaseConnection, key: String, value: String, ttl: Int64?, confirmed: Bool, allowWrite: Bool) throws { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
     func redisReplaceHash(connection: DatabaseConnection, key: String, entries: [RedisHashEntry], confirmed: Bool, allowWrite: Bool) throws { throw DatabaseSidecarError.requestFailed(code: "unsupported_operation", message: "Redis is not available in this database service.") }
@@ -425,6 +441,10 @@ final class DatabaseSidecarService: DatabaseOperations, @unchecked Sendable {
 
     func testConnection(_ connection: DatabaseConnection) throws {
         let _: ConnectedResult = try request(method: "testConnection", params: ConnectionParams(connection: connection))
+    }
+
+    func listDatabases(connection: DatabaseConnection) throws -> [String] {
+        try request(method: "listDatabases", params: ConnectionParams(connection: connection))
     }
 
     func listTables(connection: DatabaseConnection, schema: String = "") throws -> [DatabaseRow] {
@@ -532,8 +552,8 @@ final class DatabaseSidecarService: DatabaseOperations, @unchecked Sendable {
         try request(method: "restoreSqlFile", params: SQLFileImportParams(connection: connection, outputPath: fileURL.path, confirmed: confirmed, allowWrite: allowWrite), timeoutMilliseconds: 120_000)
     }
 
-    func redisScan(connection: DatabaseConnection, cursor: String = "0", pattern: String = "*", count: Int = 100) throws -> RedisScanResult {
-        try request(method: "redisScan", params: RedisScanParams(connection: connection, cursor: cursor, pattern: pattern, count: count))
+    func redisScan(connection: DatabaseConnection, cursor: String = "0", pattern: String = "*", count: Int = 100, includeSize: Bool = true) throws -> RedisScanResult {
+        try request(method: "redisScan", params: RedisScanParams(connection: connection, cursor: cursor, pattern: pattern, count: count, includeSize: includeSize))
     }
 
     func redisGetKey(connection: DatabaseConnection, key: String) throws -> RedisKeyDetail {
@@ -762,6 +782,7 @@ private struct RedisScanParams: Codable {
     var cursor = "0"
     var pattern = "*"
     var count = 100
+    var includeSize = true
 }
 private struct RedisKeyParams: Codable { let connection: DatabaseConnection; let key: String }
 private struct RedisWriteParams: Codable {

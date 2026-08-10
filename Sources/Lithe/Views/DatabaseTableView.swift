@@ -714,7 +714,9 @@ struct DatabaseTableView: View {
         case let .string(value): value.isEmpty ? "\"\"" : value
         case let .integer(value): String(value)
         case let .number(value): String(value)
+        case let .decimal(value): value
         case let .bool(value): value ? "true" : "false"
+        case let .binary(value): "Binary (\(value.count) bytes)"
         case let .object(value): databaseJSONText(.object(value))
         case let .array(value): databaseJSONText(.array(value))
         }
@@ -1214,7 +1216,9 @@ private struct DatabaseRowDetailsSheet: View {
         case let .string(value): value
         case let .integer(value): String(value)
         case let .number(value): String(value)
+        case let .decimal(value): value
         case let .bool(value): value ? "true" : "false"
+        case let .binary(value): "Binary (\(value.count) bytes)"
         case let .object(value): databaseJSONText(.object(value))
         case let .array(value): databaseJSONText(.array(value))
         }

@@ -74,6 +74,26 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func databaseSidecarSerializesRedisSizePreference() throws {
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            return ProcessResult(
+                output: #"{"id":"\#(id)","ok":true,"result":{"keys":[],"nextCursor":"0"}}"#,
+                exitCode: 0
+            )
+        }
+        let service = DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar"))
+        let redis = DatabaseConnection(kind: .redis, host: "127.0.0.1", port: 6379, database: "0")
+
+        _ = try service.redisScan(connection: redis, includeSize: false)
+
+        let request = String(decoding: try #require(runner.requests[0].standardInput), as: UTF8.self)
+        #expect(request.contains(#""includeSize":false"#))
+    }
+
+    @Test
     func databaseSidecarMapsFailedProcessToStableError() {
         let runner = RecordingProcessRunner(result: ProcessResult(output: "connection store failed", exitCode: 2))
         let service = DatabaseSidecarService(
@@ -385,6 +405,40 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func databaseMySQLDatabaseSelectionPersistsAndRefreshesTables() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "MySQL", kind: .mysql, host: "localhost", username: "root")
+        try store.save([profile])
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            switch method {
+            case "listDatabases": result = #"["alpha","beta"]"#
+            case "listTables": result = #"[{"table_name":"items"}]"#
+            default: result = "[]"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        #expect(feature.databaseOptions == ["alpha", "beta"])
+        await feature.selectDatabase("beta", for: profile)
+
+        #expect(feature.selectedProfile?.database == "beta")
+        #expect(feature.tables == ["items"])
+        #expect(store.load().first?.database == "beta")
+    }
+
+    @Test
+    @MainActor
     func databaseConnectionStatusTracksSuccessfulConnection() async throws {
         let preferences = DatabaseTestKeyValueStore()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
@@ -510,6 +564,18 @@ struct LitheCoreLogicTests {
         let result = try JSONDecoder().decode(DatabaseQueryResult.self, from: data)
         #expect(result.columns == ["z_col", "a_col"])
         #expect(result.rows.first?["z_col"] == .integer(1))
+    }
+
+    @Test
+    func databaseValuePreservesTaggedDecimalAndBinaryValues() throws {
+        let data = Data(#"[{"decimal":"0.00"},{"binary":"AAEC"}]"#.utf8)
+        let values = try JSONDecoder().decode([DatabaseValue].self, from: data)
+        #expect(values == [.decimal("0.00"), .binary(Data([0, 1, 2]))])
+        let encoded = try JSONEncoder().encode(values)
+        #expect(String(decoding: encoded, as: UTF8.self).contains(#""decimal":"0.00""#))
+        #expect(String(decoding: encoded, as: UTF8.self).contains(#""binary":"AAEC""#))
+        let mongoObject = try JSONDecoder().decode(DatabaseValue.self, from: Data(#"{"base64":"AAEC"}"#.utf8))
+        #expect(mongoObject == .object(["base64": .string("AAEC")]))
     }
 
     @Test

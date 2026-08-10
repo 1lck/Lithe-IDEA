@@ -733,7 +733,9 @@ private struct DatabaseQueryResultGrid: View {
         case let .string(value): value.isEmpty ? "\"\"" : value
         case let .integer(value): String(value)
         case let .number(value): String(value)
+        case let .decimal(value): value
         case let .bool(value): value ? "true" : "false"
+        case let .binary(value): "Binary (\(value.count) bytes)"
         case let .object(value): databaseSQLJSONText(.object(value))
         case let .array(value): databaseSQLJSONText(.array(value))
         }
@@ -853,7 +855,9 @@ private struct DatabaseStructureView: View {
         case let .string(value): value
         case let .integer(value): String(value)
         case let .number(value): String(value)
+        case let .decimal(value): value
         case let .bool(value): value ? "true" : "false"
+        case let .binary(value): "Binary (\(value.count) bytes)"
         case let .object(value): String(describing: value)
         case let .array(value): String(describing: value)
         }
