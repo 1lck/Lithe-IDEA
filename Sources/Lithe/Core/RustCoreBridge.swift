@@ -1145,6 +1145,16 @@ struct RustCoreBridge: Sendable {
         let message: String
     }
 
+    struct LspParsedMessagesPayload: Decodable, Sendable {
+        let buffer: [UInt8]
+        let messages: [String]
+    }
+
+    private struct LspParseServerMessagesRequest: Encodable {
+        let buffer: [UInt8]
+        let chunk: [UInt8]
+    }
+
     private struct MavenDiagnosticsRequest: Encodable {
         let root: String
         let output: String
@@ -2247,6 +2257,16 @@ struct RustCoreBridge: Sendable {
         execute(
             command: "lsp.frameMessage",
             payload: LspFrameRequest(message: message)
+        )
+    }
+
+    func lspParseServerMessages(
+        buffer: [UInt8],
+        chunk: [UInt8]
+    ) -> LspParsedMessagesPayload? {
+        execute(
+            command: "lsp.parseServerMessages",
+            payload: LspParseServerMessagesRequest(buffer: buffer, chunk: chunk)
         )
     }
 

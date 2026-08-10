@@ -3207,6 +3207,35 @@ private struct TestLspClientCore: LspClientCore {
         )
     }
 
+    func lspParseServerMessages(
+        buffer: [UInt8],
+        chunk: [UInt8]
+    ) -> RustCoreBridge.LspParsedMessagesPayload? {
+        var data = Data(buffer + chunk)
+        var messages: [String] = []
+        while let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) {
+            let headerData = data[..<headerEnd.lowerBound]
+            guard let header = String(data: headerData, encoding: .utf8),
+                  let contentLength = header
+                    .split(separator: "\r\n")
+                    .first(where: { $0.lowercased().hasPrefix("content-length:") })?
+                    .split(separator: ":", maxSplits: 1)
+                    .last
+                    .flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }) else {
+                data.removeSubrange(...headerEnd.upperBound)
+                continue
+            }
+            let bodyStart = headerEnd.upperBound
+            guard data.count >= bodyStart + contentLength else { break }
+            let body = data.subdata(in: bodyStart..<(bodyStart + contentLength))
+            data.removeSubrange(0..<(bodyStart + contentLength))
+            if let message = String(data: body, encoding: .utf8) {
+                messages.append(message)
+            }
+        }
+        return RustCoreBridge.LspParsedMessagesPayload(buffer: Array(data), messages: messages)
+    }
+
     private func response(
         messages: [String] = [],
         events: [RustCoreBridge.LspClientEventPayload] = []

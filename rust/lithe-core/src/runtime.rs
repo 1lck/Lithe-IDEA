@@ -440,6 +440,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspParseServerMessages => {
+            match serde_json::from_value::<crate::lsp::ParseServerMessagesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP parser request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::parse_server_messages)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP parser response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaRunConfigurations => {
             match serde_json::from_value::<JavaRunConfigurationsRequest>(parsed.payload)
                 .map_err(|error| {

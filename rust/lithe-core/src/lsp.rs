@@ -360,6 +360,22 @@ pub struct FrameMessageResponse {
     pub frame: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParseServerMessagesRequest {
+    #[serde(default)]
+    pub buffer: Vec<u8>,
+    #[serde(default)]
+    pub chunk: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParseServerMessagesResponse {
+    pub buffer: Vec<u8>,
+    pub messages: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LspClientResponse {
@@ -777,6 +793,34 @@ pub fn frame_message(request: FrameMessageRequest) -> Result<FrameMessageRespons
     })
 }
 
+pub fn parse_server_messages(
+    request: ParseServerMessagesRequest,
+) -> Result<ParseServerMessagesResponse, CoreError> {
+    let mut buffer = request.buffer;
+    buffer.extend(request.chunk);
+    let mut messages = Vec::new();
+
+    while let Some(header_end) = find_header_end(&buffer) {
+        let header = String::from_utf8_lossy(&buffer[..header_end]);
+        let Some(content_length) = content_length_from_header(&header) else {
+            buffer.drain(..header_end + 4);
+            continue;
+        };
+        let body_start = header_end + 4;
+        let body_end = body_start + content_length;
+        if buffer.len() < body_end {
+            break;
+        }
+        let body = buffer[body_start..body_end].to_vec();
+        buffer.drain(..body_end);
+        if let Ok(message) = String::from_utf8(body) {
+            messages.push(message);
+        }
+    }
+
+    Ok(ParseServerMessagesResponse { buffer, messages })
+}
+
 pub fn provider_catalog(workspace_root: Option<&Path>) -> LspProviderCatalog {
     let mut diagnostics = Vec::new();
     let mut document = match parse_document(BUILTIN_LANGUAGE_PROVIDERS, "builtin:lsp") {
@@ -915,6 +959,21 @@ fn encode_json_rpc(value: Value) -> Result<String, CoreError> {
     serde_json::to_string(&value).map_err(|error| {
         CoreError::new(ErrorCode::Unknown, "Could not encode LSP JSON-RPC message")
             .with_details(error.to_string())
+    })
+}
+
+fn find_header_end(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+fn content_length_from_header(header: &str) -> Option<usize> {
+    header.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name.trim().eq_ignore_ascii_case("content-length") {
+            value.trim().parse().ok()
+        } else {
+            None
+        }
     })
 }
 
@@ -2574,6 +2633,40 @@ mod tests {
             .frame
             .starts_with(&format!("Content-Length: {}\r\n\r\n", message.len())));
         assert!(framed.frame.ends_with(message));
+    }
+
+    #[test]
+    fn parse_server_messages_returns_complete_messages_and_remaining_buffer() {
+        let first = r#"{"jsonrpc":"2.0","id":1,"result":null}"#;
+        let second = r#"{"jsonrpc":"2.0","method":"window/logMessage","params":{"message":"ok"}}"#;
+        let first_frame = frame_message(FrameMessageRequest {
+            message: first.to_string(),
+        })
+        .unwrap()
+        .frame;
+        let second_frame = frame_message(FrameMessageRequest {
+            message: second.to_string(),
+        })
+        .unwrap()
+        .frame;
+        let split_at = first_frame.len() - 3;
+        let partial = parse_server_messages(ParseServerMessagesRequest {
+            buffer: Vec::new(),
+            chunk: first_frame.as_bytes()[..split_at].to_vec(),
+        })
+        .unwrap();
+        assert!(partial.messages.is_empty());
+        assert_eq!(partial.buffer, first_frame.as_bytes()[..split_at]);
+
+        let mut next_chunk = first_frame.as_bytes()[split_at..].to_vec();
+        next_chunk.extend(second_frame.as_bytes());
+        let parsed = parse_server_messages(ParseServerMessagesRequest {
+            buffer: partial.buffer,
+            chunk: next_chunk,
+        })
+        .unwrap();
+        assert_eq!(parsed.messages, vec![first.to_string(), second.to_string()]);
+        assert!(parsed.buffer.is_empty());
     }
 
     #[test]

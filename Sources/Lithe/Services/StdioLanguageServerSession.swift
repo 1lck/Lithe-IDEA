@@ -30,6 +30,10 @@ protocol LspClientCore: Sendable {
         message: String
     ) -> RustCoreBridge.LspClientResponsePayload?
     func lspFrameMessage(_ message: String) -> RustCoreBridge.LspFramePayload?
+    func lspParseServerMessages(
+        buffer: [UInt8],
+        chunk: [UInt8]
+    ) -> RustCoreBridge.LspParsedMessagesPayload?
 }
 
 extension RustCoreBridge: LspClientCore {}
@@ -351,25 +355,13 @@ final class StdioLanguageServerSession: LanguageServerSession {
     }
 
     private func receive(_ data: Data) {
-        readBuffer.append(data)
-        while let headerEnd = readBuffer.range(of: Data("\r\n\r\n".utf8)) {
-            let headerData = readBuffer[..<headerEnd.lowerBound]
-            guard let header = String(data: headerData, encoding: .utf8),
-                  let contentLength = header
-                    .split(separator: "\r\n")
-                    .first(where: { $0.lowercased().hasPrefix("content-length:") })?
-                    .split(separator: ":", maxSplits: 1)
-                    .last
-                    .flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }) else {
-                readBuffer.removeSubrange(...headerEnd.upperBound)
-                continue
-            }
-            let bodyStart = headerEnd.upperBound
-            guard readBuffer.count >= bodyStart + contentLength else { return }
-            let body = readBuffer.subdata(in: bodyStart..<(bodyStart + contentLength))
-            readBuffer.removeSubrange(0..<(bodyStart + contentLength))
-            guard let message = String(data: body, encoding: .utf8),
-                  let state else { continue }
+        guard let parsed = core.lspParseServerMessages(
+            buffer: Array(readBuffer),
+            chunk: Array(data)
+        ) else { return }
+        readBuffer = Data(parsed.buffer)
+        for message in parsed.messages {
+            guard let state else { continue }
             if let response = core.lspClientApplyServerMessage(state: state, message: message) {
                 apply(response)
             }
