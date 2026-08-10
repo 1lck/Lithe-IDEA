@@ -420,6 +420,16 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     tree_->setHeaderHidden(false);
     tree_->setMinimumWidth(260);
     connect(tree_, &QTreeWidget::itemDoubleClicked, this, &WorkbenchWindow::openTreeItem);
+    connect(tree_, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
+        if (item == nullptr || !item->data(0, DirectoryRole).toBool()) return;
+        const auto path = item->data(0, RelativePathRole).toString();
+        if (!path.isEmpty()) workspaceExpandedPaths_.insert(path.toUtf8().toStdString());
+    });
+    connect(tree_, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
+        if (item == nullptr || !item->data(0, DirectoryRole).toBool()) return;
+        const auto path = item->data(0, RelativePathRole).toString();
+        if (!path.isEmpty()) workspaceExpandedPaths_.erase(path.toUtf8().toStdString());
+    });
     connect(sidebar_, &WorkbenchSidebar::projectItemActivated,
             this, &WorkbenchWindow::openTreeItem);
     connect(sidebar_, &WorkbenchSidebar::projectContextMenuRequested,
@@ -1844,6 +1854,7 @@ void WorkbenchWindow::openWorkspaceRoot(const QString& selectedRoot) {
     historyFeature_->resetForWorkspace();
     shelfFeature_->resetForWorkspace();
     mavenJavaFeature_->resetForWorkspace();
+    workspaceExpandedPaths_.clear();
     workspaceRoot_ = root;
     QTimer::singleShot(0, this, &WorkbenchWindow::restoreWorkbenchLayout);
     activePath_.clear();
@@ -2885,29 +2896,19 @@ void WorkbenchWindow::applyWorkspaceState(const app::WorkspaceFeatureState& stat
         return;
     }
     if (state.isLoading || !state.snapshot) return;
-    std::vector<QString> expandedPaths;
-    std::function<void(QTreeWidgetItem*)> collectExpanded =
-        [&](QTreeWidgetItem* parent) {
-        if (parent->isExpanded() && parent->data(0, DirectoryRole).toBool()) {
-            expandedPaths.push_back(parent->data(0, RelativePathRole).toString());
-        }
-        for (int index = 0; index < parent->childCount(); ++index) {
-            collectExpanded(parent->child(index));
-        }
-    };
-    for (int index = 0; index < tree_->topLevelItemCount(); ++index) {
-        collectExpanded(tree_->topLevelItem(index));
-    }
     const auto selectedPath = tree_->currentItem() == nullptr
         ? QString() : tree_->currentItem()->data(0, RelativePathRole).toString();
 
-    tree_->clear();
-    appendTreeNode(nullptr, state.snapshot->root);
-    for (const auto& path : expandedPaths) {
-        if (auto* item = findTreeItem(path)) item->setExpanded(true);
-    }
-    if (!selectedPath.isEmpty()) {
-        if (auto* item = findTreeItem(selectedPath)) tree_->setCurrentItem(item);
+    {
+        const QSignalBlocker blocker(tree_);
+        tree_->clear();
+        appendTreeNode(nullptr, state.snapshot->root);
+        for (const auto& path : workspaceExpandedPaths_) {
+            if (auto* item = findTreeItem(fromUtf8(path))) item->setExpanded(true);
+        }
+        if (!selectedPath.isEmpty()) {
+            if (auto* item = findTreeItem(selectedPath)) tree_->setCurrentItem(item);
+        }
     }
     sidebar_->showProjectReady();
     restoreWorkspaceSession();
@@ -2943,6 +2944,7 @@ void WorkbenchWindow::restoreWorkspaceSession() {
         pendingDocumentViews_.emplace(view.path, view);
     }
     for (const auto& path : session.expandedPaths) {
+        workspaceExpandedPaths_.insert(path);
         if (auto* item = findTreeItem(fromUtf8(path))) item->setExpanded(true);
     }
     for (const auto& path : session.openPaths) {

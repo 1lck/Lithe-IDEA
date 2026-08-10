@@ -309,6 +309,7 @@ private:
     bool historyContentSelectionPending_ = false;
     std::optional<app::WorkspaceSession> pendingWorkspaceSession_;
     std::unordered_map<std::string, app::WorkspaceSession::DocumentView> pendingDocumentViews_;
+    std::unordered_set<std::string> workspaceExpandedPaths_;
     QString selectedDiffHunk_;
     std::optional<GitDiffDto> diffReview_;
     algorithms::GitGraphLayout gitHistoryGraph_;
