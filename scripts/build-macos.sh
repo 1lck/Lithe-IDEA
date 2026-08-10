@@ -61,6 +61,10 @@ fi
 RUST_LIBRARY="$(scripts/build-rust-core.sh "${RUST_BUILD_ARGS[@]}")"
 
 SWIFT_ARGS=(build --disable-sandbox "${SWIFT_CONFIGURATION_ARGS[@]}")
+SWIFT_ARGS+=(
+    -Xcc -include
+    -Xcc "$ROOT_DIR/scripts/MacOS13SDKCompatibility.h"
+)
 if [[ -n "$TRIPLE" ]]; then
     SWIFT_ARGS+=(--triple "$TRIPLE")
 fi

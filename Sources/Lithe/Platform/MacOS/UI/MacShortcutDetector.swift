@@ -1,5 +1,76 @@
 import AppKit
 import Foundation
+import SwiftUI
+
+extension View {
+    func macReturnKeyHandler(
+        isEnabled: Bool,
+        action: @escaping (_ isShiftPressed: Bool) -> Void
+    ) -> some View {
+        background(
+            MacReturnKeyMonitor(isEnabled: isEnabled, action: action)
+                .frame(width: 0, height: 0)
+        )
+    }
+}
+
+private struct MacReturnKeyMonitor: NSViewRepresentable {
+    let isEnabled: Bool
+    let action: (_ isShiftPressed: Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isEnabled: isEnabled, action: action)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.start()
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.action = action
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    final class Coordinator {
+        var isEnabled: Bool
+        var action: (_ isShiftPressed: Bool) -> Void
+        private var monitor: Any?
+
+        init(isEnabled: Bool, action: @escaping (_ isShiftPressed: Bool) -> Void) {
+            self.isEnabled = isEnabled
+            self.action = action
+        }
+
+        func start() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.isEnabled, event.keyCode == 36 || event.keyCode == 76 else {
+                    return event
+                }
+                let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                guard modifiers.isDisjoint(with: [.command, .control, .option]) else { return event }
+                self.action(modifiers.contains(.shift))
+                return nil
+            }
+        }
+
+        func stop() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+
+        deinit {
+            stop()
+        }
+    }
+}
 
 final class MacShortcutDetectorFactory: ShortcutDetectorFactory {
     func make(onDoubleTap: @escaping @MainActor () -> Void) -> any ShortcutDetector {

@@ -757,6 +757,10 @@ struct LitheLogo: View {
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
+                    // AppIcon.icns includes Dock/Finder padding so the app
+                    // matches native macOS icon proportions. Compensate only
+                    // in the in-app badge to keep the welcome logo unchanged.
+                    .scaleEffect(1.19)
             } else {
                 fallbackLogo
             }

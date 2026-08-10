@@ -139,35 +139,37 @@ struct JavaDebugView: View {
 
             Spacer()
 
-            Button {
-                model.toggleDebugBreakpointAtCaret()
-            } label: {
-                Image(systemName: "smallcircle.filled.circle")
-            }
-            .litheIconButton()
-            .help("Toggle breakpoint at caret")
-
-            Button {
-                if canStop {
-                    model.stopDebugging()
-                } else {
-                    model.startDebugging()
+            Group {
+                Button {
+                    model.toggleDebugBreakpointAtCaret()
+                } label: {
+                    Image(systemName: "smallcircle.filled.circle")
                 }
-            } label: {
-                Image(systemName: canStop ? "stop.fill" : "play.fill")
-            }
-            .litheIconButton()
-            .foregroundStyle(canStop ? LitheTheme.warning : LitheTheme.success)
-            .help(canStop ? "Stop debugging" : "Start debugging")
+                .litheIconButton()
+                .help("Toggle breakpoint at caret")
 
-            Button {
-                service.pause()
-            } label: {
-                Image(systemName: "pause.fill")
+                Button {
+                    if canStop {
+                        model.stopDebugging()
+                    } else {
+                        model.startDebugging()
+                    }
+                } label: {
+                    Image(systemName: canStop ? "stop.fill" : "play.fill")
+                }
+                .litheIconButton()
+                .foregroundStyle(canStop ? LitheTheme.warning : LitheTheme.success)
+                .help(canStop ? "Stop debugging" : "Start debugging")
+
+                Button {
+                    service.pause()
+                } label: {
+                    Image(systemName: "pause.fill")
+                }
+                .litheIconButton()
+                .disabled(!service.canControl || service.state != .running)
+                .help("Pause")
             }
-            .litheIconButton()
-            .disabled(!service.canControl || service.state != .running)
-            .help("Pause")
 
             Button {
                 service.continueExecution()
@@ -247,11 +249,13 @@ struct JavaDebugView: View {
             }
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            sectionHeader("Inspect", count: nil)
-            inspectButton("Threads", icon: "person.3", action: service.inspectThreads)
-            inspectButton("Call Stack", icon: "list.number", action: service.inspectStack)
-            inspectButton("Local Variables", icon: "list.bullet.rectangle", action: service.inspectVariables)
-            evaluateRow
+            Group {
+                sectionHeader("Inspect", count: nil)
+                inspectButton("Threads", icon: "person.3", action: service.inspectThreads)
+                inspectButton("Call Stack", icon: "list.number", action: service.inspectStack)
+                inspectButton("Local Variables", icon: "list.bullet.rectangle", action: service.inspectVariables)
+                evaluateRow
+            }
 
             if let exceptionMessage = service.exceptionMessage {
                 exceptionBanner(exceptionMessage)
