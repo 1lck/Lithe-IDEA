@@ -74,6 +74,33 @@ struct DatabaseSidebarView: View {
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 Spacer()
+                if let selected = model.databaseFeature.selectedProfile,
+                   selected.kind == .mysql || selected.kind == .mariadb {
+                    Menu {
+                        Button("Refresh databases") {
+                            Task { await model.databaseFeature.refreshDatabases() }
+                        }
+                        Divider()
+                        if model.databaseFeature.databaseOptions.isEmpty {
+                            Text("No databases loaded")
+                        } else {
+                            ForEach(model.databaseFeature.databaseOptions, id: \.self) { database in
+                                Button {
+                                    Task { await model.databaseFeature.selectDatabase(database, for: selected) }
+                                } label: {
+                                    HStack {
+                                        Text(database)
+                                        if selected.database == database { Image(systemName: "checkmark") }
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "cylinder.split.1x2")
+                    }
+                    .litheIconButton()
+                    .help("Choose database")
+                }
                 Button { presentConnectionEditor() } label: { Image(systemName: "plus") }
                     .litheIconButton().help("Add database connection")
                 Button { editingFolder = nil; creatingFolderParentID = nil; showsFolderEditor = true } label: { Image(systemName: "folder.badge.plus") }
@@ -1203,7 +1230,7 @@ struct DatabaseSidebarView: View {
         }
         return row.keys.sorted().compactMap { key in
             guard let value = row[key] else { return nil }
-            return "\(key): \(String(describing: value))"
+            return "\(key): \(value.displayText)"
         }.joined(separator: "  ")
     }
 }
@@ -1709,7 +1736,7 @@ struct DatabaseConnectionEditor: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             Form {
                 TextField("Name", text: $name)
-                Picker("Database", selection: $kind) {
+                Picker("Engine", selection: $kind) {
                     Text("MySQL").tag(DatabaseKind.mysql)
                     Text("MariaDB").tag(DatabaseKind.mariadb)
                     Text("PostgreSQL").tag(DatabaseKind.postgresql)
@@ -1733,6 +1760,15 @@ struct DatabaseConnectionEditor: View {
                     )
                     if kind == .redis {
                         TextField("Redis database index", text: $database)
+                            .onChange(of: database) { value in
+                                let digitsOnly = value.filter(\.isNumber)
+                                if digitsOnly != value { database = digitsOnly }
+                            }
+                        if let redisDatabaseValidationMessage {
+                            Text(redisDatabaseValidationMessage)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(LitheTheme.error)
+                        }
                         Text("Leave the database index at 0 for the standard Redis database.")
                             .font(.system(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
@@ -1743,7 +1779,7 @@ struct DatabaseConnectionEditor: View {
                             .font(.system(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                     } else {
-                        TextField("Database", text: $database)
+                        TextField("Database name", text: $database)
                     }
                     Toggle("Use TLS", isOn: $ssl)
                 }
@@ -1787,11 +1823,18 @@ struct DatabaseConnectionEditor: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: 8) {
                 Spacer()
-                Button("Cancel") { isPresented = false }
+                Button("Cancel") { cancel() }
                     .buttonStyle(LitheSecondaryButtonStyle())
-                Button("Connect") { connect() }
+                Button {
+                    connect()
+                } label: {
+                    HStack(spacing: 6) {
+                        if model.databaseFeature.isLoading { ProgressView().controlSize(.small) }
+                        Text(model.databaseFeature.isLoading ? "Connecting…" : "Connect")
+                    }
+                }
                     .buttonStyle(LithePrimaryButtonStyle())
-                    .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || model.databaseFeature.isLoading)
+                    .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || redisDatabaseValidationMessage != nil || model.databaseFeature.isLoading)
             }
             .padding(.horizontal, 16)
             .frame(height: 58)
@@ -1807,18 +1850,29 @@ struct DatabaseConnectionEditor: View {
             case .sqlserver: port = "1433"; username = "sa"; database = "master"; path = ""
             case .mongodb: port = "27017"; username = ""; database = "admin"; path = ""
             case .redis: port = "6379"; username = ""; database = "0"; path = ""
-            case .nacos: port = "8848"; username = "nacos"; database = ""; path = "/nacos"
+            case .nacos: port = "8848"; username = ""; database = ""; path = "/nacos"
             }
         }
         .onAppear {
+            model.databaseFeature.errorMessage = nil
             if let profile {
                 hasSavedPassword = model.databaseFeature.hasSavedPassword(for: profile)
             }
         }
+        .onDisappear { model.databaseFeature.errorMessage = nil }
         .frame(width: 500, height: kind == .sqlite ? 640 : (kind.supportsDataGrid ? 750 : 710)).background(LitheTheme.raised)
     }
 
+    private func cancel() {
+        model.databaseFeature.errorMessage = nil
+        isPresented = false
+    }
+
     private func connect() {
+        if let redisDatabaseValidationMessage {
+            model.databaseFeature.errorMessage = redisDatabaseValidationMessage
+            return
+        }
         let candidate = DatabaseProfile(id: profile?.id ?? UUID(), name: name, kind: kind, host: host, port: UInt16(port) ?? 0, username: username, database: database, path: path, ssl: ssl, group: "", folderID: folderID, colorHex: colorHex, readOnly: readOnly, productionProtection: productionProtection, maskSensitiveFields: maskSensitiveFields, sensitiveColumnPatterns: sensitiveColumnPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }, caCertificatePath: ssl ? caCertificatePath : "", serverName: ssl ? serverName : "", sshHost: usesSSHTunnel ? sshHost : "", sshPort: usesSSHTunnel ? (UInt16(sshPort) ?? 22) : 0, sshUsername: usesSSHTunnel ? sshUsername : "", sshKeyPath: usesSSHTunnel ? sshKeyPath : "", sshLocalPort: usesSSHTunnel ? (UInt16(sshLocalPort) ?? 0) : 0, proxyURL: usesSSHTunnel ? proxyURL : "")
         Task {
             let saved = if profile == nil {
@@ -1828,5 +1882,14 @@ struct DatabaseConnectionEditor: View {
             }
             if saved { isPresented = false }
         }
+    }
+
+    private var redisDatabaseValidationMessage: String? {
+        guard kind == .redis else { return nil }
+        let value = database.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.isEmpty || UInt32(value) != nil else {
+            return "Redis database index must be between 0 and 4294967295."
+        }
+        return nil
     }
 }

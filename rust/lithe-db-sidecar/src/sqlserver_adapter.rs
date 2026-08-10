@@ -648,7 +648,7 @@ fn cell_json(cell: &ColumnData<'static>) -> Value {
         return Value::String(format_numeric(value.value(), value.scale()));
     }
     if let ColumnData::Binary(Some(value)) = cell {
-        return Value::String(BASE64.encode(value.as_ref()));
+        return json!({"binary": BASE64.encode(value.as_ref())});
     }
     if let ColumnData::String(Some(Cow::Borrowed(value))) = cell {
         return Value::String((*value).to_string());

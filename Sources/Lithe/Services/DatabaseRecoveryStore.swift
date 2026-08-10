@@ -71,7 +71,34 @@ struct DatabaseAuditEntry: Codable, Equatable, Identifiable, Sendable {
     let errorMessage: String?
 }
 
+enum DatabaseExecutionSource: String, Codable, Equatable, Sendable {
+    case sql
+    case redis
+    case nacos
+}
+
+enum DatabaseExecutionStatus: String, Codable, Equatable, Sendable {
+    case succeeded
+    case failed
+    case cancelled
+}
+
+struct DatabaseExecutionEvent: Codable, Equatable, Identifiable, Sendable {
+    let id: UUID
+    let profileID: UUID
+    let profileName: String
+    let source: DatabaseExecutionSource
+    let operation: String
+    let startedAt: Date
+    let durationMilliseconds: Int
+    let status: DatabaseExecutionStatus
+    let rowsReturned: Int?
+    let rowsAffected: UInt64?
+    let errorMessage: String?
+}
+
 final class DatabaseRecoveryStore: @unchecked Sendable {
+    private static let executionLogLock = NSRecursiveLock()
     private let rootURL: URL
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -168,6 +195,31 @@ final class DatabaseRecoveryStore: @unchecked Sendable {
         return entries.filter { $0.profileID == profileID }
     }
 
+    func appendExecutionEvent(_ event: DatabaseExecutionEvent, maximumEntries: Int = 1_000) throws {
+        Self.executionLogLock.lock()
+        defer { Self.executionLogLock.unlock() }
+        try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        var entries = executionEvents().filter { $0.id != event.id }
+        entries.insert(event, at: 0)
+        try encoder.encode(Array(entries.prefix(maximumEntries))).write(to: executionURL, options: [.atomic])
+    }
+
+    func executionEvents(for profileID: UUID? = nil) -> [DatabaseExecutionEvent] {
+        Self.executionLogLock.lock()
+        defer { Self.executionLogLock.unlock() }
+        let entries = (try? decoder.decode([DatabaseExecutionEvent].self, from: Data(contentsOf: executionURL))) ?? []
+        guard let profileID else { return entries }
+        return entries.filter { $0.profileID == profileID }
+    }
+
+    func deleteExecutionEvents(for profileID: UUID) throws {
+        Self.executionLogLock.lock()
+        defer { Self.executionLogLock.unlock() }
+        let remaining = executionEvents().filter { $0.profileID != profileID }
+        try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try encoder.encode(remaining).write(to: executionURL, options: [.atomic])
+    }
+
     private func loadRecoveryPoints() throws -> [DatabaseRecoveryPoint] {
         guard fileManager.fileExists(atPath: manifestURL.path) else { return [] }
         return try decoder.decode([DatabaseRecoveryPoint].self, from: Data(contentsOf: manifestURL))
@@ -175,6 +227,7 @@ final class DatabaseRecoveryStore: @unchecked Sendable {
 
     private var manifestURL: URL { rootURL.appendingPathComponent("recovery-points.json") }
     private var auditURL: URL { rootURL.appendingPathComponent("audit.json") }
+    private var executionURL: URL { rootURL.appendingPathComponent("execution-events.json") }
 
     private func validated(_ data: Data, for point: DatabaseRecoveryPoint) throws -> Data {
         if !point.sha256.isEmpty && Self.sha256(data: data) != point.sha256 {

@@ -54,6 +54,7 @@ enum DatabaseLocalization {
         case .mutation: Text("Data change")
         case .definition: Text("Schema change")
         case .transaction: Text("Transaction")
+        case .batch: Text("Batch")
         case .unknown: Text("Unknown")
         case nil: Text("None")
         }
