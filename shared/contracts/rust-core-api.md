@@ -78,8 +78,12 @@ stable error code and a user-facing message:
 | `lsp.clientInitialize` | Create an LSP initialize JSON-RPC request and client state |
 | `lsp.clientOpenDocument` | Track an open document and emit `textDocument/didOpen` |
 | `lsp.clientChangeDocument` | Track a full-text document change and emit `textDocument/didChange` |
+| `lsp.clientCloseDocument` | Remove an open document and emit `textDocument/didClose` |
+| `lsp.clientShutdown` | Record graceful shutdown and emit the `shutdown` request |
 | `lsp.clientRequest` | Emit a typed LSP feature request and record the pending request |
 | `lsp.clientApplyServerMessage` | Apply LSP server responses, diagnostics, and dynamic registrations |
+| `lsp.frameMessage` | Frame one JSON-RPC payload for an LSP stdio transport |
+| `lsp.parseServerMessages` | Incrementally parse framed messages from an LSP stdout byte stream |
 | `java.runConfigurations` | Scan Java sources for main classes and return Maven/Spring run configurations |
 | `java.codeVision` | Return Java declaration usage counts for editor code vision |
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
@@ -205,7 +209,10 @@ The LSP provider catalog is returned by `lithe_core_lsp_provider_catalog_json`.
 Each provider descriptor may include `languageServerLaunch` with ordered
 `executableNames` and `arguments`; Swift adapters use this metadata when they
 need to start a real language server after the lightweight Rust fallback is not
-enough.
+enough. Built-in descriptors are merged by provider ID with the optional
+`.lithe/lsp/language-providers.json` workspace document. See
+[`language-tooling.md`](../../docs/architecture/language-tooling.md) for routing,
+discovery, lifecycle, and compatibility rules.
 
 `lsp.client*` commands are the transport-independent LSP client core. The
 platform adapter owns the process/stdin/stdout transport and passes a
@@ -213,13 +220,17 @@ serialized `state` object through these commands. Responses return
 `{ "state": object, "messages": string[], "events": [] }`; `messages` are raw
 JSON-RPC payloads for the adapter to frame and write to the language server.
 `lsp.clientInitialize` records the pending initialize request and emits
-`initialize`. `lsp.clientOpenDocument` and `lsp.clientChangeDocument` maintain
-document versions and emit full-text sync notifications. `lsp.clientRequest`
-supports completion, hover, definition/declaration/typeDefinition,
+`initialize`. `lsp.clientOpenDocument`, `lsp.clientChangeDocument`, and
+`lsp.clientCloseDocument` maintain document state and emit full-text lifecycle
+notifications. `lsp.clientShutdown` emits `shutdown`; applying its response
+clears session state and emits `exit`. `lsp.clientRequest` supports completion,
+hover, definition/declaration/typeDefinition,
 implementation, references, rename, formatting, code action, resolve, and
 execute-command methods. `lsp.clientApplyServerMessage` parses server
 responses, derives feature names from initialize capabilities, stores
-`publishDiagnostics`, and handles dynamic register/unregister notifications.
+`publishDiagnostics`, handles dynamic register/unregister notifications, and
+answers the supported workspace/window requests. Unknown server requests
+receive JSON-RPC `Method not found` instead of being silently ignored.
 Completion, hover, and navigation responses are normalized by Rust into the
 same completion item, hover, and location payload shapes used by the lightweight
 fallback commands.

@@ -39,6 +39,8 @@ pub enum CoreCommand {
     LspClientInitialize,
     LspClientOpenDocument,
     LspClientChangeDocument,
+    LspClientCloseDocument,
+    LspClientShutdown,
     LspClientRequest,
     LspClientApplyServerMessage,
     LspFrameMessage,
@@ -98,6 +100,8 @@ impl CoreCommand {
             "lsp.clientInitialize" => Some(Self::LspClientInitialize),
             "lsp.clientOpenDocument" => Some(Self::LspClientOpenDocument),
             "lsp.clientChangeDocument" => Some(Self::LspClientChangeDocument),
+            "lsp.clientCloseDocument" => Some(Self::LspClientCloseDocument),
+            "lsp.clientShutdown" => Some(Self::LspClientShutdown),
             "lsp.clientRequest" => Some(Self::LspClientRequest),
             "lsp.clientApplyServerMessage" => Some(Self::LspClientApplyServerMessage),
             "lsp.frameMessage" => Some(Self::LspFrameMessage),
@@ -132,5 +136,22 @@ impl CoreCommand {
             "git.blame" => Some(Self::GitBlame),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CoreCommand;
+
+    #[test]
+    fn parses_lsp_document_and_session_close_commands() {
+        assert!(matches!(
+            CoreCommand::parse("lsp.clientCloseDocument"),
+            Some(CoreCommand::LspClientCloseDocument)
+        ));
+        assert!(matches!(
+            CoreCommand::parse("lsp.clientShutdown"),
+            Some(CoreCommand::LspClientShutdown)
+        ));
     }
 }

@@ -247,6 +247,8 @@ pub struct LspClientState {
     #[serde(default)]
     pub initialized: bool,
     #[serde(default)]
+    pub shutdown_requested: bool,
+    #[serde(default)]
     pub server_capabilities: Vec<String>,
     #[serde(default)]
     pub open_documents: BTreeMap<String, LspClientDocument>,
@@ -261,6 +263,7 @@ impl Default for LspClientState {
         Self {
             next_request_id: default_next_request_id(),
             initialized: false,
+            shutdown_requested: false,
             server_capabilities: Vec::new(),
             open_documents: BTreeMap::new(),
             pending_requests: BTreeMap::new(),
@@ -315,6 +318,21 @@ pub struct ClientChangeDocumentRequest {
     pub state: LspClientState,
     pub uri: String,
     pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientCloseDocumentRequest {
+    #[serde(default)]
+    pub state: LspClientState,
+    pub uri: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientShutdownRequest {
+    #[serde(default)]
+    pub state: LspClientState,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -568,9 +586,7 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
             "rootUri": request.root_uri,
             "capabilities": {
                 "textDocument": {
-                    "synchronization": {
-                        "didSave": true
-                    },
+                    "synchronization": {},
                     "completion": {
                         "dynamicRegistration": true,
                         "completionItem": {
@@ -602,11 +618,14 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                     }
                 },
                 "workspace": {
-                    "applyEdit": true,
+                    "configuration": true,
                     "workspaceEdit": {
                         "documentChanges": true
                     },
                     "executeCommand": { "dynamicRegistration": true }
+                },
+                "window": {
+                    "workDoneProgress": true
                 }
             }
         }),
@@ -668,6 +687,42 @@ pub fn client_change_document(
     Ok(client_response(state, vec![message], Vec::new()))
 }
 
+pub fn client_close_document(
+    request: ClientCloseDocumentRequest,
+) -> Result<LspClientResponse, CoreError> {
+    validate_uri(&request.uri)?;
+    let mut state = request.state;
+    let Some(document) = state.open_documents.remove(&request.uri) else {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Cannot close a document that is not open in the LSP client.",
+        ));
+    };
+    let message = json_rpc_notification(
+        "textDocument/didClose",
+        json!({
+            "textDocument": {
+                "uri": document.uri
+            }
+        }),
+    )?;
+    Ok(client_response(state, vec![message], Vec::new()))
+}
+
+pub fn client_shutdown(request: ClientShutdownRequest) -> Result<LspClientResponse, CoreError> {
+    let mut state = request.state;
+    if state.shutdown_requested {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "LSP client shutdown has already been requested.",
+        ));
+    }
+    let id = allocate_request(&mut state, "shutdown");
+    state.shutdown_requested = true;
+    let message = json_rpc_message_without_params(Some(&id), "shutdown")?;
+    Ok(client_response(state, vec![message], Vec::new()))
+}
+
 pub fn client_feature_request(
     request: ClientFeatureRequest,
 ) -> Result<LspClientResponse, CoreError> {
@@ -700,6 +755,7 @@ pub fn client_apply_server_message(
     let mut events = Vec::new();
 
     if let Some(method) = message.get("method").and_then(Value::as_str) {
+        let request_id = message.get("id");
         match method {
             "textDocument/publishDiagnostics" => {
                 if let Some(params) = message.get("params") {
@@ -725,26 +781,48 @@ pub fn client_apply_server_message(
             }
             "client/registerCapability" => {
                 apply_dynamic_registration(&mut state, &message);
-                if let Some(id) = lsp_message_id(&message) {
-                    responses.push(json_rpc_result(&id, Value::Null)?);
+                if let Some(id) = request_id {
+                    responses.push(json_rpc_result(id, Value::Null)?);
                 }
             }
             "client/unregisterCapability" => {
                 apply_dynamic_unregistration(&mut state, &message);
-                if let Some(id) = lsp_message_id(&message) {
-                    responses.push(json_rpc_result(&id, Value::Null)?);
+                if let Some(id) = request_id {
+                    responses.push(json_rpc_result(id, Value::Null)?);
+                }
+            }
+            "workspace/configuration" => {
+                if let Some(id) = request_id {
+                    let item_count = message
+                        .get("params")
+                        .and_then(|params| params.get("items"))
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len);
+                    responses.push(json_rpc_result(
+                        id,
+                        Value::Array(vec![Value::Null; item_count]),
+                    )?);
+                }
+            }
+            "workspace/workspaceFolders" | "window/workDoneProgress/create" => {
+                if let Some(id) = request_id {
+                    responses.push(json_rpc_result(id, Value::Null)?);
                 }
             }
             _ => {
-                events.push(LspClientEvent {
-                    kind: "notification".to_string(),
-                    request_id: None,
-                    method: Some(method.to_string()),
-                    uri: None,
-                    diagnostics: None,
-                    result: message.get("params").cloned(),
-                    error: None,
-                });
+                if let Some(id) = request_id {
+                    responses.push(json_rpc_error(id, -32601, "Method not found")?);
+                } else {
+                    events.push(LspClientEvent {
+                        kind: "notification".to_string(),
+                        request_id: None,
+                        method: Some(method.to_string()),
+                        uri: None,
+                        diagnostics: None,
+                        result: message.get("params").cloned(),
+                        error: None,
+                    });
+                }
             }
         }
     } else if let Some(id) = lsp_message_id(&message) {
@@ -757,6 +835,14 @@ pub fn client_apply_server_message(
                 state.initialized = true;
                 responses.push(json_rpc_notification("initialized", json!({}))?);
             }
+        }
+        if pending.as_deref() == Some("shutdown") {
+            state.initialized = false;
+            state.shutdown_requested = false;
+            state.server_capabilities.clear();
+            state.open_documents.clear();
+            state.diagnostics.clear();
+            responses.push(json_rpc_message_without_params(None, "exit")?);
         }
         let result = lsp_feature_result_for_method(pending.as_deref(), message.get("result"));
         events.push(LspClientEvent {
@@ -947,11 +1033,33 @@ fn json_rpc_notification(method: &str, params: Value) -> Result<String, CoreErro
     }))
 }
 
-fn json_rpc_result(id: &str, result: Value) -> Result<String, CoreError> {
+fn json_rpc_message_without_params(id: Option<&str>, method: &str) -> Result<String, CoreError> {
+    let mut message = json!({
+        "jsonrpc": "2.0",
+        "method": method
+    });
+    if let Some(id) = id {
+        message["id"] = Value::String(id.to_string());
+    }
+    encode_json_rpc(message)
+}
+
+fn json_rpc_result(id: &Value, result: Value) -> Result<String, CoreError> {
     encode_json_rpc(json!({
         "jsonrpc": "2.0",
         "id": id,
         "result": result
+    }))
+}
+
+fn json_rpc_error(id: &Value, code: i64, message: &str) -> Result<String, CoreError> {
+    encode_json_rpc(json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message
+        }
     }))
 }
 
@@ -1586,7 +1694,33 @@ fn parse_lsp_position_value(value: &Value) -> Option<Value> {
 }
 
 fn file_path_from_uri(uri: &str) -> String {
-    uri.strip_prefix("file://").unwrap_or(uri).to_string()
+    let path = uri.strip_prefix("file://").unwrap_or(uri);
+    let mut decoded = Vec::with_capacity(path.len());
+    let bytes = path.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
+                decoded.push((high << 4) | low);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8(decoded).unwrap_or_else(|_| path.to_string())
+}
+
+fn hex_value(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
@@ -2504,6 +2638,14 @@ mod tests {
     }
 
     #[test]
+    fn file_uri_paths_decode_spaces_and_utf8_characters() {
+        assert_eq!(
+            file_path_from_uri("file:///tmp/go%20project/%E4%B8%AD%E6%96%87/main.go"),
+            "/tmp/go project/中文/main.go"
+        );
+    }
+
+    #[test]
     fn client_core_initializes_and_applies_server_capabilities() {
         let initialized = client_initialize(ClientInitializeRequest {
             state: LspClientState::default(),
@@ -2522,6 +2664,13 @@ mod tests {
             initialize_message["params"]["rootUri"],
             "file:///tmp/project"
         );
+        let client_capabilities = &initialize_message["params"]["capabilities"];
+        assert_eq!(client_capabilities["workspace"]["configuration"], true);
+        assert!(client_capabilities["workspace"].get("applyEdit").is_none());
+        assert!(client_capabilities["textDocument"]["synchronization"]
+            .get("didSave")
+            .is_none());
+        assert_eq!(client_capabilities["window"]["workDoneProgress"], true);
 
         let applied = client_apply_server_message(ClientApplyServerMessageRequest {
             state: initialized.state,
@@ -2619,6 +2768,123 @@ mod tests {
         let request_message: Value = serde_json::from_str(&requested.messages[0]).unwrap();
         assert_eq!(request_message["method"], "textDocument/definition");
         assert_eq!(request_message["params"]["position"]["character"], 12);
+    }
+
+    #[test]
+    fn client_core_closes_open_documents() {
+        let uri = "file:///tmp/project/main.go";
+        let opened = client_open_document(ClientOpenDocumentRequest {
+            state: LspClientState::default(),
+            uri: uri.to_string(),
+            language_id: "go".to_string(),
+            text: "package main\n".to_string(),
+        })
+        .unwrap();
+
+        let closed = client_close_document(ClientCloseDocumentRequest {
+            state: opened.state,
+            uri: uri.to_string(),
+        })
+        .unwrap();
+
+        assert!(!closed.state.open_documents.contains_key(uri));
+        assert_eq!(closed.messages.len(), 1);
+        let did_close: Value = serde_json::from_str(&closed.messages[0]).unwrap();
+        assert_eq!(
+            did_close,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didClose",
+                "params": {
+                    "textDocument": {
+                        "uri": uri
+                    }
+                }
+            })
+        );
+
+        let error = client_close_document(ClientCloseDocumentRequest {
+            state: closed.state,
+            uri: uri.to_string(),
+        })
+        .unwrap_err();
+        assert_eq!(serde_json::to_value(error.code).unwrap(), "invalid_request");
+    }
+
+    #[test]
+    fn client_core_waits_for_shutdown_response_before_exiting() {
+        let mut state = LspClientState {
+            initialized: true,
+            ..LspClientState::default()
+        };
+        state.server_capabilities.push("completion".to_string());
+        state.open_documents.insert(
+            "file:///tmp/project/main.go".to_string(),
+            LspClientDocument {
+                uri: "file:///tmp/project/main.go".to_string(),
+                language_id: "go".to_string(),
+                version: 1,
+                text: "package main\n".to_string(),
+            },
+        );
+
+        let shutting_down = client_shutdown(ClientShutdownRequest { state }).unwrap();
+        assert!(shutting_down.state.shutdown_requested);
+        assert_eq!(
+            shutting_down.state.pending_requests.get("1"),
+            Some(&"shutdown".to_string())
+        );
+        let shutdown: Value = serde_json::from_str(&shutting_down.messages[0]).unwrap();
+        assert_eq!(
+            shutdown,
+            json!({
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "shutdown"
+            })
+        );
+
+        let exited = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: shutting_down.state,
+            message: json!({
+                "jsonrpc": "2.0",
+                "id": "1",
+                "result": null
+            })
+            .to_string(),
+        })
+        .unwrap();
+
+        assert!(!exited.state.initialized);
+        assert!(!exited.state.shutdown_requested);
+        assert!(exited.state.pending_requests.is_empty());
+        assert!(exited.state.server_capabilities.is_empty());
+        assert!(exited.state.open_documents.is_empty());
+        assert_eq!(exited.messages.len(), 1);
+        let exit: Value = serde_json::from_str(&exited.messages[0]).unwrap();
+        assert_eq!(
+            exit,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "exit"
+            })
+        );
+        assert_eq!(exited.events.len(), 1);
+        assert_eq!(exited.events[0].method.as_deref(), Some("shutdown"));
+    }
+
+    #[test]
+    fn client_core_rejects_duplicate_shutdown_requests() {
+        let shutting_down = client_shutdown(ClientShutdownRequest {
+            state: LspClientState::default(),
+        })
+        .unwrap();
+
+        let error = client_shutdown(ClientShutdownRequest {
+            state: shutting_down.state,
+        })
+        .unwrap_err();
+        assert_eq!(serde_json::to_value(error.code).unwrap(), "invalid_request");
     }
 
     #[test]
@@ -3095,6 +3361,125 @@ mod tests {
             .server_capabilities
             .contains(&"formatting".to_string()));
         let response: Value = serde_json::from_str(&registered.messages[0]).unwrap();
-        assert_eq!(response["id"], "77");
+        assert_eq!(
+            response,
+            json!({ "jsonrpc": "2.0", "id": 77, "result": null })
+        );
+
+        let unregistered = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: registered.state,
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "unregister-1",
+                "method": "client/unregisterCapability",
+                "params": {
+                    "unregisterations": [{
+                        "id": "formatting",
+                        "method": "textDocument/formatting"
+                    }]
+                }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+        assert!(!unregistered
+            .state
+            .server_capabilities
+            .contains(&"formatting".to_string()));
+        let response: Value = serde_json::from_str(&unregistered.messages[0]).unwrap();
+        assert_eq!(
+            response,
+            json!({ "jsonrpc": "2.0", "id": "unregister-1", "result": null })
+        );
+    }
+
+    #[test]
+    fn client_core_answers_workspace_configuration_requests_by_item() {
+        let response = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: LspClientState::default(),
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": "configuration-1",
+                "method": "workspace/configuration",
+                "params": {
+                    "items": [
+                        { "section": "gopls" },
+                        { "scopeUri": "file:///tmp/project", "section": "gopls.ui" }
+                    ]
+                }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+
+        assert!(response.events.is_empty());
+        assert_eq!(response.messages.len(), 1);
+        let message: Value = serde_json::from_str(&response.messages[0]).unwrap();
+        assert_eq!(
+            message,
+            json!({
+                "jsonrpc": "2.0",
+                "id": "configuration-1",
+                "result": [null, null]
+            })
+        );
+    }
+
+    #[test]
+    fn client_core_answers_workspace_folder_and_progress_requests() {
+        for (method, id) in [
+            ("workspace/workspaceFolders", json!(42)),
+            ("window/workDoneProgress/create", json!("progress-1")),
+        ] {
+            let response = client_apply_server_message(ClientApplyServerMessageRequest {
+                state: LspClientState::default(),
+                message: json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "method": method,
+                    "params": {}
+                })
+                .to_string(),
+            })
+            .unwrap();
+
+            assert!(response.events.is_empty());
+            assert_eq!(response.messages.len(), 1);
+            let message: Value = serde_json::from_str(&response.messages[0]).unwrap();
+            assert_eq!(
+                message,
+                json!({ "jsonrpc": "2.0", "id": id, "result": null })
+            );
+        }
+    }
+
+    #[test]
+    fn client_core_rejects_unknown_server_requests_with_method_not_found() {
+        let response = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: LspClientState::default(),
+            message: r#"{
+                "jsonrpc": "2.0",
+                "id": 91,
+                "method": "experimental/notSupported",
+                "params": { "value": true }
+            }"#
+            .to_string(),
+        })
+        .unwrap();
+
+        assert!(response.events.is_empty());
+        assert_eq!(response.messages.len(), 1);
+        let message: Value = serde_json::from_str(&response.messages[0]).unwrap();
+        assert_eq!(
+            message,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 91,
+                "error": {
+                    "code": -32601,
+                    "message": "Method not found"
+                }
+            })
+        );
     }
 }

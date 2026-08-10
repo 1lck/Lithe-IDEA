@@ -70,6 +70,16 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             )
         }
 
+        if shouldSearchGoUserBin(for: command) {
+            for directory in goUserBinDirectories(environment: environment) {
+                add(
+                    directory.appendingPathComponent(command),
+                    source: .environment,
+                    detail: "Go user bin: \(directory.path)"
+                )
+            }
+        }
+
         let homebrewRoots = [
             "/opt/homebrew/bin",
             "/usr/local/bin",
@@ -194,5 +204,27 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             || path == "/usr/local/bin"
             || path.hasPrefix("/opt/homebrew/opt/")
             || path.hasPrefix("/usr/local/opt/")
+    }
+
+    private func goUserBinDirectories(environment: [String: String]) -> [URL] {
+        var directories: [URL] = []
+        if let goBin = configuredURL(environment["GOBIN"] ?? "", projectURL: nil) {
+            directories.append(goBin)
+        }
+        for goPath in (environment["GOPATH"] ?? "").split(separator: ":") where !goPath.isEmpty {
+            directories.append(URL(fileURLWithPath: String(goPath)).appendingPathComponent("bin"))
+        }
+        directories.append(homeDirectoryURL.appendingPathComponent("go/bin"))
+        directories.append(homeDirectoryURL.appendingPathComponent(".go/bin"))
+        return directories
+    }
+
+    private func shouldSearchGoUserBin(for command: String) -> Bool {
+        switch command {
+        case "dlv", "gofumpt", "goimports", "gomodifytags", "gopls", "staticcheck":
+            return true
+        default:
+            return false
+        }
     }
 }

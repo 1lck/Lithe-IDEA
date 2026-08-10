@@ -1074,6 +1074,15 @@ struct RustCoreBridge: Sendable {
         let text: String
     }
 
+    private struct LspClientCloseDocumentRequest: Encodable {
+        let state: ToolingJSONValue
+        let uri: String
+    }
+
+    private struct LspClientShutdownRequest: Encodable {
+        let state: ToolingJSONValue
+    }
+
     private struct LspClientFeatureRequest: Encodable {
         let state: ToolingJSONValue
         let uri: String
@@ -2127,6 +2136,26 @@ struct RustCoreBridge: Sendable {
                 uri: fileURL.standardizedFileURL.absoluteString,
                 text: text
             )
+        )
+    }
+
+    func lspClientCloseDocument(
+        state: ToolingJSONValue,
+        fileURL: URL
+    ) -> LspClientResponsePayload? {
+        execute(
+            command: "lsp.clientCloseDocument",
+            payload: LspClientCloseDocumentRequest(
+                state: state,
+                uri: fileURL.standardizedFileURL.absoluteString
+            )
+        )
+    }
+
+    func lspClientShutdown(state: ToolingJSONValue) -> LspClientResponsePayload? {
+        execute(
+            command: "lsp.clientShutdown",
+            payload: LspClientShutdownRequest(state: state)
         )
     }
 

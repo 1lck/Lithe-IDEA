@@ -10,8 +10,10 @@ verification scripts are the executable source of boundary checks.
 
 - All payloads are UTF-8 JSON when exchanged across a process or language boundary.
 - Workspace paths are relative to the opened workspace and use `/` separators.
-- Absolute paths may appear only in platform-owned diagnostics and are never used as identifiers.
-- Line numbers are one-based. Missing locations are `null`.
+- Absolute paths may appear at native editor/process boundaries and as LSP
+  `file://` URIs, but are not persisted as cross-platform identifiers.
+- Product-facing line numbers are one-based. Editor/LSP positions explicitly use
+  zero-based lines and UTF-16 columns. Missing locations are `null`.
 - Lists have deterministic ordering so contract fixtures can be compared directly.
 - Every asynchronous operation exposes `idle`, `loading`, `ready`, and `failed` outcomes.
 - Failures contain a stable `code` and user-facing `message`; platform details belong in `details`.
@@ -25,6 +27,7 @@ verification scripts are the executable source of boundary checks.
 | Search | query matching, deterministic result ordering, symbols, and replacement preview | workspace lifecycle and optional index persistence |
 | Git | changes, commits, branches, diffs, history, validation, and mutation results | Git executable discovery, credentials, process environment |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
+| Language tooling | provider catalog, local fallback results, LSP state, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable discovery, stdio process transport, environment, and termination |
 | Java/Maven | Maven project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, and run-configuration detection | JDK/Maven discovery, JDT LS, Java/Maven child processes, sockets, JDB/LSP transport |
 | Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, and platform-neutral launch plans | project file persistence, child processes, sockets, and JDB transport |
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
@@ -36,6 +39,14 @@ optional `timeoutMilliseconds`. Adapters emit lifecycle states `starting`,
 ignore stale termination events after a restart. `stop()` is the cancellation
 operation and must terminate the platform process without changing feature
 state owned by another operation.
+
+Language feature clients route through a provider interface rather than
+depending directly on an LSP session. Process-free providers remain available
+when an executable is missing. LSP-backed features are enabled only after the
+server advertises them during initialize or dynamic registration. The shared
+core owns JSON-RPC state and normalized results; platform adapters own stdio and
+process lifecycle. Detailed invariants are documented in
+[`language-tooling.md`](../../docs/architecture/language-tooling.md).
 
 ## Error Codes
 

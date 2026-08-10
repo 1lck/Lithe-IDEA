@@ -74,9 +74,19 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             self.onTermination?(terminatedProcess.terminationStatus)
         }
 
+        self.process = process
+        self.inputPipe = inputPipe
+        self.outputPipe = outputPipe
+        self.errorPipe = errorPipe
         do {
             try process.run()
         } catch {
+            outputPipe.fileHandleForReading.readabilityHandler = nil
+            errorPipe.fileHandleForReading.readabilityHandler = nil
+            self.process = nil
+            self.inputPipe = nil
+            self.outputPipe = nil
+            self.errorPipe = nil
             onStateChange?(ProcessLifecycleEvent(
                 operationID: request.operationID,
                 state: .failed,
@@ -86,10 +96,6 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
             activeOperationID = nil
             throw error
         }
-        self.process = process
-        self.inputPipe = inputPipe
-        self.outputPipe = outputPipe
-        self.errorPipe = errorPipe
         if let input = request.standardInput, let inputPipe {
             try inputPipe.fileHandleForWriting.write(contentsOf: input)
             if !request.keepsStandardInputOpen {

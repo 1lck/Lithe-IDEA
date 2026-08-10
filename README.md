@@ -49,7 +49,7 @@
 
 ## About Lithe
 
-Lithe is a native macOS IDE built for AI-assisted development. It preserves the project browsing, editing, search, code navigation, Git, run, and debug workflows familiar to IntelliJ IDEA users while starting Java language services, terminals, Maven, and debug processes only when needed.
+Lithe is a native macOS IDE built for AI-assisted development. It preserves the project browsing, editing, search, code navigation, Git, run, and debug workflows familiar to IntelliJ IDEA users while starting language servers, terminals, Maven, and debug processes only when needed.
 
 When an external AI tool changes a project, Lithe helps you locate the affected code, run the project, review the diff, and decide which changes to stage, undo, or commit.
 
@@ -61,7 +61,7 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
 2. Maven management, breakpoint debugging, and custom run configurations.
 3. Git management and side-by-side diff review.
 4. Double-Shift search and `Command + Shift + F` project-wide search.
-5. Code navigation and reference lookup.
+5. Process-free lightweight completion and current-file navigation, with on-demand language servers for richer completion, hover, and semantic navigation.
 6. Local snapshot history.
 7. Multiple projects open within the app.
 8. Multiple files open independently in the same window.
@@ -104,7 +104,7 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
 
 ## Use Lithe
 
-Lithe requires macOS 14 or later. Java project features require a JDK; JDK 17 or JDK 21 is recommended. Maven projects need either a project `mvnw` or a system Maven installation. Semantic navigation is routed through Lithe's Rust LSP host.
+Lithe requires macOS 14 or later. Java project features require a JDK; JDK 17 or JDK 21 is recommended. Maven projects need either a project `mvnw` or a system Maven installation. Lightweight completion does not start an external process; when a matching language server is installed, Lithe routes the capabilities it actually advertises through the shared Rust LSP Core. See the [language tooling and LSP architecture](./docs/architecture/language-tooling.md) for provider configuration and compatibility details.
 
 Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). If a release provides architecture-specific installers, choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. Open the disk image, drag `Lithe.app` into `/Applications`, and launch it.
 

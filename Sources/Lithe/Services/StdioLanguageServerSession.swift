@@ -13,6 +13,13 @@ protocol LspClientCore: Sendable {
         fileURL: URL,
         text: String
     ) -> RustCoreBridge.LspClientResponsePayload?
+    func lspClientCloseDocument(
+        state: ToolingJSONValue,
+        fileURL: URL
+    ) -> RustCoreBridge.LspClientResponsePayload?
+    func lspClientShutdown(
+        state: ToolingJSONValue
+    ) -> RustCoreBridge.LspClientResponsePayload?
     func lspClientRequest(
         state: ToolingJSONValue,
         fileURL: URL,
@@ -38,6 +45,17 @@ protocol LspClientCore: Sendable {
 
 extension RustCoreBridge: LspClientCore {}
 
+extension LspClientCore {
+    func lspClientCloseDocument(
+        state _: ToolingJSONValue,
+        fileURL _: URL
+    ) -> RustCoreBridge.LspClientResponsePayload? { nil }
+
+    func lspClientShutdown(
+        state _: ToolingJSONValue
+    ) -> RustCoreBridge.LspClientResponsePayload? { nil }
+}
+
 @MainActor
 final class StdioLanguageServerSession: LanguageServerSession {
     private let executableURL: URL
@@ -51,8 +69,12 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private var pendingDocuments: [String: PendingDocument] = [:]
     private var responseHandlers: [String: (RustCoreBridge.LspClientEventPayload) -> Void] = [:]
     private var isInitialized = false
+    private var isStopping = false
+    private var shutdownFallbackTask: Task<Void, Never>?
 
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
+    private(set) var features: LanguageServerFeatureSet = []
+    var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
 
     init(
         executableURL: URL,
@@ -114,6 +136,19 @@ final class StdioLanguageServerSession: LanguageServerSession {
             openedDocumentURIs.insert(uri)
         }
         if let response { apply(response) }
+    }
+
+    func closeDocument(_ fileURL: URL) {
+        let standardizedURL = fileURL.standardizedFileURL
+        let uri = standardizedURL.absoluteString
+        pendingDocuments[uri] = nil
+        guard openedDocumentURIs.remove(uri) != nil,
+              let state,
+              let response = core.lspClientCloseDocument(
+                state: state,
+                fileURL: standardizedURL
+              ) else { return }
+        apply(response)
     }
 
     func completions(
@@ -259,12 +294,31 @@ final class StdioLanguageServerSession: LanguageServerSession {
     }
 
     func stop() {
-        process.stop()
-        resetTransientState()
+        guard process.isRunning else {
+            resetTransientState()
+            return
+        }
+        guard !isStopping,
+              isInitialized,
+              let state,
+              let response = core.lspClientShutdown(state: state) else {
+            forceStop()
+            return
+        }
+        isStopping = true
+        apply(response)
+        shutdownFallbackTask?.cancel()
+        // The task intentionally retains the session after its manager removes it.
+        shutdownFallbackTask = Task { @MainActor [self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            forceStop()
+        }
     }
 
     private func apply(_ response: RustCoreBridge.LspClientResponsePayload) {
         state = response.state
+        updateFeatures(from: response.state)
         response.messages.forEach(sendRawJSON)
         handle(response.events)
     }
@@ -278,6 +332,10 @@ final class StdioLanguageServerSession: LanguageServerSession {
             if event.method == "initialize", event.kind == "response" {
                 isInitialized = true
                 flushPendingDocuments()
+            }
+            if event.method == "shutdown" {
+                forceStop()
+                return
             }
             if event.kind == "diagnostics",
                let uri = event.uri,
@@ -369,12 +427,54 @@ final class StdioLanguageServerSession: LanguageServerSession {
     }
 
     private func resetTransientState() {
+        shutdownFallbackTask?.cancel()
+        shutdownFallbackTask = nil
         state = nil
         readBuffer = Data()
         openedDocumentURIs = []
         pendingDocuments = [:]
         responseHandlers = [:]
         isInitialized = false
+        isStopping = false
+        if !features.isEmpty {
+            features = []
+            onFeaturesChange?([])
+        }
+    }
+
+    private func forceStop() {
+        shutdownFallbackTask?.cancel()
+        shutdownFallbackTask = nil
+        process.stop()
+        resetTransientState()
+    }
+
+    private func updateFeatures(from state: ToolingJSONValue) {
+        guard case .object(let object) = state,
+              case .array(let capabilityValues)? = object["serverCapabilities"] else { return }
+        let names = capabilityValues.compactMap { value -> String? in
+            guard case .string(let name) = value else { return nil }
+            return name
+        }
+        let updated = names.reduce(into: LanguageServerFeatureSet()) { result, name in
+            switch name {
+            case "definition": result.insert(.definition)
+            case "references": result.insert(.references)
+            case "implementation": result.insert(.implementation)
+            case "hover": result.insert(.hover)
+            case "completion": result.insert(.completion)
+            case "rename": result.insert(.rename)
+            case "formatting": result.insert(.formatting)
+            case "codeActions": result.insert(.codeActions)
+            case "completionResolve": result.insert(.completionResolve)
+            case "codeActionResolve": result.insert(.codeActionResolve)
+            case "executeCommand": result.insert(.executeCommand)
+            default: break
+            }
+        }
+        guard updated != features else { return }
+        features = updated
+        onFeaturesChange?(updated)
     }
 
     private static func requestID(from message: String) -> String? {

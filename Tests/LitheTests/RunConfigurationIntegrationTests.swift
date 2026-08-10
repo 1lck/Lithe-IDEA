@@ -268,6 +268,23 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func macToolDiscoveryFindsGoLanguageServerInUserBin() {
+        let discovery = MacRuntimeToolDiscovery(
+            homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
+            isExecutable: { $0.path == "/tmp/home/.go/bin/gopls" }
+        )
+
+        let candidates = discovery.candidates(
+            for: "gopls",
+            projectURL: nil,
+            environment: ["PATH": "/usr/bin"]
+        )
+
+        #expect(candidates.first?.executableURL.path == "/tmp/home/.go/bin/gopls")
+        #expect(candidates.first?.source == .environment)
+    }
+
+    @Test
     func legacyJavaDoesNotAcceptGenericDAPBreakpointsWithoutAnAdapter() throws {
         let source = URL(fileURLWithPath: "/tmp/Main.java")
         #expect(throws: LanguageToolingSessionError.capabilityUnavailable(
@@ -965,8 +982,8 @@ struct RunConfigurationIntegrationTests {
         let source = root.appendingPathComponent("main.go")
 
         #expect(manager.activeLanguageServerIDs.isEmpty)
-        #expect(manager.features(for: source).isEmpty)
-        #expect(!manager.supportsGenericEditing(for: source))
+        #expect(manager.features(for: source).contains(.completion))
+        #expect(manager.supportsGenericEditing(for: source))
         try manager.synchronizeLanguageServer(
             for: source,
             text: "package main\nfunc main() {}\n",
@@ -975,11 +992,22 @@ struct RunConfigurationIntegrationTests {
         #expect(process.requests.isEmpty)
         #expect(process.sentData.isEmpty)
 
+        var completionResult: Result<[LanguageServerCompletionItem], Error>?
+        try manager.completions(
+            fileURL: source,
+            text: "fu",
+            position: LanguageServerPosition(line: 0, utf16Column: 2),
+            rootURL: root
+        ) { result in
+            completionResult = result
+        }
+        #expect(try completionResult?.get().contains { $0.label == "func" } == true)
+
         #expect(throws: LanguageToolingSessionError.self) {
             try manager.hover(
                 fileURL: source,
                 text: "package main\n",
-                position: LanguageServerPosition(line: 0, utf16Column: 0),
+                position: LanguageServerPosition(line: 0, utf16Column: 1),
                 rootURL: root
             ) { _ in }
         }
@@ -1048,6 +1076,8 @@ struct RunConfigurationIntegrationTests {
             ]
         ])
         await Self.drainMainActorTasks()
+        #expect(manager.languageServerFeatures["swift"]?.contains(.completion) == true)
+        #expect(manager.languageServerFeatures["swift"]?.contains(.hover) == true)
 
         let framedOutput = process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
         #expect(framedOutput.contains("\"method\":\"initialized\""))
@@ -1286,6 +1316,22 @@ struct RunConfigurationIntegrationTests {
         await Self.drainMainActorTasks()
         #expect(executeResult != nil)
         try executeResult?.get()
+
+        manager.closeDocument(source)
+        #expect(process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+            .contains("\"method\":\"textDocument/didClose\""))
+        manager.stopLanguageServer(providerID: "swift")
+        #expect(process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+            .contains("\"method\":\"shutdown\""))
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "9",
+            "result": NSNull()
+        ])
+        await Self.drainMainActorTasks()
+        let shutdownOutput = process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+        #expect(shutdownOutput.contains("\"method\":\"exit\""))
+        #expect(!process.isRunning)
     }
 
     @Test
@@ -2953,6 +2999,27 @@ private struct TestLspClientCore: LspClientCore {
         response()
     }
 
+    func lspClientCloseDocument(
+        state: ToolingJSONValue,
+        fileURL: URL
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        response(
+            state: state,
+            messages: [
+                #"{"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":"\#(fileURL.standardizedFileURL.absoluteString)"}}}"#
+            ]
+        )
+    }
+
+    func lspClientShutdown(
+        state: ToolingJSONValue
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        response(
+            state: state,
+            messages: [#"{"jsonrpc":"2.0","id":"9","method":"shutdown"}"#]
+        )
+    }
+
     func lspClientRequest(
         state _: ToolingJSONValue,
         fileURL _: URL,
@@ -3185,7 +3252,36 @@ private struct TestLspClientCore: LspClientCore {
                 )
             ])
         }
+        if message.contains(#""id":"9""#) {
+            return response(
+                state: .object([:]),
+                messages: [#"{"jsonrpc":"2.0","method":"exit"}"#],
+                events: [
+                    RustCoreBridge.LspClientEventPayload(
+                        kind: "response",
+                        requestId: "9",
+                        method: "shutdown",
+                        uri: nil,
+                        diagnostics: nil,
+                        result: .object(["ok": .bool(true)]),
+                        error: nil
+                    )
+                ]
+            )
+        }
         return response(
+            state: .object([
+                "serverCapabilities": .array([
+                    .string("hover"),
+                    .string("completion"),
+                    .string("completionResolve"),
+                    .string("rename"),
+                    .string("formatting"),
+                    .string("codeActions"),
+                    .string("codeActionResolve"),
+                    .string("executeCommand")
+                ])
+            ]),
             messages: [#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#],
             events: [
                 RustCoreBridge.LspClientEventPayload(
@@ -3237,11 +3333,12 @@ private struct TestLspClientCore: LspClientCore {
     }
 
     private func response(
+        state: ToolingJSONValue = .object([:]),
         messages: [String] = [],
         events: [RustCoreBridge.LspClientEventPayload] = []
     ) -> RustCoreBridge.LspClientResponsePayload {
         RustCoreBridge.LspClientResponsePayload(
-            state: .object([:]),
+            state: state,
             messages: messages,
             events: events
         )

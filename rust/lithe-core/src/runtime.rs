@@ -390,6 +390,39 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspClientCloseDocument => {
+            match serde_json::from_value::<crate::lsp::ClientCloseDocumentRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP close document request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::client_close_document)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP client response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspClientShutdown => {
+            match serde_json::from_value::<crate::lsp::ClientShutdownRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP shutdown request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::client_shutdown)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP client response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspClientRequest => {
             match serde_json::from_value::<crate::lsp::ClientFeatureRequest>(parsed.payload)
                 .map_err(|error| {
@@ -905,5 +938,70 @@ fn execute(request: &str) -> CoreResponse {
         }
     } else {
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::execute_json;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn routes_lsp_close_document_and_shutdown_commands() {
+        let uri = "file:///tmp/project/main.go";
+        let close_response: Value = serde_json::from_str(&execute_json(
+            &json!({
+                "id": "close-1",
+                "command": "lsp.clientCloseDocument",
+                "payload": {
+                    "state": {
+                        "openDocuments": {
+                            uri: {
+                                "uri": uri,
+                                "languageId": "go",
+                                "version": 1,
+                                "text": "package main\n"
+                            }
+                        }
+                    },
+                    "uri": uri
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(close_response["ok"], true);
+        assert!(close_response["data"]["state"]["openDocuments"]
+            .as_object()
+            .unwrap()
+            .is_empty());
+        let did_close: Value =
+            serde_json::from_str(close_response["data"]["messages"][0].as_str().unwrap()).unwrap();
+        assert_eq!(did_close["method"], "textDocument/didClose");
+
+        let shutdown_response: Value = serde_json::from_str(&execute_json(
+            &json!({
+                "id": "shutdown-1",
+                "command": "lsp.clientShutdown",
+                "payload": {
+                    "state": {
+                        "initialized": true
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(shutdown_response["ok"], true);
+        assert_eq!(
+            shutdown_response["data"]["state"]["shutdownRequested"],
+            true
+        );
+        let shutdown: Value =
+            serde_json::from_str(shutdown_response["data"]["messages"][0].as_str().unwrap())
+                .unwrap();
+        assert_eq!(shutdown["method"], "shutdown");
+        assert_eq!(shutdown["id"], "1");
+        assert!(shutdown.get("params").is_none());
     }
 }

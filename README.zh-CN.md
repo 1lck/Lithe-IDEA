@@ -49,7 +49,7 @@
 
 ## 项目简介
 
-Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ IDEA 用户熟悉的项目浏览、编辑、搜索、代码导航、Git、运行和调试工作流，同时让 Java 语言服务、终端、Maven 和调试进程只在需要时启动。
+Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ IDEA 用户熟悉的项目浏览、编辑、搜索、代码导航、Git、运行和调试工作流，同时让语言服务器、终端、Maven 和调试进程只在需要时启动。
 
 当外部 AI 工具修改项目后，你可以用 Lithe 定位受影响的代码、运行项目、审查 Diff，并决定暂存、撤销或提交哪些修改。
 
@@ -61,7 +61,7 @@ Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ ID
 2. 支持 Maven 管理、断点调试和自定义启动配置。
 3. 支持 Git 管理和 Diff 审查。
 4. 支持双击 Shift 搜索，以及 `Command + Shift + F` 全局搜索。
-5. 支持代码跳转和代码引用查找。
+5. 支持无需 LSP 的轻量补全和当前文件导航，并可按需使用语言服务器增强补全、悬浮与语义导航。
 6. 支持本地快照保存。
 7. 支持在应用内打开多个项目。
 8. 支持在同一窗口打开多个文件，各文件相互独立。
@@ -104,7 +104,7 @@ Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ ID
 
 ## 如何使用
 
-Lithe 需要 macOS 14 或更高版本。Java 项目功能需要 JDK，推荐使用 JDK 17 或 JDK 21；Maven 项目需要项目自带 `mvnw` 或系统中可用的 Maven。语义导航会通过 Lithe 的 Rust LSP host 提供。
+Lithe 需要 macOS 14 或更高版本。Java 项目功能需要 JDK，推荐使用 JDK 17 或 JDK 21；Maven 项目需要项目自带 `mvnw` 或系统中可用的 Maven。轻量补全无需启动外部进程；安装相应语言服务器后，Lithe 会通过共享 Rust LSP Core 按服务器实际声明的能力提供语义功能。详细设计与自定义 provider 配置见[语言工具与 LSP 架构](./docs/architecture/language-tooling.md)。
 
 从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。如果该版本提供独立架构安装包，M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。
 

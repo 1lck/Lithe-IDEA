@@ -336,8 +336,11 @@ extension LanguageTestProvider {
 protocol LanguageServerSession: AnyObject {
     var isRunning: Bool { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
+    var features: LanguageServerFeatureSet { get }
+    var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
     func start(rootURL: URL) throws
     func synchronize(fileURL: URL, text: String, languageID: String) throws
+    func closeDocument(_ fileURL: URL)
     func completions(
         fileURL: URL,
         position: LanguageServerPosition,
@@ -386,6 +389,15 @@ protocol LanguageServerSession: AnyObject {
         completion: @escaping (Result<Void, Error>) -> Void
     ) throws
     func stop()
+}
+
+extension LanguageServerSession {
+    var features: LanguageServerFeatureSet { [] }
+    var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? {
+        get { nil }
+        set {}
+    }
+    func closeDocument(_: URL) {}
 }
 
 @MainActor

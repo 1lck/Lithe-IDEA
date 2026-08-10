@@ -20,9 +20,8 @@ enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     }
 }
 
-/// UI-facing façade for language tooling. LSP behavior is intentionally not
-/// implemented in Swift; these entry points are stable while the Rust LSP host
-/// is wired underneath them.
+/// UI-facing façade that routes language features across active LSP sessions
+/// and lightweight local providers without exposing either implementation.
 @MainActor
 final class LanguageToolingSessionManager: ObservableObject {
     @Published private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
@@ -35,10 +34,11 @@ final class LanguageToolingSessionManager: ObservableObject {
     var onDebugEvent: ((String, DebugAdapterEvent) -> Void)?
 
     private var catalog: LanguageProviderCatalog
-    private let core: RustCoreBridge
     private var runtimesByID: [String: any LanguageProviderRuntime]
     private var languageServers: [String: any LanguageServerSession] = [:]
     private var languageServerRoots: [String: URL] = [:]
+    private var languageFeatureProviders: [any LanguageFeatureProvider]
+    private var languageServerFeatureProviders: [String: LanguageServerFeatureProvider] = [:]
     private var debugAdapters: [String: any DebugAdapterSession] = [:]
     private var debugAdapterRoots: [String: URL] = [:]
     private var requestedBreakpoints: [String: [URL: [DebugSourceBreakpoint]]] = [:]
@@ -46,10 +46,13 @@ final class LanguageToolingSessionManager: ObservableObject {
     init(
         catalog: LanguageProviderCatalog = .standard,
         runtimes: [any LanguageProviderRuntime] = [],
-        core: RustCoreBridge = RustCoreBridge()
+        core: RustCoreBridge = RustCoreBridge(),
+        languageFeatureProviders: [any LanguageFeatureProvider] = []
     ) {
         self.catalog = catalog
-        self.core = core
+        self.languageFeatureProviders = languageFeatureProviders + [
+            BuiltinLanguageFeatureProvider(core: core)
+        ]
         runtimesByID = Dictionary(uniqueKeysWithValues: runtimes.map { ($0.descriptor.id, $0) })
     }
 
@@ -75,9 +78,6 @@ final class LanguageToolingSessionManager: ObservableObject {
     }
 
     func supportsGenericEditing(for fileURL: URL) -> Bool {
-        guard catalog.provider(for: fileURL)?.capabilities.contains(.languageServer) == true else {
-            return false
-        }
         return !features(for: fileURL).isEmpty
     }
 
@@ -88,10 +88,29 @@ final class LanguageToolingSessionManager: ObservableObject {
     }
 
     func features(for fileURL: URL) -> LanguageServerFeatureSet {
-        guard let descriptor = catalog.provider(for: fileURL) else { return [] }
-        if let features = languageServerFeatures[descriptor.id] { return features }
-        guard descriptor.capabilities.contains(.languageServer), core.isAvailable else { return [] }
-        return [.definition, .references, .implementation, .hover, .completion]
+        let context = featureContext(
+            fileURL: fileURL,
+            text: "",
+            position: LanguageServerPosition(line: 0, utf16Column: 0),
+            rootURL: nil
+        )
+        var result = catalog.provider(for: fileURL).flatMap {
+            languageServerFeatures[$0.id]
+        } ?? []
+        for provider in languageFeatureProviders {
+            if provider.supports(.completion, in: context) { result.insert(.completion) }
+            if provider.supports(.hover, in: context) { result.insert(.hover) }
+            if provider.supports(.navigation(method: "textDocument/definition"), in: context) {
+                result.insert(.definition)
+            }
+            if provider.supports(.navigation(method: "textDocument/references"), in: context) {
+                result.insert(.references)
+            }
+            if provider.supports(.navigation(method: "textDocument/implementation"), in: context) {
+                result.insert(.implementation)
+            }
+        }
+        return result
     }
 
     func synchronizeLanguageServer(
@@ -115,13 +134,25 @@ final class LanguageToolingSessionManager: ObservableObject {
             session = active
         } else {
             languageServers[descriptor.id]?.stop()
+            languageServerFeatureProviders[descriptor.id] = nil
             guard let created = runtime.makeLanguageServerSession() else {
                 throw LanguageToolingSessionError.toolingUnavailable(
                     runtime.unavailableToolingMessage ?? descriptor.displayName
                 )
             }
+            let featureProvider = LanguageServerFeatureProvider(
+                providerID: descriptor.id,
+                session: created,
+                features: created.features
+            )
+            languageServerFeatureProviders[descriptor.id] = featureProvider
             configureLanguageServerCallbacks(created, providerID: descriptor.id)
-            try created.start(rootURL: normalizedRoot)
+            do {
+                try created.start(rootURL: normalizedRoot)
+            } catch {
+                languageServerFeatureProviders[descriptor.id] = nil
+                throw error
+            }
             languageServers[descriptor.id] = created
             languageServerRoots[descriptor.id] = normalizedRoot
             session = created
@@ -134,7 +165,9 @@ final class LanguageToolingSessionManager: ObservableObject {
     }
 
     func closeDocument(_ fileURL: URL) {
-        diagnostics[fileURL.standardizedFileURL] = nil
+        let standardizedURL = fileURL.standardizedFileURL
+        diagnostics[standardizedURL] = nil
+        languageServerSession(for: standardizedURL)?.closeDocument(standardizedURL)
     }
 
     func clearDiagnostics() {
@@ -145,6 +178,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         languageServers.removeValue(forKey: providerID)?.stop()
         languageServerRoots[providerID] = nil
         languageServerFeatures[providerID] = nil
+        languageServerFeatureProviders[providerID] = nil
     }
 
     func stopAllLanguageServers() {
@@ -153,6 +187,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         languageServerFeatures = [:]
         languageServers.removeAll()
         languageServerRoots.removeAll()
+        languageServerFeatureProviders.removeAll()
     }
 
     func navigate(
@@ -160,78 +195,81 @@ final class LanguageToolingSessionManager: ObservableObject {
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
-        rootURL _: URL,
+        rootURL: URL,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws {
-        if let session = languageServerSession(for: fileURL),
-           session.isRunning {
-            do {
-                try session.navigate(
-                    method: method,
-                    fileURL: fileURL,
-                    position: position,
-                    completion: completion
-                )
-                return
-            } catch {}
-        }
-        guard supportsBuiltinLanguageServer(for: fileURL) else {
-            throw unavailableLanguageServerError(for: fileURL)
-        }
-        completion(.success(core.builtinLanguageNavigation(
-            method: method,
+        let context = featureContext(
             fileURL: fileURL,
             text: text,
-            position: position
-        ) ?? []))
+            position: position,
+            rootURL: rootURL
+        )
+        let providers = featureProviders(
+            for: .navigation(method: method),
+            context: context
+        )
+        guard !providers.isEmpty else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        routeNavigation(
+            providers: providers,
+            index: 0,
+            method: method,
+            context: context,
+            completion: completion
+        )
     }
 
     func hover(
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
-        rootURL _: URL,
+        rootURL: URL,
         completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
     ) throws {
-        if let session = languageServerSession(for: fileURL),
-           session.isRunning {
-            do {
-                try session.hover(fileURL: fileURL, position: position, completion: completion)
-                return
-            } catch {}
-        }
-        guard supportsBuiltinLanguageServer(for: fileURL) else {
-            throw unavailableLanguageServerError(for: fileURL)
-        }
-        completion(.success(core.builtinLanguageHover(
+        let context = featureContext(
             fileURL: fileURL,
             text: text,
-            position: position
-        )))
+            position: position,
+            rootURL: rootURL
+        )
+        let providers = featureProviders(for: .hover, context: context)
+        guard !providers.isEmpty else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        routeHover(
+            providers: providers,
+            index: 0,
+            context: context,
+            completion: completion
+        )
     }
 
     func completions(
         fileURL: URL,
         text: String,
         position: LanguageServerPosition,
-        rootURL _: URL,
+        rootURL: URL,
         completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
     ) throws {
-        if let session = languageServerSession(for: fileURL),
-           session.isRunning {
-            do {
-                try session.completions(fileURL: fileURL, position: position, completion: completion)
-                return
-            } catch {}
-        }
-        guard supportsBuiltinLanguageServer(for: fileURL) else {
-            throw unavailableLanguageServerError(for: fileURL)
-        }
-        completion(.success(core.builtinLanguageCompletions(
+        let context = featureContext(
             fileURL: fileURL,
             text: text,
-            position: position
-        ) ?? []))
+            position: position,
+            rootURL: rootURL
+        )
+        let providers = featureProviders(for: .completion, context: context)
+        guard !providers.isEmpty else {
+            throw unavailableLanguageServerError(for: fileURL)
+        }
+        routeCompletions(
+            providers: providers,
+            index: 0,
+            context: context,
+            items: [],
+            seenLabels: [],
+            completion: completion
+        )
     }
 
     func rename(
@@ -426,6 +464,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         languageServerFeatures = [:]
         languageServers.removeAll()
         languageServerRoots.removeAll()
+        languageServerFeatureProviders.removeAll()
         debugAdapters.removeAll()
         debugAdapterRoots.removeAll()
         debugStates = [:]
@@ -485,22 +524,163 @@ final class LanguageToolingSessionManager: ObservableObject {
         )
     }
 
-    private func supportsBuiltinLanguageServer(for fileURL: URL) -> Bool {
-        catalog.provider(for: fileURL)?.capabilities.contains(.languageServer) == true
-            && core.isAvailable
-    }
-
     private func languageServerSession(for fileURL: URL) -> (any LanguageServerSession)? {
         guard let descriptor = catalog.provider(for: fileURL) else { return nil }
         return languageServers[descriptor.id]
     }
 
+    private func featureContext(
+        fileURL: URL,
+        text: String,
+        position: LanguageServerPosition,
+        rootURL: URL?
+    ) -> LanguageFeatureRequestContext {
+        let descriptor = catalog.provider(for: fileURL)
+        return LanguageFeatureRequestContext(
+            fileURL: fileURL,
+            text: text,
+            position: position,
+            languageID: descriptor?.languageIdentifier(for: fileURL),
+            workspaceURL: rootURL
+        )
+    }
+
+    private func featureProviders(
+        for feature: LanguageFeature,
+        context: LanguageFeatureRequestContext
+    ) -> [any LanguageFeatureProvider] {
+        var providers = languageFeatureProviders
+        if let descriptor = catalog.provider(for: context.fileURL),
+           let languageServerProvider = languageServerFeatureProviders[descriptor.id] {
+            providers.append(languageServerProvider)
+        }
+        return providers
+            .filter { $0.supports(feature, in: context) }
+            .sorted { $0.priority > $1.priority }
+    }
+
+    private func routeCompletions(
+        providers: [any LanguageFeatureProvider],
+        index: Int,
+        context: LanguageFeatureRequestContext,
+        items: [LanguageServerCompletionItem],
+        seenLabels: Set<String>,
+        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) {
+        guard index < providers.count else {
+            completion(.success(items))
+            return
+        }
+        do {
+            try providers[index].completions(in: context) { [self] result in
+                var merged = items
+                var labels = seenLabels
+                if case .success(let providerItems) = result {
+                    for item in providerItems where labels.insert(item.label).inserted {
+                        merged.append(item)
+                    }
+                }
+                routeCompletions(
+                    providers: providers,
+                    index: index + 1,
+                    context: context,
+                    items: merged,
+                    seenLabels: labels,
+                    completion: completion
+                )
+            }
+        } catch {
+            routeCompletions(
+                providers: providers,
+                index: index + 1,
+                context: context,
+                items: items,
+                seenLabels: seenLabels,
+                completion: completion
+            )
+        }
+    }
+
+    private func routeHover(
+        providers: [any LanguageFeatureProvider],
+        index: Int,
+        context: LanguageFeatureRequestContext,
+        completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
+    ) {
+        guard index < providers.count else {
+            completion(.success(nil))
+            return
+        }
+        do {
+            try providers[index].hover(in: context) { [self] result in
+                if case .success(let hover?) = result {
+                    completion(.success(hover))
+                } else {
+                    routeHover(
+                        providers: providers,
+                        index: index + 1,
+                        context: context,
+                        completion: completion
+                    )
+                }
+            }
+        } catch {
+            routeHover(
+                providers: providers,
+                index: index + 1,
+                context: context,
+                completion: completion
+            )
+        }
+    }
+
+    private func routeNavigation(
+        providers: [any LanguageFeatureProvider],
+        index: Int,
+        method: String,
+        context: LanguageFeatureRequestContext,
+        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) {
+        guard index < providers.count else {
+            completion(.success([]))
+            return
+        }
+        do {
+            try providers[index].navigate(method: method, in: context) { [self] result in
+                if case .success(let locations) = result, !locations.isEmpty {
+                    completion(.success(locations))
+                } else {
+                    routeNavigation(
+                        providers: providers,
+                        index: index + 1,
+                        method: method,
+                        context: context,
+                        completion: completion
+                    )
+                }
+            }
+        } catch {
+            routeNavigation(
+                providers: providers,
+                index: index + 1,
+                method: method,
+                context: context,
+                completion: completion
+            )
+        }
+    }
+
     private func configureLanguageServerCallbacks(
         _ session: any LanguageServerSession,
-        providerID _: String
+        providerID: String
     ) {
         session.onDiagnostics = { [weak self] fileURL, diagnostics in
             self?.diagnostics[fileURL.standardizedFileURL] = diagnostics
+        }
+        session.onFeaturesChange = { [weak self] features in
+            guard let self else { return }
+            self.languageServerFeatures[providerID] = features
+            self.languageServerFeatureProviders[providerID]?.updateFeatures(features)
         }
     }
 
