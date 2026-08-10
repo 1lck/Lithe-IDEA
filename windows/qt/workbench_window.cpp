@@ -12,6 +12,7 @@
 #include <QColor>
 #include <QCheckBox>
 #include <QClipboard>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDateTime>
@@ -46,6 +47,7 @@
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QPointer>
+#include <QScrollBar>
 #include <QTimer>
 #include <QSplitter>
 #include <QStatusBar>
@@ -454,9 +456,9 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     results_ = editorArea_->searchResults();
     navigation_ = editorArea_->javaNavigationResults();
     diagnostics_ = editorArea_->diagnostics();
-    auto editorFont = editor_->font();
-    editorFont.setPointSizeF(appSettings_.editorFontSize);
-    editor_->setFont(editorFont);
+    connectDocumentEditor(editor_);
+    connect(editorArea_, &WorkbenchEditorArea::editorCreated,
+            this, &WorkbenchWindow::connectDocumentEditor);
 
     connect(findField_, &QLineEdit::textChanged, this,
             &WorkbenchWindow::updateFindHighlights);
@@ -476,6 +478,53 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
             this, &WorkbenchWindow::openJavaNavigationItem);
     connect(editorArea_, &WorkbenchEditorArea::diagnosticActivated,
             this, &WorkbenchWindow::openSearchResult);
+    connect(editorArea_, &WorkbenchEditorArea::keepEditorVersionRequested,
+            this, [this](const QString& path) {
+        if (!documentFeature_->keepEditorVersion(path.toUtf8().toStdString())) return;
+        editorArea_->clearDocumentStatus(path);
+        updateDocumentTabState(path);
+    });
+    connect(editorArea_, &WorkbenchEditorArea::loadDiskVersionRequested,
+            this, [this](const QString& path) {
+        const auto choice = QMessageBox::warning(
+            this, uiText(QStringLiteral("Load Disk Version")),
+            uiText(QStringLiteral("Discard editor changes and load the version on disk?")),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (choice != QMessageBox::Yes ||
+            !documentFeature_->loadExternalVersion(path.toUtf8().toStdString())) return;
+        editorArea_->clearDocumentStatus(path);
+        updateDocumentTabState(path);
+        if (sameRelativePath(path, activePath_)) applyDocumentState(*documentFeature_->state(
+            path.toUtf8().toStdString()));
+    });
+    connect(editorArea_, &WorkbenchEditorArea::recreateDeletedFileRequested,
+            this, [this](const QString& path) {
+        const QPointer<WorkbenchWindow> guardedWindow(this);
+        documentFeature_->save(path.toUtf8().toStdString(),
+            [guardedWindow, path](app::DocumentFeatureState state) {
+            if (!guardedWindow) return;
+            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, path,
+                                      state = std::move(state)]() mutable {
+                if (!guardedWindow) return;
+                guardedWindow->updateDocumentTabState(path);
+                if (state.error) {
+                    guardedWindow->editorArea_->showDocumentError(
+                        path, fromUtf8(state.error->message));
+                } else {
+                    guardedWindow->editorArea_->clearDocumentStatus(path);
+                }
+            }, Qt::QueuedConnection);
+        });
+    });
+    connect(editorArea_, &WorkbenchEditorArea::closeDeletedFileRequested,
+            this, [this](const QString& path) {
+        for (int index = 0; index < editorTabs_->count(); ++index) {
+            if (sameRelativePath(editorTabs_->tabData(index).toString(), path)) {
+                closeEditorTab(index);
+                break;
+            }
+        }
+    });
 
     workspaceRefreshTimer_ = new QTimer(this);
     workspaceRefreshTimer_->setSingleShot(true);
@@ -633,16 +682,6 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     terminalLayout->addWidget(terminalInput_);
     toolWindow_->setPanel(BottomToolKind::Terminal, terminalPanel_);
 
-    connect(editor_, &QPlainTextEdit::textChanged, this, [this] {
-        if (suppressEditorChange_ || activePath_.isEmpty()) return;
-        languageServerText_ = editor_->toPlainText().toUtf8().toStdString();
-        documentFeature_->setText(languageServerText_);
-        if (languageServerPath_.isEmpty()) return;
-        if (languageServer_ && languageServer_->isReady() && !languageServerUri_.empty()) {
-            languageServer_->didChange(languageServerUri_, languageServerText_);
-        }
-        if (findBar_ != nullptr && findBar_->isVisible()) updateFindHighlights();
-    });
     connect(changes_, &QListWidget::itemDoubleClicked, this,
             [this](QListWidgetItem* item) { openChangeItem(item); });
 
@@ -1777,6 +1816,12 @@ void WorkbenchWindow::openWorkspaceRoot(const QString& selectedRoot) {
     const auto root = QDir::cleanPath(
         QFileInfo(QDir::fromNativeSeparators(selectedRoot)).absoluteFilePath());
     if (root.isEmpty() || !QFileInfo(root).isDir()) return;
+    if (!workspaceRoot_.isEmpty() && root != workspaceRoot_) {
+        const QPointer<WorkbenchWindow> guardedWindow(this);
+        if (!requestDocumentTransition([guardedWindow, root] {
+                if (guardedWindow) guardedWindow->openWorkspaceRoot(root);
+            })) return;
+    }
     ++workspaceEpoch_;
     coordinator_->setWorkspaceVisibility(appSettings_.hiddenDirectoryNames,
                                           appSettings_.hiddenFilePatterns);
@@ -1813,6 +1858,11 @@ void WorkbenchWindow::openWorkspaceRoot(const QString& selectedRoot) {
         while (editorTabs_->count() > 0) {
             editorTabs_->removeTab(editorTabs_->count() - 1);
         }
+    }
+    if (editorArea_ != nullptr) {
+        editorArea_->clearEditors();
+        editor_ = editorArea_->editor();
+        editorArea_->setEmptyStateVisible(true);
     }
     editor_->setReadOnly(false);
     editor_->clear();
@@ -1877,9 +1927,6 @@ void WorkbenchWindow::handleDirectoryChanges(
 
     bool requiresWorkspaceRefresh = false;
     bool requiresGitRefresh = false;
-    bool activeFileWasRemoved = false;
-    bool activeFileWasModified = false;
-
     for (const auto& change : changes) {
         const auto path = normalizedRelativePath(fromUtf8(change.path));
         switch (change.kind) {
@@ -1891,8 +1938,12 @@ void WorkbenchWindow::handleDirectoryChanges(
             requiresWorkspaceRefresh = true;
             if ((change.kind == DirectoryChangeSource::ChangeKind::Removed ||
                  change.kind == DirectoryChangeSource::ChangeKind::RenamedOldName) &&
-                !path.isEmpty() && sameRelativePath(path, activePath_)) {
-                activeFileWasRemoved = true;
+                !path.isEmpty() && documentFeature_->state(path.toUtf8().toStdString())) {
+                documentFeature_->externalDeleted(path.toUtf8().toStdString());
+                updateDocumentTabState(path);
+                if (sameRelativePath(path, activePath_)) {
+                    editorArea_->showDeletedConflict(path);
+                }
             }
             break;
         case DirectoryChangeSource::ChangeKind::Modified:
@@ -1903,7 +1954,29 @@ void WorkbenchWindow::handleDirectoryChanges(
                 requiresWorkspaceRefresh = true;
             } else {
                 requiresGitRefresh = true;
-                if (sameRelativePath(path, activePath_)) activeFileWasModified = true;
+                if (documentFeature_->state(path.toUtf8().toStdString())) {
+                    const QPointer<WorkbenchWindow> guardedWindow(this);
+                    documentFeature_->externalModified(path.toUtf8().toStdString(),
+                        [guardedWindow, path](app::DocumentFeatureState state) {
+                        if (!guardedWindow) return;
+                        QMetaObject::invokeMethod(guardedWindow, [guardedWindow, path,
+                                                  state = std::move(state)]() mutable {
+                            if (!guardedWindow) return;
+                            guardedWindow->updateDocumentTabState(path);
+                            if (!sameRelativePath(path, guardedWindow->activePath_)) return;
+                            if (state.error) {
+                                guardedWindow->editorArea_->showDocumentError(
+                                    path, fromUtf8(state.error->message));
+                            } else if (state.externalState ==
+                                       app::DocumentExternalState::Modified) {
+                                guardedWindow->editorArea_->showModifiedConflict(path);
+                            } else {
+                                guardedWindow->editorArea_->clearDocumentStatus(path);
+                                guardedWindow->applyDocumentState(state);
+                            }
+                        }, Qt::QueuedConnection);
+                    });
+                }
             }
             break;
         }
@@ -1912,37 +1985,90 @@ void WorkbenchWindow::handleDirectoryChanges(
     if (requiresWorkspaceRefresh) scheduleWorkspaceRefresh();
     if (requiresGitRefresh) scheduleGitRefresh();
 
-    if (activeFileWasRemoved) {
-        const auto state = documentFeature_->state();
-        if (!state.isDirty && !state.isLoading && !state.isSaving) {
-            activePath_.clear();
-            blamePath_.clear();
-            closeLanguageServerDocument();
-            suppressEditorChange_ = true;
-            editor_->clearAnnotations();
-            editor_->clear();
-            suppressEditorChange_ = false;
-    statusBar()->showMessage(uiText(QStringLiteral("The open file was removed")), 5000);
-        } else {
-            statusBar()->showMessage(
-                uiText(QStringLiteral("The open file was removed; unsaved changes were kept")), 6000);
+}
+
+void WorkbenchWindow::closeEvent(QCloseEvent* event) {
+    const QPointer<WorkbenchWindow> guardedWindow(this);
+    if (requestDocumentTransition([guardedWindow] {
+            if (guardedWindow) guardedWindow->close();
+        })) {
+        event->accept();
+    } else {
+        event->ignore();
+    }
+}
+
+bool WorkbenchWindow::requestDocumentTransition(std::function<void()> transition) {
+    if (pendingDocumentTransition_) return false;
+    const auto snapshot = documentFeature_->documentSafetySnapshot();
+    const auto states = documentFeature_->states();
+    const auto hasLoading = std::any_of(states.begin(), states.end(),
+        [](const auto& state) { return state.isLoading; });
+    if (snapshot.isSaving || hasLoading) {
+        QMessageBox::information(this, uiText(QStringLiteral("Document Operation in Progress")),
+            uiText(QStringLiteral("Wait for document loading or saving to finish before leaving.")));
+        return false;
+    }
+    if (snapshot.dirtyPaths.empty()) return true;
+
+    const auto choice = QMessageBox::warning(
+        this, uiText(QStringLiteral("Unsaved Documents")),
+        uiText(QStringLiteral("%1 document(s) have unsaved changes."))
+            .arg(snapshot.dirtyPaths.size()),
+        QMessageBox::SaveAll | QMessageBox::Discard | QMessageBox::Cancel,
+        QMessageBox::Cancel);
+    if (choice == QMessageBox::Cancel) return false;
+    if (choice == QMessageBox::Discard) return true;
+
+    pendingDocumentTransition_ = std::move(transition);
+    pendingDocumentSavePaths_.clear();
+    documentTransitionSaveFailed_ = false;
+    for (const auto& path : snapshot.dirtyPaths) {
+        pendingDocumentSavePaths_.insert(path);
+        if (auto* editor = editorArea_->editorForPath(fromUtf8(path))) editor->setReadOnly(true);
+    }
+    const QPointer<WorkbenchWindow> guardedWindow(this);
+    for (const auto& path : snapshot.dirtyPaths) {
+        const auto qtPath = fromUtf8(path);
+        documentFeature_->save(path,
+            [guardedWindow, qtPath](app::DocumentFeatureState state) {
+            if (!guardedWindow) return;
+            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, qtPath,
+                                      state = std::move(state)]() mutable {
+                if (guardedWindow) {
+                    guardedWindow->finishDocumentTransitionSave(qtPath, state);
+                }
+            }, Qt::QueuedConnection);
+        });
+    }
+    return false;
+}
+
+void WorkbenchWindow::finishDocumentTransitionSave(
+    const QString& relativePath, const app::DocumentFeatureState& state) {
+    pendingDocumentSavePaths_.erase(relativePath.toUtf8().toStdString());
+    updateDocumentTabState(relativePath);
+    if (state.error || state.isDirty || state.isSaving) {
+        documentTransitionSaveFailed_ = true;
+        if (state.error) editorArea_->showDocumentError(relativePath, fromUtf8(state.error->message));
+    }
+    if (!pendingDocumentSavePaths_.empty()) return;
+
+    if (documentTransitionSaveFailed_) {
+        for (const auto& document : documentFeature_->states()) {
+            if (auto* editor = editorArea_->editorForPath(fromUtf8(document.relativePath))) {
+                editor->setReadOnly(document.isReadOnly);
+            }
         }
+        pendingDocumentTransition_ = {};
+        QMessageBox::warning(this, uiText(QStringLiteral("Documents Not Saved")),
+            uiText(QStringLiteral("At least one document could not be saved. The workspace remains open.")));
+        return;
     }
 
-    if (!activeFileWasModified || activePath_.isEmpty()) return;
-    const auto state = documentFeature_->state();
-    if (state.isDirty || state.isLoading || state.isSaving) return;
-
-    const auto expectedPath = activePath_;
-    documentFeature_->open(expectedPath.toUtf8().toStdString(),
-        [this, expectedPath](app::DocumentFeatureState next) {
-        QMetaObject::invokeMethod(this, [this, expectedPath,
-                                          next = std::move(next)]() mutable {
-            if (!sameRelativePath(expectedPath, activePath_) ||
-                !sameRelativePath(expectedPath, fromUtf8(next.relativePath))) return;
-            applyDocumentState(next);
-        }, Qt::QueuedConnection);
-    });
+    auto transition = std::move(pendingDocumentTransition_);
+    pendingDocumentTransition_ = {};
+    if (transition) transition();
 }
 
 void WorkbenchWindow::refreshGitStatus() {
@@ -2208,11 +2334,15 @@ void WorkbenchWindow::restoreSelectedShelf() {
                     const auto documentState = documentFeature_->state();
                     if (!expectedPath.isEmpty() && !documentState.isDirty &&
                         !documentState.isLoading && !documentState.isSaving) {
+                        const QPointer<WorkbenchWindow> guardedWindow(this);
                         documentFeature_->open(expectedPath.toUtf8().toStdString(),
-                            [this, expectedPath](app::DocumentFeatureState next) {
-                            QMetaObject::invokeMethod(this, [this, expectedPath,
+                            [guardedWindow, expectedPath](app::DocumentFeatureState next) {
+                            if (!guardedWindow) return;
+                            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, expectedPath,
                                                               next = std::move(next)]() mutable {
-                                if (expectedPath == activePath_) applyDocumentState(next);
+                                if (guardedWindow && expectedPath == guardedWindow->activePath_) {
+                                    guardedWindow->applyDocumentState(next);
+                                }
                             }, Qt::QueuedConnection);
                         });
                     }
@@ -2462,6 +2592,19 @@ void WorkbenchWindow::renameWorkspaceItem() {
     const auto newRelative = parent.isEmpty()
         ? normalizedName : parent + QStringLiteral("/") + normalizedName;
     if (sameRelativePath(oldRelative, newRelative)) return;
+    std::vector<std::pair<QString, QString>> renamedDocuments;
+    for (const auto& state : documentFeature_->states()) {
+        const auto path = fromUtf8(state.relativePath);
+        if (!sameRelativePath(path, oldRelative) &&
+            !path.startsWith(oldRelative + QStringLiteral("/"), Qt::CaseInsensitive)) continue;
+        if (state.isLoading || state.isSaving) {
+            statusBar()->showMessage(
+                uiText(QStringLiteral("Wait for the document operation to finish")), 4000);
+            return;
+        }
+        const auto suffix = path.mid(oldRelative.size());
+        renamedDocuments.emplace_back(path, newRelative + suffix);
+    }
     const auto paths = coordinator_->workspacePaths();
     if (!paths) return;
     std::filesystem::path source;
@@ -2478,16 +2621,22 @@ void WorkbenchWindow::renameWorkspaceItem() {
         statusBar()->showMessage(uiText(QStringLiteral("Could not rename item: ")) + fromUtf8(error), 6000);
         return;
     }
-    if (!activePath_.isEmpty() &&
-        (sameRelativePath(activePath_, oldRelative) ||
-         activePath_.startsWith(oldRelative + QStringLiteral("/"), Qt::CaseInsensitive))) {
-        activePath_.clear();
-        blamePath_.clear();
-        closeLanguageServerDocument();
-        suppressEditorChange_ = true;
-        editor_->clearAnnotations();
-        editor_->clear();
-        suppressEditorChange_ = false;
+    for (const auto& [sourcePath, destinationPath] : renamedDocuments) {
+        if (!documentFeature_->rename(sourcePath.toUtf8().toStdString(),
+                                      destinationPath.toUtf8().toStdString())) continue;
+        for (int index = 0; index < editorTabs_->count(); ++index) {
+            if (!sameRelativePath(editorTabs_->tabData(index).toString(), sourcePath)) continue;
+            editorTabs_->setTabData(index, destinationPath);
+            editorTabs_->setTabToolTip(index, destinationPath);
+            editorTabs_->setTabText(index, QFileInfo(destinationPath).fileName());
+            break;
+        }
+        if (auto* documentEditor = editorArea_->editorForPath(sourcePath)) {
+            documentEditor->setProperty("documentPath", destinationPath);
+        }
+        if (sameRelativePath(activePath_, sourcePath)) activePath_ = destinationPath;
+        historyFeature_->relocate(sourcePath.toUtf8().toStdString(),
+                                  destinationPath.toUtf8().toStdString());
     }
     scheduleWorkspaceRefresh();
     scheduleGitRefresh();
@@ -2560,10 +2709,43 @@ void WorkbenchWindow::deleteWorkspaceItem() {
     if (item == nullptr) return;
     const auto relative = item->data(0, RelativePathRole).toString();
     if (relative.isEmpty()) return;
-    if (QMessageBox::question(this, uiText(QStringLiteral("Delete Workspace Item")),
-                              uiText(QStringLiteral("Delete %1 permanently?")).arg(relative),
-                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
-        QMessageBox::Yes) return;
+    std::vector<QString> affectedDocuments;
+    bool hasDirtyDocument = false;
+    for (const auto& state : documentFeature_->states()) {
+        const auto path = fromUtf8(state.relativePath);
+        if (!sameRelativePath(path, relative) &&
+            !path.startsWith(relative + QStringLiteral("/"), Qt::CaseInsensitive)) continue;
+        if (state.isLoading || state.isSaving) {
+            statusBar()->showMessage(
+                uiText(QStringLiteral("Wait for the document operation to finish")), 4000);
+            return;
+        }
+        affectedDocuments.push_back(path);
+        hasDirtyDocument = hasDirtyDocument || state.isDirty;
+    }
+    bool keepBuffers = false;
+    if (hasDirtyDocument) {
+        QMessageBox decision(this);
+        decision.setIcon(QMessageBox::Warning);
+        decision.setWindowTitle(uiText(QStringLiteral("Delete Workspace Item")));
+        decision.setText(uiText(QStringLiteral("Open documents under %1 have unsaved changes."))
+                             .arg(relative));
+        auto* keep = decision.addButton(
+            uiText(QStringLiteral("Delete Disk and Keep Buffer")), QMessageBox::DestructiveRole);
+        auto* discard = decision.addButton(
+            uiText(QStringLiteral("Delete and Discard")), QMessageBox::DestructiveRole);
+        auto* cancel = decision.addButton(QMessageBox::Cancel);
+        decision.setDefaultButton(cancel);
+        decision.exec();
+        if (decision.clickedButton() == cancel) return;
+        keepBuffers = decision.clickedButton() == keep;
+        if (!keepBuffers && decision.clickedButton() != discard) return;
+    } else if (QMessageBox::question(
+                   this, uiText(QStringLiteral("Delete Workspace Item")),
+                   uiText(QStringLiteral("Delete %1 permanently?")).arg(relative),
+                   QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
     const auto paths = coordinator_->workspacePaths();
     if (!paths) return;
     std::filesystem::path absolute;
@@ -2578,16 +2760,34 @@ void WorkbenchWindow::deleteWorkspaceItem() {
         statusBar()->showMessage(uiText(QStringLiteral("Could not delete item: ")) + fromUtf8(error), 6000);
         return;
     }
-    if (!activePath_.isEmpty() &&
-        (sameRelativePath(activePath_, relative) ||
-         activePath_.startsWith(relative + QStringLiteral("/"), Qt::CaseInsensitive))) {
-        activePath_.clear();
-        blamePath_.clear();
-        closeLanguageServerDocument();
-        suppressEditorChange_ = true;
-        editor_->clearAnnotations();
-        editor_->clear();
-        suppressEditorChange_ = false;
+    if (keepBuffers) {
+        for (const auto& path : affectedDocuments) {
+            documentFeature_->externalDeleted(path.toUtf8().toStdString());
+            updateDocumentTabState(path);
+            if (sameRelativePath(path, activePath_)) editorArea_->showDeletedConflict(path);
+        }
+    } else {
+        for (const auto& path : affectedDocuments) {
+            documentFeature_->close(path.toUtf8().toStdString(), true);
+            for (int index = editorTabs_->count() - 1; index >= 0; --index) {
+                if (sameRelativePath(editorTabs_->tabData(index).toString(), path)) {
+                    editorTabs_->removeTab(index);
+                }
+            }
+            editorArea_->removeEditor(path);
+        }
+        if (sameRelativePath(activePath_, relative) ||
+            activePath_.startsWith(relative + QStringLiteral("/"), Qt::CaseInsensitive)) {
+            activePath_.clear();
+            blamePath_.clear();
+            closeLanguageServerDocument();
+            if (editorTabs_->count() > 0) switchEditorTab(editorTabs_->currentIndex());
+            else {
+                editorArea_->clearEditors();
+                editor_ = editorArea_->editor();
+                editorArea_->setEmptyStateVisible(true);
+            }
+        }
     }
     scheduleWorkspaceRefresh();
     scheduleGitRefresh();
@@ -2656,6 +2856,10 @@ void WorkbenchWindow::restoreWorkspaceSession() {
     if (!pendingWorkspaceSession_) return;
     const auto session = std::move(*pendingWorkspaceSession_);
     pendingWorkspaceSession_.reset();
+    pendingDocumentViews_.clear();
+    for (const auto& view : session.documentViews) {
+        pendingDocumentViews_.emplace(view.path, view);
+    }
     for (const auto& path : session.expandedPaths) {
         if (auto* item = findTreeItem(fromUtf8(path))) item->setExpanded(true);
     }
@@ -2681,11 +2885,26 @@ void WorkbenchWindow::saveWorkspaceSession() {
     if (editorTabs_ != nullptr) {
         for (int index = 0; index < editorTabs_->count(); ++index) {
             const auto path = editorTabs_->tabData(index).toString();
-            if (!path.isEmpty()) session.openPaths.push_back(path.toStdString());
+            if (path.isEmpty()) continue;
+            const auto state = documentFeature_->state(path.toUtf8().toStdString());
+            if (!state || state->isDirty || state->isLoading || state->isSaving ||
+                state->externalState != app::DocumentExternalState::None || state->error) continue;
+            session.openPaths.push_back(path.toStdString());
+            if (auto* editor = editorArea_->editorForPath(path)) {
+                const auto cursor = editor->textCursor();
+                session.documentViews.push_back({
+                    path.toStdString(),
+                    static_cast<std::uint64_t>(std::max(0, cursor.position())),
+                    static_cast<std::uint64_t>(std::max(0, cursor.anchor())),
+                    static_cast<std::uint64_t>(std::max(0, editor->verticalScrollBar()->value())),
+                    static_cast<std::uint64_t>(std::max(0, editor->horizontalScrollBar()->value()))
+                });
+            }
         }
     }
-    if (session.openPaths.empty() && !activePath_.isEmpty()) {
-        session.openPaths.push_back(activePath_.toStdString());
+    if (std::find(session.openPaths.begin(), session.openPaths.end(),
+                  activePath_.toStdString()) != session.openPaths.end()) {
+        session.activePath = activePath_.toStdString();
     }
     std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* parent) {
         for (int index = 0; index < parent->childCount(); ++index) {
@@ -2727,7 +2946,10 @@ void WorkbenchWindow::appendTreeNode(QTreeWidgetItem* parent, const WorkspaceNod
 int WorkbenchWindow::ensureEditorTab(const QString& relativePath) {
     if (editorTabs_ == nullptr || relativePath.isEmpty()) return -1;
     for (int index = 0; index < editorTabs_->count(); ++index) {
-        if (sameRelativePath(editorTabs_->tabData(index).toString(), relativePath)) return index;
+        if (sameRelativePath(editorTabs_->tabData(index).toString(), relativePath)) {
+            if (editorArea_ != nullptr) editorArea_->ensureEditor(relativePath);
+            return index;
+        }
     }
     QSignalBlocker blocker(editorTabs_);
     const auto label = QFileInfo(relativePath).fileName().isEmpty()
@@ -2735,14 +2957,21 @@ int WorkbenchWindow::ensureEditorTab(const QString& relativePath) {
     const auto index = editorTabs_->addTab(label);
     editorTabs_->setTabData(index, relativePath);
     editorTabs_->setTabToolTip(index, relativePath);
-    if (editorArea_ != nullptr) editorArea_->setEmptyStateVisible(false);
+    editorTabs_->setIconSize(QSize(14, 14));
+    if (editorArea_ != nullptr) {
+        editorArea_->ensureEditor(relativePath);
+        editorArea_->setEmptyStateVisible(false);
+    }
     return index;
 }
 
 void WorkbenchWindow::switchEditorTab(int index) {
     if (editorTabs_ == nullptr || index < 0 || index >= editorTabs_->count()) return;
     const auto path = editorTabs_->tabData(index).toString();
-    if (path.isEmpty() || (!librarySourcePreview_ && sameRelativePath(path, activePath_))) return;
+    if (path.isEmpty()) return;
+    if (editorArea_ != nullptr) editor_ = editorArea_->setActiveEditor(path);
+    documentFeature_->activate(path.toUtf8().toStdString());
+    if (!librarySourcePreview_ && sameRelativePath(path, activePath_)) return;
     if (auto* item = findTreeItem(path)) {
         openTreeItem(item, 0);
     } else {
@@ -2753,31 +2982,60 @@ void WorkbenchWindow::switchEditorTab(int index) {
 void WorkbenchWindow::closeEditorTab(int index) {
     if (editorTabs_ == nullptr || index < 0 || index >= editorTabs_->count()) return;
     const auto path = editorTabs_->tabData(index).toString();
-    if (sameRelativePath(path, activePath_) && documentFeature_->state().isDirty) {
+    const auto documentState = documentFeature_->state(path.toUtf8().toStdString());
+    if (documentState && (documentState->isLoading || documentState->isSaving)) {
+        statusBar()->showMessage(uiText(QStringLiteral("Wait for the document operation to finish")), 4000);
+        return;
+    }
+    if (documentState && documentState->isDirty) {
         const auto choice = QMessageBox::warning(
             this, uiText(QStringLiteral("Unsaved Changes")),
             uiText(QStringLiteral("Save changes to %1 before closing?")).arg(path),
             QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
             QMessageBox::Save);
         if (choice == QMessageBox::Cancel) return;
-        if (choice == QMessageBox::Save) saveDocument();
+        if (choice == QMessageBox::Save) {
+            const QPointer<WorkbenchWindow> guardedWindow(this);
+            documentFeature_->save(path.toUtf8().toStdString(),
+                [guardedWindow, path](app::DocumentFeatureState state) {
+                if (!guardedWindow) return;
+                QMetaObject::invokeMethod(guardedWindow, [guardedWindow, path,
+                                          state = std::move(state)]() mutable {
+                    if (!guardedWindow) return;
+                    if (state.error || state.isDirty || state.isSaving) {
+                        guardedWindow->applySaveState(state);
+                        return;
+                    }
+                    for (int tab = 0; tab < guardedWindow->editorTabs_->count(); ++tab) {
+                        if (sameRelativePath(
+                                guardedWindow->editorTabs_->tabData(tab).toString(), path)) {
+                            guardedWindow->closeEditorTab(tab);
+                            break;
+                        }
+                    }
+                }, Qt::QueuedConnection);
+            });
+            return;
+        }
     }
+    if (!documentFeature_->close(path.toUtf8().toStdString(), true)) return;
     const auto wasCurrent = index == editorTabs_->currentIndex();
     {
         QSignalBlocker blocker(editorTabs_);
         editorTabs_->removeTab(index);
     }
+    if (editorArea_ != nullptr) editorArea_->removeEditor(path);
     if (!wasCurrent) return;
     activePath_.clear();
     librarySourcePreview_ = false;
     blamePath_.clear();
     closeLanguageServerDocument();
-    suppressEditorChange_ = true;
-    editor_->clearAnnotations();
-    editor_->clear();
-    suppressEditorChange_ = false;
     if (editorTabs_->count() == 0) {
-        if (editorArea_ != nullptr) editorArea_->setEmptyStateVisible(true);
+        if (editorArea_ != nullptr) {
+            editorArea_->clearEditors();
+            editor_ = editorArea_->editor();
+            editorArea_->setEmptyStateVisible(true);
+        }
         return;
     }
     const auto next = std::min(index, editorTabs_->count() - 1);
@@ -2793,7 +3051,6 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
     selectedDiffHunk_.clear();
     diffIsCommitReview_ = false;
     librarySourcePreview_ = false;
-    editor_->setReadOnly(false);
     activePath_ = item->data(0, RelativePathRole).toString();
     if (editorTabs_ != nullptr) {
         const auto tab = ensureEditorTab(activePath_);
@@ -2802,6 +3059,9 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
             editorTabs_->setCurrentIndex(tab);
         }
     }
+    if (editorArea_ != nullptr) editor_ = editorArea_->setActiveEditor(activePath_);
+    documentFeature_->activate(activePath_.toUtf8().toStdString());
+    editor_->setReadOnly(false);
     const auto openedPath = activePath_;
     if (editor_->blameVisible()) {
         blamePath_ = openedPath;
@@ -2809,15 +3069,21 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
     } else {
         blamePath_.clear();
     }
+    const QPointer<WorkbenchWindow> guardedWindow(this);
     documentFeature_->open(activePath_.toUtf8().toStdString(),
-        [this, openedPath](app::DocumentFeatureState state) {
-            QMetaObject::invokeMethod(this, [this, openedPath,
+        [guardedWindow, openedPath](app::DocumentFeatureState state) {
+            if (!guardedWindow) return;
+            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, openedPath,
                                               state = std::move(state)]() mutable {
-            if (!sameRelativePath(openedPath, activePath_) ||
+            if (!guardedWindow || !sameRelativePath(openedPath, guardedWindow->activePath_) ||
                 !sameRelativePath(openedPath, fromUtf8(state.relativePath))) return;
-            applyDocumentState(state);
+            guardedWindow->applyDocumentState(state);
         }, Qt::QueuedConnection);
     });
+    const auto absoluteDocumentPath = QDir(workspaceRoot_).filePath(activePath_);
+    if (const auto metadata = storage_->metadata(absoluteDocumentPath.toUtf8().toStdString())) {
+        documentFeature_->setReadOnly(activePath_.toUtf8().toStdString(), !metadata->isWritable);
+    }
     gitFeature_->loadDiff({activePath_.toUtf8().toStdString()}, false, false,
         [this](app::GitFeatureState state) {
         QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
@@ -2935,10 +3201,14 @@ void WorkbenchWindow::applyDocumentState(const app::DocumentFeatureState& state)
     }
     if (state.isLoading || state.relativePath.empty()) return;
     activePath_ = fromUtf8(state.relativePath);
+    if (editorArea_ != nullptr) editor_ = editorArea_->setActiveEditor(activePath_);
     suppressEditorChange_ = true;
     editor_->clearAnnotations();
-    editor_->setPlainText(fromUtf8(state.text));
+    const auto nextText = fromUtf8(state.text);
+    if (editor_->toPlainText() != nextText) editor_->setPlainText(nextText);
     suppressEditorChange_ = false;
+    editor_->setReadOnly(state.isReadOnly);
+    updateDocumentTabState(activePath_);
     if (findBar_ != nullptr && findBar_->isVisible()) updateFindHighlights();
     if (pendingNavigationLine_ && pendingNavigationColumn_) {
         const auto line = std::min<std::uint64_t>(
@@ -2956,6 +3226,19 @@ void WorkbenchWindow::applyDocumentState(const app::DocumentFeatureState& state)
         }
         pendingNavigationLine_.reset();
         pendingNavigationColumn_.reset();
+    }
+    if (const auto view = pendingDocumentViews_.find(state.relativePath);
+        view != pendingDocumentViews_.end()) {
+        const auto maximum = std::max(0, editor_->document()->characterCount() - 1);
+        QTextCursor cursor(editor_->document());
+        cursor.setPosition(static_cast<int>(std::min<std::uint64_t>(
+            view->second.anchor, static_cast<std::uint64_t>(maximum))));
+        cursor.setPosition(static_cast<int>(std::min<std::uint64_t>(
+            view->second.cursor, static_cast<std::uint64_t>(maximum))), QTextCursor::KeepAnchor);
+        editor_->setTextCursor(cursor);
+        editor_->verticalScrollBar()->setValue(static_cast<int>(view->second.verticalScroll));
+        editor_->horizontalScrollBar()->setValue(static_cast<int>(view->second.horizontalScroll));
+        pendingDocumentViews_.erase(view);
     }
     statusBar()->showMessage(activePath_);
     if (activePath_.endsWith(QStringLiteral(".java"), Qt::CaseInsensitive)) {
@@ -2982,6 +3265,58 @@ void WorkbenchWindow::applyDocumentState(const app::DocumentFeatureState& state)
     } else {
         editor_->clearAnnotations();
         closeLanguageServerDocument();
+    }
+}
+
+void WorkbenchWindow::connectDocumentEditor(WorkbenchCodeEditor* editor) {
+    if (editor == nullptr) return;
+    auto editorFont = editor->font();
+    editorFont.setPointSizeF(appSettings_.editorFontSize);
+    editor->setFont(editorFont);
+    const QPointer<WorkbenchCodeEditor> guardedEditor(editor);
+    connect(editor, &QPlainTextEdit::textChanged, this, [this, guardedEditor] {
+        if (!guardedEditor || suppressEditorChange_) return;
+        const auto path = guardedEditor->property("documentPath").toString();
+        if (path.isEmpty()) return;
+        const auto text = guardedEditor->toPlainText().toUtf8().toStdString();
+        documentFeature_->setText(path.toUtf8().toStdString(), text);
+        updateDocumentTabState(path);
+        if (!sameRelativePath(path, activePath_)) return;
+        languageServerText_ = text;
+        if (languageServer_ && languageServer_->isReady() &&
+            !languageServerPath_.isEmpty() && !languageServerUri_.empty()) {
+            languageServer_->didChange(languageServerUri_, languageServerText_);
+        }
+        if (findBar_ != nullptr && findBar_->isVisible()) updateFindHighlights();
+    });
+}
+
+void WorkbenchWindow::updateDocumentTabState(const QString& relativePath) {
+    if (editorTabs_ == nullptr || relativePath.isEmpty()) return;
+    const auto state = documentFeature_->state(relativePath.toUtf8().toStdString());
+    QPixmap statusPixmap(14, 14);
+    statusPixmap.fill(Qt::transparent);
+    if (state && (state->isDirty || state->isSaving || state->externalState !=
+                  app::DocumentExternalState::None || state->error)) {
+        QPainter painter(&statusPixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        QColor color = palette().color(QPalette::Highlight);
+        if (state->externalState != app::DocumentExternalState::None ||
+            (state->error && state->error->code == CoreErrorCode::ExternalConflict)) {
+            color = palette().color(QPalette::LinkVisited);
+            if (!color.isValid()) color = QColor(210, 72, 72);
+        } else if (state->error) {
+            color = palette().color(QPalette::BrightText);
+        }
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        painter.drawEllipse(QRectF(4, 4, 6, 6));
+    }
+    for (int index = 0; index < editorTabs_->count(); ++index) {
+        if (sameRelativePath(editorTabs_->tabData(index).toString(), relativePath)) {
+            editorTabs_->setTabIcon(index, QIcon(statusPixmap));
+            break;
+        }
     }
 }
 
@@ -4594,23 +4929,48 @@ void WorkbenchWindow::saveDocument() {
     if (workspaceRoot_.isEmpty() || activePath_.isEmpty() || editor_->isReadOnly()) return;
     const auto savedPath = activePath_;
     documentFeature_->setText(editor_->toPlainText().toUtf8().toStdString());
-    documentFeature_->save([this, savedPath](app::DocumentFeatureState state) {
-        QMetaObject::invokeMethod(this, [this, savedPath,
+    updateDocumentTabState(savedPath);
+    const QPointer<WorkbenchWindow> guardedWindow(this);
+    documentFeature_->save([guardedWindow, savedPath](app::DocumentFeatureState state) {
+        if (!guardedWindow) return;
+        QMetaObject::invokeMethod(guardedWindow, [guardedWindow, savedPath,
                                           state = std::move(state)]() mutable {
-            if (!sameRelativePath(savedPath, activePath_) ||
+            if (!guardedWindow || !sameRelativePath(savedPath, guardedWindow->activePath_) ||
                 !sameRelativePath(savedPath, fromUtf8(state.relativePath))) return;
-            applySaveState(state);
+            guardedWindow->applySaveState(state);
         }, Qt::QueuedConnection);
     });
 }
 
 void WorkbenchWindow::applySaveState(const app::DocumentFeatureState& state) {
+    const auto path = fromUtf8(state.relativePath);
+    updateDocumentTabState(path);
     if (state.error) {
+        if (editorArea_ != nullptr) {
+            editorArea_->showDocumentError(path, fromUtf8(state.error->message));
+        }
+        if (state.error->code == CoreErrorCode::ExternalConflict) {
+            const QPointer<WorkbenchWindow> guardedWindow(this);
+            documentFeature_->externalModified(state.relativePath,
+                [guardedWindow, path](app::DocumentFeatureState checked) {
+                if (!guardedWindow) return;
+                QMetaObject::invokeMethod(guardedWindow, [guardedWindow, path,
+                                          checked = std::move(checked)]() mutable {
+                    if (!guardedWindow) return;
+                    guardedWindow->updateDocumentTabState(path);
+                    if (checked.externalState == app::DocumentExternalState::Modified &&
+                        sameRelativePath(path, guardedWindow->activePath_)) {
+                        guardedWindow->editorArea_->showModifiedConflict(path);
+                    }
+                }, Qt::QueuedConnection);
+            });
+        }
         showFeatureError(state.error, QStringLiteral("File save failed"));
         return;
     }
     if (state.isSaving || state.relativePath.empty()) return;
     activePath_ = fromUtf8(state.relativePath);
+    if (editorArea_ != nullptr) editorArea_->clearDocumentStatus(activePath_);
     statusBar()->showMessage(uiText(QStringLiteral("Saved %1")).arg(activePath_), 3000);
     const auto savedPath = activePath_;
     historyFeature_->record(

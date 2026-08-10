@@ -18,6 +18,14 @@ namespace lithe::windows {
 
 namespace {
 
+bool samePath(const QString& left, const QString& right) {
+    auto normalizedLeft = left;
+    auto normalizedRight = right;
+    normalizedLeft.replace(u'\\', u'/');
+    normalizedRight.replace(u'\\', u'/');
+    return QString::compare(normalizedLeft, normalizedRight, Qt::CaseInsensitive) == 0;
+}
+
 QListWidget* makeResultList(QWidget* parent, const QString& objectName) {
     auto* list = new QListWidget(parent);
     list->setObjectName(objectName);
@@ -83,6 +91,23 @@ WorkbenchEditorArea::WorkbenchEditorArea(QWidget* parent)
     editorTabs_->setDocumentMode(true);
     layout->addWidget(editorTabs_);
 
+    statusBanner_ = new QWidget(this);
+    statusBanner_->setObjectName(QStringLiteral("workbench.editorArea.documentStatus"));
+    statusBanner_->setAccessibleName(QStringLiteral("Document status"));
+    auto* statusLayout = new QHBoxLayout(statusBanner_);
+    statusLayout->setContentsMargins(8, 5, 8, 5);
+    statusBannerText_ = new QLabel(statusBanner_);
+    statusBannerText_->setWordWrap(true);
+    statusLayout->addWidget(statusBannerText_, 1);
+    statusPrimary_ = new QPushButton(statusBanner_);
+    statusSecondary_ = new QPushButton(statusBanner_);
+    statusPrimary_->setAccessibleName(QStringLiteral("Primary document recovery action"));
+    statusSecondary_->setAccessibleName(QStringLiteral("Secondary document recovery action"));
+    statusLayout->addWidget(statusPrimary_);
+    statusLayout->addWidget(statusSecondary_);
+    statusBanner_->setVisible(false);
+    layout->addWidget(statusBanner_);
+
     editorStack_ = new QStackedWidget(this);
     editorStack_->setObjectName(QStringLiteral("workbench.editorArea.editorStack"));
     editorStack_->setMinimumHeight(kEditorTopMinHeight);
@@ -100,6 +125,7 @@ WorkbenchEditorArea::WorkbenchEditorArea(QWidget* parent)
     editor_->setMinimumHeight(kEditorTopMinHeight);
     editor_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     editorStack_->addWidget(editor_);
+    editor_->setProperty("documentPath", QString{});
     editorStack_->setCurrentWidget(emptyState_);
     layout->addWidget(editorStack_, 1);
 
@@ -133,10 +159,81 @@ WorkbenchEditorArea::WorkbenchEditorArea(QWidget* parent)
             &WorkbenchEditorArea::javaNavigationResultActivated);
     connect(diagnostics_, &QListWidget::itemActivated, this,
             &WorkbenchEditorArea::diagnosticActivated);
+    connect(statusPrimary_, &QPushButton::clicked, this, [this] {
+        const auto path = statusBanner_->property("documentPath").toString();
+        const auto kind = statusBanner_->property("statusKind").toString();
+        if (kind == QStringLiteral("modified")) emit keepEditorVersionRequested(path);
+        else if (kind == QStringLiteral("deleted")) emit recreateDeletedFileRequested(path);
+    });
+    connect(statusSecondary_, &QPushButton::clicked, this, [this] {
+        const auto path = statusBanner_->property("documentPath").toString();
+        const auto kind = statusBanner_->property("statusKind").toString();
+        if (kind == QStringLiteral("modified")) emit loadDiskVersionRequested(path);
+        else if (kind == QStringLiteral("deleted")) emit closeDeletedFileRequested(path);
+    });
 }
 
 WorkbenchCodeEditor* WorkbenchEditorArea::editor() const {
     return editor_;
+}
+
+WorkbenchCodeEditor* WorkbenchEditorArea::ensureEditor(const QString& relativePath) {
+    if (auto* existing = editorForPath(relativePath)) return existing;
+    WorkbenchCodeEditor* editor = nullptr;
+    if (editor_ != nullptr && editor_->property("documentPath").toString().isEmpty()) {
+        editor = editor_;
+    } else {
+        editor = new WorkbenchCodeEditor(editorStack_);
+        editor->setObjectName(QStringLiteral("workbench.editorArea.editor"));
+        editor->setPlaceholderText(QStringLiteral("Loading document…"));
+        editor->setMinimumHeight(kEditorTopMinHeight);
+        editor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        editorStack_->addWidget(editor);
+        emit editorCreated(editor);
+    }
+    editor->setProperty("documentPath", relativePath);
+    return editor;
+}
+
+WorkbenchCodeEditor* WorkbenchEditorArea::editorForPath(const QString& relativePath) const {
+    for (int index = 0; index < editorStack_->count(); ++index) {
+        auto* editor = dynamic_cast<WorkbenchCodeEditor*>(editorStack_->widget(index));
+        if (editor != nullptr && samePath(editor->property("documentPath").toString(), relativePath)) {
+            return editor;
+        }
+    }
+    return nullptr;
+}
+
+WorkbenchCodeEditor* WorkbenchEditorArea::setActiveEditor(const QString& relativePath) {
+    auto* editor = ensureEditor(relativePath);
+    editor_ = editor;
+    editorStack_->setCurrentWidget(editor);
+    return editor;
+}
+
+void WorkbenchEditorArea::removeEditor(const QString& relativePath) {
+    auto* editor = editorForPath(relativePath);
+    if (editor == nullptr) return;
+    editorStack_->removeWidget(editor);
+    if (editor == editor_) editor_ = nullptr;
+    editor->deleteLater();
+}
+
+void WorkbenchEditorArea::clearEditors() {
+    for (int index = editorStack_->count() - 1; index >= 0; --index) {
+        auto* editor = dynamic_cast<WorkbenchCodeEditor*>(editorStack_->widget(index));
+        if (editor == nullptr) continue;
+        editorStack_->removeWidget(editor);
+        editor->deleteLater();
+    }
+    editor_ = new WorkbenchCodeEditor(editorStack_);
+    editor_->setObjectName(QStringLiteral("workbench.editorArea.editor"));
+    editor_->setProperty("documentPath", QString{});
+    editor_->setMinimumHeight(kEditorTopMinHeight);
+    editorStack_->addWidget(editor_);
+    emit editorCreated(editor_);
+    editorStack_->setCurrentWidget(emptyState_);
 }
 
 QTabBar* WorkbenchEditorArea::editorTabs() const {
@@ -174,6 +271,45 @@ QLabel* WorkbenchEditorArea::emptyState() const {
 void WorkbenchEditorArea::setEmptyStateVisible(bool visible) {
     editorStack_->setCurrentWidget(visible ? static_cast<QWidget*>(emptyState_)
                                            : static_cast<QWidget*>(editor_));
+}
+
+void WorkbenchEditorArea::showModifiedConflict(const QString& relativePath) {
+    statusBanner_->setProperty("documentPath", relativePath);
+    statusBanner_->setProperty("statusKind", QStringLiteral("modified"));
+    statusBannerText_->setText(QStringLiteral("This file changed on disk. Your editor version was kept."));
+    statusPrimary_->setText(QStringLiteral("Keep Editor Version"));
+    statusSecondary_->setText(QStringLiteral("Load Disk Version"));
+    statusPrimary_->setVisible(true);
+    statusSecondary_->setVisible(true);
+    statusBanner_->setVisible(true);
+}
+
+void WorkbenchEditorArea::showDeletedConflict(const QString& relativePath) {
+    statusBanner_->setProperty("documentPath", relativePath);
+    statusBanner_->setProperty("statusKind", QStringLiteral("deleted"));
+    statusBannerText_->setText(QStringLiteral("This file was deleted outside the editor. The buffer is still open."));
+    statusPrimary_->setText(QStringLiteral("Recreate"));
+    statusSecondary_->setText(QStringLiteral("Close"));
+    statusPrimary_->setVisible(true);
+    statusSecondary_->setVisible(true);
+    statusBanner_->setVisible(true);
+}
+
+void WorkbenchEditorArea::showDocumentError(const QString& relativePath,
+                                            const QString& message) {
+    statusBanner_->setProperty("documentPath", relativePath);
+    statusBanner_->setProperty("statusKind", QStringLiteral("error"));
+    statusBannerText_->setText(message);
+    statusPrimary_->setVisible(false);
+    statusSecondary_->setVisible(false);
+    statusBanner_->setVisible(true);
+}
+
+void WorkbenchEditorArea::clearDocumentStatus(const QString& relativePath) {
+    if (!samePath(statusBanner_->property("documentPath").toString(), relativePath)) return;
+    statusBanner_->setVisible(false);
+    statusBanner_->setProperty("documentPath", QString{});
+    statusBanner_->setProperty("statusKind", QString{});
 }
 
 }

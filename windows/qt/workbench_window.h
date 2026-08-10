@@ -36,10 +36,12 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 
 class QLineEdit;
@@ -49,6 +51,7 @@ class QPoint;
 class QObject;
 class QDialog;
 class QEvent;
+class QCloseEvent;
 class QListWidget;
 class QListWidgetItem;
 class QPlainTextEdit;
@@ -144,6 +147,7 @@ private slots:
 
 private:
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
 
     void buildActions();
     void loadSnapshot();
@@ -170,6 +174,11 @@ private:
     QTreeWidgetItem* findTreeItem(const QString& relativePath) const;
     void applyWorkspaceState(const app::WorkspaceFeatureState& state);
     void applyDocumentState(const app::DocumentFeatureState& state);
+    void connectDocumentEditor(WorkbenchCodeEditor* editor);
+    void updateDocumentTabState(const QString& relativePath);
+    bool requestDocumentTransition(std::function<void()> transition);
+    void finishDocumentTransitionSave(const QString& relativePath,
+                                      const app::DocumentFeatureState& state);
     void applySearchState(const app::SearchFeatureState& state);
     void applySearchEverywhereState(const app::SearchEverywhereFeatureState& state);
     void openSearchResult(QListWidgetItem* item);
@@ -298,10 +307,14 @@ private:
     QTimer* debugPollTimer_ = nullptr;
     bool historyContentSelectionPending_ = false;
     std::optional<app::WorkspaceSession> pendingWorkspaceSession_;
+    std::unordered_map<std::string, app::WorkspaceSession::DocumentView> pendingDocumentViews_;
     QString selectedDiffHunk_;
     std::optional<GitDiffDto> diffReview_;
     algorithms::GitGraphLayout gitHistoryGraph_;
     std::unordered_set<std::string> expandedDiffRegions_;
+    std::function<void()> pendingDocumentTransition_;
+    std::unordered_set<std::string> pendingDocumentSavePaths_;
+    bool documentTransitionSaveFailed_ = false;
     QString selectedGitCommit_;
     QString selectedGitStash_;
     QString selectedShelf_;

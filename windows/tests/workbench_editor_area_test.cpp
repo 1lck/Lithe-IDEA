@@ -64,6 +64,17 @@ int main(int argc, char* argv[]) {
     area.setEmptyStateVisible(true);
     assert(editorStack->currentWidget() == area.emptyState());
 
+    auto* firstEditor = area.ensureEditor(QStringLiteral("src/A.txt"));
+    firstEditor->setPlainText(QStringLiteral("alpha"));
+    auto* secondEditor = area.ensureEditor(QStringLiteral("src/B.txt"));
+    secondEditor->setPlainText(QStringLiteral("bravo"));
+    assert(firstEditor != secondEditor);
+    assert(area.editorForPath(QStringLiteral("SRC\\A.TXT")) == firstEditor);
+    assert(area.setActiveEditor(QStringLiteral("src/B.txt")) == secondEditor);
+    assert(editorStack->currentWidget() == secondEditor);
+    assert(firstEditor->toPlainText() == QStringLiteral("alpha"));
+    assert(secondEditor->toPlainText() == QStringLiteral("bravo"));
+
     int changedIndex = -1;
     int closeIndex = -1;
     int previousCount = 0;
@@ -79,6 +90,24 @@ int main(int argc, char* argv[]) {
                      [&nextCount] { ++nextCount; });
     QObject::connect(&area, &lithe::windows::WorkbenchEditorArea::findBarCloseRequested,
                      [&closeFindCount] { ++closeFindCount; });
+
+    QString keptPath;
+    QString loadedPath;
+    QObject::connect(&area, &lithe::windows::WorkbenchEditorArea::keepEditorVersionRequested,
+                     [&keptPath](const QString& path) { keptPath = path; });
+    QObject::connect(&area, &lithe::windows::WorkbenchEditorArea::loadDiskVersionRequested,
+                     [&loadedPath](const QString& path) { loadedPath = path; });
+    area.showModifiedConflict(QStringLiteral("src/B.txt"));
+    auto* status = area.findChild<QWidget*>(QStringLiteral("workbench.editorArea.documentStatus"));
+    assert(status && status->isVisible());
+    auto statusButtons = status->findChildren<QPushButton*>();
+    assert(statusButtons.size() == 2);
+    statusButtons[0]->click();
+    statusButtons[1]->click();
+    assert(keptPath == QStringLiteral("src/B.txt"));
+    assert(loadedPath == QStringLiteral("src/B.txt"));
+    area.clearDocumentStatus(QStringLiteral("src/B.txt"));
+    assert(!status->isVisible());
 
     area.editorTabs()->addTab(QStringLiteral("Main.cpp"));
     area.editorTabs()->setCurrentIndex(0);
