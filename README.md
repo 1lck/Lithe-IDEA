@@ -137,6 +137,37 @@ brew install jdtls
 
 After opening a project, use **Settings → Project** to configure the project JDK, Maven, and the JDK used by Maven. Lithe also detects Java and Maven from common system locations.
 
+### Database workspace and external MCP
+
+The optional Database workspace supports MySQL, MariaDB, PostgreSQL, SQLite,
+Microsoft SQL Server, MongoDB, Redis, and Nacos through an on-demand Rust helper.
+The helper is not started while the database workspace is unused. SQL connections provide table CRUD, TSV batch paste,
+find/replace within the current page, plus CSV, JSON, and SQL import and export.
+MariaDB reuses the MySQL-compatible engine; SQL Server has a native TDS data-grid
+adapter. MongoDB collections use the document grid with paging, filters, indexes,
+and protected insert/update/delete operations.
+Redis uses incremental `SCAN` pages instead of loading an entire keyspace, and its
+first workspace supports String and Hash editing, TTL changes, key renaming, and
+deletion. Nacos provides configuration search and publishing, plus service and
+instance health views. Redis and Nacos writes follow the same read-only and
+production-protection rules as SQL writes. SQL backups are complete by default,
+without a per-table row limit. Restoring a SQL backup always requires confirmation,
+verifies the backup before changing the target, and then replaces the current
+database objects and data. Release bundles also include
+`Contents/Helpers/lithe-db-mcp`, an independent MCP stdio adapter for external
+automation. It provides database tools only; Lithe does not include an in-app
+natural-language Agent conversation.
+
+For upstream audit, `third_party/dbx` contains a source-only snapshot of
+[t8y2/dbx](https://github.com/t8y2/dbx) at commit
+[`996ce42e80387bba4b33a2bf1713f590ef79d476`](https://github.com/t8y2/dbx/commit/996ce42e80387bba4b33a2bf1713f590ef79d476).
+It is not a Git submodule or runtime dependency and is excluded from Lithe's
+release bundle; the database helper is implemented and built independently.
+The eight database brand marks used by the current workspace are copied into
+`Resources/DatabaseIcons` as independent application resources. Their DBX
+source, Apache-2.0 license, and trademark-use notice are recorded alongside
+the files, so the packaged application never resolves assets from `third_party`.
+
 ## Architecture
 
 ```mermaid
@@ -268,12 +299,10 @@ Lithe is licensed under the [Apache License 2.0](./LICENSE).
 
 ## Star History
 
+Each point shows the repository's cumulative Star count at `00:00` Beijing time on that date. The chart starts at zero on August 2, 2026.
+
 <a href="https://www.star-history.com/#1lck/Lithe-IDEA&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-dark.svg" />
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
-    <img alt="Star History Chart" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
-  </picture>
+  <img alt="Star History Chart" src="https://raw.githubusercontent.com/1lck/Lithe-IDEA/chart-assets/star-history-light.svg" />
 </a>
 
 ## Contact us

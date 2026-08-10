@@ -29,6 +29,7 @@ final class MacServiceContainer {
         let fileStorage = MacFileStorage()
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
+        let databaseOperations = DatabaseSidecarService(processRunner: processRunner)
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store
@@ -71,6 +72,10 @@ final class MacServiceContainer {
         let gitService = GitService(operations: gitOperations)
         let shelveService = ShelveService(storage: fileStorage)
         let secureStore = MacLocalSecretStore()
+        let databaseSecureStore = MacKeychainSecureStore(
+            service: "app.lithe.desktop.database",
+            legacyStore: secureStore
+        )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
         let aiConfigurationSources: [any AIConfigurationSource] = [
@@ -85,6 +90,9 @@ final class MacServiceContainer {
             transport: MacURLSessionTransport(),
             credentialResolver: credentialResolver
         )
+        // Keep binary formats default-denied. Future format support must be
+        // registered explicitly at this composition boundary.
+        let binaryFileViewerRegistry = BinaryFileViewerRegistry()
         services = AppServices(
             workspaceOperations: workspaceOperations,
             localHistoryOperations: localHistoryOperations,
@@ -94,6 +102,7 @@ final class MacServiceContainer {
             store: store,
             fileStorage: fileStorage,
             fileOperations: fileOperations,
+            binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
             javaLanguageService: languageService,
             javaImplementationMarkerService: javaImplementationMarkerService,
@@ -101,9 +110,11 @@ final class MacServiceContainer {
             javaRunService: javaRunService,
             javaDebugService: javaDebugService,
             gitService: gitService,
+            databaseOperations: databaseOperations,
             shelveService: shelveService,
             commitMessageGenerator: commitMessageGenerator,
             secureStore: secureStore,
+            databaseSecureStore: databaseSecureStore,
             credentialResolver: credentialResolver,
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),

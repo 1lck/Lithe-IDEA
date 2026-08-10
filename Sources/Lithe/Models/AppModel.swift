@@ -90,6 +90,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
     private var didCloseProject: (() -> Void)?
+    private var securityScopedWorkspaceURL: URL?
     private let services: AppServices
     private let platformUI: any PlatformUI
     let settings: AppSettings
@@ -104,6 +105,7 @@ final class AppModel: ObservableObject, Identifiable {
     let gitFeature: GitFeatureModel
     let documentFeature: DocumentFeatureModel
     let javaFeature: JavaFeatureModel
+    let databaseFeature: DatabaseFeatureModel
     private var workspaceFeatureObservation: AnyCancellable?
     private var searchFeatureObservation: AnyCancellable?
     private var terminalFeatureObservation: AnyCancellable?
@@ -124,6 +126,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var gitFeatureObservation: AnyCancellable?
     private var documentFeatureObservation: AnyCancellable?
     private var javaFeatureObservation: AnyCancellable?
+    private var databaseFeatureObservation: AnyCancellable?
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
     private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
 
@@ -155,7 +158,9 @@ final class AppModel: ObservableObject, Identifiable {
         )
         documentFeature = DocumentFeatureModel(
             operations: services.workspaceOperations,
-            fileOperations: services.fileOperations
+            fileOperations: services.fileOperations,
+            fileStorage: services.fileStorage,
+            binaryFileViewerRegistry: services.binaryFileViewerRegistry
         )
         javaFeature = JavaFeatureModel(
             service: services.javaLanguageService,
@@ -163,12 +168,19 @@ final class AppModel: ObservableObject, Identifiable {
             operations: services.javaMavenOperations,
             workspaceOperations: services.workspaceOperations
         )
+        databaseFeature = DatabaseFeatureModel(
+            operations: services.databaseOperations,
+            connectionStore: DatabaseConnectionStore(store: services.store, secureStore: services.databaseSecureStore)
+        )
         javaFeature.configureRuntime(
             mavenFeature: mavenFeature,
             runFeature: runFeature,
             debugFeature: debugFeature
         )
         recentProjects = services.recentProjectsStore.load()
+        databaseFeatureObservation = databaseFeature.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         workspaceFeatureObservation = workspaceFeature.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -388,6 +400,7 @@ final class AppModel: ObservableObject, Identifiable {
     func shutdownProjectSession() {
         doubleShiftDetector?.stop()
         stopTerminalSessions()
+        stopAccessingWorkspace()
         if let fileVisibilityRulesObserverID {
             settings.removeFileVisibilityRulesObserver(fileVisibilityRulesObserverID)
             self.fileVisibilityRulesObserverID = nil
@@ -496,6 +509,10 @@ final class AppModel: ObservableObject, Identifiable {
         if let previousWorkspaceURL = workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
         }
+        stopAccessingWorkspace()
+        if platformUI.startAccessingProject(normalizedURL) {
+            securityScopedWorkspaceURL = normalizedURL
+        }
         stopTerminalSessions()
         runtimeFeature.openProject(at: normalizedURL)
         mavenFeature.reset()
@@ -548,6 +565,7 @@ final class AppModel: ObservableObject, Identifiable {
         if let workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: workspaceURL)
         }
+        stopAccessingWorkspace()
         workspaceURL = nil
         selectedSidebar = .project
         workspaceFeature.reset()
@@ -588,6 +606,12 @@ final class AppModel: ObservableObject, Identifiable {
         pendingProjectItemDeletion = nil
         refreshRecentProjects()
         didCloseProject?()
+    }
+
+    private func stopAccessingWorkspace() {
+        guard let securityScopedWorkspaceURL else { return }
+        platformUI.stopAccessingProject(securityScopedWorkspaceURL)
+        self.securityScopedWorkspaceURL = nil
     }
 
     func removeRecentProject(_ project: RecentProject) {
@@ -1813,6 +1837,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     case project
     case changes
     case search
+    case database
 
     var id: String { rawValue }
 
@@ -1821,6 +1846,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .project: "Project"
         case .changes: "Changes"
         case .search: "Search"
+        case .database: "Database"
         }
     }
 
@@ -1829,6 +1855,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .project: "folder"
         case .changes: "slider.horizontal.3"
         case .search: "magnifyingglass"
+        case .database: "cylinder.split.1x2"
         }
     }
 
@@ -1837,6 +1864,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .project: "toolwindows/toolWindowProject.svg"
         case .changes: "toolwindows/toolWindowCommit.svg"
         case .search: "toolwindows/toolWindowFind.svg"
+        case .database: "toolwindows/toolWindowDatabase.svg"
         }
     }
 }

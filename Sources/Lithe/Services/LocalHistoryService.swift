@@ -38,8 +38,7 @@ actor LocalHistoryService {
         reason: LocalHistoryReason,
         pruneExpired: Bool = true
     ) throws -> LocalHistoryEntry? {
-        guard let relativePath = relativePath(for: fileURL),
-              WorkspaceTextFilePolicy.isReadableTextFile(fileURL) else { return nil }
+        guard let relativePath = relativePath(for: fileURL) else { return nil }
         return try record(
             relativePath: relativePath,
             reason: reason,

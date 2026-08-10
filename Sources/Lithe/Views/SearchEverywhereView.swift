@@ -105,8 +105,8 @@ struct SearchEverywhereView: View {
             installKeyMonitor()
         }
         .onDisappear { removeKeyMonitor() }
-        .onChange(of: model.searchEverywhereQuery) { selectedIndex = 0 }
-        .onChange(of: scope) { selectedIndex = 0 }
+        .onChange(of: model.searchEverywhereQuery) { _ in selectedIndex = 0 }
+        .onChange(of: scope) { _ in selectedIndex = 0 }
         .task(id: "\(model.searchEverywhereQuery)|\(searchOptions.cacheKey)") {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }

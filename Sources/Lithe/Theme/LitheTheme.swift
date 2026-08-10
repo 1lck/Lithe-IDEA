@@ -197,7 +197,7 @@ private struct LithePointerModifier: ViewModifier {
                 isHovered = isInside
                 updateCursor(isPointing: isInside && isEnabled)
             }
-            .onChange(of: isEnabled) {
+            .onChange(of: isEnabled) { _ in
                 updateCursor(isPointing: isHovered && isEnabled)
             }
             .onDisappear {

@@ -1,0 +1,78 @@
+---
+title: Keyboard Shortcuts
+description: Review current defaults and customize editor, grid, sidebar, and global actions in Settings.
+---
+
+DBX shortcuts come from one configurable action registry. **Settings → Shortcuts** shows the effective binding for the installed version and current platform, making it authoritative after defaults change or the user customizes a key.
+
+`Mod` means `Cmd` on macOS and `Ctrl` on Windows/Linux.
+
+## Common Defaults
+
+### SQL Editor
+
+| Default | Action |
+| --- | --- |
+| `Mod+Enter` | Execute the current statement or selected SQL |
+| `Mod+\` | Execute in a new result tab |
+| `Shift+Mod+F` | Format SQL |
+| `Mod+/` | Toggle line comment |
+| `Mod+S` | Save SQL |
+| `Tab` | Accept completion |
+| `Shift+Tab` | Outdent |
+| `Mod+D` | Duplicate current line |
+| `Shift+Mod+K` | Delete current line |
+| `Alt+↑` / `Alt+↓` | Move current line up/down |
+| `Shift+Alt+↑` / `Shift+Alt+↓` | Copy current line up/down |
+| `Shift+Alt+U` / `Shift+Alt+L` | Convert selection to uppercase/lowercase |
+| `Mod+.` | Toggle code folding |
+| `Mod+Shift+A` | Send selection to AI |
+
+The current registry has no default “execute all SQL” action. Select a range or use the editor's multi-statement execution entry point instead of relying on the old `Ctrl/Cmd+Shift+Enter` documentation.
+
+### Grid and Data
+
+| Default | Action |
+| --- | --- |
+| `F5` | Refresh current data |
+| `Mod+D` | Copy current row |
+| `Delete` | Mark current row for deletion |
+| `Tab` | Toggle transposed view |
+
+Standard copy and paste still follow platform conventions. Copy Current Row, Delete Current Row, and Toggle Transpose are DBX-configurable actions.
+
+### Global and Navigation
+
+| Default | Action |
+| --- | --- |
+| `Mod+T` | New query |
+| `Mod+P` | Quick open |
+| `Mod+W` | Close current tab |
+| `Shift+Mod+[` / `Shift+Mod+]` | Previous/next tab |
+| `Mod+1` … `Mod+9` | Switch to a numbered tab |
+| `Mod+B` | Toggle the sidebar |
+| `Mod+=` / `Mod+-` / `Mod+0` | Zoom in, zoom out, reset UI zoom |
+
+The sidebar also has configurable actions for copy, paste, edit connection, and modifier-based opening in a new tab.
+
+## Quick Open
+
+Press `Mod+P` to search connections, databases, schemas, tables, views, and saved SQL in the current workspace. Results come from loaded and searchable objects. For a large connection whose metadata is not loaded yet, expand or refresh the relevant node first.
+
+## Customization and Conflicts
+
+1. Open **Settings → Shortcuts**
+2. Choose an action and enter recording mode
+3. Press a new key combination, or clear an unwanted binding
+4. Resolve conflicts and save
+
+DBX detects conflicts within a scope. Editor, grid, search, sidebar, and global actions have separate scopes, but the browser, operating system, input method, or accessibility software may still reserve a key first.
+
+On Windows/Linux, `Ctrl+Alt` may represent AltGr, so DBX matches those combinations conservatively. On macOS, Option+letter can produce transformed characters, and DBX uses physical-key fallback only where safe.
+
+## Related Pages
+
+<Cards>
+  <Card title="Query Editor" href="/en/docs/query-editor">Review execution ranges, result tabs, and editor behavior.</Card>
+  <Card title="SQL Formatter" href="/en/docs/sql-formatter">Configure formatting rules and shortcuts for the formatter settings editor.</Card>
+</Cards>

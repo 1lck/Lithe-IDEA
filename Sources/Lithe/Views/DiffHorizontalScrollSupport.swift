@@ -70,7 +70,7 @@ struct DiffHorizontalScroller: View {
         .opacity(maximumOffset > 0.5 ? 1 : 0)
         .allowsHitTesting(maximumOffset > 0.5)
         .accessibilityLabel("Synchronized diff horizontal scroll")
-        .onChange(of: maximumOffset) { _, newMaximum in
+        .onChange(of: maximumOffset) { newMaximum in
             offset = min(max(offset, 0), newMaximum)
         }
     }

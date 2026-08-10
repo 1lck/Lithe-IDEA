@@ -78,7 +78,7 @@ struct CloneRepositoryView: View {
         .onAppear {
             focusedField = .remote
         }
-        .onChange(of: remoteURL) { _, value in
+        .onChange(of: remoteURL) { value in
             guard folderName.isEmpty else { return }
             folderName = defaultFolderName(from: value)
         }

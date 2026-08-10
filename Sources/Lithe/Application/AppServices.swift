@@ -20,6 +20,8 @@ final class AppServices {
     let store: any KeyValueStore
     let fileStorage: any FileStorage
     let fileOperations: any WorkspaceFileOperations
+    /// Empty by default; binary support exists only after an explicit registration.
+    let binaryFileViewerRegistry: BinaryFileViewerRegistry
     let projectRuntimeService: ProjectRuntimeService
     let javaLanguageService: JavaLanguageService
     let javaImplementationMarkerService: JavaImplementationMarkerService
@@ -27,9 +29,11 @@ final class AppServices {
     let javaRunService: JavaRunService
     let javaDebugService: JavaDebugService
     let gitService: GitService
+    let databaseOperations: any DatabaseOperations
     let shelveService: ShelveService
     let commitMessageGenerator: CommitMessageGenerationService
     let secureStore: any SecureStore
+    let databaseSecureStore: any SecureStore
     let credentialResolver: any AIProviderCredentialResolver
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
@@ -49,6 +53,7 @@ final class AppServices {
         store: any KeyValueStore,
         fileStorage: any FileStorage,
         fileOperations: any WorkspaceFileOperations,
+        binaryFileViewerRegistry: BinaryFileViewerRegistry,
         projectRuntimeService: ProjectRuntimeService,
         javaLanguageService: JavaLanguageService,
         javaImplementationMarkerService: JavaImplementationMarkerService,
@@ -56,9 +61,11 @@ final class AppServices {
         javaRunService: JavaRunService,
         javaDebugService: JavaDebugService,
         gitService: GitService,
+        databaseOperations: any DatabaseOperations,
         shelveService: ShelveService,
         commitMessageGenerator: CommitMessageGenerationService,
         secureStore: any SecureStore,
+        databaseSecureStore: any SecureStore,
         credentialResolver: any AIProviderCredentialResolver,
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
@@ -77,6 +84,7 @@ final class AppServices {
         self.store = store
         self.fileStorage = fileStorage
         self.fileOperations = fileOperations
+        self.binaryFileViewerRegistry = binaryFileViewerRegistry
         self.projectRuntimeService = projectRuntimeService
         self.javaLanguageService = javaLanguageService
         self.javaImplementationMarkerService = javaImplementationMarkerService
@@ -84,9 +92,11 @@ final class AppServices {
         self.javaRunService = javaRunService
         self.javaDebugService = javaDebugService
         self.gitService = gitService
+        self.databaseOperations = databaseOperations
         self.shelveService = shelveService
         self.commitMessageGenerator = commitMessageGenerator
         self.secureStore = secureStore
+        self.databaseSecureStore = databaseSecureStore
         self.credentialResolver = credentialResolver
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore

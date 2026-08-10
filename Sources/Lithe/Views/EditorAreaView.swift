@@ -38,7 +38,10 @@ struct EditorAreaView: View {
     var body: some View {
         ZStack(alignment: .top) {
             Group {
-                if let comparison = model.branchComparison {
+                if model.selectedSidebar == .database {
+                    DatabaseWorkspaceView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                } else if let comparison = model.branchComparison {
                     BranchComparisonView(comparison: comparison)
                 } else if let commitDiff = model.selectedGitCommitDiffContext {
                     GitCommitDiffReviewView(context: commitDiff)
@@ -63,7 +66,7 @@ struct EditorAreaView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: model.openDocuments.map(\.id)) { _, ids in
+        .onChange(of: model.openDocuments.map(\.id)) { ids in
             if let splitDocumentID, !ids.contains(splitDocumentID) {
                 self.splitDocumentID = nil
             }
@@ -77,7 +80,7 @@ struct EditorAreaView: View {
         .onDisappear {
             finishTabDrag()
         }
-        .onChange(of: settings.editorTabLayoutMode) { _, _ in
+        .onChange(of: settings.editorTabLayoutMode) { _ in
             finishTabDrag()
         }
     }

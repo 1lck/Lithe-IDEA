@@ -34,17 +34,17 @@ struct DiffReviewView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: model.diffRows.count) { _, _ in
+        .onChange(of: model.diffRows.count) { _ in
             selectedDifferenceIndex = 0
             selectedDiffSearchIndex = 0
             expandedCollapseRegionIDs.removeAll()
             mapTargetRowID = nil
         }
-        .onChange(of: change.id) { _, _ in
+        .onChange(of: change.id) { _ in
             expandedCollapseRegionIDs.removeAll()
             mapTargetRowID = nil
         }
-        .onChange(of: diffSearchQuery) { _, _ in
+        .onChange(of: diffSearchQuery) { _ in
             selectedDiffSearchIndex = 0
         }
     }
@@ -466,12 +466,11 @@ struct DiffReviewView: View {
                 .font(.system(size: 11.5))
                 .frame(width: 145)
                 .focused($diffSearchFocused)
-                .onKeyPress(keys: [.return]) { press in
+                .litheOnReturn { isShiftPressed in
                     navigateDiffSearch(
-                        by: press.modifiers.contains(.shift) ? -1 : 1,
+                        by: isShiftPressed ? -1 : 1,
                         proxy: proxy
                     )
-                    return .handled
                 }
 
             Text(diffSearchLabel)

@@ -1,0 +1,177 @@
+---
+title: Data Grid
+description: Browse, filter, edit, validate, copy, and export query results or table data in DBX.
+---
+
+The data grid displays query results and table data. It covers both read-only analysis and small, controlled changes: browsing large result sets, filtering and sorting, inspecting complex values, bulk copying, and generating previewable `INSERT`, `UPDATE`, or `DELETE` statements when DBX can reliably identify the target rows.
+
+<Callout type="info">Redis, MongoDB, vector databases, HBase, and other systems use their own specialized data interfaces. This page focuses on relational and SQL-compatible result grids.</Callout>
+
+## Browsing and Layout
+
+DBX uses virtual scrolling and renders only the visible area. Common browsing operations include:
+
+- Dragging column edges to resize, or double-clicking to fit content
+- Dragging headers to reorder columns and saving the layout per table or query
+- Freezing columns on the left or right while scrolling horizontally
+- Showing, hiding, and searching columns by name or comment
+- Adjusting grid font, font size, row height, and column-width density
+- Switching between the standard and transposed views
+- Inspecting the connection name, result source, data types, and column comments
+
+Column widths, order, frozen state, and several display preferences can persist across sessions. Use view options to reset the current grid layout.
+
+## Filtering, Search, and Sorting
+
+| Method | Execution location | Best for |
+| --- | --- | --- |
+| Grid search | Currently loaded result | Quickly locating text, values, or column comments |
+| Local value filter | Currently loaded result | Temporary value, list, or range filtering without another database query |
+| `WHERE` | Database | Large tables, precise conditions, and index-backed filtering |
+| `ORDER BY` | Database | Stable cross-page sorting and reproducible results |
+| Current-page sort | Client page | Temporary comparison of loaded rows without changing the query |
+
+The `WHERE` and `ORDER BY` inputs support long expressions, collapse/expand behavior, and metadata-based condition suggestions. The default sort used when opening tables can be configured in settings.
+
+<Callout type="info">For large tables, prefer database-side `WHERE` and `ORDER BY`. Client search, value filters, and current-page sorting do not reduce the amount of data returned by the database.</Callout>
+
+## When Results Are Editable
+
+Results are editable only when DBX can identify the target table and has enough key or row-identity information to generate reviewable SQL.
+
+| Result type | Typical behavior |
+| --- | --- |
+| Table data opened from the object tree | Editable when the database and table support it |
+| Simple `SELECT` | Editable when one target table and reliable row identity can be resolved |
+| Joins, aggregates, expressions, computed columns | Usually read-only |
+| No primary key or reliable unique identity | Usually read-only to avoid unsafe conditions |
+| Connection marked read-only | All recognizable mutations are rejected |
+
+Read-only cells can still open details, copy, and export. Check the data header or cell details for the reason a result cannot be edited.
+
+## Editing, Inserting, and Deleting
+
+- **Edit a cell** by double-clicking or using the detail panel for long content
+- **Add rows** as one or more pending inserts
+- **Paste in bulk** from tab-separated clipboard data into new rows
+- **Clone rows** as new records, optionally excluding primary keys
+- **Delete rows** by marking selected records for deletion
+- **Set NULL** explicitly instead of writing an empty string
+- **Use defaults** for new fields where the database and column support it
+- **Generate values** with built-in test-data generators for selected cells
+
+DBX uses specialized controls for recognizable date/time, enum, JSON, and related types. Before bulk editing, verify that the selected region matches the target column types.
+
+## SQL Preview and Save
+
+Relational mutations remain local until saved. DBX then shows the generated `INSERT`, `UPDATE`, and `DELETE` statements.
+
+Review these details before saving:
+
+- Whether `UPDATE` and `DELETE` conditions identify only the intended rows
+- Whether new rows contain every required field
+- Whether `NULL`, empty strings, defaults, and generated values are correct
+- Whether a bulk selection includes unnoticed rows
+- Whether the active connection and database are correct
+
+When production protection is active, saving still enters the shared production-write confirmation flow. See [Production and Write Safety](/en/docs/production-safety).
+
+<Callout type="warn">SQL preview is a final review point, not a change-approval system. Important production changes still need least-privilege accounts, backups, and team processes.</Callout>
+
+## Cell Details and Complex Value Preview
+
+Cell details handle values that do not fit well in the grid:
+
+- Long or multiline text, SQL, and syntax-highlighted JSON
+- JSON formatting, compacting, and path inspection
+- Binary data shown as hexadecimal and ASCII
+- Image URLs, image binaries, and recognizable image data
+- Dedicated editing and formatting for dates, times, and timezone-aware values
+- Text, coordinate, and map previews for geometry/spatial values, including recognizable SRIDs
+- Truncated values, read-only explanations, and column metadata
+
+Formatting and preview actions usually affect display only. Actual edits still become pending changes and generate SQL.
+
+## Transposed View
+
+The transposed view swaps rows and columns and works well for:
+
+- A single record with many fields
+- Comparing data types, comments, defaults, and nullability
+- Inspecting a few records with wide values
+
+Selection, copying, details, editing, and navigation remain available. Database-side sorting and filtering still use the original result orientation.
+
+## Column Formatters
+
+Column formatters change display without mutating data. Options include:
+
+- Global or per-column date/time formats
+- JSON path extraction
+- Value masking
+- Custom display templates
+- Numeric, boolean, and database-type-specific presentation
+
+Clear the formatter to return to the original value display.
+
+## Selection, Copy, and Navigation
+
+The grid supports individual cells, rectangular ranges, full rows, and multiple row selections. You can then:
+
+- View selection summaries such as count or sum for compatible values
+- Copy as TSV, CSV, JSON, Markdown, SQL `INSERT`, or `UPDATE`
+- Copy cells, ranges, rows, or results with headers
+- Choose identifier quoting for copied column names
+- Use column comments as copied names for business-facing extracts
+- Generate one multi-row `INSERT` or separate `INSERT` statements
+- Exclude primary keys when creating a template for new records
+
+When DBX can resolve a foreign-key relationship, a cell can navigate to the referenced record. This depends on metadata and target-connection permissions.
+
+## Export
+
+| Format | Best for |
+| --- | --- |
+| CSV / TSV | Spreadsheets, scripts, and text exchange |
+| JSON | API debugging and programmatic processing |
+| Markdown | Issues, pull requests, documentation, and chat |
+| XLSX | Excel delivery; additional worksheets are created when one sheet reaches its limit |
+| SQL | Reusing selected data as `INSERT` or `UPDATE` statements |
+
+Query-result export follows the current result and selection scope. Before exporting, verify the current page, filters, sorting, and selection so visible data is not mistaken for the full table.
+
+## Auto Refresh, Pagination, and Large Results
+
+- The page size used when opening tables is configurable and persistent
+- Auto refresh is useful for small, frequently changing result sets
+- Query results can retain multiple runs or pin results for comparison
+- Virtual rendering keeps the UI responsive, but database and transfer cost still depend on returned row count
+- Sorting, filtering, or refreshing may reload data and can be blocked or affected by unsaved edits
+
+<Callout type="warn">Do not use auto refresh while editing data, and do not treat it as a monitoring system. Narrow large queries before increasing refresh frequency.</Callout>
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Result is view-only | Join or aggregate, missing primary key, read-only connection, or unsupported driver editing |
+| Row count does not shrink after filtering | A client search/filter was used instead of database-side `WHERE` |
+| Sorting affects only the current page | Local sorting is active; use `ORDER BY` for stable cross-page ordering |
+| Pasted columns are offset | Clipboard column count, selected starting column, hidden columns, and field order |
+| Image or spatial preview is unavailable | Value encoding, MIME/binary type, geometry encoding, or unknown SRID |
+| Export count differs from expectations | Current page, selection, client filter, and database query scope |
+
+<Cards>
+  <Card title="Write queries" href="/en/docs/query-editor">
+    Use completion, execution targets, multiple results, and history to produce grids.
+  </Card>
+  <Card title="Import in bulk" href="/en/docs/table-import">
+    Import large datasets from CSV, TSV, JSON, or Excel.
+  </Card>
+  <Card title="Transfer across databases" href="/en/docs/data-transfer">
+    Copy table data between connections or database engines.
+  </Card>
+  <Card title="Protect production writes" href="/en/docs/production-safety">
+    Configure read-only connections, production confirmation, and MCP permissions.
+  </Card>
+</Cards>

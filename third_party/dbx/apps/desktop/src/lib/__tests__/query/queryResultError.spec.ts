@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+
+import type { QueryResult } from "@/types/database";
+
+import { isMysqlExecutionErrorResult, isNoSnapshotErrorResult, isQueryExecutionErrorResult } from "@/lib/query/queryResultError";
+
+function errorResult(message: string): QueryResult {
+  return { columns: ["Error"], rows: [[message]], affected_rows: 0, execution_time_ms: 0 };
+}
+
+function dataResult(columns: string[]): QueryResult {
+  return { columns, rows: [], affected_rows: 0, execution_time_ms: 0 };
+}
+
+describe("isNoSnapshotErrorResult", () => {
+  it("matches the StarRocks Paimon no-snapshot error surfaced via executeTabSql", () => {
+    const result = { ...errorResult("Server error: `ERROR HY000 (1064): There is currently no snapshot.`"), execution_error: true as const };
+    expect(isNoSnapshotErrorResult(result)).toBe(true);
+  });
+
+  it("matches case-insensitively", () => {
+    const result = { ...errorResult("there IS currently NO snapshot"), execution_error: true as const };
+    expect(isNoSnapshotErrorResult(result)).toBe(true);
+  });
+
+  it("does not match unrelated query errors", () => {
+    expect(isNoSnapshotErrorResult({ ...errorResult("Unknown table 'tag_test.record_tag_t'"), execution_error: true })).toBe(false);
+    expect(isNoSnapshotErrorResult({ ...errorResult("ERROR 1142: SELECT command denied"), execution_error: true })).toBe(false);
+  });
+
+  it("does not match successful data results", () => {
+    expect(isNoSnapshotErrorResult(dataResult(["id", "name"]))).toBe(false);
+    expect(isNoSnapshotErrorResult(dataResult(["Error"]))).toBe(false); // data column literally named Error, no rows
+    expect(isNoSnapshotErrorResult({ ...errorResult("There is currently no snapshot."), rows: [["There is currently no snapshot."]] })).toBe(false);
+  });
+
+  it("returns false for missing or empty results", () => {
+    expect(isNoSnapshotErrorResult(undefined)).toBe(false);
+    expect(isNoSnapshotErrorResult(null)).toBe(false);
+    expect(isNoSnapshotErrorResult({ ...errorResult("There is currently no snapshot."), execution_error: true, rows: [] })).toBe(false);
+  });
+});
+
+describe("isMysqlExecutionErrorResult", () => {
+  it("recognizes an explicitly marked MySQL batch execution error", () => {
+    expect(isMysqlExecutionErrorResult({ ...errorResult("Duplicate entry '1'"), execution_error: true }, "mysql")).toBe(true);
+  });
+
+  it("does not mistake an unmarked Error alias without type metadata for an execution error", () => {
+    const result: QueryResult = {
+      columns: ["Error"],
+      rows: [["2"]],
+      affected_rows: 0,
+      execution_time_ms: 1,
+    };
+    expect(isMysqlExecutionErrorResult(result, "mysql")).toBe(false);
+  });
+
+  it("does not apply the native MySQL heuristic to JDBC connections", () => {
+    expect(isMysqlExecutionErrorResult({ ...errorResult("Duplicate entry '1'"), execution_error: true }, "jdbc")).toBe(false);
+  });
+});
+
+describe("isQueryExecutionErrorResult", () => {
+  it("recognizes explicit execution errors for PostgreSQL", () => {
+    expect(isQueryExecutionErrorResult({ ...errorResult("relation does not exist"), execution_error: true })).toBe(true);
+  });
+
+  it("requires an explicit marker for PostgreSQL result groups", () => {
+    expect(isQueryExecutionErrorResult(errorResult("relation does not exist"))).toBe(false);
+  });
+
+  it("does not treat a successful MySQL Error alias as a failure", () => {
+    expect(isQueryExecutionErrorResult({ ...dataResult(["Error"]), rows: [["2"]] })).toBe(false);
+  });
+});
