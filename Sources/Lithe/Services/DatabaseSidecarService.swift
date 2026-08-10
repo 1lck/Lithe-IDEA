@@ -245,6 +245,28 @@ enum DatabaseValue: Codable, Equatable, Sendable {
         case let .array(value): try container.encode(value)
         }
     }
+
+    /// A stable value representation for grids, details panels, and metadata.
+    /// Keeping this on the protocol value prevents an empty string from being
+    /// rendered like a missing value in one of the database workspaces.
+    var displayText: String {
+        switch self {
+        case .null: "NULL"
+        case let .bool(value): value ? "true" : "false"
+        case let .integer(value): String(value)
+        case let .number(value): String(value)
+        case let .decimal(value): value
+        case let .string(value): value.isEmpty ? "\"\"" : value
+        case let .binary(value): "Binary (\(value.count) bytes)"
+        case let .object(value): Self.jsonText(.object(value))
+        case let .array(value): Self.jsonText(.array(value))
+        }
+    }
+
+    private static func jsonText(_ value: DatabaseValue) -> String {
+        guard let data = try? JSONEncoder().encode(value) else { return String(describing: value) }
+        return String(decoding: data, as: UTF8.self)
+    }
 }
 
 typealias DatabaseRow = [String: DatabaseValue]

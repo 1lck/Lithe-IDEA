@@ -67,6 +67,12 @@ final class DatabaseFeatureModel: ObservableObject {
     private var backupTimer: Timer?
     private var profileGeneration: UInt64 = 0
     private var tableRequestID: UUID?
+    private var redisScanRequestID: UUID?
+    private var redisDetailRequestID: UUID?
+    private var nacosConfigListRequestID: UUID?
+    private var nacosConfigDetailRequestID: UUID?
+    private var nacosServiceListRequestID: UUID?
+    private var nacosInstanceRequestID: UUID?
     // Keep the unmasked page separate so primary-key mutations and exports never
     // accidentally persist the display placeholder.
     private var sourceRows: [DatabaseRow] = []
@@ -397,6 +403,7 @@ final class DatabaseFeatureModel: ObservableObject {
         let generation = profileGeneration
         isLoading = true
         errorMessage = nil
+        setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
             let rows = try await Task.detached { [operations] in
@@ -404,11 +411,13 @@ final class DatabaseFeatureModel: ObservableObject {
             }.value
             guard isCurrent(profileID: profile.id, generation: generation) else { return }
             databaseOptions = rows
+            setConnectionStatus(.connected, for: profile.id)
             isLoading = false
         } catch {
             if isCurrent(profileID: profile.id, generation: generation) {
                 databaseOptions = []
                 errorMessage = executionError(error)
+                setConnectionStatus(.failed, for: profile.id)
                 isLoading = false
             }
         }
@@ -1118,10 +1127,18 @@ final class DatabaseFeatureModel: ObservableObject {
         let generation = profileGeneration
         let cursor = reset ? "0" : redisNextCursor
         if !reset && cursor == "0" { return }
+        let requestID = UUID()
+        redisScanRequestID = requestID
         let startedAt = Date()
         let includeSize = redisIncludeSize
         isLoading = true
         errorMessage = nil
+        if reset {
+            redisKeys = []
+            redisNextCursor = "0"
+            redisSelectedKey = nil
+            redisDetailRequestID = nil
+        }
         setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
@@ -1130,7 +1147,7 @@ final class DatabaseFeatureModel: ObservableObject {
             }.value
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "SCAN", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: result.keys.count, rowsAffected: nil, errorMessage: nil))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), redisScanRequestID == requestID else { return }
             setConnectionStatus(.connected, for: profile.id)
             redisKeys = reset ? result.keys : Array(Dictionary(grouping: redisKeys + result.keys, by: \.key).compactMap { $0.value.first })
             redisNextCursor = result.nextCursor
@@ -1138,19 +1155,22 @@ final class DatabaseFeatureModel: ObservableObject {
             let sanitizedError = executionError(error)
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "SCAN", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), redisScanRequestID == requestID else { return }
             errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
+        if isCurrent(profileID: profile.id, generation: generation), redisScanRequestID == requestID { isLoading = false }
     }
 
     func loadRedisKey(_ key: String) async {
         guard let profile = selectedProfile, profile.kind == .redis else { return }
         let generation = profileGeneration
+        let requestID = UUID()
+        redisDetailRequestID = requestID
         let startedAt = Date()
         isLoading = true
         errorMessage = nil
+        redisSelectedKey = nil
         do {
             let connection = connection(profile)
             let detail = try await Task.detached { [operations] in
@@ -1158,18 +1178,18 @@ final class DatabaseFeatureModel: ObservableObject {
             }.value
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "GET \(key)", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: 1, rowsAffected: nil, errorMessage: nil))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), redisDetailRequestID == requestID else { return }
             setConnectionStatus(.connected, for: profile.id)
             redisSelectedKey = detail
         } catch {
             let sanitizedError = executionError(error)
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "GET \(key)", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), redisDetailRequestID == requestID else { return }
             errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
+        if isCurrent(profileID: profile.id, generation: generation), redisDetailRequestID == requestID { isLoading = false }
     }
 
     func saveRedisString(key: String, value: String, ttl: Int64?, confirmed: Bool) async -> Bool {
@@ -1264,9 +1284,15 @@ final class DatabaseFeatureModel: ObservableObject {
     func loadNacosConfigs(dataId: String, group: String, page: Int = 1) async {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
         let generation = profileGeneration
+        let requestID = UUID()
+        nacosConfigListRequestID = requestID
         let startedAt = Date()
         isLoading = true
         errorMessage = nil
+        if page == 1 {
+            nacosConfigs = []
+            nacosConfigTotalCount = 0
+        }
         setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
@@ -1275,7 +1301,7 @@ final class DatabaseFeatureModel: ObservableObject {
             }.value
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST CONFIGS", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: result.items.count, rowsAffected: nil, errorMessage: nil))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), nacosConfigListRequestID == requestID else { return }
             setConnectionStatus(.connected, for: profile.id)
             nacosConfigs = result.items
             nacosConfigTotalCount = result.totalCount
@@ -1283,19 +1309,22 @@ final class DatabaseFeatureModel: ObservableObject {
             let sanitizedError = executionError(error)
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST CONFIGS", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), nacosConfigListRequestID == requestID else { return }
             errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
+        if isCurrent(profileID: profile.id, generation: generation), nacosConfigListRequestID == requestID { isLoading = false }
     }
 
     func loadNacosConfig(dataId: String, group: String) async {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
         let generation = profileGeneration
+        let requestID = UUID()
+        nacosConfigDetailRequestID = requestID
         let startedAt = Date()
         isLoading = true
         errorMessage = nil
+        nacosSelectedConfig = nil
         do {
             let connection = connection(profile)
             let detail = try await Task.detached { [operations] in
@@ -1303,18 +1332,18 @@ final class DatabaseFeatureModel: ObservableObject {
             }.value
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "GET CONFIG \(group)/\(dataId)", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: 1, rowsAffected: nil, errorMessage: nil))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), nacosConfigDetailRequestID == requestID else { return }
             setConnectionStatus(.connected, for: profile.id)
             nacosSelectedConfig = detail
         } catch {
             let sanitizedError = executionError(error)
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "GET CONFIG \(group)/\(dataId)", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), nacosConfigDetailRequestID == requestID else { return }
             errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
+        if isCurrent(profileID: profile.id, generation: generation), nacosConfigDetailRequestID == requestID { isLoading = false }
     }
 
     func publishNacosConfig(dataId: String, group: String, content: String, type: String?, confirmed: Bool) async -> Bool {
@@ -1341,9 +1370,15 @@ final class DatabaseFeatureModel: ObservableObject {
     func loadNacosServices(serviceName: String, group: String, page: Int = 1) async {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
         let generation = profileGeneration
+        let requestID = UUID()
+        nacosServiceListRequestID = requestID
         let startedAt = Date()
         isLoading = true
         errorMessage = nil
+        if page == 1 {
+            nacosServices = []
+            nacosServiceTotalCount = 0
+        }
         setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
@@ -1352,7 +1387,7 @@ final class DatabaseFeatureModel: ObservableObject {
             }.value
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST SERVICES", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: result.items.count, rowsAffected: nil, errorMessage: nil))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), nacosServiceListRequestID == requestID else { return }
             setConnectionStatus(.connected, for: profile.id)
             nacosServices = result.items
             nacosServiceTotalCount = result.totalCount
@@ -1360,19 +1395,22 @@ final class DatabaseFeatureModel: ObservableObject {
             let sanitizedError = executionError(error)
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST SERVICES", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), nacosServiceListRequestID == requestID else { return }
             errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
+        if isCurrent(profileID: profile.id, generation: generation), nacosServiceListRequestID == requestID { isLoading = false }
     }
 
     func loadNacosInstances(serviceName: String, group: String) async {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
         let generation = profileGeneration
+        let requestID = UUID()
+        nacosInstanceRequestID = requestID
         let startedAt = Date()
         isLoading = true
         errorMessage = nil
+        nacosInstances = []
         do {
             let connection = connection(profile)
             let items = try await Task.detached { [operations] in
@@ -1380,18 +1418,18 @@ final class DatabaseFeatureModel: ObservableObject {
             }.value
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST INSTANCES", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: items.count, rowsAffected: nil, errorMessage: nil))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), nacosInstanceRequestID == requestID else { return }
             setConnectionStatus(.connected, for: profile.id)
             nacosInstances = items
         } catch {
             let sanitizedError = executionError(error)
             let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
             appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST INSTANCES", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
-            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            guard isCurrent(profileID: profile.id, generation: generation), nacosInstanceRequestID == requestID else { return }
             errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
+        if isCurrent(profileID: profile.id, generation: generation), nacosInstanceRequestID == requestID { isLoading = false }
     }
 
     private func performNacosWrite(
@@ -1537,6 +1575,12 @@ final class DatabaseFeatureModel: ObservableObject {
     private func activateProfile(_ profile: DatabaseProfile) {
         profileGeneration &+= 1
         tableRequestID = nil
+        redisScanRequestID = nil
+        redisDetailRequestID = nil
+        nacosConfigListRequestID = nil
+        nacosConfigDetailRequestID = nil
+        nacosServiceListRequestID = nil
+        nacosInstanceRequestID = nil
         selectedProfileID = profile.id
         selectedTable = nil
         openTableTabs = []
@@ -1566,6 +1610,12 @@ final class DatabaseFeatureModel: ObservableObject {
     private func clearProfileScopedState() {
         profileGeneration &+= 1
         tableRequestID = nil
+        redisScanRequestID = nil
+        redisDetailRequestID = nil
+        nacosConfigListRequestID = nil
+        nacosConfigDetailRequestID = nil
+        nacosServiceListRequestID = nil
+        nacosInstanceRequestID = nil
         selectedProfileID = nil
         selectedTable = nil
         openTableTabs = []

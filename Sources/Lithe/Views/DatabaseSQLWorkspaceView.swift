@@ -728,23 +728,8 @@ private struct DatabaseQueryResultGrid: View {
     }
 
     private func display(_ value: DatabaseValue?) -> String {
-        switch value {
-        case nil, .null: "NULL"
-        case let .string(value): value.isEmpty ? "\"\"" : value
-        case let .integer(value): String(value)
-        case let .number(value): String(value)
-        case let .decimal(value): value
-        case let .bool(value): value ? "true" : "false"
-        case let .binary(value): "Binary (\(value.count) bytes)"
-        case let .object(value): databaseSQLJSONText(.object(value))
-        case let .array(value): databaseSQLJSONText(.array(value))
-        }
+        value?.displayText ?? "NULL"
     }
-}
-
-private func databaseSQLJSONText(_ value: DatabaseValue) -> String {
-    guard let data = try? JSONEncoder().encode(value) else { return String(describing: value) }
-    return String(decoding: data, as: UTF8.self)
 }
 
 private struct DatabaseStructureView: View {
@@ -850,17 +835,7 @@ private struct DatabaseStructureView: View {
     }
 
     private func display(_ value: DatabaseValue) -> String {
-        switch value {
-        case .null: "NULL"
-        case let .string(value): value
-        case let .integer(value): String(value)
-        case let .number(value): String(value)
-        case let .decimal(value): value
-        case let .bool(value): value ? "true" : "false"
-        case let .binary(value): "Binary (\(value.count) bytes)"
-        case let .object(value): String(describing: value)
-        case let .array(value): String(describing: value)
-        }
+        value.displayText
     }
 }
 

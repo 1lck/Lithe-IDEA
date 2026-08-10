@@ -2449,6 +2449,10 @@ fn mysql_value(row: &MySqlRow, index: usize, kind: &str) -> Value {
         "DATETIME" => row
             .try_get::<chrono::NaiveDateTime, _>(index)
             .map(|v| Value::String(v.to_string()))
+            .or_else(|_| {
+                row.try_get::<chrono::DateTime<chrono::Utc>, _>(index)
+                    .map(|v| Value::String(v.to_rfc3339()))
+            })
             .unwrap_or_else(|_| mysql_text(row, index)),
         "TIMESTAMP" => row
             .try_get::<chrono::DateTime<chrono::Utc>, _>(index)
@@ -2457,11 +2461,17 @@ fn mysql_value(row: &MySqlRow, index: usize, kind: &str) -> Value {
                 row.try_get::<chrono::NaiveDateTime, _>(index)
                     .map(|v| Value::String(v.to_string()))
             })
+            .or_else(|_| {
+                row.try_get::<chrono::DateTime<chrono::Local>, _>(index)
+                    .map(|v| Value::String(v.to_rfc3339()))
+            })
             .unwrap_or_else(|_| mysql_text(row, index)),
         "BOOLEAN" | "BOOL" => row
             .try_get::<bool, _>(index)
             .map(Value::Bool)
             .or_else(|_| row.try_get::<i8, _>(index).map(|v| Value::Bool(v != 0)))
+            .or_else(|_| row.try_get::<u8, _>(index).map(|v| Value::Bool(v != 0)))
+            .or_else(|_| row.try_get::<i64, _>(index).map(|v| Value::Bool(v != 0)))
             .unwrap_or_else(|_| mysql_text(row, index)),
         "JSON" => row
             .try_get::<Value, _>(index)
@@ -2478,7 +2488,9 @@ fn mysql_value(row: &MySqlRow, index: usize, kind: &str) -> Value {
             .try_get::<i8, _>(index)
             .map(|v| json!(v))
             .or_else(|_| row.try_get::<u8, _>(index).map(|v| json!(v)))
+            .or_else(|_| row.try_get::<i16, _>(index).map(|v| json!(v)))
             .or_else(|_| row.try_get::<i64, _>(index).map(|v| json!(v)))
+            .or_else(|_| row.try_get::<u64, _>(index).map(|v| json!(v)))
             .unwrap_or_else(|_| mysql_text(row, index)),
         value if value.contains("INT") || value == "YEAR" => row
             .try_get::<i64, _>(index)
@@ -2491,7 +2503,26 @@ fn mysql_value(row: &MySqlRow, index: usize, kind: &str) -> Value {
 fn mysql_text(row: &MySqlRow, index: usize) -> Value {
     row.try_get::<String, _>(index)
         .map(Value::String)
+        .or_else(|_| row.try_get_unchecked::<String, _>(index).map(Value::String))
+        .or_else(|_| {
+            row.try_get::<Vec<u8>, _>(index)
+                .map(|value| mysql_bytes_value(&value))
+        })
+        .or_else(|_| {
+            row.try_get_unchecked::<Vec<u8>, _>(index)
+                .map(|value| mysql_bytes_value(&value))
+        })
+        .or_else(|_| row.try_get::<i64, _>(index).map(|value| json!(value)))
+        .or_else(|_| row.try_get::<u64, _>(index).map(|value| json!(value)))
+        .or_else(|_| row.try_get::<f64, _>(index).map(|value| json!(value)))
         .unwrap_or_else(|_| Value::String("<unsupported>".into()))
+}
+
+fn mysql_bytes_value(value: &[u8]) -> Value {
+    match String::from_utf8(value.to_vec()) {
+        Ok(text) => Value::String(text),
+        Err(_) => tagged_binary(value),
+    }
 }
 
 fn postgres_value(row: &PgRow, index: usize, kind: &str) -> Value {
@@ -4096,6 +4127,12 @@ mod tests {
         assert_eq!(binary_input(legacy.as_object().unwrap()), Some("AP8="));
         let mixed = json!({"binary":"AP8=","label":"payload"});
         assert_eq!(binary_input(mixed.as_object().unwrap()), None);
+    }
+
+    #[test]
+    fn mysql_text_fallback_preserves_utf8_names_and_binary_payloads() {
+        assert_eq!(mysql_bytes_value(b"analytics"), json!("analytics"));
+        assert_eq!(mysql_bytes_value(&[0, 255]), json!({"binary":"AP8="}));
     }
 
     #[test]

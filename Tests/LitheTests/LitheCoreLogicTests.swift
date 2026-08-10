@@ -148,6 +148,14 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func databaseValueDisplayKeepsNullAndEmptyStringDistinct() {
+        #expect(DatabaseValue.null.displayText == "NULL")
+        #expect(DatabaseValue.string("").displayText == "\"\"")
+        #expect(DatabaseValue.string("NULL").displayText == "NULL")
+        #expect(DatabaseValue.object(["empty": .string("")]).displayText == #"{"empty":""}"#)
+    }
+
+    @Test
     func databaseProfilesKeepPasswordsOutOfPreferences() throws {
         let preferences = DatabaseTestKeyValueStore()
         let secrets = DatabaseTestSecureStore()
@@ -471,6 +479,7 @@ struct LitheCoreLogicTests {
 
         await feature.select(profile)
         #expect(feature.databaseOptions == ["alpha", "beta"])
+        #expect(feature.connectionStatus(for: profile) == .connected)
         await feature.selectDatabase("beta", for: profile)
 
         #expect(feature.selectedProfile?.database == "beta")
@@ -546,6 +555,38 @@ struct LitheCoreLogicTests {
         await feature.loadRedisKey("session:42")
         #expect(feature.connectionStatus(for: profile) == .connected)
         #expect(feature.redisSelectedKey?.stringValue == "ready")
+    }
+
+    @Test
+    @MainActor
+    func databaseRedisRescanFailureDoesNotLeaveOldKeysVisible() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let profile = DatabaseProfile(name: "Redis", kind: .redis, host: "127.0.0.1", port: 6379, database: "0")
+        try store.save([profile])
+        let calls = TestCounter()
+        let runner = RecordingProcessRunner { request in
+            calls.value += 1
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            if calls.value == 1 {
+                return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":{"keys":[{"key":"session:42","type":"string","ttl":60,"size":9}],"nextCursor":"0"}}"#, exitCode: 0)
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":false,"error":{"code":"redis_error","message":"NOAUTH"}}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(profile)
+        await feature.loadRedisKeys(pattern: "*")
+        #expect(feature.redisKeys.map(\.key) == ["session:42"])
+        await feature.loadRedisKeys(pattern: "*")
+        #expect(feature.redisKeys.isEmpty)
+        #expect(feature.errorMessage?.contains("NOAUTH") == true)
+        #expect(feature.connectionStatus(for: profile) == .failed)
     }
 
     @Test

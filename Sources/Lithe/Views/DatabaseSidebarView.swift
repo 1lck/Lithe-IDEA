@@ -1230,7 +1230,7 @@ struct DatabaseSidebarView: View {
         }
         return row.keys.sorted().compactMap { key in
             guard let value = row[key] else { return nil }
-            return "\(key): \(String(describing: value))"
+            return "\(key): \(value.displayText)"
         }.joined(separator: "  ")
     }
 }
@@ -1764,6 +1764,11 @@ struct DatabaseConnectionEditor: View {
                                 let digitsOnly = value.filter(\.isNumber)
                                 if digitsOnly != value { database = digitsOnly }
                             }
+                        if let redisDatabaseValidationMessage {
+                            Text(redisDatabaseValidationMessage)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(LitheTheme.error)
+                        }
                         Text("Leave the database index at 0 for the standard Redis database.")
                             .font(.system(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
@@ -1822,7 +1827,7 @@ struct DatabaseConnectionEditor: View {
                     .buttonStyle(LitheSecondaryButtonStyle())
                 Button("Connect") { connect() }
                     .buttonStyle(LithePrimaryButtonStyle())
-                    .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || model.databaseFeature.isLoading)
+                    .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || redisDatabaseValidationMessage != nil || model.databaseFeature.isLoading)
             }
             .padding(.horizontal, 16)
             .frame(height: 58)
@@ -1850,6 +1855,10 @@ struct DatabaseConnectionEditor: View {
     }
 
     private func connect() {
+        if let redisDatabaseValidationMessage {
+            model.databaseFeature.errorMessage = redisDatabaseValidationMessage
+            return
+        }
         let candidate = DatabaseProfile(id: profile?.id ?? UUID(), name: name, kind: kind, host: host, port: UInt16(port) ?? 0, username: username, database: database, path: path, ssl: ssl, group: "", folderID: folderID, colorHex: colorHex, readOnly: readOnly, productionProtection: productionProtection, maskSensitiveFields: maskSensitiveFields, sensitiveColumnPatterns: sensitiveColumnPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }, caCertificatePath: ssl ? caCertificatePath : "", serverName: ssl ? serverName : "", sshHost: usesSSHTunnel ? sshHost : "", sshPort: usesSSHTunnel ? (UInt16(sshPort) ?? 22) : 0, sshUsername: usesSSHTunnel ? sshUsername : "", sshKeyPath: usesSSHTunnel ? sshKeyPath : "", sshLocalPort: usesSSHTunnel ? (UInt16(sshLocalPort) ?? 0) : 0, proxyURL: usesSSHTunnel ? proxyURL : "")
         Task {
             let saved = if profile == nil {
@@ -1859,5 +1868,14 @@ struct DatabaseConnectionEditor: View {
             }
             if saved { isPresented = false }
         }
+    }
+
+    private var redisDatabaseValidationMessage: String? {
+        guard kind == .redis else { return nil }
+        let value = database.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.isEmpty || UInt32(value) != nil else {
+            return "Redis database index must be between 0 and 4294967295."
+        }
+        return nil
     }
 }

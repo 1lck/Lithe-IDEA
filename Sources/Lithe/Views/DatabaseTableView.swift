@@ -709,17 +709,7 @@ struct DatabaseTableView: View {
     }
 
     private func display(_ value: DatabaseValue?) -> String {
-        switch value {
-        case nil, .null: "NULL"
-        case let .string(value): value.isEmpty ? "\"\"" : value
-        case let .integer(value): String(value)
-        case let .number(value): String(value)
-        case let .decimal(value): value
-        case let .bool(value): value ? "true" : "false"
-        case let .binary(value): "Binary (\(value.count) bytes)"
-        case let .object(value): databaseJSONText(.object(value))
-        case let .array(value): databaseJSONText(.array(value))
-        }
+        value?.displayText ?? "NULL"
     }
 
     private func metadataLabel(_ row: DatabaseRow) -> String {
@@ -1211,23 +1201,8 @@ private struct DatabaseRowDetailsSheet: View {
     }
 
     private func valueText(_ value: DatabaseValue?) -> String {
-        switch value {
-        case nil, .null: "NULL"
-        case let .string(value): value
-        case let .integer(value): String(value)
-        case let .number(value): String(value)
-        case let .decimal(value): value
-        case let .bool(value): value ? "true" : "false"
-        case let .binary(value): "Binary (\(value.count) bytes)"
-        case let .object(value): databaseJSONText(.object(value))
-        case let .array(value): databaseJSONText(.array(value))
-        }
+        value?.displayText ?? "NULL"
     }
-}
-
-private func databaseJSONText(_ value: DatabaseValue) -> String {
-    guard let data = try? JSONEncoder().encode(value) else { return String(describing: value) }
-    return String(decoding: data, as: UTF8.self)
 }
 
 private struct DatabaseReplaceSheet: View {
