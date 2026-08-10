@@ -678,7 +678,7 @@ struct GitLogView: View {
                         }
                     }
                     .litheScrollViewChrome(hideHorizontal: true)
-                    .onChange(of: model.selectedGitCommit?.hash) {
+                    .onChange(of: model.selectedGitCommit?.hash) { _ in
                         guard let hash = model.selectedGitCommit?.hash else { return }
                         withAnimation(.easeOut(duration: 0.16)) {
                             proxy.scrollTo(hash, anchor: .center)

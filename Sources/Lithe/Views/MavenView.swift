@@ -32,7 +32,7 @@ struct MavenView: View {
                 resetTreeState()
             }
         }
-        .onChange(of: feature.project?.id) {
+        .onChange(of: feature.project?.id) { _ in
             resetTreeState()
         }
     }

@@ -24,13 +24,13 @@ struct ProjectReplaceView: View {
         }
         .frame(minWidth: 780, minHeight: 560)
         .background(LitheTheme.window)
-        .onChange(of: model.projectReplaceQuery) {
+        .onChange(of: model.projectReplaceQuery) { _ in
             clearPreview()
         }
-        .onChange(of: model.projectReplaceText) {
+        .onChange(of: model.projectReplaceText) { _ in
             clearPreview()
         }
-        .onChange(of: model.projectReplaceOptions) {
+        .onChange(of: model.projectReplaceOptions) { _ in
             clearPreview()
         }
     }
