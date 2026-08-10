@@ -2,6 +2,7 @@
 #include "terminal_model.h"
 
 #include <cassert>
+#include <chrono>
 #include <map>
 #include <string>
 #include <vector>
@@ -183,9 +184,9 @@ void testShutdownClears() {
 void testHeavyOutputStaysBounded() {
     Harness h;
     h.model->create(cmdShell(), "C:/proj", {});
-    // Feed far more lines than TerminalBuffer::MaximumRows (2000). The buffer
-    // must evict the oldest rows so memory stays bounded; a render snapshot
-    // must never exceed its cap.
+    // Feed far more lines than the emulator's scrollback cap (2000 rows). The
+    // emulator must evict the oldest rows so memory stays bounded; a render
+    // snapshot must never exceed its cap.
     std::string chunk;
     chunk.reserve(6000 * 8);
     for (int i = 0; i < 6000; ++i) {
@@ -202,6 +203,67 @@ void testHeavyOutputStaysBounded() {
     assert(!contains(rendered, "L100"));
 }
 
+void testOutputCoalescesFlushNotifications() {
+    Harness h;
+    int sinkCalls = 0;
+    h.model->setSinks(
+        [&sinkCalls](const std::string&, const std::string&) { ++sinkCalls; },
+        {}, {}, {});
+    h.model->create(cmdShell(), "C:/proj", {});
+    // A burst of output batches must schedule exactly one UI flush. The buffer
+    // itself stays current (bounded) even though the sink fires only once.
+    for (int i = 0; i < 50; ++i) {
+        h.fakes[0]->feed("chunk-" + std::to_string(i) + "\n");
+    }
+    assert(sinkCalls == 1);
+    assert(contains(h.model->find("t1")->render(4096), "chunk-49"));
+    // The UI thread drains and closes the coalescing window; the next burst
+    // schedules exactly one more flush.
+    h.model->flushPending();
+    for (int i = 0; i < 50; ++i) {
+        h.fakes[0]->feed("more-" + std::to_string(i) + "\n");
+    }
+    assert(sinkCalls == 2);
+    assert(contains(h.model->find("t1")->render(4096), "more-49"));
+}
+
+void testDisplayMetadata() {
+    using Clock = std::chrono::system_clock;
+    Harness h;
+    const auto before = Clock::now();
+    h.model->create(cmdShell(), "C:/Users/me/projects/Lithe-IDEA", {});
+    const auto after = Clock::now();
+    const auto* session = h.model->find("t1");
+    assert(session != nullptr);
+
+    // Directory name is the last path component.
+    assert(session->directoryName() == "Lithe-IDEA");
+    // Display name falls back to the shell's base name (no process title yet).
+    assert(session->displayName() == "cmd.exe");
+    assert(session->processTitle().empty());
+
+    // Elapsed time grows from the recorded start; a time before launch clamps to 0.
+    assert(session->elapsedSeconds(before) == 0);
+    const auto elapsedAtStart = session->elapsedSeconds(after);
+    assert(elapsedAtStart >= 0);
+    assert(session->elapsedSeconds(after + std::chrono::seconds(90)) >= 89);
+    assert(session->elapsedSeconds(after + std::chrono::seconds(90)) >= elapsedAtStart);
+
+    // Formatting mirrors the Mac readout: MM:SS, or H:MM:SS past an hour.
+    assert(session->elapsedDescription(after) == "00:00" ||
+           session->elapsedDescription(after) == "00:01");
+    // A synthetic +5m now yields exactly "05:00" (elapsed clamps past 90s only
+    // because we asserted it above; use a fresh value here).
+    assert(session->elapsedDescription(after + std::chrono::minutes(5)) == "05:00");
+
+    // The readout freezes at the stop time once the session exits.
+    h.fakes[0]->emitState(ProcessLifecycleState::Finished, 0);
+    const auto frozen = session->elapsedSeconds(after + std::chrono::seconds(300));
+    assert(frozen < 10);  // real start->exit was instantaneous; it did not advance to +300s
+    assert(session->exitCode().has_value());
+    assert(*session->exitCode() == 0);
+}
+
 } // namespace
 
 int main() {
@@ -209,6 +271,7 @@ int main() {
     testOutputIsolationBetweenSessions();
     testBufferSurvivesSwitch();
     testLifecycleStates();
+    testDisplayMetadata();
     testFailedStart();
     testScopedClearAndInterrupt();
     testRestartRelaunchesOnlyTargetAndDropsStaleOutput();
@@ -216,5 +279,6 @@ int main() {
     testCloseAllClearsAndBumpsEpoch();
     testShutdownClears();
     testHeavyOutputStaysBounded();
+    testOutputCoalescesFlushNotifications();
     return 0;
 }

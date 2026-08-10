@@ -9,7 +9,6 @@
 #include "inline_diff.h"
 #include "semver.h"
 #include "syntax_highlighter.h"
-#include "terminal_buffer.h"
 
 #include <cassert>
 #include <cmath>
@@ -130,24 +129,6 @@ void testVisibilityRules() {
     assert(rules.isHiddenDirectoryName("TaRgEt"));
 }
 
-void testTerminalBuffer() {
-    TerminalBuffer buffer;
-    buffer.append("hello\nworld");
-    assert(buffer.render(100) == "hello\nworld");
-    buffer.reset();
-    buffer.append("abc\x1b[2DXY");
-    assert(buffer.render(100) == "aXY");
-    buffer.reset();
-    buffer.append("\x1b]0;ignored title\x07ok");
-    assert(buffer.render(100) == "ok");
-    buffer.reset();
-    buffer.append("你好");
-    assert(buffer.render(100) == "你好");
-    buffer.reset();
-    buffer.append("\x1b[999999999999Cdone");
-    assert(buffer.render(5) == "done");
-}
-
 void testGitGraph() {
     const auto layout = layoutGitGraph({
         {"merge", {"feature", "root"}, "HEAD -> main", "Merge feature"},
@@ -220,7 +201,6 @@ int main() {
     testDiffCollapseAndSplitLayout();
     testInlineDiff();
     testVisibilityRules();
-    testTerminalBuffer();
     testGitGraph();
     testGitReferenceTree();
     testSmallUtilities();

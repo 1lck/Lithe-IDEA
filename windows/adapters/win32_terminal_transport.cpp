@@ -453,6 +453,10 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
             return;
         }
         STARTUPINFOEXW startup{sizeof(STARTUPINFOEXW)};
+        // Without STARTF_USESTDHANDLES the child inherits the parent's std
+        // handles instead of the pseudo console, so cmd/powershell write their
+        // banner to the parent console and never exchange I/O over the ConPTY.
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
         startup.lpAttributeList = attributes;
         PROCESS_INFORMATION processInfo{};
         auto mutableCommand = *command;

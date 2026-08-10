@@ -96,18 +96,28 @@ void TerminalModel::shutdown() {
 }
 
 bool TerminalModel::send(const std::string& id, const std::string& input) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = sessions_.find(id);
-    if (it == sessions_.end()) return false;
-    it->second->send(input);
+    TerminalSession* session = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessions_.find(id);
+        if (it == sessions_.end()) return false;
+        session = it->second.get();
+    }
+    // Invoked outside the model lock: a transport write failure routes back
+    // through the error sink, which re-enters this lock.
+    session->send(input);
     return true;
 }
 
 bool TerminalModel::interrupt(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = sessions_.find(id);
-    if (it == sessions_.end()) return false;
-    it->second->interrupt();
+    TerminalSession* session = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessions_.find(id);
+        if (it == sessions_.end()) return false;
+        session = it->second.get();
+    }
+    session->interrupt();
     return true;
 }
 
@@ -120,10 +130,17 @@ bool TerminalModel::clear(const std::string& id) {
 }
 
 bool TerminalModel::restart(const std::string& id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = sessions_.find(id);
-    if (it == sessions_.end()) return false;
-    it->second->restart();
+    TerminalSession* session = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessions_.find(id);
+        if (it == sessions_.end()) return false;
+        session = it->second.get();
+    }
+    // Do not hold the model lock while restarting: stop() joins the transport
+    // worker, whose final exit callback routes through this lock. Holding it
+    // here would deadlock.
+    session->restart();
     return true;
 }
 
@@ -156,12 +173,18 @@ TerminalSession* TerminalModel::find(const std::string& id) {
     return it == sessions_.end() ? nullptr : it->second.get();
 }
 
+void TerminalModel::flushPending() {
+    outputFlushScheduled_.store(false);
+}
+
 void TerminalModel::setSinks(OutputSink output, ErrorSink error, StateSink state, SessionListSink listChanged) {
     std::lock_guard<std::mutex> lock(mutex_);
     outputSink_ = std::move(output);
     errorSink_ = std::move(error);
     stateSink_ = std::move(state);
     listSink_ = std::move(listChanged);
+    // A reattached listener starts a fresh coalescing window.
+    outputFlushScheduled_.store(false);
 }
 
 void TerminalModel::attachHandlers(TerminalSession& session) {
@@ -176,7 +199,12 @@ void TerminalModel::attachHandlers(TerminalSession& session) {
             std::lock_guard<std::mutex> lock(mutex_);
             sink = outputSink_;
         }
-        if (sink) sink(id, bytes);
+        // Coalesce: at most one UI flush per event-loop cycle. Only the first
+        // output batch of a window schedules the flush; the UI thread closes the
+        // window via flushPending() after it drains every session's view.
+        if (sink && !outputFlushScheduled_.exchange(true)) {
+            sink(id, bytes);
+        }
     };
     auto wrapError = [this, capturedEpoch](const std::string& id, const std::string& message) {
         if (epoch_.load() != capturedEpoch) return;

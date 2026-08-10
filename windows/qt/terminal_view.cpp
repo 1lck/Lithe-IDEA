@@ -1,59 +1,41 @@
 #include "terminal_view.h"
 
 #include "terminal_model.h"
-#include "terminal_session.h"
+#include "terminal_surface.h"
 
-#include <QFont>
-#include <QFontDatabase>
-#include <QLineEdit>
-#include <QPlainTextEdit>
+#include <QColor>
+#include <QPalette>
 #include <QVBoxLayout>
 
 TerminalView::TerminalView(QWidget* parent)
-    : QWidget(parent), output_(new QPlainTextEdit(this)), input_(new QLineEdit(this)) {
-    output_->setReadOnly(true);
-    output_->setLineWrapMode(QPlainTextEdit::NoWrap);
-    output_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    input_->setPlaceholderText(TerminalView::tr("Enter terminal command"));
-
+    : QWidget(parent), surface_(new TerminalSurface(this)) {
+    // Mac canvas: the surface floats inside 8px of padding on the terminal's
+    // dark background (#121315, macOS nativeBackgroundColor).
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(0);
-    layout->addWidget(output_);
-    layout->addWidget(input_);
-
-    connect(input_, &QLineEdit::returnPressed, this, &TerminalView::submitInput);
+    layout->addWidget(surface_);
+    QPalette canvasPalette = palette();
+    canvasPalette.setColor(QPalette::Window, QColor(0x12, 0x13, 0x15));
+    setPalette(canvasPalette);
+    setAutoFillBackground(true);
 }
 
 void TerminalView::bind(lithe::windows::app::TerminalModel* model, const QString& sessionId) {
     model_ = model;
     sessionId_ = sessionId;
+    surface_->bind(model, sessionId);
     refresh();
 }
 
 void TerminalView::refresh() {
-    if (!model_ || sessionId_.isEmpty()) {
-        output_->clear();
-        return;
-    }
-    const auto* session = model_->find(sessionId_.toStdString());
-    if (session == nullptr) {
-        output_->clear();
-        return;
-    }
-    // Cap the rendered snapshot so a runaway buffer never copies an unbounded
-    // payload into the widget on each refresh.
-    output_->setPlainText(QString::fromStdString(session->render(65536)));
+    surface_->refresh();
+}
+
+void TerminalView::requestInputFocus() {
+    surface_->setFocus();
 }
 
 QString TerminalView::text() const {
-    return output_->toPlainText();
-}
-
-void TerminalView::submitInput() {
-    if (!model_ || sessionId_.isEmpty()) return;
-    const auto text = input_->text();
-    input_->clear();
-    if (text.isEmpty()) return;
-    model_->send(sessionId_.toStdString(), (text + "\r\n").toStdString());
+    return surface_->text();
 }

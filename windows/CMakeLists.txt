@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(LitheWindows LANGUAGES CXX)
+project(LitheWindows LANGUAGES C CXX)
 
 include(CTest)
 enable_testing()
@@ -11,6 +11,12 @@ endif()
 
 if(WIN32)
     add_compile_definitions(NOMINMAX)
+endif()
+
+if(MSVC)
+    # Sources are UTF-8; without this, MSVC assumes the active code page (e.g. 936)
+    # and mis-parses non-ASCII string literals.
+    add_compile_options(/utf-8)
 endif()
 
 add_library(lithe_windows_core STATIC
@@ -61,6 +67,27 @@ if(WIN32)
     )
 endif()
 
+add_library(lithe_windows_libvterm STATIC
+    third_party/libvterm/src/encoding.c
+    third_party/libvterm/src/keyboard.c
+    third_party/libvterm/src/mouse.c
+    third_party/libvterm/src/parser.c
+    third_party/libvterm/src/pen.c
+    third_party/libvterm/src/screen.c
+    third_party/libvterm/src/state.c
+    third_party/libvterm/src/unicode.c
+    third_party/libvterm/src/vterm.c
+)
+target_compile_features(lithe_windows_libvterm PUBLIC c_std_99)
+target_include_directories(lithe_windows_libvterm PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libvterm/src"
+)
+if(WIN32)
+    # libvterm uses strncpy etc. which the MSVC CRT deprecates.
+    target_compile_definitions(lithe_windows_libvterm PUBLIC _CRT_SECURE_NO_WARNINGS)
+endif()
+
 add_library(lithe_windows_algorithms STATIC
     app/algorithms/argument_tokenizer.cpp
     app/algorithms/diff_collapse.cpp
@@ -73,12 +100,13 @@ add_library(lithe_windows_algorithms STATIC
     app/algorithms/inline_diff.cpp
     app/algorithms/semver.cpp
     app/algorithms/syntax_highlighter.cpp
-    app/algorithms/terminal_buffer.cpp
+    app/algorithms/terminal_emulator.cpp
 )
 target_include_directories(lithe_windows_algorithms PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
 )
 target_compile_features(lithe_windows_algorithms PUBLIC cxx_std_23)
+target_link_libraries(lithe_windows_algorithms PUBLIC lithe_windows_libvterm)
 
 add_library(lithe_windows_app STATIC
     app/features/document_feature.cpp
@@ -142,6 +170,20 @@ target_include_directories(lithe_windows_algorithms_tests PRIVATE
 )
 target_link_libraries(lithe_windows_algorithms_tests PRIVATE lithe_windows_algorithms)
 add_test(NAME lithe_windows_algorithms COMMAND lithe_windows_algorithms_tests)
+
+# Platform-independent libvterm-backed terminal emulator tests (plain main +
+# assert, no Qt/Win32). Builds and runs off-Windows with g++; the emulator
+# source and the vendored pure-C libvterm are compiled as part of the
+# algorithms target.
+add_executable(lithe_windows_terminal_emulator_tests
+    tests/terminal_emulator_test.cpp
+)
+target_compile_features(lithe_windows_terminal_emulator_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_terminal_emulator_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
+)
+target_link_libraries(lithe_windows_terminal_emulator_tests PRIVATE lithe_windows_algorithms)
+add_test(NAME lithe_windows_terminal_emulator COMMAND lithe_windows_terminal_emulator_tests)
 
 # Platform-independent terminal feature-model test. Compiles the model and
 # session sources directly against the (pure-stdlib) algorithms target and a
@@ -354,6 +396,12 @@ if(LITHE_BUILD_QT_UI)
         qt/workbench_window.h
         qt/terminal_panel.cpp
         qt/terminal_panel.h
+        qt/terminal_status_bar.cpp
+        qt/terminal_status_bar.h
+        qt/terminal_surface.cpp
+        qt/terminal_surface.h
+        qt/terminal_keys.cpp
+        qt/terminal_keys.h
         qt/terminal_view.cpp
         qt/terminal_view.h
         packaging/lithe.rc
@@ -523,13 +571,24 @@ if(LITHE_BUILD_QT_UI)
         tests/terminal_panel_test.cpp
         qt/terminal_panel.cpp
         qt/terminal_panel.h
+        qt/terminal_status_bar.cpp
+        qt/terminal_status_bar.h
         qt/terminal_view.cpp
         qt/terminal_view.h
+        qt/terminal_surface.cpp
+        qt/terminal_surface.h
+        qt/terminal_keys.cpp
+        qt/terminal_keys.h
+        qt/ui_translation.cpp
+        qt/ui_translation.h
+        qt/lithe.qrc
     )
     target_compile_features(lithe_windows_terminal_panel_tests PRIVATE cxx_std_23)
     target_include_directories(lithe_windows_terminal_panel_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/qt"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
+        "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
     )
     target_link_libraries(lithe_windows_terminal_panel_tests PRIVATE
         lithe_windows_app
@@ -537,6 +596,26 @@ if(LITHE_BUILD_QT_UI)
     )
     add_test(NAME lithe_windows_terminal_panel COMMAND lithe_windows_terminal_panel_tests)
     set_tests_properties(lithe_windows_terminal_panel PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_executable(lithe_windows_terminal_surface_tests
+        tests/terminal_surface_test.cpp
+        qt/terminal_surface.cpp
+        qt/terminal_surface.h
+        qt/terminal_keys.cpp
+        qt/terminal_keys.h
+    )
+    target_compile_features(lithe_windows_terminal_surface_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_terminal_surface_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
+    target_link_libraries(lithe_windows_terminal_surface_tests PRIVATE
+        lithe_windows_app
+        Qt6::Widgets
+    )
+    add_test(NAME lithe_windows_terminal_surface COMMAND lithe_windows_terminal_surface_tests)
+    set_tests_properties(lithe_windows_terminal_surface PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
     if(LITHE_RUST_CORE_LIBRARY)
@@ -582,6 +661,7 @@ endif()
 set(LITHE_WINDOWS_TEST_TARGETS
     lithe_windows_phase0_tests
     lithe_windows_algorithms_tests
+    lithe_windows_terminal_emulator_tests
     lithe_windows_terminal_model_tests
     lithe_windows_app_tests
     lithe_windows_workbench_ui_state_tests
@@ -614,6 +694,9 @@ if(TARGET lithe_windows_workbench_tool_window_tests)
 endif()
 if(TARGET lithe_windows_terminal_panel_tests)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_terminal_panel_tests)
+endif()
+if(TARGET lithe_windows_terminal_surface_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_terminal_surface_tests)
 endif()
 if(TARGET lithe_windows_ui_theme_tests)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_ui_theme_tests)

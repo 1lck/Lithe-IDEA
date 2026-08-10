@@ -58,6 +58,11 @@ public:
     bool clear(const std::string& id);
     bool restart(const std::string& id);
 
+    // Called by the UI thread after it has drained every session's view.
+    // Closes the output-coalescing window so the next transport batch can
+    // schedule the next flush; safe to call while transport workers are running.
+    void flushPending();
+
     std::vector<std::string> sessionIds() const;
     std::optional<std::string> currentId() const;
     // Best-effort lookup for immediate inspection (e.g. rendering). Lifetime is
@@ -79,6 +84,10 @@ private:
     std::string currentId_;
     std::uint64_t nextId_ = 1;
     std::atomic<std::uint64_t> epoch_{0};
+    // Set when an output batch has scheduled a UI flush and cleared when the UI
+    // thread drains it (flushPending). Lets the worker thread coalesce a burst
+    // of output batches into one queued refresh instead of one per batch.
+    std::atomic<bool> outputFlushScheduled_{false};
 
     OutputSink outputSink_;
     ErrorSink errorSink_;

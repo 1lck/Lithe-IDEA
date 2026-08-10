@@ -1,21 +1,19 @@
 #pragma once
 
 #include "terminal_model.h"
+#include "terminal_surface.h"
 
 #include <QString>
 #include <QWidget>
-
-class QPlainTextEdit;
-class QLineEdit;
 
 namespace lithe::windows::app {
 class TerminalModel;
 }
 
-// Renders a single terminal session: a read-only bounded output area backed by
-// the model's TerminalBuffer, plus a line input. The view itself holds no
-// terminal state — refresh() reads a snapshot from the model so the model
-// remains the single source of truth (the UI only renders and forwards input).
+// Renders a single terminal session: a TerminalSurface bound to the session's
+// emulator. The view itself holds no terminal state — refresh() asks the
+// surface to re-read the emulator (the session remains the single source of
+// truth; the UI only renders and forwards input).
 class TerminalView : public QWidget {
     Q_OBJECT
 
@@ -24,15 +22,12 @@ public:
 
     void bind(lithe::windows::app::TerminalModel* model, const QString& sessionId);
     void refresh();
+    void requestInputFocus();
     QString sessionId() const { return sessionId_; }
     QString text() const;
-
-private slots:
-    void submitInput();
 
 private:
     lithe::windows::app::TerminalModel* model_ = nullptr;
     QString sessionId_;
-    QPlainTextEdit* output_;
-    QLineEdit* input_;
+    TerminalSurface* surface_;
 };
