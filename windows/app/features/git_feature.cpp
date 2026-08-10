@@ -5,8 +5,9 @@
 
 namespace lithe::windows::app {
 
-GitFeatureModel::GitFeatureModel(WorkbenchCoordinator& coordinator)
-    : coordinator_(coordinator) {}
+GitFeatureModel::GitFeatureModel(WorkbenchCoordinator& coordinator,
+                                 DocumentSafetySnapshotProvider* documents)
+    : coordinator_(coordinator), documents_(documents) {}
 
 void GitFeatureModel::refreshStatus(StateHandler handler) {
     {
@@ -332,6 +333,7 @@ void GitFeatureModel::clearStashRestoreConflict() {
 }
 
 void GitFeatureModel::write(GitWriteRequestDto request, StateHandler handler) {
+    if (blockUnsafeDocumentMutation(request.operation, handler)) return;
     {
         std::lock_guard lock(mutex_);
         state_.isWriting = true;
@@ -341,6 +343,33 @@ void GitFeatureModel::write(GitWriteRequestDto request, StateHandler handler) {
         [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
         applyWrite(std::move(result), std::move(handler));
     });
+}
+
+bool GitFeatureModel::blockUnsafeDocumentMutation(const std::string& operation,
+                                                  StateHandler& handler) {
+    if (documents_ == nullptr) return false;
+    static const std::vector<std::string> worktreeMutations{
+        "discard", "discardAll", "checkout", "checkoutRevision", "pull", "merge",
+        "rebase", "cherryPick", "revert", "reset", "stashApply", "stashPop",
+        "operationContinue", "operationAbort", "operationSkip"
+    };
+    if (std::find(worktreeMutations.begin(), worktreeMutations.end(), operation) ==
+        worktreeMutations.end()) return false;
+    const auto snapshot = documents_->documentSafetySnapshot();
+    if (snapshot.dirtyPaths.empty() && !snapshot.isSaving && !snapshot.hasConflicts) return false;
+    GitFeatureState state;
+    {
+        std::lock_guard lock(mutex_);
+        state_.documentSafety = snapshot;
+        state_.isWriting = false;
+        state_.error = CoreError{
+            CoreErrorCode::InvalidRequest,
+            "Save or close dirty and conflicted documents before this Git operation",
+            std::nullopt};
+        state = state_;
+    }
+    if (handler) handler(std::move(state));
+    return true;
 }
 
 void GitFeatureModel::runCommand(std::vector<std::string> arguments,
@@ -436,6 +465,8 @@ void GitFeatureModel::cloneRepository(std::string remote,
 }
 
 void GitFeatureModel::apply(std::string patch, std::string mode, StateHandler handler) {
+    if ((mode == "discard" || mode == "restoreIndex" || mode == "worktree") &&
+        blockUnsafeDocumentMutation("discard", handler)) return;
     const auto requestSerial = ++applyRequestSerial_;
     {
         std::lock_guard lock(mutex_);

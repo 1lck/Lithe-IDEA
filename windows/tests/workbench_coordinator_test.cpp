@@ -35,6 +35,16 @@ std::string requestValue(const std::string& request, const std::string& key) {
     return valueEnd == std::string::npos ? std::string{} : request.substr(valueStart, valueEnd - valueStart);
 }
 
+class FakeDocumentSafetyProvider final
+    : public lithe::windows::app::DocumentSafetySnapshotProvider {
+public:
+    lithe::windows::app::DocumentSafetySnapshot documentSafetySnapshot() const override {
+        return snapshot;
+    }
+
+    lithe::windows::app::DocumentSafetySnapshot snapshot;
+};
+
 } // namespace
 
 extern "C" {
@@ -321,7 +331,8 @@ int main() {
     assert(replacementState && replacementState->preview &&
            replacementState->preview->files.empty());
 
-    lithe::windows::app::GitFeatureModel gitFeature(coordinator);
+    FakeDocumentSafetyProvider documentSafety;
+    lithe::windows::app::GitFeatureModel gitFeature(coordinator, &documentSafety);
     std::optional<lithe::windows::app::GitFeatureState> gitState;
     gitFeature.refreshStatus([&](auto state) {
         std::lock_guard lock(mutex);
@@ -388,6 +399,27 @@ int main() {
     assert(gitState && gitState->command && gitState->command->exitCode == 7);
     assert(gitState->error &&
            gitState->error->code == lithe::windows::CoreErrorCode::ProcessFailed);
+
+    const auto requestCountBeforeBlockedWrite = [&] {
+        std::lock_guard lock(requestMutex);
+        return requests.size();
+    }();
+    documentSafety.snapshot.dirtyPaths = {"src/Main.java"};
+    gitState.reset();
+    lithe::windows::GitWriteRequestDto blockedWrite;
+    blockedWrite.operation = "checkout";
+    gitFeature.write(std::move(blockedWrite), [&](auto state) {
+        gitState = std::move(state);
+    });
+    assert(gitState && gitState->error &&
+           gitState->error->code == lithe::windows::CoreErrorCode::InvalidRequest);
+    assert(gitState->documentSafety.dirtyPaths ==
+           std::vector<std::string>{"src/Main.java"});
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.size() == requestCountBeforeBlockedWrite);
+    }
+    documentSafety.snapshot = {};
 
     gitState.reset();
     gitFeature.refreshHistory(std::nullopt, 300, [&](auto state) {

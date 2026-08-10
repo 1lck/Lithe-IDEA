@@ -179,6 +179,7 @@ private:
     bool requestDocumentTransition(std::function<void()> transition);
     void finishDocumentTransitionSave(const QString& relativePath,
                                       const app::DocumentFeatureState& state);
+    bool ensureDocumentsSafeForGit();
     void applySearchState(const app::SearchFeatureState& state);
     void applySearchEverywhereState(const app::SearchEverywhereFeatureState& state);
     void openSearchResult(QListWidgetItem* item);

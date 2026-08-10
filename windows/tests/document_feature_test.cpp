@@ -56,6 +56,12 @@ std::string writeResponse(const std::string& path, const std::string& version) {
         "\",\"bytesWritten\":1,\"newVersion\":\"" + version + "\"}}";
 }
 
+std::string errorResponse(const std::string& id, const std::string& code,
+                          const std::string& message) {
+    return "{\"id\":\"" + id + "\",\"ok\":false,\"error\":{\"code\":\"" + code +
+        "\",\"message\":\"" + message + "\"}}";
+}
+
 class FakeDocumentOperations final : public DocumentOperations {
 public:
     struct PendingRead {
@@ -157,6 +163,63 @@ int main() {
     operations.writes.pop_front();
     recreateWrite(result(writeResponse("src/A.txt", "sha256:a2")));
     assert(model.state().externalState == DocumentExternalState::None);
+
+    model.setText("save must survive failure");
+    bool failedSaveCallback = false;
+    model.save([&](DocumentFeatureState state) {
+        failedSaveCallback = true;
+        assert(state.error && state.isDirty && state.text == "save must survive failure");
+    });
+    auto failedWrite = std::move(operations.writes.front().handler);
+    operations.writes.pop_front();
+    failedWrite(result(errorResponse("write", "io_failed", "disk unavailable")));
+    assert(failedSaveCallback);
+    assert(model.state().isDirty && model.state().text == "save must survive failure");
+
+    model.setText("alpha from disk");
+    model.save();
+    auto recoveryWrite = std::move(operations.writes.front().handler);
+    operations.writes.pop_front();
+    recoveryWrite(result(writeResponse("src/A.txt", "sha256:a3")));
+    assert(!model.state().isDirty && !model.state().error);
+
+    model.externalModified("src/A.txt");
+    auto selfSaveRead = std::move(operations.reads.front().handler);
+    operations.reads.pop_front();
+    selfSaveRead(result(readResponse("src/A.txt", "ignored duplicate event", "sha256:a3")));
+    assert(model.state().text == "alpha from disk");
+    assert(model.state().externalState == DocumentExternalState::None);
+
+    model.externalModified("src/A.txt");
+    auto cleanExternalRead = std::move(operations.reads.front().handler);
+    operations.reads.pop_front();
+    cleanExternalRead(result(readResponse("src/A.txt", "clean disk reload", "sha256:a4")));
+    assert(model.state().text == "clean disk reload" && !model.state().isDirty);
+
+    model.setText("editor conflict text");
+    model.externalModified("src/A.txt");
+    auto conflictRead = std::move(operations.reads.front().handler);
+    operations.reads.pop_front();
+    conflictRead(result(readResponse("src/A.txt", "load this disk text", "sha256:a5")));
+    assert(model.state().externalState == DocumentExternalState::Modified);
+    assert(model.loadExternalVersion("src/A.txt"));
+    assert(model.state().text == "load this disk text" && !model.state().isDirty);
+    assert(model.state().externalState == DocumentExternalState::None);
+
+    assert(model.rename("src/A.txt", "src/Renamed.txt"));
+    assert(model.state("src/Renamed.txt").has_value());
+    assert(!model.state("src/A.txt").has_value());
+    model.externalDeleted("src/Renamed.txt");
+    assert(model.state().externalState == DocumentExternalState::Deleted);
+
+    model.setText("stale save text");
+    model.save();
+    assert(operations.writes.size() == 1);
+    auto staleWrite = std::move(operations.writes.front().handler);
+    operations.writes.pop_front();
+    model.resetForWorkspace();
+    staleWrite(result(writeResponse("src/Renamed.txt", "sha256:stale")));
+    assert(model.openPaths().empty());
 
     model.open("src/C.txt");
     assert(operations.reads.size() == 1);

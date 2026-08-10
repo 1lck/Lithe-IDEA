@@ -4,6 +4,7 @@
 #include "project_import_dialog.h"
 #include "ui_translation.h"
 #include "workbench_code_editor.h"
+#include "workbench_document_protection.h"
 #include "win32_file_storage.h"
 
 #include <QAction>
@@ -390,7 +391,7 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
       workspaceFeature_(std::make_unique<app::WorkspaceFeatureModel>(*coordinator_)),
       documentFeature_(std::make_unique<app::DocumentFeatureModel>(*coordinator_)),
       searchFeature_(std::make_unique<app::SearchFeatureModel>(*coordinator_)),
-      gitFeature_(std::make_unique<app::GitFeatureModel>(*coordinator_)),
+      gitFeature_(std::make_unique<app::GitFeatureModel>(*coordinator_, documentFeature_.get())),
       historyFeature_(std::make_unique<app::HistoryFeatureModel>(*coordinator_, *storage_)),
       shelfFeature_(std::make_unique<app::ShelfFeatureModel>(*coordinator_, *storage_,
                                                              appSettings_.dataDirectory)),
@@ -2004,12 +2005,15 @@ bool WorkbenchWindow::requestDocumentTransition(std::function<void()> transition
     const auto states = documentFeature_->states();
     const auto hasLoading = std::any_of(states.begin(), states.end(),
         [](const auto& state) { return state.isLoading; });
-    if (snapshot.isSaving || hasLoading) {
+    if (documentTransitionDecision(snapshot.isSaving || hasLoading,
+                                   snapshot.dirtyPaths.size()) ==
+        DocumentTransitionDecision::Block && (snapshot.isSaving || hasLoading)) {
         QMessageBox::information(this, uiText(QStringLiteral("Document Operation in Progress")),
             uiText(QStringLiteral("Wait for document loading or saving to finish before leaving.")));
         return false;
     }
-    if (snapshot.dirtyPaths.empty()) return true;
+    if (documentTransitionDecision(false, snapshot.dirtyPaths.size()) ==
+        DocumentTransitionDecision::Proceed) return true;
 
     const auto choice = QMessageBox::warning(
         this, uiText(QStringLiteral("Unsaved Documents")),
@@ -2017,8 +2021,9 @@ bool WorkbenchWindow::requestDocumentTransition(std::function<void()> transition
             .arg(snapshot.dirtyPaths.size()),
         QMessageBox::SaveAll | QMessageBox::Discard | QMessageBox::Cancel,
         QMessageBox::Cancel);
-    if (choice == QMessageBox::Cancel) return false;
-    if (choice == QMessageBox::Discard) return true;
+    const auto decision = documentTransitionDecision(false, snapshot.dirtyPaths.size(), choice);
+    if (decision == DocumentTransitionDecision::Block) return false;
+    if (decision == DocumentTransitionDecision::Proceed) return true;
 
     pendingDocumentTransition_ = std::move(transition);
     pendingDocumentSavePaths_.clear();
@@ -2040,6 +2045,56 @@ bool WorkbenchWindow::requestDocumentTransition(std::function<void()> transition
                 }
             }, Qt::QueuedConnection);
         });
+        updateDocumentTabState(qtPath);
+    }
+    return false;
+}
+
+bool WorkbenchWindow::ensureDocumentsSafeForGit() {
+    const auto snapshot = documentFeature_->documentSafetySnapshot();
+    const auto states = documentFeature_->states();
+    const auto hasLoading = std::any_of(states.begin(), states.end(),
+        [](const auto& state) { return state.isLoading; });
+    if (snapshot.isSaving || hasLoading) {
+        QMessageBox::information(
+            this, uiText(QStringLiteral("Document Operation in Progress")),
+            uiText(QStringLiteral(
+                "Wait for document loading or saving to finish, then retry the Git operation.")));
+        return false;
+    }
+    if (snapshot.hasConflicts) {
+        QMessageBox::warning(
+            this, uiText(QStringLiteral("Resolve Document Conflicts")),
+            uiText(QStringLiteral(
+                "Resolve every external document conflict before changing the Git working tree.")));
+        return false;
+    }
+    if (snapshot.dirtyPaths.empty()) return true;
+
+    const auto choice = QMessageBox::warning(
+        this, uiText(QStringLiteral("Unsaved Documents")),
+        uiText(QStringLiteral(
+            "%1 document(s) have unsaved changes. Save them before retrying the Git operation."))
+            .arg(snapshot.dirtyPaths.size()),
+        QMessageBox::SaveAll | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (choice != QMessageBox::SaveAll) return false;
+
+    const QPointer<WorkbenchWindow> guardedWindow(this);
+    for (const auto& path : snapshot.dirtyPaths) {
+        const auto qtPath = fromUtf8(path);
+        documentFeature_->save(path, [guardedWindow, qtPath](app::DocumentFeatureState state) {
+            if (!guardedWindow) return;
+            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, qtPath,
+                                      state = std::move(state)]() mutable {
+                if (!guardedWindow) return;
+                guardedWindow->updateDocumentTabState(qtPath);
+                if (state.error) {
+                    guardedWindow->editorArea_->showDocumentError(
+                        qtPath, fromUtf8(state.error->message));
+                }
+            }, Qt::QueuedConnection);
+        });
+        updateDocumentTabState(qtPath);
     }
     return false;
 }
@@ -2221,6 +2276,7 @@ void WorkbenchWindow::switchGitReference() {
     const auto index = choices.indexOf(selected);
     if (index < 0 || index >= static_cast<int>(state.history->references.size())) return;
     const auto& reference = state.history->references[static_cast<std::size_t>(index)];
+    if (!ensureDocumentsSafeForGit()) return;
 
     gitFeature_->checkout(reference.fullName, reference.kind, [this](app::GitFeatureState result) {
         QMetaObject::invokeMethod(this, [this, result = std::move(result)]() mutable {
@@ -2315,6 +2371,7 @@ void WorkbenchWindow::restoreSelectedShelf() {
         statusBar()->showMessage(uiText(QStringLiteral("Select a Shelf first")), 4000);
         return;
     }
+    if (!ensureDocumentsSafeForGit()) return;
     setShelfActionsEnabled(false);
     const auto id = selectedShelf_.toStdString();
     shelfFeature_->restore(id, [this](app::ShelfFeatureState state) {
@@ -2415,6 +2472,7 @@ void WorkbenchWindow::setShelfActionsEnabled(bool enabled) {
 
 void WorkbenchWindow::createGitBranch() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
+    if (!ensureDocumentsSafeForGit()) return;
     bool accepted = false;
     const auto name = QInputDialog::getText(
         this, uiText(QStringLiteral("Create Git Branch")), uiText(QStringLiteral("Branch name:")),
@@ -2443,6 +2501,8 @@ void WorkbenchWindow::applyStashOperation(const QString& operation) {
     statusBar()->showMessage(uiText(QStringLiteral("Select a stash first")), 4000);
         return;
     }
+    if ((operation == QStringLiteral("stashApply") ||
+         operation == QStringLiteral("stashPop")) && !ensureDocumentsSafeForGit()) return;
     if (operation == QStringLiteral("stashDrop") &&
         QMessageBox::question(this, uiText(QStringLiteral("Drop Stash")),
                               uiText(QStringLiteral("Drop %1?")).arg(selectedGitStash_)) != QMessageBox::Yes) {
@@ -3205,7 +3265,22 @@ void WorkbenchWindow::applyDocumentState(const app::DocumentFeatureState& state)
     suppressEditorChange_ = true;
     editor_->clearAnnotations();
     const auto nextText = fromUtf8(state.text);
-    if (editor_->toPlainText() != nextText) editor_->setPlainText(nextText);
+    if (editor_->toPlainText() != nextText) {
+        const auto previousCursor = editor_->textCursor();
+        const auto previousAnchor = previousCursor.anchor();
+        const auto previousPosition = previousCursor.position();
+        const auto verticalScroll = editor_->verticalScrollBar()->value();
+        const auto horizontalScroll = editor_->horizontalScrollBar()->value();
+        editor_->setPlainText(nextText);
+        const auto maximum = std::max(0, editor_->document()->characterCount() - 1);
+        QTextCursor restoredCursor(editor_->document());
+        restoredCursor.setPosition(std::clamp(previousAnchor, 0, maximum));
+        restoredCursor.setPosition(std::clamp(previousPosition, 0, maximum),
+                                   QTextCursor::KeepAnchor);
+        editor_->setTextCursor(restoredCursor);
+        editor_->verticalScrollBar()->setValue(verticalScroll);
+        editor_->horizontalScrollBar()->setValue(horizontalScroll);
+    }
     suppressEditorChange_ = false;
     editor_->setReadOnly(state.isReadOnly);
     updateDocumentTabState(activePath_);
@@ -3296,8 +3371,8 @@ void WorkbenchWindow::updateDocumentTabState(const QString& relativePath) {
     const auto state = documentFeature_->state(relativePath.toUtf8().toStdString());
     QPixmap statusPixmap(14, 14);
     statusPixmap.fill(Qt::transparent);
-    if (state && (state->isDirty || state->isSaving || state->externalState !=
-                  app::DocumentExternalState::None || state->error)) {
+    QString tooltip;
+    if (state) {
         QPainter painter(&statusPixmap);
         painter.setRenderHint(QPainter::Antialiasing);
         QColor color = palette().color(QPalette::Highlight);
@@ -3305,16 +3380,40 @@ void WorkbenchWindow::updateDocumentTabState(const QString& relativePath) {
             (state->error && state->error->code == CoreErrorCode::ExternalConflict)) {
             color = palette().color(QPalette::LinkVisited);
             if (!color.isValid()) color = QColor(210, 72, 72);
+            painter.setPen(QPen(color, 1.5));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawPolygon(QPolygonF{QPointF(7, 2), QPointF(12, 11), QPointF(2, 11)});
+            tooltip = uiText(QStringLiteral("External file conflict"));
         } else if (state->error) {
             color = palette().color(QPalette::BrightText);
+            painter.setPen(QPen(color, 1.8));
+            painter.drawLine(QPointF(3, 3), QPointF(11, 11));
+            painter.drawLine(QPointF(11, 3), QPointF(3, 11));
+            tooltip = uiText(QStringLiteral("Save or load failed"));
+        } else if (state->isSaving) {
+            painter.setPen(QPen(color, 1.7));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawArc(QRectF(2.5, 2.5, 9, 9), 35 * 16, 275 * 16);
+            tooltip = uiText(QStringLiteral("Saving"));
+        } else if (state->isReadOnly) {
+            color = palette().color(QPalette::Disabled, QPalette::Text);
+            painter.setPen(QPen(color, 1.4));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawArc(QRectF(4, 1.5, 6, 7), 0, 180 * 16);
+            painter.drawRect(QRectF(3, 6, 8, 6));
+            tooltip = uiText(QStringLiteral("Read-only"));
+        } else if (state->isDirty) {
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(color);
+            painter.drawEllipse(QRectF(4, 4, 6, 6));
+            tooltip = uiText(QStringLiteral("Unsaved changes"));
         }
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(color);
-        painter.drawEllipse(QRectF(4, 4, 6, 6));
     }
     for (int index = 0; index < editorTabs_->count(); ++index) {
         if (sameRelativePath(editorTabs_->tabData(index).toString(), relativePath)) {
             editorTabs_->setTabIcon(index, QIcon(statusPixmap));
+            editorTabs_->setTabToolTip(index, tooltip.isEmpty()
+                ? relativePath : relativePath + QStringLiteral(" — ") + tooltip);
             break;
         }
     }
@@ -3717,6 +3816,7 @@ void WorkbenchWindow::discardSelectedHunk() {
 
 void WorkbenchWindow::applySelectedHunk(const QString& mode) {
     if (selectedDiffHunk_.isEmpty()) return;
+    if (mode == QStringLiteral("discard") && !ensureDocumentsSafeForGit()) return;
     const auto state = gitFeature_->state();
     if (!state.diff || state.isApplying) return;
     const auto hunk = std::find_if(state.diff->hunks.begin(), state.diff->hunks.end(),
@@ -4940,6 +5040,7 @@ void WorkbenchWindow::saveDocument() {
             guardedWindow->applySaveState(state);
         }, Qt::QueuedConnection);
     });
+    updateDocumentTabState(savedPath);
 }
 
 void WorkbenchWindow::applySaveState(const app::DocumentFeatureState& state) {

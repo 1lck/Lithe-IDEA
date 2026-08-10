@@ -1,5 +1,6 @@
 #include "workbench_editor_area.h"
 #include "workbench_code_editor.h"
+#include "workbench_document_protection.h"
 
 #include <QApplication>
 #include <QKeyEvent>
@@ -56,6 +57,16 @@ int main(int argc, char* argv[]) {
     assert(!area.searchResults()->isVisible());
     assert(!area.javaNavigationResults()->isVisible());
     assert(!area.diagnostics()->isVisible());
+    assert(lithe::windows::documentTransitionDecision(true, 1, QMessageBox::SaveAll) ==
+           lithe::windows::DocumentTransitionDecision::Block);
+    assert(lithe::windows::documentTransitionDecision(false, 0) ==
+           lithe::windows::DocumentTransitionDecision::Proceed);
+    assert(lithe::windows::documentTransitionDecision(false, 2, QMessageBox::SaveAll) ==
+           lithe::windows::DocumentTransitionDecision::SaveThenProceed);
+    assert(lithe::windows::documentTransitionDecision(false, 2, QMessageBox::Discard) ==
+           lithe::windows::DocumentTransitionDecision::Proceed);
+    assert(lithe::windows::documentTransitionDecision(false, 2, QMessageBox::Cancel) ==
+           lithe::windows::DocumentTransitionDecision::Block);
 
     area.setEmptyStateVisible(false);
     assert(editorStack->currentWidget() == area.editor());
@@ -74,6 +85,9 @@ int main(int argc, char* argv[]) {
     assert(editorStack->currentWidget() == secondEditor);
     assert(firstEditor->toPlainText() == QStringLiteral("alpha"));
     assert(secondEditor->toPlainText() == QStringLiteral("bravo"));
+    secondEditor->setFocus();
+    application.processEvents();
+    assert(secondEditor->hasFocus());
 
     int changedIndex = -1;
     int closeIndex = -1;
@@ -114,6 +128,10 @@ int main(int argc, char* argv[]) {
     assert(changedIndex == 0);
     area.editorTabs()->tabCloseRequested(0);
     assert(closeIndex == 0);
+    area.resize(320, 420);
+    area.editorTabs()->addTab(QStringLiteral("a-very-long-document-name-that-must-elide.cpp"));
+    application.processEvents();
+    assert(area.editorTabs()->usesScrollButtons());
 
     area.findBar()->setVisible(true);
     area.findField()->setText(QStringLiteral("needle"));

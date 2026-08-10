@@ -1,5 +1,6 @@
 #pragma once
 
+#include "document_feature.h"
 #include "workbench_coordinator.h"
 
 #include <functional>
@@ -32,6 +33,7 @@ struct GitFeatureState {
     std::optional<GitOperationStateDto> operationState;
     std::optional<GitStashRestoreDto> stashRestoreConflict;
     std::optional<GitPendingCheckout> pendingCheckout;
+    DocumentSafetySnapshot documentSafety;
     std::vector<std::string> conflictFilterPaths;
     std::optional<CoreError> error;
     bool isLoadingStatus = false;
@@ -69,7 +71,8 @@ public:
     using ShelfPatchesHandler = std::function<void(std::optional<GitShelfPatches>,
                                                    std::optional<CoreError>)>;
 
-    explicit GitFeatureModel(WorkbenchCoordinator& coordinator);
+    explicit GitFeatureModel(WorkbenchCoordinator& coordinator,
+                             DocumentSafetySnapshotProvider* documents = nullptr);
 
     void refreshStatus(StateHandler handler = {});
     void loadDiff(std::vector<std::string> pathspecs,
@@ -124,6 +127,7 @@ public:
 
 private:
     WorkbenchCoordinator& coordinator_;
+    DocumentSafetySnapshotProvider* documents_ = nullptr;
     mutable std::mutex mutex_;
     GitFeatureState state_;
 
@@ -145,6 +149,7 @@ private:
                     StateHandler handler,
                     std::uint64_t requestSerial);
     void rebuildConflictFilterPaths();
+    bool blockUnsafeDocumentMutation(const std::string& operation, StateHandler& handler);
     std::uint64_t applyRequestSerial_ = 0;
 };
 
