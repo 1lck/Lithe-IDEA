@@ -201,6 +201,12 @@ all matching identifier occurrences. These commands are deliberately
 text-level fallbacks; precise type-aware behavior belongs to a started language
 server.
 
+The LSP provider catalog is returned by `lithe_core_lsp_provider_catalog_json`.
+Each provider descriptor may include `languageServerLaunch` with ordered
+`executableNames` and `arguments`; Swift adapters use this metadata when they
+need to start a real language server after the lightweight Rust fallback is not
+enough.
+
 `lsp.client*` commands are the transport-independent LSP client core. The
 platform adapter owns the process/stdin/stdout transport and passes a
 serialized `state` object through these commands. Responses return

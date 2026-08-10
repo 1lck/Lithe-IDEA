@@ -36,6 +36,15 @@ pub struct LspProviderDescriptor {
     pub language_id: Option<String>,
     pub language_ids_by_extension: BTreeMap<String, String>,
     pub language_ids_by_file_name: BTreeMap<String, String>,
+    pub language_server_launch: Option<LspServerLaunchDescriptor>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspServerLaunchDescriptor {
+    pub executable_names: Vec<String>,
+    #[serde(default)]
+    pub arguments: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
@@ -92,6 +101,8 @@ struct LspProviderPatch {
     language_ids_by_extension: Option<BTreeMap<String, String>>,
     #[serde(default)]
     language_ids_by_file_name: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    language_server_launch: Option<LspServerLaunchDescriptor>,
     #[serde(default)]
     disabled: bool,
 }
@@ -1203,6 +1214,9 @@ impl LspProviderPatch {
         if patch.language_ids_by_file_name.is_some() {
             self.language_ids_by_file_name = patch.language_ids_by_file_name;
         }
+        if patch.language_server_launch.is_some() {
+            self.language_server_launch = patch.language_server_launch;
+        }
         self.disabled = patch.disabled;
     }
 }
@@ -1240,6 +1254,7 @@ impl LspProviderDescriptor {
                 patch.language_ids_by_file_name.unwrap_or_default(),
                 false,
             ),
+            language_server_launch: patch.language_server_launch,
         }
     }
 }
@@ -1658,6 +1673,19 @@ mod tests {
             clangd.language_ids_by_extension.get("m"),
             Some(&"objective-c".to_string())
         );
+        let swift = catalog
+            .providers
+            .iter()
+            .find(|provider| provider.id == "swift")
+            .expect("swift provider should exist");
+        let swift_launch = swift
+            .language_server_launch
+            .as_ref()
+            .expect("swift launch descriptor should exist");
+        assert_eq!(
+            swift_launch.executable_names,
+            vec!["sourcekit-lsp".to_string()]
+        );
     }
 
     #[test]
@@ -1679,7 +1707,11 @@ mod tests {
                 },
                 {
                   "id": "swift",
-                  "fileExtensions": ["swift", "swiftinterface"]
+                  "fileExtensions": ["swift", "swiftinterface"],
+                  "languageServerLaunch": {
+                    "executableNames": ["custom-sourcekit-lsp"],
+                    "arguments": ["--stdio"]
+                  }
                 },
                 {
                   "id": "perl",
@@ -1703,6 +1735,15 @@ mod tests {
         assert!(swift
             .file_extensions
             .contains(&"swiftinterface".to_string()));
+        let swift_launch = swift
+            .language_server_launch
+            .as_ref()
+            .expect("swift launch descriptor should be overridden");
+        assert_eq!(
+            swift_launch.executable_names,
+            vec!["custom-sourcekit-lsp".to_string()]
+        );
+        assert_eq!(swift_launch.arguments, vec!["--stdio".to_string()]);
         assert!(!catalog
             .providers
             .iter()

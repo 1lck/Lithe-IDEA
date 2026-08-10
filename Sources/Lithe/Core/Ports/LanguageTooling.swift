@@ -56,6 +56,11 @@ enum ToolingActivationPolicy: String, Codable, Hashable, Sendable {
     case always
 }
 
+struct LanguageServerLaunchDescriptor: Hashable, Sendable {
+    let executableNames: [String]
+    let arguments: [String]
+}
+
 struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
     let id: String
     let displayName: String
@@ -67,6 +72,7 @@ struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
     let languageIdentifier: String?
     let languageIdentifiersByExtension: [String: String]
     let languageIdentifiersByFileName: [String: String]
+    let languageServerLaunch: LanguageServerLaunchDescriptor?
 
     init(
         id: String,
@@ -78,7 +84,8 @@ struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
         activationPolicy: ToolingActivationPolicy,
         languageIdentifier: String? = nil,
         languageIdentifiersByExtension: [String: String] = [:],
-        languageIdentifiersByFileName: [String: String] = [:]
+        languageIdentifiersByFileName: [String: String] = [:],
+        languageServerLaunch: LanguageServerLaunchDescriptor? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -98,6 +105,7 @@ struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
                 ($0.key.lowercased(), $0.value)
             }
         )
+        self.languageServerLaunch = languageServerLaunch
     }
 
     func handles(fileURL: URL) -> Bool {

@@ -7,7 +7,11 @@
       "fileExtensions": ["java"],
       "capabilities": ["run", "languageServer", "formatting", "testing"],
       "activationPolicy": "onDemand",
-      "languageId": "java"
+      "languageId": "java",
+      "languageServerLaunch": {
+        "executableNames": ["jdtls"],
+        "arguments": []
+      }
     },
     {
       "id": "go",
@@ -15,7 +19,11 @@
       "fileExtensions": ["go"],
       "capabilities": ["run", "languageServer", "debugAdapter", "formatting", "testing"],
       "activationPolicy": "onDemand",
-      "languageId": "go"
+      "languageId": "go",
+      "languageServerLaunch": {
+        "executableNames": ["gopls"],
+        "arguments": []
+      }
     },
     {
       "id": "python",
@@ -23,7 +31,11 @@
       "fileExtensions": ["py", "pyw"],
       "capabilities": ["run", "languageServer", "debugAdapter", "formatting", "testing"],
       "activationPolicy": "onDemand",
-      "languageId": "python"
+      "languageId": "python",
+      "languageServerLaunch": {
+        "executableNames": ["basedpyright-langserver", "pyright-langserver"],
+        "arguments": ["--stdio"]
+      }
     },
     {
       "id": "node",
@@ -32,6 +44,10 @@
       "capabilities": ["run", "languageServer", "debugAdapter", "formatting", "testing"],
       "activationPolicy": "onDemand",
       "languageId": "javascript",
+      "languageServerLaunch": {
+        "executableNames": ["typescript-language-server"],
+        "arguments": ["--stdio"]
+      },
       "languageIdsByExtension": {
         "jsx": "javascriptreact",
         "ts": "typescript",
@@ -44,7 +60,11 @@
       "fileExtensions": ["rs"],
       "capabilities": ["run", "languageServer", "debugAdapter", "formatting", "testing"],
       "activationPolicy": "onDemand",
-      "languageId": "rust"
+      "languageId": "rust",
+      "languageServerLaunch": {
+        "executableNames": ["rust-analyzer"],
+        "arguments": []
+      }
     },
     {
       "id": "clangd",
@@ -53,6 +73,10 @@
       "capabilities": ["languageServer", "formatting"],
       "activationPolicy": "onDemand",
       "languageId": "cpp",
+      "languageServerLaunch": {
+        "executableNames": ["clangd"],
+        "arguments": []
+      },
       "languageIdsByExtension": {
         "c": "c",
         "h": "c",
@@ -82,7 +106,11 @@
       "fileExtensions": ["swift"],
       "capabilities": ["languageServer", "formatting"],
       "activationPolicy": "onDemand",
-      "languageId": "swift"
+      "languageId": "swift",
+      "languageServerLaunch": {
+        "executableNames": ["sourcekit-lsp"],
+        "arguments": []
+      }
     },
     {
       "id": "kotlin",
@@ -90,7 +118,11 @@
       "fileExtensions": ["kt", "kts"],
       "capabilities": ["languageServer", "formatting"],
       "activationPolicy": "onDemand",
-      "languageId": "kotlin"
+      "languageId": "kotlin",
+      "languageServerLaunch": {
+        "executableNames": ["kotlin-language-server"],
+        "arguments": []
+      }
     },
     {
       "id": "scala",
@@ -98,7 +130,11 @@
       "fileExtensions": ["scala", "sc"],
       "capabilities": ["languageServer", "formatting"],
       "activationPolicy": "onDemand",
-      "languageId": "scala"
+      "languageId": "scala",
+      "languageServerLaunch": {
+        "executableNames": ["metals"],
+        "arguments": []
+      }
     },
     {
       "id": "groovy",
@@ -115,7 +151,11 @@
       "fileNames": ["Rakefile", "Gemfile"],
       "capabilities": ["languageServer", "formatting"],
       "activationPolicy": "onDemand",
-      "languageId": "ruby"
+      "languageId": "ruby",
+      "languageServerLaunch": {
+        "executableNames": ["ruby-lsp"],
+        "arguments": []
+      }
     },
     {
       "id": "php",
@@ -123,7 +163,11 @@
       "fileExtensions": ["php", "phtml"],
       "capabilities": ["languageServer", "formatting"],
       "activationPolicy": "onDemand",
-      "languageId": "php"
+      "languageId": "php",
+      "languageServerLaunch": {
+        "executableNames": ["intelephense", "phpactor"],
+        "arguments": []
+      }
     },
     {
       "id": "dart",
@@ -147,7 +191,11 @@
       "fileExtensions": ["sh", "bash", "zsh", "fish", "ksh"],
       "capabilities": ["languageServer", "formatting"],
       "activationPolicy": "onDemand",
-      "languageId": "shellscript"
+      "languageId": "shellscript",
+      "languageServerLaunch": {
+        "executableNames": ["bash-language-server"],
+        "arguments": ["start"]
+      }
     },
     {
       "id": "powershell",
@@ -219,7 +267,11 @@
       "fileExtensions": ["yml", "yaml"],
       "capabilities": ["languageServer", "formatting"],
       "activationPolicy": "onDemand",
-      "languageId": "yaml"
+      "languageId": "yaml",
+      "languageServerLaunch": {
+        "executableNames": ["yaml-language-server"],
+        "arguments": ["--stdio"]
+      }
     },
     {
       "id": "xml",

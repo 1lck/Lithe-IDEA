@@ -10,6 +10,18 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
         let providers: [ProviderPayload]
     }
 
+    private struct LanguageServerLaunchPayload: Decodable {
+        let executableNames: [String]
+        let arguments: [String]
+
+        func makeDescriptor() -> LanguageServerLaunchDescriptor {
+            LanguageServerLaunchDescriptor(
+                executableNames: executableNames,
+                arguments: arguments
+            )
+        }
+    }
+
     private struct ProviderPayload: Decodable {
         let id: String
         let displayName: String
@@ -21,6 +33,7 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
         let languageId: String?
         let languageIdsByExtension: [String: String]
         let languageIdsByFileName: [String: String]
+        let languageServerLaunch: LanguageServerLaunchPayload?
 
         func makeDescriptor() -> LanguageProviderDescriptor {
             LanguageProviderDescriptor(
@@ -33,7 +46,8 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
                 activationPolicy: activationPolicy,
                 languageIdentifier: languageId,
                 languageIdentifiersByExtension: languageIdsByExtension,
-                languageIdentifiersByFileName: languageIdsByFileName
+                languageIdentifiersByFileName: languageIdsByFileName,
+                languageServerLaunch: languageServerLaunch?.makeDescriptor()
             )
         }
     }

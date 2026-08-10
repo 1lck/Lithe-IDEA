@@ -39,7 +39,10 @@ let catalogResponse = String(cString: catalogPointer)
 guard let catalogData = catalogResponse.data(using: .utf8),
       let catalog = try? JSONSerialization.jsonObject(with: catalogData) as? [String: Any],
       let providers = catalog["providers"] as? [[String: Any]],
-      providers.contains(where: { $0["id"] as? String == "swift" }) else {
+      let swiftProvider = providers.first(where: { $0["id"] as? String == "swift" }),
+      let swiftLaunch = swiftProvider["languageServerLaunch"] as? [String: Any],
+      let swiftExecutables = swiftLaunch["executableNames"] as? [String],
+      swiftExecutables.contains("sourcekit-lsp") else {
     fputs("Unexpected Rust Core LSP provider catalog: \(catalogResponse)\n", stderr)
     exit(1)
 }
