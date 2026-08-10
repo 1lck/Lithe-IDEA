@@ -225,13 +225,6 @@ enum EditorTabLayoutMode: String, CaseIterable, Identifiable {
         }
     }
 
-    var description: String {
-        switch self {
-        case .singleLine: "Keep the tab bar compact and scroll sideways when needed."
-        case .multipleRows: "Show every open file and let the tab bar grow downward."
-        }
-    }
-
 }
 
 enum ProjectOpenBehavior: String, CaseIterable, Identifiable {

@@ -137,11 +137,8 @@
 "Apply" = "应用";
 "Display" = "显示";
 "Editor tabs" = "编辑器标签栏";
-"Choose how open files are arranged in the tab bar." = "选择打开的文件在标签栏中的排列方式。";
 "Single row" = "单行";
 "Wrap into rows" = "多行展开";
-"Keep the tab bar compact and scroll sideways when needed." = "保持任务栏紧凑，文件较多时可左右滚动查看。";
-"Show every open file and let the tab bar grow downward." = "显示所有打开的文件，并让任务栏向下扩展。";
 "Layout" = "布局";
 "Font size" = "字体大小";
 "Show usages and Git author" = "显示引用数量和 Git 作者";

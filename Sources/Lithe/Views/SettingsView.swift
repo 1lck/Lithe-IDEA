@@ -360,10 +360,6 @@ struct SettingsView: View {
                     .lithePointer()
             }
             group("Editor tabs") {
-                Text("Choose how open files are arranged in the tab bar.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-
                 row("Layout") {
                     Picker("", selection: $settings.editorTabLayoutMode) {
                         ForEach(EditorTabLayoutMode.allCases) { mode in
@@ -374,11 +370,6 @@ struct SettingsView: View {
                     .frame(width: 180)
                     .lithePointer()
                 }
-
-                Text(LocalizedStringKey(settings.editorTabLayoutMode.description))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             group("Indentation") {
                 row("Tab width") {
