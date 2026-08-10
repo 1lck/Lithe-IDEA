@@ -4,6 +4,13 @@ Windows is an independent Qt Widgets/C++ implementation. Shared behavior is
 provided by `rust/lithe-core` through its C ABI and JSON command protocol; the
 macOS SwiftUI/AppKit application is not a Windows dependency.
 
+## Use the Qt/C++ implementation
+
+Qt Widgets, C++23, Win32 adapters, and the Rust core ABI are the supported
+Windows development baseline. New Windows work must extend this implementation
+and its existing boundaries. Electron, Node.js, and other parallel desktop
+runtimes are not part of the supported Windows architecture.
+
 ## Development environment
 
 Use a Windows 10/11 environment with:

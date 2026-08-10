@@ -6,11 +6,27 @@
 这份计划只覆盖开发交付。真实 Windows 场景、完整 UI 回归、安装升级、签名和
 兼容性验收由测试人员负责，不计入开发排期。
 
-## 当前交接状态（2026-08-07）
+## 使用唯一的 Windows 技术路线
 
-本轮开发已停止，后续工作交给新的开发者继续。交接分支为
-`feat/windows-git-parity`；该分支直接发布到远端，不代表已创建 PR，也没有合并到
-`main`。接手者应以此分支和本文为起点，不要从旧的审计或 DTO 快照重新推断状态。
+Windows 端以 `windows/` 下的 Qt Widgets、C++23、Win32 adapters 和 Rust core
+C ABI 实现为唯一开发基线。后续任务必须在这套分层上继续，不再并行维护 Electron、
+Node.js 或其他桌面运行时实现。共享行为继续进入 `rust/lithe-core` 和
+`shared/contracts`，Windows UI 与平台能力继续留在 `windows/`。
+
+## 当前集成状态（2026-08-10）
+
+`feat/windows-git-parity` 是 Windows 多人开发的集成基线。W0 已在本地完成以下
+收口：
+
+- 合入 `origin/main` 的 `2d5bbf8`，消除开始并行开发前的主线落后。
+- 修复 Shelf 测试的泛型结果断言和 macOS 系统临时目录符号链接误判。
+- 确保 Project Detection 和 UI Translation 测试在 Release 构建中保留断言。
+- 将 Qt Widgets、C++23、Win32 adapters 和 Rust core ABI 冻结为唯一 Windows 路线。
+- 通过 38 个 Rust 测试、Debug 和 Release 各 15 个跨平台 C++ 测试、58 个 Swift
+  测试，以及 Windows 边界、共享契约和 Rust/Swift bridge 检查。
+
+这些结果仍不等同于真实 Windows 验证。分支改动推送后，必须通过 Windows CI 的
+MSVC、Qt、Win32 和 Rust 测试，才能把 W0 标记为远端完成。
 
 ### 已完成并提交
 

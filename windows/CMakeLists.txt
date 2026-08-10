@@ -519,6 +519,7 @@ set(LITHE_WINDOWS_TEST_TARGETS
     lithe_windows_core_dto_tests
     lithe_windows_persistence_tests
     lithe_windows_runtime_service_tests
+    lithe_windows_project_detection_tests
     lithe_windows_java_run_service_tests
     lithe_windows_java_debug_service_tests
     lithe_windows_java_language_server_tests
@@ -542,6 +543,9 @@ if(TARGET lithe_windows_workbench_tool_window_tests)
 endif()
 if(TARGET lithe_windows_ui_theme_tests)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_ui_theme_tests)
+endif()
+if(TARGET lithe_windows_ui_translation_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_ui_translation_tests)
 endif()
 if(TARGET lithe_windows_terminal_transport_tests)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_terminal_transport_tests)

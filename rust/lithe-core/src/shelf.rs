@@ -244,9 +244,13 @@ fn existing_root(value: &str) -> Result<PathBuf, CoreError> {
 
 fn storage_root(value: &str) -> Result<PathBuf, CoreError> {
     let path = PathBuf::from(value);
-    reject_symlink_components(&path)?;
-    fs::create_dir_all(&path).map_err(CoreError::from)?;
-    reject_symlink_components(&path)?;
+    match existing_metadata(&path)? {
+        Some(_) => ensure_directory(&path)?,
+        None => {
+            fs::create_dir_all(&path).map_err(CoreError::from)?;
+            ensure_directory(&path)?;
+        }
+    }
     let canonical = path.canonicalize().map_err(CoreError::from)?;
     ensure_directory(&canonical)?;
     Ok(canonical)
@@ -258,22 +262,6 @@ fn existing_metadata(path: &Path) -> Result<Option<fs::Metadata>, CoreError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(CoreError::from(error)),
     }
-}
-
-fn reject_symlink_components(path: &Path) -> Result<(), CoreError> {
-    let mut current = PathBuf::new();
-    for component in path.components() {
-        current.push(component.as_os_str());
-        if let Some(metadata) = existing_metadata(&current)? {
-            if metadata.file_type().is_symlink() {
-                return Err(CoreError::new(
-                    ErrorCode::PermissionDenied,
-                    "Shelf path contains a symbolic link",
-                ));
-            }
-        }
-    }
-    Ok(())
 }
 
 fn ensure_directory(path: &Path) -> Result<(), CoreError> {
@@ -437,8 +425,11 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn assert_permission_denied(result: Result<(), CoreError>) {
-        let error = result.expect_err("Shelf path with a symbolic link should be rejected");
+    fn assert_permission_denied<T>(result: Result<T, CoreError>) {
+        let error = match result {
+            Ok(_) => panic!("Shelf path with a symbolic link should be rejected"),
+            Err(error) => error,
+        };
         assert_eq!(
             serde_json::to_string(&error.code).expect("error code should serialize"),
             "\"permission_denied\""

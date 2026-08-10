@@ -71,7 +71,7 @@ int confidence(ProjectKind kind) {
     return 0;
 }
 
-} 
+}
 
 ProjectDetectionService::ProjectDetectionService(FileStorage& storage)
     : storage_(storage) {}
