@@ -5,15 +5,22 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     let descriptor: LanguageProviderDescriptor
     private let runtimeService: ProjectRuntimeService
     private let processFactory: () -> any RawProcessSession
+    private let languageServerLaunch: LanguageServerLaunchDescriptor?
+    private let languageServerCore: any LspClientCore
     private let debugLaunch: StdioDebugAdapterLaunch?
     private let debugSessionFactory: (() -> (any DebugAdapterSession)?)?
+
+    var supportsLanguageServerSession: Bool {
+        languageServerLaunch != nil
+    }
 
     var supportsDebugAdapterSession: Bool {
         debugLaunch != nil || debugSessionFactory != nil
     }
 
     var unavailableToolingMessage: String? {
-        guard let command = debugLaunch?.executableNames.first else { return nil }
+        guard let command = languageServerLaunch?.executableNames.first
+            ?? debugLaunch?.executableNames.first else { return nil }
         return runtimeService.missingToolMessage(command)
     }
 
@@ -21,14 +28,32 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         descriptor: LanguageProviderDescriptor,
         runtimeService: ProjectRuntimeService,
         processFactory: @escaping () -> any RawProcessSession,
+        languageServerLaunch: LanguageServerLaunchDescriptor? = nil,
+        languageServerCore: any LspClientCore = RustCoreBridge(),
         debugLaunch: StdioDebugAdapterLaunch? = nil,
         debugSessionFactory: (() -> (any DebugAdapterSession)?)? = nil
     ) {
         self.descriptor = descriptor
         self.runtimeService = runtimeService
         self.processFactory = processFactory
+        self.languageServerLaunch = languageServerLaunch
+        self.languageServerCore = languageServerCore
         self.debugLaunch = debugLaunch
         self.debugSessionFactory = debugSessionFactory
+    }
+
+    func makeLanguageServerSession() -> (any LanguageServerSession)? {
+        guard let languageServerLaunch else { return nil }
+        guard let executableURL = languageServerLaunch.executableNames.lazy.compactMap({
+            self.runtimeService.executableOnPath($0)
+        }).first else { return nil }
+        return StdioLanguageServerSession(
+            executableURL: executableURL,
+            arguments: languageServerLaunch.arguments,
+            environment: runtimeService.processEnvironment(),
+            process: processFactory(),
+            core: languageServerCore
+        )
     }
 
     func makeDebugAdapterSession() -> (any DebugAdapterSession)? {
@@ -59,13 +84,16 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [:]
     ) -> [any LanguageProviderRuntime] {
         packs.compactMap { pack in
-            guard pack.descriptor.capabilities.contains(.debugAdapter) else { return nil }
-            guard pack.debugAdapterLaunch != nil || debugSessionFactories[pack.descriptor.id] != nil
-            else { return nil }
+            let hasLanguageServer = pack.descriptor.capabilities.contains(.languageServer)
+                && pack.descriptor.languageServerLaunch != nil
+            let hasDebugAdapter = pack.descriptor.capabilities.contains(.debugAdapter)
+                && (pack.debugAdapterLaunch != nil || debugSessionFactories[pack.descriptor.id] != nil)
+            guard hasLanguageServer || hasDebugAdapter else { return nil }
             return StdioLanguageProviderRuntime(
                 descriptor: pack.descriptor,
                 runtimeService: runtimeService,
                 processFactory: processFactory,
+                languageServerLaunch: pack.descriptor.languageServerLaunch,
                 debugLaunch: pack.debugAdapterLaunch,
                 debugSessionFactory: debugSessionFactories[pack.descriptor.id]
             )

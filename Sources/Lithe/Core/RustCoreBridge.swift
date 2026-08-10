@@ -933,6 +933,64 @@ struct RustCoreBridge: Sendable {
         let method: String
     }
 
+    struct LspClientResponsePayload: Decodable, Sendable {
+        let state: ToolingJSONValue
+        let messages: [String]
+        let events: [LspClientEventPayload]
+    }
+
+    struct LspClientEventPayload: Decodable, Sendable {
+        let kind: String
+        let requestId: String?
+        let method: String?
+        let uri: String?
+        let diagnostics: [LspClientDiagnosticPayload]?
+        let result: ToolingJSONValue?
+        let error: String?
+    }
+
+    struct LspClientDiagnosticPayload: Decodable, Sendable {
+        let range: LspRangePayload
+        let severity: Int?
+        let message: String
+        let source: String?
+        let code: String?
+
+        func makeModel() -> LanguageServerDiagnostic {
+            LanguageServerDiagnostic(
+                range: range.makeModel(),
+                severity: severity,
+                message: message,
+                source: source,
+                code: code
+            )
+        }
+    }
+
+    private struct LspClientInitializeRequest: Encodable {
+        let state: ToolingJSONValue?
+        let rootUri: String
+        let processId: Int?
+    }
+
+    private struct LspClientOpenDocumentRequest: Encodable {
+        let state: ToolingJSONValue
+        let uri: String
+        let languageId: String
+        let text: String
+    }
+
+    private struct LspClientChangeDocumentRequest: Encodable {
+        let state: ToolingJSONValue
+        let uri: String
+        let text: String
+    }
+
+    private struct LspClientApplyServerMessageRequest: Encodable {
+        let state: ToolingJSONValue
+        let message: String
+    }
+
     private struct MavenDiagnosticsRequest: Encodable {
         let root: String
         let output: String
@@ -1863,6 +1921,59 @@ struct RustCoreBridge: Sendable {
             )
         )
         return response?.makeModels()
+    }
+
+    func lspClientInitialize(rootURL: URL) -> LspClientResponsePayload? {
+        execute(
+            command: "lsp.clientInitialize",
+            payload: LspClientInitializeRequest(
+                state: nil,
+                rootUri: rootURL.standardizedFileURL.absoluteString,
+                processId: Int(ProcessInfo.processInfo.processIdentifier)
+            )
+        )
+    }
+
+    func lspClientOpenDocument(
+        state: ToolingJSONValue,
+        fileURL: URL,
+        languageID: String,
+        text: String
+    ) -> LspClientResponsePayload? {
+        execute(
+            command: "lsp.clientOpenDocument",
+            payload: LspClientOpenDocumentRequest(
+                state: state,
+                uri: fileURL.standardizedFileURL.absoluteString,
+                languageId: languageID,
+                text: text
+            )
+        )
+    }
+
+    func lspClientChangeDocument(
+        state: ToolingJSONValue,
+        fileURL: URL,
+        text: String
+    ) -> LspClientResponsePayload? {
+        execute(
+            command: "lsp.clientChangeDocument",
+            payload: LspClientChangeDocumentRequest(
+                state: state,
+                uri: fileURL.standardizedFileURL.absoluteString,
+                text: text
+            )
+        )
+    }
+
+    func lspClientApplyServerMessage(
+        state: ToolingJSONValue,
+        message: String
+    ) -> LspClientResponsePayload? {
+        execute(
+            command: "lsp.clientApplyServerMessage",
+            payload: LspClientApplyServerMessageRequest(state: state, message: message)
+        )
     }
 
     private func execute<Payload: Encodable, Data: Decodable>(

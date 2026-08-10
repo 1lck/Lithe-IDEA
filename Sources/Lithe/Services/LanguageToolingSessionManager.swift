@@ -37,6 +37,8 @@ final class LanguageToolingSessionManager: ObservableObject {
     private var catalog: LanguageProviderCatalog
     private let core: RustCoreBridge
     private var runtimesByID: [String: any LanguageProviderRuntime]
+    private var languageServers: [String: any LanguageServerSession] = [:]
+    private var languageServerRoots: [String: URL] = [:]
     private var debugAdapters: [String: any DebugAdapterSession] = [:]
     private var debugAdapterRoots: [String: URL] = [:]
     private var requestedBreakpoints: [String: [URL: [DebugSourceBreakpoint]]] = [:]
@@ -55,7 +57,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         self.init(catalog: registry.catalog, runtimes: registry.toolingRuntimes)
     }
 
-    var activeLanguageServerIDs: Set<String> { [] }
+    var activeLanguageServerIDs: Set<String> { Set(languageServers.keys) }
     var activeDebugAdapterIDs: Set<String> { Set(debugAdapters.keys) }
 
     func updateCatalog(_ catalog: LanguageProviderCatalog) {
@@ -63,6 +65,9 @@ final class LanguageToolingSessionManager: ObservableObject {
         let validProviderIDs = Set(catalog.descriptors.map(\.id))
         languageServerFeatures = languageServerFeatures.filter { validProviderIDs.contains($0.key) }
         diagnostics = diagnostics.filter { catalog.provider(for: $0.key) != nil }
+        for providerID in Array(languageServers.keys) where !validProviderIDs.contains(providerID) {
+            stopLanguageServer(providerID: providerID)
+        }
     }
 
     func provider(for fileURL: URL) -> LanguageProviderDescriptor? {
@@ -91,14 +96,41 @@ final class LanguageToolingSessionManager: ObservableObject {
 
     func synchronizeLanguageServer(
         for fileURL: URL,
-        text _: String,
-        rootURL _: URL
+        text: String,
+        rootURL: URL
     ) throws {
-        guard catalog.provider(for: fileURL) != nil else {
+        guard let descriptor = catalog.provider(for: fileURL) else {
             throw LanguageToolingSessionError.noProvider(fileExtension: fileURL.pathExtension.lowercased())
         }
-        // Rust LSP host will own didOpen/didChange and diagnostics. Until it
-        // exists, document synchronization is a no-op so the UI remains stable.
+        guard descriptor.capabilities.contains(.languageServer) else { return }
+        guard let runtime = runtimesByID[descriptor.id],
+              runtime.supportsLanguageServerSession else {
+            return
+        }
+        let normalizedRoot = rootURL.standardizedFileURL
+        let session: any LanguageServerSession
+        if let active = languageServers[descriptor.id],
+           active.isRunning,
+           languageServerRoots[descriptor.id] == normalizedRoot {
+            session = active
+        } else {
+            languageServers[descriptor.id]?.stop()
+            guard let created = runtime.makeLanguageServerSession() else {
+                throw LanguageToolingSessionError.toolingUnavailable(
+                    runtime.unavailableToolingMessage ?? descriptor.displayName
+                )
+            }
+            configureLanguageServerCallbacks(created, providerID: descriptor.id)
+            try created.start(rootURL: normalizedRoot)
+            languageServers[descriptor.id] = created
+            languageServerRoots[descriptor.id] = normalizedRoot
+            session = created
+        }
+        try session.synchronize(
+            fileURL: fileURL,
+            text: text,
+            languageID: descriptor.languageIdentifier(for: fileURL)
+        )
     }
 
     func closeDocument(_ fileURL: URL) {
@@ -110,12 +142,17 @@ final class LanguageToolingSessionManager: ObservableObject {
     }
 
     func stopLanguageServer(providerID: String) {
+        languageServers.removeValue(forKey: providerID)?.stop()
+        languageServerRoots[providerID] = nil
         languageServerFeatures[providerID] = nil
     }
 
     func stopAllLanguageServers() {
+        for session in languageServers.values { session.stop() }
         diagnostics = [:]
         languageServerFeatures = [:]
+        languageServers.removeAll()
+        languageServerRoots.removeAll()
     }
 
     func navigate(
@@ -305,9 +342,12 @@ final class LanguageToolingSessionManager: ObservableObject {
     }
 
     func stopAll() {
+        for session in languageServers.values { session.stop() }
         for session in debugAdapters.values { session.stop() }
         diagnostics = [:]
         languageServerFeatures = [:]
+        languageServers.removeAll()
+        languageServerRoots.removeAll()
         debugAdapters.removeAll()
         debugAdapterRoots.removeAll()
         debugStates = [:]
@@ -370,6 +410,15 @@ final class LanguageToolingSessionManager: ObservableObject {
     private func supportsBuiltinLanguageServer(for fileURL: URL) -> Bool {
         catalog.provider(for: fileURL)?.capabilities.contains(.languageServer) == true
             && core.isAvailable
+    }
+
+    private func configureLanguageServerCallbacks(
+        _ session: any LanguageServerSession,
+        providerID _: String
+    ) {
+        session.onDiagnostics = { [weak self] fileURL, diagnostics in
+            self?.diagnostics[fileURL.standardizedFileURL] = diagnostics
+        }
     }
 
     private func configureDebugCallbacks(

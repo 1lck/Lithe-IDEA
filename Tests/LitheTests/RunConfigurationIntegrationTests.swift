@@ -990,6 +990,86 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func languageServerRuntimeStartsFromRustCatalogLaunchMetadata() async throws {
+        let descriptor = LanguageProviderDescriptor(
+            id: "swift",
+            displayName: "Swift",
+            fileExtensions: ["swift"],
+            capabilities: [.languageServer, .formatting],
+            activationPolicy: .onDemand,
+            languageIdentifier: "swift",
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["sourcekit-lsp"],
+                arguments: []
+            )
+        )
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let process = RecordingRawProcessSession()
+        let root = URL(fileURLWithPath: "/tmp/swift-project", isDirectory: true)
+        let source = root.appendingPathComponent("App.swift")
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            processFactory: { process },
+            languageServerLaunch: descriptor.languageServerLaunch,
+            languageServerCore: TestLspClientCore(diagnosticURL: source)
+        )
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            runtimes: [runtime]
+        )
+
+        try manager.synchronizeLanguageServer(
+            for: source,
+            text: "struct App {}\n",
+            rootURL: root
+        )
+        let startRequest = try #require(process.requests.first)
+        #expect(startRequest.executablePath == "/usr/bin/sourcekit-lsp")
+        #expect(startRequest.arguments.isEmpty)
+        #expect(manager.activeLanguageServerIDs == ["swift"])
+        #expect(String(data: try #require(process.sentData.first), encoding: .utf8)?.contains("\"method\":\"initialize\"") == true)
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": [
+                "capabilities": [
+                    "hoverProvider": true,
+                    "completionProvider": [:]
+                ]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+
+        let framedOutput = process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+        #expect(framedOutput.contains("\"method\":\"initialized\""))
+        #expect(framedOutput.contains("\"method\":\"textDocument/didOpen\""))
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": [
+                "uri": source.standardizedFileURL.absoluteString,
+                "diagnostics": [[
+                    "range": [
+                        "start": ["line": 0, "character": 7],
+                        "end": ["line": 0, "character": 10]
+                    ],
+                    "severity": 2,
+                    "source": "sourcekit-lsp",
+                    "message": "example warning"
+                ]]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(manager.diagnostics[source.standardizedFileURL]?.first?.message == "example warning")
+    }
+
+    @Test
     func stoppingToolingSessionsClearsProjectScopedBreakpoints() throws {
         let descriptor = try #require(LanguageProviderCatalog.standard.provider(
             for: URL(fileURLWithPath: "/tmp/main.py")
@@ -2622,6 +2702,90 @@ private final class RecordingRunExecutableResolver: RunExecutableResolving {
         return ResolvedRunExecutable(
             executableURL: URL(fileURLWithPath: "/usr/bin/go"),
             environment: [:]
+        )
+    }
+}
+
+private struct TestLspClientCore: LspClientCore {
+    let diagnosticURL: URL
+
+    func lspClientInitialize(rootURL _: URL) -> RustCoreBridge.LspClientResponsePayload? {
+        response(
+            messages: [#"{"jsonrpc":"2.0","id":"1","method":"initialize","params":{}}"#]
+        )
+    }
+
+    func lspClientOpenDocument(
+        state _: ToolingJSONValue,
+        fileURL: URL,
+        languageID: String,
+        text: String
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        response(messages: [
+            #"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"\#(fileURL.standardizedFileURL.absoluteString)","languageId":"\#(languageID)","version":1,"text":"\#(text)"}}}"#
+        ])
+    }
+
+    func lspClientChangeDocument(
+        state _: ToolingJSONValue,
+        fileURL _: URL,
+        text _: String
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        response()
+    }
+
+    func lspClientApplyServerMessage(
+        state _: ToolingJSONValue,
+        message: String
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        if message.contains("publishDiagnostics") {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "diagnostics",
+                    requestId: nil,
+                    method: nil,
+                    uri: diagnosticURL.standardizedFileURL.absoluteString,
+                    diagnostics: [
+                        RustCoreBridge.LspClientDiagnosticPayload(
+                            range: RustCoreBridge.LspRangePayload(
+                                start: RustCoreBridge.LspPositionPayload(line: 0, utf16Column: 7),
+                                end: RustCoreBridge.LspPositionPayload(line: 0, utf16Column: 10)
+                            ),
+                            severity: 2,
+                            message: "example warning",
+                            source: "sourcekit-lsp",
+                            code: nil
+                        )
+                    ],
+                    result: nil,
+                    error: nil
+                )
+            ])
+        }
+        return response(
+            messages: [#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#],
+            events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "1",
+                    method: "initialize",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: nil,
+                    error: nil
+                )
+            ]
+        )
+    }
+
+    private func response(
+        messages: [String] = [],
+        events: [RustCoreBridge.LspClientEventPayload] = []
+    ) -> RustCoreBridge.LspClientResponsePayload {
+        RustCoreBridge.LspClientResponsePayload(
+            state: .object([:]),
+            messages: messages,
+            events: events
         )
     }
 }

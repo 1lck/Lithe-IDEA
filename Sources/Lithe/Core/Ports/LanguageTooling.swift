@@ -333,6 +333,15 @@ extension LanguageTestProvider {
 }
 
 @MainActor
+protocol LanguageServerSession: AnyObject {
+    var isRunning: Bool { get }
+    var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
+    func start(rootURL: URL) throws
+    func synchronize(fileURL: URL, text: String, languageID: String) throws
+    func stop()
+}
+
+@MainActor
 protocol DebugAdapterSession: AnyObject {
     var isRunning: Bool { get }
     var state: DebugAdapterState { get }
@@ -360,7 +369,7 @@ extension DebugAdapterSession {
     var state: DebugAdapterState { isRunning ? .running : .idle }
 }
 
-enum ToolingJSONValue: Equatable, Sendable {
+enum ToolingJSONValue: Codable, Equatable, Sendable {
     case string(String)
     case integer(Int)
     case number(Double)
@@ -397,6 +406,45 @@ enum ToolingJSONValue: Equatable, Sendable {
             return .object(object.compactMapValues(fromFoundation))
         }
         return nil
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .integer(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([ToolingJSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .object(try container.decode([String: ToolingJSONValue].self))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .integer(let value):
+            try container.encode(value)
+        case .number(let value):
+            try container.encode(value)
+        case .bool(let value):
+            try container.encode(value)
+        case .object(let value):
+            try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        }
     }
 }
 
@@ -521,15 +569,19 @@ protocol DebugAdapterControllingSession: DebugAdapterSession {
 @MainActor
 protocol LanguageProviderRuntime: AnyObject {
     var descriptor: LanguageProviderDescriptor { get }
+    var supportsLanguageServerSession: Bool { get }
     var supportsDebugAdapterSession: Bool { get }
     var unavailableToolingMessage: String? { get }
+    func makeLanguageServerSession() -> (any LanguageServerSession)?
     func makeDebugAdapterSession() -> (any DebugAdapterSession)?
     func makeDebugAdapterSession(rootURL: URL) -> (any DebugAdapterSession)?
 }
 
 extension LanguageProviderRuntime {
+    var supportsLanguageServerSession: Bool { false }
     var supportsDebugAdapterSession: Bool { false }
     var unavailableToolingMessage: String? { nil }
+    func makeLanguageServerSession() -> (any LanguageServerSession)? { nil }
     func makeDebugAdapterSession(rootURL: URL) -> (any DebugAdapterSession)? {
         makeDebugAdapterSession()
     }
