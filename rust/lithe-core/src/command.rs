@@ -19,6 +19,9 @@ pub struct CoreRequest {
 pub enum CoreCommand {
     Ping,
     WorkspaceSnapshot,
+    WorkspaceSearchIndexWarm,
+    WorkspaceSearchIndexUpdate,
+    WorkspaceSearchIndexInvalidate,
     WorkspaceSearch,
     WorkspaceSearchEverywhere,
     WorkspaceReplacePreview,
@@ -60,6 +63,9 @@ impl CoreCommand {
         match value {
             "core.ping" => Some(Self::Ping),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
+            "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
+            "workspace.searchIndex.update" => Some(Self::WorkspaceSearchIndexUpdate),
+            "workspace.searchIndex.invalidate" => Some(Self::WorkspaceSearchIndexInvalidate),
             "workspace.search" => Some(Self::WorkspaceSearch),
             "workspace.searchEverywhere" => Some(Self::WorkspaceSearchEverywhere),
             "workspace.replacePreview" => Some(Self::WorkspaceReplacePreview),

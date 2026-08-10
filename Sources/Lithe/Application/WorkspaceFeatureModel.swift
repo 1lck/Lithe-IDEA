@@ -29,6 +29,7 @@ final class WorkspaceFeatureModel: ObservableObject {
     private var directoryWatcher: (any DirectoryChangeSource)?
     private var refreshTask: Task<Void, Never>?
     private var visibilityRulesRefreshTask: Task<Void, Never>?
+    private var searchIndexTask: Task<Void, Never>?
     private var pendingExternalPaths: Set<String> = []
     private var externalRefreshGeneration = 0
     private var workspaceSessionPersistenceTask: Task<Void, Never>?
@@ -104,6 +105,9 @@ final class WorkspaceFeatureModel: ObservableObject {
     }
 
     func reset() {
+        if let workspaceURL {
+            scheduleSearchIndexInvalidation(at: workspaceURL, rules: visibilityRules)
+        }
         directoryWatcher?.stop()
         directoryWatcher = nil
         refreshTask?.cancel()
@@ -129,6 +133,7 @@ final class WorkspaceFeatureModel: ObservableObject {
         refreshTask?.cancel()
         visibilityRulesRefreshTask?.cancel()
         workspaceSessionPersistenceTask?.cancel()
+        searchIndexTask?.cancel()
     }
 
     func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
@@ -205,6 +210,7 @@ final class WorkspaceFeatureModel: ObservableObject {
         loadErrorMessage = nil
         rootNode = snapshot.root
         projectFiles = snapshot.files
+        scheduleSearchIndexWarm(at: workspaceURL, rules: rules)
 
         // The tree is usable as soon as the shared snapshot is ready. Service
         // preparation below may involve Git, Java, and local history work.
@@ -518,6 +524,11 @@ final class WorkspaceFeatureModel: ObservableObject {
             await refreshCurrent()
             return
         }
+        await updateSearchIndex(
+            at: workspaceURL,
+            changedPaths: changedURLs.map(\.path),
+            rules: visibilityRules
+        )
         let requiresProjectServiceReload = changedURLs.contains { url in
             let name = url.lastPathComponent.lowercased()
             return name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts"
@@ -525,6 +536,49 @@ final class WorkspaceFeatureModel: ObservableObject {
         }
         if requiresProjectServiceReload { await reloadProjectServices?() }
         await refreshGit?()
+    }
+
+    private func scheduleSearchIndexWarm(at workspaceURL: URL, rules: FileVisibilityRules) {
+        let previousTask = searchIndexTask
+        previousTask?.cancel()
+        let operations = self.operations
+        searchIndexTask = Task.detached(priority: .utility) {
+            await previousTask?.value
+            guard !Task.isCancelled else { return }
+            operations.warmSearchIndex(at: workspaceURL, visibilityRules: rules)
+        }
+    }
+
+    private func scheduleSearchIndexInvalidation(at workspaceURL: URL, rules: FileVisibilityRules) {
+        let previousTask = searchIndexTask
+        previousTask?.cancel()
+        let operations = self.operations
+        searchIndexTask = Task.detached(priority: .utility) {
+            await previousTask?.value
+            operations.invalidateSearchIndex(at: workspaceURL, visibilityRules: rules)
+        }
+    }
+
+    private func updateSearchIndex(
+        at workspaceURL: URL,
+        changedPaths: [String],
+        rules: FileVisibilityRules
+    ) async {
+        guard !changedPaths.isEmpty else { return }
+        let previousTask = searchIndexTask
+        previousTask?.cancel()
+        let operations = self.operations
+        let task = Task.detached(priority: .utility) {
+            await previousTask?.value
+            guard !Task.isCancelled else { return }
+            operations.updateSearchIndex(
+                at: workspaceURL,
+                changedPaths: changedPaths,
+                visibilityRules: rules
+            )
+        }
+        searchIndexTask = task
+        await task.value
     }
 
     private func isWorkspaceURL(_ url: URL) -> Bool {
