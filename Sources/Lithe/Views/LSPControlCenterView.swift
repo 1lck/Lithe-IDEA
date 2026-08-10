@@ -115,7 +115,7 @@ struct LSPControlCenterView: View {
                 }
             }
             .frame(height: serverListHeight)
-            .litheScrollViewChrome(hideHorizontal: true)
+            .litheScrollViewChrome(hideHorizontal: true, alwaysShowVertical: true)
         }
         .padding(10)
         .panelChrome()

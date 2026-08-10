@@ -8,21 +8,25 @@ import SwiftUI
 /// no visible content of its own.
 struct LitheScrollViewChrome: NSViewRepresentable {
     var hideHorizontal = false
+    var alwaysShowVertical = false
 
     func makeNSView(context: Context) -> ScrollViewProbe {
-        ScrollViewProbe(hideHorizontal: hideHorizontal)
+        ScrollViewProbe(hideHorizontal: hideHorizontal, alwaysShowVertical: alwaysShowVertical)
     }
 
     func updateNSView(_ nsView: ScrollViewProbe, context: Context) {
         nsView.hideHorizontal = hideHorizontal
+        nsView.alwaysShowVertical = alwaysShowVertical
         nsView.configureEnclosingScrollView()
     }
 
     final class ScrollViewProbe: NSView {
         var hideHorizontal: Bool
+        var alwaysShowVertical: Bool
 
-        init(hideHorizontal: Bool) {
+        init(hideHorizontal: Bool, alwaysShowVertical: Bool) {
             self.hideHorizontal = hideHorizontal
+            self.alwaysShowVertical = alwaysShowVertical
             super.init(frame: .zero)
         }
 
@@ -44,8 +48,9 @@ struct LitheScrollViewChrome: NSViewRepresentable {
         func configureEnclosingScrollView() {
             guard let scrollView = enclosingScrollView else { return }
 
-            scrollView.scrollerStyle = .overlay
-            scrollView.autohidesScrollers = true
+            scrollView.scrollerStyle = alwaysShowVertical ? .legacy : .overlay
+            scrollView.autohidesScrollers = !alwaysShowVertical
+            scrollView.hasVerticalScroller = true
             scrollView.verticalScroller?.knobStyle = .dark
             scrollView.horizontalScroller?.knobStyle = .dark
 
@@ -58,7 +63,13 @@ struct LitheScrollViewChrome: NSViewRepresentable {
 }
 
 extension View {
-    func litheScrollViewChrome(hideHorizontal: Bool = false) -> some View {
-        background(LitheScrollViewChrome(hideHorizontal: hideHorizontal))
+    func litheScrollViewChrome(
+        hideHorizontal: Bool = false,
+        alwaysShowVertical: Bool = false
+    ) -> some View {
+        background(LitheScrollViewChrome(
+            hideHorizontal: hideHorizontal,
+            alwaysShowVertical: alwaysShowVertical
+        ))
     }
 }
