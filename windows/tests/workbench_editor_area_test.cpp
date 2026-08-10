@@ -1,6 +1,7 @@
 #include "workbench_editor_area.h"
 #include "workbench_code_editor.h"
 #include "workbench_document_protection.h"
+#include "workbench_document_view.h"
 
 #include <QApplication>
 #include <QKeyEvent>
@@ -67,6 +68,16 @@ int main(int argc, char* argv[]) {
            lithe::windows::DocumentTransitionDecision::Proceed);
     assert(lithe::windows::documentTransitionDecision(false, 2, QMessageBox::Cancel) ==
            lithe::windows::DocumentTransitionDecision::Block);
+    assert(lithe::windows::documentCloseDecision(true, true, QMessageBox::Save) ==
+           lithe::windows::DocumentTransitionDecision::Block);
+    assert(lithe::windows::documentCloseDecision(false, false) ==
+           lithe::windows::DocumentTransitionDecision::Proceed);
+    assert(lithe::windows::documentCloseDecision(false, true, QMessageBox::Save) ==
+           lithe::windows::DocumentTransitionDecision::SaveThenProceed);
+    assert(lithe::windows::documentCloseDecision(false, true, QMessageBox::Discard) ==
+           lithe::windows::DocumentTransitionDecision::Proceed);
+    assert(lithe::windows::documentCloseDecision(false, true, QMessageBox::Cancel) ==
+           lithe::windows::DocumentTransitionDecision::Block);
 
     area.setEmptyStateVisible(false);
     assert(editorStack->currentWidget() == area.editor());
@@ -85,6 +96,27 @@ int main(int argc, char* argv[]) {
     assert(editorStack->currentWidget() == secondEditor);
     assert(firstEditor->toPlainText() == QStringLiteral("alpha"));
     assert(secondEditor->toPlainText() == QStringLiteral("bravo"));
+    secondEditor->setFixedSize(160, 80);
+    secondEditor->setLineWrapMode(QPlainTextEdit::NoWrap);
+    secondEditor->setPlainText(QStringLiteral(
+        "line one\nline two\nline three\nline four\nline five\nline six\n"
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"));
+    QTextCursor selected(secondEditor->document());
+    selected.setPosition(9);
+    selected.setPosition(17, QTextCursor::KeepAnchor);
+    secondEditor->setTextCursor(selected);
+    secondEditor->verticalScrollBar()->setValue(2);
+    secondEditor->horizontalScrollBar()->setValue(3);
+    const auto oldScroll = secondEditor->verticalScrollBar()->value();
+    const auto oldHorizontalScroll = secondEditor->horizontalScrollBar()->value();
+    replaceDocumentTextPreservingView(
+        *secondEditor, QStringLiteral(
+            "line one\nline TWO\nline three\nline four\nline five\nline six\n"
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"));
+    assert(secondEditor->textCursor().anchor() == 9);
+    assert(secondEditor->textCursor().position() == 17);
+    assert(secondEditor->verticalScrollBar()->value() == oldScroll);
+    assert(secondEditor->horizontalScrollBar()->value() == oldHorizontalScroll);
     secondEditor->setFocus();
     application.processEvents();
     assert(secondEditor->hasFocus());

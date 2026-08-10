@@ -5,6 +5,7 @@
 #include "ui_translation.h"
 #include "workbench_code_editor.h"
 #include "workbench_document_protection.h"
+#include "workbench_document_view.h"
 #include "win32_file_storage.h"
 
 #include <QAction>
@@ -3067,7 +3068,11 @@ void WorkbenchWindow::closeEditorTab(int index) {
     if (editorTabs_ == nullptr || index < 0 || index >= editorTabs_->count()) return;
     const auto path = editorTabs_->tabData(index).toString();
     const auto documentState = documentFeature_->state(path.toUtf8().toStdString());
-    if (documentState && (documentState->isLoading || documentState->isSaving)) {
+    const auto operationInProgress = documentState &&
+        (documentState->isLoading || documentState->isSaving);
+    if (documentCloseDecision(operationInProgress,
+                              documentState && documentState->isDirty) ==
+        DocumentTransitionDecision::Block && operationInProgress) {
         statusBar()->showMessage(uiText(QStringLiteral("Wait for the document operation to finish")), 4000);
         return;
     }
@@ -3077,8 +3082,9 @@ void WorkbenchWindow::closeEditorTab(int index) {
             uiText(QStringLiteral("Save changes to %1 before closing?")).arg(path),
             QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
             QMessageBox::Save);
-        if (choice == QMessageBox::Cancel) return;
-        if (choice == QMessageBox::Save) {
+        const auto decision = documentCloseDecision(false, true, choice);
+        if (decision == DocumentTransitionDecision::Block) return;
+        if (decision == DocumentTransitionDecision::SaveThenProceed) {
             const QPointer<WorkbenchWindow> guardedWindow(this);
             documentFeature_->save(path.toUtf8().toStdString(),
                 [guardedWindow, path](app::DocumentFeatureState state) {
@@ -3289,22 +3295,7 @@ void WorkbenchWindow::applyDocumentState(const app::DocumentFeatureState& state)
     suppressEditorChange_ = true;
     editor_->clearAnnotations();
     const auto nextText = fromUtf8(state.text);
-    if (editor_->toPlainText() != nextText) {
-        const auto previousCursor = editor_->textCursor();
-        const auto previousAnchor = previousCursor.anchor();
-        const auto previousPosition = previousCursor.position();
-        const auto verticalScroll = editor_->verticalScrollBar()->value();
-        const auto horizontalScroll = editor_->horizontalScrollBar()->value();
-        editor_->setPlainText(nextText);
-        const auto maximum = std::max(0, editor_->document()->characterCount() - 1);
-        QTextCursor restoredCursor(editor_->document());
-        restoredCursor.setPosition(std::clamp(previousAnchor, 0, maximum));
-        restoredCursor.setPosition(std::clamp(previousPosition, 0, maximum),
-                                   QTextCursor::KeepAnchor);
-        editor_->setTextCursor(restoredCursor);
-        editor_->verticalScrollBar()->setValue(verticalScroll);
-        editor_->horizontalScrollBar()->setValue(horizontalScroll);
-    }
+    replaceDocumentTextPreservingView(*editor_, nextText);
     suppressEditorChange_ = false;
     editor_->setReadOnly(state.isReadOnly);
     updateDocumentTabState(activePath_);

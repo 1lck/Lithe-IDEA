@@ -22,4 +22,14 @@ inline DocumentTransitionDecision documentTransitionDecision(
     return DocumentTransitionDecision::Block;
 }
 
+inline DocumentTransitionDecision documentCloseDecision(
+    bool operationInProgress, bool isDirty,
+    QMessageBox::StandardButton choice = QMessageBox::Cancel) {
+    if (operationInProgress) return DocumentTransitionDecision::Block;
+    if (!isDirty) return DocumentTransitionDecision::Proceed;
+    if (choice == QMessageBox::Save) return DocumentTransitionDecision::SaveThenProceed;
+    if (choice == QMessageBox::Discard) return DocumentTransitionDecision::Proceed;
+    return DocumentTransitionDecision::Block;
+}
+
 } // namespace lithe::windows
