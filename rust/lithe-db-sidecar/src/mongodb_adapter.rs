@@ -96,7 +96,38 @@ pub(super) async fn method(method: &str, params: Params) -> DbResult {
 
 async fn connect(connection: &Connection) -> Result<Client, (String, String)> {
     let host = connection.host.trim();
-    let uri = if host.starts_with("mongodb://") || host.starts_with("mongodb+srv://") {
+    let uri = mongo_uri(connection);
+    let timeout = Duration::from_secs(8);
+    let mut options = tokio::time::timeout(timeout, ClientOptions::parse(&uri))
+        .await
+        .map_err(|_| {
+            (
+                "connection_failed".into(),
+                "MongoDB connection timed out.".into(),
+            )
+        })?
+        .map_err(|error| {
+            (
+                "connection_failed".into(),
+                redact(error.to_string(), &connection.password),
+            )
+        })?;
+    options.connect_timeout = Some(timeout);
+    options.server_selection_timeout = Some(timeout);
+    if !host.starts_with("mongodb+srv://") && !host.contains(',') {
+        options.direct_connection = Some(true);
+    }
+    Client::with_options(options).map_err(|error| {
+        (
+            "connection_failed".into(),
+            redact(error.to_string(), &connection.password),
+        )
+    })
+}
+
+fn mongo_uri(connection: &Connection) -> String {
+    let host = connection.host.trim();
+    if host.starts_with("mongodb://") || host.starts_with("mongodb+srv://") {
         if connection.ssl && !host.to_ascii_lowercase().contains("tls=") {
             format!(
                 "{host}{}tls=true",
@@ -125,35 +156,21 @@ async fn connect(connection: &Connection) -> Result<Client, (String, String)> {
         } else {
             connection.database.trim()
         };
-        let separator = if connection.ssl { "?tls=true" } else { "" };
-        format!("mongodb://{credentials}{host}:{port}/{database}{separator}")
-    };
-    let timeout = Duration::from_secs(8);
-    let mut options = tokio::time::timeout(timeout, ClientOptions::parse(&uri))
-        .await
-        .map_err(|_| {
-            (
-                "connection_failed".into(),
-                "MongoDB connection timed out.".into(),
-            )
-        })?
-        .map_err(|error| {
-            (
-                "connection_failed".into(),
-                redact(error.to_string(), &connection.password),
-            )
-        })?;
-    options.connect_timeout = Some(timeout);
-    options.server_selection_timeout = Some(timeout);
-    if !host.starts_with("mongodb+srv://") && !host.contains(',') {
-        options.direct_connection = Some(true);
+        let mut query = Vec::new();
+        if !connection.username.is_empty() {
+            // MongoDB users are commonly created in admin while the selected database is an app database.
+            query.push("authSource=admin");
+        }
+        if connection.ssl {
+            query.push("tls=true");
+        }
+        let suffix = if query.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", query.join("&"))
+        };
+        format!("mongodb://{credentials}{host}:{port}/{database}{suffix}")
     }
-    Client::with_options(options).map_err(|error| {
-        (
-            "connection_failed".into(),
-            redact(error.to_string(), &connection.password),
-        )
-    })
 }
 
 async fn describe_collection(database: &mongodb::Database, collection_name: &str) -> DbResult {
@@ -450,4 +467,68 @@ fn redact(mut message: String, password: &str) -> String {
         message = message.replace(password, "***");
     }
     message
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn connection(
+        host: &str,
+        username: &str,
+        password: &str,
+        database: &str,
+        ssl: bool,
+    ) -> Connection {
+        Connection {
+            kind: "mongodb".into(),
+            host: host.into(),
+            port: 27017,
+            username: username.into(),
+            password: password.into(),
+            database: database.into(),
+            path: String::new(),
+            ssl,
+            ca_certificate_path: String::new(),
+            server_name: String::new(),
+            ssh_host: String::new(),
+            ssh_port: 0,
+            ssh_username: String::new(),
+            ssh_key_path: String::new(),
+            ssh_local_port: 0,
+            proxy_url: String::new(),
+            read_only: false,
+            production_protection: false,
+        }
+    }
+
+    #[test]
+    fn host_connections_authenticate_against_admin_by_default() {
+        let uri = mongo_uri(&connection(
+            "127.0.0.1",
+            "root",
+            "secret",
+            "lithe_test",
+            false,
+        ));
+        assert_eq!(
+            uri,
+            "mongodb://root:secret@127.0.0.1:27017/lithe_test?authSource=admin"
+        );
+    }
+
+    #[test]
+    fn explicit_mongodb_uri_keeps_its_options() {
+        let uri = mongo_uri(&connection(
+            "mongodb://root:secret@db.example/lithe_test?authSource=custom",
+            "",
+            "",
+            "",
+            true,
+        ));
+        assert_eq!(
+            uri,
+            "mongodb://root:secret@db.example/lithe_test?authSource=custom&tls=true"
+        );
+    }
 }
