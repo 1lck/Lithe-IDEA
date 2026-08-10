@@ -93,7 +93,7 @@ int main() {
     lithe::windows::ProcessRequest request;
     request.operationID = "terminal-lifecycle-test";
     request.executablePath = commandShell();
-    request.arguments = {"/d", "/k"};
+    request.arguments = {"/d", "/k", "ver"};
     terminal.setErrorHandler([](const std::string& error) {
         std::cerr << "Terminal startup error: " << error << '\n';
     });
