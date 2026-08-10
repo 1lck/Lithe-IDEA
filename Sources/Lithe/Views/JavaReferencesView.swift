@@ -106,9 +106,8 @@ struct LanguageImplementationChooserView: View {
                             model.navigate(to: location)
                         } label: {
                             HStack(spacing: 9) {
-                                Image(systemName: "c.circle")
-                                    .foregroundStyle(Color(red: 0.42, green: 0.66, blue: 0.95))
-                                Text(location.displayName.replacingOccurrences(of: ".java", with: ""))
+                                LitheIcon(kind: LitheIcons.kind(for: location.url, isDirectory: false), size: 15)
+                                Text(location.displayName)
                                     .font(.system(size: 12.5, weight: .medium, design: .monospaced))
                                     .foregroundStyle(LitheTheme.primaryText)
                                 Text(location.displayPath ?? model.relativePath(for: location.url))

@@ -16,6 +16,7 @@ final class AppServices {
     /// registries remain exposed below for source compatibility with existing
     /// feature models while new composition should use this value.
     let languagePacks: LanguagePackRegistry
+    let languageProviderCatalogSource: any LanguageProviderCatalogSource
     /// Metadata-only provider catalog; providers are activated on demand.
     let languageProviderCatalog: LanguageProviderCatalog
     let runToolchainRegistry: RunToolchainRegistry
@@ -31,7 +32,6 @@ final class AppServices {
     let fileStorage: any FileStorage
     let fileOperations: any WorkspaceFileOperations
     let projectRuntimeService: ProjectRuntimeService
-    let javaLanguageService: JavaLanguageService
     let javaImplementationMarkerService: JavaImplementationMarkerService
     let mavenService: MavenService
     let runService: RunService
@@ -51,7 +51,8 @@ final class AppServices {
     let shortcutDetectorFactory: any ShortcutDetectorFactory
 
     init(
-        languageProviderCatalog: LanguageProviderCatalog = .standard,
+        languageProviderCatalogSource: any LanguageProviderCatalogSource,
+        languageProviderCatalog: LanguageProviderCatalog? = nil,
         languagePacks: LanguagePackRegistry? = nil,
         runToolchainRegistry: RunToolchainRegistry? = nil,
         languageToolingSessions: LanguageToolingSessionManager? = nil,
@@ -66,7 +67,6 @@ final class AppServices {
         fileStorage: any FileStorage,
         fileOperations: any WorkspaceFileOperations,
         projectRuntimeService: ProjectRuntimeService,
-        javaLanguageService: JavaLanguageService,
         javaImplementationMarkerService: JavaImplementationMarkerService,
         mavenService: MavenService,
         runService: RunService,
@@ -85,14 +85,10 @@ final class AppServices {
         platformUI: any PlatformUI,
         shortcutDetectorFactory: any ShortcutDetectorFactory
     ) {
+        self.languageProviderCatalogSource = languageProviderCatalogSource
+        let resolvedCatalog = languageProviderCatalog ?? languageProviderCatalogSource.catalog(workspaceURL: nil)
         let resolvedLanguagePacks = languagePacks ?? LanguagePackRegistry.standard(
-            catalog: languageProviderCatalog,
-            runtimes: [
-                JavaLanguageProviderRuntime(
-                    service: javaLanguageService,
-                    catalog: languageProviderCatalog
-                )
-            ]
+            catalog: resolvedCatalog
         )
         self.languagePacks = resolvedLanguagePacks
         self.languageProviderCatalog = resolvedLanguagePacks.catalog
@@ -112,7 +108,6 @@ final class AppServices {
         self.fileStorage = fileStorage
         self.fileOperations = fileOperations
         self.projectRuntimeService = projectRuntimeService
-        self.javaLanguageService = javaLanguageService
         self.javaImplementationMarkerService = javaImplementationMarkerService
         self.mavenService = mavenService
         self.runService = runService

@@ -20,9 +20,9 @@ enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     }
 }
 
-/// Owns only active language-tooling processes. The catalog is metadata and
-/// providers are created lazily on first use, so opening a workspace does not
-/// start five LSPs or Debug Adapters just because they are supported.
+/// UI-facing façade for language tooling. LSP behavior is intentionally not
+/// implemented in Swift; these entry points are stable while the Rust LSP host
+/// is wired underneath them.
 @MainActor
 final class LanguageToolingSessionManager: ObservableObject {
     @Published private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
@@ -30,12 +30,12 @@ final class LanguageToolingSessionManager: ObservableObject {
     @Published private(set) var debugStates: [String: DebugAdapterState] = [:]
     @Published private(set) var lastDebugEvents: [String: DebugAdapterEvent] = [:]
     @Published private(set) var verifiedBreakpoints: [String: [DebugBreakpoint]] = [:]
+
     var onDebugStateChange: ((String, DebugAdapterState) -> Void)?
     var onDebugEvent: ((String, DebugAdapterEvent) -> Void)?
-    private let catalog: LanguageProviderCatalog
+
+    private var catalog: LanguageProviderCatalog
     private var runtimesByID: [String: any LanguageProviderRuntime]
-    private var languageServers: [String: any LanguageServerSession] = [:]
-    private var languageServerRoots: [String: URL] = [:]
     private var debugAdapters: [String: any DebugAdapterSession] = [:]
     private var debugAdapterRoots: [String: URL] = [:]
     private var requestedBreakpoints: [String: [URL: [DebugSourceBreakpoint]]] = [:]
@@ -52,75 +52,182 @@ final class LanguageToolingSessionManager: ObservableObject {
         self.init(catalog: registry.catalog, runtimes: registry.toolingRuntimes)
     }
 
-    var activeLanguageServerIDs: Set<String> { Set(languageServers.keys) }
+    var activeLanguageServerIDs: Set<String> { [] }
     var activeDebugAdapterIDs: Set<String> { Set(debugAdapters.keys) }
+
+    func updateCatalog(_ catalog: LanguageProviderCatalog) {
+        self.catalog = catalog
+        let validProviderIDs = Set(catalog.descriptors.map(\.id))
+        languageServerFeatures = languageServerFeatures.filter { validProviderIDs.contains($0.key) }
+        diagnostics = diagnostics.filter { catalog.provider(for: $0.key) != nil }
+    }
 
     func provider(for fileURL: URL) -> LanguageProviderDescriptor? {
         catalog.provider(for: fileURL)
     }
 
     func supportsGenericEditing(for fileURL: URL) -> Bool {
-        guard let descriptor = catalog.provider(for: fileURL),
-              descriptor.capabilities.contains(.languageServer) else { return false }
-        guard runtimesByID[descriptor.id]?.supportsEditingSession == true else { return false }
+        guard catalog.provider(for: fileURL)?.capabilities.contains(.languageServer) == true else {
+            return false
+        }
         return !features(for: fileURL).isEmpty
     }
 
     func supportsGenericDebugging(for fileURL: URL) -> Bool {
-        guard let descriptor = catalog.provider(for: fileURL) else { return false }
+        guard let descriptor = catalog.provider(for: fileURL),
+              descriptor.capabilities.contains(.debugAdapter) else { return false }
         return runtimesByID[descriptor.id]?.supportsDebugAdapterSession == true
     }
 
     func features(for fileURL: URL) -> LanguageServerFeatureSet {
         guard let descriptor = catalog.provider(for: fileURL) else { return [] }
-        return languageServerFeatures[descriptor.id]
-            ?? runtimesByID[descriptor.id]?.declaredLanguageServerFeatures
-            ?? []
+        return languageServerFeatures[descriptor.id] ?? []
     }
 
-    @discardableResult
-    func activateLanguageServer(for fileURL: URL, rootURL: URL) throws -> any LanguageServerSession {
-        guard let descriptor = catalog.provider(for: fileURL) else {
+    func synchronizeLanguageServer(
+        for fileURL: URL,
+        text _: String,
+        rootURL _: URL
+    ) throws {
+        guard catalog.provider(for: fileURL) != nil else {
             throw LanguageToolingSessionError.noProvider(fileExtension: fileURL.pathExtension.lowercased())
         }
-        guard descriptor.capabilities.contains(.languageServer) else {
+        // Rust LSP host will own didOpen/didChange and diagnostics. Until it
+        // exists, document synchronization is a no-op so the UI remains stable.
+    }
+
+    func closeDocument(_ fileURL: URL) {
+        diagnostics[fileURL.standardizedFileURL] = nil
+    }
+
+    func clearDiagnostics() {
+        diagnostics = [:]
+    }
+
+    func stopLanguageServer(providerID: String) {
+        languageServerFeatures[providerID] = nil
+    }
+
+    func stopAllLanguageServers() {
+        diagnostics = [:]
+        languageServerFeatures = [:]
+    }
+
+    func navigate(
+        method _: String,
+        fileURL: URL,
+        text _: String,
+        position _: LanguageServerPosition,
+        rootURL _: URL,
+        completion _: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) throws {
+        throw unavailableLanguageServerError(for: fileURL)
+    }
+
+    func hover(
+        fileURL: URL,
+        text _: String,
+        position _: LanguageServerPosition,
+        rootURL _: URL,
+        completion _: @escaping (Result<LanguageServerHover?, Error>) -> Void
+    ) throws {
+        throw unavailableLanguageServerError(for: fileURL)
+    }
+
+    func completions(
+        fileURL: URL,
+        text _: String,
+        position _: LanguageServerPosition,
+        rootURL _: URL,
+        completion _: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) throws {
+        throw unavailableLanguageServerError(for: fileURL)
+    }
+
+    func rename(
+        fileURL: URL,
+        text _: String,
+        position _: LanguageServerPosition,
+        newName _: String,
+        rootURL _: URL,
+        completion _: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
+    ) throws {
+        throw unavailableLanguageServerError(for: fileURL)
+    }
+
+    func format(
+        fileURL: URL,
+        text _: String,
+        rootURL _: URL,
+        options _: [String: Any] = [
+            "tabSize": 4,
+            "insertSpaces": true,
+            "trimTrailingWhitespace": true,
+            "insertFinalNewline": true,
+            "trimFinalNewlines": true
+        ],
+        completion _: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
+    ) throws {
+        throw unavailableLanguageServerError(for: fileURL)
+    }
+
+    func codeActions(
+        fileURL: URL,
+        text _: String,
+        range _: LanguageServerRange,
+        diagnostics _: [LanguageServerDiagnostic],
+        rootURL _: URL,
+        completion _: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
+    ) throws {
+        throw unavailableLanguageServerError(for: fileURL)
+    }
+
+    func execute(
+        _ command: LanguageServerCommand,
+        fileURL: URL,
+        text _: String,
+        rootURL _: URL,
+        completion _: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        guard command.command.isEmpty == false else {
             throw LanguageToolingSessionError.capabilityUnavailable(
-                provider: descriptor.displayName,
-                capability: "language server"
+                provider: catalog.provider(for: fileURL)?.displayName ?? fileURL.pathExtension,
+                capability: "execute command"
             )
         }
-        let normalizedRoot = rootURL.standardizedFileURL
-        if let active = languageServers[descriptor.id] {
-            if active.isRunning, languageServerRoots[descriptor.id] == normalizedRoot {
-                return active
-            }
-            active.stop()
-            languageServers[descriptor.id] = nil
-            languageServerRoots[descriptor.id] = nil
-        }
-        guard let runtime = runtimesByID[descriptor.id] else {
-            throw LanguageToolingSessionError.providerNotInstalled(descriptor.displayName)
-        }
-        guard let session = runtime.makeLanguageServerSession() else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                runtime.unavailableToolingMessage ?? descriptor.displayName
+        throw unavailableLanguageServerError(for: fileURL)
+    }
+
+    func resolveCompletion(
+        _ item: LanguageServerCompletionItem,
+        fileURL: URL,
+        text _: String,
+        rootURL _: URL,
+        completion _: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
+    ) throws {
+        guard item.label.isEmpty == false else {
+            throw LanguageToolingSessionError.capabilityUnavailable(
+                provider: catalog.provider(for: fileURL)?.displayName ?? fileURL.pathExtension,
+                capability: "completion item resolve"
             )
         }
-        languageServerFeatures[descriptor.id] = runtime.declaredLanguageServerFeatures
-        if let reporting = session as? any LanguageServerFeatureReportingSession {
-            reporting.onSupportedFeaturesChange = { [weak self] features in
-                self?.languageServerFeatures[descriptor.id] = features
-            }
+        throw unavailableLanguageServerError(for: fileURL)
+    }
+
+    func resolveCodeAction(
+        _ action: LanguageServerCodeAction,
+        fileURL: URL,
+        text _: String,
+        rootURL _: URL,
+        completion _: @escaping (Result<LanguageServerCodeAction, Error>) -> Void
+    ) throws {
+        guard action.title.isEmpty == false else {
+            throw LanguageToolingSessionError.capabilityUnavailable(
+                provider: catalog.provider(for: fileURL)?.displayName ?? fileURL.pathExtension,
+                capability: "code action resolve"
+            )
         }
-        do {
-            try session.start(rootURL: normalizedRoot)
-        } catch {
-            languageServerFeatures[descriptor.id] = nil
-            throw error
-        }
-        languageServers[descriptor.id] = session
-        languageServerRoots[descriptor.id] = normalizedRoot
-        return session
+        throw unavailableLanguageServerError(for: fileURL)
     }
 
     @discardableResult
@@ -128,8 +235,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         guard let descriptor = catalog.provider(for: fileURL) else {
             throw LanguageToolingSessionError.noProvider(fileExtension: fileURL.pathExtension.lowercased())
         }
-        guard descriptor.capabilities.contains(.debugAdapter)
-                || runtimesByID[descriptor.id]?.supportsDebugAdapterSession == true else {
+        guard descriptor.capabilities.contains(.debugAdapter) else {
             throw LanguageToolingSessionError.capabilityUnavailable(
                 provider: descriptor.displayName,
                 capability: "debug adapter"
@@ -165,12 +271,6 @@ final class LanguageToolingSessionManager: ObservableObject {
         return session
     }
 
-    func stopLanguageServer(providerID: String) {
-        languageServers.removeValue(forKey: providerID)?.stop()
-        languageServerRoots[providerID] = nil
-        languageServerFeatures[providerID] = nil
-    }
-
     func stopDebugAdapter(providerID: String) {
         debugAdapters.removeValue(forKey: providerID)?.stop()
         debugAdapterRoots[providerID] = nil
@@ -178,10 +278,8 @@ final class LanguageToolingSessionManager: ObservableObject {
     }
 
     func stopAll() {
-        for session in languageServers.values { session.stop() }
         for session in debugAdapters.values { session.stop() }
-        languageServers.removeAll()
-        languageServerRoots.removeAll()
+        diagnostics = [:]
         languageServerFeatures = [:]
         debugAdapters.removeAll()
         debugAdapterRoots.removeAll()
@@ -189,7 +287,6 @@ final class LanguageToolingSessionManager: ObservableObject {
         lastDebugEvents = [:]
         verifiedBreakpoints = [:]
         requestedBreakpoints = [:]
-        diagnostics = [:]
     }
 
     @discardableResult
@@ -219,8 +316,7 @@ final class LanguageToolingSessionManager: ObservableObject {
                 fileExtension: fileURL.pathExtension.lowercased()
             )
         }
-        guard descriptor.capabilities.contains(.debugAdapter)
-                || runtimesByID[descriptor.id]?.supportsDebugAdapterSession == true else {
+        guard descriptor.capabilities.contains(.debugAdapter) else {
             throw LanguageToolingSessionError.capabilityUnavailable(
                 provider: descriptor.displayName,
                 capability: "debug adapter breakpoints"
@@ -237,320 +333,11 @@ final class LanguageToolingSessionManager: ObservableObject {
         debugAdapters[providerID] as? any DebugAdapterControllingSession
     }
 
-    func synchronizeLanguageServer(
-        for fileURL: URL,
-        text: String,
-        rootURL: URL
-    ) throws {
-        guard let descriptor = catalog.provider(for: fileURL) else {
-            throw LanguageToolingSessionError.noProvider(
-                fileExtension: fileURL.pathExtension.lowercased()
-            )
-        }
-        let session = try activateLanguageServer(for: fileURL, rootURL: rootURL)
-        guard let documentSession = session as? any LanguageServerDocumentSession else { return }
-        documentSession.onDiagnostics = { [weak self] url, diagnostics in
-            self?.diagnostics[url.standardizedFileURL] = diagnostics
-        }
-        documentSession.synchronizeDocument(
-            url: fileURL,
-            languageIdentifier: descriptor.languageIdentifier(for: fileURL),
-            text: text
+    private func unavailableLanguageServerError(for fileURL: URL) -> LanguageToolingSessionError {
+        let provider = catalog.provider(for: fileURL)?.displayName ?? fileURL.pathExtension
+        return .toolingUnavailable(
+            "\(provider) language server is waiting for the Rust LSP host integration."
         )
-    }
-
-    func closeDocument(_ fileURL: URL) {
-        guard let descriptor = catalog.provider(for: fileURL),
-              let session = languageServers[descriptor.id] as? any LanguageServerDocumentSession
-        else { return }
-        session.closeDocument(url: fileURL)
-        diagnostics[fileURL.standardizedFileURL] = nil
-    }
-
-    func navigate(
-        method: String,
-        fileURL: URL,
-        text: String,
-        position: LanguageServerPosition,
-        rootURL: URL,
-        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
-    ) throws {
-        guard let descriptor = catalog.provider(for: fileURL) else {
-            throw LanguageToolingSessionError.noProvider(
-                fileExtension: fileURL.pathExtension.lowercased()
-            )
-        }
-        let feature: LanguageServerFeatureSet
-        let capability: String
-        switch method {
-        case "textDocument/definition":
-            feature = .definition
-            capability = "go to definition"
-        case "textDocument/references":
-            feature = .references
-            capability = "find references"
-        case "textDocument/implementation":
-            feature = .implementation
-            capability = "go to implementation"
-        default:
-            throw LanguageToolingSessionError.capabilityUnavailable(
-                provider: descriptor.displayName,
-                capability: method
-            )
-        }
-        let session = try activateLanguageServer(for: fileURL, rootURL: rootURL)
-        try requireFeature(feature, descriptor: descriptor, capability: capability)
-        guard let navigation = session as? any LanguageServerNavigationSession else {
-            throw LanguageToolingSessionError.capabilityUnavailable(
-                provider: descriptor.displayName,
-                capability: "definition and reference navigation"
-            )
-        }
-        navigation.onDiagnostics = { [weak self] url, diagnostics in
-            self?.diagnostics[url.standardizedFileURL] = diagnostics
-        }
-        navigation.synchronizeDocument(
-            url: fileURL,
-            languageIdentifier: descriptor.languageIdentifier(for: fileURL),
-            text: text
-        )
-        navigation.locations(
-            method: method,
-            documentURL: fileURL,
-            position: position,
-            completion: completion
-        )
-    }
-
-    func hover(
-        fileURL: URL,
-        text: String,
-        position: LanguageServerPosition,
-        rootURL: URL,
-        completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
-    ) throws {
-        let session = try codeIntelligenceSession(
-            fileURL: fileURL,
-            text: text,
-            rootURL: rootURL,
-            requiredFeature: .hover,
-            capability: "hover"
-        )
-        session.hover(documentURL: fileURL, position: position, completion: completion)
-    }
-
-    func completions(
-        fileURL: URL,
-        text: String,
-        position: LanguageServerPosition,
-        rootURL: URL,
-        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
-    ) throws {
-        let session = try codeIntelligenceSession(
-            fileURL: fileURL,
-            text: text,
-            rootURL: rootURL,
-            requiredFeature: .completion,
-            capability: "completion"
-        )
-        session.completions(documentURL: fileURL, position: position, completion: completion)
-    }
-
-    func rename(
-        fileURL: URL,
-        text: String,
-        position: LanguageServerPosition,
-        newName: String,
-        rootURL: URL,
-        completion: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
-    ) throws {
-        let session = try editingSession(
-            fileURL: fileURL,
-            text: text,
-            rootURL: rootURL,
-            requiredFeature: .rename,
-            capability: "rename"
-        )
-        session.rename(
-            documentURL: fileURL,
-            position: position,
-            newName: newName,
-            completion: completion
-        )
-    }
-
-    func format(
-        fileURL: URL,
-        text: String,
-        rootURL: URL,
-        options: [String: Any] = [
-            "tabSize": 4,
-            "insertSpaces": true,
-            "trimTrailingWhitespace": true,
-            "insertFinalNewline": true,
-            "trimFinalNewlines": true
-        ],
-        completion: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
-    ) throws {
-        let session = try editingSession(
-            fileURL: fileURL,
-            text: text,
-            rootURL: rootURL,
-            requiredFeature: .formatting,
-            capability: "document formatting"
-        )
-        session.formatting(documentURL: fileURL, options: options, completion: completion)
-    }
-
-    func codeActions(
-        fileURL: URL,
-        text: String,
-        range: LanguageServerRange,
-        diagnostics: [LanguageServerDiagnostic],
-        rootURL: URL,
-        completion: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
-    ) throws {
-        let session = try editingSession(
-            fileURL: fileURL,
-            text: text,
-            rootURL: rootURL,
-            requiredFeature: .codeActions,
-            capability: "code actions"
-        )
-        session.codeActions(
-            documentURL: fileURL,
-            range: range,
-            diagnostics: diagnostics,
-            completion: completion
-        )
-    }
-
-    func execute(
-        _ command: LanguageServerCommand,
-        fileURL: URL,
-        text: String,
-        rootURL: URL,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) throws {
-        let session = try editingSession(
-            fileURL: fileURL,
-            text: text,
-            rootURL: rootURL,
-            requiredFeature: .executeCommand,
-            capability: "execute command"
-        )
-        session.execute(command: command, completion: completion)
-    }
-
-    func resolveCompletion(
-        _ item: LanguageServerCompletionItem,
-        fileURL: URL,
-        text: String,
-        rootURL: URL,
-        completion: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
-    ) throws {
-        let session = try editingSession(
-            fileURL: fileURL,
-            text: text,
-            rootURL: rootURL,
-            requiredFeature: .completionResolve,
-            capability: "completion item resolve"
-        )
-        session.resolveCompletion(item, completion: completion)
-    }
-
-    func resolveCodeAction(
-        _ action: LanguageServerCodeAction,
-        fileURL: URL,
-        text: String,
-        rootURL: URL,
-        completion: @escaping (Result<LanguageServerCodeAction, Error>) -> Void
-    ) throws {
-        let session = try editingSession(
-            fileURL: fileURL,
-            text: text,
-            rootURL: rootURL,
-            requiredFeature: .codeActionResolve,
-            capability: "code action resolve"
-        )
-        session.resolveCodeAction(action, completion: completion)
-    }
-
-    private func codeIntelligenceSession(
-        fileURL: URL,
-        text: String,
-        rootURL: URL,
-        requiredFeature: LanguageServerFeatureSet,
-        capability: String
-    ) throws -> any LanguageServerCodeIntelligenceSession {
-        guard let descriptor = catalog.provider(for: fileURL) else {
-            throw LanguageToolingSessionError.noProvider(
-                fileExtension: fileURL.pathExtension.lowercased()
-            )
-        }
-        let session = try activateLanguageServer(for: fileURL, rootURL: rootURL)
-        try requireFeature(requiredFeature, descriptor: descriptor, capability: capability)
-        guard let intelligence = session as? any LanguageServerCodeIntelligenceSession else {
-            throw LanguageToolingSessionError.capabilityUnavailable(
-                provider: descriptor.displayName,
-                capability: "hover and completion"
-            )
-        }
-        intelligence.onDiagnostics = { [weak self] url, diagnostics in
-            self?.diagnostics[url.standardizedFileURL] = diagnostics
-        }
-        intelligence.synchronizeDocument(
-            url: fileURL,
-            languageIdentifier: descriptor.languageIdentifier(for: fileURL),
-            text: text
-        )
-        return intelligence
-    }
-
-    private func editingSession(
-        fileURL: URL,
-        text: String,
-        rootURL: URL,
-        requiredFeature: LanguageServerFeatureSet,
-        capability: String
-    ) throws -> any LanguageServerEditingSession {
-        guard let descriptor = catalog.provider(for: fileURL) else {
-            throw LanguageToolingSessionError.noProvider(
-                fileExtension: fileURL.pathExtension.lowercased()
-            )
-        }
-        let session = try activateLanguageServer(for: fileURL, rootURL: rootURL)
-        try requireFeature(requiredFeature, descriptor: descriptor, capability: capability)
-        guard let editing = session as? any LanguageServerEditingSession else {
-            throw LanguageToolingSessionError.capabilityUnavailable(
-                provider: descriptor.displayName,
-                capability: "rename, formatting and code actions"
-            )
-        }
-        editing.onDiagnostics = { [weak self] url, diagnostics in
-            self?.diagnostics[url.standardizedFileURL] = diagnostics
-        }
-        editing.synchronizeDocument(
-            url: fileURL,
-            languageIdentifier: descriptor.languageIdentifier(for: fileURL),
-            text: text
-        )
-        return editing
-    }
-
-    private func requireFeature(
-        _ feature: LanguageServerFeatureSet,
-        descriptor: LanguageProviderDescriptor,
-        capability: String
-    ) throws {
-        guard (languageServerFeatures[descriptor.id]
-            ?? runtimesByID[descriptor.id]?.declaredLanguageServerFeatures
-            ?? []).contains(feature) else {
-            throw LanguageToolingSessionError.capabilityUnavailable(
-                provider: descriptor.displayName,
-                capability: capability
-            )
-        }
     }
 
     private func configureDebugCallbacks(

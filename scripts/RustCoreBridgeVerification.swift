@@ -3,6 +3,9 @@ import Foundation
 @_silgen_name("lithe_bridge_execute_json")
 private func executeJSON(_ request: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("lithe_bridge_lsp_provider_catalog_json")
+private func lspProviderCatalogJSON(_ workspaceRoot: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
+
 @_silgen_name("lithe_bridge_free_string")
 private func freeJSON(_ value: UnsafeMutablePointer<CChar>)
 
@@ -25,3 +28,20 @@ guard let data = response.data(using: .utf8),
 }
 
 print("Rust Core bridge response passed: \(response)")
+
+guard let catalogPointer = lspProviderCatalogJSON(nil) else {
+    fputs("Rust Core LSP provider bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(catalogPointer) }
+
+let catalogResponse = String(cString: catalogPointer)
+guard let catalogData = catalogResponse.data(using: .utf8),
+      let catalog = try? JSONSerialization.jsonObject(with: catalogData) as? [String: Any],
+      let providers = catalog["providers"] as? [[String: Any]],
+      providers.contains(where: { $0["id"] as? String == "swift" }) else {
+    fputs("Unexpected Rust Core LSP provider catalog: \(catalogResponse)\n", stderr)
+    exit(1)
+}
+
+print("Rust Core LSP provider catalog passed: \(providers.count) providers")

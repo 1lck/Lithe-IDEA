@@ -115,28 +115,28 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
         environment: [String: String]
     ) -> RuntimeToolGuidance {
         switch command {
-        case "go", "gopls", "dlv":
+        case "go", "dlv":
             return RuntimeToolGuidance(
                 command: command,
                 displayName: "Go toolchain",
                 summary: "Go tooling (\(command)) was not found.",
                 recovery: "Install Go, then install the missing tool with `go install` or add its bin directory to PATH."
             )
-        case "python", "python3", "basedpyright-langserver", "pyright-langserver":
+        case "python", "python3":
             return RuntimeToolGuidance(
                 command: command,
                 displayName: "Python toolchain",
                 summary: "Python tooling (\(command)) was not found.",
                 recovery: "Select a Python interpreter or virtual environment, install the provider there, and ensure its bin directory is on PATH."
             )
-        case "node", "npm", "npx", "typescript-language-server", "tsx", "ts-node":
+        case "node", "npm", "npx", "tsx", "ts-node":
             return RuntimeToolGuidance(
                 command: command,
                 displayName: "Node.js toolchain",
                 summary: "Node.js tooling (\(command)) was not found.",
                 recovery: "Install Node.js and the required npm package, then restart Lithe or add the Node bin directory to PATH."
             )
-        case "rust-analyzer", "cargo", "rustc", "lldb-dap":
+        case "cargo", "rustc", "lldb-dap":
             return RuntimeToolGuidance(
                 command: command,
                 displayName: "Rust/Xcode toolchain",
@@ -145,7 +145,7 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                     ? "Install or select Xcode Command Line Tools, or configure an lldb-dap path explicitly."
                     : "Install Rust with rustup and ensure Cargo's bin directory is on PATH."
             )
-        case "java-debug-adapter", "java-debug", "jdtls-debug":
+        case "java-debug-adapter", "java-debug":
             return RuntimeToolGuidance(
                 command: command,
                 displayName: "Java Debug Adapter",
@@ -180,14 +180,10 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
 
     private func homebrewFormula(for command: String) -> String {
         switch command {
-        case "gopls": "go"
         case "dlv": "delve"
-        case "basedpyright-langserver": "basedpyright"
-        case "pyright-langserver": "pyright"
-        case "typescript-language-server": "typescript-language-server"
         case "tsx": "tsx"
         case "ts-node": "ts-node"
-        case "rust-analyzer", "cargo", "rustc": "rust"
+        case "cargo", "rustc": "rust"
         case "lldb-dap": "llvm"
         default: command
         }

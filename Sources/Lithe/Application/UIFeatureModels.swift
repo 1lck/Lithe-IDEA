@@ -354,4 +354,10 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
     func mavenExecutable(for project: MavenProject) -> URL? {
         service.mavenExecutable(for: project)
     }
+    func executableCandidates(_ command: String) -> [RuntimeToolCandidate] {
+        service.executableCandidates(command)
+    }
+    func toolGuidance(_ command: String) -> RuntimeToolGuidance {
+        service.toolGuidance(command)
+    }
 }

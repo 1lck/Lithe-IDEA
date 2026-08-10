@@ -41,61 +41,14 @@ final class MacServiceContainer {
             toolchainSource: runConfigurationStore,
             toolDiscovery: MacRuntimeToolDiscovery()
         )
-        let languageProviderCatalog = LanguageProviderCatalog.standard
+        let languageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
+        let languageProviderCatalog = languageProviderCatalogSource.catalog()
         // Build the catalog once so every standard runtime consumes the
         // language-pack launch metadata instead of maintaining a second map.
         let languagePackDefinitions = LanguagePackRegistry.standard(
             catalog: languageProviderCatalog
         )
-        let languageService = JavaLanguageService(
-            runtimeService: runtimeService,
-            process: MacRawProcessSession(),
-            archiveReader: MacArchiveEntryReader(processRunner: processRunner),
-            fileStorage: fileStorage,
-            javaMavenOperations: javaMavenOperations
-        )
-        let javaDebugLaunch = languagePackDefinitions.pack(id: "java")?.debugAdapterLaunch
-        let javaRuntime = JavaLanguageProviderRuntime(
-            service: languageService,
-            catalog: languageProviderCatalog,
-            debugAdapterAvailability: {
-                guard let projectURL = runtimeService.projectURL else { return false }
-                let locator = MacJavaDebugAdapterLocator(
-                    environment: runtimeService.processEnvironment(),
-                    launchDefinition: javaDebugLaunch
-                )
-                return locator.resolve(
-                    rootURL: projectURL,
-                    javaExecutableURL: runtimeService.configuredJavaExecutableURL()
-                ) != nil
-            },
-            debugAdapterUnavailableMessage: {
-                MacJavaDebugAdapterLocator(
-                    environment: runtimeService.processEnvironment(),
-                    launchDefinition: javaDebugLaunch
-                ).unavailableMessage
-            },
-            debugAdapterFactory: { rootURL in
-                let locator = MacJavaDebugAdapterLocator(
-                    environment: runtimeService.environment(for: .java),
-                    launchDefinition: javaDebugLaunch
-                )
-                guard let launch = locator.resolve(
-                    rootURL: rootURL,
-                    javaExecutableURL: runtimeService.javaExecutableURL()
-                ) else { return nil }
-                return DebugAdapterProtocolSession(
-                    adapterID: "java",
-                    executableURL: launch.executableURL,
-                    arguments: launch.arguments,
-                    environment: launch.environment,
-                    process: MacRawProcessSession()
-                )
-            }
-        )
-        let languageToolingRuntimes: [any LanguageProviderRuntime] = [
-            javaRuntime
-        ] + StdioLanguageProviderRuntime.standard(
+        let languageToolingRuntimes: [any LanguageProviderRuntime] = StdioLanguageProviderRuntime.standard(
             packs: languagePackDefinitions.packs,
             runtimeService: runtimeService,
             processFactory: { MacRawProcessSession() },
@@ -175,9 +128,7 @@ final class MacServiceContainer {
             javaMavenOperations: javaMavenOperations,
             runConfigurationOperations: runConfigurationStore
         )
-        let javaImplementationMarkerService = JavaImplementationMarkerService(
-            languageService: languageService
-        )
+        let javaImplementationMarkerService = JavaImplementationMarkerService()
         let gitOperations = RustGitOperations(core: rustCore)
         let workspaceOperations = RustWorkspaceOperations(core: rustCore)
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
@@ -201,6 +152,7 @@ final class MacServiceContainer {
             credentialResolver: credentialResolver
         )
         services = AppServices(
+            languageProviderCatalogSource: languageProviderCatalogSource,
             languageProviderCatalog: languagePackRegistry.catalog,
             languagePacks: languagePackRegistry,
             runToolchainRegistry: runToolchainRegistry,
@@ -215,7 +167,6 @@ final class MacServiceContainer {
             fileStorage: fileStorage,
             fileOperations: fileOperations,
             projectRuntimeService: runtimeService,
-            javaLanguageService: languageService,
             javaImplementationMarkerService: javaImplementationMarkerService,
             mavenService: mavenService,
             runService: runService,

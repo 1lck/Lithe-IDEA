@@ -8,6 +8,25 @@ struct LanguageToolingCapability: OptionSet, Hashable, Sendable {
     static let debugAdapter = Self(rawValue: 1 << 2)
     static let formatting = Self(rawValue: 1 << 3)
     static let testing = Self(rawValue: 1 << 4)
+
+    static func named(_ name: String) -> Self? {
+        switch name {
+        case "run": .run
+        case "languageServer": .languageServer
+        case "debugAdapter": .debugAdapter
+        case "formatting": .formatting
+        case "testing": .testing
+        default: nil
+        }
+    }
+
+    static func names(_ names: [String]) -> Self {
+        names.reduce(into: Self()) { capabilities, name in
+            if let capability = Self.named(name) {
+                capabilities.insert(capability)
+            }
+        }
+    }
 }
 
 struct LanguageServerFeatureSet: OptionSet, Hashable, Sendable {
@@ -33,8 +52,6 @@ struct LanguageServerFeatureSet: OptionSet, Hashable, Sendable {
 }
 
 enum ToolingActivationPolicy: String, Codable, Hashable, Sendable {
-    /// Descriptor-only. No runtime process is created until a file or command
-    /// explicitly asks for this provider.
     case onDemand
     case always
 }
@@ -43,36 +60,71 @@ struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
     let id: String
     let displayName: String
     let fileExtensions: Set<String>
+    let fileNames: Set<String>
+    let fileNamePrefixes: Set<String>
     let capabilities: LanguageToolingCapability
     let activationPolicy: ToolingActivationPolicy
+    let languageIdentifier: String?
+    let languageIdentifiersByExtension: [String: String]
+    let languageIdentifiersByFileName: [String: String]
+
+    init(
+        id: String,
+        displayName: String,
+        fileExtensions: Set<String>,
+        fileNames: Set<String> = [],
+        fileNamePrefixes: Set<String> = [],
+        capabilities: LanguageToolingCapability,
+        activationPolicy: ToolingActivationPolicy,
+        languageIdentifier: String? = nil,
+        languageIdentifiersByExtension: [String: String] = [:],
+        languageIdentifiersByFileName: [String: String] = [:]
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.fileExtensions = Set(fileExtensions.map { $0.lowercased() })
+        self.fileNames = Set(fileNames.map { $0.lowercased() })
+        self.fileNamePrefixes = Set(fileNamePrefixes.map { $0.lowercased() })
+        self.capabilities = capabilities
+        self.activationPolicy = activationPolicy
+        self.languageIdentifier = languageIdentifier
+        self.languageIdentifiersByExtension = Dictionary(
+            uniqueKeysWithValues: languageIdentifiersByExtension.map {
+                ($0.key.lowercased(), $0.value)
+            }
+        )
+        self.languageIdentifiersByFileName = Dictionary(
+            uniqueKeysWithValues: languageIdentifiersByFileName.map {
+                ($0.key.lowercased(), $0.value)
+            }
+        )
+    }
 
     func handles(fileURL: URL) -> Bool {
-        fileExtensions.contains(fileURL.pathExtension.lowercased())
+        let fileName = fileURL.lastPathComponent.lowercased()
+        return fileExtensions.contains(fileURL.pathExtension.lowercased())
+            || fileNames.contains(fileName)
+            || fileNamePrefixes.contains { fileName.hasPrefix($0) }
     }
 
     func languageIdentifier(for fileURL: URL) -> String {
-        switch (id, fileURL.pathExtension.lowercased()) {
-        case ("node", "ts"): "typescript"
-        case ("node", "tsx"): "typescriptreact"
-        case ("node", "jsx"): "javascriptreact"
-        case ("node", _): "javascript"
-        default: id
-        }
+        let extensionName = fileURL.pathExtension.lowercased()
+        let fileName = fileURL.lastPathComponent.lowercased()
+        return languageIdentifiersByFileName[fileName]
+            ?? languageIdentifiersByExtension[extensionName]
+            ?? languageIdentifier
+            ?? id
     }
 }
 
-/// The catalog is metadata only. Concrete LSP and DAP sessions are injected
-/// by a platform/provider adapter when a capability is used.
 struct LanguageProviderCatalog: Sendable {
     let descriptors: [LanguageProviderDescriptor]
 
-    static let standard = LanguageProviderCatalog(descriptors: [
+    /// Minimal fallback used only when the Rust core is not linked. The full
+    /// market language catalog is registered by Rust's dedicated LSP config.
+    static let compatibilityFallback = LanguageProviderCatalog(descriptors: [
         LanguageProviderDescriptor(
             id: "java", displayName: "Java", fileExtensions: ["java"],
-            // Java debugging still uses the legacy JDB integration. Keep it
-            // out of the generic DAP capability until a real Java DAP runtime
-            // is injected, so metadata cannot promise a session that does not
-            // exist.
             capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand
         ),
@@ -89,36 +141,24 @@ struct LanguageProviderCatalog: Sendable {
         LanguageProviderDescriptor(
             id: "node", displayName: "Node.js", fileExtensions: ["js", "jsx", "ts", "tsx", "mjs", "cjs"],
             capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
-            activationPolicy: .onDemand
+            activationPolicy: .onDemand,
+            languageIdentifier: "javascript",
+            languageIdentifiersByExtension: [
+                "ts": "typescript",
+                "tsx": "typescriptreact",
+                "jsx": "javascriptreact"
+            ]
         ),
         LanguageProviderDescriptor(
             id: "rust", displayName: "Rust", fileExtensions: ["rs"],
             capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
             activationPolicy: .onDemand
-        )
+        ),
     ])
 
     func provider(for fileURL: URL) -> LanguageProviderDescriptor? {
         descriptors.first { $0.handles(fileURL: fileURL) }
     }
-}
-
-@MainActor
-protocol LanguageServerSession: AnyObject {
-    var isRunning: Bool { get }
-    var isReady: Bool { get }
-    func start(rootURL: URL) throws
-    func stop()
-}
-
-@MainActor
-protocol LanguageServerFeatureReportingSession: LanguageServerSession {
-    var supportedFeatures: LanguageServerFeatureSet { get }
-    var onSupportedFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
-}
-
-extension LanguageServerSession {
-    var isReady: Bool { isRunning }
 }
 
 struct LanguageServerPosition: Equatable, Sendable {
@@ -231,9 +271,6 @@ enum LanguageTestScope: Equatable, Sendable {
     case testCase(identifier: String, fileURL: URL?)
 }
 
-/// Inputs available to a test provider when it selects a framework-specific
-/// runner. The provider receives metadata only; reading files or starting a
-/// process remains the responsibility of the injected platform services.
 struct LanguageTestContext: Equatable, Sendable {
     let workspaceURL: URL
     let projectFiles: [URL]
@@ -275,9 +312,6 @@ protocol LanguageTestProvider: Sendable {
 }
 
 extension LanguageTestProvider {
-    /// Context-aware discovery is optional for existing Providers. Providers
-    /// that need build-system markers can override this without forcing every
-    /// language implementation to change its public contract at once.
     func discoverTests(context: LanguageTestContext) -> [LanguageTestItem] {
         discoverTests(workspaceURL: context.workspaceURL, files: context.projectFiles)
     }
@@ -291,70 +325,6 @@ extension LanguageTestProvider {
 }
 
 @MainActor
-protocol LanguageServerDocumentSession: LanguageServerSession {
-    var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
-    func synchronizeDocument(url: URL, languageIdentifier: String, text: String)
-    func closeDocument(url: URL)
-}
-
-@MainActor
-protocol LanguageServerNavigationSession: LanguageServerDocumentSession {
-    func locations(
-        method: String,
-        documentURL: URL,
-        position: LanguageServerPosition,
-        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
-    )
-}
-
-@MainActor
-protocol LanguageServerCodeIntelligenceSession: LanguageServerNavigationSession {
-    func hover(
-        documentURL: URL,
-        position: LanguageServerPosition,
-        completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
-    )
-    func completions(
-        documentURL: URL,
-        position: LanguageServerPosition,
-        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
-    )
-}
-
-@MainActor
-protocol LanguageServerEditingSession: LanguageServerCodeIntelligenceSession {
-    func rename(
-        documentURL: URL,
-        position: LanguageServerPosition,
-        newName: String,
-        completion: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
-    )
-    func formatting(
-        documentURL: URL,
-        options: [String: Any],
-        completion: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
-    )
-    func codeActions(
-        documentURL: URL,
-        range: LanguageServerRange,
-        diagnostics: [LanguageServerDiagnostic],
-        completion: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
-    )
-    func execute(
-        command: LanguageServerCommand,
-        completion: @escaping (Result<Void, Error>) -> Void
-    )
-    func resolveCompletion(
-        _ item: LanguageServerCompletionItem,
-        completion: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
-    )
-    func resolveCodeAction(
-        _ action: LanguageServerCodeAction,
-        completion: @escaping (Result<LanguageServerCodeAction, Error>) -> Void
-    )
-}
-
-@MainActor
 protocol DebugAdapterSession: AnyObject {
     var isRunning: Bool { get }
     var state: DebugAdapterState { get }
@@ -362,9 +332,6 @@ protocol DebugAdapterSession: AnyObject {
     func stop()
 }
 
-/// Byte transport used by the language-neutral DAP state machine. Adapters may
-/// use a child process' stdio, a TCP socket, or another platform implementation
-/// without changing protocol sequencing and inspection behavior.
 @MainActor
 protocol DebugAdapterTransport: AnyObject {
     var isRunning: Bool { get }
@@ -376,10 +343,6 @@ protocol DebugAdapterTransport: AnyObject {
     func stop()
 }
 
-/// Server-style adapters can ask the client to start a child DAP session (for
-/// example a Node process, browser target, worker, or subprocess). The parent
-/// transport supplies another connection to the same adapter server without
-/// exposing platform sockets to the protocol state machine.
 @MainActor
 protocol DebugAdapterChildTransportProviding: AnyObject {
     func makeChildTransport() -> (any DebugAdapterTransport)?
@@ -550,27 +513,15 @@ protocol DebugAdapterControllingSession: DebugAdapterSession {
 @MainActor
 protocol LanguageProviderRuntime: AnyObject {
     var descriptor: LanguageProviderDescriptor { get }
-    /// Metadata-only indication that this provider exposes the shared editing
-    /// LSP contract. It must not start or probe a process.
-    var supportsEditingSession: Bool { get }
-    /// Metadata-only indication that this runtime has a configured debug
-    /// adapter factory. Executable discovery still happens lazily on launch.
     var supportsDebugAdapterSession: Bool { get }
-    /// Optional actionable guidance when a lazy runtime cannot be created.
-    /// This keeps installation details in the platform/provider adapter while
-    /// allowing the shared manager to present a useful error.
     var unavailableToolingMessage: String? { get }
-    var declaredLanguageServerFeatures: LanguageServerFeatureSet { get }
-    func makeLanguageServerSession() -> (any LanguageServerSession)?
     func makeDebugAdapterSession() -> (any DebugAdapterSession)?
     func makeDebugAdapterSession(rootURL: URL) -> (any DebugAdapterSession)?
 }
 
 extension LanguageProviderRuntime {
-    var supportsEditingSession: Bool { false }
     var supportsDebugAdapterSession: Bool { false }
     var unavailableToolingMessage: String? { nil }
-    var declaredLanguageServerFeatures: LanguageServerFeatureSet { [] }
     func makeDebugAdapterSession(rootURL: URL) -> (any DebugAdapterSession)? {
         makeDebugAdapterSession()
     }

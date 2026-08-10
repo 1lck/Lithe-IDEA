@@ -104,7 +104,7 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
 
 ## Use Lithe
 
-Lithe requires macOS 14 or later. Java project features require a JDK; JDK 17 or JDK 21 is recommended. Semantic navigation requires Eclipse JDT LS. Maven projects need either a project `mvnw` or a system Maven installation.
+Lithe requires macOS 14 or later. Java project features require a JDK; JDK 17 or JDK 21 is recommended. Maven projects need either a project `mvnw` or a system Maven installation. Semantic navigation is routed through Lithe's Rust LSP host.
 
 Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). If a release provides architecture-specific installers, choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. Open the disk image, drag `Lithe.app` into `/Applications`, and launch it.
 
@@ -127,12 +127,6 @@ If macOS blocks an app from an unidentified developer, right-click the app and s
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Lithe.app"
 open "/Applications/Lithe.app"
-```
-
-Install JDT LS with Homebrew:
-
-```bash
-brew install jdtls
 ```
 
 After opening a project, use **Settings → Project** to configure the project JDK, Maven, and the JDK used by Maven. Lithe also detects Java and Maven from common system locations.

@@ -686,9 +686,15 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
     })?;
     let provider = resolved["configurations"]
         .as_array()
-        .and_then(|items| items.iter().find(|value| value["id"] == request.configuration_id))
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|value| value["id"] == request.configuration_id)
+        })
         .and_then(|value| value["provider"].as_str())
-        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Run configuration was not found"))?;
+        .ok_or_else(|| {
+            CoreError::new(ErrorCode::InvalidRequest, "Run configuration was not found")
+        })?;
     let uses_maven_capability = matches!(
         provider,
         "java.current-file" | "java.main" | "spring-boot.maven" | "maven.module"
@@ -1836,10 +1842,9 @@ fn declared_go_version(root: &Path) -> Option<String> {
 }
 
 fn declared_python_version(root: &Path) -> Option<String> {
-    let expression = regex::Regex::new(
-        r#"(?m)^\s*(?:requires-python|python)\s*=\s*[\"']([^\"']+)[\"']"#,
-    )
-    .ok()?;
+    let expression =
+        regex::Regex::new(r#"(?m)^\s*(?:requires-python|python)\s*=\s*[\"']([^\"']+)[\"']"#)
+            .ok()?;
     highest_version(
         project_manifest_paths(root, &["pyproject.toml"])
             .into_iter()

@@ -1,13 +1,5 @@
 import Foundation
 
-/// Process launch metadata shared by the platform runtimes.  These values are
-/// intentionally just names and arguments; resolving an executable and
-/// starting a process remains a platform responsibility.
-struct StdioLanguageServerLaunch: Sendable, Equatable {
-    let executableNames: [String]
-    let arguments: [String]
-}
-
 struct StdioDebugAdapterLaunch: Sendable, Equatable {
     struct Fallback: Sendable, Equatable {
         let executableName: String
@@ -42,7 +34,6 @@ struct LanguagePack {
     let descriptor: LanguageProviderDescriptor
     let runProvider: (any LanguageRunProvider)?
     let toolchainProviders: [any RunToolchainProvider]
-    let languageServerLaunch: StdioLanguageServerLaunch?
     let debugAdapterLaunch: StdioDebugAdapterLaunch?
     let toolingRuntime: (any LanguageProviderRuntime)?
     let testProviders: [any LanguageTestProvider]
@@ -51,7 +42,6 @@ struct LanguagePack {
         descriptor: LanguageProviderDescriptor,
         runProvider: (any LanguageRunProvider)? = nil,
         toolchainProviders: [any RunToolchainProvider] = [],
-        languageServerLaunch: StdioLanguageServerLaunch? = nil,
         debugAdapterLaunch: StdioDebugAdapterLaunch? = nil,
         toolingRuntime: (any LanguageProviderRuntime)? = nil,
         testProviders: [any LanguageTestProvider] = []
@@ -59,7 +49,6 @@ struct LanguagePack {
         self.descriptor = descriptor
         self.runProvider = runProvider
         self.toolchainProviders = toolchainProviders
-        self.languageServerLaunch = languageServerLaunch
         self.debugAdapterLaunch = debugAdapterLaunch
         self.toolingRuntime = toolingRuntime
         self.testProviders = testProviders
@@ -70,7 +59,6 @@ struct LanguagePack {
             descriptor: descriptor,
             runProvider: runProvider,
             toolchainProviders: toolchainProviders,
-            languageServerLaunch: languageServerLaunch,
             debugAdapterLaunch: debugAdapterLaunch,
             toolingRuntime: runtime,
             testProviders: testProviders

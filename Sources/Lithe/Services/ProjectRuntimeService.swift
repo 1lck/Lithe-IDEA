@@ -272,8 +272,7 @@ final class ProjectRuntimeService: ObservableObject {
                 projectURL: projectURL,
                 javaHomePath: configuredPath,
                 javaExecutablePath: nil,
-                jdbExecutablePath: nil,
-                languageServerExecutablePath: runtimeLocator.javaLanguageServerExecutable()?.path
+                jdbExecutablePath: nil
             )
             return
         }
@@ -289,8 +288,7 @@ final class ProjectRuntimeService: ObservableObject {
                 projectURL: projectURL,
                 javaHomePath: nil,
                 javaExecutablePath: nil,
-                jdbExecutablePath: runtimeLocator.systemJDBExecutable()?.path,
-                languageServerExecutablePath: runtimeLocator.javaLanguageServerExecutable()?.path
+                jdbExecutablePath: runtimeLocator.systemJDBExecutable()?.path
             )
             return
         }
@@ -306,20 +304,17 @@ final class ProjectRuntimeService: ObservableObject {
                 projectURL: projectURL,
                 javaHomePath: javaHome.path,
                 javaExecutablePath: javaExecutable.path,
-                jdbExecutablePath: nil,
-                languageServerExecutablePath: runtimeLocator.javaLanguageServerExecutable()?.path
+                jdbExecutablePath: nil
             )
             return
         }
 
-        let languageServer = runtimeLocator.javaLanguageServerExecutable()
         javaEnvironmentReport = JavaEnvironmentReport(
-            status: languageServer == nil ? .languageServerMissing : .ready,
+            status: .ready,
             projectURL: projectURL,
             javaHomePath: javaHome.path,
             javaExecutablePath: javaExecutable.path,
-            jdbExecutablePath: jdbExecutable.path,
-            languageServerExecutablePath: languageServer?.path
+            jdbExecutablePath: jdbExecutable.path
         )
     }
 
@@ -409,10 +404,6 @@ final class ProjectRuntimeService: ObservableObject {
             ))
         }
         return result
-    }
-
-    func javaLanguageServerExecutable() -> URL? {
-        runtimeLocator.javaLanguageServerExecutable()
     }
 
     private func normalizedPath(_ path: String) -> String {

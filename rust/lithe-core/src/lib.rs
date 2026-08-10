@@ -7,6 +7,7 @@ mod ffi;
 mod git;
 mod history;
 mod java;
+mod lsp;
 mod markdown;
 mod maven;
 mod model;
@@ -2825,7 +2826,10 @@ mod tests {
         assert_eq!(plan["ok"], true, "{plan}");
         assert_eq!(plan["data"]["executable"]["toolchain"], "project-go");
         assert!(plan["data"]["executable"]["command"].is_null());
-        assert_eq!(plan["data"]["arguments"], serde_json::json!(["run", "./cmd/api"]));
+        assert_eq!(
+            plan["data"]["arguments"],
+            serde_json::json!(["run", "./cmd/api"])
+        );
         assert_eq!(plan["data"]["env"]["APP_ENV"], "dev");
         assert!(plan["data"]["environment"]["JAVA_HOME"].is_null());
 
@@ -2852,10 +2856,13 @@ mod tests {
         let configurations = generated["data"]["generated"]["configurations"]
             .as_array()
             .unwrap();
-        assert!(configurations.iter().any(|value| value["provider"] == "go.main"));
-        assert!(!configurations.iter().any(|value| value["id"] == "current-file"));
-        assert!(generated["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]
-            .is_null());
+        assert!(configurations
+            .iter()
+            .any(|value| value["provider"] == "go.main"));
+        assert!(!configurations
+            .iter()
+            .any(|value| value["id"] == "current-file"));
+        assert!(generated["data"]["toolchainRequirements"]["toolchains"]["project-jdk"].is_null());
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -2903,7 +2910,10 @@ mod tests {
             ("project-cargo", "rust", "1.82"),
         ] {
             assert_eq!(requirements[id]["type"], kind, "{requirements}");
-            assert_eq!(requirements[id]["minimumVersion"], version, "{requirements}");
+            assert_eq!(
+                requirements[id]["minimumVersion"], version,
+                "{requirements}"
+            );
         }
         assert!(requirements["project-jdk"].is_null(), "{requirements}");
 
@@ -2976,11 +2986,16 @@ mod tests {
         .unwrap();
         assert_eq!(updated["ok"], true, "{updated}");
         let document: Value = serde_json::from_str(
-            updated["data"]["document"].as_str().expect("document string"),
+            updated["data"]["document"]
+                .as_str()
+                .expect("document string"),
         )
         .unwrap();
         let patch = &document["configurations"][0];
-        assert_eq!(patch["args"], serde_json::json!(["app.py", "--port", "9000"]));
+        assert_eq!(
+            patch["args"],
+            serde_json::json!(["app.py", "--port", "9000"])
+        );
         assert_eq!(patch["env"]["APP_ENV"], "test");
         assert!(patch["extensions"]["maven"].is_null());
 
@@ -2999,7 +3014,10 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(plan["ok"], true, "{plan}");
-        assert_eq!(plan["data"]["arguments"], serde_json::json!(["app.py", "--port", "9000"]));
+        assert_eq!(
+            plan["data"]["arguments"],
+            serde_json::json!(["app.py", "--port", "9000"])
+        );
         assert_eq!(plan["data"]["env"]["APP_ENV"], "test");
 
         fs::remove_dir_all(root).unwrap();

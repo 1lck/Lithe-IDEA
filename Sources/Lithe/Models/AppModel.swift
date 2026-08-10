@@ -74,7 +74,9 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isProblemsVisible = false
     @Published var isMavenVisible = false
     @Published var isDebugVisible = false
+    @Published var isLSPControlCenterVisible = true
     @Published var isImplementationChooserVisible = false
+    @Published private(set) var languageProviderCatalog: LanguageProviderCatalog
     @Published var languageNavigationProviderID: String?
     @Published var languageNavigationLocations: [LanguageNavigationLocation] = []
     @Published var languageNavigationResultKind: LanguageNavigationResultKind = .definitions
@@ -111,7 +113,6 @@ final class AppModel: ObservableObject, Identifiable {
     let gitFeature: GitFeatureModel
     let documentFeature: DocumentFeatureModel
     let javaFeature: JavaFeatureModel
-    var languageProviderCatalog: LanguageProviderCatalog { services.languageProviderCatalog }
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
     var languageToolingSessions: LanguageToolingSessionManager { services.languageToolingSessions }
     var languageTestService: LanguageTestService { services.languageTestService }
@@ -153,6 +154,7 @@ final class AppModel: ObservableObject, Identifiable {
     init(settings: AppSettings, services: AppServices) {
         self.settings = settings
         self.services = services
+        languageProviderCatalog = services.languageProviderCatalog
         platformUI = services.platformUI
         workspaceFeature = WorkspaceFeatureModel(
             operations: services.workspaceOperations,
@@ -187,7 +189,6 @@ final class AppModel: ObservableObject, Identifiable {
             fileOperations: services.fileOperations
         )
         javaFeature = JavaFeatureModel(
-            service: services.javaLanguageService,
             markerService: services.javaImplementationMarkerService,
             operations: services.javaMavenOperations,
             workspaceOperations: services.workspaceOperations
@@ -460,17 +461,39 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     var languageServerStatusMessage: String {
-        if isLoadingLanguageNavigation { return "Loading language navigation…" }
-        if languageNavigationProviderID != nil { return "Language server ready" }
+        let usesChinese = settings.language == .simplifiedChinese
+        if isLoadingLanguageNavigation {
+            return usesChinese ? "正在加载语言导航..." : "Loading language navigation..."
+        }
+        if languageNavigationProviderID != nil {
+            return usesChinese ? "语言服务器已就绪" : "Language server ready"
+        }
         if let document = activeDocument,
            let descriptor = languageProviderCatalog.provider(for: document.url),
             descriptor.capabilities.contains(.languageServer) {
             if languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id) {
-                return descriptor.displayName + " language server ready"
+                return usesChinese
+                    ? "\(descriptor.displayName) 语言服务器已就绪"
+                    : "\(descriptor.displayName) language server ready"
             }
-            return descriptor.displayName + " language server available on demand"
+            return usesChinese
+                ? "\(descriptor.displayName) 语言服务器可按需启动"
+                : "\(descriptor.displayName) language server available on demand"
         }
-        return "Open a supported source file"
+        return usesChinese ? "打开一个受支持的源码文件" : "Open a supported source file"
+    }
+
+    func restartLanguageServers() {
+        languageToolingSessions.stopAllLanguageServers()
+        if let activeDocument {
+            activateLanguageServerIfAvailable(for: activeDocument)
+        }
+        showNotification(settings.language == .simplifiedChinese ? "语言服务器已重启" : "Language servers restarted")
+    }
+
+    func clearLanguageServerDiagnostics() {
+        languageToolingSessions.clearDiagnostics()
+        showNotification(settings.language == .simplifiedChinese ? "语言服务器诊断已清空" : "Language server diagnostics cleared")
     }
 
     func implementationMarkers(
@@ -559,6 +582,7 @@ final class AppModel: ObservableObject, Identifiable {
         if let previousWorkspaceURL = workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
         }
+        reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
         languageTestService.reset()
         runtimeFeature.openProject(at: normalizedURL)
@@ -568,7 +592,6 @@ final class AppModel: ObservableObject, Identifiable {
         genericDebugFeature.reset()
         clearLanguageNavigationProjection()
         javaFeature.stop()
-        javaFeature.configureProjectRoot(normalizedURL)
         workspaceFeature.reset()
         searchFeature.reset()
         isTerminalVisible = false
@@ -616,6 +639,7 @@ final class AppModel: ObservableObject, Identifiable {
             workspaceFeature.persistWorkspaceSession(for: workspaceURL)
         }
         workspaceURL = nil
+        reloadLanguageProviderCatalog(for: nil)
         selectedSidebar = .project
         workspaceFeature.reset()
         documentFeature.reset()
@@ -675,6 +699,12 @@ final class AppModel: ObservableObject, Identifiable {
 
     func saveWorkbenchLayout(_ layout: WorkbenchLayout, for workspaceURL: URL) {
         workbenchLayoutStore.save(layout, for: workspaceURL)
+    }
+
+    private func reloadLanguageProviderCatalog(for workspaceURL: URL?) {
+        let catalog = services.languageProviderCatalogSource.catalog(workspaceURL: workspaceURL)
+        languageProviderCatalog = catalog
+        languageToolingSessions.updateCatalog(catalog)
     }
 
     func openFile(
