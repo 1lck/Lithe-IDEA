@@ -284,7 +284,7 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
     stopImpl();
     impl_->stopping.store(false, std::memory_order_release);
     impl_->exited.store(false, std::memory_order_release);
-    impl_->running.store(true, std::memory_order_release);
+    impl_->running.store(false, std::memory_order_release);
 #ifndef _WIN32
     (void)request;
     impl_->running.store(false, std::memory_order_release);
@@ -469,6 +469,7 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
             state->outputPipe = parentOutput;
             parentInput = nullptr;
         }
+        state->running.store(true, std::memory_order_release);
         if (state->stopping.load(std::memory_order_acquire)) TerminateJobObject(job, 130);
 
         const HANDLE outputPipe = parentOutput;
