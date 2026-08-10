@@ -2,18 +2,19 @@ import SwiftUI
 
 struct ProjectSwitcherPopover: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var projectSessions: ProjectSessionManager
     @Binding var isPresented: Bool
     let onNewProject: () -> Void
     let onOpenProject: () -> Void
     let onCloneRepository: () -> Void
     let onOpenRecentProject: (RecentProject) -> Void
 
-    private var currentPath: String? {
-        model.workspaceURL?.standardizedFileURL.path
+    private var openProjectPaths: Set<String> {
+        Set(projectSessions.openProjects.compactMap { $0.workspaceURL?.standardizedFileURL.path })
     }
 
     private var recentProjects: [RecentProject] {
-        model.recentProjects.filter { $0.url.standardizedFileURL.path != currentPath }
+        model.recentProjects.filter { !openProjectPaths.contains($0.url.standardizedFileURL.path) }
     }
 
     var body: some View {
@@ -32,7 +33,9 @@ struct ProjectSwitcherPopover: View {
                 divider
 
                 sectionTitle("Open Projects")
-                currentProjectRow
+                ForEach(projectSessions.openProjects) { projectModel in
+                    openProjectRow(projectModel)
+                }
 
                 divider
 
@@ -91,21 +94,27 @@ struct ProjectSwitcherPopover: View {
         .lithePointer()
     }
 
-    private var currentProjectRow: some View {
-        Button {
+    private func openProjectRow(_ projectModel: AppModel) -> some View {
+        let isCurrent = projectModel.id == projectSessions.activeSessionID
+        return Button {
             isPresented = false
+            projectSessions.activateSession(projectModel.id)
         } label: {
             projectRowContent(
-                name: model.activeDocument?.displayName ?? model.projectName,
-                path: model.workspaceURL?.path ?? "",
-                badge: initials(for: model.projectName),
-                badgeColor: color(for: model.projectName),
-                isCurrent: true
+                name: projectModel.projectName,
+                path: projectModel.workspaceURL?.path ?? "",
+                badge: initials(for: projectModel.projectName),
+                badgeColor: color(for: projectModel.projectName),
+                isCurrent: isCurrent
             )
         }
         .buttonStyle(.plain)
         .lithePointer()
-        .litheRowHover(isActive: true, cornerRadius: 5, activeBackground: LitheTheme.subtleSelection)
+        .litheRowHover(
+            isActive: isCurrent,
+            cornerRadius: 5,
+            activeBackground: LitheTheme.subtleSelection
+        )
     }
 
     private func recentProjectRow(_ project: RecentProject) -> some View {

@@ -366,6 +366,7 @@
 "Discard selected change" = "丢弃选中的更改";
 "Stage all changes" = "暂存所有更改";
 "Preview first change" = "预览第一项更改";
+"Open AI & Commit settings" = "打开“AI 与提交”设置";
 "Unstage file" = "取消暂存文件";
 "Stage file" = "暂存文件";
 "Untracked" = "未跟踪";
@@ -470,6 +471,16 @@
 "Clear log search" = "清除日志搜索";
 "Git tool window actions" = "Git 工具窗口操作";
 "Hide Git tool window" = "隐藏 Git 工具窗口";
+"Back to all references" = "返回所有引用";
+"Compare current branch with working tree" = "比较当前分支与工作区";
+"Show commit details" = "显示提交详情";
+"Refresh Git log" = "刷新 Git 日志";
+"Show commit decorations" = "显示提交装饰";
+"Hide commit decorations" = "隐藏提交装饰";
+"Find in log" = "在日志中查找";
+"Compare changes" = "比较更改";
+"Show file history" = "显示文件历史";
+"Toggle preview" = "切换预览";
 "New Branch from '%@'…" = "从“%@”新建分支…";
 "Show Diff with Working Tree" = "显示与工作区的 Diff";
 "Update" = "更新";
@@ -531,12 +542,25 @@
 
 /* Search actions and global menus. */
 "Run selected configuration" = "运行选中的配置";
+"Stop current run" = "停止当前运行";
+"More actions" = "更多操作";
 "Start debugging" = "开始调试";
 "Stop Run" = "停止运行";
 "Stop the current run" = "停止当前运行";
 "Stop Debug" = "停止调试";
 "Stop the current debug session" = "停止当前调试会话";
 "Open Project" = "打开项目";
+"Where would you like to open the project ‘%@’?" = "你想在哪里打开项目“%@”？";
+"Don't ask again" = "不再询问";
+"New Window" = "新窗口";
+"This Window" = "此窗口";
+"Open Projects" = "打开的项目";
+"Recent Projects" = "最近项目";
+"Open projects in" = "项目打开方式";
+"Ask every time" = "每次询问";
+"This window" = "此窗口";
+"New window" = "新窗口";
+"Choose whether opening another project asks first, stays in this window, or creates a new window." = "选择打开其他项目时是每次询问、保留在此窗口，还是创建新窗口。";
 "Open a local project folder" = "打开本地项目文件夹";
 "Return to the Welcome screen" = "返回 Welcome 页面";
 "Configure editor and project behavior" = "配置编辑器和项目行为";

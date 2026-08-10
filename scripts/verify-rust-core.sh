@@ -16,20 +16,25 @@ esac
 RUST_LIBRARY="$(scripts/build-rust-core.sh --debug --target "$RUST_TARGET")"
 
 swift build --disable-sandbox --triple "$TRIPLE" \
+    -Xswiftc -Xfrontend \
+    -Xswiftc -disable-round-trip-debug-types \
     -Xlinker -force_load \
     -Xlinker "$RUST_LIBRARY"
 
 BRIDGE_BINARY="$(mktemp -t lithe-rust-bridge).out"
 trap 'rm -f "$BRIDGE_BINARY"' EXIT
+MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 swiftc scripts/RustCoreBridgeVerification.swift \
     Sources/LitheRustCore/bridge.c \
+    -sdk "$MACOS_SDK" \
+    -target "${TRIPLE}14.0" \
     -Xlinker -force_load \
     -Xlinker "$RUST_LIBRARY" \
     -o "$BRIDGE_BINARY"
 "$BRIDGE_BINARY"
 
 BINARY=".build/$TRIPLE/debug/Lithe"
-if ! nm -gU "$BINARY" | rg -q "_lithe_core_execute_json"; then
+if ! nm -gU "$BINARY" | grep -F "_lithe_core_execute_json" > /dev/null; then
     print -u2 -- "Rust Core symbols are missing from the macOS binary"
     exit 1
 fi

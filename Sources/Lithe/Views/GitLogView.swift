@@ -220,7 +220,7 @@ struct GitLogView: View {
     private var toolWindowHeader: some View {
         HStack(spacing: 8) {
             LitheIDEAIcon(
-                resourcePath: "vcs/branch.svg",
+                resourcePath: "toolwindows/toolWindowVcs.svg",
                 size: 14,
                 fallbackSystemImage: "point.3.connected.trianglepath.dotted"
             )
@@ -318,6 +318,7 @@ struct GitLogView: View {
                     Image(systemName: "chevron.left")
                 }
                 .litheIconButton()
+                .help("Back to all references")
 
                 Button {
                     model.gitLogSearchQuery = ""
@@ -597,7 +598,10 @@ struct GitLogView: View {
                     gitToolbarButton(systemImage: "arrow.clockwise", help: "Refresh Git log") {
                         Task { await model.refreshGitHistory() }
                     }
-                    gitToolbarButton(systemImage: showCommitDecorations ? "eye" : "eye.slash", help: "Toggle commit decorations") {
+                    gitToolbarButton(
+                        systemImage: showCommitDecorations ? "eye" : "eye.slash",
+                        help: showCommitDecorations ? "Hide commit decorations" : "Show commit decorations"
+                    ) {
                         showCommitDecorations.toggle()
                     }
                     gitToolbarButton(systemImage: "magnifyingglass", help: "Find in log") {
@@ -940,7 +944,7 @@ struct GitLogView: View {
             .foregroundStyle(LitheTheme.secondaryText)
             .frame(width: 24, height: 24)
             .contentShape(Rectangle())
-            .help(help)
+            .help(LocalizedStringKey(help))
     }
 
     private func gitToolbarButton(
@@ -952,7 +956,7 @@ struct GitLogView: View {
             LitheSystemIcon(systemImage: systemImage, size: 15)
         }
         .litheIconButton()
-        .help(help)
+        .help(LocalizedStringKey(help))
     }
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {

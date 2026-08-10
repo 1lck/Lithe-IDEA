@@ -567,7 +567,7 @@ struct ChangesSidebarView: View {
                     .foregroundStyle(change.isStaged ? LitheTheme.accent : LitheTheme.secondaryText)
             }
             .litheIconButton()
-            .help(change.isStaged ? "Unstage file" : "Stage file")
+            .help(LocalizedStringKey(change.isStaged ? "Unstage file" : "Stage file"))
 
             Button {
                 model.selectChange(change)
@@ -762,8 +762,13 @@ struct ChangesSidebarView: View {
                 .disabled(!canCommit)
 
                 Spacer()
-                LitheSystemIcon(systemImage: "gearshape")
-                    .foregroundStyle(LitheTheme.secondaryText)
+                Button {
+                    model.showSettings(category: .ai)
+                } label: {
+                    LitheSystemIcon(systemImage: "gearshape")
+                }
+                .litheIconButton()
+                .help("Open AI & Commit settings")
             }
             .controlSize(.small)
         }
@@ -775,7 +780,7 @@ struct ChangesSidebarView: View {
     private var noRepository: some View {
         VStack(spacing: 10) {
             LitheIDEAIcon(
-                resourcePath: "vcs/branch.svg",
+                resourcePath: "toolwindows/toolWindowVcs.svg",
                 size: 30,
                 fallbackSystemImage: "point.3.connected.trianglepath.dotted"
             )

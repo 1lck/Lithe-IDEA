@@ -857,6 +857,27 @@ struct LitheCoreLogicTests {
         #expect(service.files.map(\.path) == ["service/Service.java"])
         #expect(service.directories.map(\.name) == ["impl"])
     }
+
+    @Test
+    @MainActor
+    func fileVisibilityChangesNotifyEveryOpenProjectObserver() {
+        let settings = AppSettings(store: EmptyKeyValueStore())
+        var firstObserverCalls = 0
+        var secondObserverCalls = 0
+
+        let firstID = settings.addFileVisibilityRulesObserver { firstObserverCalls += 1 }
+        _ = settings.addFileVisibilityRulesObserver { secondObserverCalls += 1 }
+        settings.hiddenDirectoryNames.append("generated")
+
+        #expect(firstObserverCalls == 1)
+        #expect(secondObserverCalls == 1)
+
+        settings.removeFileVisibilityRulesObserver(firstID)
+        settings.hiddenFilePatterns.append("*.generated.swift")
+
+        #expect(firstObserverCalls == 1)
+        #expect(secondObserverCalls == 2)
+    }
 }
 
 @Suite("Editor documents")

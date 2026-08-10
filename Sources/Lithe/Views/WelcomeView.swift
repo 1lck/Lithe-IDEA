@@ -60,7 +60,7 @@ struct WelcomeView: View {
             Spacer()
 
             Button {
-                model.isSettingsPresented = true
+                model.showSettings()
             } label: {
                 HStack(spacing: 9) {
                     LitheSystemIcon(systemImage: "gearshape")

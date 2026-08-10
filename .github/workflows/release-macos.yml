@@ -164,6 +164,8 @@ jobs:
           ruby scripts/update-homebrew-cask.rb
 
       - name: Validate the Cask
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           brew tap 1lck/lithe https://github.com/1lck/Lithe-IDEA.git
           tap_path="$(brew --repository)/Library/Taps/1lck/homebrew-lithe"

@@ -87,7 +87,7 @@ struct CloneRepositoryView: View {
     private var header: some View {
         HStack(spacing: 9) {
             LitheIDEAIcon(
-                resourcePath: "vcs/branch.svg",
+                resourcePath: "toolwindows/toolWindowVcs.svg",
                 size: 16,
                 fallbackSystemImage: "point.3.connected.trianglepath.dotted"
             )

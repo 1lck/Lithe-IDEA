@@ -3,31 +3,42 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var updateChecker: UpdateChecker
     @State private var didStartAutomaticUpdateCheck = false
 
     var body: some View {
-        Group {
-            if model.workspaceURL == nil {
-                WelcomeView()
-            } else {
-                WorkbenchView()
-                    .environmentObject(model.runFeature)
-                    .ignoresSafeArea(.container, edges: .top)
+        ZStack {
+            ForEach(projectSessions.sessions) { session in
+                projectContent(for: session)
+                    .opacity(session.id == projectSessions.activeSessionID ? 1 : 0)
+                    .allowsHitTesting(session.id == projectSessions.activeSessionID)
+                    .accessibilityHidden(session.id != projectSessions.activeSessionID)
+                    .zIndex(session.id == projectSessions.activeSessionID ? 1 : 0)
             }
         }
         .background(LitheTheme.window)
-        .background(WindowCloseGuard(model: model))
+        .background(WindowCloseGuard(projectSessions: projectSessions))
         .sheet(isPresented: $model.isSettingsPresented) {
             SettingsView(
                 settings: model.settings,
-                runtimeFeature: model.runtimeFeature
+                runtimeFeature: model.runtimeFeature,
+                initialCategory: model.requestedSettingsCategory
             )
                 .environmentObject(model)
         }
         .sheet(isPresented: $model.isCloneRepositoryPresented) {
             CloneRepositoryView()
                 .environmentObject(model)
+        }
+        .sheet(item: $projectSessions.pendingProjectOpen) { request in
+            OpenProjectLocationDialog(request: request) { placement, doNotAskAgain in
+                projectSessions.resolvePendingOpen(
+                    request,
+                    placement: placement,
+                    doNotAskAgain: doNotAskAgain
+                )
+            }
         }
         .sheet(item: $model.localHistoryRequest) { request in
             LocalHistoryView(request: request)
@@ -93,6 +104,20 @@ struct RootView: View {
         }
     }
 
+    @ViewBuilder
+    private func projectContent(for session: AppModel) -> some View {
+        Group {
+            if session.workspaceURL == nil {
+                WelcomeView()
+            } else {
+                WorkbenchView()
+                    .environmentObject(session.runFeature)
+                    .ignoresSafeArea(.container, edges: .top)
+            }
+        }
+        .environmentObject(session)
+    }
+
     private var updatePromptPresented: Binding<Bool> {
         Binding(
             get: { updateChecker.updatePrompt != nil },
@@ -106,10 +131,10 @@ struct RootView: View {
 }
 
 private struct WindowCloseGuard: NSViewRepresentable {
-    let model: AppModel
+    let projectSessions: ProjectSessionManager
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(model: model)
+        Coordinator(projectSessions: projectSessions)
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -121,7 +146,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        context.coordinator.model = model
+        context.coordinator.projectSessions = projectSessions
         DispatchQueue.main.async {
             context.coordinator.attach(to: view.window)
         }
@@ -129,11 +154,11 @@ private struct WindowCloseGuard: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSWindowDelegate {
-        var model: AppModel
+        var projectSessions: ProjectSessionManager
         weak var window: NSWindow?
 
-        init(model: AppModel) {
-            self.model = model
+        init(projectSessions: ProjectSessionManager) {
+            self.projectSessions = projectSessions
         }
 
         func attach(to window: NSWindow?) {
@@ -143,7 +168,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
         }
 
         func windowShouldClose(_ sender: NSWindow) -> Bool {
-            LitheAppDelegate.confirmUnsavedDocuments(for: model)
+            LitheAppDelegate.confirmUnsavedDocuments(for: projectSessions)
         }
     }
 }

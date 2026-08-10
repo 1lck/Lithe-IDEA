@@ -13,6 +13,7 @@ final class AppSettings: ObservableObject {
         static let hiddenDirectories = "settings.hiddenDirectories"
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
+        static let projectOpenBehavior = "settings.projectOpenBehavior"
         static let commitMessageAI = "settings.commitMessageAI"
     }
 
@@ -28,23 +29,26 @@ final class AppSettings: ObservableObject {
     @Published var hiddenDirectoryNames: [String] {
         didSet {
             defaults.set(hiddenDirectoryNames, forKey: Key.hiddenDirectories)
-            onFileVisibilityRulesChanged?()
+            notifyFileVisibilityRulesObservers()
         }
     }
     @Published var hiddenFilePatterns: [String] {
         didSet {
             defaults.set(hiddenFilePatterns, forKey: Key.hiddenFilePatterns)
-            onFileVisibilityRulesChanged?()
+            notifyFileVisibilityRulesObservers()
         }
     }
     @Published var gitSaveChangesPolicy: GitSaveChangesPolicy {
         didSet { defaults.set(gitSaveChangesPolicy.rawValue, forKey: Key.gitSaveChangesPolicy) }
     }
+    @Published var projectOpenBehavior: ProjectOpenBehavior {
+        didSet { defaults.set(projectOpenBehavior.rawValue, forKey: Key.projectOpenBehavior) }
+    }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
     }
 
-    var onFileVisibilityRulesChanged: (() -> Void)?
+    private var fileVisibilityRulesObservers: [UUID: () -> Void] = [:]
 
     init(store: any KeyValueStore) {
         self.defaults = store
@@ -62,6 +66,9 @@ final class AppSettings: ObservableObject {
         gitSaveChangesPolicy = GitSaveChangesPolicy(
             rawValue: defaults.string(forKey: Key.gitSaveChangesPolicy) ?? ""
         ) ?? .stash
+        projectOpenBehavior = ProjectOpenBehavior(
+            rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
+        ) ?? .ask
         if let data = defaults.data(forKey: Key.commitMessageAI),
            let saved = try? JSONDecoder().decode(CommitMessageAISettings.self, from: data) {
             commitMessageAI = saved
@@ -79,6 +86,23 @@ final class AppSettings: ObservableObject {
         )
     }
 
+    @discardableResult
+    func addFileVisibilityRulesObserver(_ observer: @escaping () -> Void) -> UUID {
+        let id = UUID()
+        fileVisibilityRulesObservers[id] = observer
+        return id
+    }
+
+    func removeFileVisibilityRulesObserver(_ id: UUID) {
+        fileVisibilityRulesObservers[id] = nil
+    }
+
+    private func notifyFileVisibilityRulesObservers() {
+        for observer in fileVisibilityRulesObservers.values {
+            observer()
+        }
+    }
+
     func restoreDefaults() {
         language = .english
         editorFontSize = 13
@@ -90,6 +114,7 @@ final class AppSettings: ObservableObject {
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
         gitSaveChangesPolicy = .stash
+        projectOpenBehavior = .ask
         commitMessageAI = .default
     }
 
@@ -176,6 +201,22 @@ final class AppSettings: ObservableObject {
     private func saveCommitMessageAI() {
         guard let data = try? JSONEncoder().encode(commitMessageAI) else { return }
         defaults.set(data, forKey: Key.commitMessageAI)
+    }
+}
+
+enum ProjectOpenBehavior: String, CaseIterable, Identifiable {
+    case ask
+    case thisWindow
+    case newWindow
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .ask: "Ask every time"
+        case .thisWindow: "This window"
+        case .newWindow: "New window"
+        }
     }
 }
 
