@@ -6,6 +6,54 @@ import Testing
 @Suite("Lithe core logic")
 struct LitheCoreLogicTests {
     @Test
+    @MainActor
+    func closingAWorkspaceWindowClosesTheProjectInsteadOfTheWindow() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            registerWindow: { _ in }
+        )
+        let window = NSWindow()
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(sessions.closeActiveProjectCallCount == 1)
+    }
+
+    @Test
+    @MainActor
+    func closingTheWelcomeWindowKeepsItAvailableForDockReopen() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: false)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            registerWindow: { _ in }
+        )
+        let window = NSWindow()
+        window.orderFront(nil)
+
+        #expect(!coordinator.windowShouldClose(window))
+        #expect(!window.isVisible)
+        #expect(sessions.closeActiveProjectCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func dockReopenShowsTheHiddenWelcomeWindow() {
+        let appDelegate = LitheAppDelegate()
+        let window = NSWindow()
+        appDelegate.registerMainWindow(window)
+        window.orderOut(nil)
+        defer { window.orderOut(nil) }
+
+        let shouldPerformDefaultReopen = appDelegate.applicationShouldHandleReopen(
+            NSApplication.shared,
+            hasVisibleWindows: false
+        )
+
+        #expect(!shouldPerformDefaultReopen)
+        #expect(window.isVisible)
+    }
+
+    @Test
     func databaseSidecarParsesCapabilitiesWithoutStartingUntilRequested() throws {
         let runner = RecordingProcessRunner { request in
             let input = try! #require(request.standardInput)
@@ -2108,6 +2156,20 @@ struct LitheCoreLogicTests {
 
         #expect(firstObserverCalls == 1)
         #expect(secondObserverCalls == 2)
+    }
+}
+
+@MainActor
+private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
+    var hasActiveProject: Bool
+    private(set) var closeActiveProjectCallCount = 0
+
+    init(hasActiveProject: Bool) {
+        self.hasActiveProject = hasActiveProject
+    }
+
+    func closeActiveProject() {
+        closeActiveProjectCallCount += 1
     }
 }
 

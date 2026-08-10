@@ -139,8 +139,8 @@ struct RootView: View {
 private struct WindowCloseGuard: NSViewRepresentable {
     let projectSessions: ProjectSessionManager
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(projectSessions: projectSessions)
+    func makeCoordinator() -> LitheWindowCoordinator {
+        LitheWindowCoordinator(projectSessions: projectSessions)
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -157,24 +157,51 @@ private struct WindowCloseGuard: NSViewRepresentable {
             context.coordinator.attach(to: view.window)
         }
     }
+}
 
-    @MainActor
-    final class Coordinator: NSObject, NSWindowDelegate {
-        var projectSessions: ProjectSessionManager
-        weak var window: NSWindow?
+@MainActor
+protocol ProjectWindowSessionHandling: AnyObject {
+    var hasActiveProject: Bool { get }
+    func closeActiveProject()
+}
 
-        init(projectSessions: ProjectSessionManager) {
-            self.projectSessions = projectSessions
+extension ProjectSessionManager: ProjectWindowSessionHandling {
+    var hasActiveProject: Bool {
+        activeModel.workspaceURL != nil
+    }
+}
+
+@MainActor
+final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
+    var projectSessions: any ProjectWindowSessionHandling
+    weak var window: NSWindow?
+    private let registerWindow: @MainActor (NSWindow) -> Void
+
+    init(
+        projectSessions: any ProjectWindowSessionHandling,
+        registerWindow: @escaping @MainActor (NSWindow) -> Void = { window in
+            (NSApplication.shared.delegate as? LitheAppDelegate)?.registerMainWindow(window)
         }
+    ) {
+        self.projectSessions = projectSessions
+        self.registerWindow = registerWindow
+    }
 
-        func attach(to window: NSWindow?) {
-            guard let window, self.window !== window else { return }
-            self.window = window
-            window.delegate = self
-        }
+    func attach(to window: NSWindow?) {
+        guard let window, self.window !== window else { return }
+        self.window = window
+        window.delegate = self
+        registerWindow(window)
+    }
 
-        func windowShouldClose(_ sender: NSWindow) -> Bool {
-            LitheAppDelegate.confirmUnsavedDocuments(for: projectSessions)
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if projectSessions.hasActiveProject {
+            projectSessions.closeActiveProject()
+        } else {
+            // Keep the SwiftUI scene alive so a Dock reopen event can bring
+            // the welcome window back instead of leaving a headless process.
+            sender.orderOut(nil)
         }
+        return false
     }
 }
