@@ -2131,7 +2131,7 @@ async fn query_direct(pool: &DirectPool, sql: &str, values: &[Value], limit: u32
     require_sql(sql)?;
     let maximum = limit.clamp(1, 100_000) as usize;
     let mut rows = Vec::with_capacity(maximum.min(200));
-    let truncated = match pool {
+    let (truncated, columns) = match pool {
         DirectPool::MySql(pool) => {
             let mut stream = bind_mysql(sqlx::query(sql), values)?.fetch(pool);
             collect_query_rows(&mut stream, maximum, &mut rows, mysql_row_json).await?
@@ -2145,7 +2145,7 @@ async fn query_direct(pool: &DirectPool, sql: &str, values: &[Value], limit: u32
             collect_query_rows(&mut stream, maximum, &mut rows, sqlite_row_json).await?
         }
     };
-    Ok(json!({"truncated": truncated, "rows": rows}))
+    Ok(json!({"columns": columns, "truncated": truncated, "rows": rows}))
 }
 
 async fn collect_query_rows<'a, R, S>(
@@ -2153,17 +2153,26 @@ async fn collect_query_rows<'a, R, S>(
     maximum: usize,
     destination: &mut Vec<Value>,
     decode: fn(&R) -> Result<Value, (String, String)>,
-) -> Result<bool, (String, String)>
+) -> Result<(bool, Vec<String>), (String, String)>
 where
     S: futures_util::TryStream<Ok = R, Error = sqlx::Error> + Unpin,
+    R: Row,
 {
+    let mut columns = Vec::new();
     while let Some(row) = stream.try_next().await.map_err(db_error)? {
+        if columns.is_empty() {
+            columns = row
+                .columns()
+                .iter()
+                .map(|column| column.name().to_string())
+                .collect();
+        }
         if destination.len() == maximum {
-            return Ok(true);
+            return Ok((true, columns));
         }
         destination.push(decode(&row)?);
     }
-    Ok(false)
+    Ok((false, columns))
 }
 
 fn bind_mysql<'q>(
@@ -2355,9 +2364,22 @@ fn mysql_value(row: &MySqlRow, index: usize, kind: &str) -> Value {
             .try_get::<chrono::NaiveTime, _>(index)
             .map(|v| Value::String(v.to_string()))
             .unwrap_or_else(|_| mysql_text(row, index)),
-        "DATETIME" | "TIMESTAMP" => row
+        "DATETIME" => row
             .try_get::<chrono::NaiveDateTime, _>(index)
             .map(|v| Value::String(v.to_string()))
+            .unwrap_or_else(|_| mysql_text(row, index)),
+        "TIMESTAMP" => row
+            .try_get::<chrono::DateTime<chrono::Utc>, _>(index)
+            .map(|v| Value::String(v.to_rfc3339()))
+            .or_else(|_| {
+                row.try_get::<chrono::NaiveDateTime, _>(index)
+                    .map(|v| Value::String(v.to_string()))
+            })
+            .unwrap_or_else(|_| mysql_text(row, index)),
+        "BOOLEAN" | "BOOL" => row
+            .try_get::<bool, _>(index)
+            .map(Value::Bool)
+            .or_else(|_| row.try_get::<i8, _>(index).map(|v| Value::Bool(v != 0)))
             .unwrap_or_else(|_| mysql_text(row, index)),
         "JSON" => row
             .try_get::<Value, _>(index)
@@ -2369,6 +2391,12 @@ fn mysql_value(row: &MySqlRow, index: usize, kind: &str) -> Value {
         "FLOAT" | "DOUBLE" => row
             .try_get::<f64, _>(index)
             .map(|v| json!(v))
+            .unwrap_or_else(|_| mysql_text(row, index)),
+        value if value == "TINYINT" => row
+            .try_get::<i8, _>(index)
+            .map(|v| json!(v))
+            .or_else(|_| row.try_get::<u8, _>(index).map(|v| json!(v)))
+            .or_else(|_| row.try_get::<i64, _>(index).map(|v| json!(v)))
             .unwrap_or_else(|_| mysql_text(row, index)),
         value if value.contains("INT") || value == "YEAR" => row
             .try_get::<i64, _>(index)
@@ -2908,11 +2936,22 @@ fn placeholder(kind: &str, index: usize) -> String {
 async fn export_csv(pool: &DirectPool, sql: &str, values: &[Value], limit: u32) -> DbResult {
     let result = query_direct(pool, sql, values, limit).await?;
     let rows = result["rows"].as_array().cloned().unwrap_or_default();
-    let headers: Vec<String> = rows
-        .first()
-        .and_then(Value::as_object)
-        .map(|row| row.keys().cloned().collect())
-        .unwrap_or_default();
+    let headers: Vec<String> = result["columns"]
+        .as_array()
+        .map(|columns| {
+            columns
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .filter(|columns: &Vec<String>| !columns.is_empty())
+        .unwrap_or_else(|| {
+            rows.first()
+                .and_then(Value::as_object)
+                .map(|row| row.keys().cloned().collect())
+                .unwrap_or_default()
+        });
     let mut writer = csv::Writer::from_writer(Vec::new());
     writer.write_record(&headers).map_err(csv_error)?;
     for row in rows {

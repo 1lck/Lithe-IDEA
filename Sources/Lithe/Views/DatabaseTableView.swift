@@ -574,12 +574,12 @@ struct DatabaseTableView: View {
             .background(LitheTheme.toolHeader)
             .disabled(deletedRows.contains(index))
             ForEach(model.databaseFeature.columns, id: \.self) { column in
-                TextField("NULL", text: binding(row: index, column: column, original: row[column]))
+                TextField("", text: binding(row: index, column: column, original: row[column]))
                     .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
                     .frame(width: columnWidth, height: 29).background(drafts[CellKey(row: index, column: column)] == nil ? Color.clear : LitheTheme.warning.opacity(0.12))
                     .overlay(alignment: .trailing) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
                     .onTapGesture { pasteAnchor = CellKey(row: index, column: column) }
-                    .contextMenu { rowContextMenu(index: index) }
+                    .contextMenu { cellContextMenu(row: index, column: column) }
             }
         }
         .background(selectedRows.contains(index) ? LitheTheme.selection.opacity(0.34) : Color.clear)
@@ -613,6 +613,16 @@ struct DatabaseTableView: View {
             selectedRows.remove(index)
         }
         .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+    }
+
+    @ViewBuilder
+    private func cellContextMenu(row: Int, column: String) -> some View {
+        Button("Set NULL") { setNull(row: row, column: column) }
+            .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+        Button("Set Empty String") { setEmptyString(row: row, column: column) }
+            .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+        Divider()
+        rowContextMenu(index: row)
     }
 
     private func columnWidth(availableWidth: CGFloat) -> CGFloat {
@@ -658,6 +668,12 @@ struct DatabaseTableView: View {
         else { drafts[key] = .null }
     }
 
+    private func setEmptyString(row: Int, column: String) {
+        let key = CellKey(row: row, column: column)
+        if model.databaseFeature.rows[row][column] == .string("") { drafts.removeValue(forKey: key) }
+        else { drafts[key] = .string("") }
+    }
+
     private func applyBatchUpdate(column: String, value: String, setNull: Bool) {
         for rowIndex in selectedRows where model.databaseFeature.rows.indices.contains(rowIndex) && !deletedRows.contains(rowIndex) {
             let key = CellKey(row: rowIndex, column: column)
@@ -693,7 +709,15 @@ struct DatabaseTableView: View {
     }
 
     private func display(_ value: DatabaseValue?) -> String {
-        switch value { case nil, .null: ""; case let .string(value): value; case let .integer(value): String(value); case let .number(value): String(value); case let .bool(value): value ? "true" : "false"; case let .object(value): databaseJSONText(.object(value)); case let .array(value): databaseJSONText(.array(value)) }
+        switch value {
+        case nil, .null: "NULL"
+        case let .string(value): value.isEmpty ? "\"\"" : value
+        case let .integer(value): String(value)
+        case let .number(value): String(value)
+        case let .bool(value): value ? "true" : "false"
+        case let .object(value): databaseJSONText(.object(value))
+        case let .array(value): databaseJSONText(.array(value))
+        }
     }
 
     private func metadataLabel(_ row: DatabaseRow) -> String {

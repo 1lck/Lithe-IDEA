@@ -342,6 +342,49 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func databaseProfileSwitchResetsProfileScopedWorkspaceState() async throws {
+        let preferences = DatabaseTestKeyValueStore()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
+        let first = DatabaseProfile(name: "First", kind: .sqlite, host: "first", path: "/tmp/first.sqlite")
+        let second = DatabaseProfile(name: "Second", kind: .sqlite, host: "second", path: "/tmp/second.sqlite")
+        try store.save([first, second])
+        let tableRequestCounter = TestCounter()
+        let runner = RecordingProcessRunner { request in
+            let input = try! #require(request.standardInput)
+            let object = try! JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let id = object["id"] as! String
+            let method = object["method"] as! String
+            let result: String
+            switch method {
+            case "listTables":
+                tableRequestCounter.value += 1
+                let tableName = tableRequestCounter.value == 1 ? "first_table" : "second_table"
+                result = #"[{"table_name":"\#(tableName)"}]"#
+            default:
+                result = "[]"
+            }
+            return ProcessResult(output: #"{"id":"\#(id)","ok":true,"result":\#(result)}"#, exitCode: 0)
+        }
+        let feature = DatabaseFeatureModel(
+            operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
+            connectionStore: store
+        )
+
+        await feature.select(first)
+        #expect(feature.tables == ["first_table"])
+        feature.addSQLTab(sql: "SELECT from_first")
+        #expect(feature.selectedSQLTab?.sql == "SELECT from_first")
+
+        await feature.select(second)
+        #expect(feature.tables == ["second_table"])
+        #expect(feature.rows.isEmpty)
+        #expect(feature.selectedTable == nil)
+        #expect(feature.sqlTabs.count == 1)
+        #expect(feature.selectedSQLTab?.sql.isEmpty == true)
+    }
+
+    @Test
+    @MainActor
     func databaseConnectionStatusTracksSuccessfulConnection() async throws {
         let preferences = DatabaseTestKeyValueStore()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
@@ -454,6 +497,19 @@ struct LitheCoreLogicTests {
         let query = DatabaseSQLAnalyzer.analyze("SELECT 'UPDATE users SET x = 1' AS example")
         #expect(query.kind == .query)
         #expect(!query.requiresConfirmation)
+
+        let invalid = DatabaseSQLAnalyzer.analyze("SELEC 1")
+        #expect(invalid.kind == .unknown)
+        #expect(!invalid.requiresConfirmation)
+        #expect(invalid.warning?.contains("not recognized") == true)
+    }
+
+    @Test
+    func databaseQueryResultPreservesProtocolColumnOrder() throws {
+        let data = Data(#"{"columns":["z_col","a_col"],"rows":[{"z_col":1,"a_col":2}],"truncated":false}"#.utf8)
+        let result = try JSONDecoder().decode(DatabaseQueryResult.self, from: data)
+        #expect(result.columns == ["z_col", "a_col"])
+        #expect(result.rows.first?["z_col"] == .integer(1))
     }
 
     @Test
@@ -511,6 +567,17 @@ struct LitheCoreLogicTests {
         #expect(loadedAudit.profileID == profileID)
         #expect(loadedAudit.recoveryPointID == point.id)
         #expect(loadedAudit.summary == "snapshot")
+
+        let event = DatabaseExecutionEvent(
+            id: UUID(), profileID: profileID, profileName: "Test DB", source: .sql,
+            operation: "query", startedAt: Date(timeIntervalSince1970: 1_700_000_000), durationMilliseconds: 12,
+            status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: "syntax error"
+        )
+        try store.appendExecutionEvent(event)
+        let loadedEvent = try #require(store.executionEvents(for: profileID).first)
+        #expect(loadedEvent == event)
+        try store.deleteExecutionEvents(for: profileID)
+        #expect(store.executionEvents(for: profileID).isEmpty)
     }
 
     @Test
@@ -1542,6 +1609,10 @@ private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
         requests.append(request)
         return handler(request)
     }
+}
+
+private final class TestCounter: @unchecked Sendable {
+    var value = 0
 }
 
 private final class DatabaseTestKeyValueStore: KeyValueStore, @unchecked Sendable {

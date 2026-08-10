@@ -105,6 +105,12 @@ struct RedisWorkspaceView: View {
             .padding(10)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
+            if let profile, feature.connectionStatuses[profile.id] == .failed, let error = feature.errorMessage {
+                specializedErrorBanner(message: error) {
+                    Task { await feature.loadRedisKeys(pattern: pattern) }
+                }
+            }
+
             if feature.redisKeys.isEmpty && !feature.isLoading {
                 specializedEmptyState(symbol: "magnifyingglass", title: "No keys loaded", detail: "Search with a Redis pattern to scan this database incrementally.")
             } else {
@@ -348,6 +354,14 @@ struct NacosWorkspaceView: View {
             }
             .labelsHidden().pickerStyle(.segmented).frame(width: 250).padding(10)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            if let profile, feature.connectionStatuses[profile.id] == .failed, let error = feature.errorMessage {
+                specializedErrorBanner(message: error) {
+                    Task {
+                        await feature.loadNacosConfigs(dataId: dataIDSearch, group: groupSearch)
+                        await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch)
+                    }
+                }
+            }
             if section == .configs { configurations } else { services }
         }
         .background(LitheTheme.editor)
@@ -571,6 +585,28 @@ private func specializedEmptyState(symbol: String, title: LocalizedStringKey, de
         Text(detail).font(.system(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText).multilineTextAlignment(.center).frame(maxWidth: 340)
     }
     .padding(22)
+}
+
+private func specializedErrorBanner(message: String, retry: @escaping () -> Void) -> some View {
+    HStack(spacing: 8) {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .foregroundStyle(LitheTheme.error)
+        Text(message)
+            .font(.system(size: 10.5))
+            .foregroundStyle(LitheTheme.primaryText)
+            .lineLimit(3)
+            .textSelection(.enabled)
+        Spacer(minLength: 4)
+        Button(action: retry) {
+            Image(systemName: "arrow.clockwise")
+        }
+        .litheIconButton()
+        .help("Retry")
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 8)
+    .background(LitheTheme.error.opacity(0.1))
+    .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.error.opacity(0.35)).frame(height: 1) }
 }
 
 private func redisTypeSymbol(_ type: String) -> String {

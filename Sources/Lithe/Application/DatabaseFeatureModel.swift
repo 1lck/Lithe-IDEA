@@ -39,6 +39,7 @@ final class DatabaseFeatureModel: ObservableObject {
     @Published private(set) var lastDiagnostics: DatabaseQueryResult?
     @Published private(set) var recoveryPoints: [DatabaseRecoveryPoint]
     @Published private(set) var auditEntries: [DatabaseAuditEntry]
+    @Published private(set) var executionEvents: [DatabaseExecutionEvent]
     @Published private(set) var backupSchedules: [DatabaseBackupSchedule]
     @Published private(set) var sqlTabs: [DatabaseSQLTab]
     @Published var selectedSQLTabID: UUID?
@@ -62,6 +63,8 @@ final class DatabaseFeatureModel: ObservableObject {
     private let connectionStore: DatabaseConnectionStore
     private let recoveryStore: DatabaseRecoveryStore
     private var backupTimer: Timer?
+    private var profileGeneration: UInt64 = 0
+    private var tableRequestID: UUID?
     // Keep the unmasked page separate so primary-key mutations and exports never
     // accidentally persist the display placeholder.
     private var sourceRows: [DatabaseRow] = []
@@ -78,6 +81,7 @@ final class DatabaseFeatureModel: ObservableObject {
         sqlHistory = connectionStore.loadSQLHistory()
         recoveryPoints = recoveryStore.recoveryPoints()
         auditEntries = recoveryStore.auditEntries()
+        executionEvents = recoveryStore.executionEvents()
         backupSchedules = connectionStore.loadBackupSchedules()
         migrateLegacyGroupsIfNeeded()
         refreshBackupTimer()
@@ -98,6 +102,7 @@ final class DatabaseFeatureModel: ObservableObject {
     }
 
     private func save(_ profile: DatabaseProfile, password: String?) async -> Bool {
+        let generation = profileGeneration
         isLoading = true; errorMessage = nil
         setConnectionStatus(.connecting, for: profile.id)
         do {
@@ -123,18 +128,21 @@ final class DatabaseFeatureModel: ObservableObject {
                 throw error
             }
             profiles = sortedProfiles(updated)
-            selectedProfileID = profile.id
-            isLoading = false
+            setConnectionStatus(.connected, for: profile.id)
+            guard profileGeneration == generation else { return true }
+            activateProfile(profile)
             if profile.kind.supportsDataGrid {
                 await refreshTables()
             } else {
-                setConnectionStatus(.connected, for: profile.id)
+                isLoading = false
             }
             return true
         } catch {
-            errorMessage = error.localizedDescription
             setConnectionStatus(.failed, for: profile.id)
-            isLoading = false
+            if profileGeneration == generation {
+                errorMessage = executionError(error)
+                isLoading = false
+            }
             return false
         }
     }
@@ -142,15 +150,15 @@ final class DatabaseFeatureModel: ObservableObject {
     func remove(_ profile: DatabaseProfile) {
         do {
             let updated = profiles.filter { $0.id != profile.id }
-            try connectionStore.save(updated); try connectionStore.deletePassword(for: profile.id); try connectionStore.deleteSQLHistory(for: profile.id); try connectionStore.deleteBackupSchedule(for: profile.id)
+            try connectionStore.save(updated); try connectionStore.deletePassword(for: profile.id); try connectionStore.deleteSQLHistory(for: profile.id); try connectionStore.deleteBackupSchedule(for: profile.id); try recoveryStore.deleteExecutionEvents(for: profile.id)
             profiles = updated
             connectionStatuses.removeValue(forKey: profile.id)
             sqlHistory.removeAll { $0.profileID == profile.id }
+            executionEvents.removeAll { $0.profileID == profile.id }
             backupSchedules.removeAll { $0.profileID == profile.id }
             refreshBackupTimer()
             if selectedProfileID == profile.id {
-                selectedProfileID = nil; tables = []; selectedTable = nil; openTableTabs = []; rows = []; sourceRows = []; indexes = []; foreignKeys = []; objects = [:]; lastExplainResult = nil; lastDiagnostics = nil
-                clearSpecializedWorkspace()
+                clearProfileScopedState()
             }
         } catch { errorMessage = error.localizedDescription }
     }
@@ -298,9 +306,7 @@ final class DatabaseFeatureModel: ObservableObject {
     func disconnect(_ profile: DatabaseProfile) {
         setConnectionStatus(.idle, for: profile.id)
         if selectedProfileID == profile.id {
-            selectedProfileID = nil
-            tables = []; selectedTable = nil; openTableTabs = []; rows = []; sourceRows = []; columns = []; indexes = []; foreignKeys = []; objects = [:]
-            clearSpecializedWorkspace()
+            clearProfileScopedState()
         }
     }
 
@@ -333,13 +339,12 @@ final class DatabaseFeatureModel: ObservableObject {
     }
 
     func select(_ profile: DatabaseProfile) async {
-        if selectedProfileID != profile.id { openTableTabs = [] }
-        setConnectionStatus(.connecting, for: profile.id)
-        selectedProfileID = profile.id; selectedTable = nil; rows = []; sourceRows = []; columns = []; indexes = []; foreignKeys = []; objects = [:]; lastExplainResult = nil; lastDiagnostics = nil
-        clearSQLResults()
-        clearSpecializedWorkspace()
+        activateProfile(profile)
         if profile.kind.supportsDataGrid {
             await refreshTables()
+        } else {
+            setConnectionStatus(.connected, for: profile.id)
+            isLoading = false
         }
     }
 
@@ -349,26 +354,31 @@ final class DatabaseFeatureModel: ObservableObject {
             tables = []
             return
         }
+        let generation = profileGeneration
         isLoading = true; errorMessage = nil
+        tables = []; objects = [:]
         setConnectionStatus(.connecting, for: profile.id)
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations] in try operations.listTables(connection: connection, schema: "") }.value
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
             setConnectionStatus(.connected, for: profile.id)
-            guard selectedProfileID == profile.id else { isLoading = false; return }
             tables = result.compactMap { row in
                 row["table_name"]?.text ?? row["TABLE_NAME"]?.text ?? row["name"]?.text
             }
-            if profile.kind.isSQLDatabase { await refreshObjects() }
+            if profile.kind.isSQLDatabase { await refreshObjects(profileID: profile.id, generation: generation) }
         } catch {
-            errorMessage = error.localizedDescription
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            tables = []; objects = [:]
+            errorMessage = executionError(error)
             setConnectionStatus(.failed, for: profile.id)
         }
-        isLoading = false
+        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
     }
 
-    func refreshObjects() async {
-        guard let profile = selectedProfile else { return }
+    private func refreshObjects(profileID: UUID, generation: UInt64) async {
+        guard isCurrent(profileID: profileID, generation: generation),
+              let profile = profiles.first(where: { $0.id == profileID }) else { return }
         let connection = connection(profile)
         do {
             let loaded = try await withThrowingTaskGroup(of: (DatabaseObjectKind, [DatabaseRow]).self) { group in
@@ -381,9 +391,13 @@ final class DatabaseFeatureModel: ObservableObject {
                 for try await (kind, rows) in group { result[kind] = rows }
                 return result
             }
+            guard isCurrent(profileID: profileID, generation: generation) else { return }
             objects = loaded
         } catch {
-            errorMessage = error.localizedDescription
+            if isCurrent(profileID: profileID, generation: generation) {
+                objects = [:]
+                errorMessage = executionError(error)
+            }
         }
     }
 
@@ -392,8 +406,12 @@ final class DatabaseFeatureModel: ObservableObject {
             errorMessage = "The selected database connection no longer exists."
             return nil
         }
-        isLoading = true
-        errorMessage = nil
+        let generation = profileGeneration
+        let tracksUI = selectedProfileID == profileID
+        if tracksUI {
+            isLoading = true
+            errorMessage = nil
+        }
         do {
             let connection = connection(profile)
             let tableRows = try await Task.detached { [operations] in
@@ -445,11 +463,14 @@ final class DatabaseFeatureModel: ObservableObject {
                 for try await table in group { snapshots.append(table) }
                 return snapshots.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             }
-            isLoading = false
+            if tracksUI && !isCurrent(profileID: profileID, generation: generation) { return nil }
+            if tracksUI { isLoading = false }
             return DatabaseSchemaSnapshot(profileID: profile.id, profileName: profile.name, kind: profile.kind, schema: "", tables: tables)
         } catch {
-            errorMessage = error.localizedDescription
-            isLoading = false
+            if tracksUI && isCurrent(profileID: profileID, generation: generation) {
+                errorMessage = executionError(error)
+                isLoading = false
+            }
             return nil
         }
     }
@@ -476,8 +497,12 @@ final class DatabaseFeatureModel: ObservableObject {
             errorMessage = "This migration contains a review-only SQL step and cannot be applied automatically."
             return false
         }
-        isLoading = true
-        errorMessage = nil
+        let generation = profileGeneration
+        let tracksUI = selectedProfileID == targetProfileID
+        if tracksUI {
+            isLoading = true
+            errorMessage = nil
+        }
         do {
             let recoveryPoint = try await createRecoveryPoint(profile: profile, reason: "Before schema migration")
             let connection = connection(profile)
@@ -489,22 +514,26 @@ final class DatabaseFeatureModel: ObservableObject {
                 }
             }
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "schemaMigration", summary: "Applied schema migration from \(diff.source.profileName)", createdAt: Date(), recoveryPointID: recoveryPoint.id, rowsAffected: nil, succeeded: true, errorMessage: nil))
-            if selectedProfileID == targetProfileID {
+            if tracksUI && isCurrent(profileID: targetProfileID, generation: generation) {
                 await refreshTables()
                 if let table = selectedTable { await openTable(table) }
+                isLoading = false
             }
-            isLoading = false
             return true
         } catch {
-            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "schemaMigration", summary: "Schema migration failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription))
-            errorMessage = error.localizedDescription
-            isLoading = false
+            let sanitizedError = executionError(error)
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "schemaMigration", summary: "Schema migration failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
+            if tracksUI && isCurrent(profileID: targetProfileID, generation: generation) {
+                errorMessage = sanitizedError
+                isLoading = false
+            }
             return false
         }
     }
 
     func applySchemaChange(_ change: DatabaseSchemaChange, confirmed: Bool = false) async -> Bool {
         guard let profile = selectedProfile else { errorMessage = "Select a database connection first."; return false }
+        let generation = profileGeneration
         isLoading = true; errorMessage = nil
         do {
             let connection = connection(profile)
@@ -513,51 +542,66 @@ final class DatabaseFeatureModel: ObservableObject {
                 try operations.applySchemaChange(connection: connection, schema: "", change: change, confirmed: confirmed, allowWrite: false)
             }.value
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "schemaChange", summary: "Applied \(change.operation)", createdAt: Date(), recoveryPointID: recoveryPoint.id, rowsAffected: nil, succeeded: true, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return true }
             await refreshTables()
             if let table = selectedTable { await openTable(table) }
             return true
         } catch {
-            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "schemaChange", summary: "Schema change failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription))
-            errorMessage = error.localizedDescription
-            isLoading = false
+            let sanitizedError = executionError(error)
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "schemaChange", summary: "Schema change failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = sanitizedError
+                isLoading = false
+            }
             return false
         }
     }
 
     func explainSQL(_ sql: String, format: String = "json") async -> DatabaseQueryResult? {
         guard let profile = selectedProfile else { errorMessage = "Select a database connection first."; return nil }
+        let generation = profileGeneration
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations] in
                 try operations.explain(connection: connection, sql: sql, format: format)
             }.value
+            guard isCurrent(profileID: profile.id, generation: generation) else { return nil }
             let displayResult = masked(result)
             lastExplainResult = displayResult
             return displayResult
         } catch {
-            errorMessage = error.localizedDescription
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = executionError(error)
+            }
             return nil
         }
     }
 
     func loadDiagnostics(_ request: DatabaseDiagnosticsRequest) async -> DatabaseQueryResult? {
         guard let profile = selectedProfile else { errorMessage = "Select a database connection first."; return nil }
+        let generation = profileGeneration
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations] in
                 try operations.diagnostics(connection: connection, request: request)
             }.value
+            guard isCurrent(profileID: profile.id, generation: generation) else { return nil }
             let displayResult = masked(result)
             lastDiagnostics = displayResult
             return displayResult
         } catch {
-            errorMessage = error.localizedDescription
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = executionError(error)
+            }
             return nil
         }
     }
 
     func openTable(_ table: String) async {
         guard let profile = selectedProfile else { return }
+        let generation = profileGeneration
+        let requestID = UUID()
+        tableRequestID = requestID
         if !openTableTabs.contains(table) { openTableTabs.append(table) }
         selectedTable = table; isLoading = true; errorMessage = nil
         do {
@@ -567,6 +611,9 @@ final class DatabaseFeatureModel: ObservableObject {
             async let tableIndexes = Task.detached { [operations] in try operations.listIndexes(connection: connection, schema: "", table: table) }.value
             async let tableForeignKeys = Task.detached { [operations] in try operations.listForeignKeys(connection: connection, schema: "", table: table) }.value
             let (description, result, loadedIndexes, loadedForeignKeys) = try await (metadata, page, tableIndexes, tableForeignKeys)
+            guard isCurrent(profileID: profile.id, generation: generation),
+                  selectedTable == table,
+                  tableRequestID == requestID else { return }
             columns = description.compactMap { $0["column_name"]?.text ?? $0["COLUMN_NAME"]?.text ?? $0["name"]?.text }
             columnTypes = Dictionary(uniqueKeysWithValues: description.compactMap { row in
                 guard let name = row["column_name"]?.text ?? row["COLUMN_NAME"]?.text ?? row["name"]?.text else { return nil }
@@ -585,8 +632,13 @@ final class DatabaseFeatureModel: ObservableObject {
             totalRows = result.totalRows ?? Int64(result.rows.count)
             indexes = loadedIndexes; foreignKeys = loadedForeignKeys
             currentOffset = 0
-        } catch { errorMessage = error.localizedDescription }
-        isLoading = false
+        } catch {
+            if isCurrent(profileID: profile.id, generation: generation), selectedTable == table, tableRequestID == requestID {
+                errorMessage = executionError(error)
+                rows = []; sourceRows = []; columns = []; columnTypes = [:]; indexes = []; foreignKeys = []; totalRows = 0
+            }
+        }
+        if isCurrent(profileID: profile.id, generation: generation), tableRequestID == requestID { isLoading = false }
     }
 
     @discardableResult
@@ -603,21 +655,30 @@ final class DatabaseFeatureModel: ObservableObject {
 
     func loadPage(filters: [DatabaseFilter], sort: [DatabaseSort], offset: Int) async {
         guard let profile = selectedProfile, let table = selectedTable else { return }
+        let generation = profileGeneration
+        let requestID = UUID()
+        tableRequestID = requestID
         isLoading = true; errorMessage = nil
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations, pageSize] in
                 try operations.pageTable(connection: connection, schema: "", table: table, limit: pageSize, offset: max(0, offset), filters: filters, sort: sort)
             }.value
+            guard isCurrent(profileID: profile.id, generation: generation), selectedTable == table, tableRequestID == requestID else { return }
             sourceRows = result.rows
             rows = masked(result.rows)
             totalRows = result.totalRows ?? Int64(result.rows.count); currentOffset = max(0, offset)
-        } catch { errorMessage = error.localizedDescription }
-        isLoading = false
+        } catch {
+            if isCurrent(profileID: profile.id, generation: generation), selectedTable == table, tableRequestID == requestID {
+                errorMessage = executionError(error)
+            }
+        }
+        if isCurrent(profileID: profile.id, generation: generation), tableRequestID == requestID { isLoading = false }
     }
 
     func apply(drafts: [DatabaseCellDraft], insertedRows: [DatabaseRow], deletedIndexes: Set<Int>, confirmed: Bool = false) async -> Bool {
         guard let profile = selectedProfile, let table = selectedTable else { return false }
+        let generation = profileGeneration
         var changesByRow: [Int: DatabaseRow] = [:]
         for draft in drafts { changesByRow[draft.rowIndex, default: [:]][draft.column] = typedValue(draft.value, for: draft.column) }
         var mutations = insertedRows.map { row in
@@ -637,21 +698,29 @@ final class DatabaseFeatureModel: ObservableObject {
             let recoveryPoint = profile.kind == .mongodb ? nil : try await createRecoveryPoint(profile: profile, reason: "Before table edit")
             _ = try await Task.detached { [operations] in try operations.applyChanges(connection: connection, schema: "", mutations: mutations, confirmed: confirmed, allowWrite: false) }.value
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "tableEdit", summary: "Applied table cell changes", createdAt: Date(), recoveryPointID: recoveryPoint?.id, rowsAffected: nil, succeeded: true, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return true }
             await openTable(table); return true
         } catch {
-            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "tableEdit", summary: "Table cell changes failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription))
-            errorMessage = error.localizedDescription; isLoading = false; return false
+            let sanitizedError = executionError(error)
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "tableEdit", summary: "Table cell changes failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = sanitizedError
+                isLoading = false
+            }
+            return false
         }
     }
 
     func exportData(format: DatabaseTransferFormat) async -> Data? {
         guard let profile = selectedProfile else { return nil }
         let connection = connection(profile)
+        let table = selectedTable
+        let generation = profileGeneration
         do {
-            let data = try await Task.detached { [operations, selectedTable] in
+            let data = try await Task.detached { [operations, table] in
                 switch format {
                 case .csv, .json:
-                    guard let table = selectedTable else { throw DatabaseTransferError.tableRequired }
+                    guard let table else { throw DatabaseTransferError.tableRequired }
                     let sql = "SELECT * FROM \(Self.quotedIdentifier(table, for: connection.kind))"
                     return format == .csv
                         ? try operations.exportCSV(connection: connection, sql: sql, values: [], limit: 100_000)
@@ -661,11 +730,17 @@ final class DatabaseFeatureModel: ObservableObject {
                 }
             }.value
             return data
-        } catch { errorMessage = error.localizedDescription; return nil }
+        } catch {
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = executionError(error)
+            }
+            return nil
+        }
     }
 
     func exportDataFile(format: DatabaseTransferFormat) async -> URL? {
         guard format == .sql, let profile = selectedProfile else { return nil }
+        let generation = profileGeneration
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-database-\(UUID().uuidString).sql")
         do {
             let connection = connection(profile)
@@ -682,40 +757,52 @@ final class DatabaseFeatureModel: ObservableObject {
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
-            errorMessage = error.localizedDescription
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = executionError(error)
+            }
             return nil
         }
     }
 
     func importData(_ data: Data, format: DatabaseTransferFormat, confirmed: Bool = false) async -> Bool {
         guard let profile = selectedProfile else { return false }
+        let generation = profileGeneration
+        let table = selectedTable
         isLoading = true; errorMessage = nil
         do {
             let connection = connection(profile)
             let recoveryPoint = try await createRecoveryPoint(profile: profile, reason: "Before import")
-            _ = try await Task.detached { [operations, selectedTable] in
+            _ = try await Task.detached { [operations, table] in
                 switch format {
                 case .csv:
-                    guard let table = selectedTable else { throw DatabaseTransferError.tableRequired }
+                    guard let table else { throw DatabaseTransferError.tableRequired }
                     return try operations.importCSV(connection: connection, schema: "", table: table, data: data)
                 case .json:
-                    guard let table = selectedTable else { throw DatabaseTransferError.tableRequired }
+                    guard let table else { throw DatabaseTransferError.tableRequired }
                     return try operations.importJSON(connection: connection, schema: "", table: table, data: data)
                 case .sql:
                     return try operations.restoreSQL(connection: connection, data: data, confirmed: confirmed, allowWrite: false)
                 }
             }.value
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "import", summary: "Imported \(format.rawValue) data", createdAt: Date(), recoveryPointID: recoveryPoint.id, rowsAffected: nil, succeeded: true, errorMessage: nil))
-            if let table = selectedTable { await openTable(table) } else { await refreshTables() }
+            guard isCurrent(profileID: profile.id, generation: generation) else { return true }
+            if let table { await openTable(table) } else { await refreshTables() }
             return true
         } catch {
-            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "import", summary: "Import failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription))
-            errorMessage = error.localizedDescription; isLoading = false; return false
+            let sanitizedError = executionError(error)
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "import", summary: "Import failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = sanitizedError
+                isLoading = false
+            }
+            return false
         }
     }
 
     func importDataFile(_ fileURL: URL, format: DatabaseTransferFormat, confirmed: Bool = false) async -> Bool {
         guard format == .sql, let profile = selectedProfile else { return false }
+        let generation = profileGeneration
+        let table = selectedTable
         isLoading = true
         errorMessage = nil
         do {
@@ -725,12 +812,16 @@ final class DatabaseFeatureModel: ObservableObject {
                 try operations.restoreSQLFile(connection: connection, fileURL: fileURL, confirmed: confirmed, allowWrite: false)
             }.value
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "import", summary: "Imported SQL backup", createdAt: Date(), recoveryPointID: recoveryPoint.id, rowsAffected: nil, succeeded: true, errorMessage: nil))
-            if let table = selectedTable { await openTable(table) } else { await refreshTables() }
+            guard isCurrent(profileID: profile.id, generation: generation) else { return true }
+            if let table { await openTable(table) } else { await refreshTables() }
             return true
         } catch {
-            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "import", summary: "SQL import failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription))
-            errorMessage = error.localizedDescription
-            isLoading = false
+            let sanitizedError = executionError(error)
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "import", summary: "SQL import failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = sanitizedError
+                isLoading = false
+            }
             return false
         }
     }
@@ -807,26 +898,30 @@ final class DatabaseFeatureModel: ObservableObject {
 
         let sql = tab.sql.trimmingCharacters(in: .whitespacesAndNewlines)
         let connection = connection(profile)
+        let generation = profileGeneration
         let startedAt = Date()
         updateSQLTab(tabID) { tab in
-            tab.isRunning = true; tab.errorMessage = nil; tab.result = nil; tab.resultColumns = []; tab.rowsAffected = nil
+            tab.isRunning = true; tab.errorMessage = nil; tab.result = nil; tab.resultColumns = []; tab.rowsAffected = nil; tab.execution = nil
         }
 
         do {
             let recoveryPoint: DatabaseRecoveryPoint? = analysis.kind.usesQueryEndpoint ? nil : try await createRecoveryPoint(profile: profile, reason: "Before SQL execution")
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
             if analysis.kind.usesQueryEndpoint {
                 let result = try await Task.detached { [operations] in
                     try operations.query(connection: connection, sql: sql, values: [], limit: 10_000)
                 }.value
                 let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
-                let columns = result.rows.reduce(into: [String]()) { result, row in
+                let columns = result.columns ?? result.rows.reduce(into: [String]()) { result, row in
                     for key in row.keys where !result.contains(key) { result.append(key) }
-                }.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                }
                 let execution = DatabaseSQLExecution(startedAt: startedAt, durationMilliseconds: duration, rowsReturned: result.rows.count, rowsAffected: nil, truncated: result.truncated)
+                guard isCurrent(profileID: profile.id, generation: generation) else { return }
                 updateSQLTab(tabID) { tab in
                     tab.result = masked(result); tab.resultColumns = columns; tab.execution = execution; tab.isRunning = false
                 }
                 recordSQLHistory(profileID: profile.id, sql: sql, analysis: analysis, execution: execution)
+                appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .sql, operation: analysis.kind.rawValue, startedAt: startedAt, durationMilliseconds: execution.durationMilliseconds, status: .succeeded, rowsReturned: execution.rowsReturned, rowsAffected: execution.rowsAffected, errorMessage: nil))
                 if let recoveryPoint { appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "sql", summary: "Executed \(analysis.kind.rawValue) statement", createdAt: startedAt, recoveryPointID: recoveryPoint.id, rowsAffected: execution.rowsAffected, succeeded: true, errorMessage: nil)) }
             } else {
                 let result = try await Task.detached { [operations] in
@@ -834,23 +929,30 @@ final class DatabaseFeatureModel: ObservableObject {
                 }.value
                 let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
                 let execution = DatabaseSQLExecution(startedAt: startedAt, durationMilliseconds: duration, rowsReturned: nil, rowsAffected: result.rowsAffected, truncated: false)
+                guard isCurrent(profileID: profile.id, generation: generation) else { return }
                 updateSQLTab(tabID) { tab in
                     tab.rowsAffected = result.rowsAffected; tab.execution = execution; tab.isRunning = false
                 }
                 recordSQLHistory(profileID: profile.id, sql: sql, analysis: analysis, execution: execution)
+                appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .sql, operation: analysis.kind.rawValue, startedAt: startedAt, durationMilliseconds: execution.durationMilliseconds, status: .succeeded, rowsReturned: execution.rowsReturned, rowsAffected: execution.rowsAffected, errorMessage: nil))
                 appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "sql", summary: "Executed \(analysis.kind.rawValue) statement", createdAt: startedAt, recoveryPointID: recoveryPoint?.id, rowsAffected: execution.rowsAffected, succeeded: true, errorMessage: nil))
                 await refreshTables()
             }
         } catch {
-            if let profile = selectedProfile { appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "sql", summary: "SQL execution failed", createdAt: startedAt, recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription)) }
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            let sanitizedError = executionError(error)
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .sql, operation: analysis.kind.rawValue, startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "sql", summary: "SQL execution failed", createdAt: startedAt, recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
             updateSQLTab(tabID) { tab in
-                tab.isRunning = false; tab.errorMessage = error.localizedDescription
+                tab.isRunning = false; tab.errorMessage = sanitizedError; tab.execution = nil; tab.rowsAffected = nil; tab.result = nil; tab.resultColumns = []
             }
         }
     }
 
     func rollback(to point: DatabaseRecoveryPoint) async -> Bool {
         guard let profile = selectedProfile, profile.id == point.profileID else { errorMessage = "Select the connection that owns this recovery point."; return false }
+        let generation = profileGeneration
         isLoading = true; errorMessage = nil
         do {
             let connection = connection(profile)
@@ -862,13 +964,16 @@ final class DatabaseFeatureModel: ObservableObject {
                 _ = try await Task.detached { [operations] in try operations.restoreSQLFile(connection: connection, fileURL: fileURL, confirmed: true, allowWrite: false) }.value
             }
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "rollback", summary: "Restored recovery point", createdAt: Date(), recoveryPointID: point.id, rowsAffected: nil, succeeded: true, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return true }
             await refreshTables()
             if let table = selectedTable { await openTable(table) }
             isLoading = false
             return true
         } catch {
-            errorMessage = error.localizedDescription
-            isLoading = false
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = executionError(error)
+                isLoading = false
+            }
             return false
         }
     }
@@ -884,14 +989,18 @@ final class DatabaseFeatureModel: ObservableObject {
 
     func createBackup(profileID: UUID, reason: String = "Manual backup") async -> Bool {
         guard let profile = profiles.first(where: { $0.id == profileID }) else { errorMessage = "The backup connection no longer exists."; return false }
+        let generation = profileGeneration
         do {
             let point = try await createRecoveryPoint(profile: profile, reason: reason)
             pruneRecoveryPoints(for: profile.id)
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "backup", summary: reason, createdAt: Date(), recoveryPointID: point.id, rowsAffected: nil, succeeded: true, errorMessage: nil))
             return true
         } catch {
-            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "backup", summary: "Backup failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription))
-            errorMessage = error.localizedDescription
+            let sanitizedError = executionError(error)
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "backup", summary: "Backup failed", createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
+            if isCurrent(profileID: profileID, generation: generation) {
+                errorMessage = sanitizedError
+            }
             return false
         }
     }
@@ -942,8 +1051,10 @@ final class DatabaseFeatureModel: ObservableObject {
 
     func loadRedisKeys(pattern: String, reset: Bool = true) async {
         guard let profile = selectedProfile, profile.kind == .redis else { return }
+        let generation = profileGeneration
         let cursor = reset ? "0" : redisNextCursor
         if !reset && cursor == "0" { return }
+        let startedAt = Date()
         isLoading = true
         errorMessage = nil
         setConnectionStatus(.connecting, for: profile.id)
@@ -952,19 +1063,27 @@ final class DatabaseFeatureModel: ObservableObject {
             let result = try await Task.detached { [operations] in
                 try operations.redisScan(connection: connection, cursor: cursor, pattern: pattern.isEmpty ? "*" : pattern, count: 100)
             }.value
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "SCAN", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: result.keys.count, rowsAffected: nil, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
             setConnectionStatus(.connected, for: profile.id)
-            guard selectedProfileID == profile.id else { isLoading = false; return }
             redisKeys = reset ? result.keys : Array(Dictionary(grouping: redisKeys + result.keys, by: \.key).compactMap { $0.value.first })
             redisNextCursor = result.nextCursor
         } catch {
-            errorMessage = error.localizedDescription
+            let sanitizedError = executionError(error)
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "SCAN", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        isLoading = false
+        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
     }
 
     func loadRedisKey(_ key: String) async {
         guard let profile = selectedProfile, profile.kind == .redis else { return }
+        let generation = profileGeneration
+        let startedAt = Date()
         isLoading = true
         errorMessage = nil
         do {
@@ -972,13 +1091,19 @@ final class DatabaseFeatureModel: ObservableObject {
             let detail = try await Task.detached { [operations] in
                 try operations.redisGetKey(connection: connection, key: key)
             }.value
-            guard selectedProfileID == profile.id else { isLoading = false; return }
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "GET \(key)", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: 1, rowsAffected: nil, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
             redisSelectedKey = detail
         } catch {
-            errorMessage = error.localizedDescription
+            let sanitizedError = executionError(error)
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: "GET \(key)", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        isLoading = false
+        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
     }
 
     func saveRedisString(key: String, value: String, ttl: Int64?, confirmed: Bool) async -> Bool {
@@ -1039,19 +1164,29 @@ final class DatabaseFeatureModel: ObservableObject {
         afterSuccess: @escaping @MainActor () async -> Void
     ) async -> Bool {
         guard let profile = selectedProfile, profile.kind == .redis else { return false }
+        let generation = profileGeneration
+        let startedAt = Date()
         isLoading = true
         errorMessage = nil
         do {
             let activeConnection = connection(profile)
             try await Task.detached { [operations] in try operation(activeConnection, operations) }.value
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: summary, startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: nil, rowsAffected: nil, errorMessage: nil))
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "redis", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: true, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return true }
             await afterSuccess()
             isLoading = false
             return true
         } catch {
-            errorMessage = error.localizedDescription
-            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "redis", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription))
-            isLoading = false
+            let sanitizedError = executionError(error)
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .redis, operation: summary, startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "redis", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = sanitizedError
+                isLoading = false
+            }
             return false
         }
     }
@@ -1060,6 +1195,8 @@ final class DatabaseFeatureModel: ObservableObject {
 
     func loadNacosConfigs(dataId: String, group: String, page: Int = 1) async {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
+        let generation = profileGeneration
+        let startedAt = Date()
         isLoading = true
         errorMessage = nil
         setConnectionStatus(.connecting, for: profile.id)
@@ -1068,19 +1205,27 @@ final class DatabaseFeatureModel: ObservableObject {
             let result = try await Task.detached { [operations] in
                 try operations.nacosListConfigs(connection: connection, dataId: dataId, group: group, page: page, pageSize: 100)
             }.value
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST CONFIGS", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: result.items.count, rowsAffected: nil, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
             setConnectionStatus(.connected, for: profile.id)
-            guard selectedProfileID == profile.id else { isLoading = false; return }
             nacosConfigs = result.items
             nacosConfigTotalCount = result.totalCount
         } catch {
-            errorMessage = error.localizedDescription
+            let sanitizedError = executionError(error)
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST CONFIGS", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        isLoading = false
+        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
     }
 
     func loadNacosConfig(dataId: String, group: String) async {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
+        let generation = profileGeneration
+        let startedAt = Date()
         isLoading = true
         errorMessage = nil
         do {
@@ -1088,13 +1233,19 @@ final class DatabaseFeatureModel: ObservableObject {
             let detail = try await Task.detached { [operations] in
                 try operations.nacosGetConfig(connection: connection, dataId: dataId, group: group)
             }.value
-            guard selectedProfileID == profile.id else { return }
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "GET CONFIG \(group)/\(dataId)", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: 1, rowsAffected: nil, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
             nacosSelectedConfig = detail
         } catch {
-            errorMessage = error.localizedDescription
+            let sanitizedError = executionError(error)
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "GET CONFIG \(group)/\(dataId)", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        isLoading = false
+        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
     }
 
     func publishNacosConfig(dataId: String, group: String, content: String, type: String?, confirmed: Bool) async -> Bool {
@@ -1120,6 +1271,8 @@ final class DatabaseFeatureModel: ObservableObject {
 
     func loadNacosServices(serviceName: String, group: String, page: Int = 1) async {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
+        let generation = profileGeneration
+        let startedAt = Date()
         isLoading = true
         errorMessage = nil
         setConnectionStatus(.connecting, for: profile.id)
@@ -1128,19 +1281,27 @@ final class DatabaseFeatureModel: ObservableObject {
             let result = try await Task.detached { [operations] in
                 try operations.nacosListServices(connection: connection, serviceName: serviceName, group: group, page: page, pageSize: 100)
             }.value
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST SERVICES", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: result.items.count, rowsAffected: nil, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
             setConnectionStatus(.connected, for: profile.id)
-            guard selectedProfileID == profile.id else { isLoading = false; return }
             nacosServices = result.items
             nacosServiceTotalCount = result.totalCount
         } catch {
-            errorMessage = error.localizedDescription
+            let sanitizedError = executionError(error)
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST SERVICES", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            errorMessage = sanitizedError
             setConnectionStatus(.failed, for: profile.id)
         }
-        isLoading = false
+        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
     }
 
     func loadNacosInstances(serviceName: String, group: String) async {
         guard let profile = selectedProfile, profile.kind == .nacos else { return }
+        let generation = profileGeneration
+        let startedAt = Date()
         isLoading = true
         errorMessage = nil
         do {
@@ -1148,12 +1309,18 @@ final class DatabaseFeatureModel: ObservableObject {
             let items = try await Task.detached { [operations] in
                 try operations.nacosListInstances(connection: connection, serviceName: serviceName, group: group)
             }.value
-            guard selectedProfileID == profile.id else { return }
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST INSTANCES", startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: items.count, rowsAffected: nil, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
             nacosInstances = items
         } catch {
-            errorMessage = error.localizedDescription
+            let sanitizedError = executionError(error)
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: "LIST INSTANCES", startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return }
+            errorMessage = sanitizedError
         }
-        isLoading = false
+        if isCurrent(profileID: profile.id, generation: generation) { isLoading = false }
     }
 
     private func performNacosWrite(
@@ -1162,19 +1329,29 @@ final class DatabaseFeatureModel: ObservableObject {
         operation: @escaping @Sendable (DatabaseConnection, any DatabaseOperations) throws -> Void,
         afterSuccess: @escaping @MainActor () async -> Void
     ) async -> Bool {
+        let generation = profileGeneration
+        let startedAt = Date()
         isLoading = true
         errorMessage = nil
         do {
             let activeConnection = connection(profile)
             try await Task.detached { [operations] in try operation(activeConnection, operations) }.value
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: summary, startedAt: startedAt, durationMilliseconds: duration, status: .succeeded, rowsReturned: nil, rowsAffected: nil, errorMessage: nil))
             appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "nacos", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: true, errorMessage: nil))
+            guard isCurrent(profileID: profile.id, generation: generation) else { return true }
             await afterSuccess()
             isLoading = false
             return true
         } catch {
-            errorMessage = error.localizedDescription
-            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "nacos", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: error.localizedDescription))
-            isLoading = false
+            let sanitizedError = executionError(error)
+            let duration = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            appendExecutionEvent(DatabaseExecutionEvent(id: UUID(), profileID: profile.id, profileName: profile.name, source: .nacos, operation: summary, startedAt: startedAt, durationMilliseconds: duration, status: .failed, rowsReturned: nil, rowsAffected: nil, errorMessage: sanitizedError))
+            appendAudit(DatabaseAuditEntry(id: UUID(), profileID: profile.id, action: "nacos", summary: summary, createdAt: Date(), recoveryPointID: nil, rowsAffected: nil, succeeded: false, errorMessage: sanitizedError))
+            if isCurrent(profileID: profile.id, generation: generation) {
+                errorMessage = sanitizedError
+                isLoading = false
+            }
             return false
         }
     }
@@ -1234,11 +1411,13 @@ final class DatabaseFeatureModel: ObservableObject {
 
     private func createRecoveryPoint(profile: DatabaseProfile, reason: String) async throws -> DatabaseRecoveryPoint {
         let connection = connection(profile)
+        let generation = profileGeneration
+        let tracksUI = selectedProfileID == profile.id
         let temporaryURL = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-recovery-\(UUID().uuidString).sql")
-        backupProgress = 0
+        if tracksUI { backupProgress = 0 }
         defer {
             try? FileManager.default.removeItem(at: temporaryURL)
-            backupProgress = nil
+            if tracksUI && isCurrent(profileID: profile.id, generation: generation) { backupProgress = nil }
         }
         let export = try await Task.detached { [operations] in
             try operations.exportSQLToFile(
@@ -1247,9 +1426,10 @@ final class DatabaseFeatureModel: ObservableObject {
                 outputURL: temporaryURL
             )
         }.value
-        backupProgress = 0.7
+        if tracksUI && isCurrent(profileID: profile.id, generation: generation) { backupProgress = 0.7 }
         let point = try recoveryStore.createRecoveryPoint(profileID: profile.id, reason: reason, fileURL: temporaryURL, expectedSHA256: export.sha256) { [weak self] progress in
-            self?.backupProgress = 0.7 + progress * 0.3
+            guard let self, tracksUI, self.isCurrent(profileID: profile.id, generation: generation) else { return }
+            self.backupProgress = 0.7 + progress * 0.3
         }
         recoveryPoints = recoveryStore.recoveryPoints()
         return point
@@ -1263,6 +1443,86 @@ final class DatabaseFeatureModel: ObservableObject {
             // Recovery and audit failures are surfaced only when they prevent a
             // write. A completed write must not be misreported as failed.
         }
+    }
+
+    private func appendExecutionEvent(_ event: DatabaseExecutionEvent) {
+        do {
+            try recoveryStore.appendExecutionEvent(event)
+            executionEvents = recoveryStore.executionEvents()
+        } catch {
+            // Execution logging must never change the result of a database operation.
+        }
+    }
+
+    private func executionError(_ error: Error) -> String {
+        let message = error.localizedDescription
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return message.count > 500 ? "\(message.prefix(497))..." : message
+    }
+
+    private func activateProfile(_ profile: DatabaseProfile) {
+        profileGeneration &+= 1
+        tableRequestID = nil
+        selectedProfileID = profile.id
+        selectedTable = nil
+        openTableTabs = []
+        columns = []
+        columnTypes = [:]
+        rows = []
+        sourceRows = []
+        totalRows = 0
+        currentOffset = 0
+        primaryKeyColumns = []
+        indexes = []
+        foreignKeys = []
+        tables = []
+        objects = [:]
+        lastExplainResult = nil
+        lastDiagnostics = nil
+        backupProgress = nil
+        clearSQLResults()
+        resetSQLWorkspace()
+        clearSpecializedWorkspace()
+        errorMessage = nil
+        isLoading = true
+        setConnectionStatus(.connecting, for: profile.id)
+    }
+
+    private func clearProfileScopedState() {
+        profileGeneration &+= 1
+        tableRequestID = nil
+        selectedProfileID = nil
+        selectedTable = nil
+        openTableTabs = []
+        columns = []
+        columnTypes = [:]
+        rows = []
+        sourceRows = []
+        totalRows = 0
+        currentOffset = 0
+        primaryKeyColumns = []
+        indexes = []
+        foreignKeys = []
+        tables = []
+        objects = [:]
+        lastExplainResult = nil
+        lastDiagnostics = nil
+        backupProgress = nil
+        resetSQLWorkspace()
+        clearSpecializedWorkspace()
+        errorMessage = nil
+        isLoading = false
+    }
+
+    private func resetSQLWorkspace() {
+        let tab = DatabaseSQLTab(title: "Query 1")
+        sqlTabs = [tab]
+        selectedSQLTabID = tab.id
+    }
+
+    private func isCurrent(profileID: UUID, generation: UInt64) -> Bool {
+        selectedProfileID == profileID && profileGeneration == generation
     }
 
     private func clearSQLResults() {
@@ -1306,7 +1566,7 @@ final class DatabaseFeatureModel: ObservableObject {
     }
 
     private func masked(_ result: DatabaseQueryResult) -> DatabaseQueryResult {
-        DatabaseQueryResult(rows: masked(result.rows), truncated: result.truncated, totalRows: result.totalRows)
+        DatabaseQueryResult(rows: masked(result.rows), columns: result.columns, truncated: result.truncated, totalRows: result.totalRows)
     }
 
     private func masked(_ rows: [DatabaseRow]) -> [DatabaseRow] {

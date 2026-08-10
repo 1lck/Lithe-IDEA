@@ -1733,6 +1733,10 @@ struct DatabaseConnectionEditor: View {
                     )
                     if kind == .redis {
                         TextField("Redis database index", text: $database)
+                            .onChange(of: database) { _, value in
+                                let digitsOnly = value.filter(\.isNumber)
+                                if digitsOnly != value { database = digitsOnly }
+                            }
                         Text("Leave the database index at 0 for the standard Redis database.")
                             .font(.system(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
@@ -1807,7 +1811,7 @@ struct DatabaseConnectionEditor: View {
             case .sqlserver: port = "1433"; username = "sa"; database = "master"; path = ""
             case .mongodb: port = "27017"; username = ""; database = "admin"; path = ""
             case .redis: port = "6379"; username = ""; database = "0"; path = ""
-            case .nacos: port = "8848"; username = "nacos"; database = ""; path = "/nacos"
+            case .nacos: port = "8848"; username = ""; database = ""; path = "/nacos"
             }
         }
         .onAppear {

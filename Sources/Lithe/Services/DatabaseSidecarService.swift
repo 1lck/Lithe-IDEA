@@ -240,8 +240,26 @@ typealias DatabaseRow = [String: DatabaseValue]
 
 struct DatabaseQueryResult: Codable, Equatable, Sendable {
     let rows: [DatabaseRow]
+    let columns: [String]?
     let truncated: Bool
     var totalRows: Int64?
+
+    init(rows: [DatabaseRow], columns: [String]? = nil, truncated: Bool, totalRows: Int64? = nil) {
+        self.rows = rows
+        self.columns = columns
+        self.truncated = truncated
+        self.totalRows = totalRows
+    }
+
+    private enum CodingKeys: String, CodingKey { case rows, columns, truncated, totalRows }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rows = try container.decode([DatabaseRow].self, forKey: .rows)
+        columns = try container.decodeIfPresent([String].self, forKey: .columns)
+        truncated = try container.decode(Bool.self, forKey: .truncated)
+        totalRows = try container.decodeIfPresent(Int64.self, forKey: .totalRows)
+    }
 }
 
 struct DatabaseExecuteResult: Codable, Equatable, Sendable {

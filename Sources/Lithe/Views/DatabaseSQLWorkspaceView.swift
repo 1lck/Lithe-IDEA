@@ -730,14 +730,19 @@ private struct DatabaseQueryResultGrid: View {
     private func display(_ value: DatabaseValue?) -> String {
         switch value {
         case nil, .null: "NULL"
-        case let .string(value): value
+        case let .string(value): value.isEmpty ? "\"\"" : value
         case let .integer(value): String(value)
         case let .number(value): String(value)
         case let .bool(value): value ? "true" : "false"
-        case let .object(value): String(describing: value)
-        case let .array(value): String(describing: value)
+        case let .object(value): databaseSQLJSONText(.object(value))
+        case let .array(value): databaseSQLJSONText(.array(value))
         }
     }
+}
+
+private func databaseSQLJSONText(_ value: DatabaseValue) -> String {
+    guard let data = try? JSONEncoder().encode(value) else { return String(describing: value) }
+    return String(decoding: data, as: UTF8.self)
 }
 
 private struct DatabaseStructureView: View {
@@ -1017,18 +1022,62 @@ private struct DatabaseDiagnosticsView: View {
                             .foregroundStyle(LitheTheme.success)
                     }
                 }
+                Section("Execution log") {
+                    let events = model.databaseFeature.executionEvents
+                        .filter { $0.profileID == model.databaseFeature.selectedProfileID }
+                        .prefix(20)
+                    if events.isEmpty {
+                        Text("No execution events yet").foregroundStyle(LitheTheme.secondaryText)
+                    } else {
+                        ForEach(events) { event in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: event.status == .succeeded ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundStyle(event.status == .succeeded ? LitheTheme.success : LitheTheme.error)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack {
+                                        Text("\(event.source.rawValue.uppercased()) · \(event.operation)")
+                                            .font(.system(size: 11, weight: .medium))
+                                        Spacer()
+                                        Text("\(event.durationMilliseconds) ms")
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                    }
+                                    if let error = event.errorMessage {
+                                        Text(error)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(LitheTheme.error)
+                                            .lineLimit(2)
+                                    } else if let rows = event.rowsReturned {
+                                        Text("\(rows) rows returned")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Section("Recent executions") {
-                    let entries = model.databaseFeature.sqlHistory.prefix(10)
+                    let entries = model.databaseFeature.sqlHistory
+                        .filter { $0.profileID == model.databaseFeature.selectedProfileID }
+                        .prefix(10)
                     if entries.isEmpty {
                         Text("No executed SQL yet").foregroundStyle(LitheTheme.secondaryText)
                     } else {
                         ForEach(entries) { entry in
-                            HStack {
-                                DatabaseLocalization.statementKind(entry.kind)
-                                Spacer()
-                                Text("\(entry.durationMilliseconds) ms")
-                                    .font(.system(size: 11, design: .monospaced))
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    DatabaseLocalization.statementKind(entry.kind)
+                                    Spacer()
+                                    Text("\(entry.durationMilliseconds) ms")
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(LitheTheme.secondaryText)
+                                }
+                                Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
+                                    .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(1)
+                                    .textSelection(.enabled)
                             }
                         }
                     }
@@ -1051,7 +1100,13 @@ private struct DatabaseDiagnosticsView: View {
                     }
                 }
                 Section("Audit") {
-                    ForEach(model.databaseFeature.auditEntries.prefix(10)) { entry in
+                    let entries = model.databaseFeature.auditEntries
+                        .filter { $0.profileID == model.databaseFeature.selectedProfileID }
+                        .prefix(10)
+                    if entries.isEmpty {
+                        Text("No audit entries yet").foregroundStyle(LitheTheme.secondaryText)
+                    }
+                    ForEach(entries) { entry in
                         HStack {
                             Image(systemName: entry.succeeded ? "checkmark.circle" : "xmark.circle")
                                 .foregroundStyle(entry.succeeded ? LitheTheme.success : LitheTheme.error)
@@ -1065,7 +1120,10 @@ private struct DatabaseDiagnosticsView: View {
             .listStyle(.inset)
             if let result = model.databaseFeature.lastDiagnostics {
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                DatabaseQueryResultGrid(columns: result.rows.reduce(into: [String]()) { result, row in for key in row.keys where !result.contains(key) { result.append(key) } }.sorted(), rows: result.rows)
+                let columns = result.columns ?? result.rows.reduce(into: [String]()) { columns, row in
+                    for key in row.keys where !columns.contains(key) { columns.append(key) }
+                }
+                DatabaseQueryResultGrid(columns: columns, rows: result.rows)
                     .frame(minHeight: 170)
             }
         }

@@ -139,15 +139,15 @@ enum DatabaseSQLAnalyzer {
 
         let isUnqualifiedWrite = (tokens.contains("UPDATE") || tokens.contains("DELETE")) && !tokens.contains("WHERE")
         let isDestructive = tokens.contains("DROP") || tokens.contains("TRUNCATE")
-        let isUnknownWrite = kind == .unknown
-        let requiresConfirmation = isUnqualifiedWrite || isDestructive || isUnknownWrite
+        let isUnknownStatement = kind == .unknown
+        let requiresConfirmation = isUnqualifiedWrite || isDestructive
         let warning: String?
         if isUnqualifiedWrite {
             warning = "This UPDATE or DELETE has no WHERE clause and can affect every row."
         } else if isDestructive {
             warning = "This statement can permanently remove database objects or data."
-        } else if isUnknownWrite {
-            warning = "This statement could change the database and needs confirmation."
+        } else if isUnknownStatement {
+            warning = "This statement type is not recognized locally; the database will validate it."
         } else {
             warning = nil
         }
