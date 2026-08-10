@@ -656,7 +656,91 @@ std::optional<GitCommandDto> decodeGitCommand(const CoreEnvelope& envelope) {
     const auto exitCode = requiredInt(*data, "exitCode");
     if (!output || !exitCode || *exitCode < std::numeric_limits<std::int32_t>::min() ||
         *exitCode > std::numeric_limits<std::int32_t>::max()) return std::nullopt;
-    return GitCommandDto{*output, static_cast<std::int32_t>(*exitCode)};
+
+    std::optional<GitStashRestoreDto> stashRestore;
+    const auto* stashRestoreValue = objectValue(*data, "stashRestore");
+    if (stashRestoreValue != nullptr && !stashRestoreValue->isNull()) {
+        if (!stashRestoreValue->isObject()) return std::nullopt;
+        const auto stashReference = requiredString(*stashRestoreValue, "stashReference");
+        const auto conflictedPaths = stringArray(*stashRestoreValue, "conflictedPaths");
+        if (!stashReference || !conflictedPaths) return std::nullopt;
+        stashRestore = GitStashRestoreDto{*stashReference, std::move(*conflictedPaths)};
+    }
+
+    return GitCommandDto{*output, static_cast<std::int32_t>(*exitCode), std::move(stashRestore)};
+}
+
+std::optional<GitCheckoutPreflightDto> decodeGitCheckoutPreflight(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto blockingPaths = stringArray(*data, "blockingPaths");
+    if (!blockingPaths) return std::nullopt;
+    return GitCheckoutPreflightDto{std::move(*blockingPaths)};
+}
+
+std::optional<GitConflictMarkersDto> decodeGitConflictMarkers(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto paths = stringArray(*data, "paths");
+    if (!paths) return std::nullopt;
+    return GitConflictMarkersDto{std::move(*paths)};
+}
+
+std::optional<GitIntegrationPreflightDto> decodeGitIntegrationPreflight(
+    const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto blockingPaths = stringArray(*data, "blockingPaths");
+    const auto blocksEntirely = requiredBool(*data, "blocksEntirely");
+    if (!blockingPaths || !blocksEntirely) return std::nullopt;
+    return GitIntegrationPreflightDto{std::move(*blockingPaths), *blocksEntirely};
+}
+
+std::optional<GitPullPreflightDto> decodeGitPullPreflight(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto* upstream = objectValue(*data, "upstream");
+    const auto ahead = requiredUInt(*data, "ahead");
+    const auto behind = requiredUInt(*data, "behind");
+    const auto diverged = requiredBool(*data, "diverged");
+    const auto hasLocalChanges = requiredBool(*data, "hasLocalChanges");
+    if (upstream == nullptr || !ahead || !behind || !diverged || !hasLocalChanges) {
+        return std::nullopt;
+    }
+    const auto upstreamValue = upstream->isNull()
+        ? std::optional<std::string>{} : optionalString(*data, "upstream");
+    if (!upstream->isNull() && !upstreamValue) return std::nullopt;
+    return GitPullPreflightDto{upstreamValue, *ahead, *behind, *diverged, *hasLocalChanges};
+}
+
+std::optional<GitOperationStateDto> decodeGitOperationState(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto kind = requiredString(*data, "kind");
+    const auto conflictedPaths = stringArray(*data, "conflictedPaths");
+    if (!kind || !conflictedPaths) return std::nullopt;
+
+    // reference/step/total may be null (merge) or omitted by older cores; treat both
+    // as absent so a rebase response still decodes when counters are present.
+    std::optional<std::string> referenceValue;
+    if (const auto* reference = objectValue(*data, "reference")) {
+        if (!reference->isNull()) {
+            referenceValue = optionalString(*data, "reference");
+            if (!referenceValue) return std::nullopt;
+        }
+    }
+    std::optional<std::uint64_t> stepValue;
+    if (const auto* step = objectValue(*data, "step"); step != nullptr && !step->isNull()) {
+        stepValue = step->asUInt();
+        if (!stepValue) return std::nullopt;
+    }
+    std::optional<std::uint64_t> totalValue;
+    if (const auto* total = objectValue(*data, "total"); total != nullptr && !total->isNull()) {
+        totalValue = total->asUInt();
+        if (!totalValue) return std::nullopt;
+    }
+    return GitOperationStateDto{*kind, std::move(referenceValue), stepValue, totalValue,
+                                std::move(*conflictedPaths)};
 }
 
 std::optional<GitHistoryDto> decodeGitHistory(const CoreEnvelope& envelope) {

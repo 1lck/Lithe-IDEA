@@ -1,6 +1,8 @@
 #include "workbench_window.h"
 
 #include "diff_collapse.h"
+#include "diff_split_layout.h"
+#include "diff_split_widget.h"
 #include "workbench_code_editor.h"
 #include "win32_file_storage.h"
 
@@ -63,6 +65,9 @@
 #include <QTextDocument>
 #include <QTextEdit>
 #include <QToolBar>
+#include <QToolButton>
+#include <QButtonGroup>
+#include <QStackedWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QUrl>
@@ -89,13 +94,10 @@ namespace {
 constexpr int RelativePathRole = Qt::UserRole;
 constexpr int DirectoryRole = Qt::UserRole + 1;
 constexpr int HistoryContentPathRole = Qt::UserRole + 2;
-constexpr int DiffHunkRole = Qt::UserRole + 3;
 constexpr int NavigationLineRole = Qt::UserRole + 4;
 constexpr int NavigationColumnRole = Qt::UserRole + 5;
-constexpr int DiffRegionRole = Qt::UserRole + 6;
 constexpr int GitCommitHashRole = Qt::UserRole + 7;
 constexpr int GitStashReferenceRole = Qt::UserRole + 8;
-constexpr int DiffOverviewRowRole = Qt::UserRole + 9;
 constexpr int NavigationAbsolutePathRole = Qt::UserRole + 10;
 
 algorithms::DiffRowKind diffRowKind(std::string_view kind) {
@@ -104,27 +106,6 @@ algorithms::DiffRowKind diffRowKind(std::string_view kind) {
     if (kind == "removal") return algorithms::DiffRowKind::Removal;
     if (kind == "information") return algorithms::DiffRowKind::Information;
     return algorithms::DiffRowKind::Context;
-}
-
-QColor diffBackground(algorithms::DiffRowKind kind) {
-    switch (kind) {
-    case algorithms::DiffRowKind::Changed: return QColor(255, 247, 204);
-    case algorithms::DiffRowKind::Addition: return QColor(222, 247, 229);
-    case algorithms::DiffRowKind::Removal: return QColor(255, 228, 228);
-    case algorithms::DiffRowKind::Information: return QColor(228, 236, 247);
-    case algorithms::DiffRowKind::Context: return QColor(248, 249, 251);
-    }
-    return QColor(248, 249, 251);
-}
-
-QString numberedDiffText(const std::optional<std::uint64_t>& line,
-                         const std::optional<std::string>& text) {
-    const auto number = line
-        ? QString::number(static_cast<qulonglong>(*line)).rightJustified(6, ' ')
-        : QStringLiteral("      ");
-    return number + QStringLiteral("  ") +
-        (text ? QString::fromUtf8(text->data(), static_cast<qsizetype>(text->size()))
-              : QStringLiteral(""));
 }
 
 QString fromUtf8(std::string_view value) {
@@ -203,156 +184,7 @@ int enumIndex(Enum value) {
     return static_cast<int>(value);
 }
 
-class GitHistoryDelegate final : public QStyledItemDelegate {
-public:
-    GitHistoryDelegate(const algorithms::GitGraphLayout* layout, QObject* parent)
-        : QStyledItemDelegate(parent), layout_(layout) {}
-
-    QSize sizeHint(const QStyleOptionViewItem& option,
-                   const QModelIndex& index) const override {
-        auto size = QStyledItemDelegate::sizeHint(option, index);
-        size.setHeight(std::max(size.height(), 32));
-        return size;
-    }
-
-    void paint(QPainter* painter,
-               const QStyleOptionViewItem& option,
-               const QModelIndex& index) const override {
-        if (layout_ == nullptr || index.row() < 0 ||
-            static_cast<std::size_t>(index.row()) >= layout_->rows.size()) {
-            QStyledItemDelegate::paint(painter, option, index);
-            return;
-        }
-
-        constexpr int LaneSpacing = 16;
-        constexpr int GraphPadding = 10;
-        const auto& row = layout_->rows[static_cast<std::size_t>(index.row())];
-        const auto graphWidth = std::max(74,
-            GraphPadding * 2 + static_cast<int>(layout_->laneCount) * LaneSpacing);
-        auto textOption = option;
-        textOption.rect.adjust(graphWidth, 0, 0, 0);
-        QStyledItemDelegate::paint(painter, textOption, index);
-
-        const auto colorFor = [](std::size_t index) {
-            static const std::array<QColor, 6> colors{
-                QColor(64, 124, 206), QColor(218, 108, 77), QColor(82, 164, 102),
-                QColor(157, 105, 190), QColor(205, 160, 52), QColor(74, 164, 164),
-            };
-            return colors[index % colors.size()];
-        };
-        const auto xForLane = [&](std::size_t lane) {
-            return option.rect.left() + GraphPadding +
-                static_cast<int>(lane) * LaneSpacing;
-        };
-        const auto top = option.rect.top();
-        const auto center = option.rect.center().y();
-        const auto bottom = option.rect.bottom();
-
-        painter->save();
-        painter->setRenderHint(QPainter::Antialiasing, true);
-        for (std::size_t lane = 0; lane < row.incomingLaneColors.size(); ++lane) {
-            QPen pen(colorFor(row.incomingLaneColors[lane]));
-            pen.setWidth(2);
-            painter->setPen(pen);
-            painter->drawLine(xForLane(lane), top, xForLane(lane), center);
-        }
-
-        const auto currentX = xForLane(row.lane);
-        for (const auto& edge : row.parentEdges) {
-            QPen pen(colorFor(edge.colorIndex));
-            pen.setWidth(2);
-            if (edge.isMissing) pen.setStyle(Qt::DashLine);
-            painter->setPen(pen);
-            const auto targetX = edge.targetLane ? xForLane(*edge.targetLane) : currentX;
-            painter->drawLine(currentX, center, targetX, bottom);
-        }
-        painter->setPen(QPen(colorFor(row.incomingLaneColors.empty()
-                                          ? row.lane : row.incomingLaneColors[row.lane %
-                                                                               row.incomingLaneColors.size()]),
-                              2));
-        painter->setBrush(option.state & QStyle::State_Selected
-                              ? option.palette.highlight()
-                              : option.palette.base());
-        painter->drawEllipse(QPointF(currentX, center), 4.5, 4.5);
-        painter->restore();
-    }
-
-private:
-    const algorithms::GitGraphLayout* layout_ = nullptr;
-};
-
-class DiffReviewTable final : public QTableWidget {
-public:
-    struct Connection {
-        int firstRow = 0;
-        int lastRow = 0;
-        algorithms::DiffRowKind kind = algorithms::DiffRowKind::Changed;
-    };
-
-    using QTableWidget::QTableWidget;
-
-    void setConnections(std::vector<Connection> connections) {
-        connections_ = std::move(connections);
-        viewport()->update();
-    }
-
-protected:
-    void paintEvent(QPaintEvent* event) override {
-        QTableWidget::paintEvent(event);
-        if (connections_.empty() || model() == nullptr) return;
-
-        QPainter painter(viewport());
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        for (const auto& connection : connections_) {
-            if (connection.firstRow < 0 || connection.lastRow < connection.firstRow ||
-                connection.lastRow >= rowCount()) {
-                continue;
-            }
-            const auto first = visualRect(model()->index(connection.firstRow, 0));
-            const auto last = visualRect(model()->index(connection.lastRow, 0));
-            if (!first.isValid() || !last.isValid() ||
-                first.bottom() < 0 || last.top() > viewport()->height()) {
-                continue;
-            }
-
-            const auto leftEdge = columnViewportPosition(0) + columnWidth(0) - 2;
-            const auto rightEdge = columnViewportPosition(1) + 2;
-            if (rightEdge <= leftEdge) continue;
-            const auto top = std::max(0, first.top() + 3);
-            const auto bottom = std::min(viewport()->height() - 3, last.bottom() - 3);
-            if (bottom < 0 || top > viewport()->height() || bottom < top) continue;
-
-            QColor color;
-            switch (connection.kind) {
-            case algorithms::DiffRowKind::Addition:
-                color = QColor(67, 160, 93, 72);
-                break;
-            case algorithms::DiffRowKind::Removal:
-                color = QColor(214, 75, 75, 72);
-                break;
-            case algorithms::DiffRowKind::Changed:
-                color = QColor(205, 160, 52, 72);
-                break;
-            default:
-                continue;
-            }
-            const auto bend = std::min(12, (rightEdge - leftEdge) / 3);
-            QPolygonF ribbon{
-                QPointF(leftEdge, top), QPointF(leftEdge + bend, top),
-                QPointF(rightEdge - bend, bottom), QPointF(rightEdge, bottom),
-                QPointF(rightEdge, bottom + 4), QPointF(rightEdge - bend, bottom + 4),
-                QPointF(leftEdge + bend, top + 4), QPointF(leftEdge, top + 4),
-            };
-            painter.setPen(QPen(color.darker(125), 1));
-            painter.setBrush(color);
-            painter.drawPolygon(ribbon);
-        }
-    }
-
-private:
-    std::vector<Connection> connections_;
-};
-}
+} // namespace
 
 WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
                                  QWidget* parent)
@@ -370,6 +202,8 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
       mavenBuildService_(runtimeService_, mavenRunner_),
       coordinator_(std::make_unique<app::WorkbenchCoordinator>()),
       storage_(std::make_unique<Win32FileStorage>()),
+      dirtyDocuments_(std::make_unique<app::FakeDirtyDocumentsPort>()),
+      shelveService_(std::make_unique<app::ShelveService>(*storage_)),
       secureStore_(),
       httpTransport_(),
       authenticodeVerifier_(),
@@ -383,7 +217,8 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
       workspaceFeature_(std::make_unique<app::WorkspaceFeatureModel>(*coordinator_)),
       documentFeature_(std::make_unique<app::DocumentFeatureModel>(*coordinator_)),
       searchFeature_(std::make_unique<app::SearchFeatureModel>(*coordinator_)),
-      gitFeature_(std::make_unique<app::GitFeatureModel>(*coordinator_)),
+      gitFeature_(std::make_unique<app::GitFeatureModel>(
+          *coordinator_, dirtyDocuments_.get(), shelveService_.get())),
       historyFeature_(std::make_unique<app::HistoryFeatureModel>(*coordinator_, *storage_)),
       mavenJavaFeature_(std::make_unique<app::MavenJavaFeatureModel>(*coordinator_)),
       mavenSession_(std::make_unique<Win32ProcessSession>()),
@@ -397,20 +232,103 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     setWindowTitle("Lithe");
     resize(1280, 800);
 
+    gitFeature_->setOperationLifecycleHandlers(
+        [this] { gitWatcherFreeze_.begin(); },
+        [this] { gitWatcherFreeze_.end(); });
+    gitWatcherFreeze_.setFlushHandler(
+        [this](std::vector<DirectoryChangeSource::Change> changes) {
+            // Match macOS: only catch up the workspace after Git already refreshed
+            // under freeze. Empty pending means nothing to flush. Skip a second Git
+            // status refresh here — it raced with Abort cleanup when freeze ended
+            // before refreshWorkflow completed.
+            if (changes.empty()) return;
+            QMetaObject::invokeMethod(this, [this, changes = std::move(changes)]() mutable {
+                scheduleWorkspaceRefresh();
+                if (activePath_.isEmpty() || documentFeature_ == nullptr) return;
+                bool activeTouched = false;
+                for (const auto& change : changes) {
+                    const auto path = normalizedRelativePath(fromUtf8(change.path));
+                    if (path.isEmpty() || !sameRelativePath(path, activePath_)) continue;
+                    activeTouched = true;
+                    break;
+                }
+                if (!activeTouched) return;
+                const auto state = documentFeature_->state();
+                if (state.isDirty || state.isLoading || state.isSaving) return;
+                const auto expectedPath = activePath_;
+                documentFeature_->open(expectedPath.toUtf8().toStdString(),
+                    [this, expectedPath](app::DocumentFeatureState next) {
+                    QMetaObject::invokeMethod(this, [this, expectedPath,
+                                                      next = std::move(next)]() mutable {
+                        if (!sameRelativePath(expectedPath, activePath_) ||
+                            !sameRelativePath(expectedPath, fromUtf8(next.relativePath))) {
+                            return;
+                        }
+                        applyDocumentState(next);
+                    }, Qt::QueuedConnection);
+                });
+            }, Qt::QueuedConnection);
+        });
+
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
-    auto* splitter = new QSplitter(Qt::Horizontal, central);
+    auto* mainSplitter = new QSplitter(Qt::Horizontal, central);
 
-    tree_ = new QTreeWidget(splitter);
+    auto* activityBar = new QWidget(mainSplitter);
+    activityBar->setFixedWidth(44);
+    auto* activityLayout = new QVBoxLayout(activityBar);
+    activityLayout->setContentsMargins(4, 8, 4, 8);
+    activityLayout->setSpacing(6);
+    projectSidebarButton_ = new QToolButton(activityBar);
+    projectSidebarButton_->setText(QStringLiteral("Prj"));
+    projectSidebarButton_->setToolTip(QStringLiteral("Project"));
+    projectSidebarButton_->setCheckable(true);
+    projectSidebarButton_->setChecked(true);
+    projectSidebarButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    changesSidebarButton_ = new QToolButton(activityBar);
+    changesSidebarButton_->setText(QStringLiteral("Git"));
+    changesSidebarButton_->setToolTip(QStringLiteral("Commit / Shelf"));
+    changesSidebarButton_->setCheckable(true);
+    changesSidebarButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    gitLogButton_ = new QToolButton(activityBar);
+    gitLogButton_->setText(QStringLiteral("Log"));
+    gitLogButton_->setToolTip(QStringLiteral("Git Log"));
+    gitLogButton_->setCheckable(true);
+    gitLogButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    activityLayout->addWidget(projectSidebarButton_);
+    activityLayout->addWidget(changesSidebarButton_);
+    activityLayout->addWidget(gitLogButton_);
+    activityLayout->addStretch(1);
+    auto* sidebarGroup = new QButtonGroup(activityBar);
+    sidebarGroup->setExclusive(true);
+    sidebarGroup->addButton(projectSidebarButton_, 0);
+    sidebarGroup->addButton(changesSidebarButton_, 1);
+    mainSplitter->addWidget(activityBar);
+
+    leftSidebarStack_ = new QStackedWidget(mainSplitter);
+    tree_ = new QTreeWidget(leftSidebarStack_);
     tree_->setHeaderLabel("Workspace");
-    tree_->setMinimumWidth(260);
-    connect(tree_, &QTreeWidget::itemDoubleClicked, this, &WorkbenchWindow::openTreeItem);
+    tree_->setMinimumWidth(240);
+    connect(tree_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int column) {
+        presentDiffReview_ = false;
+        if (editorStack_ != nullptr && editorPage_ != nullptr) {
+            editorStack_->setCurrentWidget(editorPage_);
+        }
+        openTreeItem(item, column);
+    });
     tree_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(tree_, &QTreeWidget::customContextMenuRequested,
             this, &WorkbenchWindow::showTreeContextMenu);
+    leftSidebarStack_->addWidget(tree_);
 
-    auto* right = new QWidget(splitter);
+    gitChangesPanel_ = new GitChangesPanel(leftSidebarStack_);
+    leftSidebarStack_->addWidget(gitChangesPanel_);
+    leftSidebarStack_->setMinimumWidth(280);
+    mainSplitter->addWidget(leftSidebarStack_);
+
+    contentSplitter_ = new QSplitter(Qt::Vertical, mainSplitter);
+    auto* right = new QWidget(contentSplitter_);
     auto* rightLayout = new QVBoxLayout(right);
     rightLayout->setContentsMargins(8, 8, 8, 8);
     searchField_ = new QLineEdit(right);
@@ -584,7 +502,6 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     editorTabs_->setTabsClosable(true);
     editorTabs_->setMovable(true);
     editorTabs_->setExpanding(false);
-    rightLayout->addWidget(editorTabs_);
     connect(editorTabs_, &QTabBar::currentChanged,
             this, &WorkbenchWindow::switchEditorTab);
     connect(editorTabs_, &QTabBar::tabCloseRequested,
@@ -593,13 +510,49 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
         if (suppressEditorChange_ || activePath_.isEmpty()) return;
         languageServerText_ = editor_->toPlainText().toUtf8().toStdString();
         documentFeature_->setText(languageServerText_);
+        syncDirtyDocumentsPort(documentFeature_->state());
         if (languageServerPath_.isEmpty()) return;
         if (languageServer_ && languageServer_->isReady() && !languageServerUri_.empty()) {
             languageServer_->didChange(languageServerUri_, languageServerText_);
         }
         if (findBar_ != nullptr && findBar_->isVisible()) updateFindHighlights();
     });
-    rightLayout->addWidget(editor_, 1);
+
+    editorStack_ = new QStackedWidget(right);
+    editorPage_ = new QWidget(editorStack_);
+    auto* editorPageLayout = new QVBoxLayout(editorPage_);
+    editorPageLayout->setContentsMargins(0, 0, 0, 0);
+    editorPageLayout->setSpacing(0);
+    editorPageLayout->addWidget(editorTabs_);
+    editorPageLayout->addWidget(editor_, 1);
+    editorStack_->addWidget(editorPage_);
+
+    diffReviewPanel_ = new QWidget(editorStack_);
+    auto* diffReviewLayout = new QVBoxLayout(diffReviewPanel_);
+    diffReviewLayout->setContentsMargins(0, 0, 0, 0);
+    diffReviewLayout->setSpacing(0);
+    diffSplit_ = new DiffSplitWidget(diffReviewPanel_);
+    connect(diffSplit_, &DiffSplitWidget::hunkSelected, this, [this](const QString& hunkId) {
+        selectedDiffHunk_ = hunkId;
+    });
+    connect(diffSplit_, &DiffSplitWidget::expandRegionRequested, this,
+            [this](const QString& regionId) {
+        if (regionId.isEmpty()) return;
+        expandedDiffRegions_.insert(regionId.toStdString());
+        renderDiffReview();
+    });
+    connect(diffSplit_, &DiffSplitWidget::closeRequested, this,
+            &WorkbenchWindow::closeDiffReview);
+    connect(diffSplit_, &DiffSplitWidget::stageHunkRequested,
+            this, &WorkbenchWindow::stageSelectedHunk);
+    connect(diffSplit_, &DiffSplitWidget::unstageHunkRequested,
+            this, &WorkbenchWindow::unstageSelectedHunk);
+    connect(diffSplit_, &DiffSplitWidget::discardHunkRequested,
+            this, &WorkbenchWindow::discardSelectedHunk);
+    diffReviewLayout->addWidget(diffSplit_, 1);
+    editorStack_->addWidget(diffReviewPanel_);
+    editorStack_->setCurrentWidget(editorPage_);
+    rightLayout->addWidget(editorStack_, 1);
 
     results_ = new QListWidget(right);
     results_->setMaximumHeight(170);
@@ -615,169 +568,6 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
             [this](QListWidgetItem* item) { openJavaNavigationItem(item); });
     rightLayout->addWidget(navigation_);
 
-    changes_ = new QListWidget(right);
-    changes_->setMaximumHeight(170);
-    changes_->setVisible(false);
-    connect(changes_, &QListWidget::itemDoubleClicked, this,
-            [this](QListWidgetItem* item) { openChangeItem(item); });
-    rightLayout->addWidget(changes_);
-
-    auto* gitControls = new QWidget(right);
-    auto* gitControlLayout = new QHBoxLayout(gitControls);
-    gitControlLayout->setContentsMargins(0, 0, 0, 0);
-    auto* gitLog = new QPushButton("Git Log", gitControls);
-    auto* gitStashes = new QPushButton("Stashes", gitControls);
-    auto* gitCompare = new QPushButton("Compare...", gitControls);
-    gitControlLayout->addWidget(gitLog);
-    gitControlLayout->addWidget(gitStashes);
-    gitControlLayout->addWidget(gitCompare);
-    gitControlLayout->addStretch(1);
-    connect(gitLog, &QPushButton::clicked, this, &WorkbenchWindow::loadGitHistory);
-    connect(gitStashes, &QPushButton::clicked, this, &WorkbenchWindow::loadGitStashes);
-    connect(gitCompare, &QPushButton::clicked, this, &WorkbenchWindow::compareGitReference);
-    rightLayout->addWidget(gitControls);
-
-    gitHistory_ = new QListWidget(right);
-    gitHistory_->setMaximumHeight(230);
-    gitHistory_->setVisible(false);
-    gitHistory_->setItemDelegate(new GitHistoryDelegate(&gitHistoryGraph_, gitHistory_));
-    connect(gitHistory_, &QListWidget::itemDoubleClicked, this,
-            [this](QListWidgetItem* item) { openGitHistoryItem(item); });
-    rightLayout->addWidget(gitHistory_);
-
-    gitStashes_ = new QListWidget(right);
-    gitStashes_->setMaximumHeight(180);
-    gitStashes_->setVisible(false);
-    connect(gitStashes_, &QListWidget::itemClicked, this,
-            [this](QListWidgetItem* item) {
-        selectedGitStash_ = item == nullptr
-            ? QString() : item->data(GitStashReferenceRole).toString();
-    });
-    rightLayout->addWidget(gitStashes_);
-
-    gitStashActions_ = new QWidget(right);
-    auto* gitStashActionLayout = new QHBoxLayout(gitStashActions_);
-    gitStashActionLayout->setContentsMargins(0, 0, 0, 0);
-    auto* applyStash = new QPushButton("Apply", gitStashActions_);
-    auto* popStash = new QPushButton("Pop", gitStashActions_);
-    auto* dropStash = new QPushButton("Drop", gitStashActions_);
-    gitStashActionLayout->addWidget(applyStash);
-    gitStashActionLayout->addWidget(popStash);
-    gitStashActionLayout->addWidget(dropStash);
-    gitStashActionLayout->addStretch(1);
-    connect(applyStash, &QPushButton::clicked,
-            this, &WorkbenchWindow::applySelectedStash);
-    connect(popStash, &QPushButton::clicked,
-            this, &WorkbenchWindow::popSelectedStash);
-    connect(dropStash, &QPushButton::clicked,
-            this, &WorkbenchWindow::dropSelectedStash);
-    gitStashActions_->setVisible(false);
-    rightLayout->addWidget(gitStashActions_);
-
-    gitDetails_ = new QPlainTextEdit(right);
-    gitDetails_->setReadOnly(true);
-    gitDetails_->setLineWrapMode(QPlainTextEdit::NoWrap);
-    gitDetails_->setMaximumHeight(190);
-    gitDetails_->setPlaceholderText("Git commit or comparison details");
-    gitDetails_->setVisible(false);
-    rightLayout->addWidget(gitDetails_);
-
-    commitFiles_ = new QListWidget(right);
-    commitFiles_->setMaximumHeight(150);
-    commitFiles_->setVisible(false);
-    connect(commitFiles_, &QListWidget::itemDoubleClicked, this,
-            [this](QListWidgetItem* item) { openCommitFile(item); });
-    rightLayout->addWidget(commitFiles_);
-
-    commitEditor_ = new QPlainTextEdit(right);
-    commitEditor_->setPlaceholderText("Commit message");
-    commitEditor_->setMaximumHeight(90);
-    rightLayout->addWidget(commitEditor_);
-
-    auto* commitControls = new QWidget(right);
-    auto* commitLayout = new QHBoxLayout(commitControls);
-    commitLayout->setContentsMargins(0, 0, 0, 0);
-    auto* stageAll = new QPushButton("Stage all", commitControls);
-    auto* generateMessage = new QPushButton("AI message", commitControls);
-    auto* commit = new QPushButton("Commit", commitControls);
-    amendCommit_ = new QCheckBox("Amend", commitControls);
-    commitLayout->addWidget(stageAll);
-    commitLayout->addWidget(generateMessage);
-    commitLayout->addWidget(commit);
-    commitLayout->addWidget(amendCommit_);
-    commitLayout->addStretch(1);
-    connect(stageAll, &QPushButton::clicked, this, &WorkbenchWindow::stageAllChanges);
-    connect(generateMessage, &QPushButton::clicked,
-            this, &WorkbenchWindow::generateAICommitMessage);
-    connect(commit, &QPushButton::clicked, this, &WorkbenchWindow::commitChanges);
-    rightLayout->addWidget(commitControls);
-
-    diffActions_ = new QWidget(right);
-    auto* diffActionLayout = new QHBoxLayout(diffActions_);
-    auto* stageHunk = new QPushButton("Stage hunk", diffActions_);
-    auto* unstageHunk = new QPushButton("Unstage hunk", diffActions_);
-    auto* discardHunk = new QPushButton("Discard hunk", diffActions_);
-    diffActionLayout->addWidget(stageHunk);
-    diffActionLayout->addWidget(unstageHunk);
-    diffActionLayout->addWidget(discardHunk);
-    connect(stageHunk, &QPushButton::clicked,
-            this, &WorkbenchWindow::stageSelectedHunk);
-    connect(unstageHunk, &QPushButton::clicked,
-            this, &WorkbenchWindow::unstageSelectedHunk);
-    connect(discardHunk, &QPushButton::clicked,
-            this, &WorkbenchWindow::discardSelectedHunk);
-    diffActions_->setVisible(false);
-    rightLayout->addWidget(diffActions_);
-
-    diffReviewPanel_ = new QWidget(right);
-    auto* diffReviewLayout = new QHBoxLayout(diffReviewPanel_);
-    diffReviewLayout->setContentsMargins(0, 0, 0, 0);
-    diffOverview_ = new QListWidget(diffReviewPanel_);
-    diffOverview_->setFixedWidth(118);
-    diffOverview_->setMaximumHeight(330);
-    diffOverview_->setSelectionMode(QAbstractItemView::SingleSelection);
-    diffOverview_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    diffOverview_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    diffOverview_->setVisible(false);
-    connect(diffOverview_, &QListWidget::itemClicked, this,
-            [this](QListWidgetItem* item) {
-        if (item == nullptr || diff_ == nullptr) return;
-        bool ok = false;
-        const auto row = item->data(DiffOverviewRowRole).toInt(&ok);
-        if (!ok || row < 0 || row >= diff_->rowCount()) return;
-        if (auto* target = diff_->item(row, 0)) {
-            selectedDiffHunk_ = target->data(DiffHunkRole).toString();
-            diff_->selectRow(row);
-            diff_->scrollToItem(target, QAbstractItemView::PositionAtCenter);
-        }
-    });
-    diffReviewLayout->addWidget(diffOverview_);
-
-    diff_ = new DiffReviewTable(diffReviewPanel_);
-    diff_->setColumnCount(2);
-    diff_->setHorizontalHeaderLabels({QStringLiteral("Old"), QStringLiteral("New")});
-    diff_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    diff_->verticalHeader()->setVisible(false);
-    diff_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    diff_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    diff_->setSelectionMode(QAbstractItemView::SingleSelection);
-    diff_->setWordWrap(false);
-    diff_->setMinimumHeight(180);
-    diff_->setMaximumHeight(330);
-    diff_->setVisible(false);
-    connect(diff_, &QTableWidget::itemClicked, this, [this](QTableWidgetItem* item) {
-        const auto region = item->data(DiffRegionRole).toString();
-        if (!region.isEmpty()) {
-            expandedDiffRegions_.insert(region.toStdString());
-            renderDiffReview();
-            return;
-        }
-        selectedDiffHunk_ = item->data(DiffHunkRole).toString();
-    });
-    diffReviewLayout->addWidget(diff_, 1);
-    diffReviewPanel_->setVisible(false);
-    rightLayout->addWidget(diffReviewPanel_);
-
     history_ = new QListWidget(right);
     history_->setMaximumHeight(190);
     history_->setVisible(false);
@@ -785,11 +575,22 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
             [this](QListWidgetItem* item) { openHistoryItem(item); });
     rightLayout->addWidget(history_);
 
-    splitter->addWidget(tree_);
-    splitter->addWidget(right);
-    splitter->setStretchFactor(1, 1);
-    layout->addWidget(splitter);
+    contentSplitter_->addWidget(right);
+
+    gitLogPanel_ = new GitLogPanel(contentSplitter_);
+    gitLogPanel_->setVisible(false);
+    gitLogPanel_->setMinimumHeight(220);
+    contentSplitter_->addWidget(gitLogPanel_);
+    contentSplitter_->setStretchFactor(0, 3);
+    contentSplitter_->setStretchFactor(1, 2);
+
+    mainSplitter->addWidget(contentSplitter_);
+    mainSplitter->setStretchFactor(0, 0);
+    mainSplitter->setStretchFactor(1, 0);
+    mainSplitter->setStretchFactor(2, 1);
+    layout->addWidget(mainSplitter);
     setCentralWidget(central);
+    connectGitPanels();
     buildActions();
 
     mavenSession_->setOutputHandler([this](const std::string& output) {
@@ -932,7 +733,7 @@ void WorkbenchWindow::buildActions() {
     connect(blame, &QAction::triggered, this, &WorkbenchWindow::toggleBlame);
     gitMenu->addSeparator();
     auto* gitLog = gitMenu->addAction("Git Log");
-    connect(gitLog, &QAction::triggered, this, &WorkbenchWindow::loadGitHistory);
+    connect(gitLog, &QAction::triggered, this, &WorkbenchWindow::toggleGitLogPanel);
     auto* gitStashes = gitMenu->addAction("Stashes");
     connect(gitStashes, &QAction::triggered, this, &WorkbenchWindow::loadGitStashes);
     auto* gitCompare = gitMenu->addAction("Compare Reference...");
@@ -1177,7 +978,7 @@ void WorkbenchWindow::showCommandPalette() {
         {QStringLiteral("Preview Markdown"), [this] { showMarkdownPreview(); }},
         {QStringLiteral("Search Workspace"), [this] { searchWorkspace(); }},
         {QStringLiteral("Search Everywhere"), [this] { showSearchEverywhere(); }},
-        {QStringLiteral("Git Log"), [this] { loadGitHistory(); }},
+        {QStringLiteral("Git Log"), [this] { toggleGitLogPanel(); }},
         {QStringLiteral("Git Stashes"), [this] { loadGitStashes(); }},
         {QStringLiteral("Compare Git Reference"), [this] { compareGitReference(); }},
         {QStringLiteral("Switch Git Branch"), [this] { switchGitReference(); }},
@@ -1690,6 +1491,9 @@ void WorkbenchWindow::handleDirectoryChanges(
     const std::vector<DirectoryChangeSource::Change>& changes) {
     if (workspaceRoot_.isEmpty() || changes.empty()) return;
 
+    gitWatcherFreeze_.noteChanges(changes);
+    if (gitWatcherFreeze_.isFrozen()) return;
+
     bool requiresWorkspaceRefresh = false;
     bool requiresGitRefresh = false;
     bool activeFileWasRemoved = false;
@@ -1773,15 +1577,10 @@ void WorkbenchWindow::loadGitHistory() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
     selectedGitCommit_.clear();
     diffIsCommitReview_ = false;
-    gitHistory_->clear();
-    gitHistory_->setVisible(true);
-    gitStashes_->setVisible(false);
-    gitStashActions_->setVisible(false);
-    gitDetails_->clear();
-    gitDetails_->setVisible(false);
-    if (commitFiles_ != nullptr) {
-        commitFiles_->clear();
-        commitFiles_->setVisible(false);
+    if (gitLogPanel_ != nullptr) {
+        gitLogPanel_->setVisible(true);
+        gitLogPanel_->prepareForHistoryLoad();
+        if (gitLogButton_ != nullptr) gitLogButton_->setChecked(true);
     }
     gitFeature_->refreshHistory(std::nullopt, 300,
         [this](app::GitFeatureState state) {
@@ -1792,60 +1591,50 @@ void WorkbenchWindow::loadGitHistory() {
 }
 
 void WorkbenchWindow::openGitHistoryItem(QListWidgetItem* item) {
-    if (item == nullptr || !gitFeature_) return;
-    const auto hash = item->data(GitCommitHashRole).toString();
-    if (hash.isEmpty()) return;
+    if (item == nullptr) return;
+    selectGitCommit(item->data(GitCommitHashRole).toString());
+}
+
+void WorkbenchWindow::openCommitFile(QListWidgetItem* item) {
+    if (item == nullptr) return;
+    openGitCommitFile(item->data(RelativePathRole).toString());
+}
+
+void WorkbenchWindow::selectGitCommit(const QString& hash) {
+    if (hash.isEmpty() || !gitFeature_) return;
     selectedGitCommit_ = hash;
+    if (gitLogPanel_ != nullptr) gitLogPanel_->setSelectedCommitHash(hash);
     diffIsCommitReview_ = false;
-    gitDetails_->clear();
-    gitDetails_->setVisible(true);
-    if (commitFiles_ != nullptr) {
-        commitFiles_->clear();
-        commitFiles_->setVisible(false);
-    }
     const auto applyState = [this](app::GitFeatureState state) {
-        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
-            applyGitState(state);
-        }, Qt::QueuedConnection);
+        applyGitStateAsync(std::move(state));
     };
     gitFeature_->loadCommit(hash.toStdString(), applyState);
     gitFeature_->loadCommitFiles(hash.toStdString(), applyState);
 }
 
-void WorkbenchWindow::openCommitFile(QListWidgetItem* item) {
-    if (item == nullptr || !gitFeature_ || selectedGitCommit_.isEmpty()) return;
-    const auto path = item->data(RelativePathRole).toString();
-    if (path.isEmpty()) return;
+void WorkbenchWindow::openGitCommitFile(const QString& path) {
+    if (path.isEmpty() || !gitFeature_ || selectedGitCommit_.isEmpty()) return;
     diffIsCommitReview_ = true;
+    presentDiffReview_ = true;
     selectedDiffHunk_.clear();
-    if (diffActions_ != nullptr) diffActions_->setVisible(false);
+    activePath_ = path;
     statusBar()->showMessage(QStringLiteral("Loading commit file diff..."));
     gitFeature_->loadCommitDiff(
         selectedGitCommit_.toStdString(), {path.toUtf8().toStdString()},
         [this](app::GitFeatureState state) {
-        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
-            applyGitState(state);
-        }, Qt::QueuedConnection);
+        applyGitStateAsync(std::move(state));
     });
 }
 
 void WorkbenchWindow::loadGitStashes() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
     selectedGitStash_.clear();
-    diffIsCommitReview_ = false;
-    gitStashes_->clear();
-    gitStashes_->setVisible(true);
-    gitHistory_->setVisible(false);
-    gitDetails_->clear();
-    gitDetails_->setVisible(false);
-    if (commitFiles_ != nullptr) {
-        commitFiles_->clear();
-        commitFiles_->setVisible(false);
-    }
+    showChangesSidebar();
     gitFeature_->refreshStashes([this](app::GitFeatureState state) {
-        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
-            applyGitState(state);
-        }, Qt::QueuedConnection);
+        applyGitStateAsync(std::move(state));
+    });
+    gitFeature_->refreshShelves([this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
     });
 }
 
@@ -1858,15 +1647,6 @@ void WorkbenchWindow::compareGitReference() {
         QLineEdit::Normal, QStringLiteral("HEAD~1"), &accepted).trimmed();
     if (!accepted || reference.isEmpty()) return;
     diffIsCommitReview_ = false;
-    gitHistory_->setVisible(false);
-    gitStashes_->setVisible(false);
-    gitStashActions_->setVisible(false);
-    gitDetails_->clear();
-    gitDetails_->setVisible(true);
-    if (commitFiles_ != nullptr) {
-        commitFiles_->clear();
-        commitFiles_->setVisible(false);
-    }
     gitFeature_->loadComparison(reference.toStdString(),
         [this, reference](app::GitFeatureState state) {
         QMetaObject::invokeMethod(this, [this, reference,
@@ -1882,40 +1662,20 @@ void WorkbenchWindow::compareGitReference() {
 
 void WorkbenchWindow::switchGitReference() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    const auto state = gitFeature_->state();
-    if (!state.history || state.history->references.empty()) {
-        statusBar()->showMessage(QStringLiteral("Load Git Log before switching branches"), 4000);
-        loadGitHistory();
-        return;
-    }
-
-    QStringList choices;
-    for (const auto& reference : state.history->references) {
-        choices.push_back(QString("%1  [%2]")
-                              .arg(fromUtf8(reference.shortName))
-                              .arg(fromUtf8(reference.kind)));
-    }
-    bool accepted = false;
-    const auto selected = QInputDialog::getItem(
-        this, QStringLiteral("Switch Git Reference"), QStringLiteral("Reference:"),
-        choices, 0, false, &accepted);
-    if (!accepted || selected.isEmpty()) return;
-    const auto index = choices.indexOf(selected);
-    if (index < 0 || index >= static_cast<int>(state.history->references.size())) return;
-    const auto& reference = state.history->references[static_cast<std::size_t>(index)];
-
-    GitWriteRequestDto request;
-    request.operation = "checkout";
-    request.reference = reference.fullName;
-    request.referenceKind = reference.kind;
-    gitFeature_->write(std::move(request), [this](app::GitFeatureState next) {
-        QMetaObject::invokeMethod(this, [this, next = std::move(next)]() mutable {
-            applyGitState(next);
-            if (next.error || next.isWriting) return;
-            statusBar()->showMessage(QStringLiteral("Git reference switched"), 4000);
-            loadSnapshot();
-            loadGitHistory();
-        }, Qt::QueuedConnection);
+    pickGitReferenceAsync(QStringLiteral("Switch Git Reference"),
+        [this](std::optional<GitReferenceDto> reference) {
+        if (!reference) return;
+        gitFeature_->checkoutReference(reference->fullName, reference->kind, reference->shortName,
+            [this](app::GitFeatureState next) {
+            QMetaObject::invokeMethod(this, [this, next = std::move(next)]() mutable {
+                applyGitState(next);
+                if (next.error || next.isWriting || next.isPerformingBranchOperation) return;
+                if (next.pendingCheckoutConflict) return;
+                statusBar()->showMessage(QStringLiteral("Git reference switched"), 4000);
+                loadSnapshot();
+                loadGitHistory();
+            }, Qt::QueuedConnection);
+        });
     });
 }
 
@@ -1941,6 +1701,237 @@ void WorkbenchWindow::createGitBranch() {
             loadSnapshot();
             loadGitHistory();
         }, Qt::QueuedConnection);
+    });
+}
+
+std::optional<GitReferenceDto> WorkbenchWindow::pickGitReference(const QString& title) {
+    if (!gitFeature_) return std::nullopt;
+    const auto state = gitFeature_->state();
+    if (!state.history || state.history->references.empty()) {
+        return std::nullopt;
+    }
+
+    const bool excludeCurrent =
+        title.contains(QStringLiteral("Merge"), Qt::CaseInsensitive) ||
+        title.contains(QStringLiteral("Rebase"), Qt::CaseInsensitive);
+
+    QStringList choices;
+    std::vector<std::size_t> choiceIndexes;
+    int currentIndex = 0;
+    int preferredIndex = -1;
+    for (std::size_t i = 0; i < state.history->references.size(); ++i) {
+        const auto& reference = state.history->references[i];
+        if (excludeCurrent && reference.isCurrent) continue;
+        if (preferredIndex < 0) preferredIndex = static_cast<int>(choiceIndexes.size());
+        choices.push_back(QString("%1  [%2]")
+                              .arg(fromUtf8(reference.shortName))
+                              .arg(fromUtf8(reference.kind)));
+        choiceIndexes.push_back(i);
+        if (!excludeCurrent && reference.isCurrent) {
+            currentIndex = static_cast<int>(choiceIndexes.size()) - 1;
+        }
+    }
+    if (choices.isEmpty()) {
+        statusBar()->showMessage(
+            QStringLiteral("No other Git references available to %1")
+                .arg(title.contains(QStringLiteral("Rebase"), Qt::CaseInsensitive)
+                         ? QStringLiteral("rebase onto")
+                         : QStringLiteral("merge")),
+            6000);
+        return std::nullopt;
+    }
+    if (excludeCurrent && preferredIndex >= 0) currentIndex = preferredIndex;
+
+    bool accepted = false;
+    const auto selected = QInputDialog::getItem(
+        this, title, QStringLiteral("Reference:"),
+        choices, currentIndex, false, &accepted);
+    if (!accepted || selected.isEmpty()) return std::nullopt;
+    const auto index = choices.indexOf(selected);
+    if (index < 0 || index >= static_cast<int>(choiceIndexes.size())) {
+        return std::nullopt;
+    }
+    return state.history->references[choiceIndexes[static_cast<std::size_t>(index)]];
+}
+
+void WorkbenchWindow::pickGitReferenceAsync(
+    const QString& title,
+    std::function<void(std::optional<GitReferenceDto>)> onPicked) {
+    if (!gitFeature_ || !onPicked) return;
+    const auto state = gitFeature_->state();
+    if (state.history && !state.history->references.empty()) {
+        onPicked(pickGitReference(title));
+        return;
+    }
+    statusBar()->showMessage(QStringLiteral("Loading Git references..."), 4000);
+    gitFeature_->refreshHistory(std::nullopt, 300,
+        [this, title, onPicked = std::move(onPicked)](app::GitFeatureState next) mutable {
+        QMetaObject::invokeMethod(this, [this, title, onPicked = std::move(onPicked),
+                                          next = std::move(next)]() mutable {
+            applyGitState(next);
+            if (next.error) {
+                showFeatureError(next.error, QStringLiteral("Could not load Git references"));
+                onPicked(std::nullopt);
+                return;
+            }
+            onPicked(pickGitReference(title));
+        }, Qt::QueuedConnection);
+    });
+}
+
+void WorkbenchWindow::applyGitStateAsync(app::GitFeatureState state) {
+    QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+        applyGitState(state);
+    }, Qt::QueuedConnection);
+}
+
+void WorkbenchWindow::fetchGitRemote() {
+    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
+    gitFeature_->fetch([this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+}
+
+void WorkbenchWindow::pushGitReference() {
+    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
+    const auto state = gitFeature_->state();
+    std::string reference;
+    std::string shortName;
+    if (state.history) {
+        for (const auto& item : state.history->references) {
+            if (item.isCurrent) {
+                reference = item.fullName;
+                shortName = item.shortName;
+                break;
+            }
+        }
+    }
+    if (reference.empty() && state.status && state.status->branch) {
+        reference = *state.status->branch;
+        shortName = *state.status->branch;
+    }
+    if (reference.empty()) {
+        const auto picked = pickGitReference(QStringLiteral("Push Git Reference"));
+        if (!picked) return;
+        reference = picked->fullName;
+        shortName = picked->shortName;
+    }
+    if (QMessageBox::question(
+            this,
+            QStringLiteral("Push"),
+            QStringLiteral("Push '%1' to its configured remote?")
+                .arg(fromUtf8(shortName))) != QMessageBox::Yes) {
+        return;
+    }
+    gitFeature_->push(std::move(reference), std::move(shortName),
+        [this](app::GitFeatureState next) {
+        applyGitStateAsync(std::move(next));
+    });
+}
+
+void WorkbenchWindow::mergeGitReference() {
+    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
+    pickGitReferenceAsync(QStringLiteral("Merge Git Reference"),
+        [this](std::optional<GitReferenceDto> reference) {
+        if (!reference) return;
+        if (reference->isCurrent) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("Merge"),
+                QStringLiteral("Cannot merge the current branch into itself. Pick another reference."));
+            return;
+        }
+        gitFeature_->mergeReference(reference->fullName, reference->shortName,
+            [this](app::GitFeatureState state) {
+            applyGitStateAsync(std::move(state));
+        });
+    });
+}
+
+void WorkbenchWindow::rebaseGitReference() {
+    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
+    pickGitReferenceAsync(QStringLiteral("Rebase Onto"),
+        [this](std::optional<GitReferenceDto> reference) {
+        if (!reference) return;
+        if (reference->isCurrent) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("Rebase"),
+                QStringLiteral("Cannot rebase onto the current branch. Pick another reference."));
+            return;
+        }
+        gitFeature_->rebaseOnto(reference->fullName, reference->shortName,
+            [this](app::GitFeatureState state) {
+            applyGitStateAsync(std::move(state));
+        });
+    });
+}
+
+void WorkbenchWindow::pullGitRemote() {
+    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
+    gitFeature_->pull([this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+}
+
+void WorkbenchWindow::continueGitOperation() {
+    if (!gitFeature_) return;
+    gitFeature_->continueOperation([this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+}
+
+void WorkbenchWindow::abortGitOperation() {
+    if (!gitFeature_) return;
+    if (!confirmDestructiveGitAction(
+            this,
+            QStringLiteral("Abort Git Operation"),
+            QStringLiteral("Abort the in-progress Git operation?"))) {
+        return;
+    }
+    gitFeature_->abortOperation([this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+}
+
+void WorkbenchWindow::skipGitOperation() {
+    if (!gitFeature_) return;
+    gitFeature_->skipOperation([this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+}
+
+void WorkbenchWindow::filterGitConflicts() {
+    if (!gitFeature_) return;
+    const auto state = gitFeature_->state();
+    if (!state.operationState) return;
+    gitFeature_->setConflictFilterPaths(state.operationState->conflictedPaths,
+        [this](app::GitFeatureState next) {
+        applyGitStateAsync(std::move(next));
+    });
+}
+
+void WorkbenchWindow::clearGitConflictFilter() {
+    if (!gitFeature_) return;
+    gitFeature_->clearConflictFilterPaths([this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+}
+
+void WorkbenchWindow::filterStashRestoreConflicts() {
+    if (!gitFeature_) return;
+    const auto state = gitFeature_->state();
+    if (!state.pendingStashRestoreConflict) return;
+    gitFeature_->setConflictFilterPaths(state.pendingStashRestoreConflict->conflictedPaths,
+        [this](app::GitFeatureState next) {
+        applyGitStateAsync(std::move(next));
+    });
+}
+
+void WorkbenchWindow::dismissStashRestoreNotice() {
+    if (!gitFeature_) return;
+    gitFeature_->dismissStashRestoreNotice([this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
     });
 }
 
@@ -2377,6 +2368,10 @@ void WorkbenchWindow::switchEditorTab(int index) {
     if (editorTabs_ == nullptr || index < 0 || index >= editorTabs_->count()) return;
     const auto path = editorTabs_->tabData(index).toString();
     if (path.isEmpty() || (!librarySourcePreview_ && sameRelativePath(path, activePath_))) return;
+    presentDiffReview_ = false;
+    if (editorStack_ != nullptr && editorPage_ != nullptr) {
+        editorStack_->setCurrentWidget(editorPage_);
+    }
     if (auto* item = findTreeItem(path)) {
         openTreeItem(item, 0);
     } else {
@@ -2566,6 +2561,7 @@ void WorkbenchWindow::applyDocumentState(const app::DocumentFeatureState& state)
     }
     if (state.isLoading || state.relativePath.empty()) return;
     activePath_ = fromUtf8(state.relativePath);
+    syncDirtyDocumentsPort(state);
     suppressEditorChange_ = true;
     editor_->clearAnnotations();
     editor_->setPlainText(fromUtf8(state.text));
@@ -2765,19 +2761,17 @@ void WorkbenchWindow::openSearchResult(QListWidgetItem* item) {
 }
 
 void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
+    if (state.notifyMessage && !state.notifyMessage->empty()) {
+        statusBar()->showMessage(fromUtf8(*state.notifyMessage), 6000);
+    }
     if (state.error) {
         showFeatureError(state.error, QStringLiteral("Git request failed"));
-        return;
     }
-    if (state.status && !state.isLoadingStatus) {
-        changes_->clear();
-        for (const auto& change : state.status->changes) {
-            auto* item = new QListWidgetItem(
-                QString("%1  %2").arg(fromUtf8(change.status)).arg(fromUtf8(change.path)), changes_);
-            item->setData(RelativePathRole, fromUtf8(change.path));
-        }
-        changes_->setVisible(changes_->count() > 0);
-        statusBar()->showMessage(QString("%1 Git changes").arg(changes_->count()));
+    if (gitChangesPanel_ != nullptr) {
+        gitChangesPanel_->applyState(state);
+    }
+    if (gitLogPanel_ != nullptr && gitLogPanel_->isVisible()) {
+        gitLogPanel_->applyState(state);
     }
     if (state.diff && !state.isLoadingDiff) {
         if (!diffReview_ || diffReview_->patch != state.diff->patch) {
@@ -2786,97 +2780,37 @@ void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
         }
         diffReview_ = *state.diff;
         renderDiffReview();
-        diffActions_->setVisible(!diffIsCommitReview_ && !state.diff->hunks.empty());
+        const auto path = activePath_.isEmpty() ? QStringLiteral("") : activePath_;
+        const auto fileName = [&] {
+            const auto slash = path.lastIndexOf(QLatin1Char('/'));
+            return slash >= 0 ? path.mid(slash + 1) : path;
+        }();
+        if (diffSplit_ != nullptr) {
+            if (diffIsCommitReview_) {
+                diffSplit_->setFileChrome(fileName,
+                                          QStringLiteral("MODIFIED"),
+                                          QStringLiteral("COMMIT DIFF"));
+                diffSplit_->setVersionTitles(
+                    QStringLiteral("Parent version"), path,
+                    QStringLiteral("Commit version"), path);
+                QString subject;
+                if (state.commit) subject = fromUtf8(state.commit->commit.subject);
+                diffSplit_->setCommitContext(
+                    selectedGitCommit_.left(7), subject);
+                diffSplit_->setHunkActionsVisible(false);
+            } else {
+                diffSplit_->setFileChrome(fileName,
+                                          QStringLiteral("MODIFIED"),
+                                          QStringLiteral("WORKING TREE"));
+                diffSplit_->setVersionTitles(
+                    QStringLiteral("Repository version"), path,
+                    QStringLiteral("Local changes"), path);
+                diffSplit_->setCommitContext({}, {});
+                diffSplit_->setHunkActionsVisible(true);
+            }
+        }
         statusBar()->showMessage(QString("%1 diff hunks").arg(
             static_cast<qulonglong>(state.diff->hunks.size())));
-    }
-    if (gitHistory_ != nullptr && gitHistory_->isVisible() && state.history &&
-        !state.isLoadingHistory) {
-        std::vector<algorithms::GitGraphCommit> graphCommits;
-        graphCommits.reserve(state.history->commits.size());
-        for (const auto& commit : state.history->commits) {
-            graphCommits.push_back({commit.hash, commit.parentHashes,
-                                    commit.decorations, commit.subject});
-        }
-        gitHistoryGraph_ = algorithms::layoutGitGraph(graphCommits);
-        gitHistory_->clear();
-        for (const auto& commit : state.history->commits) {
-            const auto current = commit.decorations.empty()
-                ? QString()
-                : QStringLiteral("* ");
-            auto* item = new QListWidgetItem(
-                QString("%1%2  %3  %4  %5")
-                    .arg(current)
-                    .arg(fromUtf8(commit.shortHash))
-                    .arg(fromUtf8(commit.subject))
-                    .arg(fromUtf8(commit.date))
-                    .arg(fromUtf8(commit.decorations)), gitHistory_);
-            item->setData(GitCommitHashRole, fromUtf8(commit.hash));
-            if (commit.hash == selectedGitCommit_.toStdString()) item->setSelected(true);
-        }
-        gitHistory_->viewport()->update();
-        statusBar()->showMessage(QString("%1 Git commits").arg(gitHistory_->count()), 3000);
-    }
-    if (gitStashes_ != nullptr && gitStashes_->isVisible() && state.stashes &&
-        !state.isLoadingStashes) {
-        gitStashes_->clear();
-        for (const auto& stash : state.stashes->stashes) {
-            auto* item = new QListWidgetItem(
-                QString("%1  %2  %3")
-                    .arg(fromUtf8(stash.reference))
-                    .arg(fromUtf8(stash.message))
-                    .arg(fromUtf8(stash.date)), gitStashes_);
-            item->setData(GitStashReferenceRole, fromUtf8(stash.reference));
-            if (stash.reference == selectedGitStash_.toStdString()) {
-                item->setSelected(true);
-            }
-        }
-        gitStashActions_->setVisible(gitStashes_->count() > 0);
-        statusBar()->showMessage(QString("%1 stashes").arg(gitStashes_->count()), 3000);
-    }
-    if (gitDetails_ != nullptr && gitDetails_->isVisible()) {
-        QStringList details;
-        if (state.commit && !state.isLoadingCommit) {
-            const auto& commit = state.commit->commit;
-            details << QString("%1  %2")
-                .arg(fromUtf8(commit.hash))
-                .arg(fromUtf8(commit.subject));
-            details << QString("Author: %1 <%2>")
-                .arg(fromUtf8(commit.authorName))
-                .arg(fromUtf8(commit.authorEmail));
-            details << QString("Date: %1").arg(fromUtf8(commit.date));
-            if (!commit.decorations.empty()) {
-                details << QString("Refs: %1").arg(fromUtf8(commit.decorations));
-            }
-        }
-        if (state.commitFiles && !state.isLoadingCommitFiles) {
-            if (!details.isEmpty()) details << QString();
-            details << QStringLiteral("Changed files:");
-            if (commitFiles_ != nullptr) commitFiles_->clear();
-            for (const auto& file : state.commitFiles->files) {
-                details << QString("%1  %2")
-                    .arg(fromUtf8(file.status))
-                    .arg(fromUtf8(file.path));
-                if (commitFiles_ != nullptr) {
-                    auto* item = new QListWidgetItem(
-                        QString("%1  %2")
-                            .arg(fromUtf8(file.status))
-                            .arg(fromUtf8(file.path)), commitFiles_);
-                    item->setData(RelativePathRole, fromUtf8(file.path));
-                }
-            }
-            if (commitFiles_ != nullptr) commitFiles_->setVisible(!state.commitFiles->files.empty());
-            details << QStringLiteral("Double-click a file to review its diff.");
-        }
-        if (state.comparison && !state.isLoadingComparison) {
-            details << QStringLiteral("Compared files:");
-            for (const auto& file : state.comparison->files) {
-                details << QString("%1  %2")
-                    .arg(fromUtf8(file.status))
-                    .arg(fromUtf8(file.path));
-            }
-        }
-        if (!details.isEmpty()) gitDetails_->setPlainText(details.join('\n'));
     }
     if (state.blame && !state.isLoadingBlame && editor_ != nullptr &&
         blamePath_ == activePath_) {
@@ -2892,110 +2826,299 @@ void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
         }
         editor_->setBlameAnnotations(std::move(annotations));
     }
+
+    if (!handlingGitDialog_) presentPendingGitDialogs(state);
+}
+
+void WorkbenchWindow::connectGitPanels() {
+    connect(projectSidebarButton_, &QToolButton::clicked, this, &WorkbenchWindow::showProjectSidebar);
+    connect(changesSidebarButton_, &QToolButton::clicked, this, &WorkbenchWindow::showChangesSidebar);
+    connect(gitLogButton_, &QToolButton::clicked, this, &WorkbenchWindow::toggleGitLogPanel);
+
+    connect(gitChangesPanel_, &GitChangesPanel::changeActivated, this,
+            [this](const QString& path) {
+        presentDiffReview_ = true;
+        if (auto* item = findTreeItem(path)) openTreeItem(item, 0);
+    });
+    connect(gitChangesPanel_, &GitChangesPanel::previewFirstChangeRequested, this, [this] {
+        if (!gitFeature_) return;
+        const auto state = gitFeature_->state();
+        if (!state.status || state.status->changes.empty()) return;
+        const auto& first = state.status->changes.front();
+        const auto path = fromUtf8(first.path);
+        presentDiffReview_ = true;
+        gitFeature_->loadDiff({first.path}, first.staged, first.untracked,
+            [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+        if (auto* item = findTreeItem(path)) openTreeItem(item, 0);
+    });
+    connect(gitChangesPanel_, &GitChangesPanel::stagePathRequested,
+            this, &WorkbenchWindow::stageGitPath);
+    connect(gitChangesPanel_, &GitChangesPanel::unstagePathRequested,
+            this, &WorkbenchWindow::unstageGitPath);
+    connect(gitChangesPanel_, &GitChangesPanel::stageAllRequested,
+            this, &WorkbenchWindow::stageAllChanges);
+    connect(gitChangesPanel_, &GitChangesPanel::commitRequested,
+            this, &WorkbenchWindow::commitChanges);
+    connect(gitChangesPanel_, &GitChangesPanel::commitAndPushRequested,
+            this, &WorkbenchWindow::commitAndPushChanges);
+    connect(gitChangesPanel_, &GitChangesPanel::generateAiMessageRequested,
+            this, &WorkbenchWindow::generateAICommitMessage);
+    connect(gitChangesPanel_, &GitChangesPanel::refreshRequested,
+            this, &WorkbenchWindow::refreshGitStatus);
+    connect(gitChangesPanel_, &GitChangesPanel::settingsRequested,
+            this, &WorkbenchWindow::showSettings);
+    connect(gitChangesPanel_, &GitChangesPanel::discardPathRequested, this,
+            [this](const QString& path) {
+        if (!gitFeature_ || path.isEmpty()) return;
+        if (QMessageBox::question(
+                this,
+                QStringLiteral("Discard Changes"),
+                QStringLiteral("Discard local changes in %1?").arg(path),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No) != QMessageBox::Yes) {
+            return;
+        }
+        gitFeature_->discard({path.toUtf8().toStdString()},
+            [this](app::GitFeatureState state) {
+            applyGitStateAsync(std::move(state));
+        });
+    });
+    connect(gitChangesPanel_, &GitChangesPanel::continueOperationRequested,
+            this, &WorkbenchWindow::continueGitOperation);
+    connect(gitChangesPanel_, &GitChangesPanel::abortOperationRequested,
+            this, &WorkbenchWindow::abortGitOperation);
+    connect(gitChangesPanel_, &GitChangesPanel::skipOperationRequested,
+            this, &WorkbenchWindow::skipGitOperation);
+    connect(gitChangesPanel_, &GitChangesPanel::filterConflictsRequested,
+            this, &WorkbenchWindow::filterGitConflicts);
+    connect(gitChangesPanel_, &GitChangesPanel::clearConflictFilterRequested,
+            this, &WorkbenchWindow::clearGitConflictFilter);
+    connect(gitChangesPanel_, &GitChangesPanel::filterStashRestoreConflictsRequested,
+            this, &WorkbenchWindow::filterStashRestoreConflicts);
+    connect(gitChangesPanel_, &GitChangesPanel::dismissStashRestoreNoticeRequested,
+            this, &WorkbenchWindow::dismissStashRestoreNotice);
+    connect(gitChangesPanel_, &GitChangesPanel::applyShelfRequested,
+            this, &WorkbenchWindow::applyShelfById);
+    connect(gitChangesPanel_, &GitChangesPanel::dropShelfRequested,
+            this, &WorkbenchWindow::dropShelfById);
+    connect(gitChangesPanel_, &GitChangesPanel::applyStashRequested,
+            this, &WorkbenchWindow::applyStashByReference);
+    connect(gitChangesPanel_, &GitChangesPanel::popStashRequested,
+            this, &WorkbenchWindow::popStashByReference);
+    connect(gitChangesPanel_, &GitChangesPanel::dropStashRequested,
+            this, &WorkbenchWindow::dropStashByReference);
+    connect(gitChangesPanel_, &GitChangesPanel::refreshShelvesRequested, this, [this] {
+        if (!gitFeature_) return;
+        gitFeature_->refreshShelves([this](app::GitFeatureState state) {
+            applyGitStateAsync(std::move(state));
+        });
+    });
+    connect(gitChangesPanel_, &GitChangesPanel::refreshStashesRequested, this, [this] {
+        if (!gitFeature_) return;
+        gitFeature_->refreshStashes([this](app::GitFeatureState state) {
+            applyGitStateAsync(std::move(state));
+        });
+    });
+
+    connect(gitLogPanel_, &GitLogPanel::refreshRequested, this, &WorkbenchWindow::loadGitHistory);
+    connect(gitLogPanel_, &GitLogPanel::fetchRequested, this, &WorkbenchWindow::fetchGitRemote);
+    connect(gitLogPanel_, &GitLogPanel::pushRequested, this, &WorkbenchWindow::pushGitReference);
+    connect(gitLogPanel_, &GitLogPanel::mergeRequested, this, &WorkbenchWindow::mergeGitReference);
+    connect(gitLogPanel_, &GitLogPanel::rebaseRequested, this, &WorkbenchWindow::rebaseGitReference);
+    connect(gitLogPanel_, &GitLogPanel::pullRequested, this, &WorkbenchWindow::pullGitRemote);
+    connect(gitLogPanel_, &GitLogPanel::compareRequested, this, &WorkbenchWindow::compareGitReference);
+    connect(gitLogPanel_, &GitLogPanel::showAllReferencesRequested, this, [this] {
+        loadGitHistory();
+    });
+    connect(gitLogPanel_, &GitLogPanel::checkoutReferenceRequested,
+            this, &WorkbenchWindow::checkoutGitReference);
+    connect(gitLogPanel_, &GitLogPanel::commitSelected, this, &WorkbenchWindow::selectGitCommit);
+    connect(gitLogPanel_, &GitLogPanel::commitFileActivated,
+            this, &WorkbenchWindow::openGitCommitFile);
+}
+
+void WorkbenchWindow::setLeftSidebarIndex(int index) {
+    if (leftSidebarStack_ == nullptr) return;
+    leftSidebarStack_->setCurrentIndex(index);
+    if (projectSidebarButton_ != nullptr) projectSidebarButton_->setChecked(index == 0);
+    if (changesSidebarButton_ != nullptr) changesSidebarButton_->setChecked(index == 1);
+}
+
+void WorkbenchWindow::setGitLogVisible(bool visible) {
+    if (gitLogPanel_ == nullptr) return;
+    gitLogPanel_->setVisible(visible);
+    if (gitLogButton_ != nullptr) gitLogButton_->setChecked(visible);
+    if (visible) loadGitHistory();
+}
+
+void WorkbenchWindow::showProjectSidebar() {
+    setLeftSidebarIndex(0);
+}
+
+void WorkbenchWindow::showChangesSidebar() {
+    setLeftSidebarIndex(1);
+    refreshGitStatus();
+    if (gitFeature_) {
+        gitFeature_->refreshShelves([this](app::GitFeatureState state) {
+            applyGitStateAsync(std::move(state));
+        });
+    }
+}
+
+void WorkbenchWindow::toggleGitLogPanel() {
+    const bool visible = gitLogPanel_ != nullptr && !gitLogPanel_->isVisible();
+    setGitLogVisible(visible);
+}
+
+void WorkbenchWindow::presentPendingGitDialogs(const app::GitFeatureState& state) {
+    if (!gitFeature_ || handlingGitDialog_) return;
+
+    if (state.pendingCheckoutConflict) {
+        handlingGitDialog_ = true;
+        const auto request = *state.pendingCheckoutConflict;
+        const auto result = showGitCheckoutConflictDialog(this, request);
+        handlingGitDialog_ = false;
+        switch (result.decision) {
+        case app::GitCheckoutDialogDecision::Smart:
+            gitFeature_->resolveCheckoutConflict(app::GitCheckoutConflictStrategy::Smart,
+                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            return;
+        case app::GitCheckoutDialogDecision::Force:
+            gitFeature_->resolveCheckoutConflict(app::GitCheckoutConflictStrategy::Force,
+                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            return;
+        case app::GitCheckoutDialogDecision::OpenDiff:
+            if (!result.selectedPath.isEmpty()) {
+                gitFeature_->loadDiff({result.selectedPath.toUtf8().toStdString()}, false, false,
+                    [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            }
+            return;
+        case app::GitCheckoutDialogDecision::DiscardAndRetry:
+            if (!result.selectedPath.isEmpty()) {
+                gitFeature_->discardConflictPath(result.selectedPath.toUtf8().toStdString(),
+                    [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            }
+            return;
+        case app::GitCheckoutDialogDecision::Cancel:
+            gitFeature_->cancelCheckoutConflict(
+                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            return;
+        }
+    }
+
+    if (state.pendingIntegrationConflict) {
+        handlingGitDialog_ = true;
+        const auto request = *state.pendingIntegrationConflict;
+        const auto result = showGitIntegrationConflictDialog(this, request);
+        handlingGitDialog_ = false;
+        switch (result.decision) {
+        case app::GitIntegrationDialogDecision::SaveAndContinue:
+            gitFeature_->resolveIntegrationConflict(
+                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            return;
+        case app::GitIntegrationDialogDecision::OpenDiff:
+            if (!result.selectedPath.isEmpty()) {
+                gitFeature_->loadDiff({result.selectedPath.toUtf8().toStdString()}, false, false,
+                    [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            }
+            return;
+        case app::GitIntegrationDialogDecision::DiscardAndRetry:
+            if (!result.selectedPath.isEmpty()) {
+                gitFeature_->discardConflictPath(result.selectedPath.toUtf8().toStdString(),
+                    [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            }
+            return;
+        case app::GitIntegrationDialogDecision::Cancel:
+            gitFeature_->cancelIntegrationConflict(
+                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            return;
+        }
+    }
+
+    if (state.pendingPullStrategy) {
+        handlingGitDialog_ = true;
+        const auto request = *state.pendingPullStrategy;
+        const auto result = showGitPullStrategyDialog(this, request);
+        handlingGitDialog_ = false;
+        switch (result.decision) {
+        case app::GitPullDialogDecision::FfOnly:
+            gitFeature_->resolvePullStrategy(app::GitPullStrategy::FfOnly,
+                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            return;
+        case app::GitPullDialogDecision::Merge:
+            gitFeature_->resolvePullStrategy(app::GitPullStrategy::Merge,
+                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            return;
+        case app::GitPullDialogDecision::Rebase:
+            gitFeature_->resolvePullStrategy(app::GitPullStrategy::Rebase,
+                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            return;
+        case app::GitPullDialogDecision::Cancel:
+            gitFeature_->cancelPullStrategy(
+                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+            return;
+        }
+    }
+}
+
+void WorkbenchWindow::syncDirtyDocumentsPort(const app::DocumentFeatureState& state) {
+    if (!dirtyDocuments_) return;
+    if (state.isDirty && !state.relativePath.empty()) {
+        dirtyDocuments_->setDirtyPaths({state.relativePath});
+        return;
+    }
+    const auto paths = dirtyDocuments_->dirtyRelativePaths();
+    if (paths.size() == 1 &&
+        (state.relativePath.empty() || paths.front() == state.relativePath)) {
+        dirtyDocuments_->clear();
+    }
 }
 
 void WorkbenchWindow::renderDiffReview() {
-    if (diff_ == nullptr) return;
-    diff_->setUpdatesEnabled(false);
-    diff_->clearContents();
-    diff_->setRowCount(0);
-    static_cast<DiffReviewTable*>(diff_)->setConnections({});
-    if (diffOverview_ != nullptr) diffOverview_->clear();
+    if (diffSplit_ == nullptr) return;
     if (!diffReview_) {
-        diff_->setVisible(false);
-        if (diffReviewPanel_ != nullptr) diffReviewPanel_->setVisible(false);
-        diff_->setUpdatesEnabled(true);
+        closeDiffReview();
         return;
     }
 
-    std::unordered_set<std::string> overviewHunks;
-    std::vector<DiffReviewTable::Connection> connections;
-    std::optional<DiffReviewTable::Connection> activeConnection;
-    const auto finishConnection = [&] {
-        if (!activeConnection) return;
-        connections.push_back(*activeConnection);
-        activeConnection.reset();
-    };
     std::vector<algorithms::DiffRow> rows;
     rows.reserve(diffReview_->rows.size());
     for (std::size_t index = 0; index < diffReview_->rows.size(); ++index) {
         const auto& source = diffReview_->rows[index];
-        rows.push_back({source.oldLine,
-                        source.newLine,
+        std::optional<std::size_t> oldLine;
+        std::optional<std::size_t> newLine;
+        if (source.oldLine) oldLine = static_cast<std::size_t>(*source.oldLine);
+        if (source.newLine) newLine = static_cast<std::size_t>(*source.newLine);
+        rows.push_back({oldLine,
+                        newLine,
                         source.left,
                         source.right,
                         diffRowKind(source.kind),
                         source.hunkId.value_or(std::string{}),
                         index});
     }
-    const auto display = algorithms::DiffCollapse::plan(rows, expandedDiffRegions_);
-    for (const auto& displayRow : display) {
-        const auto tableRow = diff_->rowCount();
-        diff_->insertRow(tableRow);
-        if (displayRow.isCollapsed()) {
-            finishConnection();
-            const auto& region = displayRow.region();
-            auto* item = new QTableWidgetItem(
-                QString("... %1 context lines hidden; click to expand")
-                    .arg(static_cast<qulonglong>(region.hiddenRowCount())));
-            item->setData(DiffRegionRole, fromUtf8(region.id));
-            item->setBackground(diffBackground(algorithms::DiffRowKind::Information));
-            item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-            diff_->setItem(tableRow, 0, item);
-            diff_->setSpan(tableRow, 0, 1, 2);
-            diff_->setRowHeight(tableRow, 24);
-            continue;
-        }
-
-        const auto& row = displayRow.row();
-        const auto kind = row.kind;
-        const auto isDifference = kind == algorithms::DiffRowKind::Changed ||
-            kind == algorithms::DiffRowKind::Addition ||
-            kind == algorithms::DiffRowKind::Removal;
-        if (isDifference && (row.hasLeft() || row.hasRight())) {
-            if (!activeConnection || activeConnection->kind != kind ||
-                activeConnection->lastRow != tableRow - 1) {
-                finishConnection();
-                activeConnection = DiffReviewTable::Connection{tableRow, tableRow, kind};
-            } else {
-                activeConnection->lastRow = tableRow;
-            }
-        } else {
-            finishConnection();
-        }
-        auto right = row.right;
-        if (kind == algorithms::DiffRowKind::Context && !right) right = row.left;
-        auto* leftItem = new QTableWidgetItem(numberedDiffText(row.oldLine, row.left));
-        auto* rightItem = new QTableWidgetItem(numberedDiffText(row.newLine, right));
-        const auto background = diffBackground(kind);
-        leftItem->setBackground(background);
-        rightItem->setBackground(background);
-        leftItem->setData(DiffHunkRole, fromUtf8(row.hunkId));
-        rightItem->setData(DiffHunkRole, fromUtf8(row.hunkId));
-        diff_->setItem(tableRow, 0, leftItem);
-        diff_->setItem(tableRow, 1, rightItem);
-        if (diffOverview_ != nullptr && !row.hunkId.empty() &&
-            overviewHunks.insert(row.hunkId).second) {
-            auto* overview = new QListWidgetItem(
-                QStringLiteral("Hunk %1").arg(diffOverview_->count() + 1), diffOverview_);
-            overview->setData(DiffOverviewRowRole, tableRow);
-            overview->setData(DiffHunkRole, fromUtf8(row.hunkId));
-            overview->setToolTip(fromUtf8(row.hunkId));
-            overview->setBackground(diffBackground(kind));
-        }
-        if (kind == algorithms::DiffRowKind::Information) {
-            diff_->setSpan(tableRow, 0, 1, 2);
-        }
-        diff_->setRowHeight(tableRow, kind == algorithms::DiffRowKind::Information ? 25 : 21);
+    diffSplit_->setDiff(rows, expandedDiffRegions_);
+    if (!selectedDiffHunk_.isEmpty()) {
+        diffSplit_->setSelectedHunkId(selectedDiffHunk_);
     }
-    finishConnection();
-    static_cast<DiffReviewTable*>(diff_)->setConnections(std::move(connections));
-    const auto hasRows = diff_->rowCount() > 0;
-    diff_->setVisible(hasRows);
-    if (diffOverview_ != nullptr) diffOverview_->setVisible(!overviewHunks.empty());
-    if (diffReviewPanel_ != nullptr) diffReviewPanel_->setVisible(hasRows);
-    diff_->setUpdatesEnabled(true);
-    diff_->viewport()->update();
+    const bool hasRows = !diffReview_->rows.empty();
+    if (editorStack_ != nullptr) {
+        if (presentDiffReview_ && hasRows) {
+            editorStack_->setCurrentWidget(diffReviewPanel_);
+        } else if (!presentDiffReview_) {
+            editorStack_->setCurrentWidget(editorPage_);
+        }
+    }
+}
+
+void WorkbenchWindow::closeDiffReview() {
+    presentDiffReview_ = false;
+    diffReview_.reset();
+    selectedDiffHunk_.clear();
+    if (diffSplit_ != nullptr) diffSplit_->clear();
+    if (editorStack_ != nullptr && editorPage_ != nullptr) {
+        editorStack_->setCurrentWidget(editorPage_);
+    }
 }
 
 void WorkbenchWindow::stageSelectedHunk() {
@@ -3050,14 +3173,20 @@ void WorkbenchWindow::stageAllChanges() {
 }
 
 void WorkbenchWindow::commitChanges() {
-    if (!gitFeature_ || workspaceRoot_.isEmpty() || commitEditor_ == nullptr) return;
-    const auto message = commitEditor_->toPlainText().trimmed();
-    if (message.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("Enter a commit message first"), 4000);
-        commitEditor_->setFocus();
+    if (!gitFeature_ || workspaceRoot_.isEmpty() || gitChangesPanel_ == nullptr) return;
+    const auto current = gitFeature_->state();
+    if (app::commitBlockedByConflicts(current.status, {})) {
+        statusBar()->showMessage(
+            QStringLiteral("Resolve Git conflicts before committing"), 5000);
         return;
     }
-    const auto amend = amendCommit_ != nullptr && amendCommit_->isChecked();
+    const auto message = gitChangesPanel_->commitMessage().trimmed();
+    if (message.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("Enter a commit message first"), 4000);
+        gitChangesPanel_->focusCommitMessage();
+        return;
+    }
+    const auto amend = gitChangesPanel_->isAmendChecked();
     gitFeature_->commit(message.toUtf8().toStdString(), amend,
         [this](app::GitFeatureState state) {
         QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
@@ -3066,8 +3195,41 @@ void WorkbenchWindow::commitChanges() {
                 return;
             }
             if (state.isWriting) return;
-            if (commitEditor_ != nullptr) commitEditor_->clear();
+            if (gitChangesPanel_ != nullptr) gitChangesPanel_->clearCommitMessage();
             statusBar()->showMessage(QStringLiteral("Commit created"), 4000);
+            loadSnapshot();
+        }, Qt::QueuedConnection);
+    });
+}
+
+void WorkbenchWindow::commitAndPushChanges() {
+    if (!gitFeature_ || workspaceRoot_.isEmpty() || gitChangesPanel_ == nullptr) return;
+    const auto current = gitFeature_->state();
+    if (app::commitBlockedByConflicts(current.status, {})) {
+        statusBar()->showMessage(
+            QStringLiteral("Resolve Git conflicts before committing"), 5000);
+        return;
+    }
+    const auto message = gitChangesPanel_->commitMessage().trimmed();
+    if (message.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("Enter a commit message first"), 4000);
+        gitChangesPanel_->focusCommitMessage();
+        return;
+    }
+    if (!confirmDestructiveGitAction(
+            this,
+            QStringLiteral("Commit and Push"),
+            QStringLiteral("The staged changes will be committed and the current branch will be pushed to its configured remote."))) {
+        return;
+    }
+    const auto amend = gitChangesPanel_->isAmendChecked();
+    gitFeature_->commitAndPush(message.toUtf8().toStdString(), amend,
+        [this](app::GitFeatureState state) {
+        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+            applyGitState(state);
+            if (state.error || state.isWriting || state.isPerformingBranchOperation) return;
+            if (gitChangesPanel_ != nullptr) gitChangesPanel_->clearCommitMessage();
+            statusBar()->showMessage(QStringLiteral("Commit created and pushed"), 4000);
             loadSnapshot();
         }, Qt::QueuedConnection);
     });
@@ -3266,7 +3428,7 @@ void WorkbenchWindow::startAIGeneration(app::AICommitInput input,
                                              fromUtf8(error.message), 8000);
                 return;
             }
-            if (commitEditor_ != nullptr) commitEditor_->setPlainText(fromUtf8(message));
+            if (gitChangesPanel_ != nullptr) gitChangesPanel_->setCommitMessage(fromUtf8(message));
             statusBar()->showMessage(QStringLiteral("AI commit message ready"), 4000);
         }, Qt::QueuedConnection);
     });
@@ -4209,6 +4371,7 @@ void WorkbenchWindow::applySaveState(const app::DocumentFeatureState& state) {
     }
     if (state.isSaving || state.relativePath.empty()) return;
     activePath_ = fromUtf8(state.relativePath);
+    syncDirtyDocumentsPort(state);
     statusBar()->showMessage(QString("Saved %1").arg(activePath_), 3000);
     const auto savedPath = activePath_;
     historyFeature_->record(
@@ -4227,7 +4390,99 @@ void WorkbenchWindow::showFeatureError(const std::optional<CoreError>& error,
     const auto message = error && !error->message.empty()
         ? fromUtf8(error->message)
         : fallback;
-    statusBar()->showMessage(message, 5000);
+    QString detail = message;
+    if (error && error->details && !error->details->empty()) {
+        detail += QStringLiteral(" — ") + fromUtf8(*error->details);
+    }
+    statusBar()->showMessage(detail, 10000);
+}
+
+
+void WorkbenchWindow::stageGitPath(const QString& path) {
+    if (!gitFeature_ || path.isEmpty()) return;
+    gitFeature_->stage({path.toUtf8().toStdString()}, [this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+}
+
+void WorkbenchWindow::unstageGitPath(const QString& path) {
+    if (!gitFeature_ || path.isEmpty()) return;
+    gitFeature_->unstage({path.toUtf8().toStdString()}, [this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+}
+
+void WorkbenchWindow::applyShelfById(const QString& shelfId) {
+    if (!gitFeature_ || shelfId.isEmpty()) return;
+    const auto state = gitFeature_->state();
+    for (const auto& shelf : state.shelves) {
+        if (shelf.id != shelfId.toStdString()) continue;
+        gitFeature_->applyShelf(shelf, [this](app::GitFeatureState next) {
+            applyGitStateAsync(std::move(next));
+            loadSnapshot();
+        });
+        return;
+    }
+}
+
+void WorkbenchWindow::dropShelfById(const QString& shelfId) {
+    if (!gitFeature_ || shelfId.isEmpty()) return;
+    if (!confirmDestructiveGitAction(
+            this, QStringLiteral("Drop Shelf"),
+            QStringLiteral("This removes the saved patch from Lithe and cannot be undone."))) {
+        return;
+    }
+    const auto state = gitFeature_->state();
+    for (const auto& shelf : state.shelves) {
+        if (shelf.id != shelfId.toStdString()) continue;
+        gitFeature_->dropShelf(shelf, [this](app::GitFeatureState next) {
+            applyGitStateAsync(std::move(next));
+        });
+        return;
+    }
+}
+
+void WorkbenchWindow::applyStashByReference(const QString& reference) {
+    if (!gitFeature_ || reference.isEmpty()) return;
+    selectedGitStash_ = reference;
+    gitFeature_->applyStash(reference.toStdString(), [this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+        loadSnapshot();
+    });
+}
+
+void WorkbenchWindow::popStashByReference(const QString& reference) {
+    if (!gitFeature_ || reference.isEmpty()) return;
+    selectedGitStash_ = reference;
+    gitFeature_->popStash(reference.toStdString(), [this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+        loadSnapshot();
+    });
+}
+
+void WorkbenchWindow::dropStashByReference(const QString& reference) {
+    if (!gitFeature_ || reference.isEmpty()) return;
+    if (!confirmDestructiveGitAction(
+            this, QStringLiteral("Drop Stash"),
+            QStringLiteral("This removes the stash from Git and cannot be undone."))) {
+        return;
+    }
+    selectedGitStash_ = reference;
+    gitFeature_->dropStash(reference.toStdString(), [this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+}
+
+void WorkbenchWindow::checkoutGitReference(const QString& fullName,
+                                          const QString& kind,
+                                          const QString& shortName) {
+    if (!gitFeature_ || fullName.isEmpty()) return;
+    gitFeature_->checkoutReference(
+        fullName.toStdString(), kind.toStdString(), shortName.toStdString(),
+        [this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+        loadSnapshot();
+    });
 }
 
 } // namespace lithe::windows

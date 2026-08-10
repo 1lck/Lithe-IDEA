@@ -49,6 +49,13 @@ public:
     void replacementPreview(ReplacementPreviewRequestDto request, ResponseHandler handler);
     void writeFile(std::string relativePath, std::string text, ResponseHandler handler);
     void gitStatus(ResponseHandler handler);
+    void gitCheckoutPreflight(std::string reference, ResponseHandler handler);
+    void gitConflictMarkers(ResponseHandler handler);
+    void gitIntegrationPreflight(std::string reference,
+                                 std::string operation,
+                                 ResponseHandler handler);
+    void gitPullPreflight(ResponseHandler handler);
+    void gitOperationState(ResponseHandler handler);
     void gitDiff(std::vector<std::string> pathspecs,
                  bool staged,
                  bool untracked,
@@ -124,6 +131,11 @@ private:
         SearchEverywhere,
         Replacement,
         GitStatus,
+        GitCheckoutPreflight,
+        GitConflictMarkers,
+        GitIntegrationPreflight,
+        GitPullPreflight,
+        GitOperationState,
         GitDiff,
         GitApply,
         GitWrite,
@@ -161,6 +173,11 @@ private:
     std::uint64_t searchEverywhereGeneration_ = 0;
     std::uint64_t replacementGeneration_ = 0;
     std::uint64_t gitStatusGeneration_ = 0;
+    std::uint64_t gitCheckoutPreflightGeneration_ = 0;
+    std::uint64_t gitConflictMarkersGeneration_ = 0;
+    std::uint64_t gitIntegrationPreflightGeneration_ = 0;
+    std::uint64_t gitPullPreflightGeneration_ = 0;
+    std::uint64_t gitOperationStateGeneration_ = 0;
     std::uint64_t gitDiffGeneration_ = 0;
     std::uint64_t gitApplyGeneration_ = 0;
     std::uint64_t gitWriteGeneration_ = 0;

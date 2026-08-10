@@ -260,9 +260,44 @@ struct GitStatusDto {
     std::vector<GitChangeDto> changes;
 };
 
+struct GitStashRestoreDto {
+    std::string stashReference;
+    std::vector<std::string> conflictedPaths;
+};
+
 struct GitCommandDto {
     std::string output;
     std::int32_t exitCode = 0;
+    std::optional<GitStashRestoreDto> stashRestore;
+};
+
+struct GitCheckoutPreflightDto {
+    std::vector<std::string> blockingPaths;
+};
+
+struct GitConflictMarkersDto {
+    std::vector<std::string> paths;
+};
+
+struct GitIntegrationPreflightDto {
+    std::vector<std::string> blockingPaths;
+    bool blocksEntirely = false;
+};
+
+struct GitPullPreflightDto {
+    std::optional<std::string> upstream;
+    std::uint64_t ahead = 0;
+    std::uint64_t behind = 0;
+    bool diverged = false;
+    bool hasLocalChanges = false;
+};
+
+struct GitOperationStateDto {
+    std::string kind; // empty when nothing in progress
+    std::optional<std::string> reference;
+    std::optional<std::uint64_t> step;
+    std::optional<std::uint64_t> total;
+    std::vector<std::string> conflictedPaths;
 };
 
 struct GitReferenceDto {
@@ -350,6 +385,11 @@ std::optional<JavaStructureDto> decodeJavaStructure(const CoreEnvelope& envelope
 std::optional<GitDiffDto> decodeGitDiff(const CoreEnvelope& envelope);
 std::optional<GitStatusDto> decodeGitStatus(const CoreEnvelope& envelope);
 std::optional<GitCommandDto> decodeGitCommand(const CoreEnvelope& envelope);
+std::optional<GitCheckoutPreflightDto> decodeGitCheckoutPreflight(const CoreEnvelope& envelope);
+std::optional<GitConflictMarkersDto> decodeGitConflictMarkers(const CoreEnvelope& envelope);
+std::optional<GitIntegrationPreflightDto> decodeGitIntegrationPreflight(const CoreEnvelope& envelope);
+std::optional<GitPullPreflightDto> decodeGitPullPreflight(const CoreEnvelope& envelope);
+std::optional<GitOperationStateDto> decodeGitOperationState(const CoreEnvelope& envelope);
 std::optional<GitHistoryDto> decodeGitHistory(const CoreEnvelope& envelope);
 std::optional<GitCommitLookupDto> decodeGitCommit(const CoreEnvelope& envelope);
 std::optional<GitFilesResponseDto> decodeGitCommitFiles(const CoreEnvelope& envelope);

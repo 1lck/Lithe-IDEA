@@ -9,6 +9,13 @@ if(WIN32)
     add_compile_definitions(NOMINMAX)
 endif()
 
+if(MSVC)
+    # Sources are UTF-8 without a BOM. On non-English Windows (for example
+    # code page 936/GBK) MSVC would otherwise decode Chinese string literals
+    # as the system code page and fail to compile.
+    add_compile_options(/utf-8)
+endif()
+
 add_library(lithe_windows_core STATIC
     core/core_client.cpp
     core/core_dto.cpp
@@ -79,6 +86,8 @@ target_compile_features(lithe_windows_algorithms PUBLIC cxx_std_23)
 add_library(lithe_windows_app STATIC
     app/features/document_feature.cpp
     app/features/git_feature.cpp
+    app/features/git_watcher_freeze.cpp
+    app/features/git_workflow_ui.cpp
     app/features/history_feature.cpp
     app/features/maven_java_feature.cpp
     app/features/replacement_feature.cpp
@@ -95,9 +104,11 @@ add_library(lithe_windows_app STATIC
     app/services/project_runtime_service.cpp
     app/services/ai_commit_service.cpp
     app/services/windows_update_service.cpp
+    app/services/shelve_service.cpp
 )
 target_include_directories(lithe_windows_app PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
     "${CMAKE_CURRENT_SOURCE_DIR}/core"
     "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
 )
@@ -153,6 +164,56 @@ target_include_directories(lithe_windows_coordinator_tests PRIVATE
 )
 target_link_libraries(lithe_windows_coordinator_tests PRIVATE lithe_windows_app)
 add_test(NAME lithe_windows_coordinator COMMAND lithe_windows_coordinator_tests)
+
+add_executable(lithe_windows_git_workflow_unit_tests
+    tests/git_workflow_unit_test.cpp
+)
+target_compile_features(lithe_windows_git_workflow_unit_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_git_workflow_unit_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core"
+    "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+)
+target_link_libraries(lithe_windows_git_workflow_unit_tests PRIVATE lithe_windows_app)
+add_test(NAME lithe_windows_git_workflow_unit COMMAND lithe_windows_git_workflow_unit_tests)
+
+add_executable(lithe_windows_git_feature_workflow_tests
+    tests/git_feature_workflow_test.cpp
+)
+target_compile_features(lithe_windows_git_feature_workflow_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_git_feature_workflow_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core"
+)
+target_link_libraries(lithe_windows_git_feature_workflow_tests PRIVATE lithe_windows_app)
+add_test(NAME lithe_windows_git_feature_workflow COMMAND lithe_windows_git_feature_workflow_tests)
+
+if(LITHE_RUST_CORE_LIBRARY)
+    add_executable(lithe_windows_git_workflow_repo_tests
+        tests/git_workflow_repo_test.cpp
+    )
+    target_compile_features(lithe_windows_git_workflow_repo_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_git_workflow_repo_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+        "${CMAKE_CURRENT_SOURCE_DIR}/core"
+        "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+    )
+    target_link_libraries(lithe_windows_git_workflow_repo_tests PRIVATE
+        lithe_windows_app
+        lithe_windows_adapters
+        lithe_windows_core
+        "${LITHE_RUST_CORE_LIBRARY}"
+    )
+    if(WIN32)
+        target_link_libraries(lithe_windows_git_workflow_repo_tests PRIVATE
+            advapi32 bcrypt ntdll userenv ws2_32
+        )
+    endif()
+    add_test(NAME lithe_windows_git_workflow_repo COMMAND lithe_windows_git_workflow_repo_tests)
+endif()
 
 add_executable(lithe_windows_core_dto_tests
     tests/core_dto_test.cpp
@@ -262,8 +323,18 @@ if(LITHE_BUILD_QT_UI)
     find_package(Qt6 REQUIRED COMPONENTS Widgets)
     add_executable(lithe_windows_qt
         qt/main.cpp
+        qt/diff_split_widget.cpp
+        qt/diff_split_widget.h
+        qt/git_changes_panel.cpp
+        qt/git_changes_panel.h
+        qt/git_log_panel.cpp
+        qt/git_log_panel.h
+        qt/git_workflow_dialogs.cpp
+        qt/git_workflow_dialogs.h
         qt/workbench_code_editor.cpp
         qt/workbench_code_editor.h
+        qt/workbench_ui_theme.cpp
+        qt/workbench_ui_theme.h
         qt/workbench_window.cpp
         qt/workbench_window.h
     )
@@ -278,8 +349,10 @@ if(LITHE_BUILD_QT_UI)
         "${CMAKE_CURRENT_SOURCE_DIR}/core"
         "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
     )
     if(LITHE_RUST_CORE_LIBRARY)
         target_link_libraries(lithe_windows_qt PRIVATE "${LITHE_RUST_CORE_LIBRARY}")
@@ -334,9 +407,14 @@ set(LITHE_WINDOWS_TEST_TARGETS
     lithe_windows_java_language_server_tests
     lithe_windows_ai_commit_service_tests
     lithe_windows_update_service_tests
+    lithe_windows_git_workflow_unit_tests
+    lithe_windows_git_feature_workflow_tests
 )
 if(TARGET lithe_windows_core_ping)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_core_ping)
+endif()
+if(TARGET lithe_windows_git_workflow_repo_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_git_workflow_repo_tests)
 endif()
 if(MSVC)
     set(LITHE_UNDEFINE_NDEBUG_FLAG /UNDEBUG)

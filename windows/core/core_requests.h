@@ -171,6 +171,31 @@ struct GitWriteRequestDto {
     bool includeUntracked = false;
     bool checkout = false;
     bool amend = false;
+    bool force = false;
+    bool autoStash = false;
+};
+
+struct GitCheckoutPreflightRequestDto {
+    std::string root;
+    std::string reference;
+};
+
+struct GitConflictMarkersRequestDto {
+    std::string root;
+};
+
+struct GitIntegrationPreflightRequestDto {
+    std::string root;
+    std::string reference;
+    std::string operation;
+};
+
+struct GitPullPreflightRequestDto {
+    std::string root;
+};
+
+struct GitOperationStateRequestDto {
+    std::string root;
 };
 
 struct GitHistoryRequestDto {
@@ -225,6 +250,11 @@ std::string encodeGitDiffRequest(const GitDiffRequestDto& request);
 std::string encodeGitApplyRequest(const GitApplyRequestDto& request);
 std::string encodeGitCommandRequest(const GitCommandRequestDto& request);
 std::string encodeGitWriteRequest(const GitWriteRequestDto& request);
+std::string encodeGitCheckoutPreflightRequest(const GitCheckoutPreflightRequestDto& request);
+std::string encodeGitConflictMarkersRequest(const GitConflictMarkersRequestDto& request);
+std::string encodeGitIntegrationPreflightRequest(const GitIntegrationPreflightRequestDto& request);
+std::string encodeGitPullPreflightRequest(const GitPullPreflightRequestDto& request);
+std::string encodeGitOperationStateRequest(const GitOperationStateRequestDto& request);
 std::string encodeGitHistoryRequest(const GitHistoryRequestDto& request);
 std::string encodeGitCommitRequest(const GitCommitRequestDto& request);
 std::string encodeGitCommitFilesRequest(const GitCommitFilesRequestDto& request);
