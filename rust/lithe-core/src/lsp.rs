@@ -348,6 +348,18 @@ pub struct ClientApplyServerMessageRequest {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameMessageRequest {
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameMessageResponse {
+    pub frame: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LspClientResponse {
@@ -747,6 +759,22 @@ pub fn client_apply_server_message(
     }
 
     Ok(client_response(state, responses, events))
+}
+
+pub fn frame_message(request: FrameMessageRequest) -> Result<FrameMessageResponse, CoreError> {
+    if request.message.contains('\0') {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "LSP message frame cannot contain NUL bytes.",
+        ));
+    }
+    Ok(FrameMessageResponse {
+        frame: format!(
+            "Content-Length: {}\r\n\r\n{}",
+            request.message.len(),
+            request.message
+        ),
+    })
 }
 
 pub fn provider_catalog(workspace_root: Option<&Path>) -> LspProviderCatalog {
@@ -2532,6 +2560,20 @@ mod tests {
         let request_message: Value = serde_json::from_str(&requested.messages[0]).unwrap();
         assert_eq!(request_message["method"], "textDocument/definition");
         assert_eq!(request_message["params"]["position"]["character"], 12);
+    }
+
+    #[test]
+    fn frame_message_uses_lsp_content_length_bytes() {
+        let message =
+            r#"{"jsonrpc":"2.0","method":"window/logMessage","params":{"message":"你好"}}"#;
+        let framed = frame_message(FrameMessageRequest {
+            message: message.to_string(),
+        })
+        .unwrap();
+        assert!(framed
+            .frame
+            .starts_with(&format!("Content-Length: {}\r\n\r\n", message.len())));
+        assert!(framed.frame.ends_with(message));
     }
 
     #[test]

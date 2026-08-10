@@ -1031,7 +1031,11 @@ struct RunConfigurationIntegrationTests {
         #expect(startRequest.executablePath == "/usr/bin/sourcekit-lsp")
         #expect(startRequest.arguments.isEmpty)
         #expect(manager.activeLanguageServerIDs == ["swift"])
-        #expect(String(data: try #require(process.sentData.first), encoding: .utf8)?.contains("\"method\":\"initialize\"") == true)
+        let firstFrameData = try #require(process.sentData.first)
+        let firstFrame = try #require(String(data: firstFrameData, encoding: .utf8))
+        #expect(firstFrame.hasPrefix("Content-Length: "))
+        #expect(firstFrame.contains("\r\n\r\n{\"jsonrpc\""))
+        #expect(firstFrame.contains("\"method\":\"initialize\""))
 
         process.emitJSON([
             "jsonrpc": "2.0",
@@ -3194,6 +3198,12 @@ private struct TestLspClientCore: LspClientCore {
                     error: nil
                 )
             ]
+        )
+    }
+
+    func lspFrameMessage(_ message: String) -> RustCoreBridge.LspFramePayload? {
+        RustCoreBridge.LspFramePayload(
+            frame: "Content-Length: \(message.utf8.count)\r\n\r\n\(message)"
         )
     }
 

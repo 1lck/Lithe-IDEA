@@ -29,6 +29,7 @@ protocol LspClientCore: Sendable {
         state: ToolingJSONValue,
         message: String
     ) -> RustCoreBridge.LspClientResponsePayload?
+    func lspFrameMessage(_ message: String) -> RustCoreBridge.LspFramePayload?
 }
 
 extension RustCoreBridge: LspClientCore {}
@@ -338,10 +339,15 @@ final class StdioLanguageServerSession: LanguageServerSession {
     }
 
     private func sendRawJSON(_ message: String) {
+        if let frame = core.lspFrameMessage(message)?.frame,
+           let data = frame.data(using: .utf8) {
+            try? process.send(data)
+            return
+        }
         guard let body = message.data(using: .utf8) else { return }
-        var framed = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
-        framed.append(body)
-        try? process.send(framed)
+        var fallback = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
+        fallback.append(body)
+        try? process.send(fallback)
     }
 
     private func receive(_ data: Data) {

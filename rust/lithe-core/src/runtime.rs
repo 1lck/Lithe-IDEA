@@ -425,6 +425,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspFrameMessage => {
+            match serde_json::from_value::<crate::lsp::FrameMessageRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP frame request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::frame_message)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP frame response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaRunConfigurations => {
             match serde_json::from_value::<JavaRunConfigurationsRequest>(parsed.payload)
                 .map_err(|error| {

@@ -1137,6 +1137,14 @@ struct RustCoreBridge: Sendable {
         let message: String
     }
 
+    struct LspFramePayload: Decodable, Sendable {
+        let frame: String
+    }
+
+    private struct LspFrameRequest: Encodable {
+        let message: String
+    }
+
     private struct MavenDiagnosticsRequest: Encodable {
         let root: String
         let output: String
@@ -2232,6 +2240,13 @@ struct RustCoreBridge: Sendable {
         execute(
             command: "lsp.clientApplyServerMessage",
             payload: LspClientApplyServerMessageRequest(state: state, message: message)
+        )
+    }
+
+    func lspFrameMessage(_ message: String) -> LspFramePayload? {
+        execute(
+            command: "lsp.frameMessage",
+            payload: LspFrameRequest(message: message)
         )
     }
 
