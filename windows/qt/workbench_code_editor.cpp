@@ -234,7 +234,12 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
         if (block.isVisible() && blockRect.bottom() >= event->rect().top()) {
             const auto line = block.blockNumber();
             const auto textTop = blockRect.top();
-            const auto baseline = qRound(textTop) + fontMetrics().ascent();
+            const auto* layout = block.layout();
+            if (layout == nullptr || layout->lineCount() == 0) {
+                block = block.next();
+                continue;
+            }
+            const auto baseline = qRound(textTop + layout->lineAt(0).ascent());
             const auto lineNumber = QString::number(line + 1);
             painter.setPen(palette().color(QPalette::Mid));
             if (blameVisible_) {
@@ -255,8 +260,9 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
             }
             const auto lineNumberWidth = blameVisible_ ? gutter_->width() - 8 : 44;
             painter.setFont(font());
-            painter.drawText(0, baseline, lineNumberWidth,
-                             fontMetrics().height(), Qt::AlignRight, lineNumber);
+            painter.drawText(
+                lineNumberWidth - fontMetrics().horizontalAdvance(lineNumber),
+                baseline, lineNumber);
             if (!blameVisible_) {
                 const auto annotation = codeVisionForLine(line);
                 const auto annotationWidth = gutter_->width() - 58;
@@ -266,10 +272,10 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
                     annotationFont.setItalic(true);
                     painter.setFont(annotationFont);
                     painter.setPen(palette().color(QPalette::PlaceholderText));
-                    painter.drawText(52, baseline, annotationWidth,
-                                     painter.fontMetrics().height(), Qt::AlignLeft,
-                                     painter.fontMetrics().elidedText(
-                                         annotation, Qt::ElideRight, annotationWidth));
+                    painter.drawText(
+                        52, baseline,
+                        painter.fontMetrics().elidedText(
+                            annotation, Qt::ElideRight, annotationWidth));
                 }
             }
         }
