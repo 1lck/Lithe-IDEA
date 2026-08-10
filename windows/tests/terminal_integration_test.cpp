@@ -14,6 +14,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <iostream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -91,14 +92,24 @@ int main() {
     const std::string a = model.create(shell, "", {});
     const std::string b = model.create(shell, "", {});
     assert(!a.empty() && !b.empty() && a != b);
-    assert(waitUntil([&] {
-        const auto* session = model.find(a);
-        return session != nullptr && session->state() == ProcessLifecycleState::Running;
-    }, 15000));
-    assert(waitUntil([&] {
-        const auto* session = model.find(b);
-        return session != nullptr && session->state() == ProcessLifecycleState::Running;
-    }, 15000));
+    const auto expectRunning = [&](const std::string& id) {
+        const bool reached = waitUntil([&] {
+            const auto* session = model.find(id);
+            return session != nullptr && session->state() == ProcessLifecycleState::Running;
+        }, 15000);
+        if (!reached) {
+            const auto* session = model.find(id);
+            std::cerr << "[terminal_integration] session " << id
+                      << " did not reach Running within 15s; state="
+                      << (session != nullptr ? std::to_string(static_cast<int>(session->state()))
+                                             : std::string("null"))
+                      << " descendants=" << descendantProcesses(selfPid).size()
+                      << " buffer=[" << (session != nullptr ? session->render(400) : std::string()) << "]\n";
+        }
+        assert(reached);
+    };
+    expectRunning(a);
+    expectRunning(b);
     assert(descendantProcesses(selfPid).size() >= 2);
 
     // --- IO + per-session isolation: output never crosses sessions ---

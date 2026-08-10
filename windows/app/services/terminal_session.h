@@ -3,6 +3,7 @@
 #include "ports.h"
 #include "terminal_buffer.h"
 
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -92,7 +93,10 @@ private:
     std::optional<TerminalShellSpec> shell_;
     std::string operationID_;
     std::uint64_t generation_ = 0;
-    State state_ = State::Finished;
+    // Written by the transport worker thread (under mutex_) and read by the UI
+    // / test thread via state() without the lock — atomic so that cross-thread
+    // read is defined behaviour and the Running transition is observable.
+    std::atomic<State> state_{State::Finished};
     std::optional<int> exitCode_;
     Callbacks sinks_;
 
