@@ -45,3 +45,41 @@ guard let catalogData = catalogResponse.data(using: .utf8),
 }
 
 print("Rust Core LSP provider catalog passed: \(providers.count) providers")
+
+let editRequest = """
+{"id":"lsp-edit-test","command":"lsp.applyTextEdits","payload":{"text":"one 😀\\ntwo three\\n","edits":[{"range":{"start":{"line":0,"utf16Column":4},"end":{"line":0,"utf16Column":6}},"newText":"rocket"},{"range":{"start":{"line":1,"utf16Column":4},"end":{"line":1,"utf16Column":9}},"newText":"four"}]}}
+"""
+guard let editPointer = editRequest.withCString({ executeJSON($0) }) else {
+    fputs("Rust Core LSP text edit bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(editPointer) }
+
+let editResponse = String(cString: editPointer)
+guard let editData = editResponse.data(using: .utf8),
+      let editEnvelope = try? JSONSerialization.jsonObject(with: editData) as? [String: Any],
+      let editPayload = editEnvelope["data"] as? [String: Any],
+      editPayload["text"] as? String == "one rocket\ntwo four\n" else {
+    fputs("Unexpected Rust Core LSP text edit response: \(editResponse)\n", stderr)
+    exit(1)
+}
+
+let snippetRequest = """
+{"id":"lsp-snippet-test","command":"lsp.plainSnippet","payload":{"value":"print(${1:value})$0"}}
+"""
+guard let snippetPointer = snippetRequest.withCString({ executeJSON($0) }) else {
+    fputs("Rust Core LSP snippet bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(snippetPointer) }
+
+let snippetResponse = String(cString: snippetPointer)
+guard let snippetData = snippetResponse.data(using: .utf8),
+      let snippetEnvelope = try? JSONSerialization.jsonObject(with: snippetData) as? [String: Any],
+      let snippetPayload = snippetEnvelope["data"] as? [String: Any],
+      snippetPayload["text"] as? String == "print(value)" else {
+    fputs("Unexpected Rust Core LSP snippet response: \(snippetResponse)\n", stderr)
+    exit(1)
+}
+
+print("Rust Core LSP text edit and snippet bridge passed")

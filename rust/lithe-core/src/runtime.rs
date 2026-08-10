@@ -264,6 +264,36 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspApplyTextEdits => {
+            match serde_json::from_value::<crate::lsp::ApplyTextEditsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP text edit request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::apply_text_edits)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP text edit response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspPlainSnippet => {
+            match serde_json::from_value::<crate::lsp::PlainSnippetRequest>(parsed.payload).map_err(
+                |error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP snippet request")
+                        .with_details(error.to_string())
+                },
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::lsp::plain_snippet(request))
+                        .expect("LSP snippet response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::JavaRunConfigurations => {
             match serde_json::from_value::<JavaRunConfigurationsRequest>(parsed.payload)
                 .map_err(|error| {

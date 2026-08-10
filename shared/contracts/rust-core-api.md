@@ -6,6 +6,7 @@ Qt/C++. Both bindings call the same C ABI:
 ```c
 const char *lithe_core_version(void);
 char *lithe_core_execute_json(const char *request);
+char *lithe_core_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
 ```
@@ -69,6 +70,8 @@ stable error code and a user-facing message:
 | `history.relocate` | Move a file's history records after a rename |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
+| `lsp.applyTextEdits` | Apply LSP UTF-16 text edits with range validation |
+| `lsp.plainSnippet` | Convert LSP snippet insert text into plain editor text |
 | `java.runConfigurations` | Scan Java sources for main classes and return Maven/Spring run configurations |
 | `java.codeVision` | Return Java declaration usage counts for editor code vision |
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
@@ -169,6 +172,16 @@ keyed by relative path, and visibility fields. It returns `{ "files": [] }`
 where each file contains replacement matches and the complete
 `replacementText` to write. The command never writes files; callers can record
 history before using `file.write` for the selected files.
+
+`lsp.applyTextEdits` accepts `{ "text": string, "edits": [] }`, where each edit
+has an LSP range with zero-based `line` and UTF-16 `utf16Column` fields plus
+`newText`. Ranges are validated and overlapping edits return
+`invalid_request` with details `overlappingEdits`; invalid positions return
+details `invalidRange`. Successful responses return `{ "text": string }`.
+
+`lsp.plainSnippet` accepts `{ "value": string }` and returns `{ "text": string }`
+after removing LSP tab stops and replacing simple placeholder defaults such as
+`${1:name}` with `name`.
 
 The `history.*` commands accept an adapter-selected `storageRoot`; history
 metadata never stores an absolute workspace or storage path. `history.record`

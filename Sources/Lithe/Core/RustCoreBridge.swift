@@ -384,6 +384,10 @@ struct RustCoreBridge: Sendable {
         let port: Int?
     }
 
+    struct TextPayload: Decodable, Sendable {
+        let text: String
+    }
+
     struct JavaStructurePayload: Decodable, Sendable {
         struct FoldRegion: Decodable, Sendable {
             let kind: String
@@ -790,6 +794,30 @@ struct RustCoreBridge: Sendable {
 
     private struct MarkdownRenderRequest: Encodable {
         let source: String
+    }
+
+    private struct LspTextEditsRequest: Encodable {
+        struct TextEdit: Encodable {
+            struct Range: Encodable {
+                struct Position: Encodable {
+                    let line: Int
+                    let utf16Column: Int
+                }
+
+                let start: Position
+                let end: Position
+            }
+
+            let range: Range
+            let newText: String
+        }
+
+        let text: String
+        let edits: [TextEdit]
+    }
+
+    private struct LspPlainSnippetRequest: Encodable {
+        let value: String
     }
 
     private struct MavenDiagnosticsRequest: Encodable {
@@ -1637,6 +1665,41 @@ struct RustCoreBridge: Sendable {
             command: "markdown.render",
             payload: MarkdownRenderRequest(source: source)
         )
+    }
+
+    func applyLanguageServerTextEdits(
+        _ edits: [LanguageServerTextEdit],
+        to text: String
+    ) -> Result<TextPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.applyTextEdits",
+            payload: LspTextEditsRequest(
+                text: text,
+                edits: edits.map { edit in
+                    LspTextEditsRequest.TextEdit(
+                        range: LspTextEditsRequest.TextEdit.Range(
+                            start: LspTextEditsRequest.TextEdit.Range.Position(
+                                line: edit.range.start.line,
+                                utf16Column: edit.range.start.utf16Column
+                            ),
+                            end: LspTextEditsRequest.TextEdit.Range.Position(
+                                line: edit.range.end.line,
+                                utf16Column: edit.range.end.utf16Column
+                            )
+                        ),
+                        newText: edit.newText
+                    )
+                }
+            )
+        )
+    }
+
+    func plainLanguageServerSnippet(_ value: String) -> String? {
+        let response: TextPayload? = execute(
+            command: "lsp.plainSnippet",
+            payload: LspPlainSnippetRequest(value: value)
+        )
+        return response?.text
     }
 
     private func execute<Payload: Encodable, Data: Decodable>(
