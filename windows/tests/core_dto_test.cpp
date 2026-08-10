@@ -29,6 +29,10 @@ int main() {
     assert(error->error.code == CoreErrorCode::PermissionDenied);
     assert(error->error.details && *error->error.details == "Win32 detail");
 
+    const auto conflict = decodeCoreEnvelope(
+        R"({"id":"save","ok":false,"error":{"code":"external_conflict","message":"Changed on disk"}})");
+    assert(conflict && conflict->error.code == CoreErrorCode::ExternalConflict);
+
     const auto snapshotEnvelope = decodeCoreEnvelope(R"({
         "id":"req-2","ok":true,"data":{
           "root":{"path":"","name":"project","isDirectory":true,
@@ -62,6 +66,28 @@ int main() {
     const auto replacement = decodeReplacementPreview(*replacementEnvelope);
     assert(replacement && replacement->files.size() == 1 &&
            replacement->files[0].matches[0].occurrenceCount == 2);
+
+    const auto fileReadEnvelope = decodeCoreEnvelope(R"({
+        "id":"read","ok":true,"data":{"path":"src/App.java","text":"class App {}\n",
+          "version":"sha256:abc","lineEnding":"crlf","hasUtf8Bom":true}
+    })");
+    const auto fileRead = decodeFileRead(*fileReadEnvelope);
+    assert(fileRead && fileRead->version == "sha256:abc" &&
+           fileRead->lineEnding == "crlf" && fileRead->hasUtf8Bom);
+
+    const auto fileWriteEnvelope = decodeCoreEnvelope(R"({
+        "id":"write","ok":true,"data":{"path":"src/App.java","bytesWritten":16,
+          "newVersion":"sha256:def"}
+    })");
+    const auto fileWrite = decodeFileWrite(*fileWriteEnvelope);
+    assert(fileWrite && fileWrite->bytesWritten == 16 &&
+           fileWrite->newVersion == "sha256:def");
+
+    const auto invalidLineEndingEnvelope = decodeCoreEnvelope(R"({
+        "id":"read-invalid","ok":true,"data":{"path":"a.txt","text":"x",
+          "version":"sha256:x","lineEnding":"cr","hasUtf8Bom":false}
+    })");
+    assert(!decodeFileRead(*invalidLineEndingEnvelope));
 
     const auto diffEnvelope = decodeCoreEnvelope(R"({
         "id":"req-4","ok":true,"data":{"patch":"@@","rows":[
@@ -350,6 +376,17 @@ int main() {
     assert(*objectValue(*searchRequest.value, "query")->asString() == "foo\"bar");
     assert(*objectValue(*searchRequest.value, "maxContentResults")->asUInt() == 4);
     assert(objectValue(*searchRequest.value, "maxFileResults") == nullptr);
+
+    const auto fileWriteRequest = parseJson(encodeFileWriteRequest(FileWriteRequestDto{
+        "/workspace", "src/App.java", "class App {}\n", std::string("sha256:abc"),
+        "crlf", true, false
+    }));
+    assert(fileWriteRequest.succeeded());
+    assert(*objectValue(*fileWriteRequest.value, "expectedVersion")->asString() ==
+           "sha256:abc");
+    assert(*objectValue(*fileWriteRequest.value, "lineEnding")->asString() == "crlf");
+    assert(*objectValue(*fileWriteRequest.value, "hasUtf8Bom")->asBool());
+    assert(!*objectValue(*fileWriteRequest.value, "createOnly")->asBool());
 
     const auto historyRequest = parseJson(encodeHistoryRecordRequest(HistoryRecordRequestDto{
         "/workspace", "/state", "src/Main.java", "saved", std::nullopt, true, {}, {}

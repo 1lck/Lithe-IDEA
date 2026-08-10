@@ -47,6 +47,18 @@ mod tests {
         std::env::temp_dir().join(format!("lithe-core-{label}-{}-{nonce}", std::process::id()))
     }
 
+    fn core_request(command: &str, payload: Value) -> Value {
+        let request = serde_json::json!({
+            "id": command,
+            "command": command,
+            "payload": payload
+        });
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("core request should encode"),
+        ))
+        .expect("core response should be JSON")
+    }
+
     #[test]
     fn ping_exposes_protocol_version() {
         let response: Value = serde_json::from_str(&execute_json(
@@ -459,6 +471,14 @@ mod tests {
         ))
         .expect("write response should be JSON");
         assert_eq!(write_response["ok"], true);
+        assert_eq!(write_response["data"]["bytesWritten"], 5);
+        assert!(write_response["data"]["newVersion"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("sha256:")));
+        assert_eq!(
+            write_response["data"]["newVersion"],
+            "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
 
         let read = serde_json::json!({
             "id": "read",
@@ -470,6 +490,82 @@ mod tests {
         ))
         .expect("read response should be JSON");
         assert_eq!(read_response["data"]["text"], "hello");
+        assert_eq!(read_response["data"]["lineEnding"], "lf");
+        assert_eq!(read_response["data"]["hasUtf8Bom"], false);
+
+        let version = read_response["data"]["version"]
+            .as_str()
+            .expect("read response should contain a version")
+            .to_string();
+        let guarded_write = core_request(
+            "file.write",
+            serde_json::json!({
+                "root": root,
+                "path": "nested/example.txt",
+                "text": "first\nsecond\n",
+                "expectedVersion": version,
+                "lineEnding": "crlf",
+                "hasUtf8Bom": true
+            }),
+        );
+        assert_eq!(guarded_write["ok"], true);
+        assert_eq!(
+            fs::read(root.join("nested/example.txt")).expect("saved file should be readable"),
+            b"\xEF\xBB\xBFfirst\r\nsecond\r\n"
+        );
+
+        let formatted_read = core_request(
+            "file.read",
+            serde_json::json!({"root": root, "path": "nested/example.txt"}),
+        );
+        assert_eq!(formatted_read["data"]["text"], "first\nsecond\n");
+        assert_eq!(formatted_read["data"]["lineEnding"], "crlf");
+        assert_eq!(formatted_read["data"]["hasUtf8Bom"], true);
+
+        fs::write(root.join("nested/example.txt"), b"external\n")
+            .expect("external edit should succeed");
+        let conflict = core_request(
+            "file.write",
+            serde_json::json!({
+                "root": root,
+                "path": "nested/example.txt",
+                "text": "editor",
+                "expectedVersion": formatted_read["data"]["version"],
+                "lineEnding": "lf",
+                "hasUtf8Bom": false
+            }),
+        );
+        assert_eq!(conflict["ok"], false);
+        assert_eq!(conflict["error"]["code"], "external_conflict");
+        assert_eq!(
+            fs::read(root.join("nested/example.txt")).expect("conflict must preserve disk file"),
+            b"external\n"
+        );
+
+        let create = core_request(
+            "file.write",
+            serde_json::json!({
+                "root": root,
+                "path": "recreated.txt",
+                "text": "restored",
+                "createOnly": true
+            }),
+        );
+        assert_eq!(create["ok"], true);
+        let create_conflict = core_request(
+            "file.write",
+            serde_json::json!({
+                "root": root,
+                "path": "recreated.txt",
+                "text": "overwrite",
+                "createOnly": true
+            }),
+        );
+        assert_eq!(create_conflict["error"]["code"], "external_conflict");
+        assert_eq!(
+            fs::read(root.join("recreated.txt")).expect("create conflict must preserve file"),
+            b"restored"
+        );
 
         let traversal = serde_json::json!({
             "id": "traversal",

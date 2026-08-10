@@ -62,6 +62,7 @@ CoreErrorCode errorCode(std::string_view value) {
     if (value == "invalid_request") return CoreErrorCode::InvalidRequest;
     if (value == "workspace_not_found") return CoreErrorCode::WorkspaceNotFound;
     if (value == "permission_denied") return CoreErrorCode::PermissionDenied;
+    if (value == "external_conflict") return CoreErrorCode::ExternalConflict;
     if (value == "not_supported") return CoreErrorCode::NotSupported;
     if (value == "runtime_missing") return CoreErrorCode::RuntimeMissing;
     if (value == "process_start_failed") return CoreErrorCode::ProcessStartFailed;
@@ -393,8 +394,12 @@ std::optional<FileReadDto> decodeFileRead(const CoreEnvelope& envelope) {
     if (data == nullptr) return std::nullopt;
     const auto path = requiredString(*data, "path");
     const auto text = requiredString(*data, "text");
-    if (!path || !text) return std::nullopt;
-    return FileReadDto{*path, *text};
+    const auto version = requiredString(*data, "version");
+    const auto lineEnding = requiredString(*data, "lineEnding");
+    const auto hasUtf8Bom = requiredBool(*data, "hasUtf8Bom");
+    if (!path || !text || !version || !lineEnding || !hasUtf8Bom) return std::nullopt;
+    if (*lineEnding != "lf" && *lineEnding != "crlf") return std::nullopt;
+    return FileReadDto{*path, *text, *version, *lineEnding, *hasUtf8Bom};
 }
 
 std::optional<FileWriteDto> decodeFileWrite(const CoreEnvelope& envelope) {
@@ -402,8 +407,9 @@ std::optional<FileWriteDto> decodeFileWrite(const CoreEnvelope& envelope) {
     if (data == nullptr) return std::nullopt;
     const auto path = requiredString(*data, "path");
     const auto bytes = requiredUInt(*data, "bytesWritten");
-    if (!path || !bytes) return std::nullopt;
-    return FileWriteDto{*path, *bytes};
+    const auto newVersion = requiredString(*data, "newVersion");
+    if (!path || !bytes || !newVersion) return std::nullopt;
+    return FileWriteDto{*path, *bytes, *newVersion};
 }
 
 std::optional<HistoryRecordDto> decodeHistoryRecord(const CoreEnvelope& envelope) {

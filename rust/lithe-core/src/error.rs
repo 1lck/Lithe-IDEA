@@ -6,6 +6,7 @@ pub enum ErrorCode {
     InvalidRequest,
     WorkspaceNotFound,
     PermissionDenied,
+    ExternalConflict,
     NotSupported,
     RuntimeMissing,
     ProcessStartFailed,
