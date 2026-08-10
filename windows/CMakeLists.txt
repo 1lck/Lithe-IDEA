@@ -101,14 +101,18 @@ add_library(lithe_windows_app STATIC
     app/services/project_detection_service.cpp
     app/services/ai_commit_service.cpp
     app/services/windows_update_service.cpp
+    app/services/terminal_model.cpp
+    app/services/terminal_session.cpp
 )
 target_include_directories(lithe_windows_app PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
     "${CMAKE_CURRENT_SOURCE_DIR}/core"
     "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
 )
 target_compile_features(lithe_windows_app PUBLIC cxx_std_23)
-target_link_libraries(lithe_windows_app PUBLIC lithe_windows_core)
+target_link_libraries(lithe_windows_app PUBLIC lithe_windows_core lithe_windows_algorithms)
 
 set(LITHE_RUST_CORE_LIBRARY "" CACHE FILEPATH "Path to the Rust lithe-core static library")
 
@@ -138,6 +142,26 @@ target_include_directories(lithe_windows_algorithms_tests PRIVATE
 )
 target_link_libraries(lithe_windows_algorithms_tests PRIVATE lithe_windows_algorithms)
 add_test(NAME lithe_windows_algorithms COMMAND lithe_windows_algorithms_tests)
+
+# Platform-independent terminal feature-model test. Compiles the model and
+# session sources directly against the (pure-stdlib) algorithms target and a
+# fake transport, so it builds and runs on non-Windows without Qt, Win32, or the
+# Rust core. The real ConPTY behavior stays covered by the Windows-CI-only
+# lithe_windows_terminal_transport_tests target below.
+add_executable(lithe_windows_terminal_model_tests
+    tests/terminal_model_test.cpp
+    app/services/terminal_model.cpp
+    app/services/terminal_session.cpp
+)
+target_compile_features(lithe_windows_terminal_model_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_terminal_model_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
+    "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+)
+target_link_libraries(lithe_windows_terminal_model_tests PRIVATE lithe_windows_algorithms)
+add_test(NAME lithe_windows_terminal_model COMMAND lithe_windows_terminal_model_tests)
 
 add_executable(lithe_windows_app_tests
     tests/windows_app_test.cpp
@@ -328,6 +352,10 @@ if(LITHE_BUILD_QT_UI)
         qt/workbench_ui_state.h
         qt/workbench_window.cpp
         qt/workbench_window.h
+        qt/terminal_panel.cpp
+        qt/terminal_panel.h
+        qt/terminal_view.cpp
+        qt/terminal_view.h
         packaging/lithe.rc
     )
     target_link_libraries(lithe_windows_qt PRIVATE
@@ -469,6 +497,26 @@ if(LITHE_BUILD_QT_UI)
     set_tests_properties(lithe_windows_workbench_tool_window PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+    add_executable(lithe_windows_terminal_panel_tests
+        tests/terminal_panel_test.cpp
+        qt/terminal_panel.cpp
+        qt/terminal_panel.h
+        qt/terminal_view.cpp
+        qt/terminal_view.h
+    )
+    target_compile_features(lithe_windows_terminal_panel_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_terminal_panel_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+    )
+    target_link_libraries(lithe_windows_terminal_panel_tests PRIVATE
+        lithe_windows_app
+        Qt6::Widgets
+    )
+    add_test(NAME lithe_windows_terminal_panel COMMAND lithe_windows_terminal_panel_tests)
+    set_tests_properties(lithe_windows_terminal_panel PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
     if(LITHE_RUST_CORE_LIBRARY)
         target_link_libraries(lithe_windows_qt PRIVATE "${LITHE_RUST_CORE_LIBRARY}")
         if(WIN32)
@@ -512,6 +560,7 @@ endif()
 set(LITHE_WINDOWS_TEST_TARGETS
     lithe_windows_phase0_tests
     lithe_windows_algorithms_tests
+    lithe_windows_terminal_model_tests
     lithe_windows_app_tests
     lithe_windows_workbench_ui_state_tests
     lithe_windows_workbench_layout_persistence_tests
@@ -540,6 +589,9 @@ if(TARGET lithe_windows_workbench_code_editor_tests)
 endif()
 if(TARGET lithe_windows_workbench_tool_window_tests)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_workbench_tool_window_tests)
+endif()
+if(TARGET lithe_windows_terminal_panel_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_terminal_panel_tests)
 endif()
 if(TARGET lithe_windows_ui_theme_tests)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_ui_theme_tests)

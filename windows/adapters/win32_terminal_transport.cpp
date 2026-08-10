@@ -248,6 +248,7 @@ struct Win32TerminalTransport::Impl {
     OutputHandler output;
     ErrorHandler error;
     ExitHandler exit;
+    LifecycleHandler lifecycle;
 #ifdef _WIN32
     HPCON console = nullptr;
     HANDLE process = nullptr;
@@ -279,6 +280,11 @@ void Win32TerminalTransport::setExitHandler(ExitHandler handler) {
     impl_->exit = std::move(handler);
 }
 
+void Win32TerminalTransport::setLifecycleHandler(LifecycleHandler handler) {
+    std::lock_guard lock(impl_->mutex);
+    impl_->lifecycle = std::move(handler);
+}
+
 void Win32TerminalTransport::start(const ProcessRequest& request) {
     std::lock_guard lifecycleLock(impl_->lifecycleMutex);
     stopImpl();
@@ -286,31 +292,65 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
     impl_->exited.store(false, std::memory_order_release);
     impl_->running.store(false, std::memory_order_release);
 #ifndef _WIN32
-    (void)request;
     impl_->running.store(false, std::memory_order_release);
     ErrorHandler error;
     ExitHandler exit;
+    LifecycleHandler lifecycleHandler;
     {
         std::lock_guard lock(impl_->mutex);
         error = impl_->error;
         exit = impl_->exit;
+        lifecycleHandler = impl_->lifecycle;
     }
     if (error) error("Win32 terminal adapter requires Windows");
     if (exit) exit();
+    if (lifecycleHandler) {
+        ProcessLifecycleEvent event;
+        event.operationID = request.operationID;
+        event.state = ProcessLifecycleState::Failed;
+        event.message = "Win32 terminal adapter requires Windows";
+        lifecycleHandler(event);
+    }
 #else
     impl_->worker = std::thread([state = impl_.get(), request] {
-        auto reportError = [state](const std::string& message) {
-            ErrorHandler handler;
-            { std::lock_guard lock(state->mutex); handler = state->error; }
-            if (handler) handler(message);
+        const std::string operationID = request.operationID;
+        auto emitLifecycle = [state, operationID](
+                ProcessLifecycleState next,
+                const std::optional<std::int32_t>& exitCode,
+                const std::string& message) {
+            LifecycleHandler handler;
+            { std::lock_guard lock(state->mutex); handler = state->lifecycle; }
+            if (handler) {
+                ProcessLifecycleEvent event;
+                event.operationID = operationID;
+                event.state = next;
+                event.exitCode = exitCode;
+                event.message = message;
+                handler(event);
+            }
         };
-        auto reportExit = [state] {
-            if (state->exited.exchange(true, std::memory_order_acq_rel)) return;
+        // Finalizes a launch exactly once: flips the exit latch, marks the
+        // transport not-running, and fires the legacy exit handler. Returns
+        // true for the single caller that wins the race so it can emit the
+        // matching terminal lifecycle event (Finished or Failed).
+        auto finalize = [state]() -> bool {
+            if (state->exited.exchange(true, std::memory_order_acq_rel)) return false;
             state->running.store(false, std::memory_order_release);
             ExitHandler handler;
             { std::lock_guard lock(state->mutex); handler = state->exit; }
             if (handler) handler();
+            return true;
         };
+        auto reportError = [state, &emitLifecycle, &finalize](const std::string& message) {
+            ErrorHandler handler;
+            { std::lock_guard lock(state->mutex); handler = state->error; }
+            if (handler) handler(message);
+            if (finalize()) emitLifecycle(ProcessLifecycleState::Failed, std::nullopt, message);
+        };
+        auto reportExit = [&emitLifecycle, &finalize] {
+            if (finalize()) emitLifecycle(ProcessLifecycleState::Finished, std::nullopt, std::string{});
+        };
+        emitLifecycle(ProcessLifecycleState::Starting, std::nullopt, std::string{});
         auto close = [](HANDLE& handle) {
             if (handle != nullptr) {
                 CloseHandle(handle);
@@ -475,6 +515,7 @@ void Win32TerminalTransport::start(const ProcessRequest& request) {
             parentInput = nullptr;
         }
         state->running.store(true, std::memory_order_release);
+        emitLifecycle(ProcessLifecycleState::Running, std::nullopt, std::string{});
         if (state->stopping.load(std::memory_order_acquire)) TerminateJobObject(job, 130);
 
         const HANDLE outputPipe = parentOutput;

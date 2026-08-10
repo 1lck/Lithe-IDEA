@@ -399,7 +399,10 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
       languageServer_(std::make_unique<app::JavaLanguageServerClient>(
           runtimeService_, *storage_, *languageServerSession_, &archiveReader_)),
       watcher_(std::move(watcher)),
-      terminal_(std::make_unique<Win32TerminalTransport>()) {
+      terminalModel_(std::make_unique<app::TerminalModel>(
+          []() -> std::unique_ptr<TerminalTransport> {
+              return std::make_unique<Win32TerminalTransport>();
+          })) {
     if (qApp != nullptr) qApp->installEventFilter(this);
     setWindowTitle(uiText(QStringLiteral("Lithe")));
     setWindowIcon(QIcon(QStringLiteral(":/lithe.ico")));
@@ -614,23 +617,8 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     });
     debugPollTimer_->start();
 
-    terminalPanel_ = new QWidget(toolWindow_);
-    auto* terminalLayout = new QVBoxLayout(terminalPanel_);
-    terminalLayout->setContentsMargins(0, 0, 0, 0);
-    terminalOutput_ = new QPlainTextEdit(terminalPanel_);
-    terminalOutput_->setReadOnly(true);
-    terminalOutput_->setLineWrapMode(QPlainTextEdit::NoWrap);
-    terminalOutput_->setMaximumHeight(190);
-    terminalOutput_->setPlaceholderText(uiText(QStringLiteral("Terminal output")));
-    terminalLayout->addWidget(terminalOutput_);
-    terminalInput_ = new QLineEdit(terminalPanel_);
-    terminalInput_->setPlaceholderText(uiText(QStringLiteral("Enter terminal command")));
-    connect(terminalInput_, &QLineEdit::returnPressed, this, [this] {
-        if (!terminal_ || !terminal_->isRunning()) return;
-        terminal_->send(terminalInput_->text().toUtf8().toStdString() + "\r\n");
-        terminalInput_->clear();
-    });
-    terminalLayout->addWidget(terminalInput_);
+    terminalPanel_ = new TerminalPanel(toolWindow_);
+    terminalPanel_->setModel(terminalModel_.get());
     toolWindow_->setPanel(BottomToolKind::Terminal, terminalPanel_);
 
     connect(editor_, &QPlainTextEdit::textChanged, this, [this] {
@@ -882,26 +870,6 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
             applyJavaLifecycle(event);
         }, Qt::QueuedConnection);
     });
-    terminal_->setOutputHandler([this](const std::string& output) {
-        QMetaObject::invokeMethod(this, [this, output] {
-            if (terminalOutput_ == nullptr) return;
-            terminalOutput_->moveCursor(QTextCursor::End);
-            terminalOutput_->insertPlainText(fromUtf8(output));
-        }, Qt::QueuedConnection);
-    });
-    terminal_->setErrorHandler([this](const std::string& error) {
-        QMetaObject::invokeMethod(this, [this, error] {
-            if (terminalOutput_ == nullptr) return;
-            terminalOutput_->moveCursor(QTextCursor::End);
-            terminalOutput_->insertPlainText(fromUtf8(error));
-        }, Qt::QueuedConnection);
-    });
-    terminal_->setExitHandler([this] {
-        QMetaObject::invokeMethod(this, [this] {
-            statusBar()->showMessage(uiText(QStringLiteral("Terminal exited")), 3000);
-        }, Qt::QueuedConnection);
-    });
-
     languageServer_->setStateHandler([this](bool ready, const std::string& message) {
         QMetaObject::invokeMethod(this, [this, ready, message] {
             applyLanguageServerState(ready, message);
@@ -928,7 +896,8 @@ WorkbenchWindow::~WorkbenchWindow() {
     if (qApp != nullptr) qApp->removeEventFilter(this);
     if (aiWorker_.joinable()) aiWorker_.join();
     if (updateWorker_.joinable()) updateWorker_.join();
-    stopTerminal();
+    if (terminalPanel_ != nullptr) terminalPanel_->setModel(nullptr);
+    if (terminalModel_) terminalModel_->shutdown();
     if (languageServer_) languageServer_->stop();
     stopDebugger();
     stopJavaRun();
@@ -1778,6 +1747,7 @@ void WorkbenchWindow::openWorkspaceRoot(const QString& selectedRoot) {
         QFileInfo(QDir::fromNativeSeparators(selectedRoot)).absoluteFilePath());
     if (root.isEmpty() || !QFileInfo(root).isDir()) return;
     ++workspaceEpoch_;
+    if (terminalModel_) terminalModel_->closeAll();
     coordinator_->setWorkspaceVisibility(appSettings_.hiddenDirectoryNames,
                                           appSettings_.hiddenFilePatterns);
     historyFeature_->setVisibilityRules(appSettings_.hiddenDirectoryNames,
@@ -1799,6 +1769,7 @@ void WorkbenchWindow::openWorkspaceRoot(const QString& selectedRoot) {
     shelfFeature_->resetForWorkspace();
     mavenJavaFeature_->resetForWorkspace();
     workspaceRoot_ = root;
+    applyTerminalWorkspace();
     QTimer::singleShot(0, this, &WorkbenchWindow::restoreWorkbenchLayout);
     activePath_.clear();
     selectedShelf_.clear();
@@ -4551,43 +4522,30 @@ void WorkbenchWindow::synchronizeLanguageServerDocument() {
 }
 
 void WorkbenchWindow::startTerminal() {
-    if (workspaceRoot_.isEmpty() || !terminal_) return;
+    if (workspaceRoot_.isEmpty() || terminalPanel_ == nullptr || !terminalModel_) return;
     showToolWindow(BottomToolKind::Terminal);
     terminalPanel_->setVisible(true);
-    if (terminal_->isRunning()) {
-        terminalInput_->setFocus();
-        return;
+    applyTerminalWorkspace();
+    if (terminalPanel_->sessionCount() == 0) {
+        terminalPanel_->newSession();
     }
-    terminalOutput_->clear();
-    const auto environment = runtimeLocator_.environment();
-    std::string shell = appSettings_.terminalShellPath;
-    if (shell.empty()) {
-        shell = "cmd.exe";
-        for (const auto& [key, value] : environment) {
-            if (key.size() == 7 && std::equal(key.begin(), key.end(), "ComSpec",
-                    [](char left, char right) {
-                        return std::tolower(static_cast<unsigned char>(left)) ==
-                               std::tolower(static_cast<unsigned char>(right));
-                    })) {
-                shell = value;
-                break;
-            }
-        }
-    }
-    ProcessRequest request;
-    request.operationID = "windows-terminal-" +
-        std::to_string(static_cast<unsigned long long>(QDateTime::currentMSecsSinceEpoch()));
-    request.executablePath = shell;
-    request.workingDirectory = workspaceRoot_.toStdString();
-    request.environment = environment;
-    terminal_->start(request);
-    terminalInput_->setFocus();
     statusBar()->showMessage(uiText(QStringLiteral("Terminal started")), 3000);
 }
 
 void WorkbenchWindow::stopTerminal() {
-    if (terminal_) terminal_->stop();
-    if (terminalPanel_) terminalPanel_->setVisible(false);
+    if (terminalPanel_ == nullptr || !terminalModel_) return;
+    terminalPanel_->closeCurrent();
+    if (terminalPanel_->sessionCount() == 0) terminalPanel_->setVisible(false);
+}
+
+void WorkbenchWindow::applyTerminalWorkspace() {
+    if (terminalPanel_ == nullptr) return;
+    terminalPanel_->setWorkspace(workspaceRoot_, runtimeLocator_.environment());
+    QStringList shells;
+    const auto configured = QString::fromStdString(appSettings_.terminalShellPath).trimmed();
+    if (!configured.isEmpty()) shells << configured;
+    if (!shells.contains(QStringLiteral("cmd.exe"))) shells << QStringLiteral("cmd.exe");
+    terminalPanel_->setAvailableShells(shells);
 }
 
 void WorkbenchWindow::saveDocument() {
