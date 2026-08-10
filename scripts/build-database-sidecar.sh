@@ -7,7 +7,7 @@ ARCH="${LITHE_ARCH:-$(uname -m)}"
 MANIFEST="$ROOT_DIR/rust/Cargo.toml"
 OUTPUT_DIR="$ROOT_DIR/dist/database-sidecar"
 
-export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 mkdir -p "$OUTPUT_DIR"
 
 build_arch() {

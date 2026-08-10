@@ -47,7 +47,7 @@ struct DatabaseSchemaDiffView: View {
             if let diff {
                 diffContent(diff)
             } else {
-                ContentUnavailableView(
+                LitheUnavailableView(
                     "No Schema Comparison",
                     systemImage: "arrow.left.arrow.right",
                     description: Text("Choose two connections to inspect structural differences.")
@@ -92,7 +92,7 @@ struct DatabaseSchemaDiffView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             if diff.items.isEmpty {
-                ContentUnavailableView("Schemas Match", systemImage: "checkmark.circle", description: Text("No structural changes are required."))
+                LitheUnavailableView("Schemas Match", systemImage: "checkmark.circle", description: Text("No structural changes are required."))
                     .foregroundStyle(LitheTheme.success)
             } else {
                 List(diff.items) { item in

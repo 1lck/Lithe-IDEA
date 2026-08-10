@@ -32,7 +32,7 @@ struct DiffPaneView: View {
                 }
             }
         }
-        .onChange(of: rows.map(\.id)) { _, _ in
+        .onChange(of: rows.map(\.id)) { _ in
             expandedRegionIDs.removeAll()
             pinnedRowIDs.removeAll()
             scrollTarget = nil
@@ -69,7 +69,7 @@ struct DiffPaneView: View {
                 ) { region in
                     expandedRegionIDs.insert(region.id)
                 }
-                .onChange(of: scrollTarget) { _, target in
+                .onChange(of: scrollTarget) { target in
                     guard let target else { return }
                     withAnimation(.easeInOut(duration: 0.18)) {
                         proxy.scrollTo(target, anchor: .center)

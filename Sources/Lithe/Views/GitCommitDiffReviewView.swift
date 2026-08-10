@@ -43,7 +43,7 @@ struct GitCommitDiffReviewView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: model.diffRows.count) { _, _ in
+        .onChange(of: model.diffRows.count) { _ in
             selectedDifferenceIndex = 0
         }
     }

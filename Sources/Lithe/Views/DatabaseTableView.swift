@@ -52,7 +52,7 @@ struct DatabaseTableView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: model.databaseFeature.selectedTable) { _, _ in
+        .onChange(of: model.databaseFeature.selectedTable) { _ in
             discard()
             appliedFilters = []
             appliedSort = []
@@ -60,7 +60,7 @@ struct DatabaseTableView: View {
             filterJoin = .and
             filterConditions = [.init()]
         }
-        .onChange(of: model.databaseFeature.columns) { _, columns in
+        .onChange(of: model.databaseFeature.columns) { columns in
             if filterConditions.count == 1, filterConditions[0].column.isEmpty {
                 filterConditions[0].column = columns.first ?? ""
             }
@@ -242,29 +242,31 @@ struct DatabaseTableView: View {
 
     private var dataActionBar: some View {
         HStack(spacing: 7) {
-            Button { refreshTable() } label: { Label("Refresh table data", systemImage: "arrow.clockwise") }
-                .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
-            Menu {
-                ForEach(model.databaseFeature.columns, id: \.self) { column in
-                    Button(column) { jumpTargetColumn = column }
-                }
-            } label: { Label("Jump to Column", systemImage: "rectangle.split.3x1") }
-                .menuStyle(.borderlessButton).fixedSize()
-            Menu {
-                Button("Copy Selected Rows as TSV") { copySelectedRowsAsTSV() }
-                    .disabled(selectedRows.isEmpty)
-                Button("Paste TSV from Clipboard") { pasteFromClipboard() }
-            } label: { Text("TSV") }
-                .menuStyle(.borderlessButton).frame(width: 52)
-            Button { insertedRows.append([:]) } label: { Label("Add Row", systemImage: "plus") }
-                .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
-                .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
-            Button { apply() } label: { Label("Apply", systemImage: "checkmark") }
-                .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
-                .disabled(!hasChanges || model.databaseFeature.isLoading || model.databaseFeature.selectedProfile?.readOnly == true)
-            Button { discard() } label: { Label("Discard", systemImage: "arrow.uturn.backward") }
-                .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
-                .disabled(!hasChanges)
+            Group {
+                Button { refreshTable() } label: { Label("Refresh table data", systemImage: "arrow.clockwise") }
+                    .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                Menu {
+                    ForEach(model.databaseFeature.columns, id: \.self) { column in
+                        Button(column) { jumpTargetColumn = column }
+                    }
+                } label: { Label("Jump to Column", systemImage: "rectangle.split.3x1") }
+                    .menuStyle(.borderlessButton).fixedSize()
+                Menu {
+                    Button("Copy Selected Rows as TSV") { copySelectedRowsAsTSV() }
+                        .disabled(selectedRows.isEmpty)
+                    Button("Paste TSV from Clipboard") { pasteFromClipboard() }
+                } label: { Text("TSV") }
+                    .menuStyle(.borderlessButton).frame(width: 52)
+                Button { insertedRows.append([:]) } label: { Label("Add Row", systemImage: "plus") }
+                    .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                Button { apply() } label: { Label("Apply", systemImage: "checkmark") }
+                    .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                    .disabled(!hasChanges || model.databaseFeature.isLoading || model.databaseFeature.selectedProfile?.readOnly == true)
+                Button { discard() } label: { Label("Discard", systemImage: "arrow.uturn.backward") }
+                    .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                    .disabled(!hasChanges)
+            }
             if !selectedRows.isEmpty {
                 Rectangle()
                     .fill(LitheTheme.divider)
@@ -287,11 +289,13 @@ struct DatabaseTableView: View {
                 .foregroundStyle(LitheTheme.error)
                 .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
             }
-            Spacer()
-            Button { previousPage() } label: { Image(systemName: "chevron.left") }.litheIconButton().help("Previous page").disabled(model.databaseFeature.currentOffset == 0)
-            Text(pageLabel).font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1).frame(minWidth: 90)
-            Button { nextPage() } label: { Image(systemName: "chevron.right") }.litheIconButton().help("Next page")
-                .disabled(model.databaseFeature.currentOffset + model.databaseFeature.rows.count >= model.databaseFeature.totalRows)
+            Group {
+                Spacer()
+                Button { previousPage() } label: { Image(systemName: "chevron.left") }.litheIconButton().help("Previous page").disabled(model.databaseFeature.currentOffset == 0)
+                Text(pageLabel).font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1).frame(minWidth: 90)
+                Button { nextPage() } label: { Image(systemName: "chevron.right") }.litheIconButton().help("Next page")
+                    .disabled(model.databaseFeature.currentOffset + model.databaseFeature.rows.count >= model.databaseFeature.totalRows)
+            }
         }
         .padding(.horizontal, 12).frame(height: 38).background(LitheTheme.toolHeader.opacity(0.92))
     }
@@ -489,7 +493,7 @@ struct DatabaseTableView: View {
                         alignment: .topLeading
                     )
                 }
-                .onChange(of: jumpTargetColumn) { _, column in
+                .onChange(of: jumpTargetColumn) { column in
                     guard let column else { return }
                     withAnimation { proxy.scrollTo("column-\(column)", anchor: .center) }
                     jumpTargetColumn = nil

@@ -15,9 +15,16 @@ esac
 
 RUST_LIBRARY="$(scripts/build-rust-core.sh --debug --target "$RUST_TARGET")"
 
-swift build --disable-sandbox --triple "$TRIPLE" \
+SWIFT_LINKER_ARGS=()
+if ! /usr/bin/xcrun ld -help 2>&1 | /usr/bin/grep -q -- '-no_warn_duplicate_libraries'; then
+    SWIFT_LINKER_ARGS=(-Xswiftc "-ld-path=$ROOT_DIR/scripts/ld-macos13-compat.sh")
+fi
+
+swift build --disable-sandbox --triple "$TRIPLE" "${SWIFT_LINKER_ARGS[@]}" \
     -Xswiftc -Xfrontend \
     -Xswiftc -disable-round-trip-debug-types \
+    -Xcc -include \
+    -Xcc "$ROOT_DIR/scripts/MacOS13SDKCompatibility.h" \
     -Xlinker -force_load \
     -Xlinker "$RUST_LIBRARY"
 
@@ -27,7 +34,7 @@ MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 swiftc scripts/RustCoreBridgeVerification.swift \
     Sources/LitheRustCore/bridge.c \
     -sdk "$MACOS_SDK" \
-    -target "${TRIPLE}14.0" \
+    -target "${TRIPLE}13.0" \
     -Xlinker -force_load \
     -Xlinker "$RUST_LIBRARY" \
     -o "$BRIDGE_BINARY"

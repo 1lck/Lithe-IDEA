@@ -63,7 +63,7 @@ struct EditorAreaView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: model.openDocuments.map(\.id)) { _, ids in
+        .onChange(of: model.openDocuments.map(\.id)) { ids in
             if let splitDocumentID, !ids.contains(splitDocumentID) {
                 self.splitDocumentID = nil
             }
@@ -301,46 +301,48 @@ struct EditorAreaView: View {
 
     @ViewBuilder
     private func editorTabContextMenu(for document: EditorDocument, at index: Int) -> some View {
-        Button("Close") {
-            model.requestCloseDocument(document)
-        }
+        Group {
+            Button("Close") {
+                model.requestCloseDocument(document)
+            }
 
-        Button("Open in Right Split") {
-            splitDocumentID = document.id
-        }
-        .disabled(model.openDocuments.count < 2)
+            Button("Open in Right Split") {
+                splitDocumentID = document.id
+            }
+            .disabled(model.openDocuments.count < 2)
 
-        Button("Close Other Tabs") {
-            model.requestCloseDocuments(
-                model.openDocuments.filter { $0.id != document.id },
-                preferredDocumentID: document.id
-            )
-        }
-        .disabled(model.openDocuments.count <= 1)
+            Button("Close Other Tabs") {
+                model.requestCloseDocuments(
+                    model.openDocuments.filter { $0.id != document.id },
+                    preferredDocumentID: document.id
+                )
+            }
+            .disabled(model.openDocuments.count <= 1)
 
-        Button("Close Tabs to the Left") {
-            model.requestCloseDocuments(
-                Array(model.openDocuments.prefix(index)),
-                preferredDocumentID: document.id
-            )
-        }
-        .disabled(index == 0)
+            Button("Close Tabs to the Left") {
+                model.requestCloseDocuments(
+                    Array(model.openDocuments.prefix(index)),
+                    preferredDocumentID: document.id
+                )
+            }
+            .disabled(index == 0)
 
-        Button("Close Tabs to the Right") {
-            let documents = Array(model.openDocuments.dropFirst(index + 1))
-            model.requestCloseDocuments(documents, preferredDocumentID: document.id)
-        }
-        .disabled(index >= model.openDocuments.count - 1)
+            Button("Close Tabs to the Right") {
+                let documents = Array(model.openDocuments.dropFirst(index + 1))
+                model.requestCloseDocuments(documents, preferredDocumentID: document.id)
+            }
+            .disabled(index >= model.openDocuments.count - 1)
 
-        Button("Close Unmodified Tabs") {
-            model.requestCloseDocuments(
-                model.openDocuments.filter { !$0.isDirty },
-                preferredDocumentID: document.id
-            )
-        }
+            Button("Close Unmodified Tabs") {
+                model.requestCloseDocuments(
+                    model.openDocuments.filter { !$0.isDirty },
+                    preferredDocumentID: document.id
+                )
+            }
 
-        Button("Close All Tabs") {
-            model.requestCloseDocuments(model.openDocuments)
+            Button("Close All Tabs") {
+                model.requestCloseDocuments(model.openDocuments)
+            }
         }
 
         Divider()

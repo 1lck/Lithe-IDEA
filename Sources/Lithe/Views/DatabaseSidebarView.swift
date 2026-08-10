@@ -252,7 +252,7 @@ struct DatabaseSidebarView: View {
         .fileImporter(isPresented: $showsDBXImporter, allowedContentTypes: [.json]) { result in
             importDBXFile(result)
         }
-        .onChange(of: model.databaseFeature.selectedProfileID) { _, selectedID in
+        .onChange(of: model.databaseFeature.selectedProfileID) { selectedID in
             if let selectedID { expandedProfileIDs = [selectedID] }
         }
     }
@@ -930,16 +930,18 @@ struct DatabaseSidebarView: View {
 
     @ViewBuilder
     private func tableContextMenu(_ profile: DatabaseProfile, table: String) -> some View {
-        Button("View Data") { openTable(profile, table: table, section: .data) }
-        Button("New Query") {
-            openTable(profile, table: table, section: .sql, sql: "SELECT * FROM \(quotedIdentifier(table, kind: profile.kind));\n")
-        }
-        Button("View Structure") { openTable(profile, table: table, section: .structure) }
-        Button("Copy Name") { copyToPasteboard(table) }
-        Divider()
-        Menu("Export Data…") {
-            Button("CSV") { exportTable(profile, table: table, format: .csv) }
-            Button("JSON") { exportTable(profile, table: table, format: .json) }
+        Group {
+            Button("View Data") { openTable(profile, table: table, section: .data) }
+            Button("New Query") {
+                openTable(profile, table: table, section: .sql, sql: "SELECT * FROM \(quotedIdentifier(table, kind: profile.kind));\n")
+            }
+            Button("View Structure") { openTable(profile, table: table, section: .structure) }
+            Button("Copy Name") { copyToPasteboard(table) }
+            Divider()
+            Menu("Export Data…") {
+                Button("CSV") { exportTable(profile, table: table, format: .csv) }
+                Button("JSON") { exportTable(profile, table: table, format: .json) }
+            }
         }
         Button("Import Data…") { beginImport(.csv, profile: profile, table: table) }
             .disabled(profile.readOnly)
@@ -1797,7 +1799,7 @@ struct DatabaseConnectionEditor: View {
             .frame(height: 58)
             .background(LitheTheme.toolHeader)
         }
-        .onChange(of: kind) { _, newKind in
+        .onChange(of: kind) { newKind in
             guard profile == nil else { return }
             switch newKind {
             case .mysql: port = "3306"; username = "root"; database = ""; path = ""

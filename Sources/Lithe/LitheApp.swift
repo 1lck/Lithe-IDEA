@@ -127,33 +127,35 @@ struct LitheApp: App {
             }
 
             CommandMenu("Navigate") {
-                Button("Search Everywhere…") {
-                    model.toggleSearchEverywhere()
-                }
-                // 双 Shift 是主入口。IntelliJ 的 ⇧⌘A 是 Find Action，
-                // 这里不再占用它，改用 ⇧⌘O（Go to File 家族）作为可见的菜单快捷键。
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-                .disabled(model.workspaceURL == nil)
+                Group {
+                    Button("Search Everywhere…") {
+                        model.toggleSearchEverywhere()
+                    }
+                    // 双 Shift 是主入口。IntelliJ 的 ⇧⌘A 是 Find Action，
+                    // 这里不再占用它，改用 ⇧⌘O（Go to File 家族）作为可见的菜单快捷键。
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .disabled(model.workspaceURL == nil)
 
-                Divider()
+                    Divider()
 
-                Button("Find in File…") {
-                    model.showFindBar()
-                }
-                .keyboardShortcut("f", modifiers: .command)
-                .disabled(model.activeDocument == nil)
+                    Button("Find in File…") {
+                        model.showFindBar()
+                    }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(model.activeDocument == nil)
 
-                Button("Find Next") {
-                    model.navigateFind(offset: 1)
-                }
-                .keyboardShortcut("g", modifiers: .command)
-                .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
+                    Button("Find Next") {
+                        model.navigateFind(offset: 1)
+                    }
+                    .keyboardShortcut("g", modifiers: .command)
+                    .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
-                Button("Find Previous") {
-                    model.navigateFind(offset: -1)
+                    Button("Find Previous") {
+                        model.navigateFind(offset: -1)
+                    }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
                 }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
-                .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
                 Divider()
 
