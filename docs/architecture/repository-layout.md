@@ -51,6 +51,26 @@ Both platforms consume `rust/lithe-core` through the same JSON envelope and
 command names. Shared behavior belongs in `shared/contracts/` and should have
 a fixture under `shared/fixtures/` before the second platform relies on it.
 
+## Rust Core packages
+
+`rust/lithe-core/src/lib.rs` is only the crate composition root and public API. Rust implementation files are grouped by stable ownership boundary instead of being added beside `lib.rs`:
+
+```text
+rust/lithe-core/src/
+├── protocol/    # command names, wire contracts, responses, errors, events, cancellation
+├── runtime/     # JSON dispatcher and C ABI exports
+├── project/     # files/search, local history, Markdown, Maven project inspection
+├── execution/   # run configuration, launch/toolchain models, project detectors
+├── languages/   # language-specific source inspection such as Java
+├── git/         # Git validation, parsing, state, and mutations
+├── lsp/         # generic LSP, lightweight fallback, provider/Swift adapters
+└── tests/       # command-level tests grouped by the same domains
+```
+
+The dependency direction is `protocol <- domain packages <- runtime/FFI`. A domain may use protocol contracts, but it must not depend on the runtime dispatcher. `execution/types.rs` is the shared type layer for configuration and detectors, so those modules do not import each other through the package facade. `lsp/mod.rs` and the other package `mod.rs` files are compatibility facades; new implementation logic belongs in an owned submodule rather than in the facade.
+
+Moving Rust files must not change JSON command strings, Serde field names, error codes, or the exported C symbols. Directory-sensitive fixtures and embedded resources must use `CARGO_MANIFEST_DIR` instead of paths derived from a module's current depth.
+
 ## Ownership rules
 
 | Shared Rust Core | Platform-owned adapters |

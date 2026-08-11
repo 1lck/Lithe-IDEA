@@ -37,6 +37,26 @@ flowchart LR
 | Rust Core | LSP state、请求 ID、frame、UTF-16 位置、结果归一化、动态能力 | 可执行文件发现、子进程和线程模型 |
 | macOS adapter | 工具发现、环境变量、`Process`/`Pipe`、终止进程 | 语言功能路由和协议语义 |
 
+Rust Core 的 LSP 实现统一收在 `rust/lithe-core/src/lsp/`，根模块只作为稳定 facade，command runtime 仍通过 `crate::lsp::*` 使用公开契约：
+
+```text
+lsp/
+├── interface/           # 通用 LSP 协议、client state、transport 和 session host
+│   ├── types.rs
+│   ├── client.rs
+│   ├── transport.rs
+│   └── host.rs
+├── lightweight/         # 不启动语言服务器的编辑、snippet 和当前文件符号能力
+│   ├── edits.rs
+│   ├── snippets.rs
+│   └── symbols.rs
+└── languages/           # provider catalog 与语言/宿主模型 adapter
+    ├── catalog.rs
+    └── swift.rs
+```
+
+共享的 LSP position/range、client request/response/event 类型只能定义在 `interface/types.rs`。`lightweight` 可以依赖这些协议 DTO，但 `interface` 不依赖轻量实现。`languages/swift.rs` 目前只负责 Swift 宿主 DTO 与标准 LSP JSON 之间的转换，并不表示 SourceKit-LSP 私有协议；真正的服务器私有扩展仍应通过独立 adapter 接入。provider catalog 位于 `languages`，因为它描述可动态加载的语言/provider 元数据，而不是 client 状态机的一部分。
+
 ## Provider 路由
 
 当前优先级由高到低为 `languageServer (200)`、预留的 `projectSymbols (100)`、`builtin (0)`。每次请求先按文件和功能过滤 provider，再按优先级路由：
