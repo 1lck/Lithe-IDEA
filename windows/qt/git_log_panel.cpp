@@ -1,6 +1,7 @@
 #include "git_log_panel.h"
 
 #include "git_reference_tree.h"
+#include "workbench_icons.h"
 #include "workbench_ui_theme.h"
 
 #include <QAbstractItemView>
@@ -65,9 +66,9 @@ public:
 
         painter->save();
         if (option.state & QStyle::State_Selected) {
-            painter->fillRect(option.rect, ui::Theme::subtleSelection());
+            painter->fillRect(option.rect, QColor(43, 74, 125));
         } else if (option.state & QStyle::State_MouseOver) {
-            painter->fillRect(option.rect, QColor(255, 255, 255, 8));
+            painter->fillRect(option.rect, QColor(255, 255, 255, 14));
         }
 
         constexpr int LaneSpacing = 16;
@@ -294,32 +295,37 @@ GitLogPanel::GitLogPanel(QWidget* parent) : QWidget(parent) {
     toolbarLayout->setContentsMargins(12, 8, 10, 8);
     toolbarLayout->setSpacing(8);
 
-    titleLabel_ = new QLabel(QStringLiteral("Git"), toolbar);
+    titleLabel_ = new QLabel(QStringLiteral("Git Log"), toolbar);
     titleLabel_->setProperty("gitTitle", true);
+    auto* vcsIcon = new QLabel(toolbar);
+    vcsIcon->setPixmap(ui::IdeaIcons::pixmap(QStringLiteral("toolwindows/toolWindowVcs.svg"),
+                                             16, ui::Theme::primaryText()));
+    toolbarLayout->addWidget(vcsIcon);
     toolbarLayout->addWidget(titleLabel_);
 
-    logTargetButton_ = new QPushButton(QStringLiteral("Log"), toolbar);
+    logTargetButton_ = new QPushButton(QStringLiteral("current"), toolbar);
     logTargetButton_->setProperty("secondaryAction", true);
     logTargetButton_->setCursor(Qt::PointingHandCursor);
+    logTargetButton_->setFlat(true);
     toolbarLayout->addWidget(logTargetButton_);
 
     showAllButton_ = ui::makeIconButton(toolbar, QStringLiteral("Show all references"),
-                                        QStringLiteral("+"));
+                                        QStringLiteral("plus"));
     moreButton_ = ui::makeIconButton(toolbar, QStringLiteral("Git tool window actions"),
-                                     QStringLiteral("⋯"));
+                                     QStringLiteral("more"));
     toolbarLayout->addWidget(showAllButton_);
     toolbarLayout->addWidget(moreButton_);
     toolbarLayout->addStretch(1);
 
     refreshButton_ = ui::makeIconButton(toolbar, QStringLiteral("Refresh Git log"),
-                                        QStringLiteral("↻"));
-    fetchButton_ = ui::makeIconButton(toolbar, QStringLiteral("Fetch"), QStringLiteral("⬇"));
-    pushButton_ = ui::makeIconButton(toolbar, QStringLiteral("Push"), QStringLiteral("⬆"));
-    mergeButton_ = ui::makeIconButton(toolbar, QStringLiteral("Merge…"), QStringLiteral("⑂"));
-    rebaseButton_ = ui::makeIconButton(toolbar, QStringLiteral("Rebase…"), QStringLiteral("⤴"));
-    pullButton_ = ui::makeIconButton(toolbar, QStringLiteral("Pull"), QStringLiteral("⇓"));
+                                        QStringLiteral("refresh"));
+    fetchButton_ = ui::makeIconButton(toolbar, QStringLiteral("Fetch"), QStringLiteral("down"));
+    pushButton_ = ui::makeIconButton(toolbar, QStringLiteral("Push"), QStringLiteral("up"));
+    mergeButton_ = ui::makeIconButton(toolbar, QStringLiteral("Merge…"), QStringLiteral("branch"));
+    rebaseButton_ = ui::makeIconButton(toolbar, QStringLiteral("Rebase…"), QStringLiteral("vcs"));
+    pullButton_ = ui::makeIconButton(toolbar, QStringLiteral("Pull"), QStringLiteral("down"));
     compareButton_ = ui::makeIconButton(toolbar, QStringLiteral("Compare…"),
-                                        QStringLiteral("⇄"));
+                                        QStringLiteral("diff"));
     toolbarLayout->addWidget(refreshButton_);
     toolbarLayout->addWidget(fetchButton_);
     toolbarLayout->addWidget(pushButton_);
@@ -502,10 +508,12 @@ void GitLogPanel::applyState(const app::GitFeatureState& state) {
         rebuildHistory(state);
         if (state.status && state.status->branch) {
             logTargetLabel_ = fromUtf8(*state.status->branch);
-            logTargetButton_->setText(QStringLiteral("Log: %1").arg(logTargetLabel_));
+            titleLabel_->setText(QStringLiteral("Git Log: %1").arg(logTargetLabel_));
+            logTargetButton_->setText(logTargetLabel_);
             branchFilterLabel_->setText(QStringLiteral("Branch: %1").arg(logTargetLabel_));
         } else {
-            logTargetButton_->setText(QStringLiteral("Log"));
+            titleLabel_->setText(QStringLiteral("Git Log"));
+            logTargetButton_->setText(QStringLiteral("All"));
             branchFilterLabel_->setText(QStringLiteral("Branch: All"));
         }
     }

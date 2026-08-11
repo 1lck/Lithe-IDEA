@@ -9,6 +9,7 @@
 
 #include <optional>
 #include <utility>
+#include <vector>
 
 namespace lithe::windows {
 
@@ -37,6 +38,20 @@ GitIntegrationDialogResult showGitIntegrationConflictDialog(
 GitPullDialogResult showGitPullStrategyDialog(
     QWidget* parent,
     const app::GitPullStrategyRequest& request);
+
+/// macOS-style reference picker used for Merge / Rebase / Switch / Push.
+std::optional<int> showGitReferencePickerDialog(
+    QWidget* parent,
+    const QString& title,
+    const QString& prompt,
+    const QStringList& choices,
+    int currentIndex = 0);
+
+std::optional<QString> showGitTextInputDialog(
+    QWidget* parent,
+    const QString& title,
+    const QString& prompt,
+    const QString& initialValue = {});
 
 bool confirmDestructiveGitAction(QWidget* parent,
                                  const QString& title,

@@ -130,6 +130,7 @@ private slots:
                               const QString& shortName);
     void selectGitCommit(const QString& hash);
     void openGitCommitFile(const QString& path);
+    void openGitChangeDiff(const QString& path, bool staged, bool untracked);
     void toggleBlame();
     void generateAICommitMessage();
     void checkForUpdates();
@@ -209,6 +210,7 @@ private:
     void connectGitPanels();
     void setLeftSidebarIndex(int index);
     void setGitLogVisible(bool visible);
+    void updateWorkbenchChromeForFocus();
     std::optional<GitReferenceDto> pickGitReference(const QString& title);
     void pickGitReferenceAsync(const QString& title,
                                std::function<void(std::optional<GitReferenceDto>)> onPicked);
@@ -309,6 +311,7 @@ private:
     QListWidget* history_ = nullptr;
     QLabel* analysisStatus_ = nullptr;
     QListWidget* diagnostics_ = nullptr;
+    QWidget* mavenControls_ = nullptr;
     QPlainTextEdit* mavenOutput_ = nullptr;
     QWidget* debugPanel_ = nullptr;
     QPlainTextEdit* debugOutput_ = nullptr;

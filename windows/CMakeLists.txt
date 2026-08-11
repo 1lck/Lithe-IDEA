@@ -320,7 +320,7 @@ if(LITHE_BUILD_QT_UI AND NOT LITHE_RUST_CORE_LIBRARY)
 endif()
 if(LITHE_BUILD_QT_UI)
     set(CMAKE_AUTOMOC ON)
-    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Svg)
     add_executable(lithe_windows_qt
         qt/main.cpp
         qt/diff_split_widget.cpp
@@ -333,6 +333,8 @@ if(LITHE_BUILD_QT_UI)
         qt/git_workflow_dialogs.h
         qt/workbench_code_editor.cpp
         qt/workbench_code_editor.h
+        qt/workbench_icons.cpp
+        qt/workbench_icons.h
         qt/workbench_ui_theme.cpp
         qt/workbench_ui_theme.h
         qt/workbench_window.cpp
@@ -343,8 +345,12 @@ if(LITHE_BUILD_QT_UI)
         lithe_windows_adapters
         lithe_windows_algorithms
         Qt6::Widgets
+        Qt6::Svg
     )
     target_compile_features(lithe_windows_qt PRIVATE cxx_std_23)
+    target_compile_definitions(lithe_windows_qt PRIVATE
+        "LITHE_RESOURCES_DIR=\"${CMAKE_SOURCE_DIR}/../Resources\""
+    )
     target_include_directories(lithe_windows_qt PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/core"
         "${CMAKE_CURRENT_SOURCE_DIR}/adapters"

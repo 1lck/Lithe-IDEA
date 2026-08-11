@@ -76,6 +76,8 @@ private:
     QWidget* toolbar_ = nullptr;
     QToolButton* prevDiffButton_ = nullptr;
     QToolButton* nextDiffButton_ = nullptr;
+    QLabel* differenceCountLabel_ = nullptr;
+    QLabel* pathHintLabel_ = nullptr;
     QPushButton* stageHunkButton_ = nullptr;
     QPushButton* unstageHunkButton_ = nullptr;
     QPushButton* discardHunkButton_ = nullptr;
@@ -94,6 +96,7 @@ private:
     QString selectedHunkId_;
     QStringList differenceHunkIds_;
     int differenceIndex_ = -1;
+    QString fileExtension_;
 };
 
 } // namespace lithe::windows

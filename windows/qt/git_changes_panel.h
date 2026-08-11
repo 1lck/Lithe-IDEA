@@ -12,6 +12,7 @@
 class QCheckBox;
 class QFrame;
 class QLabel;
+class QLineEdit;
 class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
@@ -40,6 +41,7 @@ public:
 
 signals:
     void changeActivated(const QString& relativePath);
+    void changeSelected(const QString& relativePath, bool staged, bool untracked);
     void stagePathRequested(const QString& relativePath);
     void unstagePathRequested(const QString& relativePath);
     void stageAllRequested();
@@ -62,6 +64,8 @@ signals:
     void applyStashRequested(const QString& reference);
     void popStashRequested(const QString& reference);
     void dropStashRequested(const QString& reference);
+    void createStashRequested(const QString& message, bool includeUntracked);
+    void createShelfRequested(const QString& message);
     void refreshShelvesRequested();
     void refreshStashesRequested();
 
@@ -69,6 +73,7 @@ private:
     void rebuildChangesTree(const app::GitFeatureState& state);
     void rebuildShelfList(const app::GitFeatureState& state);
     void rebuildStashList(const app::GitFeatureState& state);
+    void syncShelfEmptyState(const app::GitFeatureState& state);
     void updateOperationBar(const app::GitFeatureState& state);
     void updateStashRestoreNotice(const app::GitFeatureState& state);
     void updateCommitActions(const app::GitFeatureState& state);
@@ -105,6 +110,7 @@ private:
 
     QWidget* cleanState_ = nullptr;
     QLabel* cleanLabel_ = nullptr;
+    QWidget* noRepositoryState_ = nullptr;
     QLabel* conflictEmptyLabel_ = nullptr;
     QTreeWidget* changesTree_ = nullptr;
 
@@ -117,8 +123,16 @@ private:
     QPushButton* settingsButton_ = nullptr;
 
     QWidget* shelfPage_ = nullptr;
+    QLineEdit* shelfMessageEdit_ = nullptr;
+    QCheckBox* includeUntrackedCheck_ = nullptr;
+    QPushButton* createStashButton_ = nullptr;
+    QPushButton* createShelfButton_ = nullptr;
+    QWidget* shelfEmptyState_ = nullptr;
+    QWidget* shelfListsPage_ = nullptr;
     QListWidget* shelvesList_ = nullptr;
     QListWidget* stashesList_ = nullptr;
+    QLabel* shelvesTitle_ = nullptr;
+    QLabel* stashesTitle_ = nullptr;
     QPushButton* applyShelfButton_ = nullptr;
     QPushButton* dropShelfButton_ = nullptr;
     QPushButton* applyStashButton_ = nullptr;

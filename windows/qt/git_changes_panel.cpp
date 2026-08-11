@@ -1,5 +1,6 @@
 #include "git_changes_panel.h"
 
+#include "workbench_icons.h"
 #include "workbench_ui_theme.h"
 
 #include <QBrush>
@@ -8,6 +9,7 @@
 #include <QFont>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -26,6 +28,7 @@ namespace {
 
 constexpr int RelativePathRole = Qt::UserRole;
 constexpr int ChangeStagedRole = Qt::UserRole + 1;
+constexpr int ChangeUntrackedRole = Qt::UserRole + 4;
 constexpr int ShelfIdRole = Qt::UserRole + 2;
 constexpr int StashReferenceRole = Qt::UserRole + 3;
 
@@ -146,18 +149,23 @@ GitChangesPanel::GitChangesPanel(QWidget* parent) : QWidget(parent) {
     toolbarLayout->setContentsMargins(10, 8, 10, 8);
     toolbarLayout->setSpacing(4);
     refreshButton_ = ui::makeIconButton(toolbar, QStringLiteral("Refresh changes"),
-                                        QStringLiteral("↻"));
+                                        QStringLiteral("refresh"));
     discardButton_ = ui::makeIconButton(toolbar, QStringLiteral("Discard selected change"),
-                                        QStringLiteral("↩"));
+                                        QStringLiteral("discard"));
     stageAllToolbarButton_ = ui::makeIconButton(toolbar, QStringLiteral("Stage all changes"),
-                                                QStringLiteral("⬇"));
+                                                QStringLiteral("stage"));
     previewButton_ = ui::makeIconButton(toolbar, QStringLiteral("Preview first change"),
-                                        QStringLiteral("👁"));
+                                        QStringLiteral("preview"));
     toolbarLayout->addWidget(refreshButton_);
     toolbarLayout->addWidget(discardButton_);
     toolbarLayout->addWidget(stageAllToolbarButton_);
     toolbarLayout->addWidget(previewButton_);
     toolbarLayout->addStretch(1);
+    auto* branchIcon = new QLabel(toolbar);
+    branchIcon->setPixmap(ui::IdeaIcons::pixmap(QStringLiteral("vcs/branch.svg"), 14,
+                                                ui::Theme::secondaryText()));
+    branchIcon->setFixedSize(16, 16);
+    toolbarLayout->addWidget(branchIcon);
     branchLabel_ = new QLabel(toolbar);
     branchLabel_->setProperty("gitMeta", true);
     branchLabel_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -166,24 +174,17 @@ GitChangesPanel::GitChangesPanel(QWidget* parent) : QWidget(parent) {
     commitLayout->addWidget(ui::makeDivider(commitPage_));
 
     cleanState_ = new QWidget(commitPage_);
+    cleanState_->setProperty("gitEmptyState", true);
     auto* cleanLayout = new QVBoxLayout(cleanState_);
-    cleanLayout->setContentsMargins(12, 24, 12, 24);
+    cleanLayout->setContentsMargins(20, 32, 20, 32);
     cleanLayout->setAlignment(Qt::AlignCenter);
-    auto* check = new QLabel(QStringLiteral("✓"), cleanState_);
+    cleanLayout->setSpacing(10);
+    // Matches ChangesSidebarView: Image(systemName: "checkmark.circle") in success green.
+    auto* check = new QLabel(cleanState_);
     check->setAlignment(Qt::AlignCenter);
-    check->setFixedSize(72, 72);
-    {
-        QFont font = check->font();
-        font.setPointSize(28);
-        font.setBold(true);
-        check->setFont(font);
-    }
-    check->setStyleSheet(QStringLiteral(
-        "QLabel {"
-        "  color: white;"
-        "  background-color: %1;"
-        "  border-radius: 36px;"
-        "}").arg(ui::Theme::rgba(ui::Theme::success())));
+    check->setFixedSize(40, 40);
+    check->setPixmap(ui::drawnIcon(QStringLiteral("checkmark"), 36, ui::Theme::success())
+                         .pixmap(36, 36));
     cleanLabel_ = new QLabel(QStringLiteral("Working tree is clean"), cleanState_);
     cleanLabel_->setAlignment(Qt::AlignCenter);
     cleanLabel_->setStyleSheet(
@@ -192,6 +193,28 @@ GitChangesPanel::GitChangesPanel(QWidget* parent) : QWidget(parent) {
     cleanLayout->addWidget(check, 0, Qt::AlignHCenter);
     cleanLayout->addWidget(cleanLabel_);
     commitLayout->addWidget(cleanState_, 1);
+
+    noRepositoryState_ = new QWidget(commitPage_);
+    noRepositoryState_->setProperty("gitEmptyState", true);
+    auto* noRepoLayout = new QVBoxLayout(noRepositoryState_);
+    noRepoLayout->setContentsMargins(24, 32, 24, 32);
+    noRepoLayout->setAlignment(Qt::AlignCenter);
+    noRepoLayout->setSpacing(10);
+    auto* noRepoIcon = new QLabel(noRepositoryState_);
+    noRepoIcon->setAlignment(Qt::AlignCenter);
+    noRepoIcon->setPixmap(ui::IdeaIcons::pixmap(QStringLiteral("toolwindows/toolWindowVcs.svg"),
+                                                30, ui::Theme::secondaryText()));
+    auto* noRepoLabel = new QLabel(QStringLiteral("This project is not a Git repository"),
+                                   noRepositoryState_);
+    noRepoLabel->setAlignment(Qt::AlignCenter);
+    noRepoLabel->setWordWrap(true);
+    noRepoLabel->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 13px;")
+            .arg(ui::Theme::rgba(ui::Theme::secondaryText())));
+    noRepoLayout->addWidget(noRepoIcon, 0, Qt::AlignHCenter);
+    noRepoLayout->addWidget(noRepoLabel);
+    noRepositoryState_->setVisible(false);
+    commitLayout->addWidget(noRepositoryState_, 1);
 
     conflictEmptyLabel_ = new QLabel(
         QStringLiteral("No files match the conflict filter."), commitPage_);
@@ -218,11 +241,16 @@ GitChangesPanel::GitChangesPanel(QWidget* parent) : QWidget(parent) {
     composerLayout->setSpacing(12);
 
     auto* composerTop = new QHBoxLayout();
-    composerTop->setSpacing(10);
+    composerTop->setSpacing(8);
     amendCheck_ = new QCheckBox(QStringLiteral("Amend"), composer);
-    aiButton_ = new QPushButton(QStringLiteral("AI"), composer);
-    aiButton_->setProperty("secondaryAction", true);
-    aiButton_->setFixedWidth(56);
+    aiButton_ = new QPushButton(composer);
+    aiButton_->setProperty("aiAction", true);
+    aiButton_->setCursor(Qt::PointingHandCursor);
+    aiButton_->setToolTip(QStringLiteral("Generate a commit message from staged diffs"));
+    aiButton_->setIcon(ui::drawnIcon(QStringLiteral("wand"), 14, ui::Theme::primaryText()));
+    aiButton_->setIconSize(QSize(14, 14));
+    aiButton_->setText(QStringLiteral(" AI"));
+    aiButton_->setFixedHeight(24);
     stagedCountLabel_ = new QLabel(QStringLiteral("0 staged"), composer);
     stagedCountLabel_->setProperty("gitMeta", true);
     composerTop->addWidget(amendCheck_);
@@ -232,20 +260,23 @@ GitChangesPanel::GitChangesPanel(QWidget* parent) : QWidget(parent) {
     composerLayout->addLayout(composerTop);
 
     commitEditor_ = new QPlainTextEdit(composer);
-    commitEditor_->setPlaceholderText(QStringLiteral("Commit message"));
-    commitEditor_->setMinimumHeight(70);
-    commitEditor_->setMaximumHeight(140);
-    composerLayout->addWidget(commitEditor_);
+    commitEditor_->setPlaceholderText(QStringLiteral("Commit Message"));
+    commitEditor_->setMinimumHeight(56);
+    commitEditor_->setMaximumHeight(120);
+    composerLayout->addWidget(commitEditor_, 1);
 
     auto* composerActions = new QHBoxLayout();
-    composerActions->setSpacing(10);
+    composerActions->setSpacing(8);
     commitButton_ = new QPushButton(QStringLiteral("Commit"), composer);
     commitAndPushButton_ = new QPushButton(QStringLiteral("Commit and Push…"), composer);
     commitButton_->setProperty("secondaryAction", true);
     commitAndPushButton_->setProperty("secondaryAction", true);
-    settingsButton_ = new QPushButton(QStringLiteral("⚙"), composer);
+    settingsButton_ = new QPushButton(composer);
     settingsButton_->setFlat(true);
-    settingsButton_->setFixedSize(32, 32);
+    settingsButton_->setFixedSize(28, 28);
+    settingsButton_->setIcon(ui::IdeaIcons::icon(QStringLiteral("general/gear.svg"), 16,
+                                                 ui::Theme::secondaryText()));
+    settingsButton_->setIconSize(QSize(16, 16));
     settingsButton_->setToolTip(QStringLiteral("Open AI and commit settings"));
     settingsButton_->setCursor(Qt::PointingHandCursor);
     composerActions->addWidget(commitButton_);
@@ -259,39 +290,96 @@ GitChangesPanel::GitChangesPanel(QWidget* parent) : QWidget(parent) {
 
     shelfPage_ = new QWidget(pages_);
     auto* shelfLayout = new QVBoxLayout(shelfPage_);
-    shelfLayout->setContentsMargins(10, 10, 10, 10);
-    shelfLayout->setSpacing(8);
+    shelfLayout->setContentsMargins(0, 0, 0, 0);
+    shelfLayout->setSpacing(0);
+
+    auto* shelfComposer = new QWidget(shelfPage_);
+    shelfComposer->setProperty("gitToolHeader", true);
+    ui::applyToolHeaderBackground(shelfComposer);
+    auto* shelfComposerLayout = new QHBoxLayout(shelfComposer);
+    shelfComposerLayout->setContentsMargins(8, 8, 8, 8);
+    shelfComposerLayout->setSpacing(6);
+    shelfMessageEdit_ = new QLineEdit(shelfComposer);
+    shelfMessageEdit_->setPlaceholderText(QStringLiteral("Save message"));
+    shelfMessageEdit_->setText(QStringLiteral("WIP"));
+    includeUntrackedCheck_ = new QCheckBox(QStringLiteral("Untracked"), shelfComposer);
+    includeUntrackedCheck_->setChecked(true);
+    createStashButton_ = new QPushButton(QStringLiteral("Stash"), shelfComposer);
+    createShelfButton_ = new QPushButton(QStringLiteral("Shelf"), shelfComposer);
+    createStashButton_->setProperty("primaryAction", true);
+    createShelfButton_->setProperty("secondaryAction", true);
+    shelfComposerLayout->addWidget(shelfMessageEdit_, 1);
+    shelfComposerLayout->addWidget(includeUntrackedCheck_);
+    shelfComposerLayout->addWidget(createStashButton_);
+    shelfComposerLayout->addWidget(createShelfButton_);
+    shelfLayout->addWidget(shelfComposer);
+    shelfLayout->addWidget(ui::makeDivider(shelfPage_));
+
+    shelfEmptyState_ = new QWidget(shelfPage_);
+    shelfEmptyState_->setProperty("gitEmptyState", true);
+    auto* shelfEmptyLayout = new QVBoxLayout(shelfEmptyState_);
+    shelfEmptyLayout->setContentsMargins(20, 28, 20, 28);
+    shelfEmptyLayout->setAlignment(Qt::AlignCenter);
+    shelfEmptyLayout->setSpacing(8);
+    auto* shelfEmptyIcon = new QLabel(QStringLiteral("▭"), shelfEmptyState_);
+    shelfEmptyIcon->setAlignment(Qt::AlignCenter);
+    shelfEmptyIcon->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 26px;")
+            .arg(ui::Theme::rgba(ui::Theme::secondaryText())));
+    auto* shelfEmptyTitle = new QLabel(QStringLiteral("No saved changes"), shelfEmptyState_);
+    shelfEmptyTitle->setAlignment(Qt::AlignCenter);
+    shelfEmptyTitle->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 13px;")
+            .arg(ui::Theme::rgba(ui::Theme::secondaryText())));
+    auto* shelfEmptyHint = new QLabel(
+        QStringLiteral("Stash or shelf changes here to switch branches safely."),
+        shelfEmptyState_);
+    shelfEmptyHint->setAlignment(Qt::AlignCenter);
+    shelfEmptyHint->setWordWrap(true);
+    shelfEmptyHint->setStyleSheet(
+        QStringLiteral("color: %1; font-size: 11.5px;")
+            .arg(ui::Theme::rgba(ui::Theme::tertiaryText())));
+    shelfEmptyLayout->addWidget(shelfEmptyIcon);
+    shelfEmptyLayout->addWidget(shelfEmptyTitle);
+    shelfEmptyLayout->addWidget(shelfEmptyHint);
+    shelfLayout->addWidget(shelfEmptyState_, 1);
+
+    shelfListsPage_ = new QWidget(shelfPage_);
+    auto* shelfListsLayout = new QVBoxLayout(shelfListsPage_);
+    shelfListsLayout->setContentsMargins(8, 8, 8, 8);
+    shelfListsLayout->setSpacing(6);
+
     auto* shelfHeader = new QHBoxLayout();
-    auto* shelvesTitle = new QLabel(QStringLiteral("Lithe Shelves"), shelfPage_);
-    shelvesTitle->setProperty("gitMeta", true);
-    shelfHeader->addWidget(shelvesTitle);
+    shelvesTitle_ = new QLabel(QStringLiteral("Lithe Shelves"), shelfListsPage_);
+    shelvesTitle_->setProperty("gitMeta", true);
+    shelfHeader->addWidget(shelvesTitle_);
     shelfHeader->addStretch(1);
-    refreshShelfButton_ = new QPushButton(QStringLiteral("Refresh"), shelfPage_);
+    refreshShelfButton_ = new QPushButton(QStringLiteral("Refresh"), shelfListsPage_);
     refreshShelfButton_->setProperty("secondaryAction", true);
     shelfHeader->addWidget(refreshShelfButton_);
-    shelfLayout->addLayout(shelfHeader);
+    shelfListsLayout->addLayout(shelfHeader);
 
-    shelvesList_ = new QListWidget(shelfPage_);
-    shelfLayout->addWidget(shelvesList_, 1);
+    shelvesList_ = new QListWidget(shelfListsPage_);
+    shelfListsLayout->addWidget(shelvesList_, 1);
     auto* shelfActions = new QHBoxLayout();
-    applyShelfButton_ = new QPushButton(QStringLiteral("Apply"), shelfPage_);
-    dropShelfButton_ = new QPushButton(QStringLiteral("Drop"), shelfPage_);
+    applyShelfButton_ = new QPushButton(QStringLiteral("Restore"), shelfListsPage_);
+    dropShelfButton_ = new QPushButton(QStringLiteral("Drop"), shelfListsPage_);
     applyShelfButton_->setProperty("secondaryAction", true);
     dropShelfButton_->setProperty("secondaryAction", true);
     shelfActions->addWidget(applyShelfButton_);
     shelfActions->addWidget(dropShelfButton_);
     shelfActions->addStretch(1);
-    shelfLayout->addLayout(shelfActions);
+    shelfListsLayout->addLayout(shelfActions);
 
-    auto* stashesTitle = new QLabel(QStringLiteral("Git Stashes"), shelfPage_);
-    stashesTitle->setProperty("gitMeta", true);
-    shelfLayout->addWidget(stashesTitle);
-    stashesList_ = new QListWidget(shelfPage_);
-    shelfLayout->addWidget(stashesList_, 1);
+    stashesTitle_ = new QLabel(QStringLiteral("Git Stashes"), shelfListsPage_);
+    stashesTitle_->setProperty("gitMeta", true);
+    shelfListsLayout->addWidget(stashesTitle_);
+    stashesList_ = new QListWidget(shelfListsPage_);
+    shelfListsLayout->addWidget(stashesList_, 1);
     auto* stashActions = new QHBoxLayout();
-    applyStashButton_ = new QPushButton(QStringLiteral("Apply"), shelfPage_);
-    popStashButton_ = new QPushButton(QStringLiteral("Pop"), shelfPage_);
-    dropStashButton_ = new QPushButton(QStringLiteral("Drop"), shelfPage_);
+    applyStashButton_ = new QPushButton(QStringLiteral("Apply"), shelfListsPage_);
+    popStashButton_ = new QPushButton(QStringLiteral("Pop"), shelfListsPage_);
+    dropStashButton_ = new QPushButton(QStringLiteral("Drop"), shelfListsPage_);
     for (auto* button : {applyStashButton_, popStashButton_, dropStashButton_}) {
         button->setProperty("secondaryAction", true);
     }
@@ -299,7 +387,9 @@ GitChangesPanel::GitChangesPanel(QWidget* parent) : QWidget(parent) {
     stashActions->addWidget(popStashButton_);
     stashActions->addWidget(dropStashButton_);
     stashActions->addStretch(1);
-    shelfLayout->addLayout(stashActions);
+    shelfListsLayout->addLayout(stashActions);
+    shelfListsPage_->setVisible(false);
+    shelfLayout->addWidget(shelfListsPage_, 1);
     pages_->addWidget(shelfPage_);
 
     connect(commitTabButton_, &QPushButton::clicked, this, [this] { selectTab(0); });
@@ -329,7 +419,13 @@ GitChangesPanel::GitChangesPanel(QWidget* parent) : QWidget(parent) {
             [this](QTreeWidgetItem* item, int) {
         if (item == nullptr) return;
         const auto path = item->data(0, RelativePathRole).toString();
-        if (!path.isEmpty()) emit changeActivated(path);
+        if (path.isEmpty()) return;
+        selectedChangePath_ = path;
+        discardButton_->setEnabled(true);
+        const auto staged = item->data(0, ChangeStagedRole).toBool();
+        const auto untracked = item->data(0, ChangeUntrackedRole).toBool();
+        emit changeSelected(path, staged, untracked);
+        emit changeActivated(path);
     });
     connect(changesTree_, &QTreeWidget::itemClicked, this, &GitChangesPanel::onChangeItemClicked);
     connect(changesTree_, &QTreeWidget::itemChanged, this, &GitChangesPanel::onChangeItemChanged);
@@ -361,6 +457,20 @@ GitChangesPanel::GitChangesPanel(QWidget* parent) : QWidget(parent) {
     connect(refreshShelfButton_, &QPushButton::clicked, this, [this] {
         emit refreshShelvesRequested();
         emit refreshStashesRequested();
+    });
+    connect(createStashButton_, &QPushButton::clicked, this, [this] {
+        const auto message = shelfMessageEdit_ == nullptr
+            ? QStringLiteral("WIP")
+            : shelfMessageEdit_->text().trimmed();
+        emit createStashRequested(
+            message.isEmpty() ? QStringLiteral("WIP") : message,
+            includeUntrackedCheck_ != nullptr && includeUntrackedCheck_->isChecked());
+    });
+    connect(createShelfButton_, &QPushButton::clicked, this, [this] {
+        const auto message = shelfMessageEdit_ == nullptr
+            ? QStringLiteral("WIP")
+            : shelfMessageEdit_->text().trimmed();
+        emit createShelfRequested(message.isEmpty() ? QStringLiteral("WIP") : message);
     });
 }
 
@@ -402,14 +512,37 @@ void GitChangesPanel::applyState(const app::GitFeatureState& state) {
     updateOperationBar(state);
     updateStashRestoreNotice(state);
     updateBranchLabel(state);
+
+    const auto messageLower = state.error
+        ? QString::fromStdString(state.error->message).toLower()
+        : QString();
+    const bool explicitlyMissing = state.error.has_value() &&
+        (messageLower.contains(QStringLiteral("not a git repository")) ||
+         messageLower.contains(QStringLiteral("not a repository")));
+    if (noRepositoryState_ != nullptr) {
+        noRepositoryState_->setVisible(explicitlyMissing);
+    }
+
     if (state.status && !state.isLoadingStatus) {
         rebuildChangesTree(state);
+        if (noRepositoryState_ != nullptr) noRepositoryState_->setVisible(false);
+    } else if (explicitlyMissing) {
+        if (cleanState_ != nullptr) cleanState_->setVisible(false);
+        if (changesTree_ != nullptr) changesTree_->setVisible(false);
+        if (conflictEmptyLabel_ != nullptr) conflictEmptyLabel_->setVisible(false);
     }
+
     rebuildShelfList(state);
     if (state.stashes && !state.isLoadingStashes) {
         rebuildStashList(state);
+    } else {
+        syncShelfEmptyState(state);
     }
     updateCommitActions(state);
+
+    const bool hasChanges = state.status && !state.status->changes.empty();
+    if (createStashButton_ != nullptr) createStashButton_->setEnabled(hasChanges);
+    if (createShelfButton_ != nullptr) createShelfButton_->setEnabled(hasChanges);
 }
 
 void GitChangesPanel::updateBranchLabel(const app::GitFeatureState& state) {
@@ -505,6 +638,7 @@ void GitChangesPanel::rebuildChangesTree(const app::GitFeatureState& state) {
             item->setText(0, label);
             item->setData(0, RelativePathRole, path);
             item->setData(0, ChangeStagedRole, change->staged);
+            item->setData(0, ChangeUntrackedRole, change->untracked);
             item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
             item->setCheckState(0, change->staged ? Qt::Checked : Qt::Unchecked);
             item->setForeground(0, QBrush(statusColor(change->status)));
@@ -522,11 +656,19 @@ void GitChangesPanel::rebuildChangesTree(const app::GitFeatureState& state) {
     suppressingChangeSignals_ = false;
 }
 
+void GitChangesPanel::syncShelfEmptyState(const app::GitFeatureState& state) {
+    const bool hasShelves = !state.shelves.empty();
+    const bool hasStashes = state.stashes && !state.stashes->stashes.empty();
+    const bool hasAny = hasShelves || hasStashes;
+    if (shelfEmptyState_ != nullptr) shelfEmptyState_->setVisible(!hasAny);
+    if (shelfListsPage_ != nullptr) shelfListsPage_->setVisible(hasAny);
+}
+
 void GitChangesPanel::rebuildShelfList(const app::GitFeatureState& state) {
     shelvesList_->clear();
     for (const auto& shelf : state.shelves) {
         auto* item = new QListWidgetItem(
-            QStringLiteral("%1  (%2 file(s))")
+            QStringLiteral("▦  %1\n     %2 file(s)")
                 .arg(fromUtf8(shelf.message))
                 .arg(static_cast<qulonglong>(shelf.paths.size())),
             shelvesList_);
@@ -535,14 +677,21 @@ void GitChangesPanel::rebuildShelfList(const app::GitFeatureState& state) {
     }
     applyShelfButton_->setEnabled(shelvesList_->count() > 0);
     dropShelfButton_->setEnabled(shelvesList_->count() > 0);
+    if (shelvesTitle_ != nullptr) {
+        shelvesTitle_->setVisible(shelvesList_->count() > 0);
+    }
+    syncShelfEmptyState(state);
 }
 
 void GitChangesPanel::rebuildStashList(const app::GitFeatureState& state) {
     stashesList_->clear();
     for (const auto& stash : state.stashes->stashes) {
+        const auto title = stash.message.empty()
+            ? fromUtf8(stash.reference)
+            : fromUtf8(stash.message);
         auto* item = new QListWidgetItem(
-            QStringLiteral("%1  %2")
-                .arg(fromUtf8(stash.reference), fromUtf8(stash.message)),
+            QStringLiteral("▣  %1\n     %2")
+                .arg(title, fromUtf8(stash.reference)),
             stashesList_);
         item->setData(StashReferenceRole, fromUtf8(stash.reference));
     }
@@ -550,6 +699,8 @@ void GitChangesPanel::rebuildStashList(const app::GitFeatureState& state) {
     applyStashButton_->setEnabled(has);
     popStashButton_->setEnabled(has);
     dropStashButton_->setEnabled(has);
+    if (stashesTitle_ != nullptr) stashesTitle_->setVisible(has);
+    syncShelfEmptyState(state);
 }
 
 void GitChangesPanel::updateCommitActions(const app::GitFeatureState& state) {
@@ -569,11 +720,21 @@ void GitChangesPanel::updateCommitActions(const app::GitFeatureState& state) {
 }
 
 void GitChangesPanel::onChangeItemClicked(QTreeWidgetItem* item, int) {
-    if (item == nullptr) return;
+    if (item == nullptr || changesTree_ == nullptr) return;
     const auto path = item->data(0, RelativePathRole).toString();
     if (path.isEmpty()) return;
     selectedChangePath_ = path;
     discardButton_->setEnabled(true);
+
+    // Checkbox hits should only stage/unstage (itemChanged). Row body matches
+    // macOS change-row Button → selectChange / open Diff.
+    const auto pos = changesTree_->viewport()->mapFromGlobal(QCursor::pos());
+    const QRect itemRect = changesTree_->visualItemRect(item);
+    if (pos.x() <= itemRect.left() + 28) return;
+
+    const auto staged = item->data(0, ChangeStagedRole).toBool();
+    const auto untracked = item->data(0, ChangeUntrackedRole).toBool();
+    emit changeSelected(path, staged, untracked);
 }
 
 void GitChangesPanel::onChangeItemChanged(QTreeWidgetItem* item, int column) {

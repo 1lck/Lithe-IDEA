@@ -39,5 +39,6 @@ QToolButton* makeIconButton(QWidget* parent, const QString& tooltip, const QStri
 QPushButton* makeTabButton(QWidget* parent, const QString& text);
 void setTabButtonChecked(QPushButton* button, bool checked);
 QString gitPanelStyleSheet();
+QString litheDialogStyleSheet();
 
 } // namespace lithe::windows::ui

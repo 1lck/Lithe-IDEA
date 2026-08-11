@@ -4,6 +4,8 @@
 #include "diff_split_layout.h"
 #include "diff_split_widget.h"
 #include "workbench_code_editor.h"
+#include "workbench_icons.h"
+#include "workbench_ui_theme.h"
 #include "win32_file_storage.h"
 
 #include <QAction>
@@ -271,35 +273,120 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
         });
 
     auto* central = new QWidget(this);
+    central->setObjectName(QStringLiteral("WorkbenchCentral"));
+    central->setStyleSheet(QStringLiteral(
+        "QWidget#WorkbenchCentral {"
+        "  background-color: %1;"
+        "  color: %2;"
+        "}"
+        "QSplitter::handle {"
+        "  background-color: %3;"
+        "}"
+        "QSplitter::handle:hover {"
+        "  background-color: rgba(79, 148, 250, 90);"
+        "}"
+        "QStatusBar {"
+        "  background-color: %4;"
+        "  color: %5;"
+        "}"
+        "QTabBar::tab {"
+        "  background: %4;"
+        "  color: %5;"
+        "  padding: 6px 12px;"
+        "  border: none;"
+        "  border-top-left-radius: 4px;"
+        "  border-top-right-radius: 4px;"
+        "  margin-right: 2px;"
+        "}"
+        "QTabBar::tab:selected {"
+        "  background: %6;"
+        "  color: %2;"
+        "  border-bottom: 2px solid %7;"
+        "}")
+        .arg(ui::Theme::rgba(ui::Theme::sidebar()),
+             ui::Theme::rgba(ui::Theme::primaryText()),
+             ui::Theme::rgba(ui::Theme::divider()),
+             ui::Theme::rgba(ui::Theme::toolHeader()),
+             ui::Theme::rgba(ui::Theme::secondaryText()),
+             ui::Theme::rgba(ui::Theme::editor()),
+             ui::Theme::rgba(ui::Theme::accent())));
     auto* layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
     auto* mainSplitter = new QSplitter(Qt::Horizontal, central);
 
     auto* activityBar = new QWidget(mainSplitter);
-    activityBar->setFixedWidth(44);
+    activityBar->setObjectName(QStringLiteral("ActivityBar"));
+    activityBar->setFixedWidth(48);
+    activityBar->setStyleSheet(QStringLiteral(
+        "QWidget#ActivityBar {"
+        "  background-color: %1;"
+        "  border-right: 1px solid %2;"
+        "}"
+        "QWidget#ActivityBar QToolButton {"
+        "  background: transparent;"
+        "  border: none;"
+        "  border-radius: 8px;"
+        "  color: %3;"
+        "  font-size: 15px;"
+        "}"
+        "QWidget#ActivityBar QToolButton:hover {"
+        "  background-color: rgba(255, 255, 255, 14);"
+        "  color: %4;"
+        "}"
+        "QWidget#ActivityBar QToolButton:checked {"
+        "  background-color: %5;"
+        "  color: %4;"
+        "}")
+        .arg(ui::Theme::rgba(ui::Theme::toolHeader()),
+             ui::Theme::rgba(ui::Theme::divider()),
+             ui::Theme::rgba(ui::Theme::secondaryText()),
+             ui::Theme::rgba(ui::Theme::primaryText()),
+             ui::Theme::rgba(ui::Theme::subtleSelection())));
     auto* activityLayout = new QVBoxLayout(activityBar);
-    activityLayout->setContentsMargins(4, 8, 4, 8);
-    activityLayout->setSpacing(6);
+    activityLayout->setContentsMargins(6, 10, 6, 10);
+    activityLayout->setSpacing(8);
     projectSidebarButton_ = new QToolButton(activityBar);
-    projectSidebarButton_->setText(QStringLiteral("Prj"));
     projectSidebarButton_->setToolTip(QStringLiteral("Project"));
     projectSidebarButton_->setCheckable(true);
     projectSidebarButton_->setChecked(true);
-    projectSidebarButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    projectSidebarButton_->setFixedSize(40, 34);
+    projectSidebarButton_->setAutoRaise(true);
+    projectSidebarButton_->setFocusPolicy(Qt::NoFocus);
+    ui::IdeaIcons::applyToToolButton(
+        projectSidebarButton_,
+        QStringLiteral("toolwindows/toolWindowProject.svg"),
+        16,
+        ui::Theme::primaryText());
     changesSidebarButton_ = new QToolButton(activityBar);
-    changesSidebarButton_->setText(QStringLiteral("Git"));
     changesSidebarButton_->setToolTip(QStringLiteral("Commit / Shelf"));
     changesSidebarButton_->setCheckable(true);
-    changesSidebarButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    changesSidebarButton_->setFixedSize(40, 34);
+    changesSidebarButton_->setAutoRaise(true);
+    changesSidebarButton_->setFocusPolicy(Qt::NoFocus);
+    // macOS SidebarDestination.changes → toolwindows/toolWindowCommit.svg
+    ui::IdeaIcons::applyToToolButton(
+        changesSidebarButton_,
+        QStringLiteral("toolwindows/toolWindowCommit.svg"),
+        16,
+        ui::Theme::secondaryText());
     gitLogButton_ = new QToolButton(activityBar);
-    gitLogButton_->setText(QStringLiteral("Log"));
     gitLogButton_->setToolTip(QStringLiteral("Git Log"));
     gitLogButton_->setCheckable(true);
-    gitLogButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    gitLogButton_->setFixedSize(40, 34);
+    gitLogButton_->setAutoRaise(true);
+    gitLogButton_->setFocusPolicy(Qt::NoFocus);
+    // macOS activity Git tool → toolwindows/toolWindowVcs.svg
+    ui::IdeaIcons::applyToToolButton(
+        gitLogButton_,
+        QStringLiteral("toolwindows/toolWindowVcs.svg"),
+        16,
+        ui::Theme::secondaryText());
     activityLayout->addWidget(projectSidebarButton_);
     activityLayout->addWidget(changesSidebarButton_);
     activityLayout->addWidget(gitLogButton_);
     activityLayout->addStretch(1);
+    // Do not put Git Log into the exclusive group — it toggles the bottom tool
+    // window independently of the left sidebar destination (same as macOS).
     auto* sidebarGroup = new QButtonGroup(activityBar);
     sidebarGroup->setExclusive(true);
     sidebarGroup->addButton(projectSidebarButton_, 0);
@@ -383,33 +470,34 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     connect(gitRefreshTimer_, &QTimer::timeout,
             this, &WorkbenchWindow::refreshGitStatus);
 
-    auto* mavenControls = new QWidget(right);
-    auto* mavenLayout = new QHBoxLayout(mavenControls);
+    mavenControls_ = new QWidget(right);
+    mavenControls_->setObjectName(QStringLiteral("MavenControls"));
+    auto* mavenLayout = new QHBoxLayout(mavenControls_);
     mavenLayout->setContentsMargins(0, 0, 0, 0);
-    auto* mavenLabel = new QLabel("Maven", mavenControls);
+    auto* mavenLabel = new QLabel("Maven", mavenControls_);
     mavenLayout->addWidget(mavenLabel);
     for (const auto& phase : {QStringLiteral("clean"), QStringLiteral("test"),
                               QStringLiteral("package"), QStringLiteral("verify")}) {
-        auto* action = new QPushButton(phase, mavenControls);
+        auto* action = new QPushButton(phase, mavenControls_);
         mavenLayout->addWidget(action);
         connect(action, &QPushButton::clicked, this, [this, phase] {
             runMavenPhase(phase);
         });
     }
-    auto* stopMaven = new QPushButton("Stop", mavenControls);
+    auto* stopMaven = new QPushButton("Stop", mavenControls_);
     mavenLayout->addWidget(stopMaven);
     connect(stopMaven, &QPushButton::clicked, this, &WorkbenchWindow::stopMavenBuild);
-    auto* runJava = new QPushButton("Run Java", mavenControls);
+    auto* runJava = new QPushButton("Run Java", mavenControls_);
     mavenLayout->addWidget(runJava);
     connect(runJava, &QPushButton::clicked, this, &WorkbenchWindow::runCurrentJava);
-    auto* runSpring = new QPushButton("Run Spring", mavenControls);
+    auto* runSpring = new QPushButton("Run Spring", mavenControls_);
     mavenLayout->addWidget(runSpring);
     connect(runSpring, &QPushButton::clicked, this, &WorkbenchWindow::runSpringBoot);
-    auto* stopJava = new QPushButton("Stop Java", mavenControls);
+    auto* stopJava = new QPushButton("Stop Java", mavenControls_);
     mavenLayout->addWidget(stopJava);
     connect(stopJava, &QPushButton::clicked, this, &WorkbenchWindow::stopJavaRun);
     mavenLayout->addStretch(1);
-    rightLayout->addWidget(mavenControls);
+    rightLayout->addWidget(mavenControls_);
 
     mavenOutput_ = new QPlainTextEdit(right);
     mavenOutput_->setReadOnly(true);
@@ -1640,12 +1728,13 @@ void WorkbenchWindow::loadGitStashes() {
 
 void WorkbenchWindow::compareGitReference() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    bool accepted = false;
-    const auto reference = QInputDialog::getText(
-        this, QStringLiteral("Compare Git Reference"),
+    const auto referenceOpt = showGitTextInputDialog(
+        this,
+        QStringLiteral("Compare Git Reference"),
         QStringLiteral("Reference (branch, tag, or commit):"),
-        QLineEdit::Normal, QStringLiteral("HEAD~1"), &accepted).trimmed();
-    if (!accepted || reference.isEmpty()) return;
+        QStringLiteral("HEAD~1"));
+    if (!referenceOpt) return;
+    const auto reference = *referenceOpt;
     diffIsCommitReview_ = false;
     gitFeature_->loadComparison(reference.toStdString(),
         [this, reference](app::GitFeatureState state) {
@@ -1681,11 +1770,12 @@ void WorkbenchWindow::switchGitReference() {
 
 void WorkbenchWindow::createGitBranch() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    bool accepted = false;
-    const auto name = QInputDialog::getText(
-        this, QStringLiteral("Create Git Branch"), QStringLiteral("Branch name:"),
-        QLineEdit::Normal, QString(), &accepted).trimmed();
-    if (!accepted || name.isEmpty()) return;
+    const auto nameOpt = showGitTextInputDialog(
+        this,
+        QStringLiteral("Create Git Branch"),
+        QStringLiteral("Branch name:"));
+    if (!nameOpt) return;
+    const auto name = *nameOpt;
 
     GitWriteRequestDto request;
     request.operation = "createBranch";
@@ -1742,16 +1832,16 @@ std::optional<GitReferenceDto> WorkbenchWindow::pickGitReference(const QString& 
     }
     if (excludeCurrent && preferredIndex >= 0) currentIndex = preferredIndex;
 
-    bool accepted = false;
-    const auto selected = QInputDialog::getItem(
-        this, title, QStringLiteral("Reference:"),
-        choices, currentIndex, false, &accepted);
-    if (!accepted || selected.isEmpty()) return std::nullopt;
-    const auto index = choices.indexOf(selected);
-    if (index < 0 || index >= static_cast<int>(choiceIndexes.size())) {
+    const auto picked = showGitReferencePickerDialog(
+        this,
+        title,
+        QStringLiteral("Choose a Git reference to continue."),
+        choices,
+        currentIndex);
+    if (!picked || *picked < 0 || *picked >= static_cast<int>(choiceIndexes.size())) {
         return std::nullopt;
     }
-    return state.history->references[choiceIndexes[static_cast<std::size_t>(index)]];
+    return state.history->references[choiceIndexes[static_cast<std::size_t>(*picked)]];
 }
 
 void WorkbenchWindow::pickGitReferenceAsync(
@@ -2444,12 +2534,16 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
             applyDocumentState(state);
         }, Qt::QueuedConnection);
     });
-    gitFeature_->loadDiff({activePath_.toUtf8().toStdString()}, false, false,
-        [this](app::GitFeatureState state) {
-        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
-            applyGitState(state);
-        }, Qt::QueuedConnection);
-    });
+    // Only auto-load working-tree diff when opening from the project tree and
+    // the Diff review surface is already being presented.
+    if (presentDiffReview_) {
+        gitFeature_->loadDiff({activePath_.toUtf8().toStdString()}, false, false,
+            [this](app::GitFeatureState state) {
+            QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+                applyGitState(state);
+            }, Qt::QueuedConnection);
+        });
+    }
     historyFeature_->loadEntries(activePath_.toUtf8().toStdString(),
         [this](app::HistoryFeatureState state) {
         QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
@@ -2465,6 +2559,46 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
             }, Qt::QueuedConnection);
         });
     }
+}
+
+void WorkbenchWindow::openGitChangeDiff(const QString& path, bool staged, bool untracked) {
+    if (path.isEmpty() || !gitFeature_ || workspaceRoot_.isEmpty()) return;
+    presentDiffReview_ = true;
+    diffIsCommitReview_ = false;
+    selectedDiffHunk_.clear();
+    expandedDiffRegions_.clear();
+    activePath_ = path;
+    if (editorTabs_ != nullptr) {
+        const auto tab = ensureEditorTab(path);
+        if (tab >= 0) {
+            QSignalBlocker blocker(editorTabs_);
+            editorTabs_->setCurrentIndex(tab);
+        }
+    }
+    // Open the document for context when it exists; deleted/untracked files may fail.
+    if (auto* item = findTreeItem(path)) {
+        if (!item->data(0, DirectoryRole).toBool()) {
+            documentFeature_->open(path.toUtf8().toStdString(),
+                [this, path](app::DocumentFeatureState state) {
+                QMetaObject::invokeMethod(this, [this, path,
+                                                  state = std::move(state)]() mutable {
+                    if (!sameRelativePath(path, activePath_)) return;
+                    applyDocumentState(state);
+                }, Qt::QueuedConnection);
+            });
+        }
+    }
+    gitFeature_->loadDiff({path.toUtf8().toStdString()}, staged, untracked,
+        [this](app::GitFeatureState state) {
+        applyGitStateAsync(std::move(state));
+    });
+    if (leftSidebarStack_ != nullptr && leftSidebarStack_->currentIndex() != 1) {
+        setLeftSidebarIndex(1);
+    }
+    if (gitLogPanel_ != nullptr && !gitLogPanel_->isVisible()) {
+        setGitLogVisible(true);
+    }
+    updateWorkbenchChromeForFocus();
 }
 
 void WorkbenchWindow::toggleBlame() {
@@ -2786,10 +2920,31 @@ void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
             return slash >= 0 ? path.mid(slash + 1) : path;
         }();
         if (diffSplit_ != nullptr) {
+            QString statusBadge = QStringLiteral("MODIFIED");
+            QString modeBadge = QStringLiteral("WORKING TREE");
+            bool stagedOnly = false;
+            if (state.status) {
+                for (const auto& change : state.status->changes) {
+                    if (fromUtf8(change.path) != path) continue;
+                    const auto status = fromUtf8(change.status).toUpper();
+                    if (status.startsWith(QLatin1Char('A')) || change.untracked) {
+                        statusBadge = QStringLiteral("ADDED");
+                    } else if (status.startsWith(QLatin1Char('D'))) {
+                        statusBadge = QStringLiteral("DELETED");
+                    } else if (status.contains(QLatin1Char('U')) ||
+                               status == QStringLiteral("AA") ||
+                               status == QStringLiteral("DD")) {
+                        statusBadge = QStringLiteral("CONFLICT");
+                    } else {
+                        statusBadge = QStringLiteral("MODIFIED");
+                    }
+                    stagedOnly = change.staged && !change.untracked;
+                    break;
+                }
+            }
             if (diffIsCommitReview_) {
-                diffSplit_->setFileChrome(fileName,
-                                          QStringLiteral("MODIFIED"),
-                                          QStringLiteral("COMMIT DIFF"));
+                modeBadge = QStringLiteral("DIFF");
+                diffSplit_->setFileChrome(fileName, statusBadge, modeBadge);
                 diffSplit_->setVersionTitles(
                     QStringLiteral("Parent version"), path,
                     QStringLiteral("Commit version"), path);
@@ -2799,9 +2954,9 @@ void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
                     selectedGitCommit_.left(7), subject);
                 diffSplit_->setHunkActionsVisible(false);
             } else {
-                diffSplit_->setFileChrome(fileName,
-                                          QStringLiteral("MODIFIED"),
-                                          QStringLiteral("WORKING TREE"));
+                modeBadge = stagedOnly ? QStringLiteral("STAGED")
+                                       : QStringLiteral("WORKING TREE");
+                diffSplit_->setFileChrome(fileName, statusBadge, modeBadge);
                 diffSplit_->setVersionTitles(
                     QStringLiteral("Repository version"), path,
                     QStringLiteral("Local changes"), path);
@@ -2809,6 +2964,7 @@ void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
                 diffSplit_->setHunkActionsVisible(true);
             }
         }
+        updateWorkbenchChromeForFocus();
         statusBar()->showMessage(QString("%1 diff hunks").arg(
             static_cast<qulonglong>(state.diff->hunks.size())));
     }
@@ -2831,25 +2987,35 @@ void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
 }
 
 void WorkbenchWindow::connectGitPanels() {
-    connect(projectSidebarButton_, &QToolButton::clicked, this, &WorkbenchWindow::showProjectSidebar);
-    connect(changesSidebarButton_, &QToolButton::clicked, this, &WorkbenchWindow::showChangesSidebar);
-    connect(gitLogButton_, &QToolButton::clicked, this, &WorkbenchWindow::toggleGitLogPanel);
-
-    connect(gitChangesPanel_, &GitChangesPanel::changeActivated, this,
-            [this](const QString& path) {
-        presentDiffReview_ = true;
-        if (auto* item = findTreeItem(path)) openTreeItem(item, 0);
+    connect(projectSidebarButton_, &QToolButton::clicked, this, [this](bool) {
+        showProjectSidebar();
     });
+    connect(changesSidebarButton_, &QToolButton::clicked, this, [this](bool) {
+        showChangesSidebar();
+    });
+    connect(gitLogButton_, &QToolButton::clicked, this, [this](bool checked) {
+        // Use the post-toggle checked state from the checkable button so we do
+        // not invert visibility twice.
+        setGitLogVisible(checked);
+        if (checked && leftSidebarStack_ != nullptr &&
+            leftSidebarStack_->currentIndex() != 1) {
+            setLeftSidebarIndex(1);
+            refreshGitStatus();
+        }
+    });
+
+    connect(gitChangesPanel_, &GitChangesPanel::changeSelected, this,
+            [this](const QString& path, bool staged, bool untracked) {
+        openGitChangeDiff(path, staged, untracked);
+    });
+    // changeActivated kept for legacy listeners; single/double click both use
+    // changeSelected with staged/untracked (macOS selectChange parity).
     connect(gitChangesPanel_, &GitChangesPanel::previewFirstChangeRequested, this, [this] {
         if (!gitFeature_) return;
         const auto state = gitFeature_->state();
         if (!state.status || state.status->changes.empty()) return;
         const auto& first = state.status->changes.front();
-        const auto path = fromUtf8(first.path);
-        presentDiffReview_ = true;
-        gitFeature_->loadDiff({first.path}, first.staged, first.untracked,
-            [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-        if (auto* item = findTreeItem(path)) openTreeItem(item, 0);
+        openGitChangeDiff(fromUtf8(first.path), first.staged, first.untracked);
     });
     connect(gitChangesPanel_, &GitChangesPanel::stagePathRequested,
             this, &WorkbenchWindow::stageGitPath);
@@ -2907,6 +3073,18 @@ void WorkbenchWindow::connectGitPanels() {
             this, &WorkbenchWindow::popStashByReference);
     connect(gitChangesPanel_, &GitChangesPanel::dropStashRequested,
             this, &WorkbenchWindow::dropStashByReference);
+    connect(gitChangesPanel_, &GitChangesPanel::createStashRequested, this,
+            [this](const QString& message, bool includeUntracked) {
+        if (!gitFeature_) return;
+        gitFeature_->stash(message.toStdString(), includeUntracked,
+            [this](app::GitFeatureState state) { applyGitStateAsync(std::move(state)); });
+    });
+    connect(gitChangesPanel_, &GitChangesPanel::createShelfRequested, this,
+            [this](const QString& message) {
+        if (!gitFeature_) return;
+        gitFeature_->shelveWorkingTree(message.toStdString(),
+            [this](app::GitFeatureState state) { applyGitStateAsync(std::move(state)); });
+    });
     connect(gitChangesPanel_, &GitChangesPanel::refreshShelvesRequested, this, [this] {
         if (!gitFeature_) return;
         gitFeature_->refreshShelves([this](app::GitFeatureState state) {
@@ -2940,15 +3118,52 @@ void WorkbenchWindow::connectGitPanels() {
 void WorkbenchWindow::setLeftSidebarIndex(int index) {
     if (leftSidebarStack_ == nullptr) return;
     leftSidebarStack_->setCurrentIndex(index);
-    if (projectSidebarButton_ != nullptr) projectSidebarButton_->setChecked(index == 0);
-    if (changesSidebarButton_ != nullptr) changesSidebarButton_->setChecked(index == 1);
+    if (projectSidebarButton_ != nullptr) {
+        projectSidebarButton_->setChecked(index == 0);
+        ui::IdeaIcons::applyToToolButton(
+            projectSidebarButton_,
+            QStringLiteral("toolwindows/toolWindowProject.svg"),
+            16,
+            index == 0 ? ui::Theme::primaryText() : ui::Theme::secondaryText());
+    }
+    if (changesSidebarButton_ != nullptr) {
+        changesSidebarButton_->setChecked(index == 1);
+        ui::IdeaIcons::applyToToolButton(
+            changesSidebarButton_,
+            QStringLiteral("toolwindows/toolWindowCommit.svg"),
+            16,
+            index == 1 ? ui::Theme::primaryText() : ui::Theme::secondaryText());
+    }
+    updateWorkbenchChromeForFocus();
 }
 
 void WorkbenchWindow::setGitLogVisible(bool visible) {
     if (gitLogPanel_ == nullptr) return;
     gitLogPanel_->setVisible(visible);
-    if (gitLogButton_ != nullptr) gitLogButton_->setChecked(visible);
+    if (gitLogButton_ != nullptr) {
+        QSignalBlocker blocker(gitLogButton_);
+        gitLogButton_->setChecked(visible);
+        ui::IdeaIcons::applyToToolButton(
+            gitLogButton_,
+            QStringLiteral("toolwindows/toolWindowVcs.svg"),
+            16,
+            visible ? ui::Theme::primaryText() : ui::Theme::secondaryText());
+    }
     if (visible) loadGitHistory();
+    updateWorkbenchChromeForFocus();
+}
+
+void WorkbenchWindow::updateWorkbenchChromeForFocus() {
+    const bool gitFocus = leftSidebarStack_ != nullptr &&
+        leftSidebarStack_->currentIndex() == 1;
+    const bool hideAux = gitFocus ||
+        (diffReviewPanel_ != nullptr && editorStack_ != nullptr &&
+         editorStack_->currentWidget() == diffReviewPanel_);
+    if (mavenControls_ != nullptr) mavenControls_->setVisible(!hideAux);
+    if (mavenOutput_ != nullptr) mavenOutput_->setVisible(!hideAux);
+    if (searchField_ != nullptr) searchField_->setVisible(!hideAux);
+    if (analysisStatus_ != nullptr) analysisStatus_->setVisible(!hideAux);
+    if (diagnostics_ != nullptr && hideAux) diagnostics_->setVisible(false);
 }
 
 void WorkbenchWindow::showProjectSidebar() {
@@ -2957,6 +3172,7 @@ void WorkbenchWindow::showProjectSidebar() {
 
 void WorkbenchWindow::showChangesSidebar() {
     setLeftSidebarIndex(1);
+    setGitLogVisible(true);
     refreshGitStatus();
     if (gitFeature_) {
         gitFeature_->refreshShelves([this](app::GitFeatureState state) {
@@ -3109,6 +3325,7 @@ void WorkbenchWindow::renderDiffReview() {
             editorStack_->setCurrentWidget(editorPage_);
         }
     }
+    updateWorkbenchChromeForFocus();
 }
 
 void WorkbenchWindow::closeDiffReview() {
@@ -3119,6 +3336,7 @@ void WorkbenchWindow::closeDiffReview() {
     if (editorStack_ != nullptr && editorPage_ != nullptr) {
         editorStack_->setCurrentWidget(editorPage_);
     }
+    updateWorkbenchChromeForFocus();
 }
 
 void WorkbenchWindow::stageSelectedHunk() {
