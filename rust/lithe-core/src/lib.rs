@@ -493,6 +493,27 @@ mod tests {
         assert_eq!(read_response["data"]["lineEnding"], "lf");
         assert_eq!(read_response["data"]["hasUtf8Bom"], false);
 
+        fs::write(root.join("legacy.txt"), b"\xEF\xBB\xBFlegacy\r\n")
+            .expect("legacy file should be writable");
+        let legacy_read = core_request(
+            "file.read",
+            serde_json::json!({"root": root, "path": "legacy.txt"}),
+        );
+        assert_eq!(legacy_read["data"]["text"], "\u{feff}legacy\r\n");
+        let legacy_write = core_request(
+            "file.write",
+            serde_json::json!({
+                "root": root,
+                "path": "legacy.txt",
+                "text": legacy_read["data"]["text"]
+            }),
+        );
+        assert_eq!(legacy_write["ok"], true);
+        assert_eq!(
+            fs::read(root.join("legacy.txt")).expect("legacy file should be readable"),
+            b"\xEF\xBB\xBFlegacy\r\n"
+        );
+
         let version = read_response["data"]["version"]
             .as_str()
             .expect("read response should contain a version")
@@ -505,7 +526,8 @@ mod tests {
                 "text": "first\nsecond\n",
                 "expectedVersion": version,
                 "lineEnding": "crlf",
-                "hasUtf8Bom": true
+                "hasUtf8Bom": true,
+                "formatAware": true
             }),
         );
         assert_eq!(guarded_write["ok"], true);
@@ -516,7 +538,11 @@ mod tests {
 
         let formatted_read = core_request(
             "file.read",
-            serde_json::json!({"root": root, "path": "nested/example.txt"}),
+            serde_json::json!({
+                "root": root,
+                "path": "nested/example.txt",
+                "formatAware": true
+            }),
         );
         assert_eq!(formatted_read["data"]["text"], "first\nsecond\n");
         assert_eq!(formatted_read["data"]["lineEnding"], "crlf");
@@ -532,7 +558,8 @@ mod tests {
                 "text": "editor",
                 "expectedVersion": formatted_read["data"]["version"],
                 "lineEnding": "lf",
-                "hasUtf8Bom": false
+                "hasUtf8Bom": false,
+                "formatAware": true
             }),
         );
         assert_eq!(conflict["ok"], false);
@@ -548,7 +575,8 @@ mod tests {
                 "root": root,
                 "path": "recreated.txt",
                 "text": "restored",
-                "createOnly": true
+                "createOnly": true,
+                "formatAware": true
             }),
         );
         assert_eq!(create["ok"], true);
@@ -558,7 +586,8 @@ mod tests {
                 "root": root,
                 "path": "recreated.txt",
                 "text": "overwrite",
-                "createOnly": true
+                "createOnly": true,
+                "formatAware": true
             }),
         );
         assert_eq!(create_conflict["error"]["code"], "external_conflict");

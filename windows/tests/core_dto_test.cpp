@@ -416,6 +416,12 @@ int main() {
     assert(*objectValue(*fileWriteRequest.value, "lineEnding")->asString() == "crlf");
     assert(*objectValue(*fileWriteRequest.value, "hasUtf8Bom")->asBool());
     assert(!*objectValue(*fileWriteRequest.value, "createOnly")->asBool());
+    assert(*objectValue(*fileWriteRequest.value, "formatAware")->asBool());
+
+    const auto fileReadRequest = parseJson(
+        encodeFileReadRequest(FileReadRequestDto{"/workspace", "src/App.java"}));
+    assert(fileReadRequest.succeeded());
+    assert(*objectValue(*fileReadRequest.value, "formatAware")->asBool());
 
     const auto historyRequest = parseJson(encodeHistoryRecordRequest(HistoryRecordRequestDto{
         "/workspace", "/state", "src/Main.java", "saved", std::nullopt, true, {}, {}

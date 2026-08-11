@@ -77,7 +77,7 @@ std::string encodeReplacementPreviewRequest(const ReplacementPreviewRequestDto& 
 }
 
 std::string encodeFileReadRequest(const FileReadRequestDto& request) {
-    return encode({{"root", request.root}, {"path", request.path}});
+    return encode({{"root", request.root}, {"path", request.path}, {"formatAware", true}});
 }
 
 std::string encodeFileWriteRequest(const FileWriteRequestDto& request) {
@@ -88,6 +88,7 @@ std::string encodeFileWriteRequest(const FileWriteRequestDto& request) {
         {"lineEnding", request.lineEnding},
         {"hasUtf8Bom", request.hasUtf8Bom},
         {"createOnly", request.createOnly},
+        {"formatAware", true},
     };
     addOptional(object, "expectedVersion", request.expectedVersion);
     return encode(std::move(object));

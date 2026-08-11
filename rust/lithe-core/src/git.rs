@@ -2475,10 +2475,16 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
 }
 
 pub(crate) fn git_command() -> Command {
-    let mut command = Command::new("git");
     #[cfg(windows)]
+    {
+        let mut command = Command::new("git");
         command.creation_flags(CREATE_NO_WINDOW);
-    command
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("git")
+    }
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {

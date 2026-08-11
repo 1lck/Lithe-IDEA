@@ -28,7 +28,7 @@
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/1lck/Lithe-IDEA?style=for-the-badge&label=license" alt="Apache License 2.0"></a>
   </p>
 
-  <p>1122
+  <p>
     <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><strong>Download the latest release</strong></a> ·
     <a href="https://github.com/1lck/Lithe-IDEA">View the repository</a>
   </p>
@@ -308,4 +308,3 @@ Join the Lithe-IDEA community group to discuss the project and share feedback, o
     <td align="center"><img src="./docs/assets/contact/wechat.png" width="320" alt="Author WeChat QR code"></td>
   </tr>
 </table>
-2266

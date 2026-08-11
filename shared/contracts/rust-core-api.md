@@ -112,15 +112,20 @@ Java processes, and runtime discovery remain platform adapters.
 The protocol version is currently `1`. Add a fixture under `shared/fixtures/`
 before changing a response shape or search rule.
 
-`file.read` accepts `root` and a workspace-relative `path`. It removes an
-optional UTF-8 BOM, normalizes CRLF and CR editor text to LF, and returns
+`file.read` accepts `root`, a workspace-relative `path`, and optional
+`formatAware`. When `formatAware` is `true`, it removes an optional UTF-8 BOM,
+normalizes CRLF and CR editor text to LF, and returns
 `path`, `text`, an opaque raw-byte `version`, `lineEnding` (`lf` or `crlf`),
 and `hasUtf8Bom`. Mixed files use the dominant newline style, with LF winning
 ties. The version covers the exact disk bytes, including BOM and newlines.
+When omitted or `false`, `text` preserves the original UTF-8 content for
+compatibility with existing consumers.
 
 `file.write` accepts `root`, `path`, normalized `text`, optional
-`expectedVersion`, `lineEnding`, `hasUtf8Bom`, and `createOnly`. A mismatched
-version, a missing expected file, or an occupied create-only path returns
+`expectedVersion`, `lineEnding`, `hasUtf8Bom`, `createOnly`, and `formatAware`.
+When `formatAware` is `true`, the requested line ending and BOM are encoded;
+otherwise `text` is written as its existing UTF-8 bytes for compatibility. A
+mismatched version, a missing expected file, or an occupied create-only path returns
 `external_conflict` without changing the target. Writes use a flushed
 same-directory temporary file and atomic replacement, then return `path`,
 `bytesWritten`, and `newVersion`. `createOnly` cannot be combined with

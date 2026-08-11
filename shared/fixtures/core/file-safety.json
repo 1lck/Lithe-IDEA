@@ -1,5 +1,10 @@
 {
   "protocolVersion": 1,
+  "readRequest": {
+    "root": "C:/workspace",
+    "path": "src/App.java",
+    "formatAware": true
+  },
   "readResponse": {
     "path": "src/App.java",
     "text": "class App {}\n",
@@ -14,7 +19,8 @@
     "expectedVersion": "sha256:opaque-raw-byte-version",
     "lineEnding": "crlf",
     "hasUtf8Bom": true,
-    "createOnly": false
+    "createOnly": false,
+    "formatAware": true
   },
   "writeResponse": {
     "path": "src/App.java",

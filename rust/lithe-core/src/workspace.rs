@@ -99,6 +99,8 @@ pub struct ReplacementPreviewRequest {
 pub struct FileReadRequest {
     pub root: String,
     pub path: String,
+    #[serde(default)]
+    pub format_aware: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,6 +117,8 @@ pub struct FileWriteRequest {
     pub has_utf8_bom: bool,
     #[serde(default)]
     pub create_only: bool,
+    #[serde(default)]
+    pub format_aware: bool,
 }
 
 fn default_max_results() -> usize {
@@ -367,9 +371,16 @@ pub fn read_file(request: FileReadRequest) -> Result<FileReadResponse, CoreError
     let path = safe_relative_path(&root, &request.path)?;
     let bytes = fs::read(&path)?;
     let decoded = decode_file_bytes(&bytes)?;
+    let text = if request.format_aware {
+        decoded.text
+    } else {
+        std::str::from_utf8(&bytes)
+            .map_err(invalid_utf8_error)?
+            .to_string()
+    };
     Ok(FileReadResponse {
         path: relative_path(&path, &root),
-        text: decoded.text,
+        text,
         version: raw_version(&bytes),
         line_ending: decoded.line_ending.as_str().to_string(),
         has_utf8_bom: decoded.has_utf8_bom,
@@ -385,7 +396,11 @@ pub fn write_file(request: FileWriteRequest) -> Result<FileWriteResponse, CoreEr
             "createOnly cannot be combined with expectedVersion",
         ));
     }
-    let line_ending = LineEnding::parse(&request.line_ending)?;
+    let line_ending = if request.format_aware {
+        Some(LineEnding::parse(&request.line_ending)?)
+    } else {
+        None
+    };
     verify_write_precondition(
         &path,
         request.expected_version.as_deref(),
@@ -394,7 +409,10 @@ pub fn write_file(request: FileWriteRequest) -> Result<FileWriteResponse, CoreEr
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let bytes = encode_file_bytes(&request.text, line_ending, request.has_utf8_bom);
+    let bytes = match line_ending {
+        Some(line_ending) => encode_file_bytes(&request.text, line_ending, request.has_utf8_bom),
+        None => request.text.into_bytes(),
+    };
     let mut temporary = PendingFile::create(path.parent().unwrap_or(&root))?;
     if let Ok(metadata) = fs::metadata(&path) {
         temporary
@@ -482,10 +500,7 @@ fn decode_file_bytes(bytes: &[u8]) -> Result<DecodedFile, CoreError> {
     } else {
         bytes
     };
-    let source = std::str::from_utf8(content).map_err(|error| {
-        CoreError::new(ErrorCode::ParseFailed, "File is not valid UTF-8")
-            .with_details(error.to_string())
-    })?;
+    let source = std::str::from_utf8(content).map_err(invalid_utf8_error)?;
     let crlf_count = source.match_indices("\r\n").count();
     let lf_count = source.bytes().filter(|byte| *byte == b'\n').count();
     let line_ending = if crlf_count > lf_count.saturating_sub(crlf_count) {
@@ -498,6 +513,11 @@ fn decode_file_bytes(bytes: &[u8]) -> Result<DecodedFile, CoreError> {
         line_ending,
         has_utf8_bom,
     })
+}
+
+fn invalid_utf8_error(error: std::str::Utf8Error) -> CoreError {
+    CoreError::new(ErrorCode::ParseFailed, "File is not valid UTF-8")
+        .with_details(error.to_string())
 }
 
 fn encode_file_bytes(text: &str, line_ending: LineEnding, has_utf8_bom: bool) -> Vec<u8> {

@@ -10,7 +10,7 @@ int main(int argc, char* argv[]) {
     assert(!lithe::windows::workbenchIconForPath(QStringLiteral("src"), true).isNull());
     assert(!lithe::windows::workbenchIconForPath(QStringLiteral("src/main/java"), true).isNull());
     assert(!lithe::windows::workbenchIconForPath(QStringLiteral("README.md"), false).isNull());
-    assert(!lithe::windows::workbenchIconForPath(QStringLiteral("Package.swift"), false).isNull());
+    assert(!lithe::windows::workbenchIconForPath(QStringLiteral("build.gradle"), false).isNull());
     assert(!lithe::windows::workbenchIconForPath(QStringLiteral("unknown.lithe"), false).isNull());
     assert(!lithe::windows::workbenchActionIcon(QStringLiteral("actions/refresh.svg")).isNull());
     assert(!lithe::windows::workbenchActionIcon(QStringLiteral("actions/moreVertical.svg")).isNull());

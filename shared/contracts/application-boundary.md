@@ -44,6 +44,7 @@ Use stable categories rather than platform error strings:
 - `invalid_request`
 - `workspace_not_found`
 - `permission_denied`
+- `external_conflict`
 - `not_supported`
 - `runtime_missing`
 - `process_start_failed`
