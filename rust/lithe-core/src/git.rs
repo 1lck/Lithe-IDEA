@@ -15,19 +15,6 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-/// Windows GUI hosts (Qt) inherit no console; spawning `git` without this flag
-/// flashes a cmd window on every status/diff/write. CREATE_NO_WINDOW keeps
-/// stdout/stderr pipes working while suppressing the console UI.
-#[cfg(windows)]
-fn hide_console(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(not(windows))]
-fn hide_console(_command: &mut Command) {}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusRequest {
@@ -463,9 +450,8 @@ fn execute_git(
     input: Option<String>,
 ) -> Result<GitCommandResponse, CoreError> {
     crate::cancellation::check()?;
-    let mut process = Command::new("git");
+    let mut process = git_command();
     process.args(arguments).current_dir(root);
-    hide_console(&mut process);
     process.stdin(if input.is_some() {
         std::process::Stdio::piped()
     } else {
@@ -2482,14 +2468,32 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
     })
 }
 
+// CREATE_NO_WINDOW (0x08000000, winbase.h): the Windows Qt app is a GUI
+// process without a console, so a CUI child like git would otherwise trigger
+// an implicit AllocConsole and flash a console window whenever it writes to
+// stdout/stderr. The flag is set only on Windows; other platforms get a plain
+// Command, so shared-core behavior is unchanged there.
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+pub(crate) fn git_command() -> Command {
+    let mut command = Command::new("git");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
-    let mut process = Command::new("git");
-    process.args(arguments).current_dir(directory);
-    hide_console(&mut process);
-    process.output().map_err(|error| {
-        CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git")
-            .with_details(error.to_string())
-    })
+    git_command()
+        .args(arguments)
+        .current_dir(directory)
+        .output()
+        .map_err(|error| {
+            CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git")
+                .with_details(error.to_string())
+        })
 }
 
 fn parse_status(output: &[u8]) -> Vec<GitChange> {

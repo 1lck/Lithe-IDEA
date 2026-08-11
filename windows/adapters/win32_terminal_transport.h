@@ -19,6 +19,7 @@ public:
     void setOutputHandler(OutputHandler handler) override;
     void setErrorHandler(ErrorHandler handler) override;
     void setExitHandler(ExitHandler handler) override;
+    void setLifecycleHandler(LifecycleHandler handler) override;
 
 private:
     struct Impl;
