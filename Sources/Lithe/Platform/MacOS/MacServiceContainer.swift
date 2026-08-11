@@ -149,7 +149,6 @@ final class MacServiceContainer {
             javaMavenOperations: javaMavenOperations,
             runConfigurationOperations: runConfigurationStore
         )
-        let javaImplementationMarkerService = JavaImplementationMarkerService()
         let gitOperations = RustGitOperations(core: rustCore)
         let workspaceOperations = RustWorkspaceOperations(core: rustCore)
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
@@ -189,7 +188,6 @@ final class MacServiceContainer {
             fileStorage: fileStorage,
             fileOperations: fileOperations,
             projectRuntimeService: runtimeService,
-            javaImplementationMarkerService: javaImplementationMarkerService,
             mavenService: mavenService,
             runService: runService,
             javaDebugService: javaDebugService,

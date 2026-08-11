@@ -396,6 +396,10 @@ fn file_uri_paths_decode_spaces_and_utf8_characters() {
         file_path_from_uri("file:///tmp/go%20project/%E4%B8%AD%E6%96%87/main.go"),
         "/tmp/go project/中文/main.go"
     );
+    assert_eq!(
+        file_path_from_uri("file://server/share/Main.java"),
+        "//server/share/Main.java"
+    );
 }
 
 #[test]
@@ -420,22 +424,60 @@ fn client_core_initializes_and_applies_server_capabilities() {
         initialize_message["params"]["rootUri"],
         "file:///tmp/project"
     );
+    assert_eq!(initialize_message["params"]["clientInfo"]["name"], "Lithe");
+    assert_eq!(
+        initialize_message["params"]["clientInfo"]["version"],
+        env!("CARGO_PKG_VERSION")
+    );
+    assert_eq!(
+        initialize_message["params"]["workspaceFolders"],
+        json!([{
+            "uri": "file:///tmp/project",
+            "name": "project"
+        }])
+    );
     let client_capabilities = &initialize_message["params"]["capabilities"];
     assert_eq!(client_capabilities["workspace"]["configuration"], true);
+    assert_eq!(client_capabilities["workspace"]["applyEdit"], true);
+    assert_eq!(client_capabilities["workspace"]["workspaceFolders"], true);
+    assert_eq!(
+        client_capabilities["workspace"]["symbol"]["dynamicRegistration"],
+        true
+    );
     assert_eq!(
         client_capabilities["textDocument"]["completion"]["completionItem"]["snippetSupport"],
-        false
+        true
+    );
+    assert_eq!(
+        client_capabilities["textDocument"]["completion"]["completionItem"]["resolveSupport"]
+            ["properties"],
+        json!(["detail", "documentation", "textEdit", "additionalTextEdits"])
     );
     assert_eq!(
         initialize_message["params"]["initializationOptions"]["ui.semanticTokens"],
         true
     );
-    assert!(client_capabilities["workspace"].get("applyEdit").is_none());
+    assert_eq!(
+        client_capabilities["textDocument"]["inlayHint"]["dynamicRegistration"],
+        true
+    );
+    assert_eq!(
+        client_capabilities["textDocument"]["foldingRange"]["dynamicRegistration"],
+        true
+    );
+    assert_eq!(
+        client_capabilities["textDocument"]["codeLens"]["dynamicRegistration"],
+        true
+    );
     assert!(client_capabilities["textDocument"]["synchronization"]
         .get("didSave")
         .is_none());
     assert_eq!(
         client_capabilities["textDocument"]["publishDiagnostics"]["relatedInformation"],
+        true
+    );
+    assert_eq!(
+        client_capabilities["textDocument"]["publishDiagnostics"]["versionSupport"],
         true
     );
     assert_eq!(
@@ -454,7 +496,11 @@ fn client_core_initializes_and_applies_server_capabilities() {
                         "definitionProvider": true,
                         "hoverProvider": true,
                         "completionProvider": { "resolveProvider": true },
-                        "codeActionProvider": { "resolveProvider": true }
+                        "codeActionProvider": { "resolveProvider": true },
+                        "inlayHintProvider": true,
+                        "foldingRangeProvider": {},
+                        "codeLensProvider": { "resolveProvider": false },
+                        "workspaceSymbolProvider": true
                     }
                 }
             }"#
@@ -472,6 +518,17 @@ fn client_core_initializes_and_applies_server_capabilities() {
         .state
         .server_capabilities
         .contains(&"completionResolve".to_string()));
+    for feature in [
+        "inlayHints",
+        "foldingRanges",
+        "codeLens",
+        "workspaceSymbols",
+    ] {
+        assert!(applied
+            .state
+            .server_capabilities
+            .contains(&feature.to_string()));
+    }
     assert_eq!(applied.messages.len(), 1);
     let initialized_notification: Value =
         serde_json::from_str(&applied.messages[0]).expect("initialized JSON");
@@ -578,14 +635,38 @@ fn client_core_closes_open_documents() {
         text: "package main\n".to_string(),
     })
     .unwrap();
+    let diagnosed = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: opened.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "version": 1,
+                "diagnostics": [{
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 0, "character": 7 }
+                    },
+                    "message": "Example diagnostic"
+                }]
+            }
+        })
+        .to_string(),
+    })
+    .unwrap();
+    assert!(diagnosed.state.diagnostics.contains_key(uri));
+    assert_eq!(diagnosed.state.diagnostic_versions.get(uri), Some(&1));
 
     let closed = client_close_document(ClientCloseDocumentRequest {
-        state: opened.state,
+        state: diagnosed.state,
         uri: uri.to_string(),
     })
     .unwrap();
 
     assert!(!closed.state.open_documents.contains_key(uri));
+    assert!(!closed.state.diagnostics.contains_key(uri));
+    assert!(!closed.state.diagnostic_versions.contains_key(uri));
     assert_eq!(closed.messages.len(), 1);
     let did_close: Value = serde_json::from_str(&closed.messages[0]).unwrap();
     assert_eq!(
@@ -607,6 +688,152 @@ fn client_core_closes_open_documents() {
     })
     .unwrap_err();
     assert_eq!(serde_json::to_value(error.code).unwrap(), "invalid_request");
+}
+
+#[test]
+fn client_core_ignores_diagnostics_for_unopened_or_stale_document_versions() {
+    let uri = "file:///tmp/project/main.rs";
+    let unopened = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: LspClientState::default(),
+        message: json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "version": 1,
+                "diagnostics": []
+            }
+        })
+        .to_string(),
+    })
+    .unwrap();
+    assert!(unopened.events.is_empty());
+    assert!(!unopened.state.diagnostics.contains_key(uri));
+
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: unopened.state,
+        uri: uri.to_string(),
+        language_id: "rust".to_string(),
+        text: "fn main() {}\n".to_string(),
+    })
+    .unwrap();
+    let changed = client_change_document(ClientChangeDocumentRequest {
+        state: opened.state,
+        uri: uri.to_string(),
+        text: "fn main() { launch(); }\n".to_string(),
+    })
+    .unwrap();
+
+    for stale_version in [1, 3] {
+        let stale = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: changed.state.clone(),
+            message: json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/publishDiagnostics",
+                "params": {
+                    "uri": uri,
+                    "version": stale_version,
+                    "diagnostics": [{
+                        "range": {
+                            "start": { "line": 0, "character": 0 },
+                            "end": { "line": 0, "character": 2 }
+                        },
+                        "message": "Stale diagnostic"
+                    }]
+                }
+            })
+            .to_string(),
+        })
+        .unwrap();
+        assert!(stale.events.is_empty());
+        assert!(!stale.state.diagnostics.contains_key(uri));
+    }
+
+    let current = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: changed.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "version": 2,
+                "diagnostics": [{
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 0, "character": 2 }
+                    },
+                    "message": "Current diagnostic"
+                }]
+            }
+        })
+        .to_string(),
+    })
+    .unwrap();
+    assert_eq!(current.events.len(), 1);
+    assert_eq!(current.events[0].version, Some(2));
+    assert_eq!(current.state.diagnostic_versions.get(uri), Some(&2));
+
+    let stale_after_current = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: current.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "version": 1,
+                "diagnostics": []
+            }
+        })
+        .to_string(),
+    })
+    .unwrap();
+    assert!(stale_after_current.events.is_empty());
+    assert_eq!(
+        stale_after_current.state.diagnostics[uri][0].message,
+        "Current diagnostic"
+    );
+    assert_eq!(
+        stale_after_current.state.diagnostic_versions.get(uri),
+        Some(&2)
+    );
+
+    let unversioned = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: stale_after_current.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "diagnostics": []
+            }
+        })
+        .to_string(),
+    })
+    .unwrap();
+    assert_eq!(unversioned.events.len(), 1);
+    assert_eq!(unversioned.events[0].version, None);
+    assert!(!unversioned.state.diagnostic_versions.contains_key(uri));
+    assert!(serde_json::to_value(&unversioned.events[0])
+        .unwrap()
+        .get("version")
+        .is_none());
+}
+
+#[test]
+fn client_state_keeps_legacy_diagnostics_shape_compatible() {
+    let uri = "file:///tmp/project/main.rs";
+    let state: LspClientState = serde_json::from_value(json!({
+        "diagnostics": {
+            uri: []
+        }
+    }))
+    .unwrap();
+
+    assert!(state.diagnostics.contains_key(uri));
+    assert!(state.diagnostic_versions.is_empty());
+    let serialized = serde_json::to_value(state).unwrap();
+    assert!(serialized["diagnostics"][uri].is_array());
+    assert!(serialized.get("diagnosticVersions").is_none());
 }
 
 #[test]
@@ -1133,15 +1360,237 @@ fn client_core_shapes_feature_responses_for_swift_models() {
 }
 
 #[test]
+fn client_core_requests_and_shapes_inlay_hints_folding_ranges_and_code_lenses() {
+    let uri = "file:///tmp/project/Main.java";
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: uri.to_string(),
+        language_id: "java".to_string(),
+        text: "class Main {}\n".to_string(),
+    })
+    .unwrap();
+
+    let inlay_request = client_feature_request(ClientFeatureRequest {
+        state: opened.state,
+        uri: uri.to_string(),
+        method: "textDocument/inlayHint".to_string(),
+        position: None,
+        new_name: None,
+        range: Some(LspRange {
+            start: LspPosition {
+                line: 0,
+                utf16_column: 0,
+            },
+            end: LspPosition {
+                line: 20,
+                utf16_column: 0,
+            },
+        }),
+        diagnostics: Vec::new(),
+        completion_item: None,
+        code_action: None,
+        command: None,
+    })
+    .unwrap();
+    let request_json: Value = serde_json::from_str(&inlay_request.messages[0]).unwrap();
+    assert_eq!(request_json["method"], "textDocument/inlayHint");
+    assert_eq!(request_json["params"]["range"]["end"]["line"], 20);
+
+    let inlay_response = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: inlay_request.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": [{
+                "position": { "line": 4, "character": 12 },
+                "label": [{ "value": "parameter" }, { "value": ":" }],
+                "kind": 2,
+                "tooltip": { "kind": "markdown", "value": "Parameter name" },
+                "paddingLeft": true,
+                "paddingRight": false,
+                "textEdits": [{
+                    "range": {
+                        "start": { "line": 4, "character": 12 },
+                        "end": { "line": 4, "character": 12 }
+                    },
+                    "newText": "parameter: "
+                }],
+                "data": { "id": "hint-1" }
+            }]
+        })
+        .to_string(),
+    })
+    .unwrap();
+    let hint = &inlay_response.events[0].result.as_ref().unwrap()["hints"][0];
+    assert_eq!(hint["position"]["utf16Column"], 12);
+    assert_eq!(hint["label"], "parameter:");
+    assert_eq!(hint["kind"], 2);
+    assert_eq!(hint["tooltip"], "Parameter name");
+    assert_eq!(hint["paddingLeft"], true);
+    assert_eq!(hint["textEdits"][0]["range"]["start"]["utf16Column"], 12);
+    assert_eq!(hint["data"]["id"], "hint-1");
+
+    let folding_request = client_feature_request(ClientFeatureRequest {
+        state: inlay_response.state,
+        uri: uri.to_string(),
+        method: "textDocument/foldingRange".to_string(),
+        position: None,
+        new_name: None,
+        range: None,
+        diagnostics: Vec::new(),
+        completion_item: None,
+        code_action: None,
+        command: None,
+    })
+    .unwrap();
+    let request_json: Value = serde_json::from_str(&folding_request.messages[0]).unwrap();
+    assert_eq!(request_json["method"], "textDocument/foldingRange");
+    assert_eq!(request_json["params"]["textDocument"]["uri"], uri);
+    let folding_response = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: folding_request.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "id": "2",
+            "result": [{
+                "startLine": 2,
+                "startCharacter": 4,
+                "endLine": 8,
+                "endCharacter": 1,
+                "kind": "region",
+                "collapsedText": "methods"
+            }]
+        })
+        .to_string(),
+    })
+    .unwrap();
+    let range = &folding_response.events[0].result.as_ref().unwrap()["ranges"][0];
+    assert_eq!(range["startLine"], 2);
+    assert_eq!(range["startUtf16Column"], 4);
+    assert_eq!(range["endLine"], 8);
+    assert_eq!(range["endUtf16Column"], 1);
+    assert_eq!(range["kind"], "region");
+    assert_eq!(range["collapsedText"], "methods");
+
+    let code_lens_request = client_feature_request(ClientFeatureRequest {
+        state: folding_response.state,
+        uri: uri.to_string(),
+        method: "textDocument/codeLens".to_string(),
+        position: None,
+        new_name: None,
+        range: None,
+        diagnostics: Vec::new(),
+        completion_item: None,
+        code_action: None,
+        command: None,
+    })
+    .unwrap();
+    let code_lens_response = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: code_lens_request.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "id": "3",
+            "result": [{
+                "range": {
+                    "start": { "line": 3, "character": 2 },
+                    "end": { "line": 3, "character": 7 }
+                },
+                "command": {
+                    "title": "Run test",
+                    "command": "java.test.run",
+                    "arguments": [{ "test": "MainTest" }]
+                },
+                "data": { "id": "lens-1" }
+            }]
+        })
+        .to_string(),
+    })
+    .unwrap();
+    let lens = &code_lens_response.events[0].result.as_ref().unwrap()["lenses"][0];
+    assert_eq!(lens["range"]["start"]["utf16Column"], 2);
+    assert_eq!(lens["command"]["command"], "java.test.run");
+    assert_eq!(lens["command"]["arguments"][0]["test"], "MainTest");
+    assert_eq!(lens["data"]["id"], "lens-1");
+}
+
+#[test]
+fn navigation_locations_preserve_uris_without_fabricating_virtual_file_paths() {
+    let uri = "file:///tmp/project/Main.java";
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: uri.to_string(),
+        language_id: "java".to_string(),
+        text: "class Main {}\n".to_string(),
+    })
+    .unwrap();
+    let requested = client_feature_request(ClientFeatureRequest {
+        state: opened.state,
+        uri: uri.to_string(),
+        method: "textDocument/definition".to_string(),
+        position: Some(LspPosition {
+            line: 0,
+            utf16_column: 6,
+        }),
+        new_name: None,
+        range: None,
+        diagnostics: Vec::new(),
+        completion_item: None,
+        code_action: None,
+        command: None,
+    })
+    .unwrap();
+    let response = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: requested.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": [{
+                "uri": "file:///tmp/project/Main%20File.java",
+                "range": {
+                    "start": { "line": 1, "character": 2 },
+                    "end": { "line": 1, "character": 6 }
+                }
+            }, {
+                "uri": "jdt://contents/java.base/java/lang/String.class",
+                "range": {
+                    "start": { "line": 10, "character": 4 },
+                    "end": { "line": 10, "character": 10 }
+                }
+            }]
+        })
+        .to_string(),
+    })
+    .unwrap();
+    let locations = &response.events[0].result.as_ref().unwrap()["locations"];
+
+    assert_eq!(locations[0]["uri"], "file:///tmp/project/Main%20File.java");
+    assert_eq!(locations[0]["filePath"], "/tmp/project/Main File.java");
+    assert_eq!(locations[0]["isReadOnly"], false);
+    assert_eq!(
+        locations[1]["uri"],
+        "jdt://contents/java.base/java/lang/String.class"
+    );
+    assert!(locations[1]["filePath"].is_null());
+    assert_eq!(locations[1]["isReadOnly"], true);
+    assert!(locations[1]["displayPath"].is_null());
+}
+
+#[test]
 fn client_core_applies_diagnostics_and_dynamic_registrations() {
-    let state = LspClientState::default();
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: "file:///tmp/project/main.py".to_string(),
+        language_id: "python".to_string(),
+        text: "example = value\n".to_string(),
+    })
+    .unwrap();
     let diagnostics = client_apply_server_message(ClientApplyServerMessageRequest {
-        state,
+        state: opened.state,
         message: r#"{
                 "jsonrpc": "2.0",
                 "method": "textDocument/publishDiagnostics",
                 "params": {
                     "uri": "file:///tmp/project/main.py",
+                    "version": 1,
                     "diagnostics": [{
                         "range": {
                             "start": { "line": 2, "character": 4 },
@@ -1194,7 +1643,16 @@ fn client_core_applies_diagnostics_and_dynamic_registrations() {
         "Type declared here"
     );
     assert_eq!(diagnostics.events[0].kind, "diagnostics");
+    assert_eq!(diagnostics.events[0].version, Some(1));
+    assert_eq!(
+        diagnostics
+            .state
+            .diagnostic_versions
+            .get("file:///tmp/project/main.py"),
+        Some(&1)
+    );
     let event_json = serde_json::to_value(&diagnostics.events[0]).unwrap();
+    assert_eq!(event_json["version"], 1);
     assert_eq!(event_json["diagnostics"][0]["tags"], json!([1, 2, 99]));
     assert_eq!(
         event_json["diagnostics"][0]["relatedInformation"][0]["location"]["range"]["start"]
@@ -1213,6 +1671,22 @@ fn client_core_applies_diagnostics_and_dynamic_registrations() {
                         "id": "formatting",
                         "method": "textDocument/formatting",
                         "registerOptions": {}
+                    }, {
+                        "id": "inlay-hints",
+                        "method": "textDocument/inlayHint",
+                        "registerOptions": {}
+                    }, {
+                        "id": "folding-ranges",
+                        "method": "textDocument/foldingRange",
+                        "registerOptions": {}
+                    }, {
+                        "id": "code-lens",
+                        "method": "textDocument/codeLens",
+                        "registerOptions": {}
+                    }, {
+                        "id": "workspace-symbols",
+                        "method": "workspace/symbol",
+                        "registerOptions": {}
                     }]
                 }
             }"#
@@ -1223,6 +1697,17 @@ fn client_core_applies_diagnostics_and_dynamic_registrations() {
         .state
         .server_capabilities
         .contains(&"formatting".to_string()));
+    for feature in [
+        "inlayHints",
+        "foldingRanges",
+        "codeLens",
+        "workspaceSymbols",
+    ] {
+        assert!(registered
+            .state
+            .server_capabilities
+            .contains(&feature.to_string()));
+    }
     let response: Value = serde_json::from_str(&registered.messages[0]).unwrap();
     assert_eq!(
         response,
@@ -1239,6 +1724,18 @@ fn client_core_applies_diagnostics_and_dynamic_registrations() {
                     "unregisterations": [{
                         "id": "formatting",
                         "method": "textDocument/formatting"
+                    }, {
+                        "id": "inlay-hints",
+                        "method": "textDocument/inlayHint"
+                    }, {
+                        "id": "folding-ranges",
+                        "method": "textDocument/foldingRange"
+                    }, {
+                        "id": "code-lens",
+                        "method": "textDocument/codeLens"
+                    }, {
+                        "id": "workspace-symbols",
+                        "method": "workspace/symbol"
                     }]
                 }
             }"#
@@ -1249,6 +1746,17 @@ fn client_core_applies_diagnostics_and_dynamic_registrations() {
         .state
         .server_capabilities
         .contains(&"formatting".to_string()));
+    for feature in [
+        "inlayHints",
+        "foldingRanges",
+        "codeLens",
+        "workspaceSymbols",
+    ] {
+        assert!(!unregistered
+            .state
+            .server_capabilities
+            .contains(&feature.to_string()));
+    }
     let response: Value = serde_json::from_str(&unregistered.messages[0]).unwrap();
     assert_eq!(
         response,

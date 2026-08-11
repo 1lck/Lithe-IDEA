@@ -338,6 +338,175 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspStartServer => {
+            match serde_json::from_value::<crate::lsp::StartServerRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP start-server request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::start_server)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP start-server response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspStopServer => {
+            match serde_json::from_value::<crate::lsp::SessionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP stop-server request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::stop_server)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP stop-server response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspSyncDocument => {
+            match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP sync-document request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::sync_document)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP sync-document response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspCloseDocument => {
+            match serde_json::from_value::<crate::lsp::CloseDocumentRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP close-document request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::close_document)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP close-document response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspRequest => {
+            match serde_json::from_value::<crate::lsp::SemanticRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid semantic LSP request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::semantic_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Semantic LSP response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspCancelOperation => {
+            match serde_json::from_value::<crate::lsp::CancelOperationRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP cancellation request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::cancel_operation)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP cancellation response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspPollEvents => {
+            match serde_json::from_value::<crate::lsp::SessionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP poll-events request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::poll_events)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP poll-events response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspClearDiagnostics => {
+            match serde_json::from_value::<crate::lsp::SessionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP clear-diagnostics request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::clear_diagnostics)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("LSP clear-diagnostics response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspSnapshot => {
+            match serde_json::from_value::<crate::lsp::SessionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP snapshot request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::snapshot)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP snapshot response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspDestroyServer => {
+            match serde_json::from_value::<crate::lsp::SessionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP destroy-server request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::destroy_server)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP destroy-server response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspClientInitialize => {
             match serde_json::from_value::<crate::lsp::ClientInitializeRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1014,5 +1183,93 @@ mod tests {
         assert_eq!(shutdown["method"], "shutdown");
         assert_eq!(shutdown["id"], "1");
         assert!(shutdown.get("params").is_none());
+    }
+
+    #[test]
+    fn routes_semantic_lsp_runtime_commands() {
+        let unknown_session = "missing-runtime-session";
+        let requests = [
+            json!({
+                "command": "lsp.stopServer",
+                "payload": { "sessionId": unknown_session }
+            }),
+            json!({
+                "command": "lsp.syncDocument",
+                "payload": {
+                    "sessionId": unknown_session,
+                    "uri": "file:///tmp/main.go",
+                    "languageId": "go",
+                    "text": "package main\n"
+                }
+            }),
+            json!({
+                "command": "lsp.closeDocument",
+                "payload": {
+                    "sessionId": unknown_session,
+                    "uri": "file:///tmp/main.go"
+                }
+            }),
+            json!({
+                "command": "lsp.request",
+                "payload": {
+                    "sessionId": unknown_session,
+                    "operationId": "completion-1",
+                    "operation": "completion",
+                    "uri": "file:///tmp/main.go",
+                    "position": { "line": 0, "utf16Column": 0 }
+                }
+            }),
+            json!({
+                "command": "lsp.cancelOperation",
+                "payload": {
+                    "sessionId": unknown_session,
+                    "operationId": "completion-1"
+                }
+            }),
+            json!({
+                "command": "lsp.pollEvents",
+                "payload": { "sessionId": unknown_session }
+            }),
+            json!({
+                "command": "lsp.clearDiagnostics",
+                "payload": { "sessionId": unknown_session }
+            }),
+            json!({
+                "command": "lsp.snapshot",
+                "payload": { "sessionId": unknown_session }
+            }),
+            json!({
+                "command": "lsp.destroyServer",
+                "payload": { "sessionId": unknown_session }
+            }),
+        ];
+
+        for request in requests {
+            let response: Value =
+                serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+            assert_eq!(response["ok"], false, "request should reach the runtime");
+            assert_eq!(response["error"]["code"], "invalid_request");
+            assert_eq!(response["error"]["details"], unknown_session);
+        }
+
+        let invalid_start: Value = serde_json::from_str(&execute_json(
+            &json!({
+                "command": "lsp.startServer",
+                "payload": {
+                    "providerId": "go",
+                    "executablePath": "",
+                    "rootUri": "file:///tmp/project",
+                    "workingDirectory": "/tmp/project"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(invalid_start["ok"], false);
+        assert_eq!(invalid_start["error"]["code"], "invalid_request");
+        assert_eq!(
+            invalid_start["error"]["details"],
+            "executablePath/workingDirectory"
+        );
     }
 }

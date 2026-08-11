@@ -219,7 +219,6 @@ struct CodeEditorView: NSViewRepresentable {
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
-        private var implementationValidationTask: Task<Void, Never>?
         private var markdownImagePasteMonitor: Any?
         private weak var markdownScrollView: NSScrollView?
         private var markdownScrollObserver: NSObjectProtocol?
@@ -469,38 +468,23 @@ struct CodeEditorView: NSViewRepresentable {
                 collapsedIDs: collapsedFoldIDs,
                 onToggle: { [weak self] region in self?.toggleFold(region) }
             )
-            implementationValidationTask?.cancel()
-            gutter?.updateImplementationMarkers([]) { [weak model, weak document] marker in
+            // `java.structure` is an explicit local editor fallback. It does
+            // not validate markers or own any language-server lifecycle.
+            let markers: [JavaImplementationMarker]
+            if let document,
+               fileExtension.lowercased() == "java",
+               let model {
+                markers = model.javaStructure(source: document.text)?.implementationMarkers ?? []
+            } else {
+                markers = []
+            }
+            gutter?.updateImplementationMarkers(markers) { [weak model, weak document] marker in
                 guard let document else { return }
                 model?.findJavaImplementations(
                     line: marker.line,
                     utf16Column: marker.utf16Column,
                     in: document.url
                 )
-            }
-            guard let document,
-                  fileExtension.lowercased() == "java",
-                  let model else { return }
-            let candidates = model.javaStructure(source: document.text)?.implementationMarkers ?? []
-            guard !candidates.isEmpty else { return }
-            implementationValidationTask = Task { @MainActor [weak self, weak document, weak model] in
-                guard let self,
-                      let document,
-                      let model else { return }
-                let markers = await model.implementationMarkers(
-                    for: document,
-                    candidates: candidates
-                )
-                guard !Task.isCancelled,
-                      self.document?.id == document.id else { return }
-                self.gutter?.updateImplementationMarkers(markers) { [weak model, weak document] marker in
-                    guard let document else { return }
-                    model?.findJavaImplementations(
-                        line: marker.line,
-                        utf16Column: marker.utf16Column,
-                        in: document.url
-                    )
-                }
             }
         }
 
@@ -695,7 +679,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
-    private var diagnostics: [JavaDiagnostic] = []
+    private var diagnostics: [EditorDiagnostic] = []
     private var fadedCodeRanges: [NSRange] = []
     private var linkRange: NSRange?
     private var trackingArea: NSTrackingArea?
@@ -746,7 +730,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         lineIndex.lineRange(forLine: line)
     }
 
-    func updateDiagnostics(_ diagnostics: [JavaDiagnostic]) {
+    func updateDiagnostics(_ diagnostics: [EditorDiagnostic]) {
         self.diagnostics = diagnostics
         updateEditorDecorations()
     }
@@ -1467,7 +1451,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         return true
     }
 
-    private func diagnosticRange(for diagnostic: JavaDiagnostic, in source: NSString) -> NSRange? {
+    private func diagnosticRange(for diagnostic: EditorDiagnostic, in source: NSString) -> NSRange? {
         guard source.length > 0 else { return nil }
         let lastLine = max(0, lineIndex.lineCount - 1)
         let startLine = min(max(0, diagnostic.line), lastLine)
@@ -1489,7 +1473,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         lineIndex.lineCount
     }
 
-    private func diagnosticColor(for severity: JavaDiagnosticSeverity) -> NSColor {
+    private func diagnosticColor(for severity: DiagnosticSeverity) -> NSColor {
         switch severity {
         case .unknown: NSColor.systemGray
         case .error: NSColor.systemRed

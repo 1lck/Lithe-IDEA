@@ -36,7 +36,6 @@ final class AppServices {
     let fileStorage: any FileStorage
     let fileOperations: any WorkspaceFileOperations
     let projectRuntimeService: ProjectRuntimeService
-    let javaImplementationMarkerService: JavaImplementationMarkerService
     let mavenService: MavenService
     let runService: RunService
     let javaDebugService: JavaDebugService
@@ -72,7 +71,6 @@ final class AppServices {
         fileStorage: any FileStorage,
         fileOperations: any WorkspaceFileOperations,
         projectRuntimeService: ProjectRuntimeService,
-        javaImplementationMarkerService: JavaImplementationMarkerService,
         mavenService: MavenService,
         runService: RunService,
         javaDebugService: JavaDebugService,
@@ -117,7 +115,6 @@ final class AppServices {
         self.fileStorage = fileStorage
         self.fileOperations = fileOperations
         self.projectRuntimeService = projectRuntimeService
-        self.javaImplementationMarkerService = javaImplementationMarkerService
         self.mavenService = mavenService
         self.runService = runService
         self.javaDebugService = javaDebugService

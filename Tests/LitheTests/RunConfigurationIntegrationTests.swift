@@ -792,19 +792,17 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func editorDiagnosticsMergeLanguagesAndMapLSPSeverities() throws {
+    func editorDiagnosticsMapLanguageServerFilesAndSeverities() throws {
         let javaURL = URL(fileURLWithPath: "/tmp/mixed/src/Main.java")
         let pythonURL = URL(fileURLWithPath: "/tmp/mixed/api/main.py")
-        let javaDiagnostic = EditorDiagnostic(
-            id: "java-warning",
-            fileURL: javaURL,
-            line: 2,
-            utf16Column: 4,
-            endLine: 2,
-            endUTF16Column: 8,
-            severity: .warning,
+        let javaDiagnostic = LanguageServerDiagnostic(
+            range: LanguageServerRange(
+                start: LanguageServerPosition(line: 2, utf16Column: 4),
+                end: LanguageServerPosition(line: 2, utf16Column: 8)
+            ),
+            severity: 2,
             message: "Java warning",
-            source: "java",
+            source: "jdtls",
             code: "java-warning",
             tags: [],
             relatedInformation: []
@@ -823,19 +821,21 @@ struct RunConfigurationIntegrationTests {
             )
         }
 
-        let merged = EditorDiagnostic.merging(
-            [javaURL: [javaDiagnostic]],
-            languageServerDiagnostics: [pythonURL: languageDiagnostics]
+        let mapped = EditorDiagnostic.fromLanguageServerDiagnostics(
+            [javaURL: [javaDiagnostic], pythonURL: languageDiagnostics]
         )
 
-        #expect(merged[javaURL.standardizedFileURL] == [javaDiagnostic])
-        let python = try #require(merged[pythonURL.standardizedFileURL])
+        let java = try #require(mapped[javaURL.standardizedFileURL])
+        #expect(java.count == 1)
+        #expect(java[0].severity == .warning)
+        #expect(java[0].source == "jdtls")
+        let python = try #require(mapped[pythonURL.standardizedFileURL])
         #expect(python.map(\.severity) == [.error, .warning, .information, .hint])
         #expect(python.allSatisfy { $0.source == "pyright" })
     }
 
     @Test
-    func editorDiagnosticsDeduplicateTheSameProviderResult() throws {
+    func editorDiagnosticsPreserveTheAuthoritativeLanguageServerResult() throws {
         let fileURL = URL(fileURLWithPath: "/tmp/mixed/src/Main.java")
         let lsp = LanguageServerDiagnostic(
             range: LanguageServerRange(
@@ -847,14 +847,14 @@ struct RunConfigurationIntegrationTests {
             source: "java",
             code: "resolve"
         )
-        let existing = EditorDiagnostic(languageServerDiagnostic: lsp, fileURL: fileURL)
 
-        let merged = EditorDiagnostic.merging(
-            [fileURL: [existing]],
-            languageServerDiagnostics: [fileURL: [lsp]]
+        let mapped = EditorDiagnostic.fromLanguageServerDiagnostics(
+            [fileURL: [lsp]]
         )
 
-        #expect(merged[fileURL.standardizedFileURL] == [existing])
+        let diagnostics = try #require(mapped[fileURL.standardizedFileURL])
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics[0] == EditorDiagnostic(languageServerDiagnostic: lsp, fileURL: fileURL))
     }
 
     @Test
@@ -2523,26 +2523,6 @@ struct RunConfigurationIntegrationTests {
         #expect(report.status == .jdkMissing)
         #expect(report.status.blocksJavaRun)
         #expect(report.recovery.contains("JAVA_HOME"))
-    }
-
-    @Test
-    func javaImplementationMarkersStayBehindTheRustLSPHostBoundary() async {
-        let service = JavaImplementationMarkerService()
-        let root = URL(fileURLWithPath: "/tmp/lithe-java-marker-boundary", isDirectory: true)
-        let document = EditorDocument(
-            url: root.appendingPathComponent("src/Main.java"),
-            text: "interface Service {}\nclass Impl implements Service {}\n",
-            modificationDate: nil
-        )
-        let candidates = [
-            JavaImplementationMarker(line: 0, utf16Column: 10, isType: true),
-            JavaImplementationMarker(line: 1, utf16Column: 6, isType: false)
-        ]
-
-        service.invalidate(document)
-        let markers = await service.markers(for: document, candidates: candidates)
-
-        #expect(markers.isEmpty)
     }
 
     @Test

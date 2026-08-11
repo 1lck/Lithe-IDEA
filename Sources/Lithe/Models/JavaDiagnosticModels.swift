@@ -153,37 +153,15 @@ struct EditorDiagnostic: Identifiable, Hashable, Sendable {
         )
     }
 
-    static func merging(
-        _ editorDiagnostics: [URL: [EditorDiagnostic]],
-        languageServerDiagnostics: [URL: [LanguageServerDiagnostic]]
+    static func fromLanguageServerDiagnostics(
+        _ diagnosticsByFile: [URL: [LanguageServerDiagnostic]]
     ) -> [URL: [EditorDiagnostic]] {
-        var merged = Dictionary(uniqueKeysWithValues: editorDiagnostics.map {
-            ($0.key.standardizedFileURL, $0.value)
-        })
-        for (fileURL, diagnostics) in languageServerDiagnostics {
+        diagnosticsByFile.reduce(into: [URL: [EditorDiagnostic]]()) { mapped, entry in
+            let (fileURL, diagnostics) = entry
             let normalizedURL = fileURL.standardizedFileURL
-            var existing = merged[normalizedURL] ?? []
-            for diagnostic in diagnostics.map({
+            mapped[normalizedURL, default: []].append(contentsOf: diagnostics.map {
                 EditorDiagnostic(languageServerDiagnostic: $0, fileURL: normalizedURL)
-            }) where !existing.contains(where: { $0.semanticIdentity == diagnostic.semanticIdentity }) {
-                existing.append(diagnostic)
-            }
-            merged[normalizedURL] = existing
+            })
         }
-        return merged
-    }
-
-    private var semanticIdentity: String {
-        [
-            String(line), String(utf16Column), String(endLine), String(endUTF16Column),
-            source ?? "", code ?? "", message
-        ].joined(separator: "\u{1F}")
     }
 }
-
-// Transitional source compatibility while the Java feature moves onto the
-// editor-wide diagnostics capability.
-typealias JavaDiagnosticSeverity = DiagnosticSeverity
-typealias JavaDiagnosticTag = DiagnosticTag
-typealias JavaDiagnosticRelatedInformation = DiagnosticRelatedInformation
-typealias JavaDiagnostic = EditorDiagnostic

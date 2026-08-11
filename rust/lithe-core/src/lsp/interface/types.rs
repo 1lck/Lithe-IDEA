@@ -23,6 +23,38 @@ pub struct LspTextEditResponse {
     pub new_text: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspInlayHintResponse {
+    pub position: LspPositionResponse,
+    pub label: String,
+    pub kind: Option<i64>,
+    pub tooltip: Option<String>,
+    pub padding_left: bool,
+    pub padding_right: bool,
+    pub text_edits: Vec<Value>,
+    pub data: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspFoldingRangeResponse {
+    pub start_line: i64,
+    pub start_utf16_column: Option<i64>,
+    pub end_line: i64,
+    pub end_utf16_column: Option<i64>,
+    pub kind: Option<String>,
+    pub collapsed_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspCodeLensResponse {
+    pub range: LspRangeResponse,
+    pub command: Option<Value>,
+    pub data: Option<Value>,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LspRangeResponse {
@@ -54,6 +86,8 @@ pub struct LspClientState {
     pub pending_requests: BTreeMap<String, String>,
     #[serde(default)]
     pub diagnostics: BTreeMap<String, Vec<LspClientDiagnostic>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub diagnostic_versions: BTreeMap<String, i64>,
 }
 
 impl Default for LspClientState {
@@ -66,6 +100,7 @@ impl Default for LspClientState {
             open_documents: BTreeMap::new(),
             pending_requests: BTreeMap::new(),
             diagnostics: BTreeMap::new(),
+            diagnostic_versions: BTreeMap::new(),
         }
     }
 }
@@ -205,6 +240,8 @@ pub struct LspClientEvent {
     pub method: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<Vec<LspClientDiagnostic>>,
     #[serde(skip_serializing_if = "Option::is_none")]

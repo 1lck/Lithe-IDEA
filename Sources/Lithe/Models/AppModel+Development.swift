@@ -101,10 +101,6 @@ extension AppModel {
         )
     }
 
-    func openJavaDiagnostic(_ diagnostic: JavaDiagnostic) {
-        openDiagnostic(diagnostic)
-    }
-
     func selectRunConfiguration(_ configuration: RunConfiguration) {
         runFeature.select(configuration)
     }

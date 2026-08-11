@@ -6,11 +6,9 @@ import Foundation
 /// to the Rust host.
 @MainActor
 final class JavaFeatureModel: ObservableObject {
-    @Published private(set) var javaDiagnostics: [URL: [JavaDiagnostic]] = [:]
     @Published private(set) var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] = [:]
     @Published private(set) var javaInlayHints: [URL: [JavaInlayHint]] = [:]
 
-    private let markerService: JavaImplementationMarkerService
     private let operations: any JavaMavenOperations
     private let workspaceOperations: any WorkspaceOperations
     private var documentProvider: (@MainActor () -> EditorDocument?)?
@@ -22,11 +20,9 @@ final class JavaFeatureModel: ObservableObject {
     private var debugFeature: JavaDebugFeatureModel?
 
     init(
-        markerService: JavaImplementationMarkerService,
         operations: any JavaMavenOperations,
         workspaceOperations: any WorkspaceOperations
     ) {
-        self.markerService = markerService
         self.operations = operations
         self.workspaceOperations = workspaceOperations
     }
@@ -64,7 +60,6 @@ final class JavaFeatureModel: ObservableObject {
     func stop() {
         inlayHintTasks.values.forEach { $0.cancel() }
         inlayHintTasks.removeAll()
-        javaDiagnostics = [:]
         javaCodeVisionHints = [:]
         javaInlayHints = [:]
     }
@@ -150,10 +145,8 @@ final class JavaFeatureModel: ObservableObject {
     }
 
     func close(_ document: EditorDocument) {
-        javaDiagnostics[document.url.standardizedFileURL] = nil
         javaCodeVisionHints[document.url.standardizedFileURL] = nil
         javaInlayHints[document.url.standardizedFileURL] = nil
-        markerService.invalidate(document)
     }
 
     func refreshCodeVision(
@@ -171,10 +164,9 @@ final class JavaFeatureModel: ObservableObject {
             blameLines: blame
         )
         let candidates = structure(source: document.text)?.implementationMarkers ?? []
-        let markers = await implementationMarkers(for: document, candidates: candidates)
-        let implementationCounts = Dictionary(
-            uniqueKeysWithValues: markers.map { ($0.line, $0.implementationCount) }
-        )
+        let implementationCounts = candidates.reduce(into: [Int: Int]()) { counts, marker in
+            counts[marker.line] = max(counts[marker.line] ?? 0, marker.implementationCount)
+        }
         guard documentProvider?()?.id == document.id else { return }
         javaCodeVisionHints[normalizedURL] = baseHints.map { hint in
             JavaCodeVisionHint(
@@ -251,13 +243,6 @@ final class JavaFeatureModel: ObservableObject {
         let path = url.standardizedFileURL.path
         guard path.hasPrefix(rootPath + "/") else { return nil }
         return String(path.dropFirst(rootPath.count + 1))
-    }
-
-    func implementationMarkers(
-        for document: EditorDocument,
-        candidates: [JavaImplementationMarker]
-    ) async -> [JavaImplementationMarker] {
-        await markerService.markers(for: document, candidates: candidates)
     }
 
     func structure(source: String, declarationSources: [String] = []) -> JavaStructureResult? {

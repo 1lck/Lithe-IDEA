@@ -188,6 +188,3 @@ struct ProblemsView: View {
         }
     }
 }
-
-/// Compatibility alias for older call sites and persisted UI integrations.
-typealias JavaProblemsView = ProblemsView

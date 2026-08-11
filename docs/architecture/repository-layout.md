@@ -79,7 +79,7 @@ Moving Rust files must not change JSON command strings, Serde field names, error
 | UTF-8 file command validation and results | Native file APIs, permissions, and persistence paths |
 | Git models, validation, parsing, and mutations | Executable environment and credentials |
 | History metadata and snapshot rules | History storage location and file movement |
-| Language provider catalog, lightweight language features, LSP state, Maven, and Java source parsing | Language-server/JDK/Maven discovery and child processes |
+| Language provider catalog, lightweight features, complete LSP runtime, Maven, and Java source parsing | Language-server/JDK/Maven discovery; Maven/Debug child processes |
 | Error codes, cancellation, deadlines, and JSON envelope | PTY/ConPTY, signals, handles, and native UI |
 
 The UI must depend on feature models and shared models, not on a concrete
@@ -87,8 +87,8 @@ adapter. Core and Services must remain free of AppKit, SwiftUI, Win32, Qt,
 `Process`, and direct platform file APIs.
 
 Language tooling has an additional protocol/application split: Rust owns the
-transport-independent LSP state and normalized results, while platform services
-own provider routing and process lifecycle. The complete rules are in
+complete LSP process/session runtime and normalized results, while platform
+services own discovery, provider routing, and UI projection. The complete rules are in
 [`language-tooling.md`](language-tooling.md).
 
 ## Repository hygiene

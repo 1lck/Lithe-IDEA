@@ -122,10 +122,7 @@ final class AppModel: ObservableObject, Identifiable {
         languageToolingSessions.diagnostics
     }
     var editorDiagnostics: [URL: [EditorDiagnostic]] {
-        EditorDiagnostic.merging(
-            javaDiagnostics,
-            languageServerDiagnostics: languageDiagnostics
-        )
+        EditorDiagnostic.fromLanguageServerDiagnostics(languageDiagnostics)
     }
     private var workspaceFeatureObservation: AnyCancellable?
     private var runtimeFeatureObservation: AnyCancellable?
@@ -234,7 +231,6 @@ final class AppModel: ObservableObject, Identifiable {
             fileOperations: services.fileOperations
         )
         javaFeature = JavaFeatureModel(
-            markerService: services.javaImplementationMarkerService,
             operations: services.javaMavenOperations,
             workspaceOperations: services.workspaceOperations
         )
@@ -565,13 +561,6 @@ final class AppModel: ObservableObject, Identifiable {
         showNotification(settings.language == .simplifiedChinese ? "语言服务器诊断已清空" : "Language server diagnostics cleared")
     }
 
-    func implementationMarkers(
-        for document: EditorDocument,
-        candidates: [JavaImplementationMarker]
-    ) async -> [JavaImplementationMarker] {
-        await javaFeature.implementationMarkers(for: document, candidates: candidates)
-    }
-
     func javaStructure(source: String, declarationSources: [String] = []) -> JavaStructureResult? {
         javaFeature.structure(source: source, declarationSources: declarationSources)
     }
@@ -651,6 +640,11 @@ final class AppModel: ObservableObject, Identifiable {
         if let previousWorkspaceURL = workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
         }
+        // A workspace root is a hard language-server ownership boundary. Stop
+        // every provider session before replacing the catalog or clearing the
+        // document projection so no old-root documents, diagnostics, or
+        // responses can survive into the next workspace.
+        languageToolingSessions.stopAll()
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
         languageTestService.reset()

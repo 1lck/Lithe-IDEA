@@ -36,6 +36,16 @@ pub enum CoreCommand {
     LspBuiltinCompletions,
     LspBuiltinHover,
     LspBuiltinNavigation,
+    LspStartServer,
+    LspStopServer,
+    LspSyncDocument,
+    LspCloseDocument,
+    LspRequest,
+    LspCancelOperation,
+    LspPollEvents,
+    LspClearDiagnostics,
+    LspSnapshot,
+    LspDestroyServer,
     LspClientInitialize,
     LspClientOpenDocument,
     LspClientChangeDocument,
@@ -98,6 +108,16 @@ impl CoreCommand {
             "lsp.builtinCompletions" => Some(Self::LspBuiltinCompletions),
             "lsp.builtinHover" => Some(Self::LspBuiltinHover),
             "lsp.builtinNavigation" => Some(Self::LspBuiltinNavigation),
+            "lsp.startServer" => Some(Self::LspStartServer),
+            "lsp.stopServer" => Some(Self::LspStopServer),
+            "lsp.syncDocument" => Some(Self::LspSyncDocument),
+            "lsp.closeDocument" => Some(Self::LspCloseDocument),
+            "lsp.request" => Some(Self::LspRequest),
+            "lsp.cancelOperation" => Some(Self::LspCancelOperation),
+            "lsp.pollEvents" => Some(Self::LspPollEvents),
+            "lsp.clearDiagnostics" => Some(Self::LspClearDiagnostics),
+            "lsp.snapshot" => Some(Self::LspSnapshot),
+            "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "lsp.clientInitialize" => Some(Self::LspClientInitialize),
             "lsp.clientOpenDocument" => Some(Self::LspClientOpenDocument),
             "lsp.clientChangeDocument" => Some(Self::LspClientChangeDocument),
@@ -159,5 +179,23 @@ mod tests {
             CoreCommand::parse("lsp.sessionExecute"),
             Some(CoreCommand::LspSessionExecute)
         ));
+    }
+
+    #[test]
+    fn parses_semantic_lsp_runtime_commands() {
+        for command in [
+            "lsp.startServer",
+            "lsp.stopServer",
+            "lsp.syncDocument",
+            "lsp.closeDocument",
+            "lsp.request",
+            "lsp.cancelOperation",
+            "lsp.pollEvents",
+            "lsp.clearDiagnostics",
+            "lsp.snapshot",
+            "lsp.destroyServer",
+        ] {
+            assert!(CoreCommand::parse(command).is_some(), "missing {command}");
+        }
     }
 }

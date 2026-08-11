@@ -170,10 +170,10 @@ final class LanguageToolingSessionManager: ObservableObject {
            languageServerRoots[descriptor.id] == normalizedRoot {
             session = active
         } else {
-            clearDiagnostics(providerID: descriptor.id)
-            languageServerSessionIdentities[descriptor.id] = nil
-            languageServers[descriptor.id]?.stop()
-            languageServerFeatureProviders[descriptor.id] = nil
+            // Retire every projection of the previous root before resolving a
+            // replacement. If executable resolution or construction fails,
+            // the UI must not retain a stale ready session from the old root.
+            stopLanguageServer(providerID: descriptor.id)
             recordLanguageServerLog(
                 providerID: descriptor.id,
                 level: .info,
@@ -181,15 +181,18 @@ final class LanguageToolingSessionManager: ObservableObject {
                 detail: descriptor.languageServerLaunch?.executableNames.joined(separator: ", ")
             )
             guard let created = runtime.makeLanguageServerSession() else {
+                let message = runtime.unavailableToolingMessage ?? descriptor.displayName
+                languageServerStates[descriptor.id] = .failed(
+                    exitCode: nil,
+                    message: message
+                )
                 recordLanguageServerLog(
                     providerID: descriptor.id,
                     level: .error,
                     message: "Language server executable was not found",
-                    detail: runtime.unavailableToolingMessage ?? descriptor.displayName
+                    detail: message
                 )
-                throw LanguageToolingSessionError.toolingUnavailable(
-                    runtime.unavailableToolingMessage ?? descriptor.displayName
-                )
+                throw LanguageToolingSessionError.toolingUnavailable(message)
             }
             let featureProvider = LanguageServerFeatureProvider(
                 providerID: descriptor.id,

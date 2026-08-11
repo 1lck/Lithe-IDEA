@@ -10,7 +10,7 @@
 1. 编辑器只依赖统一的 `LanguageFeatureProvider`，不直接依赖具体语言服务器。
 2. 轻量本地能力无需外部进程，LSP 是按需启动的语义增强层。
 3. 可调用的 LSP 功能以服务器 `initialize` 响应和动态注册结果为准，不能根据语言名称硬编码。
-4. JSON-RPC 状态机和结果归一化属于 Rust Core；进程、stdio 和可执行文件发现属于平台 adapter。
+4. LSP 进程、stdio、JSON-RPC 状态机、deadline 和结果归一化属于 Rust Core；平台 adapter 只负责可执行文件与运行环境发现。
 5. 单个 provider 失败、缺失或返回空结果时，不应阻断仍可工作的本地能力。
 
 ## 组件边界
@@ -21,10 +21,9 @@ flowchart LR
     MANAGER --> ROUTER["LanguageFeatureProvider routing"]
     ROUTER --> BUILTIN["Builtin provider<br/>keywords + current-file symbols"]
     ROUTER --> LSPPROVIDER["LSP provider<br/>server capabilities"]
-    LSPPROVIDER --> SESSION["StdioLanguageServerSession"]
-    SESSION --> CORE["Rust LSP client core<br/>state + JSON-RPC + normalization"]
-    SESSION --> PROCESS["RawProcessSession<br/>stdio transport"]
-    PROCESS --> SERVER["gopls / jdtls / rust-analyzer / ..."]
+    LSPPROVIDER --> SESSION["Swift semantic facade<br/>opaque operation IDs"]
+    SESSION --> CORE["Rust LSP runtime<br/>process + state + deadlines + stdio"]
+    CORE --> SERVER["gopls / jdtls / rust-analyzer / ..."]
 ```
 
 | 层 | 职责 | 不负责 |
@@ -33,29 +32,31 @@ flowchart LR
 | `LanguageFeatureProvider` | 声明单项能力、优先级和统一结果类型 | 维护 UI 状态 |
 | `BuiltinLanguageFeatureProvider` | 当前文件标识符、轻量 hover/导航、语言关键字 | 类型推断、跨文件索引 |
 | `LanguageServerFeatureProvider` | 将已协商的服务器能力适配到统一 provider 接口 | 猜测服务器能力 |
-| `StdioLanguageServerSession` | 串联 Rust 状态机与进程 transport，管理请求回调和生命周期 | 解析每种服务器的私有协议 |
-| Rust Core | LSP state、请求 ID、frame、UTF-16 位置、结果归一化、动态能力 | 可执行文件发现、子进程和线程模型 |
-| macOS adapter | 工具发现、环境变量、`Process`/`Pipe`、终止进程 | 语言功能路由和协议语义 |
+| `StdioLanguageServerSession` | 调用语义命令、投影 typed event，并以不透明 operation ID 交付 UI 回调 | LSP 请求 ID、frame、文档版本、协议超时或子进程 |
+| Rust Core | LSP 子进程与 stdio、session/document state、请求 ID、deadline、frame、UTF-16 位置、结果归一化、动态能力 | 可执行文件发现、UI provider 路由 |
+| macOS adapter | 工具发现、环境变量和用户可执行文件覆盖 | LSP 子进程、语言功能路由和协议语义 |
 
 Rust Core 的 LSP 实现统一收在 `rust/lithe-core/src/lsp/`，根模块只作为稳定 facade，command runtime 仍通过 `crate::lsp::*` 使用公开契约：
 
 ```text
 lsp/
-├── interface/           # 通用 LSP 协议、client state、transport 和 session host
+├── interface/           # 通用 LSP engine、协议 reducer、transport 与稳定 DTO
 │   ├── types.rs
 │   ├── client.rs
 │   ├── transport.rs
-│   └── host.rs
+│   ├── host.rs
+│   └── engine.rs
 ├── lightweight/         # 不启动语言服务器的编辑、snippet 和当前文件符号能力
 │   ├── edits.rs
 │   ├── snippets.rs
 │   └── symbols.rs
 └── languages/           # provider catalog 与语言/宿主模型 adapter
     ├── catalog.rs
+    ├── jdt.rs
     └── swift.rs
 ```
 
-共享的 LSP position/range、client request/response/event 类型只能定义在 `interface/types.rs`。`lightweight` 可以依赖这些协议 DTO，但 `interface` 不依赖轻量实现。`languages/swift.rs` 目前只负责 Swift 宿主 DTO 与标准 LSP JSON 之间的转换，并不表示 SourceKit-LSP 私有协议；真正的服务器私有扩展仍应通过独立 adapter 接入。provider catalog 位于 `languages`，因为它描述可动态加载的语言/provider 元数据，而不是 client 状态机的一部分。
+共享的 LSP position/range 与协议 DTO 只能定义在 `interface/types.rs`；对应用公开的 runtime command/event DTO 位于 `interface/engine.rs`。`lightweight` 可以依赖这些协议 DTO，但 `interface` 不依赖轻量实现。`languages/jdt.rs` 封装 JDTLS 启动参数、配置与虚拟源码语义，generic engine 不按 Java 硬编码 capability。provider catalog 位于 `languages`，因为它描述可动态加载的语言/provider 元数据，而不是 client 状态机的一部分。
 
 ## Provider 路由
 
@@ -132,18 +133,18 @@ LSP 控制中心标题栏的工具设置会在用户偏好中保存每个 provid
 
 当前 transport 是 LSP 标准的 stdio `Content-Length` framing。一个 provider 在一个 workspace root 下复用一个 session；同一 provider 切换到另一个 root 时，manager 会停止旧 session 并创建新 session。
 
-生产路径由 Rust `LspHost` 持有长生命周期 `sessionID -> LspClientState` registry。Swift 只保存不透明 `sessionID`，open/change/request/server-message/shutdown 请求不再携带整份 state 或已打开文档全文。registry 锁只保护 handle 的查找和增删，每个 session 独立串行化状态变更，因此不同 workspace 不会因一次 LSP reducer 调用而互相阻塞。Rust Core 只返回待发送 JSON-RPC 消息、typed event 和精简 capability 摘要。旧的 reducer API 暂时保留给未迁移 adapter 和纯函数测试，不再用于 `RustCoreBridge` 的 stdio 生产会话。
+生产路径由 Rust engine 持有长生命周期 `sessionID -> RuntimeSession` registry。每个 runtime 同时拥有子进程、stdio、frame buffer、文档版本、pending request/deadline、capability 和 diagnostics；Swift 只保存不透明 `sessionID` 与 application-level `operationID`。`syncDocument` 由 Rust 决定发送 version 1 的 `didOpen` 或递增版本的 `didChange`，`pollEvents` 只返回 typed state/feature/diagnostic/result/error 事件。协议 reducer/host 只作为 engine 内部实现与纯函数测试 seam，不属于应用公开命令面。
 
 启动顺序：
 
-1. adapter 启动进程并先安装 stdout/stderr handler，避免丢失启动阶段输出；
-2. Rust `LspHost` 创建 session handle、生成 `initialize` 并在内部记录 pending request；
-3. 收到响应后，Rust Core 保存服务器 capability 并生成 `initialized`；
+1. Swift 完成可执行文件和环境发现，向 Rust 提交 typed `startServer`；
+2. Rust engine 创建 session、启动进程并安装 stdout/stderr reader，再发送 `initialize`；
+3. 收到响应后，Rust 保存服务器 capability，发送 `initialized` 和 provider adapter 通知；
 4. manager 发布实际 capability，随后通过 `didOpen`/全量 `didChange` 同步文档；
-5. 功能请求按 request ID 回到对应 completion handler。
+5. Rust 以 LSP request ID 关联 deadline，并用不透明 operation ID 把 terminal result 投影给 Swift。
 
 服务端 capability 可以来自 initialize 响应，也可以通过 `client/registerCapability` 和
-`client/unregisterCapability` 动态变化。当前客户端会处理 diagnostics，并对 workspace configuration、workspace folders 查询和 work-done progress 创建返回保守的空值响应；未知的服务端 request 返回 JSON-RPC `Method not found`，未知 notification 作为事件保留。
+`client/unregisterCapability` 动态变化。客户端处理有文档/version 归属的 diagnostics、workspace configuration/folders、work-done progress 和 apply-edit 协议；未知的服务端 request 返回 JSON-RPC `Method not found`，未知 notification 作为 typed log/event 保留。
 
 关闭文档时发送 `textDocument/didClose` 并清除该文档诊断。停止 session 时先请求 `shutdown`，收到响应后发送 `exit`；若服务器无响应，则由超时路径强制停止进程。不要直接以 `terminate()` 代替正常 LSP 关闭流程。
 
@@ -151,8 +152,8 @@ LSP 控制中心标题栏的工具设置会在用户偏好中保存每个 provid
 
 - 只支持 stdio transport，尚无 socket/TCP 或服务器自定义握手 adapter。
 - session 当前以 provider ID 和单个 workspace root 为单位，尚无 multi-root session。
-- `workspace/applyEdit` 和服务器私有 request 没有通用处理层；客户端不会宣称未实现的 `applyEdit` 能力。
-- 编辑器尚未实现 snippet tabstop 会话，因此 initialize 明确声明 `snippetSupport: false`；completion 中的 snippet 只会降级成纯文本。
+- `workspace/applyEdit` 只提供协议确认和 normalized edit 数据，实际应用仍必须经过编辑器工作区安全校验。
+- initialize 可协商 snippet、resolve、inlay hint、folding range、code lens 和 workspace symbol；UI 只启用已完整投影且服务器实际声明的能力。
 - 文档同步当前发送全量文本，没有按服务器类型实现增量 diff。
 - catalog 描述的是“可尝试启动的工具”；最终功能必须以运行时服务器 capability 为准。
 - project config 是受信任的项目配置，只接受 schema 中的 typed 字段，不执行 shell 命令。
@@ -164,13 +165,13 @@ LSP 控制中心标题栏的工具设置会在用户偏好中保存每个 provid
 3. 确认服务器支持 stdio 和标准 `Content-Length` framing。
 4. 不在 UI 或 manager 中按语言写分支；服务器差异应进入 descriptor 或独立 adapter。
 5. 用 initialize 响应验证 capability，不把 catalog 的 `languageServer` 标记当成 feature 支持证明。
-6. 至少测试 initialize、didOpen/change/close、一个功能请求、shutdown/exit 和异常退出。
-7. 包含空结果、服务器 error、UTF-16、带空格/非 ASCII 文件 URI，以及启动即输出的场景。
+6. 至少测试 initialize timeout/error、didOpen/change/close、请求 timeout/late response、shutdown/exit、强制停止和异常退出。
+7. 包含 malformed/partial/multiple frame、动态能力、stale diagnostics、UTF-16、带空格/非 ASCII 文件 URI，以及启动即输出的场景。
 
 ## 真实 gopls 验证
 
 [`RealGoplsIntegrationTests.swift`](../../Tests/LitheTests/RealGoplsIntegrationTests.swift)
-会穿过 manager、Swift session、macOS process adapter 和真实 Rust Core。测试默认不启动外部工具，需要显式开启：
+会穿过 manager、Swift semantic facade 和拥有进程的真实 Rust Core。测试默认不启动外部工具，需要显式开启：
 
 ```bash
 scripts/build-rust-core.sh --debug --target aarch64-apple-darwin

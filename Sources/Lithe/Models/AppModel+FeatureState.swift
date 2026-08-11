@@ -136,8 +136,6 @@ extension AppModel {
     var isLoadingNavigation: Bool {
         isLoadingLanguageNavigation
     }
-    var javaDiagnostics: [URL: [JavaDiagnostic]] { javaFeature.javaDiagnostics }
-
     var isLoadingWorkspace: Bool { workspaceFeature.isLoadingWorkspace }
     var isRefreshingWorkspace: Bool { workspaceFeature.isRefreshingWorkspace }
     var searchResults: [FileSearchResult] { searchFeature.searchResults }

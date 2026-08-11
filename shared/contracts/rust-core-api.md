@@ -75,15 +75,16 @@ stable error code and a user-facing message:
 | `lsp.builtinCompletions` | Return lightweight current-file identifier completions |
 | `lsp.builtinHover` | Return lightweight current-symbol hover text |
 | `lsp.builtinNavigation` | Return lightweight current-file definition/reference locations |
-| `lsp.clientInitialize` | Create an LSP initialize JSON-RPC request and client state |
-| `lsp.clientOpenDocument` | Track an open document and emit `textDocument/didOpen` |
-| `lsp.clientChangeDocument` | Track a full-text document change and emit `textDocument/didChange` |
-| `lsp.clientCloseDocument` | Remove an open document and emit `textDocument/didClose` |
-| `lsp.clientShutdown` | Record graceful shutdown and emit the `shutdown` request |
-| `lsp.clientRequest` | Emit a typed LSP feature request and record the pending request |
-| `lsp.clientApplyServerMessage` | Apply LSP server responses, diagnostics, and dynamic registrations |
-| `lsp.frameMessage` | Frame one JSON-RPC payload for an LSP stdio transport |
-| `lsp.parseServerMessages` | Incrementally parse framed messages from an LSP stdout byte stream |
+| `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
+| `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
+| `lsp.syncDocument` | Open or full-text change a Rust-owned document with monotonic versions |
+| `lsp.closeDocument` | Close a document and clear its diagnostics |
+| `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
+| `lsp.cancelOperation` | Cancel one pending semantic operation |
+| `lsp.pollEvents` | Drain ordered typed lifecycle/feature/diagnostic/result/log events |
+| `lsp.clearDiagnostics` | Clear every diagnostic owned by a session |
+| `lsp.snapshot` | Return a diagnostic runtime snapshot for testing and control surfaces |
+| `lsp.destroyServer` | Remove a terminal session handle from the registry |
 | `java.runConfigurations` | Scan Java sources for main classes and return Maven/Spring run configurations |
 | `java.codeVision` | Return Java declaration usage counts for editor code vision |
 | `java.className` | Resolve a Java source package and simple name into a runtime class name |
@@ -208,32 +209,44 @@ server.
 The LSP provider catalog is returned by `lithe_core_lsp_provider_catalog_json`.
 Each provider descriptor may include `languageServerLaunch` with ordered
 `executableNames` and `arguments`; Swift adapters use this metadata when they
-need to start a real language server after the lightweight Rust fallback is not
-enough. Built-in descriptors are merged by provider ID with the optional
+need to discover a real language-server executable; the selected launch plan is
+then submitted to the Rust-owned runtime. Built-in descriptors are merged by provider ID with the optional
 `.lithe/lsp/language-providers.json` workspace document. See
 [`language-tooling.md`](../../docs/architecture/language-tooling.md) for routing,
 discovery, lifecycle, and compatibility rules.
 
-`lsp.client*` commands are the transport-independent LSP client core. The
-platform adapter owns the process/stdin/stdout transport and passes a
-serialized `state` object through these commands. Responses return
-`{ "state": object, "messages": string[], "events": [] }`; `messages` are raw
-JSON-RPC payloads for the adapter to frame and write to the language server.
-`lsp.clientInitialize` records the pending initialize request and emits
-`initialize`. `lsp.clientOpenDocument`, `lsp.clientChangeDocument`, and
-`lsp.clientCloseDocument` maintain document state and emit full-text lifecycle
-notifications. `lsp.clientShutdown` emits `shutdown`; applying its response
-clears session state and emits `exit`. `lsp.clientRequest` supports completion,
-hover, definition/declaration/typeDefinition,
-implementation, references, rename, formatting, code action, resolve, and
-execute-command methods. `lsp.clientApplyServerMessage` parses server
-responses, derives feature names from initialize capabilities, stores
-`publishDiagnostics`, handles dynamic register/unregister notifications, and
-answers the supported workspace/window requests. Unknown server requests
-receive JSON-RPC `Method not found` instead of being silently ignored.
-Completion, hover, and navigation responses are normalized by Rust into the
-same completion item, hover, and location payload shapes used by the lightweight
-fallback commands.
+The `lsp.*Server`, `lsp.*Document`, `lsp.request`, and `lsp.pollEvents`
+commands are the semantic LSP runtime boundary. `lsp.startServer` accepts the
+provider ID, selected executable/arguments/environment, root URI, working
+directory, initialization options, optional runtime executable and cache
+directory, plus initialize/request/shutdown deadlines. Rust owns the returned
+session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
+IDs, document versions, pending deadlines, capabilities, diagnostics, and
+graceful/forced termination.
+
+`lsp.syncDocument` accepts `{ sessionId, uri, languageId, text }`; the first
+sync emits `didOpen` at version 1 and later syncs emit full-text `didChange`
+with increasing versions. `lsp.request` accepts a semantic `operation` plus
+the operation-specific URI, position, range, diagnostics, item, action, or
+command fields, and returns `{ operationId }`. Supported operations include
+completion, hover, definition/declaration/type-definition, references,
+implementation, rename, formatting, code actions and resolve, execute command,
+inlay hints, folding ranges, code lens, and provider virtual documents.
+
+`lsp.pollEvents` drains events ordered by per-session `sequence`. Event types
+include `stateChanged`, `featuresChanged`, `diagnostics`,
+`requestCompleted`, `serverInfoChanged`, and `log`. Every request completes at
+most once with either `result` or a structured runtime error containing
+provider/session, stage, optional method/document/request, stable code, and
+optional process-exit detail. Late responses after cancellation or deadline
+are ignored. Diagnostics are accepted only for documents open in the current
+session, and versioned diagnostics must match the current document version.
+
+The client reducer, raw JSON-RPC message, frame, and parser functions are
+internal Rust implementation seams; they are not public application commands.
+Completion, hover, navigation, edit, hint, folding, and code-lens responses are
+normalized by Rust before they cross the application boundary. Unknown server
+requests receive JSON-RPC `Method not found` instead of being silently ignored.
 
 The `history.*` commands accept an adapter-selected `storageRoot`; history
 metadata never stores an absolute workspace or storage path. `history.record`

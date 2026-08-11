@@ -311,6 +311,68 @@ mod tests {
     }
 
     #[test]
+    fn host_rejects_diagnostics_from_destroyed_sessions_and_noncurrent_documents() {
+        let host = LspHost::new();
+        let uri = "file:///tmp/project/main.rs";
+        let mut first_create = request(LspSessionAction::Create);
+        first_create.root_uri = Some("file:///tmp/project".to_string());
+        let first = host.execute(first_create).unwrap();
+
+        let mut first_open = request(LspSessionAction::OpenDocument);
+        first_open.session_id = Some(first.session_id.clone());
+        first_open.uri = Some(uri.to_string());
+        first_open.language_id = Some("rust".to_string());
+        first_open.text = Some("fn first() {}".to_string());
+        host.execute(first_open).unwrap();
+
+        let mut destroy = request(LspSessionAction::Destroy);
+        destroy.session_id = Some(first.session_id.clone());
+        host.execute(destroy).unwrap();
+
+        let mut old_session_diagnostics = request(LspSessionAction::ApplyServerMessage);
+        old_session_diagnostics.session_id = Some(first.session_id);
+        old_session_diagnostics.message = Some(
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/publishDiagnostics",
+                "params": {
+                    "uri": uri,
+                    "version": 1,
+                    "diagnostics": []
+                }
+            })
+            .to_string(),
+        );
+        assert!(host.execute(old_session_diagnostics).is_err());
+
+        let mut second_create = request(LspSessionAction::Create);
+        second_create.root_uri = Some("file:///tmp/project".to_string());
+        let second = host.execute(second_create).unwrap();
+        let mut second_open = request(LspSessionAction::OpenDocument);
+        second_open.session_id = Some(second.session_id.clone());
+        second_open.uri = Some(uri.to_string());
+        second_open.language_id = Some("rust".to_string());
+        second_open.text = Some("fn second() {}".to_string());
+        host.execute(second_open).unwrap();
+
+        let mut stale_diagnostics = request(LspSessionAction::ApplyServerMessage);
+        stale_diagnostics.session_id = Some(second.session_id);
+        stale_diagnostics.message = Some(
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/publishDiagnostics",
+                "params": {
+                    "uri": uri,
+                    "version": 2,
+                    "diagnostics": []
+                }
+            })
+            .to_string(),
+        );
+        assert!(host.execute(stale_diagnostics).unwrap().events.is_empty());
+    }
+
+    #[test]
     fn session_requests_reject_unknown_fields() {
         let error = serde_json::from_value::<LspSessionCommandRequest>(json!({
             "action": "create",

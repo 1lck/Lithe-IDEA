@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 
 pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientResponse, CoreError> {
     validate_uri(&request.root_uri)?;
+    let workspace_name = workspace_name_from_uri(&request.root_uri);
     let mut state = request.state;
     let id = allocate_request(&mut state, "initialize");
     let message = json_rpc_request(
@@ -11,15 +12,31 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
         "initialize",
         json!({
             "processId": request.process_id,
-            "rootUri": request.root_uri,
+            "clientInfo": {
+                "name": "Lithe",
+                "version": env!("CARGO_PKG_VERSION")
+            },
+            "rootUri": &request.root_uri,
+            "workspaceFolders": [{
+                "uri": &request.root_uri,
+                "name": workspace_name
+            }],
             "capabilities": {
                 "textDocument": {
                     "synchronization": {},
                     "completion": {
                         "dynamicRegistration": true,
                         "completionItem": {
-                            "snippetSupport": false,
-                            "documentationFormat": ["markdown", "plaintext"]
+                            "snippetSupport": true,
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "resolveSupport": {
+                                "properties": [
+                                    "detail",
+                                    "documentation",
+                                    "textEdit",
+                                    "additionalTextEdits"
+                                ]
+                            }
                         }
                     },
                     "hover": {
@@ -33,8 +50,23 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                     "references": { "dynamicRegistration": true },
                     "rename": { "dynamicRegistration": true },
                     "formatting": { "dynamicRegistration": true },
+                    "inlayHint": { "dynamicRegistration": true },
+                    "foldingRange": {
+                        "dynamicRegistration": true,
+                        "lineFoldingOnly": false,
+                        "foldingRangeKind": {
+                            "valueSet": ["comment", "imports", "region"]
+                        },
+                        "foldingRange": {
+                            "collapsedText": true
+                        }
+                    },
+                    "codeLens": { "dynamicRegistration": true },
                     "codeAction": {
                         "dynamicRegistration": true,
+                        "resolveSupport": {
+                            "properties": ["edit", "command"]
+                        },
                         "codeActionLiteralSupport": {
                             "codeActionKind": {
                                 "valueSet": ["quickfix", "refactor", "source"]
@@ -42,6 +74,7 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                         }
                     },
                     "publishDiagnostics": {
+                        "versionSupport": true,
                         "relatedInformation": true,
                         "tagSupport": {
                             "valueSet": [1, 2]
@@ -49,11 +82,22 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                     }
                 },
                 "workspace": {
+                    "applyEdit": true,
                     "configuration": true,
+                    "workspaceFolders": true,
                     "workspaceEdit": {
                         "documentChanges": true
                     },
-                    "executeCommand": { "dynamicRegistration": true }
+                    "executeCommand": { "dynamicRegistration": true },
+                    "symbol": {
+                        "dynamicRegistration": true,
+                        "symbolKind": {
+                            "valueSet": [
+                                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+                                14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26
+                            ]
+                        }
+                    }
                 },
                 "window": {
                     "workDoneProgress": true
@@ -87,6 +131,8 @@ pub fn client_open_document(
             }
         }),
     )?;
+    state.diagnostics.remove(&request.uri);
+    state.diagnostic_versions.remove(&request.uri);
     state.open_documents.insert(request.uri, document);
     Ok(client_response(state, vec![message], Vec::new()))
 }
@@ -130,6 +176,8 @@ pub fn client_close_document(
             "Cannot close a document that is not open in the LSP client.",
         ));
     };
+    state.diagnostics.remove(&request.uri);
+    state.diagnostic_versions.remove(&request.uri);
     let message = json_rpc_notification(
         "textDocument/didClose",
         json!({
@@ -196,15 +244,28 @@ pub fn client_apply_server_message(
                         .and_then(Value::as_str)
                         .unwrap_or_default();
                     validate_uri(uri)?;
+                    let Some(document) = state.open_documents.get(uri) else {
+                        return Ok(client_response(state, responses, events));
+                    };
+                    let version = params.get("version").and_then(Value::as_i64);
+                    if version.is_some_and(|version| version != document.version) {
+                        return Ok(client_response(state, responses, events));
+                    }
                     let diagnostics = parse_diagnostics(params.get("diagnostics"));
                     state
                         .diagnostics
                         .insert(uri.to_string(), diagnostics.clone());
+                    if let Some(version) = version {
+                        state.diagnostic_versions.insert(uri.to_string(), version);
+                    } else {
+                        state.diagnostic_versions.remove(uri);
+                    }
                     events.push(LspClientEvent {
                         kind: "diagnostics".to_string(),
                         request_id: None,
                         method: None,
                         uri: Some(uri.to_string()),
+                        version,
                         diagnostics: Some(diagnostics),
                         result: None,
                         error: None,
@@ -250,6 +311,7 @@ pub fn client_apply_server_message(
                         request_id: None,
                         method: Some(method.to_string()),
                         uri: None,
+                        version: None,
                         diagnostics: None,
                         result: message.get("params").cloned(),
                         error: None,
@@ -278,6 +340,7 @@ pub fn client_apply_server_message(
             state.server_capabilities.clear();
             state.open_documents.clear();
             state.diagnostics.clear();
+            state.diagnostic_versions.clear();
             responses.push(json_rpc_message_without_params(None, "exit")?);
         }
         let result = lsp_feature_result_for_method(pending.as_deref(), message.get("result"));
@@ -290,6 +353,7 @@ pub fn client_apply_server_message(
             request_id: Some(id),
             method: pending,
             uri: None,
+            version: None,
             diagnostics: None,
             result,
             error: message.get("error").map(|value| value.to_string()),
@@ -385,6 +449,16 @@ fn validate_uri(value: &str) -> Result<(), CoreError> {
     }
 }
 
+fn workspace_name_from_uri(uri: &str) -> String {
+    let decoded = file_path_from_uri(uri);
+    decoded
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .find(|component| !component.is_empty())
+        .unwrap_or("workspace")
+        .to_string()
+}
+
 fn validate_lsp_method(method: &str) -> Result<(), CoreError> {
     match method {
         "textDocument/completion"
@@ -396,6 +470,9 @@ fn validate_lsp_method(method: &str) -> Result<(), CoreError> {
         | "textDocument/references"
         | "textDocument/rename"
         | "textDocument/formatting"
+        | "textDocument/inlayHint"
+        | "textDocument/foldingRange"
+        | "textDocument/codeLens"
         | "textDocument/codeAction"
         | "completionItem/resolve"
         | "codeAction/resolve"
@@ -439,6 +516,13 @@ fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreE
                 "insertFinalNewline": true,
                 "trimFinalNewlines": true
             }
+        })),
+        "textDocument/inlayHint" => Ok(json!({
+            "textDocument": text_document,
+            "range": lsp_range_json(required_range(request)?)
+        })),
+        "textDocument/foldingRange" | "textDocument/codeLens" => Ok(json!({
+            "textDocument": text_document
         })),
         "textDocument/codeAction" => Ok(json!({
             "textDocument": text_document,
@@ -645,6 +729,15 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
                 .map(|edits| edits.iter().filter_map(parse_lsp_text_edit_value).collect::<Vec<_>>())
                 .unwrap_or_default()
         })),
+        Some("textDocument/inlayHint") => Some(json!({
+            "hints": parse_inlay_hints(result)
+        })),
+        Some("textDocument/foldingRange") => Some(json!({
+            "ranges": parse_folding_ranges(result)
+        })),
+        Some("textDocument/codeLens") => Some(json!({
+            "lenses": parse_code_lenses(result)
+        })),
         Some("textDocument/codeAction") => Some(json!({
             "actions": parse_code_actions(result)
         })),
@@ -764,6 +857,100 @@ fn hover_contents(value: &Value) -> Option<(String, bool)> {
     }
 }
 
+fn parse_inlay_hints(result: &Value) -> Vec<LspInlayHintResponse> {
+    result
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|hint| {
+                    Some(LspInlayHintResponse {
+                        position: parse_lsp_position(hint.get("position")?)?,
+                        label: parse_inlay_hint_label(hint.get("label")?)?,
+                        kind: hint.get("kind").and_then(Value::as_i64),
+                        tooltip: completion_documentation(hint.get("tooltip")),
+                        padding_left: hint
+                            .get("paddingLeft")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        padding_right: hint
+                            .get("paddingRight")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        text_edits: hint
+                            .get("textEdits")
+                            .and_then(Value::as_array)
+                            .map(|edits| {
+                                edits.iter().filter_map(parse_lsp_text_edit_value).collect()
+                            })
+                            .unwrap_or_default(),
+                        data: hint.get("data").cloned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_inlay_hint_label(value: &Value) -> Option<String> {
+    match value {
+        Value::String(label) => Some(label.clone()),
+        Value::Array(parts) => {
+            let label = parts
+                .iter()
+                .filter_map(|part| part.get("value").and_then(Value::as_str))
+                .collect::<String>();
+            (!label.is_empty()).then_some(label)
+        }
+        _ => None,
+    }
+}
+
+fn parse_folding_ranges(result: &Value) -> Vec<LspFoldingRangeResponse> {
+    result
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|range| {
+                    Some(LspFoldingRangeResponse {
+                        start_line: range.get("startLine")?.as_i64()?,
+                        start_utf16_column: range.get("startCharacter").and_then(Value::as_i64),
+                        end_line: range.get("endLine")?.as_i64()?,
+                        end_utf16_column: range.get("endCharacter").and_then(Value::as_i64),
+                        kind: range
+                            .get("kind")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        collapsed_text: range
+                            .get("collapsedText")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_code_lenses(result: &Value) -> Vec<LspCodeLensResponse> {
+    result
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|lens| {
+                    Some(LspCodeLensResponse {
+                        range: parse_lsp_range(lens.get("range")?)?,
+                        command: lens.get("command").and_then(parse_lsp_command),
+                        data: lens.get("data").cloned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn parse_locations(result: &Value) -> Vec<Value> {
     let values: Vec<&Value> = if let Some(array) = result.as_array() {
         array.iter().collect()
@@ -784,10 +971,13 @@ fn parse_locations(result: &Value) -> Vec<Value> {
                 .or_else(|| location.get("targetSelectionRange"))
                 .or_else(|| location.get("targetRange"))
                 .and_then(parse_lsp_range_value)?;
+            let file_path = file_path_for_uri(uri);
+            let is_read_only = file_path.is_none();
             Some(json!({
-                "filePath": file_path_from_uri(uri),
+                "uri": uri,
+                "filePath": file_path,
                 "range": range,
-                "isReadOnly": false,
+                "isReadOnly": is_read_only,
                 "displayPath": Value::Null
             }))
         })
@@ -902,9 +1092,25 @@ fn parse_lsp_position_value(value: &Value) -> Option<Value> {
 }
 
 pub(crate) fn file_path_from_uri(uri: &str) -> String {
-    let path = uri.strip_prefix("file://").unwrap_or(uri);
-    let mut decoded = Vec::with_capacity(path.len());
-    let bytes = path.as_bytes();
+    file_path_for_uri(uri).unwrap_or_else(|| percent_decode(uri))
+}
+
+fn file_path_for_uri(uri: &str) -> Option<String> {
+    let (scheme, remainder) = uri.split_once(':')?;
+    if !scheme.eq_ignore_ascii_case("file") {
+        return None;
+    }
+    let path = if remainder.starts_with("///") {
+        &remainder[2..]
+    } else {
+        remainder
+    };
+    Some(percent_decode(path))
+}
+
+fn percent_decode(value: &str) -> String {
+    let mut decoded = Vec::with_capacity(value.len());
+    let bytes = value.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'%' && index + 2 < bytes.len() {
@@ -919,7 +1125,7 @@ pub(crate) fn file_path_from_uri(uri: &str) -> String {
         decoded.push(bytes[index]);
         index += 1;
     }
-    String::from_utf8(decoded).unwrap_or_else(|_| path.to_string())
+    String::from_utf8(decoded).unwrap_or_else(|_| value.to_string())
 }
 
 fn hex_value(value: u8) -> Option<u8> {
@@ -976,6 +1182,20 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
         capabilities,
         "documentFormattingProvider",
         "formatting",
+    );
+    add_capability(&mut values, capabilities, "inlayHintProvider", "inlayHints");
+    add_capability(
+        &mut values,
+        capabilities,
+        "foldingRangeProvider",
+        "foldingRanges",
+    );
+    add_capability(&mut values, capabilities, "codeLensProvider", "codeLens");
+    add_capability(
+        &mut values,
+        capabilities,
+        "workspaceSymbolProvider",
+        "workspaceSymbols",
     );
     add_capability(
         &mut values,
@@ -1086,7 +1306,11 @@ fn feature_name_for_method(method: &str) -> Option<&'static str> {
         "textDocument/completion" => Some("completion"),
         "textDocument/rename" => Some("rename"),
         "textDocument/formatting" => Some("formatting"),
+        "textDocument/inlayHint" => Some("inlayHints"),
+        "textDocument/foldingRange" => Some("foldingRanges"),
+        "textDocument/codeLens" => Some("codeLens"),
         "textDocument/codeAction" => Some("codeActions"),
+        "workspace/symbol" => Some("workspaceSymbols"),
         "workspace/executeCommand" => Some("executeCommand"),
         _ => None,
     }
