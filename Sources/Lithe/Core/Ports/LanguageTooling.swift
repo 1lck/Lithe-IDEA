@@ -204,12 +204,38 @@ struct LanguageServerRange: Equatable, Sendable {
     let end: LanguageServerPosition
 }
 
+struct LanguageServerDiagnosticRelatedInformation: Equatable, Sendable {
+    let fileURL: URL
+    let range: LanguageServerRange
+    let message: String
+}
+
 struct LanguageServerDiagnostic: Equatable, Sendable {
     let range: LanguageServerRange
     let severity: Int?
     let message: String
     let source: String?
     let code: String?
+    let tags: [Int]
+    let relatedInformation: [LanguageServerDiagnosticRelatedInformation]
+
+    init(
+        range: LanguageServerRange,
+        severity: Int?,
+        message: String,
+        source: String?,
+        code: String?,
+        tags: [Int] = [],
+        relatedInformation: [LanguageServerDiagnosticRelatedInformation] = []
+    ) {
+        self.range = range
+        self.severity = severity
+        self.message = message
+        self.source = source
+        self.code = code
+        self.tags = tags
+        self.relatedInformation = relatedInformation
+    }
 }
 
 struct LanguageServerLocation: Equatable, Sendable {
@@ -267,11 +293,17 @@ enum LanguageServerLogLevel: String, Sendable {
 }
 
 enum LanguageServerSessionState: Equatable, Sendable {
-    case starting
-    case running
+    case startingProcess
+    case initializing
+    case ready
     case stopping
     case stopped
     case failed(exitCode: Int32?, message: String?)
+}
+
+struct LanguageServerInfo: Equatable, Sendable {
+    let name: String
+    let version: String?
 }
 
 struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
@@ -404,6 +436,8 @@ protocol LanguageServerSession: AnyObject {
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
     var features: LanguageServerFeatureSet { get }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
+    var serverInfo: LanguageServerInfo? { get }
+    var onServerInfoChange: ((LanguageServerInfo?) -> Void)? { get set }
     func start(rootURL: URL) throws
     func synchronize(fileURL: URL, text: String, languageID: String) throws
     func closeDocument(_ fileURL: URL)
@@ -468,6 +502,11 @@ extension LanguageServerSession {
         set {}
     }
     var onStateChange: ((LanguageServerSessionState) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var serverInfo: LanguageServerInfo? { nil }
+    var onServerInfoChange: ((LanguageServerInfo?) -> Void)? {
         get { nil }
         set {}
     }

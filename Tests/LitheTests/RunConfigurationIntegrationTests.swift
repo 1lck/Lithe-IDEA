@@ -1079,15 +1079,223 @@ struct RunConfigurationIntegrationTests {
             text: "struct App {}\n",
             rootURL: source.deletingLastPathComponent()
         )
+        #expect(manager.activeLanguageServerIDs.isEmpty)
+        #expect(manager.languageServerStates["swift"] == .initializing)
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": ["capabilities": [:]]
+        ])
+        await Self.drainMainActorTasks()
+
         #expect(manager.activeLanguageServerIDs == ["swift"])
-        #expect(manager.languageServerStates["swift"] == .running)
+        #expect(manager.languageServerStates["swift"] == .ready)
 
         process.terminate(exitCode: 1)
         await Self.drainMainActorTasks()
 
         #expect(manager.activeLanguageServerIDs.isEmpty)
         #expect(manager.languageServerFeatures["swift"] == nil)
-        #expect(manager.languageServerStates["swift"] == .failed(exitCode: 1, message: nil))
+        guard case .failed(let exitCode, let message)? = manager.languageServerStates["swift"] else {
+            Issue.record("Expected the Swift language server to fail after process termination")
+            return
+        }
+        #expect(exitCode == 1)
+        #expect(message?.contains("exit code 1") == true)
+    }
+
+    @Test
+    func initializeErrorNeverActivatesLanguageServer() async throws {
+        let harness = makeLanguageServerHarness()
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App {}\n",
+            rootURL: harness.root
+        )
+        #expect(harness.manager.languageServerStates["swift"] == .initializing)
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+
+        harness.process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "error": ["code": -32603, "message": "initialize rejected"]
+        ])
+        await Self.drainMainActorTasks()
+
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        #expect(!harness.process.isRunning)
+        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+            Issue.record("Expected initialize error to fail the language server")
+            return
+        }
+        #expect(message?.contains("initialize failed") == true)
+        #expect(!Self.framedMessages(harness.process.sentData).contains {
+            $0.contains("textDocument/didOpen")
+        })
+    }
+
+    @Test
+    func invalidInitializeResultNeverMarksLanguageServerReady() async throws {
+        let harness = makeLanguageServerHarness()
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App {}\n",
+            rootURL: harness.root
+        )
+        harness.process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": NSNull()
+        ])
+        await Self.drainMainActorTasks()
+
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        #expect(!harness.process.isRunning)
+        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+            Issue.record("Expected invalid initialize result to fail the language server")
+            return
+        }
+        #expect(message?.contains("invalid result") == true)
+    }
+
+    @Test
+    func initializeTimeoutTransitionsInitializingSessionToFailed() async throws {
+        let harness = makeLanguageServerHarness(initializeTimeoutNanoseconds: 2_000_000)
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App {}\n",
+            rootURL: harness.root
+        )
+        #expect(harness.manager.languageServerStates["swift"] == .initializing)
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+
+        try await Task.sleep(nanoseconds: 20_000_000)
+        await Self.drainMainActorTasks()
+
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        #expect(!harness.process.isRunning)
+        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+            Issue.record("Expected initialize timeout to fail the language server")
+            return
+        }
+        #expect(message?.contains("initialize timed out") == true)
+    }
+
+    @Test
+    func pendingCompletionFailsExactlyOnceWhenServerTerminates() async throws {
+        let harness = makeLanguageServerHarness()
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App { let title = 1 }\n",
+            rootURL: harness.root
+        )
+        Self.emitSuccessfulInitialize(on: harness.process)
+        await Self.drainMainActorTasks()
+
+        var completionResult: Result<[LanguageServerCompletionItem], Error>?
+        var completionCount = 0
+        try harness.manager.completions(
+            fileURL: harness.source,
+            text: "struct App { let ti = 1 }\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 19),
+            rootURL: harness.root
+        ) { result in
+            completionCount += 1
+            completionResult = result
+        }
+
+        harness.process.terminate(exitCode: 9)
+        await Self.drainMainActorTasks()
+
+        #expect(completionCount == 1)
+        guard case .failure(let error)? = completionResult else {
+            Issue.record("Expected pending completion to fail when the server terminates")
+            return
+        }
+        #expect(error.localizedDescription.contains("exit code 9"))
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+    }
+
+    @Test
+    func requestTimeoutSendsCancellationAndReturnsFailure() async throws {
+        let harness = makeLanguageServerHarness(requestTimeoutNanoseconds: 2_000_000)
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App { let title = 1 }\n",
+            rootURL: harness.root
+        )
+        Self.emitSuccessfulInitialize(on: harness.process)
+        await Self.drainMainActorTasks()
+
+        var completionResult: Result<[LanguageServerCompletionItem], Error>?
+        try harness.manager.completions(
+            fileURL: harness.source,
+            text: "struct App { let ti = 1 }\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 19),
+            rootURL: harness.root
+        ) { completionResult = $0 }
+
+        try await Task.sleep(nanoseconds: 20_000_000)
+        await Self.drainMainActorTasks()
+
+        guard case .failure(let error)? = completionResult else {
+            Issue.record("Expected completion timeout to return failure")
+            return
+        }
+        #expect(error.localizedDescription.contains("timed out"))
+        #expect(harness.process.sentData.compactMap(Self.framedJSON).contains { message in
+            message["method"] as? String == "$/cancelRequest"
+                && (message["params"] as? [String: Any])?["id"] as? String == "2"
+        })
+        #expect(harness.manager.languageServerStates["swift"] == .ready)
+    }
+
+    @Test
+    func didOpenWriteFailureFailsSessionAndRetriesWithFullOpen() async throws {
+        let harness = makeLanguageServerHarness()
+        harness.process.sendFailurePredicate = { data in
+            String(decoding: data, as: UTF8.self).contains("textDocument/didOpen")
+        }
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App {}\n",
+            rootURL: harness.root
+        )
+        Self.emitSuccessfulInitialize(on: harness.process)
+        await Self.drainMainActorTasks()
+
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        #expect(!harness.process.isRunning)
+        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+            Issue.record("Expected didOpen transport failure to fail the session")
+            return
+        }
+        #expect(message?.contains("transport failed") == true)
+        #expect(!Self.framedMessages(harness.process.sentData).contains {
+            $0.contains("textDocument/didOpen")
+        })
+
+        harness.process.sendFailurePredicate = nil
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App { let retried = true }\n",
+            rootURL: harness.root
+        )
+        Self.emitSuccessfulInitialize(on: harness.process)
+        await Self.drainMainActorTasks()
+
+        let openMessages = Self.framedMessages(harness.process.sentData).filter {
+            $0.contains("textDocument/didOpen")
+        }
+        #expect(openMessages.count == 1)
+        #expect(openMessages[0].contains(#""version":1"#))
+        #expect(openMessages[0].contains("retried"))
+        #expect(harness.manager.languageServerStates["swift"] == .ready)
     }
 
     @Test
@@ -1140,7 +1348,8 @@ struct RunConfigurationIntegrationTests {
         #expect(startRequest.environment?["SOURCEKIT_TOOLCHAIN"] == "custom")
         #expect(initializationRecorder.options == .object(["indexing": .bool(true)]))
         #expect(initializationRecorder.actions == ["create"])
-        #expect(manager.activeLanguageServerIDs == ["swift"])
+        #expect(manager.activeLanguageServerIDs.isEmpty)
+        #expect(manager.languageServerStates["swift"] == .initializing)
         let firstFrameData = try #require(process.sentData.first)
         let firstFrame = try #require(String(data: firstFrameData, encoding: .utf8))
         #expect(firstFrame.hasPrefix("Content-Length: "))
@@ -1154,10 +1363,20 @@ struct RunConfigurationIntegrationTests {
                 "capabilities": [
                     "hoverProvider": true,
                     "completionProvider": [:]
+                ],
+                "serverInfo": [
+                    "name": "sourcekit-lsp",
+                    "version": "6.2"
                 ]
             ]
         ])
         await Self.drainMainActorTasks()
+        #expect(manager.activeLanguageServerIDs == ["swift"])
+        #expect(manager.languageServerStates["swift"] == .ready)
+        #expect(manager.languageServerInfos["swift"] == LanguageServerInfo(
+            name: "sourcekit-lsp",
+            version: "6.2"
+        ))
         #expect(manager.languageServerFeatures["swift"]?.contains(.completion) == true)
         #expect(manager.languageServerFeatures["swift"]?.contains(.hover) == true)
         #expect(initializationRecorder.actions.contains("applyServerMessage"))
@@ -2845,6 +3064,72 @@ struct RunConfigurationIntegrationTests {
         return try? JSONSerialization.jsonObject(with: body) as? [String: Any]
     }
 
+    private func makeLanguageServerHarness(
+        initializeTimeoutNanoseconds: UInt64 = 10_000_000_000,
+        requestTimeoutNanoseconds: UInt64 = 30_000_000_000
+    ) -> LanguageServerReliabilityHarness {
+        let descriptor = LanguageProviderDescriptor(
+            id: "swift",
+            displayName: "Swift",
+            fileExtensions: ["swift"],
+            capabilities: [.languageServer, .formatting],
+            activationPolicy: .onDemand,
+            languageIdentifier: "swift"
+        )
+        let root = URL(fileURLWithPath: "/tmp/lithe-lsp-reliability", isDirectory: true)
+        let source = root.appendingPathComponent("App.swift")
+        let process = RecordingRawProcessSession()
+        let initializationRecorder = TestLspInitializationRecorder()
+        let session = StdioLanguageServerSession(
+            executableURL: URL(fileURLWithPath: "/usr/bin/sourcekit-lsp"),
+            arguments: [],
+            environment: [:],
+            initializeTimeoutNanoseconds: initializeTimeoutNanoseconds,
+            requestTimeoutNanoseconds: requestTimeoutNanoseconds,
+            process: process,
+            core: TestLspClientCore(
+                diagnosticURL: source,
+                initializationRecorder: initializationRecorder
+            )
+        )
+        let runtime = TestLanguageServerRuntime(descriptor: descriptor, session: session)
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            runtimes: [runtime]
+        )
+        return LanguageServerReliabilityHarness(
+            root: root,
+            source: source,
+            process: process,
+            session: session,
+            manager: manager
+        )
+    }
+
+    private static func emitSuccessfulInitialize(on process: RecordingRawProcessSession) {
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": [
+                "capabilities": [
+                    "hoverProvider": true,
+                    "completionProvider": [:]
+                ],
+                "serverInfo": [
+                    "name": "sourcekit-lsp",
+                    "version": "6.2"
+                ]
+            ]
+        ])
+    }
+
+    private static func framedMessages(_ frames: [Data]) -> [String] {
+        frames.compactMap { data in
+            guard let separator = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+            return String(decoding: data[separator.upperBound...], as: UTF8.self)
+        }
+    }
+
     private static func debugRequest(named command: String, in frames: [Data]) -> [String: Any]? {
         frames.lazy
             .compactMap(framedJSON)
@@ -2857,6 +3142,15 @@ struct RunConfigurationIntegrationTests {
         await Task.yield()
         await Task.yield()
     }
+}
+
+@MainActor
+private struct LanguageServerReliabilityHarness {
+    let root: URL
+    let source: URL
+    let process: RecordingRawProcessSession
+    let session: StdioLanguageServerSession
+    let manager: LanguageToolingSessionManager
 }
 
 @MainActor
@@ -3162,6 +3456,13 @@ private struct TestLspClientCore: LspClientCore, LspSessionCore {
         state _: ToolingJSONValue,
         message: String
     ) -> RustCoreBridge.LspClientResponsePayload? {
+        if let data = message.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           object["id"] as? String == "1" {
+            let result = object["result"].flatMap(ToolingJSONValue.fromFoundation)
+            let error = object["error"].map { String(describing: $0) }
+            return initializeResponse(result: result, error: error)
+        }
         if message.contains("publishDiagnostics") {
             return response(events: [
                 RustCoreBridge.LspClientEventPayload(
@@ -3373,7 +3674,23 @@ private struct TestLspClientCore: LspClientCore, LspSessionCore {
                 ]
             )
         }
-        return response(
+        return initializeResponse(
+            result: .object([
+                "capabilities": .object([:]),
+                "serverInfo": .object([
+                    "name": .string("sourcekit-lsp"),
+                    "version": .string("6.2")
+                ])
+            ]),
+            error: nil
+        )
+    }
+
+    private func initializeResponse(
+        result: ToolingJSONValue?,
+        error: String?
+    ) -> RustCoreBridge.LspClientResponsePayload {
+        response(
             state: .object([
                 "serverCapabilities": .array([
                     .string("hover"),
@@ -3386,16 +3703,18 @@ private struct TestLspClientCore: LspClientCore, LspSessionCore {
                     .string("executeCommand")
                 ])
             ]),
-            messages: [#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#],
+            messages: error == nil && result != nil
+                ? [#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#]
+                : [],
             events: [
                 RustCoreBridge.LspClientEventPayload(
-                    kind: "response",
+                    kind: error == nil ? "response" : "error",
                     requestId: "1",
                     method: "initialize",
                     uri: nil,
                     diagnostics: nil,
-                    result: nil,
-                    error: nil
+                    result: result,
+                    error: error
                 )
             ]
         )
@@ -3580,12 +3899,18 @@ private final class RecordingRawProcessSession: RawProcessSession, @unchecked Se
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
     private(set) var requests: [ProcessRequest] = []
     private(set) var sentData: [Data] = []
+    var sendFailurePredicate: ((Data) -> Bool)?
 
     func start(_ request: ProcessRequest) throws {
         requests.append(request)
         isRunning = true
     }
-    func send(_ input: Data) throws { sentData.append(input) }
+    func send(_ input: Data) throws {
+        if sendFailurePredicate?(input) == true {
+            throw RecordingRawProcessSessionError.sendFailed
+        }
+        sentData.append(input)
+    }
     func stop() { isRunning = false }
 
     func terminate(exitCode: Int32) {
@@ -3610,6 +3935,12 @@ private final class RecordingRawProcessSession: RawProcessSession, @unchecked Se
             onOutput?(framed)
         }
     }
+}
+
+private enum RecordingRawProcessSessionError: LocalizedError {
+    case sendFailed
+
+    var errorDescription: String? { "Injected language server transport write failure." }
 }
 
 @MainActor
@@ -3792,6 +4123,21 @@ private final class TestDebugLanguageProviderRuntime: LanguageProviderRuntime {
         debugAdapters.append(session)
         return session
     }
+}
+
+@MainActor
+private final class TestLanguageServerRuntime: LanguageProviderRuntime {
+    let descriptor: LanguageProviderDescriptor
+    let supportsLanguageServerSession = true
+    private let session: any LanguageServerSession
+
+    init(descriptor: LanguageProviderDescriptor, session: any LanguageServerSession) {
+        self.descriptor = descriptor
+        self.session = session
+    }
+
+    func makeLanguageServerSession() -> (any LanguageServerSession)? { session }
+    func makeDebugAdapterSession() -> (any DebugAdapterSession)? { nil }
 }
 
 @MainActor

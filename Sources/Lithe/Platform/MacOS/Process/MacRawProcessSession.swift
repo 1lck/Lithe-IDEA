@@ -112,7 +112,13 @@ final class MacRawProcessSession: RawProcessSession, @unchecked Sendable {
     }
 
     func send(_ input: Data) throws {
-        try inputPipe?.fileHandleForWriting.write(contentsOf: input)
+        guard process?.isRunning == true else {
+            throw RawProcessSessionError.notRunning
+        }
+        guard let inputPipe else {
+            throw RawProcessSessionError.standardInputUnavailable
+        }
+        try inputPipe.fileHandleForWriting.write(contentsOf: input)
     }
 
     func stop() {

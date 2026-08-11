@@ -471,6 +471,32 @@ fn client_core_initializes_and_applies_server_capabilities() {
 }
 
 #[test]
+fn client_core_does_not_initialize_without_valid_capabilities() {
+    for message in [
+        r#"{"jsonrpc":"2.0","id":"1","result":null}"#,
+        r#"{"jsonrpc":"2.0","id":"1","result":{}}"#,
+        r#"{"jsonrpc":"2.0","id":"1","error":{"code":-32603,"message":"rejected"}}"#,
+    ] {
+        let initialized = client_initialize(ClientInitializeRequest {
+            state: LspClientState::default(),
+            root_uri: "file:///tmp/project".to_string(),
+            process_id: None,
+            initialization_options: None,
+        })
+        .unwrap();
+        let applied = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: initialized.state,
+            message: message.to_string(),
+        })
+        .unwrap();
+
+        assert!(!applied.state.initialized);
+        assert!(applied.messages.is_empty());
+        assert!(applied.state.server_capabilities.is_empty());
+    }
+}
+
+#[test]
 fn client_core_tracks_documents_and_feature_requests() {
     let opened = client_open_document(ClientOpenDocumentRequest {
         state: LspClientState::default(),

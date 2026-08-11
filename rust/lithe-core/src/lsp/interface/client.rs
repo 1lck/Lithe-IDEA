@@ -257,7 +257,11 @@ pub fn client_apply_server_message(
     } else if let Some(id) = lsp_message_id(&message) {
         let pending = state.pending_requests.remove(&id);
         if pending.as_deref() == Some("initialize") {
-            if let Some(result) = message.get("result") {
+            if let Some(result) = message
+                .get("result")
+                .and_then(Value::as_object)
+                .filter(|result| result.get("capabilities").is_some_and(Value::is_object))
+            {
                 state.server_capabilities = feature_names_from_capabilities(
                     result.get("capabilities").unwrap_or(&Value::Null),
                 );

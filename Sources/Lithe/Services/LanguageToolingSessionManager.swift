@@ -28,6 +28,7 @@ final class LanguageToolingSessionManager: ObservableObject {
     @Published private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     @Published private(set) var languageServerLogs: [LanguageServerLogEntry] = []
     @Published private(set) var languageServerStates: [String: LanguageServerSessionState] = [:]
+    @Published private(set) var languageServerInfos: [String: LanguageServerInfo] = [:]
     @Published private(set) var debugStates: [String: DebugAdapterState] = [:]
     @Published private(set) var lastDebugEvents: [String: DebugAdapterEvent] = [:]
     @Published private(set) var verifiedBreakpoints: [String: [DebugBreakpoint]] = [:]
@@ -69,7 +70,7 @@ final class LanguageToolingSessionManager: ObservableObject {
     var activeLanguageServerIDs: Set<String> {
         Set(languageServers.compactMap { providerID, session in
             guard session.isRunning,
-                  languageServerStates[providerID] == .running else { return nil }
+                  languageServerStates[providerID] == .ready else { return nil }
             return providerID
         })
     }
@@ -90,6 +91,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         let validProviderIDs = Set(catalog.descriptors.map(\.id))
         languageServerFeatures = languageServerFeatures.filter { validProviderIDs.contains($0.key) }
         languageServerStates = languageServerStates.filter { validProviderIDs.contains($0.key) }
+        languageServerInfos = languageServerInfos.filter { validProviderIDs.contains($0.key) }
         diagnostics = diagnostics.filter { catalog.provider(for: $0.key) != nil }
         languageServerLogs = languageServerLogs.filter { validProviderIDs.contains($0.providerID) }
         for providerID in changedProviderIDs {
@@ -188,7 +190,9 @@ final class LanguageToolingSessionManager: ObservableObject {
             )
             let sessionIdentity = ObjectIdentifier(created)
             languageServerSessionIdentities[descriptor.id] = sessionIdentity
-            languageServerStates[descriptor.id] = .starting
+            languageServerStates[descriptor.id] = .startingProcess
+            languageServerFeatures[descriptor.id] = nil
+            languageServerInfos[descriptor.id] = nil
             languageServerFeatureProviders[descriptor.id] = featureProvider
             configureLanguageServerCallbacks(
                 created,
@@ -203,6 +207,8 @@ final class LanguageToolingSessionManager: ObservableObject {
                     exitCode: nil,
                     message: error.localizedDescription
                 )
+                languageServerFeatures[descriptor.id] = nil
+                languageServerInfos[descriptor.id] = nil
                 languageServerFeatureProviders[descriptor.id] = nil
                 recordLanguageServerLog(
                     providerID: descriptor.id,
@@ -214,7 +220,6 @@ final class LanguageToolingSessionManager: ObservableObject {
             }
             languageServers[descriptor.id] = created
             languageServerRoots[descriptor.id] = normalizedRoot
-            languageServerStates[descriptor.id] = .running
             recordLanguageServerLog(
                 providerID: descriptor.id,
                 level: .info,
@@ -274,6 +279,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         languageServers.removeValue(forKey: providerID)?.stop()
         languageServerRoots[providerID] = nil
         languageServerFeatures[providerID] = nil
+        languageServerInfos[providerID] = nil
         languageServerFeatureProviders[providerID] = nil
         languageServerStates[providerID] = .stopped
     }
@@ -290,6 +296,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         let sessions = Array(languageServers.values)
         diagnostics = [:]
         languageServerFeatures = [:]
+        languageServerInfos = [:]
         languageServers.removeAll()
         languageServerRoots.removeAll()
         languageServerSessionIdentities.removeAll()
@@ -388,17 +395,14 @@ final class LanguageToolingSessionManager: ObservableObject {
         rootURL _: URL,
         completion: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
     ) throws {
-        if let session = languageServerSession(for: fileURL),
-           session.isRunning {
-            do {
-                try session.rename(
-                    fileURL: fileURL,
-                    position: position,
-                    newName: newName,
-                    completion: completion
-                )
-                return
-            } catch {}
+        if let session = readyLanguageServerSession(for: fileURL) {
+            try session.rename(
+                fileURL: fileURL,
+                position: position,
+                newName: newName,
+                completion: completion
+            )
+            return
         }
         throw unavailableLanguageServerError(for: fileURL)
     }
@@ -416,12 +420,9 @@ final class LanguageToolingSessionManager: ObservableObject {
         ],
         completion: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
     ) throws {
-        if let session = languageServerSession(for: fileURL),
-           session.isRunning {
-            do {
-                try session.format(fileURL: fileURL, completion: completion)
-                return
-            } catch {}
+        if let session = readyLanguageServerSession(for: fileURL) {
+            try session.format(fileURL: fileURL, completion: completion)
+            return
         }
         throw unavailableLanguageServerError(for: fileURL)
     }
@@ -434,17 +435,14 @@ final class LanguageToolingSessionManager: ObservableObject {
         rootURL _: URL,
         completion: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
     ) throws {
-        if let session = languageServerSession(for: fileURL),
-           session.isRunning {
-            do {
-                try session.codeActions(
-                    fileURL: fileURL,
-                    range: range,
-                    diagnostics: diagnostics,
-                    completion: completion
-                )
-                return
-            } catch {}
+        if let session = readyLanguageServerSession(for: fileURL) {
+            try session.codeActions(
+                fileURL: fileURL,
+                range: range,
+                diagnostics: diagnostics,
+                completion: completion
+            )
+            return
         }
         throw unavailableLanguageServerError(for: fileURL)
     }
@@ -462,12 +460,9 @@ final class LanguageToolingSessionManager: ObservableObject {
                 capability: "execute command"
             )
         }
-        if let session = languageServerSession(for: fileURL),
-           session.isRunning {
-            do {
-                try session.execute(command, fileURL: fileURL, completion: completion)
-                return
-            } catch {}
+        if let session = readyLanguageServerSession(for: fileURL) {
+            try session.execute(command, fileURL: fileURL, completion: completion)
+            return
         }
         throw unavailableLanguageServerError(for: fileURL)
     }
@@ -485,12 +480,9 @@ final class LanguageToolingSessionManager: ObservableObject {
                 capability: "completion item resolve"
             )
         }
-        if let session = languageServerSession(for: fileURL),
-           session.isRunning {
-            do {
-                try session.resolveCompletion(item, fileURL: fileURL, completion: completion)
-                return
-            } catch {}
+        if let session = readyLanguageServerSession(for: fileURL) {
+            try session.resolveCompletion(item, fileURL: fileURL, completion: completion)
+            return
         }
         throw unavailableLanguageServerError(for: fileURL)
     }
@@ -508,12 +500,9 @@ final class LanguageToolingSessionManager: ObservableObject {
                 capability: "code action resolve"
             )
         }
-        if let session = languageServerSession(for: fileURL),
-           session.isRunning {
-            do {
-                try session.resolveCodeAction(action, fileURL: fileURL, completion: completion)
-                return
-            } catch {}
+        if let session = readyLanguageServerSession(for: fileURL) {
+            try session.resolveCodeAction(action, fileURL: fileURL, completion: completion)
+            return
         }
         throw unavailableLanguageServerError(for: fileURL)
     }
@@ -585,6 +574,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         for session in debugAdapters.values { session.stop() }
         diagnostics = [:]
         languageServerFeatures = [:]
+        languageServerInfos = [:]
         languageServers.removeAll()
         languageServerRoots.removeAll()
         languageServerSessionIdentities.removeAll()
@@ -644,15 +634,42 @@ final class LanguageToolingSessionManager: ObservableObject {
     }
 
     private func unavailableLanguageServerError(for fileURL: URL) -> LanguageToolingSessionError {
-        let provider = catalog.provider(for: fileURL)?.displayName ?? fileURL.pathExtension
+        guard let descriptor = catalog.provider(for: fileURL) else {
+            return .noProvider(fileExtension: fileURL.pathExtension.lowercased())
+        }
+        let provider = descriptor.displayName
+        if let state = languageServerStates[descriptor.id] {
+            switch state {
+            case .startingProcess:
+                return .toolingUnavailable("\(provider) language server process is starting.")
+            case .initializing:
+                return .toolingUnavailable("\(provider) language server is initializing.")
+            case .failed(_, let message):
+                return .toolingUnavailable(message ?? "\(provider) language server failed.")
+            case .stopping:
+                return .toolingUnavailable("\(provider) language server is stopping.")
+            case .stopped:
+                break
+            case .ready:
+                return .capabilityUnavailable(provider: provider, capability: "this language feature")
+            }
+        }
         return .toolingUnavailable(
-            "\(provider) language server is waiting for the Rust LSP host integration."
+            "\(provider) language server is not ready."
         )
     }
 
     private func languageServerSession(for fileURL: URL) -> (any LanguageServerSession)? {
         guard let descriptor = catalog.provider(for: fileURL) else { return nil }
         return languageServers[descriptor.id]
+    }
+
+    private func readyLanguageServerSession(for fileURL: URL) -> (any LanguageServerSession)? {
+        guard let descriptor = catalog.provider(for: fileURL),
+              languageServerStates[descriptor.id] == .ready,
+              let session = languageServers[descriptor.id],
+              session.isRunning else { return nil }
+        return session
     }
 
     private func featureContext(
@@ -699,31 +716,27 @@ final class LanguageToolingSessionManager: ObservableObject {
         }
         do {
             try providers[index].completions(in: context) { [self] result in
-                var merged = items
-                var labels = seenLabels
-                if case .success(let providerItems) = result {
+                switch result {
+                case .success(let providerItems):
+                    var merged = items
+                    var labels = seenLabels
                     for item in providerItems where labels.insert(item.label).inserted {
                         merged.append(item)
                     }
+                    routeCompletions(
+                        providers: providers,
+                        index: index + 1,
+                        context: context,
+                        items: merged,
+                        seenLabels: labels,
+                        completion: completion
+                    )
+                case .failure(let error):
+                    completion(.failure(error))
                 }
-                routeCompletions(
-                    providers: providers,
-                    index: index + 1,
-                    context: context,
-                    items: merged,
-                    seenLabels: labels,
-                    completion: completion
-                )
             }
         } catch {
-            routeCompletions(
-                providers: providers,
-                index: index + 1,
-                context: context,
-                items: items,
-                seenLabels: seenLabels,
-                completion: completion
-            )
+            completion(.failure(error))
         }
     }
 
@@ -739,24 +752,22 @@ final class LanguageToolingSessionManager: ObservableObject {
         }
         do {
             try providers[index].hover(in: context) { [self] result in
-                if case .success(let hover?) = result {
+                switch result {
+                case .success(let hover?):
                     completion(.success(hover))
-                } else {
+                case .success(nil):
                     routeHover(
                         providers: providers,
                         index: index + 1,
                         context: context,
                         completion: completion
                     )
+                case .failure(let error):
+                    completion(.failure(error))
                 }
             }
         } catch {
-            routeHover(
-                providers: providers,
-                index: index + 1,
-                context: context,
-                completion: completion
-            )
+            completion(.failure(error))
         }
     }
 
@@ -773,26 +784,25 @@ final class LanguageToolingSessionManager: ObservableObject {
         }
         do {
             try providers[index].navigate(method: method, in: context) { [self] result in
-                if case .success(let locations) = result, !locations.isEmpty {
-                    completion(.success(locations))
-                } else {
-                    routeNavigation(
-                        providers: providers,
-                        index: index + 1,
-                        method: method,
-                        context: context,
-                        completion: completion
-                    )
+                switch result {
+                case .success(let locations):
+                    if locations.isEmpty {
+                        routeNavigation(
+                            providers: providers,
+                            index: index + 1,
+                            method: method,
+                            context: context,
+                            completion: completion
+                        )
+                    } else {
+                        completion(.success(locations))
+                    }
+                case .failure(let error):
+                    completion(.failure(error))
                 }
             }
         } catch {
-            routeNavigation(
-                providers: providers,
-                index: index + 1,
-                method: method,
-                context: context,
-                completion: completion
-            )
+            completion(.failure(error))
         }
     }
 
@@ -808,14 +818,25 @@ final class LanguageToolingSessionManager: ObservableObject {
         session.onFeaturesChange = { [weak self] features in
             guard let self else { return }
             guard self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
-            self.languageServerFeatures[providerID] = features
             self.languageServerFeatureProviders[providerID]?.updateFeatures(features)
+            if self.languageServerStates[providerID] == .ready {
+                self.languageServerFeatures[providerID] = features
+            } else {
+                self.languageServerFeatures[providerID] = nil
+            }
             self.recordLanguageServerLog(
                 providerID: providerID,
                 level: .info,
                 message: features.isEmpty ? "Language server features cleared" : "Language server features updated",
                 detail: features.isEmpty ? nil : "\(features.rawValue)"
             )
+        }
+        session.onServerInfoChange = { [weak self] info in
+            guard let self else { return }
+            guard self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            if self.languageServerStates[providerID] == .ready {
+                self.languageServerInfos[providerID] = info
+            }
         }
         session.onLog = { [weak self] level, message, detail in
             self?.recordLanguageServerLog(
@@ -829,7 +850,8 @@ final class LanguageToolingSessionManager: ObservableObject {
             self?.handleLanguageServerState(
                 state,
                 providerID: providerID,
-                sessionIdentity: sessionIdentity
+                sessionIdentity: sessionIdentity,
+                session: session
             )
         }
     }
@@ -837,7 +859,8 @@ final class LanguageToolingSessionManager: ObservableObject {
     private func handleLanguageServerState(
         _ state: LanguageServerSessionState,
         providerID: String,
-        sessionIdentity: ObjectIdentifier
+        sessionIdentity: ObjectIdentifier,
+        session: any LanguageServerSession
     ) {
         guard languageServerSessionIdentities[providerID] == sessionIdentity else { return }
         languageServerStates[providerID] = state
@@ -847,9 +870,14 @@ final class LanguageToolingSessionManager: ObservableObject {
             languageServers[providerID] = nil
             languageServerRoots[providerID] = nil
             languageServerFeatures[providerID] = nil
+            languageServerInfos[providerID] = nil
             languageServerFeatureProviders[providerID] = nil
-        case .starting, .running, .stopping:
-            break
+        case .startingProcess, .initializing, .stopping:
+            languageServerFeatures[providerID] = nil
+            languageServerInfos[providerID] = nil
+        case .ready:
+            languageServerFeatures[providerID] = session.features
+            languageServerInfos[providerID] = session.serverInfo
         }
     }
 
