@@ -42,7 +42,8 @@ final class MacServiceContainer {
             toolDiscovery: MacRuntimeToolDiscovery()
         )
         let languageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
-        let languageProviderCatalog = languageProviderCatalogSource.catalog()
+        let languageProviderCatalogSnapshot = languageProviderCatalogSource.load()
+        let languageProviderCatalog = languageProviderCatalogSnapshot.catalog
         let languageServerTools = LanguageServerToolService(
             runtimeService: runtimeService,
             processRunner: processRunner,
@@ -173,7 +174,7 @@ final class MacServiceContainer {
         )
         services = AppServices(
             languageProviderCatalogSource: languageProviderCatalogSource,
-            languageProviderCatalog: languagePackRegistry.catalog,
+            languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             languagePacks: languagePackRegistry,
             runToolchainRegistry: runToolchainRegistry,
             languageToolingSessions: languageToolingSessions,

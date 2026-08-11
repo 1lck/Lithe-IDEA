@@ -12,9 +12,17 @@ const BUILTIN_LANGUAGE_PROVIDERS: &str = include_str!(concat!(
 #[serde(rename_all = "camelCase")]
 pub struct LspProviderCatalog {
     pub version: u32,
+    pub origin: LspProviderCatalogOrigin,
     pub providers: Vec<LspProviderDescriptor>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<LspProviderConfigDiagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LspProviderCatalogOrigin {
+    Builtin,
+    WorkspaceOverride,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -129,12 +137,19 @@ struct LspProviderPatch {
 }
 pub fn provider_catalog_json(workspace_root: Option<&Path>) -> String {
     let catalog = provider_catalog(workspace_root);
-    serde_json::to_string(&catalog)
-        .unwrap_or_else(|_| "{\"version\":1,\"providers\":[]}".to_string())
+    serde_json::to_string(&catalog).unwrap_or_else(|_| {
+        concat!(
+            "{\"version\":1,\"origin\":\"builtin\",\"providers\":[],",
+            "\"diagnostics\":[{\"path\":\"builtin:lsp\",",
+            "\"message\":\"Could not serialize the language-provider catalog.\"}]}"
+        )
+        .to_string()
+    })
 }
 
 pub fn provider_catalog(workspace_root: Option<&Path>) -> LspProviderCatalog {
     let mut diagnostics = Vec::new();
+    let mut origin = LspProviderCatalogOrigin::Builtin;
     let mut document = match parse_document(BUILTIN_LANGUAGE_PROVIDERS, "builtin:lsp") {
         Ok(document) => document,
         Err(message) => {
@@ -157,6 +172,7 @@ pub fn provider_catalog(workspace_root: Option<&Path>) -> LspProviderCatalog {
                 Ok(raw) => match parse_document(&raw, &path.display().to_string()) {
                     Ok(project_document) => {
                         document = merge_documents(document, project_document);
+                        origin = LspProviderCatalogOrigin::WorkspaceOverride;
                     }
                     Err(message) => diagnostics.push(LspProviderConfigDiagnostic {
                         path: path.display().to_string(),
@@ -180,6 +196,7 @@ pub fn provider_catalog(workspace_root: Option<&Path>) -> LspProviderCatalog {
     }
     LspProviderCatalog {
         version: document.version,
+        origin,
         providers,
         diagnostics,
     }

@@ -1,13 +1,102 @@
 import Foundation
 import LitheRustCore
 
+enum LanguageProviderCatalogOrigin: Equatable, Sendable {
+    case builtin
+    /// The associated URL is the accepted workspace configuration file.
+    case workspaceOverride(URL)
+    case compatibilityFallback
+}
+
+enum LanguageProviderCatalogStatus: Equatable, Sendable {
+    case loaded
+    case degraded
+}
+
+struct LanguageProviderCatalogIssue: Equatable, Sendable {
+    let path: String
+    let message: String
+}
+
+struct LanguageProviderCatalogSnapshot: Sendable {
+    let catalog: LanguageProviderCatalog
+    let schemaVersion: Int?
+    let origin: LanguageProviderCatalogOrigin
+    let status: LanguageProviderCatalogStatus
+    let issues: [LanguageProviderCatalogIssue]
+
+    var isDegraded: Bool { status == .degraded }
+
+    init(
+        catalog: LanguageProviderCatalog,
+        schemaVersion: Int?,
+        origin: LanguageProviderCatalogOrigin,
+        issues: [LanguageProviderCatalogIssue]
+    ) {
+        self.catalog = catalog
+        self.schemaVersion = schemaVersion
+        self.origin = origin
+        self.issues = issues
+        if case .compatibilityFallback = origin {
+            status = .degraded
+        } else {
+            status = issues.isEmpty ? .loaded : .degraded
+        }
+    }
+}
+
 protocol LanguageProviderCatalogSource: Sendable {
-    func catalog(workspaceURL: URL?) -> LanguageProviderCatalog
+    func load(workspaceURL: URL?) -> LanguageProviderCatalogSnapshot
+}
+
+extension LanguageProviderCatalogSource {
+    func catalog(workspaceURL: URL?) -> LanguageProviderCatalog {
+        load(workspaceURL: workspaceURL).catalog
+    }
+}
+
+protocol RustLanguageProviderCatalogLoading: Sendable {
+    var isAvailable: Bool { get }
+    func languageProviderCatalogData(workspaceURL: URL?) -> Data?
+}
+
+extension RustCoreBridge: RustLanguageProviderCatalogLoading {
+    func languageProviderCatalogData(workspaceURL: URL?) -> Data? {
+        let responsePointer: UnsafeMutablePointer<CChar>?
+        if let workspaceURL {
+            responsePointer = workspaceURL.standardizedFileURL.path.withCString {
+                lithe_bridge_lsp_provider_catalog_json($0)
+            }
+        } else {
+            responsePointer = lithe_bridge_lsp_provider_catalog_json(nil)
+        }
+        guard let responsePointer else { return nil }
+        defer { lithe_bridge_free_string(responsePointer) }
+        guard let response = String(validatingUTF8: responsePointer) else { return nil }
+        return response.data(using: .utf8)
+    }
 }
 
 struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
+    private enum CatalogOriginPayload: String, Decodable {
+        case builtin
+        case workspaceOverride
+    }
+
     private struct CatalogPayload: Decodable {
+        let version: Int
+        let origin: CatalogOriginPayload
         let providers: [ProviderPayload]
+        let diagnostics: [CatalogDiagnosticPayload]?
+    }
+
+    private struct CatalogDiagnosticPayload: Decodable {
+        let path: String
+        let message: String
+
+        func makeIssue() -> LanguageProviderCatalogIssue {
+            LanguageProviderCatalogIssue(path: path, message: message)
+        }
     }
 
     private struct LanguageServerLaunchPayload: Decodable {
@@ -72,41 +161,86 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
         }
     }
 
-    let core: RustCoreBridge
+    private let loader: any RustLanguageProviderCatalogLoading
 
     init(core: RustCoreBridge = RustCoreBridge()) {
-        self.core = core
+        loader = core
     }
 
-    func catalog(workspaceURL: URL? = nil) -> LanguageProviderCatalog {
-        guard let payload = loadPayload(workspaceURL: workspaceURL) else {
-            return .compatibilityFallback
+    init(loader: any RustLanguageProviderCatalogLoading) {
+        self.loader = loader
+    }
+
+    func load(workspaceURL: URL? = nil) -> LanguageProviderCatalogSnapshot {
+        guard loader.isAvailable else {
+            return compatibilityFallback(
+                message: "The Rust core is unavailable. Lithe is using its compatibility language-provider catalog."
+            )
         }
-        return LanguageProviderCatalog(
-            descriptors: payload.providers.map { $0.makeDescriptor() }
+        guard let data = loader.languageProviderCatalogData(workspaceURL: workspaceURL) else {
+            return compatibilityFallback(
+                message: "The Rust core did not return a valid UTF-8 language-provider catalog."
+            )
+        }
+
+        let payload: CatalogPayload
+        do {
+            payload = try JSONDecoder().decode(CatalogPayload.self, from: data)
+        } catch {
+            return compatibilityFallback(
+                message: "The Rust language-provider catalog could not be decoded: \(error.localizedDescription)"
+            )
+        }
+
+        let issues = (payload.diagnostics ?? []).map { $0.makeIssue() }
+        return LanguageProviderCatalogSnapshot(
+            catalog: LanguageProviderCatalog(
+                descriptors: payload.providers.map { $0.makeDescriptor() }
+            ),
+            schemaVersion: payload.version,
+            origin: resolvedOrigin(
+                payloadOrigin: payload.origin,
+                workspaceURL: workspaceURL
+            ),
+            issues: issues
         )
     }
 
-    private func loadPayload(workspaceURL: URL?) -> CatalogPayload? {
-        guard core.isAvailable else { return nil }
-        let responsePointer: UnsafeMutablePointer<CChar>?
-        if let workspaceURL {
-            responsePointer = workspaceURL.standardizedFileURL.path.withCString {
-                lithe_bridge_lsp_provider_catalog_json($0)
+    private func resolvedOrigin(
+        payloadOrigin: CatalogOriginPayload,
+        workspaceURL: URL?
+    ) -> LanguageProviderCatalogOrigin {
+        switch payloadOrigin {
+        case .workspaceOverride:
+            if let workspaceURL {
+                return .workspaceOverride(
+                    workspaceURL.standardizedFileURL
+                        .appendingPathComponent(".lithe")
+                        .appendingPathComponent("lsp")
+                        .appendingPathComponent("language-providers.json")
+                )
             }
-        } else {
-            responsePointer = lithe_bridge_lsp_provider_catalog_json(nil)
+            return .builtin
+        case .builtin:
+            return .builtin
         }
-        guard let responsePointer else { return nil }
-        defer { lithe_bridge_free_string(responsePointer) }
-        let response = String(cString: responsePointer)
-        guard let data = response.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(CatalogPayload.self, from: data)
+    }
+
+    private func compatibilityFallback(message: String) -> LanguageProviderCatalogSnapshot {
+        LanguageProviderCatalogSnapshot(
+            catalog: .compatibilityFallback,
+            schemaVersion: nil,
+            origin: .compatibilityFallback,
+            issues: [LanguageProviderCatalogIssue(
+                path: "rust:lsp-provider-catalog",
+                message: message
+            )]
+        )
     }
 }
 
 extension LanguageProviderCatalog {
     static var standard: Self {
-        RustLanguageProviderCatalogSource().catalog()
+        RustLanguageProviderCatalogSource().load().catalog
     }
 }

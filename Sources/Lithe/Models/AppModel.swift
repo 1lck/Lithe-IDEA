@@ -77,6 +77,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isLSPControlCenterVisible = true
     @Published var isImplementationChooserVisible = false
     @Published private(set) var languageProviderCatalog: LanguageProviderCatalog
+    @Published private(set) var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot
     @Published var languageNavigationProviderID: String?
     @Published var languageNavigationLocations: [LanguageNavigationLocation] = []
     @Published var languageNavigationResultKind: LanguageNavigationResultKind = .definitions
@@ -198,6 +199,7 @@ final class AppModel: ObservableObject, Identifiable {
         self.settings = settings
         self.services = services
         languageProviderCatalog = services.languageProviderCatalog
+        languageProviderCatalogSnapshot = services.languageProviderCatalogSnapshot
         platformUI = services.platformUI
         workspaceFeature = WorkspaceFeatureModel(
             operations: services.workspaceOperations,
@@ -761,9 +763,10 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func reloadLanguageProviderCatalog(for workspaceURL: URL?) {
-        let catalog = services.languageProviderCatalogSource.catalog(workspaceURL: workspaceURL)
-        languageProviderCatalog = catalog
-        languageToolingSessions.updateCatalog(catalog)
+        let snapshot = services.languageProviderCatalogSource.load(workspaceURL: workspaceURL)
+        languageProviderCatalogSnapshot = snapshot
+        languageProviderCatalog = snapshot.catalog
+        languageToolingSessions.updateCatalog(snapshot.catalog)
     }
 
     func openFile(

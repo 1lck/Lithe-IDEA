@@ -17,6 +17,9 @@ final class AppServices {
     /// feature models while new composition should use this value.
     let languagePacks: LanguagePackRegistry
     let languageProviderCatalogSource: any LanguageProviderCatalogSource
+    /// Initial catalog load outcome, including whether startup fell back to a
+    /// compatibility catalog or rejected a workspace override.
+    let languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot
     /// Metadata-only provider catalog; providers are activated on demand.
     let languageProviderCatalog: LanguageProviderCatalog
     let runToolchainRegistry: RunToolchainRegistry
@@ -53,7 +56,7 @@ final class AppServices {
 
     init(
         languageProviderCatalogSource: any LanguageProviderCatalogSource,
-        languageProviderCatalog: LanguageProviderCatalog? = nil,
+        languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
         languagePacks: LanguagePackRegistry? = nil,
         runToolchainRegistry: RunToolchainRegistry? = nil,
         languageToolingSessions: LanguageToolingSessionManager? = nil,
@@ -88,7 +91,10 @@ final class AppServices {
         shortcutDetectorFactory: any ShortcutDetectorFactory
     ) {
         self.languageProviderCatalogSource = languageProviderCatalogSource
-        let resolvedCatalog = languageProviderCatalog ?? languageProviderCatalogSource.catalog(workspaceURL: nil)
+        let resolvedCatalogSnapshot = languageProviderCatalogSnapshot
+            ?? languageProviderCatalogSource.load(workspaceURL: nil)
+        self.languageProviderCatalogSnapshot = resolvedCatalogSnapshot
+        let resolvedCatalog = resolvedCatalogSnapshot.catalog
         let resolvedLanguagePacks = languagePacks ?? LanguagePackRegistry.standard(
             catalog: resolvedCatalog
         )

@@ -120,6 +120,7 @@ fn project_config_extends_and_overrides_builtin_catalog() {
     .unwrap();
 
     let catalog = provider_catalog(Some(&root));
+    assert_eq!(catalog.origin, LspProviderCatalogOrigin::WorkspaceOverride);
     assert!(catalog
         .providers
         .iter()
@@ -170,6 +171,7 @@ fn ffi_json_is_a_standalone_catalog_document() {
     let raw = provider_catalog_json(None);
     let value: Value = serde_json::from_str(&raw).expect("catalog should be JSON");
     assert_eq!(value["version"], 2);
+    assert_eq!(value["origin"], "builtin");
     assert!(value["providers"].as_array().unwrap().len() > 10);
     assert!(value.get("ok").is_none());
     assert!(value.get("command").is_none());
@@ -189,9 +191,31 @@ fn project_catalog_reports_unknown_configuration_fields() {
     .unwrap();
 
     let catalog = provider_catalog(Some(&root));
+    assert_eq!(catalog.origin, LspProviderCatalogOrigin::Builtin);
     assert_eq!(catalog.diagnostics.len(), 1);
     assert!(catalog.diagnostics[0].message.contains("unknown field"));
     assert!(catalog.providers.iter().any(|provider| provider.id == "go"));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn malformed_project_catalog_is_rejected_with_a_visible_diagnostic() {
+    let root = temporary_root("project-config-malformed");
+    let config_path = root.join(".lithe/lsp/language-providers.json");
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(&config_path, r#"{"version":2,"providers":["#).unwrap();
+
+    let catalog = provider_catalog(Some(&root));
+
+    assert_eq!(catalog.origin, LspProviderCatalogOrigin::Builtin);
+    assert!(catalog.providers.iter().any(|provider| provider.id == "go"));
+    assert_eq!(catalog.diagnostics.len(), 1);
+    assert_eq!(
+        catalog.diagnostics[0].path,
+        config_path.display().to_string()
+    );
+    assert!(catalog.diagnostics[0].message.contains("EOF"));
 
     fs::remove_dir_all(root).unwrap();
 }
