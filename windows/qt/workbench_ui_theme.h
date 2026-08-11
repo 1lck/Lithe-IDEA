@@ -10,7 +10,7 @@ class QWidget;
 
 namespace lithe::windows::ui {
 
-/// Lithe dark-theme palette aligned with LitheTheme.swift.
+/// Lithe dark-theme palette aligned with the shared Lithe theme tokens.
 struct Theme {
     static QColor sidebar();
     static QColor toolHeader();

@@ -16,7 +16,7 @@ QColor makeColor(int r, int g, int b, int a = 255) {
 
 } // namespace
 
-// Palette aligned with Sources/Lithe/Theme/LitheTheme.swift.
+// Palette aligned with shared Lithe theme tokens (see Resources theme sources).
 QColor Theme::sidebar() { return makeColor(23, 25, 27); }
 QColor Theme::toolHeader() { return makeColor(31, 33, 36); }
 QColor Theme::editor() { return makeColor(19, 20, 22); }

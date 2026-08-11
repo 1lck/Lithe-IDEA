@@ -35,7 +35,7 @@ constexpr int kMarkerWidth = 3;
 constexpr int kGutterWidth = 36;
 constexpr int kTextPad = 8;
 
-// Soft macOS-aligned diff tints (LitheTheme success/error at low alpha).
+// Soft platform-aligned diff tints (LitheTheme success/error at low alpha).
 QColor rowBackground(algorithms::DiffRowKind kind, bool leftSide) {
     using K = algorithms::DiffRowKind;
     switch (kind) {
@@ -81,7 +81,7 @@ QString fromUtf8(std::string_view value) {
     return QString::fromUtf8(value.data(), static_cast<qsizetype>(value.size()));
 }
 
-// Matches DiffSyntaxHighlighter colors on macOS (DiffReviewView.swift).
+// Matches DiffSyntaxHighlighter token colors from the reference diff renderer.
 QColor tokenForeground(algorithms::DiffTokenKind kind) {
     using K = algorithms::DiffTokenKind;
     switch (kind) {
@@ -113,7 +113,7 @@ std::size_t utf8ScalarLength(std::string_view bytes, std::size_t index) {
     return 1;
 }
 
-/// Paint macOS-aligned syntax + word highlights (DiffSyntaxHighlighter.styled).
+/// Paint reference-diff syntax and word highlights (DiffSyntaxHighlighter.styled).
 void paintStyledDiffText(QPainter& painter,
                          const QFontMetrics& metrics,
                          const QRect& textRect,

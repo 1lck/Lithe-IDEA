@@ -286,6 +286,9 @@ private:
     QString activePath_;
     bool librarySourcePreview_ = false;
     bool handlingGitDialog_ = false;
+    /// After Open Diff from a preflight dialog, keep pending context but do not
+    /// re-exec the modal until the pending conflict is cleared or retried.
+    bool suppressPendingGitDialog_ = false;
     QToolButton* projectSidebarButton_ = nullptr;
     QToolButton* changesSidebarButton_ = nullptr;
     QToolButton* gitLogButton_ = nullptr;

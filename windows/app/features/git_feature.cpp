@@ -298,6 +298,7 @@ void GitFeatureModel::refreshWorkflow(StateHandler handler, bool includeStashes)
                                preservedNotify = std::move(preservedNotify)]() mutable {
                     {
                         std::lock_guard lock(mutex_);
+                        rebuildConflictFilterPaths();
                         if (preservedError) state_.error = std::move(*preservedError);
                         if (preservedCommand) state_.command = std::move(*preservedCommand);
                         if (preservedNotify) state_.notifyMessage = std::move(*preservedNotify);
@@ -344,12 +345,14 @@ void GitFeatureModel::runWrite(GitWriteRequestDto request, StateHandler handler)
 void GitFeatureModel::presentStashRestoreConflictLocked(const GitStashRestoreDto& restore,
                                                         std::string operationTitle,
                                                         std::optional<std::string> details) {
+    state_.stashRestoreConflict = restore;
     state_.pendingStashRestoreConflict = GitStashRestoreConflictRequest{
         restore.stashReference,
         restore.conflictedPaths,
         std::move(operationTitle),
     };
     state_.stashRestoreNoticeVisible = true;
+    rebuildConflictFilterPaths();
     state_.error = CoreError{
         CoreErrorCode::ProcessFailed,
         "Stash restore left conflicts",
@@ -675,6 +678,8 @@ void GitFeatureModel::refreshOperationState(StateHandler handler) {
 void GitFeatureModel::clearStashRestoreConflict() {
     std::lock_guard lock(mutex_);
     state_.stashRestoreConflict.reset();
+    state_.pendingStashRestoreConflict.reset();
+    state_.stashRestoreNoticeVisible = false;
     rebuildConflictFilterPaths();
 }
 

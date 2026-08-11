@@ -1507,6 +1507,11 @@ void WorkbenchWindow::openWorkspaceRoot(const QString& selectedRoot) {
     documentFeature_->resetForWorkspace();
     searchFeature_->resetForWorkspace();
     gitFeature_->resetForWorkspace();
+    // Align freeze depth with operationDepth_ = 0 so a mid-op workspace switch
+    // cannot leave the watcher permanently frozen.
+    gitWatcherFreeze_.reset();
+    suppressPendingGitDialog_ = false;
+    if (dirtyDocuments_) dirtyDocuments_->clear();
     historyFeature_->resetForWorkspace();
     mavenJavaFeature_->resetForWorkspace();
     workspaceRoot_ = root;
@@ -2481,6 +2486,12 @@ void WorkbenchWindow::closeEditorTab(int index) {
         if (choice == QMessageBox::Cancel) return;
         if (choice == QMessageBox::Save) saveDocument();
     }
+    if (dirtyDocuments_ && !path.isEmpty()) {
+        auto paths = dirtyDocuments_->dirtyRelativePaths();
+        const auto closed = path.toUtf8().toStdString();
+        paths.erase(std::remove(paths.begin(), paths.end(), closed), paths.end());
+        dirtyDocuments_->setDirtyPaths(std::move(paths));
+    }
     const auto wasCurrent = index == editorTabs_->currentIndex();
     {
         QSignalBlocker blocker(editorTabs_);
@@ -2510,7 +2521,17 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
     diffIsCommitReview_ = false;
     librarySourcePreview_ = false;
     editor_->setReadOnly(false);
-    activePath_ = item->data(0, RelativePathRole).toString();
+    const auto nextPath = item->data(0, RelativePathRole).toString();
+    // Until W1 owns multi-buffer editors, switching tabs reloads from disk and
+    // discards the previous buffer — drop its dirty mark so preflight stays honest.
+    if (dirtyDocuments_ && documentFeature_ && documentFeature_->state().isDirty &&
+        !activePath_.isEmpty() && !sameRelativePath(activePath_, nextPath)) {
+        auto paths = dirtyDocuments_->dirtyRelativePaths();
+        const auto discarded = activePath_.toUtf8().toStdString();
+        paths.erase(std::remove(paths.begin(), paths.end(), discarded), paths.end());
+        dirtyDocuments_->setDirtyPaths(std::move(paths));
+    }
+    activePath_ = nextPath;
     if (editorTabs_ != nullptr) {
         const auto tab = ensureEditorTab(activePath_);
         if (tab >= 0) {
@@ -2983,7 +3004,13 @@ void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
         editor_->setBlameAnnotations(std::move(annotations));
     }
 
-    if (!handlingGitDialog_) presentPendingGitDialogs(state);
+    if (!state.pendingCheckoutConflict && !state.pendingIntegrationConflict &&
+        !state.pendingPullStrategy) {
+        suppressPendingGitDialog_ = false;
+    }
+    if (!handlingGitDialog_ && !suppressPendingGitDialog_) {
+        presentPendingGitDialogs(state);
+    }
 }
 
 void WorkbenchWindow::connectGitPanels() {
@@ -3196,26 +3223,30 @@ void WorkbenchWindow::presentPendingGitDialogs(const app::GitFeatureState& state
         handlingGitDialog_ = false;
         switch (result.decision) {
         case app::GitCheckoutDialogDecision::Smart:
+            suppressPendingGitDialog_ = false;
             gitFeature_->resolveCheckoutConflict(app::GitCheckoutConflictStrategy::Smart,
                 [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
             return;
         case app::GitCheckoutDialogDecision::Force:
+            suppressPendingGitDialog_ = false;
             gitFeature_->resolveCheckoutConflict(app::GitCheckoutConflictStrategy::Force,
                 [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
             return;
         case app::GitCheckoutDialogDecision::OpenDiff:
             if (!result.selectedPath.isEmpty()) {
-                gitFeature_->loadDiff({result.selectedPath.toUtf8().toStdString()}, false, false,
-                    [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+                suppressPendingGitDialog_ = true;
+                openGitChangeDiff(result.selectedPath, false, false);
             }
             return;
         case app::GitCheckoutDialogDecision::DiscardAndRetry:
             if (!result.selectedPath.isEmpty()) {
+                suppressPendingGitDialog_ = false;
                 gitFeature_->discardConflictPath(result.selectedPath.toUtf8().toStdString(),
                     [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
             }
             return;
         case app::GitCheckoutDialogDecision::Cancel:
+            suppressPendingGitDialog_ = false;
             gitFeature_->cancelCheckoutConflict(
                 [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
             return;
@@ -3229,22 +3260,25 @@ void WorkbenchWindow::presentPendingGitDialogs(const app::GitFeatureState& state
         handlingGitDialog_ = false;
         switch (result.decision) {
         case app::GitIntegrationDialogDecision::SaveAndContinue:
+            suppressPendingGitDialog_ = false;
             gitFeature_->resolveIntegrationConflict(
                 [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
             return;
         case app::GitIntegrationDialogDecision::OpenDiff:
             if (!result.selectedPath.isEmpty()) {
-                gitFeature_->loadDiff({result.selectedPath.toUtf8().toStdString()}, false, false,
-                    [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
+                suppressPendingGitDialog_ = true;
+                openGitChangeDiff(result.selectedPath, false, false);
             }
             return;
         case app::GitIntegrationDialogDecision::DiscardAndRetry:
             if (!result.selectedPath.isEmpty()) {
+                suppressPendingGitDialog_ = false;
                 gitFeature_->discardConflictPath(result.selectedPath.toUtf8().toStdString(),
                     [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
             }
             return;
         case app::GitIntegrationDialogDecision::Cancel:
+            suppressPendingGitDialog_ = false;
             gitFeature_->cancelIntegrationConflict(
                 [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
             return;
@@ -3278,16 +3312,15 @@ void WorkbenchWindow::presentPendingGitDialogs(const app::GitFeatureState& state
 }
 
 void WorkbenchWindow::syncDirtyDocumentsPort(const app::DocumentFeatureState& state) {
-    if (!dirtyDocuments_) return;
-    if (state.isDirty && !state.relativePath.empty()) {
-        dirtyDocuments_->setDirtyPaths({state.relativePath});
-        return;
+    if (!dirtyDocuments_ || state.relativePath.empty()) return;
+    // Upsert the current document only so other dirty tabs stay visible to
+    // preflight until W1 owns a real multi-buffer dirty port.
+    auto paths = dirtyDocuments_->dirtyRelativePaths();
+    paths.erase(std::remove(paths.begin(), paths.end(), state.relativePath), paths.end());
+    if (state.isDirty) {
+        paths.push_back(state.relativePath);
     }
-    const auto paths = dirtyDocuments_->dirtyRelativePaths();
-    if (paths.size() == 1 &&
-        (state.relativePath.empty() || paths.front() == state.relativePath)) {
-        dirtyDocuments_->clear();
-    }
+    dirtyDocuments_->setDirtyPaths(std::move(paths));
 }
 
 void WorkbenchWindow::renderDiffReview() {
