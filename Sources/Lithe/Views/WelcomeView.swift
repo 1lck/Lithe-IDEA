@@ -14,7 +14,7 @@ struct WelcomeView: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
                 .frame(maxWidth: .infinity)
-                .frame(height: 58)
+                .frame(height: 48)
                 .background(LitheTheme.window)
 
             HStack(spacing: 0) {
@@ -24,6 +24,7 @@ struct WelcomeView: View {
             }
         }
         .background(LitheTheme.window)
+        .background(WelcomeInitialFocusReset())
     }
 
     private var welcomeSidebar: some View {
@@ -40,9 +41,9 @@ struct WelcomeView: View {
                     updatePrompt
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 38)
-            .padding(.bottom, 38)
+            .padding(.horizontal, 20)
+            .padding(.top, 28)
+            .padding(.bottom, 30)
 
             HStack(spacing: 9) {
                 LitheIcon(kind: .folder, size: 15)
@@ -81,7 +82,7 @@ struct WelcomeView: View {
             .padding(.horizontal, 14)
             .padding(.bottom, 14)
         }
-        .frame(width: 280)
+        .frame(width: 240)
         .background(LitheTheme.sidebar)
     }
 
@@ -177,26 +178,25 @@ struct WelcomeView: View {
                         .focused($searchFocused)
                 }
                 .litheSearchField(isFocused: searchFocused, height: 30)
-                .frame(maxWidth: 360)
+                .frame(maxWidth: 300)
 
                 Spacer()
 
                 Button("Clone") {
                     model.showCloneRepository()
                 }
-                .buttonStyle(.bordered)
-                .lithePointer()
+                .buttonStyle(LitheSecondaryButtonStyle())
 
                 Button("Open") {
                     model.chooseProject()
                 }
                 .buttonStyle(LithePrimaryButtonStyle())
             }
-            .padding(.horizontal, 30)
-            .frame(height: 76)
+            .padding(.horizontal, 20)
+            .frame(height: 66)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 18)
 
             if filteredProjects.isEmpty {
                 emptyProjectsState
@@ -207,8 +207,8 @@ struct WelcomeView: View {
                             projectRow(project)
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 14)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
                 }
             }
         }
@@ -239,7 +239,7 @@ struct WelcomeView: View {
                     Text(initials(for: project.name))
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
+                        .frame(width: 34, height: 34)
                         .background(project.exists ? color(for: project.name) : LitheTheme.raised)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
 
@@ -286,7 +286,7 @@ struct WelcomeView: View {
             .allowsHitTesting(hoveredProjectID == project.id)
         }
         .padding(.horizontal, 12)
-        .frame(height: 58)
+        .frame(height: 52)
         .background(hoveredProjectID == project.id ? LitheTheme.hoverBackground : .clear)
         .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
         .onHover { isHovering in
@@ -333,5 +333,34 @@ struct WelcomeView: View {
             hash &*= 1_099_511_628_211
         }
         return palette[Int(hash % UInt64(palette.count))]
+    }
+}
+
+private struct WelcomeInitialFocusReset: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WelcomeInitialFocusResetView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class WelcomeInitialFocusResetView: NSView {
+    private var didClearFocus = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+
+        guard !didClearFocus, let window else { return }
+
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, !self.didClearFocus, let window else { return }
+            window.makeFirstResponder(nil)
+            self.didClearFocus = true
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(nil)
+        super.mouseDown(with: event)
     }
 }

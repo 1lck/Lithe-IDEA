@@ -37,6 +37,62 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func welcomeAndWorkspaceUseDistinctWindowSizes() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: false)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            registerWindow: { _ in }
+        )
+        let window = NSWindow()
+
+        coordinator.attach(to: window, layout: .welcome)
+        #expect(window.contentMinSize == LitheWindowLayout.welcome.minimumContentSize)
+        #expect(window.contentLayoutRect.size == LitheWindowLayout.welcome.contentSize)
+
+        coordinator.attach(to: window, layout: .workspace)
+        #expect(window.contentMinSize == LitheWindowLayout.workspace.minimumContentSize)
+        #expect(window.contentLayoutRect.width <= LitheWindowLayout.workspace.contentSize.width)
+        #expect(window.contentLayoutRect.height <= LitheWindowLayout.workspace.contentSize.height)
+        #expect(window.contentLayoutRect.width >= LitheWindowLayout.workspace.minimumContentSize.width)
+        #expect(window.contentLayoutRect.height >= LitheWindowLayout.workspace.minimumContentSize.height)
+    }
+
+    @Test
+    func workspaceWindowFitsInsideTheVisibleScreen() {
+        let visibleFrame = NSRect(x: 0, y: 24, width: 1280, height: 776)
+        let oversizedFrame = NSRect(x: -80, y: -40, width: 1440, height: 900)
+
+        let fittedFrame = LitheWindowLayout.frame(oversizedFrame, fitting: visibleFrame)
+
+        #expect(fittedFrame.minX >= visibleFrame.minX)
+        #expect(fittedFrame.maxX <= visibleFrame.maxX)
+        #expect(fittedFrame.minY >= visibleFrame.minY)
+        #expect(fittedFrame.maxY <= visibleFrame.maxY)
+    }
+
+    @Test
+    @MainActor
+    func workspaceTitleBarZoomsToTheVisibleScreenAndRestores() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            registerWindow: { _ in }
+        )
+        let window = NSWindow()
+        coordinator.attach(to: window, layout: .workspace)
+        let restoredFrame = NSRect(x: 120, y: 70, width: 1000, height: 680)
+        let visibleFrame = NSRect(x: 0, y: 24, width: 1280, height: 776)
+        window.setFrame(restoredFrame, display: false)
+
+        coordinator.toggleWorkspaceZoom(fitting: visibleFrame)
+        #expect(window.frame == visibleFrame)
+
+        coordinator.toggleWorkspaceZoom(fitting: visibleFrame)
+        #expect(window.frame == restoredFrame)
+    }
+
+    @Test
+    @MainActor
     func dockReopenShowsTheHiddenWelcomeWindow() {
         let appDelegate = LitheAppDelegate()
         let window = NSWindow()
