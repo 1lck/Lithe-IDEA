@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import Foundation
 import Testing
 @testable import Lithe
@@ -2206,6 +2207,7 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
 }
 
 private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
+    private let lock = NSLock()
     private let handler: (ProcessRequest) -> ProcessResult
     private let requestsLock = NSLock()
     private var recordedRequests: [ProcessRequest] = []
@@ -2538,6 +2540,7 @@ struct EditorDocumentTests {
         let model = WorkspaceFeatureModel(
             operations: operations,
             fileOperations: EmptyWorkspaceFileOperations(),
+            gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
             directoryWatcherFactory: TestDirectoryWatcherFactory(),
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
         )
@@ -2623,6 +2626,7 @@ struct EditorDocumentTests {
         let model = WorkspaceFeatureModel(
             operations: EmptyWorkspaceOperations(),
             fileOperations: EmptyWorkspaceFileOperations(),
+            gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
             directoryWatcherFactory: watcherFactory,
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
         )
@@ -2666,6 +2670,186 @@ struct EditorDocumentTests {
         await model.endGitOperationFreeze()
         #expect(model.gitOperationFreezeDepth == 0)
         #expect(refreshCount == 1)
+    }
+
+    @Test
+    func directoryWatchConfigurationNormalizesAndDeduplicatesCoveredRoots() {
+        let repository = URL(fileURLWithPath: "/tmp/lithe-watch/repository")
+        let workspace = repository.appendingPathComponent("apps/opened")
+        let commonDirectory = URL(fileURLWithPath: "/tmp/lithe-watch/metadata/repository.git")
+        let context = GitWatchContext(
+            repositoryRoot: repository,
+            gitDirectory: commonDirectory.appendingPathComponent("worktrees/opened"),
+            gitCommonDirectory: commonDirectory
+        )
+
+        let configuration = DirectoryWatchConfiguration(
+            workspaceRoot: workspace,
+            gitContext: context
+        )
+
+        #expect(configuration.physicalRoots.map(\.path) == [repository.path, commonDirectory.path])
+    }
+
+    @Test
+    func macDirectoryWatcherClassifiesWorkspaceGitOnlyAndRecoveryEvents() {
+        let repository = URL(fileURLWithPath: "/tmp/lithe-classification/repository")
+        let workspace = repository.appendingPathComponent("apps/opened")
+        let gitDirectory = repository.appendingPathComponent(".git")
+        let configuration = DirectoryWatchConfiguration(
+            workspaceRoot: workspace,
+            gitContext: GitWatchContext(
+                repositoryRoot: repository,
+                gitDirectory: gitDirectory,
+                gitCommonDirectory: gitDirectory
+            )
+        )
+        let watcher = MacDirectoryWatcher(configuration: configuration) { _ in }
+        let visible = workspace.appendingPathComponent("Sources/App.swift").path
+        let hidden = workspace.appendingPathComponent("dist/bundle.js").path
+        let outsideWorkspace = repository.appendingPathComponent("outside.txt").path
+        let index = gitDirectory.appendingPathComponent("index").path
+
+        let classified = watcher.classify(
+            paths: [visible, hidden, outsideWorkspace, index],
+            eventFlags: Array(repeating: FSEventStreamEventFlags(0), count: 4)
+        )
+
+        #expect(classified.workspacePaths == [visible])
+        #expect(classified.gitStateMayHaveChanged)
+        #expect(!classified.requiresFullRescan)
+        #expect(!classified.watchRootsChanged)
+
+        let workspaceOnly = DirectoryWatchConfiguration(workspaceRoot: workspace, gitContext: nil)
+        let workspaceWatcher = MacDirectoryWatcher(configuration: workspaceOnly) { _ in }
+        let gitCreated = workspaceWatcher.classify(
+            paths: [workspace.appendingPathComponent(".git").path],
+            eventFlags: [FSEventStreamEventFlags(0)]
+        )
+        #expect(gitCreated.workspacePaths.isEmpty)
+        #expect(gitCreated.gitStateMayHaveChanged)
+        #expect(gitCreated.watchRootsChanged)
+
+        let dropped = watcher.classify(
+            paths: [repository.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)]
+        )
+        #expect(dropped.workspacePaths.isEmpty)
+        #expect(dropped.gitStateMayHaveChanged)
+        #expect(dropped.requiresFullRescan)
+
+        let rootChanged = watcher.classify(
+            paths: [repository.path],
+            eventFlags: [FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged)]
+        )
+        #expect(rootChanged.requiresFullRescan)
+        #expect(rootChanged.watchRootsChanged)
+    }
+
+    @Test
+    @MainActor
+    func gitRefreshBurstCoalescesAndARequestDuringRefreshRunsAgain() async {
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var refreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: watcherFactory,
+            refreshGit: {
+                refreshCount += 1
+                if refreshCount == 1 {
+                    watcherFactory.source?.emit(
+                        DirectoryChangeBatch(gitStateMayHaveChanged: true)
+                    )
+                    await Task.yield()
+                }
+            }
+        )
+        defer { model.reset() }
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-git-refresh-state")
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let source = watcherFactory.source
+
+        source?.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
+        source?.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
+        source?.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
+        let refreshed = await waitForWorkspaceObservation { refreshCount == 2 }
+
+        #expect(refreshed)
+        #expect(refreshCount == 2)
+    }
+
+    @Test
+    @MainActor
+    func recoveryBatchRebuildsSnapshotReplacesRootsAndRefreshesOnlyGit() async {
+        let repository = URL(fileURLWithPath: "/tmp/lithe-recovery/repository")
+        let gitDirectory = repository.appendingPathComponent(".git")
+        let context = GitWatchContext(
+            repositoryRoot: repository,
+            gitDirectory: gitDirectory,
+            gitCommonDirectory: gitDirectory
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var externalChangeCount = 0
+        var projectReloadCount = 0
+        var refreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(snapshotAvailability: [true]),
+            provider: SequencedGitWatchContextProvider([context]),
+            watcherFactory: watcherFactory,
+            refreshGit: { refreshCount += 1 },
+            processExternalChanges: { paths in
+                externalChangeCount += paths.count
+                return false
+            },
+            reloadProjectServices: { projectReloadCount += 1 }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: repository, visibilityRules: .default)
+        watcherFactory.source?.emit(
+            DirectoryChangeBatch(
+                gitStateMayHaveChanged: true,
+                requiresFullRescan: true,
+                watchRootsChanged: true
+            )
+        )
+        let recovered = await waitForWorkspaceObservation {
+            model.rootNode != nil && refreshCount == 1
+        }
+
+        #expect(recovered)
+        #expect(model.rootNode != nil)
+        #expect(watcherFactory.configurations.last?.repositoryRoot == repository)
+        #expect(refreshCount == 1)
+        #expect(externalChangeCount == 0)
+        #expect(projectReloadCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func foregroundRecoveryReparsesContextReplacesWatcherAndRefreshes() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-foreground/workspace")
+        let gitDirectory = URL(fileURLWithPath: "/tmp/lithe-foreground/metadata.git")
+        let context = GitWatchContext(
+            repositoryRoot: workspace,
+            gitDirectory: gitDirectory,
+            gitCommonDirectory: gitDirectory
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var refreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            provider: SequencedGitWatchContextProvider([nil, context]),
+            watcherFactory: watcherFactory,
+            refreshGit: { refreshCount += 1 }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+
+        await model.resumeObservationAfterActivation()
+        await model.resumeObservationAfterActivation()
+
+        #expect(watcherFactory.configurations.count == 3)
+        #expect(watcherFactory.configurations.last?.gitDirectory == gitDirectory)
+        #expect(refreshCount == 2)
     }
 
     @Test
@@ -2766,6 +2950,70 @@ struct EditorDocumentTests {
         operations.releaseA()
         await pendingA.value
         #expect(model.activeDocumentID == documentB.id)
+    }
+}
+
+@MainActor
+private func makeWorkspaceObservationUnitModel(
+    operations: any WorkspaceOperations = EmptyWorkspaceOperations(),
+    provider: any GitWatchContextProviding,
+    watcherFactory: TestDirectoryWatcherFactory,
+    refreshGit: @escaping @MainActor () async -> Void,
+    processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
+    reloadProjectServices: @escaping @MainActor () async -> Void = {}
+) -> WorkspaceFeatureModel {
+    let model = WorkspaceFeatureModel(
+        operations: operations,
+        fileOperations: EmptyWorkspaceFileOperations(),
+        gitWatchContextProvider: provider,
+        directoryWatcherFactory: watcherFactory,
+        workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
+    )
+    model.configure(
+        documentsProvider: { [] },
+        activeDocumentProvider: { nil },
+        selectedSidebarProvider: { "project" },
+        setSelectedSidebar: { _ in },
+        restoreSession: { _, _ in },
+        openFile: { _ in },
+        notify: { _ in },
+        recordHistory: { _, _ in },
+        relocateHistory: { _, _ in },
+        relocateOpenDocuments: { _, _ in },
+        closeDocuments: { _ in },
+        processExternalChanges: processExternalChanges,
+        reloadProjectServices: reloadProjectServices,
+        refreshGit: refreshGit,
+        updateHistoryVisibilityRules: { _ in },
+        onSnapshotLoaded: { _, _ in }
+    )
+    return model
+}
+
+@MainActor
+private func waitForWorkspaceObservation(
+    timeout: Duration = .seconds(3),
+    condition: @escaping @MainActor () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while clock.now < deadline {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(25))
+    }
+    return condition()
+}
+
+private actor SequencedGitWatchContextProvider: GitWatchContextProviding {
+    private var contexts: [GitWatchContext?]
+
+    init(_ contexts: [GitWatchContext?]) {
+        self.contexts = contexts
+    }
+
+    func watchContext(for workspace: URL) async -> GitWatchContext? {
+        guard contexts.count > 1 else { return contexts.first ?? nil }
+        return contexts.removeFirst()
     }
 }
 
@@ -3117,9 +3365,9 @@ private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
 }
 
 private final class TestDirectoryChangeSource: DirectoryChangeSource {
-    private let onChange: @Sendable ([String]) -> Void
+    private let onChange: @Sendable (DirectoryChangeBatch) -> Void
 
-    init(onChange: @escaping @Sendable ([String]) -> Void) {
+    init(onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void) {
         self.onChange = onChange
     }
 
@@ -3127,18 +3375,24 @@ private final class TestDirectoryChangeSource: DirectoryChangeSource {
     func stop() {}
 
     func emit(_ paths: [String]) {
-        onChange(paths)
+        emit(DirectoryChangeBatch(workspacePaths: paths, gitStateMayHaveChanged: true))
+    }
+
+    func emit(_ batch: DirectoryChangeBatch) {
+        onChange(batch)
     }
 }
 
 private final class TestDirectoryWatcherFactory: DirectoryWatcherFactory {
     private(set) var source: TestDirectoryChangeSource?
+    private(set) var configurations: [DirectoryWatchConfiguration] = []
 
     func make(
-        root: URL,
+        configuration: DirectoryWatchConfiguration,
         visibilityRules: FileVisibilityRules,
-        onChange: @escaping @Sendable ([String]) -> Void
+        onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void
     ) -> any DirectoryChangeSource {
+        configurations.append(configuration)
         let source = TestDirectoryChangeSource(onChange: onChange)
         self.source = source
         return source
