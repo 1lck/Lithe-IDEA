@@ -26,6 +26,8 @@ enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
 final class LanguageToolingSessionManager: ObservableObject {
     @Published private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
     @Published private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
+    @Published private(set) var languageServerLogs: [LanguageServerLogEntry] = []
+    @Published private(set) var languageServerStates: [String: LanguageServerSessionState] = [:]
     @Published private(set) var debugStates: [String: DebugAdapterState] = [:]
     @Published private(set) var lastDebugEvents: [String: DebugAdapterEvent] = [:]
     @Published private(set) var verifiedBreakpoints: [String: [DebugBreakpoint]] = [:]
@@ -38,6 +40,7 @@ final class LanguageToolingSessionManager: ObservableObject {
     private let runtimeFactory: (any LanguageProviderRuntimeFactory)?
     private var languageServers: [String: any LanguageServerSession] = [:]
     private var languageServerRoots: [String: URL] = [:]
+    private var languageServerSessionIdentities: [String: ObjectIdentifier] = [:]
     private var languageFeatureProviders: [any LanguageFeatureProvider]
     private var languageServerFeatureProviders: [String: LanguageServerFeatureProvider] = [:]
     private var debugAdapters: [String: any DebugAdapterSession] = [:]
@@ -63,7 +66,13 @@ final class LanguageToolingSessionManager: ObservableObject {
         self.init(catalog: registry.catalog, runtimes: registry.toolingRuntimes)
     }
 
-    var activeLanguageServerIDs: Set<String> { Set(languageServers.keys) }
+    var activeLanguageServerIDs: Set<String> {
+        Set(languageServers.compactMap { providerID, session in
+            guard session.isRunning,
+                  languageServerStates[providerID] == .running else { return nil }
+            return providerID
+        })
+    }
     var activeDebugAdapterIDs: Set<String> { Set(debugAdapters.keys) }
 
     func updateCatalog(_ catalog: LanguageProviderCatalog) {
@@ -80,7 +89,9 @@ final class LanguageToolingSessionManager: ObservableObject {
         self.catalog = catalog
         let validProviderIDs = Set(catalog.descriptors.map(\.id))
         languageServerFeatures = languageServerFeatures.filter { validProviderIDs.contains($0.key) }
+        languageServerStates = languageServerStates.filter { validProviderIDs.contains($0.key) }
         diagnostics = diagnostics.filter { catalog.provider(for: $0.key) != nil }
+        languageServerLogs = languageServerLogs.filter { validProviderIDs.contains($0.providerID) }
         for providerID in changedProviderIDs {
             stopLanguageServer(providerID: providerID)
             stopDebugAdapter(providerID: providerID)
@@ -150,9 +161,22 @@ final class LanguageToolingSessionManager: ObservableObject {
            languageServerRoots[descriptor.id] == normalizedRoot {
             session = active
         } else {
+            languageServerSessionIdentities[descriptor.id] = nil
             languageServers[descriptor.id]?.stop()
             languageServerFeatureProviders[descriptor.id] = nil
+            recordLanguageServerLog(
+                providerID: descriptor.id,
+                level: .info,
+                message: "Resolving language server",
+                detail: descriptor.languageServerLaunch?.executableNames.joined(separator: ", ")
+            )
             guard let created = runtime.makeLanguageServerSession() else {
+                recordLanguageServerLog(
+                    providerID: descriptor.id,
+                    level: .error,
+                    message: "Language server executable was not found",
+                    detail: runtime.unavailableToolingMessage ?? descriptor.displayName
+                )
                 throw LanguageToolingSessionError.toolingUnavailable(
                     runtime.unavailableToolingMessage ?? descriptor.displayName
                 )
@@ -162,16 +186,41 @@ final class LanguageToolingSessionManager: ObservableObject {
                 session: created,
                 features: created.features
             )
+            let sessionIdentity = ObjectIdentifier(created)
+            languageServerSessionIdentities[descriptor.id] = sessionIdentity
+            languageServerStates[descriptor.id] = .starting
             languageServerFeatureProviders[descriptor.id] = featureProvider
-            configureLanguageServerCallbacks(created, providerID: descriptor.id)
+            configureLanguageServerCallbacks(
+                created,
+                providerID: descriptor.id,
+                sessionIdentity: sessionIdentity
+            )
             do {
                 try created.start(rootURL: normalizedRoot)
             } catch {
+                languageServerSessionIdentities[descriptor.id] = nil
+                languageServerStates[descriptor.id] = .failed(
+                    exitCode: nil,
+                    message: error.localizedDescription
+                )
                 languageServerFeatureProviders[descriptor.id] = nil
+                recordLanguageServerLog(
+                    providerID: descriptor.id,
+                    level: .error,
+                    message: "Language server failed to start",
+                    detail: error.localizedDescription
+                )
                 throw error
             }
             languageServers[descriptor.id] = created
             languageServerRoots[descriptor.id] = normalizedRoot
+            languageServerStates[descriptor.id] = .running
+            recordLanguageServerLog(
+                providerID: descriptor.id,
+                level: .info,
+                message: "Language server session registered",
+                detail: normalizedRoot.path
+            )
             session = created
         }
         try session.synchronize(
@@ -191,20 +240,62 @@ final class LanguageToolingSessionManager: ObservableObject {
         diagnostics = [:]
     }
 
+    func clearLanguageServerLogs() {
+        languageServerLogs = []
+    }
+
+    func recordLanguageServerLog(
+        providerID: String,
+        level: LanguageServerLogLevel,
+        message: String,
+        detail: String? = nil
+    ) {
+        languageServerLogs.insert(LanguageServerLogEntry(
+            providerID: providerID,
+            level: level,
+            message: message,
+            detail: detail
+        ), at: 0)
+        if languageServerLogs.count > 100 {
+            languageServerLogs.removeLast(languageServerLogs.count - 100)
+        }
+    }
+
     func stopLanguageServer(providerID: String) {
+        if languageServers[providerID] != nil {
+            recordLanguageServerLog(
+                providerID: providerID,
+                level: .info,
+                message: "Stopping language server",
+                detail: nil
+            )
+        }
+        languageServerSessionIdentities[providerID] = nil
         languageServers.removeValue(forKey: providerID)?.stop()
         languageServerRoots[providerID] = nil
         languageServerFeatures[providerID] = nil
         languageServerFeatureProviders[providerID] = nil
+        languageServerStates[providerID] = .stopped
     }
 
     func stopAllLanguageServers() {
-        for session in languageServers.values { session.stop() }
+        for providerID in languageServers.keys {
+            recordLanguageServerLog(
+                providerID: providerID,
+                level: .info,
+                message: "Stopping language server",
+                detail: "Stop all"
+            )
+        }
+        let sessions = Array(languageServers.values)
         diagnostics = [:]
         languageServerFeatures = [:]
         languageServers.removeAll()
         languageServerRoots.removeAll()
+        languageServerSessionIdentities.removeAll()
         languageServerFeatureProviders.removeAll()
+        languageServerStates = [:]
+        for session in sessions { session.stop() }
     }
 
     func navigate(
@@ -490,13 +581,16 @@ final class LanguageToolingSessionManager: ObservableObject {
     }
 
     func stopAll() {
-        for session in languageServers.values { session.stop() }
+        let languageServerSessions = Array(languageServers.values)
         for session in debugAdapters.values { session.stop() }
         diagnostics = [:]
         languageServerFeatures = [:]
         languageServers.removeAll()
         languageServerRoots.removeAll()
+        languageServerSessionIdentities.removeAll()
         languageServerFeatureProviders.removeAll()
+        languageServerStates = [:]
+        for session in languageServerSessions { session.stop() }
         debugAdapters.removeAll()
         debugAdapterRoots.removeAll()
         debugStates = [:]
@@ -704,15 +798,58 @@ final class LanguageToolingSessionManager: ObservableObject {
 
     private func configureLanguageServerCallbacks(
         _ session: any LanguageServerSession,
-        providerID: String
+        providerID: String,
+        sessionIdentity: ObjectIdentifier
     ) {
         session.onDiagnostics = { [weak self] fileURL, diagnostics in
+            guard self?.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             self?.diagnostics[fileURL.standardizedFileURL] = diagnostics
         }
         session.onFeaturesChange = { [weak self] features in
             guard let self else { return }
+            guard self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             self.languageServerFeatures[providerID] = features
             self.languageServerFeatureProviders[providerID]?.updateFeatures(features)
+            self.recordLanguageServerLog(
+                providerID: providerID,
+                level: .info,
+                message: features.isEmpty ? "Language server features cleared" : "Language server features updated",
+                detail: features.isEmpty ? nil : "\(features.rawValue)"
+            )
+        }
+        session.onLog = { [weak self] level, message, detail in
+            self?.recordLanguageServerLog(
+                providerID: providerID,
+                level: level,
+                message: message,
+                detail: detail
+            )
+        }
+        session.onStateChange = { [weak self] state in
+            self?.handleLanguageServerState(
+                state,
+                providerID: providerID,
+                sessionIdentity: sessionIdentity
+            )
+        }
+    }
+
+    private func handleLanguageServerState(
+        _ state: LanguageServerSessionState,
+        providerID: String,
+        sessionIdentity: ObjectIdentifier
+    ) {
+        guard languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+        languageServerStates[providerID] = state
+        switch state {
+        case .stopped, .failed:
+            languageServerSessionIdentities[providerID] = nil
+            languageServers[providerID] = nil
+            languageServerRoots[providerID] = nil
+            languageServerFeatures[providerID] = nil
+            languageServerFeatureProviders[providerID] = nil
+        case .starting, .running, .stopping:
+            break
         }
     }
 

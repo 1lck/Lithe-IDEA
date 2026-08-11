@@ -4,7 +4,7 @@ struct LSPControlCenterView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
     @State private var selectedProviderID: String?
-    @State private var isToolSetupPresented = false
+    @State private var isToolSetupExpanded = false
 
     private let metricColumns = [
         GridItem(.flexible(), spacing: 8),
@@ -23,13 +23,18 @@ struct LSPControlCenterView: View {
             ScrollView(.vertical) {
                 VStack(spacing: 8) {
                     globalControls
-                    serverList
-                    if let selected = selectedDescriptor {
-                        serverDetail(selected)
+                    if isToolSetupExpanded {
+                        languageServerSetupPanel
                     } else {
-                        emptyDetail
+                        serverList
+                        if let selected = selectedDescriptor {
+                            serverDetail(selected)
+                        } else {
+                            emptyDetail
+                        }
+                        eventLog
+                        diagnosticLog
                     }
-                    diagnosticLog
                 }
                 .padding(8)
             }
@@ -45,7 +50,7 @@ struct LSPControlCenterView: View {
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer(minLength: 0)
             Button {
-                isToolSetupPresented.toggle()
+                isToolSetupExpanded.toggle()
             } label: {
                 LitheIDEAIcon(
                     resourcePath: "general/gear.svg",
@@ -55,23 +60,6 @@ struct LSPControlCenterView: View {
             }
             .litheIconButton()
             .help(copy.configureLanguageServers)
-            .popover(isPresented: $isToolSetupPresented, arrowEdge: .trailing) {
-                LanguageServerSetupView(
-                    tools: model.languageServerTools,
-                    providers: configurableLanguageServerDescriptors,
-                    initialProviderID: selectedDescriptor?.id,
-                    language: settings.language,
-                    chooseExecutable: { descriptor in
-                        model.chooseLanguageServerExecutable(providerName: descriptor.displayName)
-                    },
-                    openOfficialDownload: { url in
-                        model.openLanguageServerDownload(url)
-                    },
-                    configurationChanged: { providerID in
-                        model.languageServerToolConfigurationDidChange(providerID: providerID)
-                    }
-                )
-            }
             Button {
                 model.isLSPControlCenterVisible = false
             } label: {
@@ -86,6 +74,41 @@ struct LSPControlCenterView: View {
         .background(LitheTheme.toolHeader)
     }
 
+    private var languageServerSetupPanel: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                sectionTitle(copy.configureLanguageServers)
+                Spacer(minLength: 0)
+                Button {
+                    isToolSetupExpanded = false
+                } label: {
+                    Label(copy.backToOverview, systemImage: "chevron.left")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(LitheSecondaryButtonStyle())
+            }
+
+            LanguageServerSetupView(
+                tools: model.languageServerTools,
+                providers: configurableLanguageServerDescriptors,
+                initialProviderID: selectedDescriptor?.id,
+                language: settings.language,
+                chooseExecutable: { descriptor in
+                    model.chooseLanguageServerExecutable(providerName: descriptor.displayName)
+                },
+                openOfficialDownload: { url in
+                    model.openLanguageServerDownload(url)
+                },
+                configurationChanged: { providerID in
+                    model.languageServerToolConfigurationDidChange(providerID: providerID)
+                },
+                isEmbedded: true
+            )
+        }
+        .padding(10)
+        .panelChrome()
+    }
+
     private var globalControls: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
@@ -98,7 +121,7 @@ struct LSPControlCenterView: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 statusPill(
-                    title: activeServerCount > 0 ? copy.lspActive : copy.onDemand,
+                    title: activeServerCount > 0 ? copy.lspActive : copy.noRunningSession,
                     color: activeServerCount > 0 ? LitheTheme.success : LitheTheme.secondaryText
                 )
             }
@@ -175,12 +198,12 @@ struct LSPControlCenterView: View {
                 .foregroundStyle(statusColor(metrics.status))
             if metrics.status == .active || metrics.status == .error {
                 Button {
-                    model.languageToolingSessions.stopLanguageServer(providerID: descriptor.id)
+                    model.disableLanguageServerForCurrentWorkspace(providerID: descriptor.id)
                 } label: {
                     Image(systemName: "stop")
                 }
                 .litheIconButton()
-                .help(copy.stopProvider(descriptor.displayName))
+                .help(copy.disableProvider(descriptor.displayName))
             }
         }
         .padding(.horizontal, 7)
@@ -301,6 +324,69 @@ struct LSPControlCenterView: View {
         .panelChrome()
     }
 
+    private var eventLog: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                sectionTitle(copy.eventLog)
+                Spacer(minLength: 0)
+                Button {
+                    model.languageToolingSessions.clearLanguageServerLogs()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .litheIconButton()
+                .help(copy.clearEventLog)
+            }
+
+            if model.languageToolingSessions.languageServerLogs.isEmpty {
+                Text(copy.noLanguageServerEvents)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            } else {
+                VStack(spacing: 1) {
+                    ForEach(model.languageToolingSessions.languageServerLogs.prefix(6)) { entry in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 7) {
+                                Image(systemName: logIcon(for: entry.level))
+                                    .foregroundStyle(logColor(for: entry.level))
+                                    .frame(width: 14)
+                                Text(providerName(for: entry.providerID))
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .foregroundStyle(LitheTheme.primaryText)
+                                    .lineLimit(1)
+                                Text(entry.timestamp.formatted(date: .omitted, time: .standard))
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                Spacer(minLength: 0)
+                            }
+                            Text(entry.message)
+                                .font(.system(size: 11))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .lineLimit(1)
+                            if let detail = entry.detail, !detail.isEmpty {
+                                Text(detail)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(2)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(LitheTheme.raised.opacity(0.38))
+                        )
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .panelChrome()
+    }
+
     private func capabilityGrid(_ descriptor: LanguageProviderDescriptor) -> some View {
         let features = model.languageToolingSessions.languageServerFeatures[descriptor.id] ?? []
         let rows: [LSPCapabilityRow] = [
@@ -402,6 +488,15 @@ struct LSPControlCenterView: View {
                     .fill(LitheTheme.raised.opacity(0.55))
             )
 
+            Button {
+                selectedProviderID = descriptor.id
+                isToolSetupExpanded = true
+            } label: {
+                Label(copy.editToolPath, systemImage: "wrench.and.screwdriver")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(LithePrimaryButtonStyle())
+
             Text(copy.configurationHint)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -499,10 +594,32 @@ struct LSPControlCenterView: View {
         }
     }
 
+    private func logColor(for level: LanguageServerLogLevel) -> Color {
+        switch level {
+        case .info: LitheTheme.accent
+        case .warning: LitheTheme.warning
+        case .error: LitheTheme.error
+        }
+    }
+
+    private func logIcon(for level: LanguageServerLogLevel) -> String {
+        switch level {
+        case .info: "info.circle"
+        case .warning: "exclamationmark.triangle"
+        case .error: "xmark.octagon"
+        }
+    }
+
+    private func providerName(for providerID: String) -> String {
+        model.languageProviderCatalog.descriptors.first { $0.id == providerID }?.displayName
+            ?? providerID
+    }
+
     private func statusColor(_ status: LSPServerStatus) -> Color {
         switch status {
         case .active: LitheTheme.success
         case .stopped: LitheTheme.secondaryText
+        case .disabled: LitheTheme.warning
         case .error: LitheTheme.error
         }
     }
@@ -633,7 +750,12 @@ struct LSPControlCenterView: View {
             || !features.isEmpty
             || !diagnostics.isEmpty
 
-        if diagnostics.contains(where: { $0.severity == .error }) {
+        if model.isLanguageServerDisabledInCurrentWorkspace(providerID: descriptor.id) {
+            status = .disabled
+        } else if let state = model.languageToolingSessions.languageServerStates[descriptor.id],
+                  case .failed = state {
+            status = .error
+        } else if diagnostics.contains(where: { $0.severity == .error }) {
             status = .error
         } else if model.languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id) || !features.isEmpty {
             status = .active
@@ -659,6 +781,7 @@ struct LSPControlCenterView: View {
 private enum LSPServerStatus {
     case active
     case stopped
+    case disabled
     case error
 }
 
@@ -681,9 +804,10 @@ private struct LSPControlCenterCopy {
     var title: String { usesChinese ? "LSP 控制中心" : "LSP Control Center" }
     var hideControlCenter: String { usesChinese ? "隐藏 LSP 控制中心" : "Hide LSP Control Center" }
     var configureLanguageServers: String { usesChinese ? "配置语言服务器" : "Configure language servers" }
+    var backToOverview: String { usesChinese ? "返回概览" : "Back to overview" }
     var currentProject: String { usesChinese ? "当前项目：" : "Current project:" }
     var lspActive: String { usesChinese ? "LSP 运行中" : "LSP active" }
-    var onDemand: String { usesChinese ? "按需启动" : "On demand" }
+    var noRunningSession: String { usesChinese ? "无运行会话" : "No running session" }
     var restartAll: String { usesChinese ? "全部重启" : "Restart all" }
     var clearDiagnostics: String { usesChinese ? "清空诊断" : "Clear diagnostics" }
     var languageServers: String { usesChinese ? "语言服务器" : "Language Servers" }
@@ -699,6 +823,11 @@ private struct LSPControlCenterCopy {
     }
     var noLanguageServerDiagnostics: String {
         usesChinese ? "暂无语言服务器诊断。" : "No language server diagnostics."
+    }
+    var eventLog: String { usesChinese ? "事件日志" : "Event Log" }
+    var clearEventLog: String { usesChinese ? "清空事件日志" : "Clear event log" }
+    var noLanguageServerEvents: String {
+        usesChinese ? "暂无 LSP 事件。" : "No LSP events."
     }
     var capabilities: String { usesChinese ? "能力" : "Capabilities" }
     var languageServerCapability: String { usesChinese ? "语言服务器" : "Language Server" }
@@ -719,6 +848,7 @@ private struct LSPControlCenterCopy {
     var activation: String { usesChinese ? "启动策略" : "Activation" }
     var builtinCatalog: String { usesChinese ? "内置 JSON" : "Built-in JSON" }
     var projectOverride: String { usesChinese ? "项目覆盖" : "Project override" }
+    var editToolPath: String { usesChinese ? "编辑 LSP 工具路径" : "Edit LSP tool path" }
     var noOpenFilesForProvider: String {
         usesChinese ? "这个语言服务器当前没有打开的文件。" : "No open files for this language server."
     }
@@ -744,12 +874,14 @@ private struct LSPControlCenterCopy {
         case .always:
             usesChinese ? "始终启动" : "Always"
         case .onDemand:
-            usesChinese ? "按需启动" : "On demand"
+            usesChinese ? "按需激活" : "On demand"
         }
     }
 
-    func stopProvider(_ name: String) -> String {
-        usesChinese ? "停止 \(name)" : "Stop \(name)"
+    func disableProvider(_ name: String) -> String {
+        usesChinese
+            ? "在当前工作区禁用 \(name) LSP"
+            : "Disable \(name) LSP in this workspace"
     }
 
     func providerIDCopied(_ id: String) -> String {
@@ -759,11 +891,11 @@ private struct LSPControlCenterCopy {
     func capabilityState(_ name: String, declared: Bool, active: Bool) -> String {
         if usesChinese {
             if active { return "\(name) 当前会话已启用。" }
-            if declared { return "\(name) 由 catalog 声明，但当前没有运行中的 LSP 会话。" }
+            if declared { return "\(name) 只是由 catalog 声明；当前没有运行中的 LSP 会话。" }
             return "\(name) 未由 catalog 声明。"
         }
         if active { return "\(name) is enabled in the current session." }
-        if declared { return "\(name) is declared by the catalog, but no LSP session is running." }
+        if declared { return "\(name) is only declared by the catalog; no LSP session is running." }
         return "\(name) is not declared by the catalog."
     }
 
@@ -771,13 +903,15 @@ private struct LSPControlCenterCopy {
         if usesChinese {
             switch status {
             case .active: "运行中"
-            case .stopped: "已停止"
+            case .stopped: "未运行"
+            case .disabled: "已禁用"
             case .error: "错误"
             }
         } else {
             switch status {
             case .active: "Running"
-            case .stopped: "Stopped"
+            case .stopped: "Not running"
+            case .disabled: "Disabled"
             case .error: "Error"
             }
         }

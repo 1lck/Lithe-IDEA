@@ -257,6 +257,45 @@ struct LanguageServerCommand: Equatable, Sendable {
     let arguments: [ToolingJSONValue]
 }
 
+enum LanguageServerLogLevel: String, Sendable {
+    case info
+    case warning
+    case error
+}
+
+enum LanguageServerSessionState: Equatable, Sendable {
+    case starting
+    case running
+    case stopping
+    case stopped
+    case failed(exitCode: Int32?, message: String?)
+}
+
+struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let timestamp: Date
+    let providerID: String
+    let level: LanguageServerLogLevel
+    let message: String
+    let detail: String?
+
+    init(
+        id: UUID = UUID(),
+        timestamp: Date = Date(),
+        providerID: String,
+        level: LanguageServerLogLevel,
+        message: String,
+        detail: String? = nil
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.providerID = providerID
+        self.level = level
+        self.message = message
+        self.detail = detail
+    }
+}
+
 struct LanguageServerTextEdit: Equatable, Sendable {
     let range: LanguageServerRange
     let newText: String
@@ -358,6 +397,8 @@ extension LanguageTestProvider {
 protocol LanguageServerSession: AnyObject {
     var isRunning: Bool { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
+    var onLog: ((LanguageServerLogLevel, String, String?) -> Void)? { get set }
+    var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
     var features: LanguageServerFeatureSet { get }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
     func start(rootURL: URL) throws
@@ -416,6 +457,14 @@ protocol LanguageServerSession: AnyObject {
 extension LanguageServerSession {
     var features: LanguageServerFeatureSet { [] }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onLog: ((LanguageServerLogLevel, String, String?) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onStateChange: ((LanguageServerSessionState) -> Void)? {
         get { nil }
         set {}
     }

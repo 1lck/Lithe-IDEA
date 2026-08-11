@@ -24,7 +24,12 @@ extension AppModel {
     var openDocuments: [EditorDocument] { documentFeature.openDocuments }
     var activeDocumentID: UUID? {
         get { documentFeature.activeDocumentID }
-        set { documentFeature.activeDocumentID = newValue }
+        set {
+            let previousDocumentID = documentFeature.activeDocumentID
+            documentFeature.activeDocumentID = newValue
+            guard previousDocumentID != newValue else { return }
+            activateCurrentDocumentLanguageServerIfAvailable()
+        }
     }
     var pendingCloseDocument: EditorDocument? { documentFeature.pendingCloseDocument }
     var isPendingProjectClose: Bool { documentFeature.isPendingProjectClose }

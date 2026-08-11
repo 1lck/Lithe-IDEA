@@ -8,6 +8,7 @@ struct LanguageServerSetupView: View {
     let chooseExecutable: (LanguageProviderDescriptor) -> URL?
     let openOfficialDownload: (URL) -> Void
     let configurationChanged: (String) -> Void
+    let isEmbedded: Bool
 
     @State private var selectedProviderID: String
     @State private var executablePathDraft = ""
@@ -20,7 +21,8 @@ struct LanguageServerSetupView: View {
         language: AppLanguage,
         chooseExecutable: @escaping (LanguageProviderDescriptor) -> URL?,
         openOfficialDownload: @escaping (URL) -> Void,
-        configurationChanged: @escaping (String) -> Void
+        configurationChanged: @escaping (String) -> Void,
+        isEmbedded: Bool = false
     ) {
         self.tools = tools
         self.providers = providers
@@ -28,6 +30,7 @@ struct LanguageServerSetupView: View {
         self.chooseExecutable = chooseExecutable
         self.openOfficialDownload = openOfficialDownload
         self.configurationChanged = configurationChanged
+        self.isEmbedded = isEmbedded
         let initialID = initialProviderID.flatMap { id in
             providers.contains(where: { $0.id == id }) ? id : nil
         } ?? providers.first?.id ?? ""
@@ -75,7 +78,8 @@ struct LanguageServerSetupView: View {
             }
             .litheScrollViewChrome(hideHorizontal: true)
         }
-        .frame(width: 430, height: 510)
+        .frame(width: isEmbedded ? nil : 430, height: isEmbedded ? nil : 510)
+        .frame(maxWidth: isEmbedded ? .infinity : nil, minHeight: isEmbedded ? 430 : nil)
         .background(LitheTheme.sidebar)
         .onChange(of: selectedProviderID) { _, providerID in
             executablePathDraft = tools.customExecutablePath(for: providerID) ?? ""

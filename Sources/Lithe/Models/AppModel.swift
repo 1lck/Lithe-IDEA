@@ -159,13 +159,38 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func languageServerToolConfigurationDidChange(providerID: String) {
+        disabledLanguageServerProviderIDs.remove(providerID)
+        languageToolingSessions.stopLanguageServer(providerID: providerID)
+        languageToolingSessions.recordLanguageServerLog(
+            providerID: providerID,
+            level: .info,
+            message: "Language server tool configuration changed",
+            detail: "Workspace disable state cleared"
+        )
+    }
+
+    func isLanguageServerDisabledInCurrentWorkspace(providerID: String) -> Bool {
+        disabledLanguageServerProviderIDs.contains(providerID)
+    }
+
+    func disableLanguageServerForCurrentWorkspace(providerID: String) {
+        disabledLanguageServerProviderIDs.insert(providerID)
+        languageToolingSessions.recordLanguageServerLog(
+            providerID: providerID,
+            level: .warning,
+            message: "Language server disabled in this workspace",
+            detail: "Manual stop"
+        )
         languageToolingSessions.stopLanguageServer(providerID: providerID)
     }
+
     private var gitFeatureObservation: AnyCancellable?
     private var documentFeatureObservation: AnyCancellable?
     private var javaFeatureObservation: AnyCancellable?
     private var languageToolingObservation: AnyCancellable?
     private var languageTestObservation: AnyCancellable?
+    private var languageServerStartupFailures: [String: String] = [:]
+    private var disabledLanguageServerProviderIDs: Set<String> = []
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
     private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
 
@@ -489,24 +514,38 @@ final class AppModel: ObservableObject, Identifiable {
         if let document = activeDocument,
            let descriptor = languageProviderCatalog.provider(for: document.url),
             descriptor.capabilities.contains(.languageServer) {
+            if disabledLanguageServerProviderIDs.contains(descriptor.id) {
+                return usesChinese
+                    ? "\(descriptor.displayName) LSP 已在当前工作区禁用"
+                    : "\(descriptor.displayName) LSP is disabled in this workspace"
+            }
+            if let state = languageToolingSessions.languageServerStates[descriptor.id],
+               case .failed = state {
+                return usesChinese
+                    ? "\(descriptor.displayName) LSP 异常退出"
+                    : "\(descriptor.displayName) LSP exited unexpectedly"
+            }
             if languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id) {
                 return usesChinese
                     ? "\(descriptor.displayName) 语言服务器已就绪"
                     : "\(descriptor.displayName) language server ready"
             }
             return usesChinese
-                ? "\(descriptor.displayName) 语言服务器可按需启动"
-                : "\(descriptor.displayName) language server available on demand"
+                ? "\(descriptor.displayName) 已由 catalog 声明，但当前没有运行中的 LSP 会话"
+                : "\(descriptor.displayName) is declared by the catalog, but no LSP session is running"
         }
         return usesChinese ? "打开一个受支持的源码文件" : "Open a supported source file"
     }
 
     func restartLanguageServers() {
         languageToolingSessions.stopAllLanguageServers()
-        if let activeDocument {
-            activateLanguageServerIfAvailable(for: activeDocument)
-        }
-        showNotification(settings.language == .simplifiedChinese ? "语言服务器已重启" : "Language servers restarted")
+        disabledLanguageServerProviderIDs.removeAll()
+        let didStart = activateCurrentDocumentLanguageServerIfAvailable()
+        showNotification(
+            didStart
+                ? (settings.language == .simplifiedChinese ? "语言服务器已启动" : "Language server started")
+                : (settings.language == .simplifiedChinese ? "当前没有运行中的 LSP 会话" : "No LSP session is running")
+        )
     }
 
     func clearLanguageServerDiagnostics() {
@@ -603,6 +642,8 @@ final class AppModel: ObservableObject, Identifiable {
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
         languageTestService.reset()
+        disabledLanguageServerProviderIDs.removeAll()
+        languageServerStartupFailures.removeAll()
         runtimeFeature.openProject(at: normalizedURL)
         mavenFeature.reset()
         runFeature.reset()
@@ -905,14 +946,47 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
-    private func activateLanguageServerIfAvailable(for document: EditorDocument) {
+    @discardableResult
+    func activateCurrentDocumentLanguageServerIfAvailable() -> Bool {
+        guard let activeDocument else { return false }
+        return activateLanguageServerIfAvailable(for: activeDocument)
+    }
+
+    @discardableResult
+    private func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
         guard let workspaceURL,
-              languageProviderCatalog.provider(for: document.url) != nil else { return }
-        try? languageToolingSessions.synchronizeLanguageServer(
-            for: document.url,
-            text: document.text,
-            rootURL: workspaceURL
-        )
+              let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
+        guard !disabledLanguageServerProviderIDs.contains(descriptor.id) else {
+            languageToolingSessions.recordLanguageServerLog(
+                providerID: descriptor.id,
+                level: .info,
+                message: "Language server activation skipped",
+                detail: "Disabled in this workspace"
+            )
+            return false
+        }
+        do {
+            try languageToolingSessions.synchronizeLanguageServer(
+                for: document.url,
+                text: document.text,
+                rootURL: workspaceURL
+            )
+            languageServerStartupFailures[descriptor.id] = nil
+            return languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
+        } catch {
+            let message = error.localizedDescription
+            if languageServerStartupFailures[descriptor.id] != message {
+                languageServerStartupFailures[descriptor.id] = message
+                languageToolingSessions.recordLanguageServerLog(
+                    providerID: descriptor.id,
+                    level: .error,
+                    message: "Language server activation failed",
+                    detail: message
+                )
+                showNotification("Could not start \(descriptor.displayName) language server: \(message)")
+            }
+            return false
+        }
     }
 
     func searchProject(options: ProjectSearchOptions = .default) async {

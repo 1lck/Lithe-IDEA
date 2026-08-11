@@ -23,6 +23,8 @@ struct LitheScrollViewChrome: NSViewRepresentable {
     final class ScrollViewProbe: NSView {
         var hideHorizontal: Bool
         var alwaysShowVertical: Bool
+        private weak var configuredScrollView: NSScrollView?
+        private var scrollWheelMonitor: Any?
 
         init(hideHorizontal: Bool, alwaysShowVertical: Bool) {
             self.hideHorizontal = hideHorizontal
@@ -37,6 +39,9 @@ struct LitheScrollViewChrome: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            if window == nil {
+                removeScrollWheelMonitor()
+            }
             configureEnclosingScrollView()
         }
 
@@ -58,6 +63,48 @@ struct LitheScrollViewChrome: NSViewRepresentable {
                 scrollView.hasHorizontalScroller = false
                 scrollView.horizontalScrollElasticity = .none
             }
+            configureScrollWheelMonitor(for: scrollView)
+        }
+
+        deinit {
+            removeScrollWheelMonitor()
+        }
+
+        private func configureScrollWheelMonitor(for scrollView: NSScrollView) {
+            guard alwaysShowVertical else {
+                removeScrollWheelMonitor()
+                configuredScrollView = nil
+                return
+            }
+            guard configuredScrollView !== scrollView || scrollWheelMonitor == nil else { return }
+            removeScrollWheelMonitor()
+            configuredScrollView = scrollView
+            scrollWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self, weak scrollView] event in
+                guard let self,
+                      let scrollView,
+                      self.isEvent(event, inside: scrollView),
+                      self.canScrollVertically(scrollView) else { return event }
+                scrollView.scrollWheel(with: event)
+                return nil
+            }
+        }
+
+        private func removeScrollWheelMonitor() {
+            if let scrollWheelMonitor {
+                NSEvent.removeMonitor(scrollWheelMonitor)
+                self.scrollWheelMonitor = nil
+            }
+        }
+
+        private func isEvent(_ event: NSEvent, inside scrollView: NSScrollView) -> Bool {
+            guard event.window === scrollView.window else { return false }
+            let point = scrollView.convert(event.locationInWindow, from: nil)
+            return scrollView.bounds.contains(point)
+        }
+
+        private func canScrollVertically(_ scrollView: NSScrollView) -> Bool {
+            guard let documentView = scrollView.documentView else { return false }
+            return documentView.bounds.height > scrollView.contentView.bounds.height + 0.5
         }
     }
 }

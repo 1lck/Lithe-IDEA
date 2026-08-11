@@ -1044,6 +1044,53 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func languageServerFailureClearsActiveSessionState() async throws {
+        let descriptor = LanguageProviderDescriptor(
+            id: "swift",
+            displayName: "Swift",
+            fileExtensions: ["swift"],
+            capabilities: [.languageServer, .formatting],
+            activationPolicy: .onDemand,
+            languageIdentifier: "swift",
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["sourcekit-lsp"]
+            )
+        )
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let process = RecordingRawProcessSession()
+        let source = URL(fileURLWithPath: "/tmp/swift-project/App.swift")
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            processFactory: { process },
+            languageServerLaunch: descriptor.languageServerLaunch,
+            languageServerCore: TestLspClientCore(diagnosticURL: source)
+        )
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            runtimes: [runtime]
+        )
+
+        try manager.synchronizeLanguageServer(
+            for: source,
+            text: "struct App {}\n",
+            rootURL: source.deletingLastPathComponent()
+        )
+        #expect(manager.activeLanguageServerIDs == ["swift"])
+        #expect(manager.languageServerStates["swift"] == .running)
+
+        process.terminate(exitCode: 1)
+        await Self.drainMainActorTasks()
+
+        #expect(manager.activeLanguageServerIDs.isEmpty)
+        #expect(manager.languageServerFeatures["swift"] == nil)
+        #expect(manager.languageServerStates["swift"] == .failed(exitCode: 1, message: nil))
+    }
+
+    @Test
     func languageServerRuntimeStartsFromRustCatalogLaunchMetadata() async throws {
         let descriptor = LanguageProviderDescriptor(
             id: "swift",
@@ -3540,6 +3587,17 @@ private final class RecordingRawProcessSession: RawProcessSession, @unchecked Se
     }
     func send(_ input: Data) throws { sentData.append(input) }
     func stop() { isRunning = false }
+
+    func terminate(exitCode: Int32) {
+        isRunning = false
+        onStateChange?(ProcessLifecycleEvent(
+            operationID: requests.last?.operationID,
+            state: .finished,
+            exitCode: exitCode,
+            message: nil
+        ))
+        onTermination?(exitCode)
+    }
 
     func emitJSON(_ object: [String: Any], splitAt: Int? = nil) {
         let body = try! JSONSerialization.data(withJSONObject: object)

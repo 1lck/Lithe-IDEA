@@ -128,6 +128,8 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private var shutdownFallbackTask: Task<Void, Never>?
 
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
+    var onLog: ((LanguageServerLogLevel, String, String?) -> Void)?
+    var onStateChange: ((LanguageServerSessionState) -> Void)?
     private(set) var features: LanguageServerFeatureSet = []
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
 
@@ -148,14 +150,28 @@ final class StdioLanguageServerSession: LanguageServerSession {
         process.onOutput = { [weak self] data in
             Task { @MainActor [weak self] in self?.receive(data) }
         }
-        process.onTermination = { [weak self] _ in
-            Task { @MainActor [weak self] in self?.resetTransientState() }
+        process.onError = { [weak self] data in
+            Task { @MainActor [weak self] in self?.receiveError(data) }
+        }
+        process.onStateChange = { [weak self] event in
+            Task { @MainActor [weak self] in self?.receiveStateChange(event) }
+        }
+        process.onTermination = { [weak self] exitCode in
+            Task { @MainActor [weak self] in
+                self?.recordTermination(exitCode: exitCode)
+                self?.resetTransientState()
+            }
         }
     }
 
     var isRunning: Bool { process.isRunning }
 
     func start(rootURL: URL) throws {
+        onLog?(
+            .info,
+            "Starting language server",
+            ([executableURL.path] + arguments).joined(separator: " ")
+        )
         try process.start(ProcessRequest(
             operationID: UUID().uuidString,
             executablePath: executableURL.path,
@@ -569,6 +585,54 @@ final class StdioLanguageServerSession: LanguageServerSession {
                 apply(response)
             }
         }
+    }
+
+    private func receiveError(_ data: Data) {
+        let raw = String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        onLog?(.warning, "Language server stderr", raw)
+    }
+
+    private func receiveStateChange(_ event: ProcessLifecycleEvent) {
+        switch event.state {
+        case .starting:
+            onStateChange?(.starting)
+            onLog?(.info, "Language server process is starting", nil)
+        case .running:
+            onStateChange?(.running)
+            onLog?(.info, "Language server process is running", nil)
+        case .stopping:
+            onStateChange?(.stopping)
+            onLog?(.info, "Language server process is stopping", event.message)
+        case .finished:
+            let didFail = !isStopping && event.exitCode != 0
+            onStateChange?(
+                didFail
+                    ? .failed(exitCode: event.exitCode, message: event.message)
+                    : .stopped
+            )
+            let level: LanguageServerLogLevel = didFail ? .warning : .info
+            onLog?(level, "Language server process finished", exitCodeDetail(event.exitCode))
+        case .failed:
+            onStateChange?(.failed(exitCode: event.exitCode, message: event.message))
+            onLog?(.error, "Language server process failed to start", event.message)
+        }
+    }
+
+    private func recordTermination(exitCode: Int32) {
+        if isStopping || exitCode == 0 {
+            onStateChange?(.stopped)
+            onLog?(.info, "Language server terminated", exitCodeDetail(exitCode))
+        } else {
+            onStateChange?(.failed(exitCode: exitCode, message: nil))
+            onLog?(.warning, "Language server terminated unexpectedly", exitCodeDetail(exitCode))
+        }
+    }
+
+    private func exitCodeDetail(_ exitCode: Int32?) -> String? {
+        guard let exitCode else { return nil }
+        return "exit code \(exitCode)"
     }
 
     private func resetTransientState() {
