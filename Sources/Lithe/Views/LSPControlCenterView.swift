@@ -23,6 +23,9 @@ struct LSPControlCenterView: View {
             ScrollView(.vertical) {
                 VStack(spacing: 8) {
                     globalControls
+                    if model.languageProviderCatalogSnapshot.isDegraded {
+                        catalogDegradedBanner
+                    }
                     if isToolSetupExpanded {
                         languageServerSetupPanel
                     } else {
@@ -148,6 +151,39 @@ struct LSPControlCenterView: View {
         .panelChrome()
     }
 
+    private var catalogDegradedBanner: some View {
+        let snapshot = model.languageProviderCatalogSnapshot
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(LitheTheme.warning)
+                Text(copy.catalogDegraded)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Spacer(minLength: 0)
+                Text(copy.catalogOrigin(snapshot.origin))
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(LitheTheme.warning)
+            }
+            ForEach(Array(snapshot.issues.enumerated()), id: \.offset) { _, issue in
+                Text("\(issue.path): \(issue.message)")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(LitheTheme.warning.opacity(0.10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(LitheTheme.warning.opacity(0.35), lineWidth: 1)
+                )
+        )
+    }
+
     private var serverList: some View {
         VStack(alignment: .leading, spacing: 7) {
             sectionTitle(copy.languageServers)
@@ -196,7 +232,7 @@ struct LSPControlCenterView: View {
             Text(copy.title(for: metrics.status))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(statusColor(metrics.status))
-            if metrics.status == .active || metrics.status == .error {
+            if [.starting, .initializing, .active, .error].contains(metrics.status) {
                 Button {
                     model.disableLanguageServerForCurrentWorkspace(providerID: descriptor.id)
                 } label: {
@@ -388,69 +424,111 @@ struct LSPControlCenterView: View {
     }
 
     private func capabilityGrid(_ descriptor: LanguageProviderDescriptor) -> some View {
-        let features = model.languageToolingSessions.languageServerFeatures[descriptor.id] ?? []
-        let rows: [LSPCapabilityRow] = [
+        let sessionState = model.languageToolingSessions.languageServerStates[descriptor.id]
+        let features = model.languageToolingSessions.languageServerFeatures[descriptor.id]
+        let negotiatedRows: [LSPCapabilityRow] = [
             LSPCapabilityRow(
-                title: copy.languageServerCapability,
-                icon: "chevron.left.forwardslash.chevron.right",
-                declared: descriptor.capabilities.contains(.languageServer),
-                active: !features.isEmpty || model.languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
+                title: copy.definition,
+                icon: "arrow.turn.down.right",
+                state: LSPControlCenterPresenter.negotiatedCapabilityState(
+                    .definition,
+                    sessionState: sessionState,
+                    features: features
+                )
+            ),
+            LSPCapabilityRow(
+                title: copy.completion,
+                icon: "text.badge.plus",
+                state: LSPControlCenterPresenter.negotiatedCapabilityState(
+                    .completion,
+                    sessionState: sessionState,
+                    features: features
+                )
+            ),
+            LSPCapabilityRow(
+                title: copy.hover,
+                icon: "text.bubble",
+                state: LSPControlCenterPresenter.negotiatedCapabilityState(
+                    .hover,
+                    sessionState: sessionState,
+                    features: features
+                )
             ),
             LSPCapabilityRow(
                 title: copy.formatting,
                 icon: "text.alignleft",
-                declared: descriptor.capabilities.contains(.formatting),
-                active: features.contains(.formatting)
+                state: LSPControlCenterPresenter.negotiatedCapabilityState(
+                    .formatting,
+                    sessionState: sessionState,
+                    features: features
+                )
+            )
+        ]
+        let integrationRows: [LSPCapabilityRow] = [
+            LSPCapabilityRow(
+                title: copy.run,
+                icon: "play",
+                state: LSPControlCenterPresenter.integrationState(
+                    isAvailable: descriptor.capabilities.contains(.run)
+                )
             ),
             LSPCapabilityRow(
                 title: copy.testing,
                 icon: "checkmark.seal",
-                declared: descriptor.capabilities.contains(.testing),
-                active: false
+                state: LSPControlCenterPresenter.integrationState(
+                    isAvailable: descriptor.capabilities.contains(.testing)
+                )
             ),
             LSPCapabilityRow(
                 title: copy.debug,
                 icon: "ladybug",
-                declared: descriptor.capabilities.contains(.debugAdapter),
-                active: model.languageToolingSessions.activeDebugAdapterIDs.contains(descriptor.id)
-            ),
-            LSPCapabilityRow(
-                title: copy.run,
-                icon: "play",
-                declared: descriptor.capabilities.contains(.run),
-                active: false
+                state: LSPControlCenterPresenter.integrationState(
+                    isAvailable: descriptor.capabilities.contains(.debugAdapter),
+                    isActive: model.languageToolingSessions.activeDebugAdapterIDs.contains(descriptor.id)
+                )
             )
         ]
 
         return VStack(alignment: .leading, spacing: 7) {
-            sectionTitle(copy.capabilities)
-            LazyVGrid(columns: metricColumns, spacing: 6) {
-                ForEach(rows) { row in
-                    Button {
-                        model.showNotification(copy.capabilityState(row.title, declared: row.declared, active: row.active))
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: row.icon)
-                                .frame(width: 15)
-                            Text(row.title)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                            Image(systemName: row.active ? "bolt.fill" : row.declared ? "checkmark.circle" : "xmark.circle")
-                                .foregroundStyle(row.active ? LitheTheme.success : row.declared ? LitheTheme.accent : LitheTheme.secondaryText)
-                        }
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(row.declared ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                        .padding(.horizontal, 7)
-                        .frame(height: 30)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(LitheTheme.raised.opacity(0.55))
-                        )
+            sectionTitle(copy.negotiatedCapabilities)
+            capabilityRows(negotiatedRows)
+            sectionTitle(copy.litheIntegrations)
+                .padding(.top, 3)
+            capabilityRows(integrationRows)
+        }
+    }
+
+    private func capabilityRows(_ rows: [LSPCapabilityRow]) -> some View {
+        LazyVGrid(columns: metricColumns, spacing: 6) {
+            ForEach(rows) { row in
+                Button {
+                    model.showNotification(copy.capabilityState(row.title, state: row.state))
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: row.icon)
+                            .frame(width: 15)
+                        Text(row.title)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image(systemName: capabilityIcon(for: row.state))
+                            .foregroundStyle(capabilityColor(for: row.state))
                     }
-                    .buttonStyle(.plain)
-                    .lithePointer()
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(
+                        row.state == .unknown || row.state == .unsupported
+                            ? LitheTheme.secondaryText
+                            : LitheTheme.primaryText
+                    )
+                    .padding(.horizontal, 7)
+                    .frame(height: 30)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(LitheTheme.raised.opacity(0.55))
+                    )
                 }
+                .buttonStyle(.plain)
+                .lithePointer()
             }
         }
     }
@@ -618,10 +696,28 @@ struct LSPControlCenterView: View {
 
     private func statusColor(_ status: LSPServerStatus) -> Color {
         switch status {
+        case .starting, .initializing: LitheTheme.accent
         case .active: LitheTheme.success
+        case .stopping, .disabled: LitheTheme.warning
         case .stopped: LitheTheme.secondaryText
-        case .disabled: LitheTheme.warning
         case .error: LitheTheme.error
+        }
+    }
+
+    private func capabilityIcon(for state: LSPCapabilityPresentationState) -> String {
+        switch state {
+        case .unknown: "questionmark.circle"
+        case .unsupported: "xmark.circle"
+        case .available: "checkmark.circle"
+        case .active: "bolt.fill"
+        }
+    }
+
+    private func capabilityColor(for state: LSPCapabilityPresentationState) -> Color {
+        switch state {
+        case .unknown, .unsupported: LitheTheme.secondaryText
+        case .available: LitheTheme.accent
+        case .active: LitheTheme.success
         }
     }
 
@@ -751,32 +847,19 @@ struct LSPControlCenterView: View {
         let files = matchingProjectFiles(for: descriptor)
         let openFiles = matchingOpenDocuments(for: descriptor)
         let diagnostics = matchingDiagnostics(for: descriptor)
-        let features = model.languageToolingSessions.languageServerFeatures[descriptor.id] ?? []
-        let status: LSPServerStatus
-        let hasServerState = model.languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
-            || !features.isEmpty
-            || !diagnostics.isEmpty
-
-        if model.isLanguageServerDisabledInCurrentWorkspace(providerID: descriptor.id) {
-            status = .disabled
-        } else if let state = model.languageToolingSessions.languageServerStates[descriptor.id],
-                  case .failed = state {
-            status = .error
-        } else if diagnostics.contains(where: { $0.severity == .error }) {
-            status = .error
-        } else if model.languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id) || !features.isEmpty {
-            status = .active
-        } else if hasServerState {
-            status = .active
-        } else {
-            status = .stopped
-        }
+        let status = LSPControlCenterPresenter.serverStatus(
+            isDisabled: model.isLanguageServerDisabledInCurrentWorkspace(providerID: descriptor.id),
+            sessionState: model.languageToolingSessions.languageServerStates[descriptor.id]
+        )
+        let version = LSPControlCenterPresenter.reportedServerVersion(
+            model.languageToolingSessions.languageServerInfos[descriptor.id]
+        ) ?? copy.unknown
 
         return LSPProviderMetrics(
             status: status,
             subtitle: files.isEmpty ? copy.noMatchingFiles : copy.matchingFiles(files.count),
             workspacePath: model.workspaceURL?.path ?? copy.noWorkspace,
-            version: copy.title(for: status),
+            version: version,
             fileCount: files.count,
             openFileCount: openFiles.count,
             diagnosticCount: diagnostics.count
@@ -785,18 +868,10 @@ struct LSPControlCenterView: View {
 
 }
 
-private enum LSPServerStatus {
-    case active
-    case stopped
-    case disabled
-    case error
-}
-
 private struct LSPCapabilityRow: Identifiable {
     let title: String
     let icon: String
-    let declared: Bool
-    let active: Bool
+    let state: LSPCapabilityPresentationState
 
     var id: String { title }
 }
@@ -837,17 +912,24 @@ private struct LSPControlCenterCopy {
         usesChinese ? "暂无 LSP 事件。" : "No LSP events."
     }
     var capabilities: String { usesChinese ? "能力" : "Capabilities" }
+    var negotiatedCapabilities: String { usesChinese ? "LSP 协商能力" : "LSP Negotiated Capabilities" }
+    var litheIntegrations: String { usesChinese ? "Lithe 集成" : "Lithe Integrations" }
     var languageServerCapability: String { usesChinese ? "语言服务器" : "Language Server" }
     var definition: String { usesChinese ? "定义" : "Definition" }
     var completion: String { usesChinese ? "补全" : "Completion" }
+    var hover: String { usesChinese ? "悬停信息" : "Hover" }
     var formatting: String { usesChinese ? "格式化" : "Formatting" }
     var testing: String { usesChinese ? "测试" : "Testing" }
     var debug: String { usesChinese ? "调试" : "Debug" }
     var run: String { usesChinese ? "运行" : "Run" }
     var noMatchingFiles: String { usesChinese ? "没有匹配文件" : "No matching files" }
     var noWorkspace: String { usesChinese ? "未打开工作区" : "No workspace" }
+    var unknown: String { usesChinese ? "未知" : "Unknown" }
     var notRunning: String { usesChinese ? "未运行" : "Not running" }
     var providerConfiguration: String { usesChinese ? "Provider 配置" : "Provider Configuration" }
+    var catalogDegraded: String {
+        usesChinese ? "语言 Provider Catalog 正在降级运行" : "Language Provider Catalog is degraded"
+    }
     var rustOwnedConfiguration: String {
         usesChinese ? "由 Rust LSP 配置加载" : "Loaded by Rust LSP configuration"
     }
@@ -876,6 +958,17 @@ private struct LSPControlCenterCopy {
         return "\(count) matching file\(count == 1 ? "" : "s")"
     }
 
+    func catalogOrigin(_ origin: LanguageProviderCatalogOrigin) -> String {
+        switch origin {
+        case .builtin:
+            usesChinese ? "内置 Catalog" : "Built-in catalog"
+        case .workspaceOverride:
+            usesChinese ? "工作区覆盖" : "Workspace override"
+        case .compatibilityFallback:
+            usesChinese ? "兼容配置 fallback" : "Compatibility fallback"
+        }
+    }
+
     func activationPolicy(_ policy: ToolingActivationPolicy) -> String {
         switch policy {
         case .always:
@@ -895,28 +988,40 @@ private struct LSPControlCenterCopy {
         usesChinese ? "Provider ID：\(id)" : "Provider ID: \(id)"
     }
 
-    func capabilityState(_ name: String, declared: Bool, active: Bool) -> String {
+    func capabilityState(_ name: String, state: LSPCapabilityPresentationState) -> String {
         if usesChinese {
-            if active { return "\(name) 当前会话已启用。" }
-            if declared { return "\(name) 只是由 catalog 声明；当前没有运行中的 LSP 会话。" }
-            return "\(name) 未由 catalog 声明。"
+            switch state {
+            case .unknown: return "\(name) 尚未完成 LSP 初始化协商，当前状态未知。"
+            case .unsupported: return "\(name) 不受当前服务器或 Lithe 集成支持。"
+            case .available: return "\(name) 可用。"
+            case .active: return "\(name) 当前已激活。"
+            }
         }
-        if active { return "\(name) is enabled in the current session." }
-        if declared { return "\(name) is only declared by the catalog; no LSP session is running." }
-        return "\(name) is not declared by the catalog."
+        switch state {
+        case .unknown: return "\(name) is unknown until LSP initialization completes."
+        case .unsupported: return "\(name) is not supported by the current server or Lithe integration."
+        case .available: return "\(name) is available."
+        case .active: return "\(name) is currently active."
+        }
     }
 
     func title(for status: LSPServerStatus) -> String {
         if usesChinese {
             switch status {
-            case .active: "运行中"
+            case .starting: "启动进程中"
+            case .initializing: "初始化中"
+            case .active: "已就绪"
+            case .stopping: "停止中"
             case .stopped: "未运行"
             case .disabled: "已禁用"
             case .error: "错误"
             }
         } else {
             switch status {
-            case .active: "Running"
+            case .starting: "Starting"
+            case .initializing: "Initializing"
+            case .active: "Ready"
+            case .stopping: "Stopping"
             case .stopped: "Not running"
             case .disabled: "Disabled"
             case .error: "Error"

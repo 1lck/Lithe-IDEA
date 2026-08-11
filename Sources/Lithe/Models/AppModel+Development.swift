@@ -803,6 +803,7 @@ extension AppModel {
                 self.isLoadingLanguageNavigation = false
                 switch result {
                 case .failure(let error):
+                    self.languageNavigationProviderID = nil
                     self.showNotification(error.localizedDescription)
                 case .success(let values):
                     if fallbackToImplementationsIfSelf,
@@ -828,6 +829,7 @@ extension AppModel {
             }
         } catch {
             isLoadingLanguageNavigation = false
+            languageNavigationProviderID = nil
             showNotification(error.localizedDescription)
         }
     }

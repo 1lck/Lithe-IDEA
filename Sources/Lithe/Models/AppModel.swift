@@ -507,36 +507,46 @@ final class AppModel: ObservableObject, Identifiable {
 
     var languageServerStatusMessage: String {
         let usesChinese = settings.language == .simplifiedChinese
-        if isLoadingLanguageNavigation {
-            return usesChinese ? "正在加载语言导航..." : "Loading language navigation..."
+        guard let document = activeDocument,
+              let descriptor = languageProviderCatalog.provider(for: document.url),
+              descriptor.capabilities.contains(.languageServer) else {
+            return usesChinese ? "打开一个受支持的源码文件" : "Open a supported source file"
         }
-        if languageNavigationProviderID != nil {
-            return usesChinese ? "语言服务器已就绪" : "Language server ready"
-        }
-        if let document = activeDocument,
-           let descriptor = languageProviderCatalog.provider(for: document.url),
-            descriptor.capabilities.contains(.languageServer) {
-            if disabledLanguageServerProviderIDs.contains(descriptor.id) {
-                return usesChinese
-                    ? "\(descriptor.displayName) LSP 已在当前工作区禁用"
-                    : "\(descriptor.displayName) LSP is disabled in this workspace"
-            }
-            if let state = languageToolingSessions.languageServerStates[descriptor.id],
-               case .failed = state {
-                return usesChinese
-                    ? "\(descriptor.displayName) LSP 异常退出"
-                    : "\(descriptor.displayName) LSP exited unexpectedly"
-            }
-            if languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id) {
-                return usesChinese
-                    ? "\(descriptor.displayName) 语言服务器已就绪"
-                    : "\(descriptor.displayName) language server ready"
-            }
+
+        let status = LSPControlCenterPresenter.serverStatus(
+            isDisabled: disabledLanguageServerProviderIDs.contains(descriptor.id),
+            sessionState: languageToolingSessions.languageServerStates[descriptor.id]
+        )
+        switch status {
+        case .starting:
+            return usesChinese
+                ? "正在启动 \(descriptor.displayName) LSP 进程"
+                : "Starting the \(descriptor.displayName) LSP process"
+        case .initializing:
+            return usesChinese
+                ? "正在初始化 \(descriptor.displayName) LSP"
+                : "Initializing \(descriptor.displayName) LSP"
+        case .active:
+            return usesChinese
+                ? "\(descriptor.displayName) 语言服务器已就绪"
+                : "\(descriptor.displayName) language server ready"
+        case .stopping:
+            return usesChinese
+                ? "正在停止 \(descriptor.displayName) LSP"
+                : "Stopping \(descriptor.displayName) LSP"
+        case .stopped:
             return usesChinese
                 ? "\(descriptor.displayName) 已由 catalog 声明，但当前没有运行中的 LSP 会话"
                 : "\(descriptor.displayName) is declared by the catalog, but no LSP session is running"
+        case .disabled:
+            return usesChinese
+                ? "\(descriptor.displayName) LSP 已在当前工作区禁用"
+                : "\(descriptor.displayName) LSP is disabled in this workspace"
+        case .error:
+            return usesChinese
+                ? "\(descriptor.displayName) LSP 异常退出"
+                : "\(descriptor.displayName) LSP exited unexpectedly"
         }
-        return usesChinese ? "打开一个受支持的源码文件" : "Open a supported source file"
     }
 
     func restartLanguageServers() {
