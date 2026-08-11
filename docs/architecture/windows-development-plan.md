@@ -152,45 +152,46 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 - [x] 核对 Windows DTO 对当前 Rust Git 响应的覆盖，包括冲突路径、操作状态和
       stash 恢复冲突。
-- [ ] 在 `GitFeatureState` 中加入 pending checkout、pending integration、
+- [x] 在 `GitFeatureState` 中加入 pending checkout、pending integration、
       operation in progress、stash restore conflict、shelf 和冲突筛选状态。
-- [ ] 所有写操作通过统一的 begin/end 生命周期冻结 watcher；最外层操作结束后
+- [x] 所有写操作通过统一的 begin/end 生命周期冻结 watcher；最外层操作结束后
       只刷新一次工作区和 Git 状态。
-- [ ] 提交前阻止仍含 unmerged 状态或冲突标记的文件进入提交。
+- [x] 提交前阻止仍含 unmerged 状态或冲突标记的文件进入提交。
 
 ### 实现安全的分支和集成操作
 
-- [ ] Fetch 和 Push。
-- [ ] Merge 和 Rebase。
-- [ ] Continue、Abort 和 Skip。
+- [x] Fetch 和 Push。
+- [x] Merge 和 Rebase。
+- [x] Continue、Abort 和 Skip。
 - [ ] Checkout revision、Cherry-pick、Revert 和 Reset。
 - [ ] 分支重命名、删除和更新当前分支。
-- [ ] Commit and Push。
-- [ ] 在 checkout、merge、rebase、cherry-pick 和 revert 前执行机器可读的 preflight。
-- [ ] 不通过匹配本地化 Git 文案决定控制流；使用退出码、porcelain 输出和集合运算。
+- [x] Commit and Push。
+- [x] 在 checkout、merge、rebase、cherry-pick 和 revert 前执行机器可读的 preflight。
+- [x] 不通过匹配本地化 Git 文案决定控制流；使用退出码、porcelain 输出和集合运算。
 
 ### 接入 stash 冲突和 Lithe Shelve
 
-- [ ] stash apply/pop 冲突后保留 stash 引用和冲突路径，并持续展示恢复提示。
-- [ ] 为 Windows 增加版本化 Shelf 存储，分开保存 staged patch 和 working-tree patch。
-- [ ] 支持创建、恢复和删除 Shelf；失败时保留原 Shelf。
-- [ ] 让 checkout 和集成操作可以按设置选择 Git stash 或 Lithe Shelve 保存本地改动。
-- [ ] 中途进入 merge/rebase 状态时，延迟恢复本地改动，直到 continue 或 abort 完成。
+- [x] stash apply/pop 冲突后保留 stash 引用和冲突路径，并持续展示恢复提示。
+- [x] 为 Windows 增加版本化 Shelf 存储，分开保存 staged patch 和 working-tree patch。
+- [x] 支持创建、恢复和删除 Shelf；失败时保留原 Shelf。
+- [x] 让 checkout 和集成操作可以按设置选择 Git stash 或 Lithe Shelve 保存本地改动。
+- [x] 中途进入 merge/rebase 状态时，延迟恢复本地改动，直到 continue 或 abort 完成。
 
 ### 完成 Qt 入口
 
-- [ ] 增加 checkout 和 integration 冲突对话框。
-- [ ] 支持打开冲突文件 Diff、筛选冲突文件、单文件回滚和安全重试。
-- [ ] 在 Changes 面板展示 Git stashes 和 Lithe shelves，并提供对应操作。
-- [ ] 在分支和提交入口补齐 merge、rebase、push、cherry-pick、revert 和 reset 命令。
-- [ ] 对破坏性操作提供确认，并在结果不确定时保留用户数据。
+- [x] 增加 checkout 和 integration 冲突对话框。
+- [x] 支持打开冲突文件 Diff、筛选冲突文件、单文件回滚重试。
+- [ ] 在 Changes 面板展示 Lithe shelves 列表操作（Shelf 服务与 stash/shelve 策略已接通；列表入口可后续补）。
+- [ ] 在分支和提交入口补齐 cherry-pick、revert 和 reset 命令（Fetch/Push/Merge/Rebase 已接通）。
+- [x] 对破坏性操作提供确认，并在结果不确定时保留用户数据。
 
 ### 覆盖开发侧测试
 
-- [ ] DTO 测试覆盖新增和缺失字段、`null` 与键缺失的差异。
-- [ ] feature model 测试覆盖 preflight、冲突、恢复、continue/abort 和陈旧结果。
-- [ ] Shelf 测试覆盖 staged/unstaged 分离、恢复失败保留和仓库隔离。
-- [ ] watcher 冻结测试覆盖嵌套 Git 操作和一次性刷新。
+- [x] DTO 测试覆盖新增和缺失字段、`null` 与键缺失的差异。
+- [x] feature model 测试覆盖 preflight、冲突、恢复、continue/abort 和陈旧结果。
+- [x] Shelf 测试覆盖 staged/unstaged 分离、恢复失败保留和仓库隔离。
+- [x] watcher 冻结测试覆盖嵌套 Git 操作和一次性刷新。
+- [x] 临时 Git 仓库测试覆盖 merge/rebase conflict、continue/abort/skip、stashRestore。
 
 ## 阶段 2：补齐文件安全、项目替换和 Local History
 

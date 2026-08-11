@@ -1,0 +1,50 @@
+{
+  "checkoutPreflight": {
+    "blockingPaths": ["conflict.txt"]
+  },
+  "conflictMarkers": {
+    "paths": ["src/Main.java"]
+  },
+  "integrationPreflight": {
+    "merge": {
+      "blockingPaths": ["conflict.txt"],
+      "blocksEntirely": false
+    },
+    "rebase": {
+      "blockingPaths": ["conflict.txt", "notes.md"],
+      "blocksEntirely": true
+    }
+  },
+  "pullPreflight": {
+    "withUpstream": {
+      "upstream": "origin/main",
+      "ahead": 1,
+      "behind": 2,
+      "diverged": true,
+      "hasLocalChanges": true
+    },
+    "withoutUpstream": {
+      "upstream": null,
+      "ahead": 0,
+      "behind": 0,
+      "diverged": false,
+      "hasLocalChanges": false
+    }
+  },
+  "operationState": {
+    "idle": {
+      "kind": "",
+      "reference": null,
+      "step": null,
+      "total": null,
+      "conflictedPaths": []
+    },
+    "rebaseInProgress": {
+      "kind": "rebase",
+      "reference": "refs/heads/feature/core",
+      "step": 2,
+      "total": 5,
+      "conflictedPaths": ["conflict.txt"]
+    }
+  }
+}

@@ -111,6 +111,8 @@ target_link_libraries(lithe_windows_algorithms PUBLIC lithe_windows_libvterm)
 add_library(lithe_windows_app STATIC
     app/features/document_feature.cpp
     app/features/git_feature.cpp
+    app/features/git_watcher_freeze.cpp
+    app/features/git_workflow_ui.cpp
     app/features/history_feature.cpp
     app/features/shelf_feature.cpp
     app/features/maven_java_feature.cpp
@@ -129,6 +131,7 @@ add_library(lithe_windows_app STATIC
     app/services/project_detection_service.cpp
     app/services/ai_commit_service.cpp
     app/services/windows_update_service.cpp
+    app/services/shelve_service.cpp
     app/services/terminal_model.cpp
     app/services/terminal_session.cpp
 )
@@ -263,6 +266,56 @@ target_include_directories(lithe_windows_coordinator_tests PRIVATE
 target_link_libraries(lithe_windows_coordinator_tests PRIVATE lithe_windows_app)
 add_test(NAME lithe_windows_coordinator COMMAND lithe_windows_coordinator_tests)
 
+add_executable(lithe_windows_git_workflow_unit_tests
+    tests/git_workflow_unit_test.cpp
+)
+target_compile_features(lithe_windows_git_workflow_unit_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_git_workflow_unit_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core"
+    "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+)
+target_link_libraries(lithe_windows_git_workflow_unit_tests PRIVATE lithe_windows_app)
+add_test(NAME lithe_windows_git_workflow_unit COMMAND lithe_windows_git_workflow_unit_tests)
+
+add_executable(lithe_windows_git_feature_workflow_tests
+    tests/git_feature_workflow_test.cpp
+)
+target_compile_features(lithe_windows_git_feature_workflow_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_git_feature_workflow_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core"
+)
+target_link_libraries(lithe_windows_git_feature_workflow_tests PRIVATE lithe_windows_app)
+add_test(NAME lithe_windows_git_feature_workflow COMMAND lithe_windows_git_feature_workflow_tests)
+
+if(LITHE_RUST_CORE_LIBRARY)
+    add_executable(lithe_windows_git_workflow_repo_tests
+        tests/git_workflow_repo_test.cpp
+    )
+    target_compile_features(lithe_windows_git_workflow_repo_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_git_workflow_repo_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+        "${CMAKE_CURRENT_SOURCE_DIR}/core"
+        "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+    )
+    target_link_libraries(lithe_windows_git_workflow_repo_tests PRIVATE
+        lithe_windows_app
+        lithe_windows_adapters
+        lithe_windows_core
+        "${LITHE_RUST_CORE_LIBRARY}"
+    )
+    if(WIN32)
+        target_link_libraries(lithe_windows_git_workflow_repo_tests PRIVATE
+            advapi32 bcrypt ntdll userenv ws2_32
+        )
+    endif()
+    add_test(NAME lithe_windows_git_workflow_repo COMMAND lithe_windows_git_workflow_repo_tests)
+endif()
+
 add_executable(lithe_windows_core_dto_tests
     tests/core_dto_test.cpp
 )
@@ -381,10 +434,18 @@ endif()
 if(LITHE_BUILD_QT_UI)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
-    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Svg)
     add_executable(lithe_windows_qt WIN32
         qt/main.cpp
         qt/lithe.qrc
+        qt/diff_split_widget.cpp
+        qt/diff_split_widget.h
+        qt/git_changes_panel.cpp
+        qt/git_changes_panel.h
+        qt/git_log_panel.cpp
+        qt/git_log_panel.h
+        qt/git_workflow_dialogs.cpp
+        qt/git_workflow_dialogs.h
         qt/project_import_dialog.cpp
         qt/project_import_dialog.h
         qt/ui_theme.cpp
@@ -396,16 +457,18 @@ if(LITHE_BUILD_QT_UI)
         qt/workbench_code_editor.h
         qt/workbench_editor_area.cpp
         qt/workbench_editor_area.h
-        qt/workbench_layout_persistence.cpp
-        qt/workbench_layout_persistence.h
         qt/workbench_icons.cpp
         qt/workbench_icons.h
+        qt/workbench_layout_persistence.cpp
+        qt/workbench_layout_persistence.h
         qt/workbench_sidebar.cpp
         qt/workbench_sidebar.h
         qt/workbench_tool_window.cpp
         qt/workbench_tool_window.h
         qt/workbench_ui_state.cpp
         qt/workbench_ui_state.h
+        qt/workbench_ui_theme.cpp
+        qt/workbench_ui_theme.h
         qt/workbench_window.cpp
         qt/workbench_window.h
         qt/terminal_panel.cpp
@@ -427,17 +490,23 @@ if(LITHE_BUILD_QT_UI)
         lithe_windows_adapters
         lithe_windows_algorithms
         Qt6::Widgets
+        Qt6::Svg
     )
     if(WIN32)
         target_link_libraries(lithe_windows_qt PRIVATE dwmapi)
     endif()
     target_compile_features(lithe_windows_qt PRIVATE cxx_std_23)
+    target_compile_definitions(lithe_windows_qt PRIVATE
+        "LITHE_RESOURCES_DIR=\"${CMAKE_SOURCE_DIR}/../Resources\""
+    )
     target_include_directories(lithe_windows_qt PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/core"
         "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
     )
     add_executable(lithe_windows_ui_translation_tests
         tests/ui_translation_test.cpp
@@ -521,6 +590,7 @@ if(LITHE_BUILD_QT_UI)
     target_link_libraries(lithe_windows_workbench_sidebar_tests PRIVATE
         lithe_windows_app
         Qt6::Widgets
+        Qt6::Svg
     )
     add_test(NAME lithe_windows_workbench_sidebar COMMAND lithe_windows_workbench_sidebar_tests)
     set_tests_properties(lithe_windows_workbench_sidebar PROPERTIES
@@ -536,7 +606,7 @@ if(LITHE_BUILD_QT_UI)
     target_include_directories(lithe_windows_workbench_icons_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/qt"
     )
-    target_link_libraries(lithe_windows_workbench_icons_tests PRIVATE Qt6::Widgets)
+    target_link_libraries(lithe_windows_workbench_icons_tests PRIVATE Qt6::Widgets Qt6::Svg)
     add_test(NAME lithe_windows_workbench_icons COMMAND lithe_windows_workbench_icons_tests)
     set_tests_properties(lithe_windows_workbench_icons PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
@@ -713,9 +783,14 @@ set(LITHE_WINDOWS_TEST_TARGETS
     lithe_windows_java_language_server_tests
     lithe_windows_ai_commit_service_tests
     lithe_windows_update_service_tests
+    lithe_windows_git_workflow_unit_tests
+    lithe_windows_git_feature_workflow_tests
 )
 if(TARGET lithe_windows_core_ping)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_core_ping)
+endif()
+if(TARGET lithe_windows_git_workflow_repo_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_git_workflow_repo_tests)
 endif()
 if(TARGET lithe_windows_workbench_sidebar_tests)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_workbench_sidebar_tests)

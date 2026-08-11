@@ -50,6 +50,13 @@ public:
     void writeFile(std::string relativePath, std::string text, ResponseHandler handler);
     void writeFile(FileWriteRequestDto request, ResponseHandler handler);
     void gitStatus(ResponseHandler handler);
+    void gitCheckoutPreflight(std::string reference, ResponseHandler handler);
+    void gitConflictMarkers(ResponseHandler handler);
+    void gitIntegrationPreflight(std::string reference,
+                                 std::string operation,
+                                 ResponseHandler handler);
+    void gitPullPreflight(ResponseHandler handler);
+    void gitOperationState(ResponseHandler handler);
     void gitDiff(std::vector<std::string> pathspecs,
                  bool staged,
                  bool untracked,
@@ -68,13 +75,6 @@ public:
     void gitCommitFiles(std::string commit, ResponseHandler handler);
     void gitComparison(std::string reference, ResponseHandler handler);
     void gitStashes(ResponseHandler handler);
-    void gitCheckoutPreflight(std::string reference, ResponseHandler handler);
-    void gitPullPreflight(ResponseHandler handler);
-    void gitIntegrationPreflight(std::string reference,
-                                 std::string operation,
-                                 ResponseHandler handler);
-    void gitConflictMarkers(ResponseHandler handler);
-    void gitOperationState(ResponseHandler handler);
     void gitBlame(std::string relativePath, ResponseHandler handler);
     void historyRecord(std::string storageRoot,
                        std::string path,
@@ -141,6 +141,11 @@ private:
         SearchEverywhere,
         Replacement,
         GitStatus,
+        GitCheckoutPreflight,
+        GitConflictMarkers,
+        GitIntegrationPreflight,
+        GitPullPreflight,
+        GitOperationState,
         GitDiff,
         GitShelfPatches,
         GitApply,
@@ -151,11 +156,6 @@ private:
         GitCommitFiles,
         GitComparison,
         GitStashes,
-        GitCheckoutPreflight,
-        GitPullPreflight,
-        GitIntegrationPreflight,
-        GitConflictMarkers,
-        GitOperationState,
         GitBlame,
         HistoryRecord,
         HistoryEntries,
@@ -188,6 +188,11 @@ private:
     std::uint64_t searchEverywhereGeneration_ = 0;
     std::uint64_t replacementGeneration_ = 0;
     std::uint64_t gitStatusGeneration_ = 0;
+    std::uint64_t gitCheckoutPreflightGeneration_ = 0;
+    std::uint64_t gitConflictMarkersGeneration_ = 0;
+    std::uint64_t gitIntegrationPreflightGeneration_ = 0;
+    std::uint64_t gitPullPreflightGeneration_ = 0;
+    std::uint64_t gitOperationStateGeneration_ = 0;
     std::uint64_t gitDiffGeneration_ = 0;
     std::uint64_t gitShelfPatchesGeneration_ = 0;
     std::uint64_t gitApplyGeneration_ = 0;
@@ -198,11 +203,6 @@ private:
     std::uint64_t gitCommitFilesGeneration_ = 0;
     std::uint64_t gitComparisonGeneration_ = 0;
     std::uint64_t gitStashesGeneration_ = 0;
-    std::uint64_t gitCheckoutPreflightGeneration_ = 0;
-    std::uint64_t gitPullPreflightGeneration_ = 0;
-    std::uint64_t gitIntegrationPreflightGeneration_ = 0;
-    std::uint64_t gitConflictMarkersGeneration_ = 0;
-    std::uint64_t gitOperationStateGeneration_ = 0;
     std::uint64_t gitBlameGeneration_ = 0;
     std::uint64_t historyRecordGeneration_ = 0;
     std::uint64_t historyEntriesGeneration_ = 0;

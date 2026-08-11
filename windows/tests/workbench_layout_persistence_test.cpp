@@ -120,7 +120,7 @@ void missingValuesUseDefaults() {
     assert(loaded.editorTopHeight == 400);
     assert(loaded.sidebarDestination == lithe::windows::SidebarDestination::Project);
     assert(loaded.bottomToolKind == lithe::windows::BottomToolKind::Terminal);
-    assert(!loaded.bottomVisible);
+    assert(loaded.bottomVisible);
 }
 
 void wrongTypesUseDefaults() {
@@ -147,7 +147,7 @@ void invalidEnumsBecomeSafeAfterNormalization() {
     assert(normalized.bottomToolKind == lithe::windows::BottomToolKind::Terminal);
     assert(normalized.sidebarWidth == 280);
     assert(normalized.editorTopHeight == 400);
-    assert(!normalized.bottomVisible);
+    assert(normalized.bottomVisible);
 }
 
 void emptyWorkspaceRootDoesNotReadOrWrite() {

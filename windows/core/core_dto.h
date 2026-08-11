@@ -329,7 +329,7 @@ struct GitPullPreflightDto {
 };
 
 struct GitOperationStateDto {
-    std::string kind;
+    std::string kind; // empty when nothing in progress
     std::optional<std::string> reference;
     std::optional<std::uint64_t> step;
     std::optional<std::uint64_t> total;

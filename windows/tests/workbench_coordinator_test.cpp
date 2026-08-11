@@ -6,6 +6,7 @@
 #include "shelf_feature.h"
 
 #include <cassert>
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
@@ -82,6 +83,16 @@ char* lithe_core_execute_json(const char* request) {
             ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"files\":[]}}"
         : command == "git.status"
                 ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"repositoryRoot\":null,\"branch\":\"main\",\"changes\":[]}}"
+                : command == "git.checkoutPreflight"
+                    ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"blockingPaths\":[]}}"
+                    : command == "git.conflictMarkers"
+                        ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"paths\":[]}}"
+                        : command == "git.integrationPreflight"
+                            ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"blockingPaths\":[],\"blocksEntirely\":false}}"
+                            : command == "git.pullPreflight"
+                                ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"upstream\":null,\"ahead\":0,\"behind\":0,\"diverged\":false,\"hasLocalChanges\":false}}"
+                                : command == "git.operationState"
+                                    ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"kind\":\"\",\"reference\":null,\"step\":null,\"total\":null,\"conflictedPaths\":[]}}"
                 : command == "git.diff"
                     ? "{\"id\":\"test\",\"ok\":true,\"data\":{\"patch\":\"@@\",\"rows\":[{\"oldLine\":1,\"newLine\":1,\"left\":\"old\",\"right\":\"new\",\"kind\":\"changed\",\"hunkId\":\"hunk-0\"}],\"hunks\":[{\"id\":\"hunk-0\",\"header\":\"@@\",\"patch\":\"@@\"}]}}"
                     : command == "git.apply"
@@ -378,8 +389,11 @@ int main() {
     assert(gitState && !gitState->isApplying && !gitState->error);
     {
         std::lock_guard lock(requestMutex);
-        assert(requests.back().find("\"command\":\"git.apply\"") != std::string::npos);
-        assert(requests.back().find("\"mode\":\"stage\"") != std::string::npos);
+        const auto applyRequest = std::find_if(requests.rbegin(), requests.rend(), [](const std::string& value) {
+            return value.find("\"command\":\"git.apply\"") != std::string::npos;
+        });
+        assert(applyRequest != requests.rend());
+        assert(applyRequest->find("\"mode\":\"stage\"") != std::string::npos);
     }
 
     gitState.reset();
@@ -612,9 +626,12 @@ int main() {
     assert(gitState && gitState->command && gitState->command->output == "written");
     {
         std::lock_guard lock(requestMutex);
-        assert(requests.back().find("\"command\":\"git.write\"") != std::string::npos);
-        assert(requests.back().find("\"operation\":\"stage\"") != std::string::npos);
-        assert(requests.back().find("\"root\":\"" + root.generic_string()) != std::string::npos);
+        const auto writeReq = std::find_if(requests.rbegin(), requests.rend(), [](const std::string& value) {
+            return value.find("\"command\":\"git.write\"") != std::string::npos &&
+                   value.find("\"operation\":\"stage\"") != std::string::npos;
+        });
+        assert(writeReq != requests.rend());
+        assert(writeReq->find("\"root\":\"" + root.generic_string()) != std::string::npos);
     }
 
     gitState.reset();
@@ -632,8 +649,11 @@ int main() {
     assert(gitState && gitState->command && gitState->command->output == "command output");
     {
         std::lock_guard lock(requestMutex);
-        assert(requests.back().find("\"command\":\"git.command\"") != std::string::npos);
-        assert(requests.back().find("\"arguments\":[\"status\",\"--short\"]") != std::string::npos);
+        const auto commandReq = std::find_if(requests.rbegin(), requests.rend(), [](const std::string& value) {
+            return value.find("\"command\":\"git.command\"") != std::string::npos;
+        });
+        assert(commandReq != requests.rend());
+        assert(commandReq->find("\"arguments\":[\"status\",\"--short\"]") != std::string::npos);
     }
 
     lithe::windows::app::MavenJavaFeatureModel mavenJavaFeature(coordinator);

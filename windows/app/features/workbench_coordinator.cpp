@@ -84,6 +84,11 @@ void WorkbenchCoordinator::openWorkspace(std::filesystem::path root,
         ++searchEverywhereGeneration_;
         ++replacementGeneration_;
         ++gitStatusGeneration_;
+        ++gitCheckoutPreflightGeneration_;
+        ++gitConflictMarkersGeneration_;
+        ++gitIntegrationPreflightGeneration_;
+        ++gitPullPreflightGeneration_;
+        ++gitOperationStateGeneration_;
         ++gitDiffGeneration_;
         ++gitShelfPatchesGeneration_;
         ++gitApplyGeneration_;
@@ -378,6 +383,125 @@ void WorkbenchCoordinator::gitStatus(ResponseHandler handler) {
             OperationDomain::GitStatus, workspaceEpoch, generation, call, std::move(handler));
 }
 
+void WorkbenchCoordinator::gitCheckoutPreflight(std::string reference, ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitCheckoutPreflightGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.checkoutPreflight",
+            encodeGitCheckoutPreflightRequest(
+                GitCheckoutPreflightRequestDto{*root, std::move(reference)}),
+            OperationDomain::GitCheckoutPreflight, workspaceEpoch, generation, call,
+            std::move(handler));
+}
+
+void WorkbenchCoordinator::gitConflictMarkers(ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitConflictMarkersGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.conflictMarkers",
+            encodeGitConflictMarkersRequest(GitConflictMarkersRequestDto{*root}),
+            OperationDomain::GitConflictMarkers, workspaceEpoch, generation, call,
+            std::move(handler));
+}
+
+void WorkbenchCoordinator::gitIntegrationPreflight(std::string reference,
+                                                   std::string operation,
+                                                   ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitIntegrationPreflightGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.integrationPreflight",
+            encodeGitIntegrationPreflightRequest(GitIntegrationPreflightRequestDto{
+                *root, std::move(reference), std::move(operation)}),
+            OperationDomain::GitIntegrationPreflight, workspaceEpoch, generation, call,
+            std::move(handler));
+}
+
+void WorkbenchCoordinator::gitPullPreflight(ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitPullPreflightGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.pullPreflight",
+            encodeGitPullPreflightRequest(GitPullPreflightRequestDto{*root}),
+            OperationDomain::GitPullPreflight, workspaceEpoch, generation, call,
+            std::move(handler));
+}
+
+void WorkbenchCoordinator::gitOperationState(ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitOperationStateGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.operationState",
+            encodeGitOperationStateRequest(GitOperationStateRequestDto{*root}),
+            OperationDomain::GitOperationState, workspaceEpoch, generation, call,
+            std::move(handler));
+}
+
 void WorkbenchCoordinator::gitDiff(std::vector<std::string> pathspecs,
                                    bool staged,
                                    bool untracked,
@@ -630,125 +754,6 @@ void WorkbenchCoordinator::gitStashes(ResponseHandler handler) {
     }
     execute("git.stashes", encodeGitStashesRequest(GitStashesRequestDto{*root}),
             OperationDomain::GitStashes, workspaceEpoch, generation, call, std::move(handler));
-}
-
-void WorkbenchCoordinator::gitCheckoutPreflight(std::string reference,
-                                                ResponseHandler handler) {
-    const auto root = workspaceRootUtf8();
-    if (!root) {
-        if (handler) handler(coordinatorFailure(makeCoreError(
-            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
-        return;
-    }
-    CoreCall call;
-    std::uint64_t workspaceEpoch;
-    std::uint64_t generation;
-    {
-        std::lock_guard lock(stateMutex_);
-        workspaceEpoch = workspaceEpoch_;
-        generation = ++gitCheckoutPreflightGeneration_;
-        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
-        currentCall_ = call;
-    }
-    execute("git.checkoutPreflight", encodeGitCheckoutPreflightRequest(
-                GitCheckoutPreflightRequestDto{*root, std::move(reference)}),
-            OperationDomain::GitCheckoutPreflight,
-            workspaceEpoch, generation, call, std::move(handler));
-}
-
-void WorkbenchCoordinator::gitPullPreflight(ResponseHandler handler) {
-    const auto root = workspaceRootUtf8();
-    if (!root) {
-        if (handler) handler(coordinatorFailure(makeCoreError(
-            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
-        return;
-    }
-    CoreCall call;
-    std::uint64_t workspaceEpoch;
-    std::uint64_t generation;
-    {
-        std::lock_guard lock(stateMutex_);
-        workspaceEpoch = workspaceEpoch_;
-        generation = ++gitPullPreflightGeneration_;
-        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
-        currentCall_ = call;
-    }
-    execute("git.pullPreflight",
-            encodeGitPullPreflightRequest(GitPullPreflightRequestDto{*root}),
-            OperationDomain::GitPullPreflight,
-            workspaceEpoch, generation, call, std::move(handler));
-}
-
-void WorkbenchCoordinator::gitIntegrationPreflight(std::string reference,
-                                                   std::string operation,
-                                                   ResponseHandler handler) {
-    const auto root = workspaceRootUtf8();
-    if (!root) {
-        if (handler) handler(coordinatorFailure(makeCoreError(
-            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
-        return;
-    }
-    CoreCall call;
-    std::uint64_t workspaceEpoch;
-    std::uint64_t generation;
-    {
-        std::lock_guard lock(stateMutex_);
-        workspaceEpoch = workspaceEpoch_;
-        generation = ++gitIntegrationPreflightGeneration_;
-        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
-        currentCall_ = call;
-    }
-    execute("git.integrationPreflight", encodeGitIntegrationPreflightRequest(
-                GitIntegrationPreflightRequestDto{
-                    *root, std::move(reference), std::move(operation)}),
-            OperationDomain::GitIntegrationPreflight,
-            workspaceEpoch, generation, call, std::move(handler));
-}
-
-void WorkbenchCoordinator::gitConflictMarkers(ResponseHandler handler) {
-    const auto root = workspaceRootUtf8();
-    if (!root) {
-        if (handler) handler(coordinatorFailure(makeCoreError(
-            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
-        return;
-    }
-    CoreCall call;
-    std::uint64_t workspaceEpoch;
-    std::uint64_t generation;
-    {
-        std::lock_guard lock(stateMutex_);
-        workspaceEpoch = workspaceEpoch_;
-        generation = ++gitConflictMarkersGeneration_;
-        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
-        currentCall_ = call;
-    }
-    execute("git.conflictMarkers",
-            encodeGitConflictMarkersRequest(GitConflictMarkersRequestDto{*root}),
-            OperationDomain::GitConflictMarkers,
-            workspaceEpoch, generation, call, std::move(handler));
-}
-
-void WorkbenchCoordinator::gitOperationState(ResponseHandler handler) {
-    const auto root = workspaceRootUtf8();
-    if (!root) {
-        if (handler) handler(coordinatorFailure(makeCoreError(
-            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
-        return;
-    }
-    CoreCall call;
-    std::uint64_t workspaceEpoch;
-    std::uint64_t generation;
-    {
-        std::lock_guard lock(stateMutex_);
-        workspaceEpoch = workspaceEpoch_;
-        generation = ++gitOperationStateGeneration_;
-        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
-        currentCall_ = call;
-    }
-    execute("git.operationState",
-            encodeGitOperationStateRequest(GitOperationStateRequestDto{*root}),
-            OperationDomain::GitOperationState,
-            workspaceEpoch, generation, call, std::move(handler));
 }
 
 void WorkbenchCoordinator::gitBlame(std::string relativePath, ResponseHandler handler) {
@@ -1174,6 +1179,11 @@ void WorkbenchCoordinator::complete(OperationDomain domain,
             case OperationDomain::SearchEverywhere: return searchEverywhereGeneration_;
             case OperationDomain::Replacement: return replacementGeneration_;
             case OperationDomain::GitStatus: return gitStatusGeneration_;
+            case OperationDomain::GitCheckoutPreflight: return gitCheckoutPreflightGeneration_;
+            case OperationDomain::GitConflictMarkers: return gitConflictMarkersGeneration_;
+            case OperationDomain::GitIntegrationPreflight: return gitIntegrationPreflightGeneration_;
+            case OperationDomain::GitPullPreflight: return gitPullPreflightGeneration_;
+            case OperationDomain::GitOperationState: return gitOperationStateGeneration_;
             case OperationDomain::GitDiff: return gitDiffGeneration_;
             case OperationDomain::GitShelfPatches: return gitShelfPatchesGeneration_;
             case OperationDomain::GitApply: return gitApplyGeneration_;
@@ -1184,12 +1194,6 @@ void WorkbenchCoordinator::complete(OperationDomain domain,
             case OperationDomain::GitCommitFiles: return gitCommitFilesGeneration_;
             case OperationDomain::GitComparison: return gitComparisonGeneration_;
             case OperationDomain::GitStashes: return gitStashesGeneration_;
-            case OperationDomain::GitCheckoutPreflight: return gitCheckoutPreflightGeneration_;
-            case OperationDomain::GitPullPreflight: return gitPullPreflightGeneration_;
-            case OperationDomain::GitIntegrationPreflight:
-                return gitIntegrationPreflightGeneration_;
-            case OperationDomain::GitConflictMarkers: return gitConflictMarkersGeneration_;
-            case OperationDomain::GitOperationState: return gitOperationStateGeneration_;
             case OperationDomain::GitBlame: return gitBlameGeneration_;
             case OperationDomain::HistoryRecord: return historyRecordGeneration_;
             case OperationDomain::HistoryEntries: return historyEntriesGeneration_;

@@ -1450,13 +1450,15 @@ fn is_conflicted_status(code: &str) -> bool {
 
 pub fn stashes(request: GitStashesRequest) -> Result<GitStashesResponse, CoreError> {
     let root = validate_root(&request.root)?;
+    // Do not pass --date=iso: it rewrites %gd into date-based refs like
+    // stash@{2026-08-10 17:39:01 +0800}, which contain spaces and fail
+    // validated_stash_reference. Keep %gd as stash@{N} and use %ci for ISO dates.
     let response = command(GitCommandRequest {
         root,
         arguments: vec![
             "stash".to_string(),
             "list".to_string(),
-            "--date=iso".to_string(),
-            "--pretty=format:%gd%x1f%gs%x1f%ad".to_string(),
+            "--pretty=format:%gd%x1f%gs%x1f%ci".to_string(),
         ],
         input: None,
     })?;
