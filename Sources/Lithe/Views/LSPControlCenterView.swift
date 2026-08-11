@@ -688,10 +688,12 @@ struct LSPControlCenterView: View {
     }
 
     private func matchingDiagnostics(for descriptor: LanguageProviderDescriptor) -> [EditorDiagnostic] {
-        model.editorDiagnostics
-            .filter { descriptor.handles(fileURL: $0.key) }
-            .values
-            .flatMap { $0 }
+        model.languageToolingSessions.diagnostics(for: descriptor.id)
+            .flatMap { fileURL, diagnostics in
+                diagnostics.map {
+                    EditorDiagnostic(languageServerDiagnostic: $0, fileURL: fileURL)
+                }
+            }
             .sorted {
                 if $0.severity != $1.severity { return $0.severity.sortOrder < $1.severity.sortOrder }
                 if $0.line != $1.line { return $0.line < $1.line }
@@ -700,8 +702,12 @@ struct LSPControlCenterView: View {
     }
 
     private var allDiagnostics: [EditorDiagnostic] {
-        model.editorDiagnostics.values
-            .flatMap { $0 }
+        model.languageToolingSessions.diagnostics
+            .flatMap { fileURL, diagnostics in
+                diagnostics.map {
+                    EditorDiagnostic(languageServerDiagnostic: $0, fileURL: fileURL)
+                }
+            }
             .sorted {
                 if $0.severity != $1.severity { return $0.severity.sortOrder < $1.severity.sortOrder }
                 if $0.line != $1.line { return $0.line < $1.line }

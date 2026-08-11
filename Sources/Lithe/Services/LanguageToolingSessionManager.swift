@@ -42,6 +42,7 @@ final class LanguageToolingSessionManager: ObservableObject {
     private var languageServers: [String: any LanguageServerSession] = [:]
     private var languageServerRoots: [String: URL] = [:]
     private var languageServerSessionIdentities: [String: ObjectIdentifier] = [:]
+    private var diagnosticsByProviderID: [String: [URL: [LanguageServerDiagnostic]]] = [:]
     private var languageFeatureProviders: [any LanguageFeatureProvider]
     private var languageServerFeatureProviders: [String: LanguageServerFeatureProvider] = [:]
     private var debugAdapters: [String: any DebugAdapterSession] = [:]
@@ -92,11 +93,17 @@ final class LanguageToolingSessionManager: ObservableObject {
         languageServerFeatures = languageServerFeatures.filter { validProviderIDs.contains($0.key) }
         languageServerStates = languageServerStates.filter { validProviderIDs.contains($0.key) }
         languageServerInfos = languageServerInfos.filter { validProviderIDs.contains($0.key) }
-        diagnostics = diagnostics.filter { catalog.provider(for: $0.key) != nil }
+        diagnosticsByProviderID = diagnosticsByProviderID.filter {
+            validProviderIDs.contains($0.key)
+        }
+        rebuildDiagnostics()
         languageServerLogs = languageServerLogs.filter { validProviderIDs.contains($0.providerID) }
         for providerID in changedProviderIDs {
             stopLanguageServer(providerID: providerID)
             stopDebugAdapter(providerID: providerID)
+            if updatedDescriptors[providerID] == nil {
+                languageServerStates[providerID] = nil
+            }
             if runtimeFactory != nil {
                 runtimesByID[providerID] = nil
             }
@@ -163,6 +170,7 @@ final class LanguageToolingSessionManager: ObservableObject {
            languageServerRoots[descriptor.id] == normalizedRoot {
             session = active
         } else {
+            clearDiagnostics(providerID: descriptor.id)
             languageServerSessionIdentities[descriptor.id] = nil
             languageServers[descriptor.id]?.stop()
             languageServerFeatureProviders[descriptor.id] = nil
@@ -202,6 +210,7 @@ final class LanguageToolingSessionManager: ObservableObject {
             do {
                 try created.start(rootURL: normalizedRoot)
             } catch {
+                clearDiagnostics(providerID: descriptor.id)
                 languageServerSessionIdentities[descriptor.id] = nil
                 languageServerStates[descriptor.id] = .failed(
                     exitCode: nil,
@@ -237,12 +246,22 @@ final class LanguageToolingSessionManager: ObservableObject {
 
     func closeDocument(_ fileURL: URL) {
         let standardizedURL = fileURL.standardizedFileURL
-        diagnostics[standardizedURL] = nil
+        clearDiagnostics(for: standardizedURL)
         languageServerSession(for: standardizedURL)?.closeDocument(standardizedURL)
     }
 
     func clearDiagnostics() {
+        diagnosticsByProviderID = [:]
         diagnostics = [:]
+    }
+
+    func diagnostics(for providerID: String) -> [URL: [LanguageServerDiagnostic]] {
+        diagnosticsByProviderID[providerID] ?? [:]
+    }
+
+    func clearDiagnostics(providerID: String) {
+        guard diagnosticsByProviderID.removeValue(forKey: providerID) != nil else { return }
+        rebuildDiagnostics()
     }
 
     func clearLanguageServerLogs() {
@@ -275,6 +294,7 @@ final class LanguageToolingSessionManager: ObservableObject {
                 detail: nil
             )
         }
+        clearDiagnostics(providerID: providerID)
         languageServerSessionIdentities[providerID] = nil
         languageServers.removeValue(forKey: providerID)?.stop()
         languageServerRoots[providerID] = nil
@@ -294,7 +314,7 @@ final class LanguageToolingSessionManager: ObservableObject {
             )
         }
         let sessions = Array(languageServers.values)
-        diagnostics = [:]
+        clearDiagnostics()
         languageServerFeatures = [:]
         languageServerInfos = [:]
         languageServers.removeAll()
@@ -572,7 +592,7 @@ final class LanguageToolingSessionManager: ObservableObject {
     func stopAll() {
         let languageServerSessions = Array(languageServers.values)
         for session in debugAdapters.values { session.stop() }
-        diagnostics = [:]
+        clearDiagnostics()
         languageServerFeatures = [:]
         languageServerInfos = [:]
         languageServers.removeAll()
@@ -812,8 +832,13 @@ final class LanguageToolingSessionManager: ObservableObject {
         sessionIdentity: ObjectIdentifier
     ) {
         session.onDiagnostics = { [weak self] fileURL, diagnostics in
-            guard self?.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
-            self?.diagnostics[fileURL.standardizedFileURL] = diagnostics
+            guard let self else { return }
+            guard self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+            self.replaceDiagnostics(
+                diagnostics,
+                for: fileURL.standardizedFileURL,
+                providerID: providerID
+            )
         }
         session.onFeaturesChange = { [weak self] features in
             guard let self else { return }
@@ -866,6 +891,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         languageServerStates[providerID] = state
         switch state {
         case .stopped, .failed:
+            clearDiagnostics(providerID: providerID)
             languageServerSessionIdentities[providerID] = nil
             languageServers[providerID] = nil
             languageServerRoots[providerID] = nil
@@ -879,6 +905,48 @@ final class LanguageToolingSessionManager: ObservableObject {
             languageServerFeatures[providerID] = session.features
             languageServerInfos[providerID] = session.serverInfo
         }
+    }
+
+    private func replaceDiagnostics(
+        _ updatedDiagnostics: [LanguageServerDiagnostic],
+        for fileURL: URL,
+        providerID: String
+    ) {
+        let standardizedURL = fileURL.standardizedFileURL
+        var providerDiagnostics = diagnosticsByProviderID[providerID] ?? [:]
+        if updatedDiagnostics.isEmpty {
+            providerDiagnostics[standardizedURL] = nil
+        } else {
+            providerDiagnostics[standardizedURL] = updatedDiagnostics
+        }
+        diagnosticsByProviderID[providerID] = providerDiagnostics.isEmpty
+            ? nil
+            : providerDiagnostics
+        rebuildDiagnostics()
+    }
+
+    private func clearDiagnostics(for fileURL: URL) {
+        let standardizedURL = fileURL.standardizedFileURL
+        var didChange = false
+        for providerID in diagnosticsByProviderID.keys.sorted() {
+            guard var providerDiagnostics = diagnosticsByProviderID[providerID],
+                  providerDiagnostics.removeValue(forKey: standardizedURL) != nil else { continue }
+            diagnosticsByProviderID[providerID] = providerDiagnostics.isEmpty
+                ? nil
+                : providerDiagnostics
+            didChange = true
+        }
+        if didChange { rebuildDiagnostics() }
+    }
+
+    private func rebuildDiagnostics() {
+        var flattened: [URL: [LanguageServerDiagnostic]] = [:]
+        for providerID in diagnosticsByProviderID.keys.sorted() {
+            for (fileURL, values) in diagnosticsByProviderID[providerID] ?? [:] {
+                flattened[fileURL, default: []].append(contentsOf: values)
+            }
+        }
+        diagnostics = flattened
     }
 
     private func configureDebugCallbacks(

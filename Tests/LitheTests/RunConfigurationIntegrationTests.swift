@@ -1299,6 +1299,101 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func providerStopAndReconfigurationClearOnlyOwnedDiagnostics() async throws {
+        let root = URL(fileURLWithPath: "/tmp/lithe-owned-diagnostics", isDirectory: true)
+        let swiftSource = root.appendingPathComponent("App.swift")
+        let goSource = root.appendingPathComponent("main.go")
+        let swiftDescriptor = LanguageProviderDescriptor(
+            id: "swift",
+            displayName: "Swift",
+            fileExtensions: ["swift"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "swift"
+        )
+        let goDescriptor = LanguageProviderDescriptor(
+            id: "go",
+            displayName: "Go",
+            fileExtensions: ["go"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "go"
+        )
+        let swiftProcess = RecordingRawProcessSession()
+        let goProcess = RecordingRawProcessSession()
+        let swiftSession = StdioLanguageServerSession(
+            executableURL: URL(fileURLWithPath: "/usr/bin/sourcekit-lsp"),
+            arguments: [],
+            environment: [:],
+            process: swiftProcess,
+            core: TestLspClientCore(diagnosticURL: swiftSource)
+        )
+        let goSession = StdioLanguageServerSession(
+            executableURL: URL(fileURLWithPath: "/usr/bin/gopls"),
+            arguments: [],
+            environment: [:],
+            process: goProcess,
+            core: TestLspClientCore(diagnosticURL: goSource)
+        )
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [swiftDescriptor, goDescriptor]),
+            runtimes: [
+                TestLanguageServerRuntime(descriptor: swiftDescriptor, session: swiftSession),
+                TestLanguageServerRuntime(descriptor: goDescriptor, session: goSession)
+            ]
+        )
+
+        try manager.synchronizeLanguageServer(for: swiftSource, text: "struct App {}\n", rootURL: root)
+        Self.emitSuccessfulInitialize(on: swiftProcess)
+        try manager.synchronizeLanguageServer(for: goSource, text: "package main\n", rootURL: root)
+        Self.emitSuccessfulInitialize(on: goProcess)
+        await Self.drainMainActorTasks()
+        Self.emitPublishDiagnostics(on: swiftProcess)
+        Self.emitPublishDiagnostics(on: goProcess)
+        await Self.drainMainActorTasks()
+
+        #expect(manager.diagnostics(for: "swift")[swiftSource]?.count == 1)
+        #expect(manager.diagnostics(for: "go")[goSource]?.count == 1)
+        #expect(manager.diagnostics.count == 2)
+
+        manager.stopLanguageServer(providerID: "swift")
+        #expect(manager.diagnostics(for: "swift").isEmpty)
+        #expect(manager.diagnostics(for: "go")[goSource]?.count == 1)
+        #expect(manager.diagnostics.count == 1)
+
+        goProcess.terminate(exitCode: 7)
+        await Self.drainMainActorTasks()
+        #expect(manager.diagnostics(for: "go").isEmpty)
+        #expect(manager.diagnostics.isEmpty)
+
+        try manager.synchronizeLanguageServer(for: goSource, text: "package main\n", rootURL: root)
+        Self.emitSuccessfulInitialize(on: goProcess)
+        await Self.drainMainActorTasks()
+        Self.emitPublishDiagnostics(on: goProcess)
+        await Self.drainMainActorTasks()
+        #expect(manager.diagnostics(for: "go")[goSource]?.count == 1)
+
+        let reconfiguredGo = LanguageProviderDescriptor(
+            id: goDescriptor.id,
+            displayName: "Go (workspace override)",
+            fileExtensions: goDescriptor.fileExtensions,
+            fileNames: goDescriptor.fileNames,
+            fileNamePrefixes: goDescriptor.fileNamePrefixes,
+            capabilities: goDescriptor.capabilities,
+            activationPolicy: goDescriptor.activationPolicy,
+            languageIdentifier: goDescriptor.languageIdentifier,
+            languageIdentifiersByExtension: goDescriptor.languageIdentifiersByExtension,
+            languageIdentifiersByFileName: goDescriptor.languageIdentifiersByFileName,
+            languageServerLaunch: goDescriptor.languageServerLaunch,
+            languageServerInstallation: goDescriptor.languageServerInstallation
+        )
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [swiftDescriptor, reconfiguredGo]))
+
+        #expect(manager.diagnostics(for: "go").isEmpty)
+        #expect(manager.diagnostics.isEmpty)
+    }
+
+    @Test
     func languageServerRuntimeStartsFromRustCatalogLaunchMetadata() async throws {
         let descriptor = LanguageProviderDescriptor(
             id: "swift",
@@ -3119,6 +3214,17 @@ struct RunConfigurationIntegrationTests {
                     "name": "sourcekit-lsp",
                     "version": "6.2"
                 ]
+            ]
+        ])
+    }
+
+    private static func emitPublishDiagnostics(on process: RecordingRawProcessSession) {
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": [
+                "uri": "file:///ignored-by-test-core",
+                "diagnostics": []
             ]
         ])
     }
