@@ -70,6 +70,7 @@ public:
     using OutputHandler = std::function<void(const std::string&)>;
     using ErrorHandler = std::function<void(const std::string&)>;
     using ExitHandler = std::function<void()>;
+    using LifecycleHandler = std::function<void(const ProcessLifecycleEvent&)>;
 
     virtual ~TerminalTransport() = default;
     virtual void start(const ProcessRequest& request) = 0;
@@ -80,6 +81,10 @@ public:
     virtual void setOutputHandler(OutputHandler handler) = 0;
     virtual void setErrorHandler(ErrorHandler handler) = 0;
     virtual void setExitHandler(ExitHandler handler) = 0;
+    // Emits starting/running/stopping/finished/failed transitions. Each event
+    // carries the owning ProcessRequest::operationID so the consumer can drop
+    // stale callbacks after a restart relaunches under a new operationID.
+    virtual void setLifecycleHandler(LifecycleHandler handler) = 0;
 };
 
 // Implementations belong in this directory and may use Win32 APIs. Core

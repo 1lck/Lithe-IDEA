@@ -456,7 +456,7 @@ fn execute_git(
     input: Option<String>,
 ) -> Result<GitCommandResponse, CoreError> {
     crate::cancellation::check()?;
-    let mut process = git_process();
+    let mut process = git_command();
     process.args(arguments).current_dir(root);
     process.stdin(if input.is_some() {
         std::process::Stdio::piped()
@@ -2472,8 +2472,15 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
     })
 }
 
+pub(crate) fn git_command() -> Command {
+    let mut command = Command::new("git");
+    #[cfg(windows)]
+        command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
-    git_process()
+    git_command()
         .args(arguments)
         .current_dir(directory)
         .output()
@@ -2481,13 +2488,6 @@ fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output,
             CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git")
                 .with_details(error.to_string())
         })
-}
-
-fn git_process() -> Command {
-    let mut command = Command::new("git");
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
 }
 
 fn parse_status(output: &[u8]) -> Vec<GitChange> {
