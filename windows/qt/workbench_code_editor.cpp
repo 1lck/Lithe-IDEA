@@ -18,6 +18,7 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextLayout>
+#include <QStringList>
 
 #include <algorithm>
 #include <cstddef>
@@ -73,8 +74,6 @@ protected:
         }
     }
 };
-
-constexpr qreal CodeVisionTopMargin = 19.0;
 
 } // namespace
 
@@ -174,32 +173,25 @@ void WorkbenchCodeEditor::clearAnnotations() {
     if (gutter_ != nullptr) gutter_->update();
 }
 
-bool WorkbenchCodeEditor::hasCodeVision(int line) const {
-    const auto contains = [line](const auto& values) {
-        return std::any_of(values.begin(), values.end(),
-                           [line](const auto& value) { return value.line == line; });
-    };
-    return contains(codeVision_) || contains(implementationMarkers_);
-}
-
 void WorkbenchCodeEditor::updateCodeVisionMargins() {
     auto* document = this->document();
     const auto wasBlocked = document->blockSignals(true);
     for (auto block = document->begin(); block.isValid(); block = block.next()) {
         auto format = block.blockFormat();
-        const auto margin = hasCodeVision(block.blockNumber()) ? CodeVisionTopMargin : 0.0;
-        if (format.topMargin() == margin) continue;
-        format.setTopMargin(margin);
+        if (format.topMargin() == 0.0) continue;
+        format.setTopMargin(0.0);
         QTextCursor cursor(block);
         cursor.setBlockFormat(format);
     }
     document->blockSignals(wasBlocked);
+    updateGutterWidth();
     document->documentLayout()->update();
 }
 
 void WorkbenchCodeEditor::updateGutterWidth() {
     if (gutter_ == nullptr) return;
-    const auto width = blameVisible_ ? 232 : 52;
+    const auto hasCodeVision = !codeVision_.empty() || !implementationMarkers_.empty();
+    const auto width = blameVisible_ ? 232 : (hasCodeVision ? 240 : 52);
     setViewportMargins(width, 0, 0, 0);
     gutter_->setGeometry(0, 0, width, height());
 }
@@ -225,13 +217,23 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
             });
         return found != blame_.end() && found->line == line ? &*found : nullptr;
     };
+    const auto codeVisionForLine = [this](int line) {
+        QStringList annotations;
+        for (const auto& annotation : codeVision_) {
+            if (annotation.line == line) annotations.push_back(annotation.text);
+        }
+        for (const auto& annotation : implementationMarkers_) {
+            if (annotation.line == line) annotations.push_back(annotation.text);
+        }
+        return annotations.join(QStringLiteral("  |  "));
+    };
 
     while (block.isValid()) {
         const auto blockRect = blockBoundingGeometry(block).translated(contentOffset);
         if (blockRect.top() > event->rect().bottom()) break;
         if (block.isVisible() && blockRect.bottom() >= event->rect().top()) {
             const auto line = block.blockNumber();
-            const auto textTop = blockRect.top() + block.blockFormat().topMargin();
+            const auto textTop = blockRect.top();
             const auto baseline = qRound(textTop) + fontMetrics().ascent();
             const auto lineNumber = QString::number(line + 1);
             painter.setPen(palette().color(QPalette::Mid));
@@ -251,8 +253,25 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
                 painter.setBrush(Qt::NoBrush);
                 painter.setPen(palette().color(QPalette::Mid));
             }
-            painter.drawText(0, baseline, gutter_->width() - 8,
+            const auto lineNumberWidth = blameVisible_ ? gutter_->width() - 8 : 44;
+            painter.setFont(font());
+            painter.drawText(0, baseline, lineNumberWidth,
                              fontMetrics().height(), Qt::AlignRight, lineNumber);
+            if (!blameVisible_) {
+                const auto annotation = codeVisionForLine(line);
+                const auto annotationWidth = gutter_->width() - 58;
+                if (!annotation.isEmpty() && annotationWidth > 0) {
+                    auto annotationFont = font();
+                    annotationFont.setPointSize(qMax(8, font().pointSize() - 2));
+                    annotationFont.setItalic(true);
+                    painter.setFont(annotationFont);
+                    painter.setPen(palette().color(QPalette::PlaceholderText));
+                    painter.drawText(52, baseline, annotationWidth,
+                                     painter.fontMetrics().height(), Qt::AlignLeft,
+                                     painter.fontMetrics().elidedText(
+                                         annotation, Qt::ElideRight, annotationWidth));
+                }
+            }
         }
         block = block.next();
     }
@@ -266,33 +285,7 @@ void WorkbenchCodeEditor::paintEvent(QPaintEvent* event) {
     const auto contentOffset = QPlainTextEdit::contentOffset();
     const auto visibleRect = event->rect();
     const auto textColor = palette().color(QPalette::Text);
-    const auto mutedColor = QColor(textColor.red(), textColor.green(), textColor.blue(), 150);
     const auto inlayColor = QColor(textColor.red(), textColor.green(), textColor.blue(), 125);
-
-    for (const auto& annotation : codeVision_) {
-        const auto block = document()->findBlockByNumber(annotation.line);
-        if (!block.isValid() || !block.isVisible()) continue;
-        const auto rect = blockBoundingGeometry(block).translated(contentOffset);
-        if (!rect.intersects(visibleRect)) continue;
-        painter.setPen(mutedColor);
-        painter.setFont(QFont(font().family(), qMax(8, font().pointSize() - 2),
-                              QFont::Normal, true));
-        painter.drawText(QPointF(rect.left() + 4.0,
-                                 rect.top() + fontMetrics().ascent() + 1.0),
-                         annotation.text);
-    }
-    for (const auto& annotation : implementationMarkers_) {
-        const auto block = document()->findBlockByNumber(annotation.line);
-        if (!block.isValid() || !block.isVisible()) continue;
-        const auto rect = blockBoundingGeometry(block).translated(contentOffset);
-        if (!rect.intersects(visibleRect)) continue;
-        painter.setPen(QColor(mutedColor.red(), mutedColor.green(), mutedColor.blue(), 125));
-        painter.setFont(QFont(font().family(), qMax(8, font().pointSize() - 2),
-                              QFont::Normal, true));
-        painter.drawText(QPointF(rect.left() + 4.0,
-                                 rect.top() + fontMetrics().ascent() + 1.0),
-                         annotation.text);
-    }
 
     painter.setFont(font());
     for (const auto& annotation : inlays_) {
@@ -306,7 +299,7 @@ void WorkbenchCodeEditor::paintEvent(QPaintEvent* event) {
         const auto column = std::clamp(annotation.utf16Column, 0,
                                       static_cast<int>(block.text().size()));
         const auto x = line.cursorToX(column);
-        const auto y = rect.top() + block.blockFormat().topMargin() + line.ascent();
+        const auto y = rect.top() + line.ascent();
         const auto textWidth = painter.fontMetrics().horizontalAdvance(annotation.text);
         painter.setPen(inlayColor);
         painter.drawText(QPointF(rect.left() + x + 4.0, y), annotation.text);

@@ -28,11 +28,31 @@ private:
 };
 
 int main() {
+    using lithe::windows::app::effectiveUiLanguage;
+    using lithe::windows::app::normalizeUiLanguage;
+    assert(normalizeUiLanguage("") == "system");
+    assert(normalizeUiLanguage("system") == "system");
+    assert(normalizeUiLanguage("en") == "en");
+    assert(normalizeUiLanguage("zh_CN") == "zh_CN");
+    assert(normalizeUiLanguage("zh-CN") == "system");
+    assert(effectiveUiLanguage("system", true) == "zh_CN");
+    assert(effectiveUiLanguage("system", false) == "en");
+    assert(effectiveUiLanguage("en", true) == "en");
+    assert(effectiveUiLanguage("zh_CN", false) == "zh_CN");
+    using lithe::windows::app::normalizeDataDirectory;
+    assert(normalizeDataDirectory("") == "");
+    assert(normalizeDataDirectory("  ") == "");
+    assert(normalizeDataDirectory("E:\\LitheData\\") == "E:/LitheData");
+    assert(normalizeDataDirectory("E:/LitheData/") == "E:/LitheData");
+    assert(normalizeDataDirectory("E:/LitheData") == "E:/LitheData");
+
     MemoryStore store;
     lithe::windows::app::AppSettingsStore settingsStore(store);
     lithe::windows::app::AppSettings settings;
     settings.editorFontSize = 15.5;
     settings.showCodeVision = false;
+    settings.uiLanguage = "zh_CN";
+    settings.dataDirectory = "E:\\LitheData\\";
     settings.terminalShellPath = "C:/Windows/System32/cmd.exe";
     settings.hiddenDirectoryNames = {"generated"};
     std::string error;
@@ -40,8 +60,14 @@ int main() {
     const auto loadedSettings = settingsStore.load();
     assert(loadedSettings.editorFontSize == 15.5);
     assert(!loadedSettings.showCodeVision);
+    assert(loadedSettings.uiLanguage == "zh_CN");
+    assert(loadedSettings.dataDirectory == "E:/LitheData");
     assert(loadedSettings.terminalShellPath == settings.terminalShellPath);
     assert(loadedSettings.hiddenDirectoryNames == settings.hiddenDirectoryNames);
+
+    settings.uiLanguage = "zh-CN";
+    assert(settingsStore.save(settings, error));
+    assert(settingsStore.load().uiLanguage == "system");
 
     lithe::windows::app::RecentProjectsStore recent(store, 2);
     assert(recent.record("one", error));

@@ -10,6 +10,7 @@ mod markdown;
 mod maven;
 mod model;
 mod runtime;
+mod shelf;
 mod workspace;
 
 pub use command::{CoreCommand, CoreRequest};
@@ -1227,6 +1228,19 @@ mod tests {
             .as_str()
             .expect("working patch should be text")
             .to_string();
+
+        let shelf_patches = serde_json::json!({
+            "id": "shelf-patches",
+            "command": "git.shelfPatches",
+            "payload": {"root": root}
+        });
+        let shelf_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&shelf_patches).expect("Shelf patches request should encode"),
+        ))
+        .expect("Shelf patches response should be JSON");
+        assert_eq!(shelf_response["ok"], true, "{shelf_response:?}");
+        assert_eq!(shelf_response["data"]["stagedPatch"], staged_patch);
+        assert_eq!(shelf_response["data"]["workingTreePatch"], working_patch);
         assert!(run(&["reset", "--hard", "HEAD"]).status.success());
 
         for (id, patch, mode) in [
@@ -1311,6 +1325,60 @@ mod tests {
             fs::read_to_string(root.join("new.txt")).expect("file should be readable"),
             "untracked\n"
         );
+        fs::remove_file(root.join("new.txt"))
+            .expect("temporary untracked file should be removable");
+        let module = root.join("module");
+        fs::create_dir_all(&module).expect("module workspace should be creatable");
+        fs::write(module.join("nested.txt"), "nested\n").expect("nested file should be writable");
+        let nested_shelf_request = serde_json::json!({
+            "id": "nested-shelf-patches",
+            "command": "git.shelfPatches",
+            "payload": {"root": module}
+        });
+        let nested_shelf_response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&nested_shelf_request)
+                .expect("nested Shelf patches request should encode"),
+        ))
+        .expect("nested Shelf patches response should be JSON");
+        assert_eq!(
+            nested_shelf_response["ok"], true,
+            "{nested_shelf_response:?}"
+        );
+        assert!(nested_shelf_response["data"]["workingTreePatch"]
+            .as_str()
+            .expect("nested working patch should be text")
+            .contains("module/nested.txt"));
+
+        // Subdirectory requests collect staged and worktree edits from the
+        // repository root, not the module root.
+        fs::write(module.join("tracked.txt"), "tracked\n")
+            .expect("tracked file should be writable");
+        assert!(run(&["add", "module/tracked.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "nested fixture"]).status.success());
+        fs::write(module.join("tracked.txt"), "tracked changed\n")
+            .expect("tracked file should be writable");
+        fs::write(module.join("staged.txt"), "staged nested\n")
+            .expect("staged file should be writable");
+        assert!(run(&["add", "module/staged.txt"]).status.success());
+        let nested_shelf_full = serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "nested-shelf-full",
+                "command": "git.shelfPatches",
+                "payload": {"root": module}
+            }))
+            .expect("nested Shelf request should encode"),
+        ))
+        .expect("nested Shelf response should be JSON");
+        assert_eq!(nested_shelf_full["ok"], true, "{nested_shelf_full:?}");
+        assert!(nested_shelf_full["data"]["stagedPatch"]
+            .as_str()
+            .expect("nested staged patch should be text")
+            .contains("module/staged.txt"));
+        let nested_working = nested_shelf_full["data"]["workingTreePatch"]
+            .as_str()
+            .expect("nested working patch should be text");
+        assert!(nested_working.contains("module/tracked.txt"));
+        assert!(nested_working.contains("module/nested.txt"));
         fs::remove_dir_all(root).expect("temporary workspace should be removable");
     }
 
@@ -2023,5 +2091,79 @@ mod tests {
         assert_eq!(invalid["ok"], false);
 
         fs::remove_dir_all(root).expect("Git fixture should be removable");
+    }
+
+    #[test]
+    fn shelves_keep_staged_and_worktree_patches_separate() {
+        let root = temporary_root("shelf");
+        let storage = root.join("storage");
+        fs::create_dir_all(&root).expect("Shelf workspace should be creatable");
+        let create = serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "shelf-create",
+                "command": "shelf.create",
+                "payload": {
+                    "workspaceRoot": root,
+                    "storageRoot": storage,
+                    "label": "before checkout\n",
+                    "stagedPatch": "staged",
+                    "workingTreePatch": "working"
+                }
+            }))
+            .expect("Shelf request should encode"),
+        ))
+        .expect("Shelf create response should be JSON");
+        assert_eq!(create["ok"], true);
+        let id = create["data"]["id"]
+            .as_str()
+            .expect("Shelf id should exist");
+
+        let list = serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "shelf-list",
+                "command": "shelf.list",
+                "payload": {"workspaceRoot": root, "storageRoot": storage}
+            }))
+            .expect("Shelf list request should encode"),
+        ))
+        .expect("Shelf list response should be JSON");
+        assert_eq!(list["data"]["shelves"].as_array().map(Vec::len), Some(1));
+        assert_eq!(list["data"]["shelves"][0]["stagedByteCount"], 6);
+        assert_eq!(list["data"]["shelves"][0]["workingTreeByteCount"], 7);
+
+        let restore = serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "shelf-restore",
+                "command": "shelf.restore",
+                "payload": {"workspaceRoot": root, "storageRoot": storage, "id": id}
+            }))
+            .expect("Shelf restore request should encode"),
+        ))
+        .expect("Shelf restore response should be JSON");
+        assert_eq!(restore["data"]["stagedPatch"], "staged");
+        assert_eq!(restore["data"]["workingTreePatch"], "working");
+
+        let delete = serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "shelf-delete",
+                "command": "shelf.delete",
+                "payload": {"workspaceRoot": root, "storageRoot": storage, "id": id}
+            }))
+            .expect("Shelf delete request should encode"),
+        ))
+        .expect("Shelf delete response should be JSON");
+        assert_eq!(delete["data"]["deleted"], true);
+
+        let missing = serde_json::from_str::<Value>(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "shelf-missing",
+                "command": "shelf.restore",
+                "payload": {"workspaceRoot": root, "storageRoot": storage, "id": id}
+            }))
+            .expect("Shelf missing request should encode"),
+        ))
+        .expect("Shelf missing response should be JSON");
+        assert_eq!(missing["ok"], false);
+        fs::remove_dir_all(root).expect("Shelf fixture should be removable");
     }
 }

@@ -85,6 +85,7 @@ void WorkbenchCoordinator::openWorkspace(std::filesystem::path root,
         ++replacementGeneration_;
         ++gitStatusGeneration_;
         ++gitDiffGeneration_;
+        ++gitShelfPatchesGeneration_;
         ++gitApplyGeneration_;
         ++gitWriteGeneration_;
         ++gitCommandGeneration_;
@@ -93,11 +94,20 @@ void WorkbenchCoordinator::openWorkspace(std::filesystem::path root,
         ++gitCommitFilesGeneration_;
         ++gitComparisonGeneration_;
         ++gitStashesGeneration_;
+        ++gitCheckoutPreflightGeneration_;
+        ++gitPullPreflightGeneration_;
+        ++gitIntegrationPreflightGeneration_;
+        ++gitConflictMarkersGeneration_;
+        ++gitOperationStateGeneration_;
         ++gitBlameGeneration_;
         ++historyRecordGeneration_;
         ++historyEntriesGeneration_;
         ++historyContentGeneration_;
         ++historyRelocateGeneration_;
+        ++shelfCreateGeneration_;
+        ++shelfListGeneration_;
+        ++shelfRestoreGeneration_;
+        ++shelfDeleteGeneration_;
         ++mavenScanGeneration_;
         ++mavenDiagnosticsGeneration_;
         ++javaRunConfigurationsGeneration_;
@@ -386,6 +396,29 @@ void WorkbenchCoordinator::gitDiff(std::vector<std::string> pathspecs,
             OperationDomain::GitDiff, workspaceEpoch, generation, call, std::move(handler));
 }
 
+void WorkbenchCoordinator::gitShelfPatches(ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitShelfPatchesGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.shelfPatches", encodeGitShelfPatchesRequest(
+                GitShelfPatchesRequestDto{*root}),
+            OperationDomain::GitShelfPatches, workspaceEpoch, generation, call,
+            std::move(handler));
+}
+
 void WorkbenchCoordinator::gitCommitDiff(std::string commit,
                                          std::vector<std::string> pathspecs,
                                          ResponseHandler handler) {
@@ -591,6 +624,125 @@ void WorkbenchCoordinator::gitStashes(ResponseHandler handler) {
             OperationDomain::GitStashes, workspaceEpoch, generation, call, std::move(handler));
 }
 
+void WorkbenchCoordinator::gitCheckoutPreflight(std::string reference,
+                                                ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitCheckoutPreflightGeneration_;
+        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.checkoutPreflight", encodeGitCheckoutPreflightRequest(
+                GitCheckoutPreflightRequestDto{*root, std::move(reference)}),
+            OperationDomain::GitCheckoutPreflight,
+            workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::gitPullPreflight(ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitPullPreflightGeneration_;
+        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.pullPreflight",
+            encodeGitPullPreflightRequest(GitPullPreflightRequestDto{*root}),
+            OperationDomain::GitPullPreflight,
+            workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::gitIntegrationPreflight(std::string reference,
+                                                   std::string operation,
+                                                   ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitIntegrationPreflightGeneration_;
+        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.integrationPreflight", encodeGitIntegrationPreflightRequest(
+                GitIntegrationPreflightRequestDto{
+                    *root, std::move(reference), std::move(operation)}),
+            OperationDomain::GitIntegrationPreflight,
+            workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::gitConflictMarkers(ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitConflictMarkersGeneration_;
+        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.conflictMarkers",
+            encodeGitConflictMarkersRequest(GitConflictMarkersRequestDto{*root}),
+            OperationDomain::GitConflictMarkers,
+            workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::gitOperationState(ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitOperationStateGeneration_;
+        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.operationState",
+            encodeGitOperationStateRequest(GitOperationStateRequestDto{*root}),
+            OperationDomain::GitOperationState,
+            workspaceEpoch, generation, call, std::move(handler));
+}
+
 void WorkbenchCoordinator::gitBlame(std::string relativePath, ResponseHandler handler) {
     const auto root = workspaceRootUtf8();
     if (!root) {
@@ -707,6 +859,106 @@ void WorkbenchCoordinator::historyRelocate(std::string storageRoot,
     execute("history.relocate", encodeHistoryRelocateRequest(HistoryRelocateRequestDto{
                 std::move(storageRoot), std::move(sourcePath), std::move(destinationPath)}),
             OperationDomain::HistoryRelocate, workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::shelfCreate(std::string storageRoot,
+                                       std::string label,
+                                       std::string stagedPatch,
+                                       std::string workingTreePatch,
+                                       ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++shelfCreateGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("shelf.create",
+            encodeShelfCreateRequest(ShelfCreateRequestDto{
+                *root, std::move(storageRoot), std::move(label),
+                std::move(stagedPatch), std::move(workingTreePatch)}),
+            OperationDomain::ShelfCreate, workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::shelfList(std::string storageRoot, ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++shelfListGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("shelf.list",
+            encodeShelfListRequest(ShelfListRequestDto{*root, std::move(storageRoot)}),
+            OperationDomain::ShelfList, workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::shelfRestore(std::string storageRoot,
+                                        std::string id,
+                                        ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++shelfRestoreGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("shelf.restore",
+            encodeShelfRestoreRequest(ShelfRestoreRequestDto{
+                *root, std::move(storageRoot), std::move(id)}),
+            OperationDomain::ShelfRestore, workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::shelfDelete(std::string storageRoot,
+                                       std::string id,
+                                       ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++shelfDeleteGeneration_;
+        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("shelf.delete",
+            encodeShelfDeleteRequest(ShelfDeleteRequestDto{
+                *root, std::move(storageRoot), std::move(id)}),
+            OperationDomain::ShelfDelete, workspaceEpoch, generation, call, std::move(handler));
 }
 
 void WorkbenchCoordinator::mavenScan(ResponseHandler handler) {
@@ -915,6 +1167,7 @@ void WorkbenchCoordinator::complete(OperationDomain domain,
             case OperationDomain::Replacement: return replacementGeneration_;
             case OperationDomain::GitStatus: return gitStatusGeneration_;
             case OperationDomain::GitDiff: return gitDiffGeneration_;
+            case OperationDomain::GitShelfPatches: return gitShelfPatchesGeneration_;
             case OperationDomain::GitApply: return gitApplyGeneration_;
             case OperationDomain::GitWrite: return gitWriteGeneration_;
             case OperationDomain::GitCommand: return gitCommandGeneration_;
@@ -923,11 +1176,21 @@ void WorkbenchCoordinator::complete(OperationDomain domain,
             case OperationDomain::GitCommitFiles: return gitCommitFilesGeneration_;
             case OperationDomain::GitComparison: return gitComparisonGeneration_;
             case OperationDomain::GitStashes: return gitStashesGeneration_;
+            case OperationDomain::GitCheckoutPreflight: return gitCheckoutPreflightGeneration_;
+            case OperationDomain::GitPullPreflight: return gitPullPreflightGeneration_;
+            case OperationDomain::GitIntegrationPreflight:
+                return gitIntegrationPreflightGeneration_;
+            case OperationDomain::GitConflictMarkers: return gitConflictMarkersGeneration_;
+            case OperationDomain::GitOperationState: return gitOperationStateGeneration_;
             case OperationDomain::GitBlame: return gitBlameGeneration_;
             case OperationDomain::HistoryRecord: return historyRecordGeneration_;
             case OperationDomain::HistoryEntries: return historyEntriesGeneration_;
             case OperationDomain::HistoryContent: return historyContentGeneration_;
             case OperationDomain::HistoryRelocate: return historyRelocateGeneration_;
+            case OperationDomain::ShelfCreate: return shelfCreateGeneration_;
+            case OperationDomain::ShelfList: return shelfListGeneration_;
+            case OperationDomain::ShelfRestore: return shelfRestoreGeneration_;
+            case OperationDomain::ShelfDelete: return shelfDeleteGeneration_;
             case OperationDomain::MavenScan: return mavenScanGeneration_;
             case OperationDomain::MavenDiagnostics: return mavenDiagnosticsGeneration_;
             case OperationDomain::JavaRunConfigurations: return javaRunConfigurationsGeneration_;

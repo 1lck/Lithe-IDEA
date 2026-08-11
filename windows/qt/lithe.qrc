@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="lithe.ico">../packaging/lithe.ico</file>
+    <file alias="i18n/lithe_zh_CN.ts">translations/lithe_zh_CN.ts</file>
+  </qresource>
+</RCC>

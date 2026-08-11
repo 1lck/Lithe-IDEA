@@ -15,6 +15,7 @@ InstallDirRegKey HKLM "Software\Lithe" "InstallDir"
 RequestExecutionLevel admin
 Unicode True
 SetCompressor /SOLID lzma
+Icon "${__FILEDIR__}\lithe.ico"
 
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING

@@ -4,6 +4,7 @@
 #include "git_graph_layout.h"
 #include "git_feature.h"
 #include "history_feature.h"
+#include "shelf_feature.h"
 #include "java_debug_service.h"
 #include "java_language_server.h"
 #include "java_run_service.h"
@@ -11,6 +12,10 @@
 #include "maven_java_feature.h"
 #include "ai_commit_service.h"
 #include "app_persistence.h"
+#include "workbench_editor_area.h"
+#include "workbench_layout_persistence.h"
+#include "workbench_sidebar.h"
+#include "workbench_tool_window.h"
 #include "project_runtime_service.h"
 #include "search_feature.h"
 #include "workspace_feature.h"
@@ -56,6 +61,7 @@ class QTableWidgetItem;
 class QTabBar;
 class QTextBrowser;
 class QWidget;
+class QSplitter;
 
 namespace lithe::windows {
 
@@ -81,6 +87,11 @@ private slots:
     void loadGitHistory();
     void openGitHistoryItem(QListWidgetItem* item);
     void loadGitStashes();
+    void loadShelves();
+    void createShelf();
+    void restoreSelectedShelf();
+    void deleteSelectedShelf();
+    void setShelfActionsEnabled(bool enabled);
     void compareGitReference();
     void switchGitReference();
     void createGitBranch();
@@ -165,6 +176,7 @@ private:
     void openJavaNavigationItem(QListWidgetItem* item);
     void applyGitState(const app::GitFeatureState& state);
     void applyHistoryState(const app::HistoryFeatureState& state);
+    void applyShelfState(const app::ShelfFeatureState& state);
     void applyMavenJavaState(const app::MavenJavaFeatureState& state,
                              bool renderCodeVision = false,
                              bool renderStructure = false);
@@ -188,6 +200,10 @@ private:
     void ensureJavaLanguageServer();
     void closeLanguageServerDocument();
     void synchronizeLanguageServerDocument();
+    void restoreWorkbenchLayout();
+    void saveWorkbenchLayout();
+    void scheduleWorkbenchLayoutSave();
+    void showToolWindow(BottomToolKind kind);
     void appendTreeNode(QTreeWidgetItem* parent, const WorkspaceNodeDto& node);
     int ensureEditorTab(const QString& relativePath);
     void showFeatureError(const std::optional<CoreError>& error, const QString& fallback);
@@ -201,6 +217,7 @@ private:
     app::RecentProjectsStore recentProjectsStore_;
     app::WorkspaceSessionStore workspaceSessionStore_;
     app::AppSettingsStore appSettingsStore_;
+    WorkbenchLayoutPersistence layoutPersistence_;
     app::AppSettings appSettings_;
     Win32RuntimeLocator runtimeLocator_;
     app::ProjectRuntimeService runtimeService_;
@@ -222,6 +239,7 @@ private:
     std::unique_ptr<app::SearchFeatureModel> searchFeature_;
     std::unique_ptr<app::GitFeatureModel> gitFeature_;
     std::unique_ptr<app::HistoryFeatureModel> historyFeature_;
+    std::unique_ptr<app::ShelfFeatureModel> shelfFeature_;
     std::unique_ptr<app::MavenJavaFeatureModel> mavenJavaFeature_;
     std::unique_ptr<Win32ProcessSession> mavenSession_;
     std::unique_ptr<Win32ProcessSession> javaSession_;
@@ -248,6 +266,11 @@ private:
     QListWidget* gitHistory_ = nullptr;
     QListWidget* gitStashes_ = nullptr;
     QWidget* gitStashActions_ = nullptr;
+    QListWidget* gitShelves_ = nullptr;
+    QWidget* gitShelfActions_ = nullptr;
+    QPushButton* createShelfButton_ = nullptr;
+    QPushButton* restoreShelfButton_ = nullptr;
+    QPushButton* deleteShelfButton_ = nullptr;
     QPlainTextEdit* gitDetails_ = nullptr;
     QListWidget* commitFiles_ = nullptr;
     QPlainTextEdit* commitEditor_ = nullptr;
@@ -271,6 +294,7 @@ private:
     QListWidget* diffOverview_ = nullptr;
     QTimer* workspaceRefreshTimer_ = nullptr;
     QTimer* gitRefreshTimer_ = nullptr;
+    QTimer* layoutSaveTimer_ = nullptr;
     QTimer* debugPollTimer_ = nullptr;
     bool historyContentSelectionPending_ = false;
     std::optional<app::WorkspaceSession> pendingWorkspaceSession_;
@@ -280,6 +304,7 @@ private:
     std::unordered_set<std::string> expandedDiffRegions_;
     QString selectedGitCommit_;
     QString selectedGitStash_;
+    QString selectedShelf_;
     QString blamePath_;
     std::optional<std::uint64_t> pendingNavigationLine_;
     std::optional<std::uint64_t> pendingNavigationColumn_;
@@ -296,6 +321,12 @@ private:
     std::thread updateWorker_;
     std::atomic<bool> aiGenerating_{false};
     std::atomic<bool> updateBusy_{false};
+    WorkbenchSidebar* sidebar_ = nullptr;
+    WorkbenchEditorArea* editorArea_ = nullptr;
+    WorkbenchToolWindow* toolWindow_ = nullptr;
+    QSplitter* shellSplitter_ = nullptr;
+    QSplitter* editorToolSplitter_ = nullptr;
+    WorkbenchLayoutState layoutState_;
 };
 
 } // namespace lithe::windows

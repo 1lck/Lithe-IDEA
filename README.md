@@ -104,6 +104,8 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
 
 ## Use Lithe
 
+### MacOS
+
 Lithe requires macOS 14 or later. Java project features require a JDK; JDK 17 or JDK 21 is recommended. Semantic navigation requires Eclipse JDT LS. Maven projects need either a project `mvnw` or a system Maven installation.
 
 Download the latest macOS `.dmg` from [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest). If a release provides architecture-specific installers, choose `arm64` for Apple silicon or `x86_64` for an Intel Mac. Open the disk image, drag `Lithe.app` into `/Applications`, and launch it.
@@ -136,6 +138,24 @@ brew install jdtls
 ```
 
 After opening a project, use **Settings → Project** to configure the project JDK, Maven, and the JDK used by Maven. Lithe also detects Java and Maven from common system locations.
+
+### Windows
+
+The Windows version is still in development. Building the Qt workbench requires
+Windows 10/11, Visual Studio 2022/MSVC, CMake, stable Rust, and Qt 6 for MSVC
+2022 64-bit. Java features and installer packaging require the corresponding
+JDK, Maven, or NSIS tools.
+
+From a **PowerShell**, run these commands from the
+repository root:
+
+```powershell
+.\scripts\build-windows.ps1 -Configuration Release -BuildQt
+.\windows\build-windows\Release\lithe_windows_qt.exe
+```
+
+For toolchain ranges and Windows-specific validation, see the
+[Windows README](./windows/README.md).
 
 ## Architecture
 

@@ -52,7 +52,6 @@ private:
     void updateCodeVisionMargins();
     void updateGutterWidth();
     void paintGutter(QPaintEvent* event);
-    bool hasCodeVision(int line) const;
 
     std::vector<EditorCodeVisionAnnotation> codeVision_;
     std::vector<EditorCodeVisionAnnotation> implementationMarkers_;
