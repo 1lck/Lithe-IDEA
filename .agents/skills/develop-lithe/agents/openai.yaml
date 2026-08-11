@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lithe Development"
+  short_description: "Apply Lithe architecture and coding rules"
+  default_prompt: "Use $develop-lithe to implement and verify a change in the Lithe repository."
