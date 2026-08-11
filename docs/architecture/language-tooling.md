@@ -62,17 +62,26 @@ Rust Core 的 `lsp.builtinCompletions`、`lsp.builtinHover` 和
 ## Catalog 与工具发现
 
 内置 provider catalog 位于
-[`rust/lithe-core/resources/lsp/language-providers.json`](../../rust/lithe-core/resources/lsp/language-providers.json)。项目可以通过 `.lithe/lsp/language-providers.json` 按 `id` 覆盖内置字段、添加 provider，或使用 `disabled: true` 禁用 provider：
+[`rust/lithe-core/resources/lsp/language-providers.json`](../../rust/lithe-core/resources/lsp/language-providers.json)。项目可以通过 `.lithe/lsp/language-providers.json` 按 `id` 覆盖内置字段、添加 provider，或使用 `disabled: true` 禁用 provider。配置格式由 [`docs/reference/language-providers.schema.json`](../reference/language-providers.schema.json) 定义：
 
 ```json
 {
-  "version": 1,
+  "$schema": "../../docs/reference/language-providers.schema.json",
+  "version": 2,
   "providers": [
     {
       "id": "go",
       "languageServerLaunch": {
         "executableNames": ["gopls-custom", "gopls"],
-        "arguments": []
+        "arguments": [],
+        "environment": {
+          "GOTOOLCHAIN": "auto"
+        },
+        "initializationOptions": {}
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "gopls",
+        "officialDownloadURL": "https://go.dev/gopls/"
       }
     },
     {
@@ -91,7 +100,13 @@ Rust Core 的 `lsp.builtinCompletions`、`lsp.builtinHover` 和
 }
 ```
 
-`executableNames` 按顺序尝试。macOS discovery 的查找顺序包括项目 `.lithe` 工具目录、`LITHE_<TOOL>_PATH`/`LITHE_TOOL_<TOOL>_PATH`、`PATH` 和常见系统目录；`gopls` 等 Go 工具还会检查 `GOBIN`、`GOPATH/bin`、`~/go/bin` 和 `~/.go/bin`。discovery 只查找，不自动安装软件。
+`executableNames` 按顺序尝试，`environment` 覆盖 Lithe 进程环境中的同名键，`initializationOptions` 原样进入 LSP `initialize` 参数。catalog 更新后，session manager 会丢弃 descriptor 已变化的旧会话和 runtime，并由 runtime factory 根据新 descriptor 延迟创建 runtime；因此项目新增 provider 或覆盖启动命令不再受应用启动时的内置 runtime 列表限制。
+
+macOS discovery 的查找顺序包括项目 `.lithe` 工具目录、`LITHE_<TOOL>_PATH`/`LITHE_TOOL_<TOOL>_PATH`、`PATH` 和常见系统目录；`gopls` 等 Go 工具还会检查 `GOBIN`、`GOPATH/bin`、`~/go/bin` 和 `~/.go/bin`。discovery 只查找，不自动安装软件。
+
+LSP 控制中心标题栏的工具设置会在用户偏好中保存每个 provider 的可执行文件覆盖路径。session 创建时先验证并使用该路径，路径失效时继续使用 catalog 候选进行自动探测。Homebrew formula 和官方兜底地址都来自 `languageServerInstallation`，Swift 不维护 provider ID 映射。安装仍由平台层以参数数组直接执行 `brew install`，不经过 shell；没有 Homebrew/formula 时只打开对应项目的 HTTPS 官方发布或安装页面，避免用一套不安全的通用解压逻辑处理不同项目的签名和包结构。
+
+项目配置是可执行工具配置，只有打开受信任项目时才应启用。JSON 可以声明 executable name 和参数，但不能声明 shell、任意安装命令或关闭路径/URL 校验；进程创建、超时、可执行文件验证、Homebrew 调用方式和 HTTPS 限制仍属于平台安全边界。
 
 ## LSP 会话与兼容性
 
@@ -114,19 +129,21 @@ Rust Core 的 `lsp.builtinCompletions`、`lsp.builtinHover` 和
 
 - 只支持 stdio transport，尚无 socket/TCP 或服务器自定义握手 adapter。
 - session 当前以 provider ID 和单个 workspace root 为单位，尚无 multi-root session。
-- `workspace/applyEdit`、自定义初始化参数和服务器私有命令没有通用处理层；客户端不会宣称未实现的 `applyEdit` 能力。
+- `workspace/applyEdit` 和服务器私有 request 没有通用处理层；客户端不会宣称未实现的 `applyEdit` 能力。
+- 编辑器尚未实现 snippet tabstop 会话，因此 initialize 明确声明 `snippetSupport: false`；completion 中的 snippet 只会降级成纯文本。
 - 文档同步当前发送全量文本，没有按服务器类型实现增量 diff。
 - catalog 描述的是“可尝试启动的工具”；最终功能必须以运行时服务器 capability 为准。
-- project config 目前是受信任的项目配置，只接受 executable name 和参数，不执行 shell 命令。
+- project config 是受信任的项目配置，只接受 schema 中的 typed 字段，不执行 shell 命令。
 
 ## 接入新 LSP 的检查清单
 
 1. 在 catalog 中定义稳定 `id`、文件匹配规则、`languageId`、候选 executable 和参数。
-2. 确认服务器支持 stdio 和标准 `Content-Length` framing。
-3. 不在 UI 或 manager 中按语言写分支；服务器差异应进入 descriptor 或独立 adapter。
-4. 用 initialize 响应验证 capability，不把 catalog 的 `languageServer` 标记当成 feature 支持证明。
-5. 至少测试 initialize、didOpen/change/close、一个功能请求、shutdown/exit 和异常退出。
-6. 包含空结果、服务器 error、UTF-16、带空格/非 ASCII 文件 URI，以及启动即输出的场景。
+2. 需要安装入口时定义 `languageServerInstallation`；不要在 Swift UI 中增加 provider ID 分支。
+3. 确认服务器支持 stdio 和标准 `Content-Length` framing。
+4. 不在 UI 或 manager 中按语言写分支；服务器差异应进入 descriptor 或独立 adapter。
+5. 用 initialize 响应验证 capability，不把 catalog 的 `languageServer` 标记当成 feature 支持证明。
+6. 至少测试 initialize、didOpen/change/close、一个功能请求、shutdown/exit 和异常退出。
+7. 包含空结果、服务器 error、UTF-16、带空格/非 ASCII 文件 URI，以及启动即输出的场景。
 
 ## 真实 gopls 验证
 

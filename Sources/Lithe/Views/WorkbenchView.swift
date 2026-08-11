@@ -17,7 +17,6 @@ struct WorkbenchView: View {
     @State private var isCheckoutRevisionPresented = false
     @State private var pendingTopBarPushReference: GitReference?
     @State private var isRunConfigurationPickerPresented = false
-    @State private var isRunConfigurationEditorPresented = false
     @State private var isNewRunConfigurationPresented = false
     @State private var isProjectSwitcherPresented = false
     @State private var isMemoryUsagePopoverPresented = false
@@ -679,23 +678,6 @@ struct WorkbenchView: View {
                         isNewRunConfigurationPresented = true
                     }
                 )
-            }
-
-            Button {
-                isRunConfigurationEditorPresented = true
-            } label: {
-                LitheIDEAIcon(resourcePath: "general/gear.svg", size: 15, fallbackSystemImage: "gearshape")
-            }
-            .litheIconButton()
-            .help("Edit run configuration")
-            .disabled(runFeature.selectedConfiguration == nil || runFeature.configurationStatus != .ready)
-            .popover(isPresented: $isRunConfigurationEditorPresented, arrowEdge: .bottom) {
-                if let configuration = runFeature.selectedConfiguration {
-                    RunConfigurationEditorView(
-                        feature: runFeature,
-                        configuration: configuration
-                    )
-                }
             }
 
             Button {

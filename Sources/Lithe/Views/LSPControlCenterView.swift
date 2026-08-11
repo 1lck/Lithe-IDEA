@@ -4,6 +4,7 @@ struct LSPControlCenterView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
     @State private var selectedProviderID: String?
+    @State private var isToolSetupPresented = false
 
     private let metricColumns = [
         GridItem(.flexible(), spacing: 8),
@@ -43,6 +44,34 @@ struct LSPControlCenterView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer(minLength: 0)
+            Button {
+                isToolSetupPresented.toggle()
+            } label: {
+                LitheIDEAIcon(
+                    resourcePath: "general/gear.svg",
+                    size: 15,
+                    fallbackSystemImage: "gearshape"
+                )
+            }
+            .litheIconButton()
+            .help(copy.configureLanguageServers)
+            .popover(isPresented: $isToolSetupPresented, arrowEdge: .trailing) {
+                LanguageServerSetupView(
+                    tools: model.languageServerTools,
+                    providers: configurableLanguageServerDescriptors,
+                    initialProviderID: selectedDescriptor?.id,
+                    language: settings.language,
+                    chooseExecutable: { descriptor in
+                        model.chooseLanguageServerExecutable(providerName: descriptor.displayName)
+                    },
+                    openOfficialDownload: { url in
+                        model.openLanguageServerDownload(url)
+                    },
+                    configurationChanged: { providerID in
+                        model.languageServerToolConfigurationDidChange(providerID: providerID)
+                    }
+                )
+            }
             Button {
                 model.isLSPControlCenterVisible = false
             } label: {
@@ -486,6 +515,12 @@ struct LSPControlCenterView: View {
             }
     }
 
+    private var configurableLanguageServerDescriptors: [LanguageProviderDescriptor] {
+        model.languageProviderCatalog.descriptors
+            .filter { $0.capabilities.contains(.languageServer) }
+            .filter { $0.languageServerLaunch != nil }
+    }
+
     private var selectedDescriptor: LanguageProviderDescriptor? {
         if let selectedProviderID,
            let selected = languageServerDescriptors.first(where: { $0.id == selectedProviderID }) {
@@ -645,6 +680,7 @@ private struct LSPControlCenterCopy {
 
     var title: String { usesChinese ? "LSP 控制中心" : "LSP Control Center" }
     var hideControlCenter: String { usesChinese ? "隐藏 LSP 控制中心" : "Hide LSP Control Center" }
+    var configureLanguageServers: String { usesChinese ? "配置语言服务器" : "Configure language servers" }
     var currentProject: String { usesChinese ? "当前项目：" : "Current project:" }
     var lspActive: String { usesChinese ? "LSP 运行中" : "LSP active" }
     var onDemand: String { usesChinese ? "按需启动" : "On demand" }
