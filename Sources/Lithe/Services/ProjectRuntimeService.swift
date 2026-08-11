@@ -324,6 +324,15 @@ final class ProjectRuntimeService: ObservableObject {
         executableCandidates(command).first?.executableURL
     }
 
+    func executableURL(at path: String) -> URL? {
+        let normalized = (path as NSString)
+            .expandingTildeInPath
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: normalized).standardizedFileURL
+        return runtimeLocator.isExecutable(at: url) ? url : nil
+    }
+
     func mavenExecutable(for project: MavenProject) -> URL? {
         mavenExecutable(at: project.rootURL)
     }

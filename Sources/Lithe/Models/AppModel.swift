@@ -115,6 +115,7 @@ final class AppModel: ObservableObject, Identifiable {
     let javaFeature: JavaFeatureModel
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
     var languageToolingSessions: LanguageToolingSessionManager { services.languageToolingSessions }
+    var languageServerTools: LanguageServerToolService { services.languageServerTools }
     var languageTestService: LanguageTestService { services.languageTestService }
     var languageDiagnostics: [URL: [LanguageServerDiagnostic]] {
         languageToolingSessions.diagnostics
@@ -142,6 +143,23 @@ final class AppModel: ObservableObject, Identifiable {
     func showSettings(category: SettingsCategory = .general) {
         requestedSettingsCategory = category
         isSettingsPresented = true
+    }
+
+    func chooseLanguageServerExecutable(providerName: String) -> URL? {
+        platformUI.chooseFile(
+            title: settings.language == .simplifiedChinese
+                ? "选择 \(providerName) 语言服务器"
+                : "Choose \(providerName) language server",
+            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
+        )
+    }
+
+    func openLanguageServerDownload(_ url: URL) {
+        platformUI.open(url)
+    }
+
+    func languageServerToolConfigurationDidChange(providerID: String) {
+        languageToolingSessions.stopLanguageServer(providerID: providerID)
     }
     private var gitFeatureObservation: AnyCancellable?
     private var documentFeatureObservation: AnyCancellable?

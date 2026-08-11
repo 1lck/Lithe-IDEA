@@ -43,52 +43,72 @@ final class MacServiceContainer {
         )
         let languageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         let languageProviderCatalog = languageProviderCatalogSource.catalog()
+        let languageServerTools = LanguageServerToolService(
+            runtimeService: runtimeService,
+            processRunner: processRunner,
+            store: store
+        )
         // Build the catalog once so every standard runtime consumes the
         // language-pack launch metadata instead of maintaining a second map.
         let languagePackDefinitions = LanguagePackRegistry.standard(
             catalog: languageProviderCatalog
         )
-        let languageToolingRuntimes: [any LanguageProviderRuntime] = StdioLanguageProviderRuntime.standard(
-            packs: languagePackDefinitions.packs,
+        let debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [
+            "go": {
+                guard let dlv = runtimeService.executableOnPath("dlv") else { return nil }
+                return DebugAdapterProtocolSession(
+                    adapterID: "go",
+                    transport: MacDlvDebugAdapterTransport(
+                        executableURL: dlv,
+                        environment: runtimeService.processEnvironment(),
+                        process: MacRawProcessSession()
+                    )
+                )
+            },
+            "node": {
+                guard let node = runtimeService.executableOnPath("node") else { return nil }
+                let environment = runtimeService.processEnvironment()
+                let locator = MacJavaScriptDebugAdapterLocator(
+                    environment: environment,
+                    executableOnPath: { runtimeService.executableOnPath($0) }
+                )
+                return DebugAdapterProtocolSession(
+                    adapterID: "pwa-node",
+                    transport: MacNodeDebugAdapterTransport(
+                        nodeExecutableURL: node,
+                        locator: locator,
+                        process: MacRawProcessSession()
+                    )
+                )
+            }
+        ]
+        let debugLaunches = Dictionary(
+            uniqueKeysWithValues: languagePackDefinitions.packs.compactMap { pack in
+                pack.debugAdapterLaunch.map { (pack.descriptor.id, $0) }
+            }
+        )
+        let languageToolingRuntimeFactory = StdioLanguageProviderRuntimeFactory(
             runtimeService: runtimeService,
             processFactory: { MacRawProcessSession() },
-            debugSessionFactories: [
-                "go": {
-                    guard let dlv = runtimeService.executableOnPath("dlv") else { return nil }
-                    return DebugAdapterProtocolSession(
-                        adapterID: "go",
-                        transport: MacDlvDebugAdapterTransport(
-                            executableURL: dlv,
-                            environment: runtimeService.processEnvironment(),
-                            process: MacRawProcessSession()
-                        )
-                    )
-                },
-                "node": {
-                    guard let node = runtimeService.executableOnPath("node") else { return nil }
-                    let environment = runtimeService.processEnvironment()
-                    let locator = MacJavaScriptDebugAdapterLocator(
-                        environment: environment,
-                        executableOnPath: { runtimeService.executableOnPath($0) }
-                    )
-                    return DebugAdapterProtocolSession(
-                        adapterID: "pwa-node",
-                        transport: MacNodeDebugAdapterTransport(
-                            nodeExecutableURL: node,
-                            locator: locator,
-                            process: MacRawProcessSession()
-                        )
-                    )
-                }
-            ]
+            languageServerCore: rustCore,
+            languageServerExecutableResolver: { descriptor in
+                languageServerTools.executableURL(for: descriptor)
+            },
+            debugLaunches: debugLaunches,
+            debugSessionFactories: debugSessionFactories
         )
+        let languageToolingRuntimes: [any LanguageProviderRuntime] = languagePackDefinitions.packs
+            .compactMap { languageToolingRuntimeFactory.makeRuntime(for: $0.descriptor) }
         let languagePackRegistry = LanguagePackRegistry.standard(
             catalog: languageProviderCatalog,
             runtimes: languageToolingRuntimes
         )
         let runToolchainRegistry = languagePackRegistry.toolchainRegistry
         let languageToolingSessions = LanguageToolingSessionManager(
-            registry: languagePackRegistry
+            catalog: languagePackRegistry.catalog,
+            runtimes: languagePackRegistry.toolingRuntimes,
+            runtimeFactory: languageToolingRuntimeFactory,
+            core: rustCore
         )
         let testExecutableResolver = RunExecutableResolver(
             runtimeService: runtimeService,
@@ -157,6 +177,7 @@ final class MacServiceContainer {
             languagePacks: languagePackRegistry,
             runToolchainRegistry: runToolchainRegistry,
             languageToolingSessions: languageToolingSessions,
+            languageServerTools: languageServerTools,
             languageTestService: languageTestService,
             workspaceOperations: workspaceOperations,
             localHistoryOperations: localHistoryOperations,

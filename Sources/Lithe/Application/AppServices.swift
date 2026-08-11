@@ -21,6 +21,7 @@ final class AppServices {
     let languageProviderCatalog: LanguageProviderCatalog
     let runToolchainRegistry: RunToolchainRegistry
     let languageToolingSessions: LanguageToolingSessionManager
+    let languageServerTools: LanguageServerToolService
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let languageTestService: LanguageTestService
     let workspaceOperations: any WorkspaceOperations
@@ -56,6 +57,7 @@ final class AppServices {
         languagePacks: LanguagePackRegistry? = nil,
         runToolchainRegistry: RunToolchainRegistry? = nil,
         languageToolingSessions: LanguageToolingSessionManager? = nil,
+        languageServerTools: LanguageServerToolService,
         debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver? = nil,
         languageTestService: LanguageTestService,
         workspaceOperations: any WorkspaceOperations,
@@ -96,6 +98,7 @@ final class AppServices {
         self.languageToolingSessions = languageToolingSessions ?? LanguageToolingSessionManager(
             registry: resolvedLanguagePacks
         )
+        self.languageServerTools = languageServerTools
         self.debugLaunchConfigurationResolver = debugLaunchConfigurationResolver
             ?? DebugLaunchConfigurationResolver(fileStorage: fileStorage)
         self.languageTestService = languageTestService

@@ -194,6 +194,7 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
         case "tsx": "tsx"
         case "ts-node": "ts-node"
         case "cargo", "rustc": "rust"
+        case "clangd": "llvm"
         case "lldb-dap": "llvm"
         default: command
         }
