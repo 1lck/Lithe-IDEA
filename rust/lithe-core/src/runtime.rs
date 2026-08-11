@@ -458,6 +458,23 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspSessionExecute => {
+            match serde_json::from_value::<crate::lsp_host::LspSessionCommandRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid LSP session request")
+                    .with_details(error.to_string())
+            })
+            .and_then(crate::lsp_host::execute)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("LSP session response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspFrameMessage => {
             match serde_json::from_value::<crate::lsp::FrameMessageRequest>(parsed.payload)
                 .map_err(|error| {

@@ -181,3 +181,69 @@ guard let clientApplyData = clientApplyResponse.data(using: .utf8),
 }
 
 print("Rust Core LSP client bridge passed")
+
+let sessionCreateRequest = """
+{"id":"lsp-session-create-test","command":"lsp.sessionExecute","payload":{"action":"create","rootUri":"file:///tmp/project","processId":42}}
+"""
+guard let sessionCreatePointer = sessionCreateRequest.withCString({ executeJSON($0) }) else {
+    fputs("Rust Core LSP session create bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(sessionCreatePointer) }
+
+let sessionCreateResponse = String(cString: sessionCreatePointer)
+guard let sessionCreateData = sessionCreateResponse.data(using: .utf8),
+      let sessionCreateEnvelope = try? JSONSerialization.jsonObject(with: sessionCreateData) as? [String: Any],
+      let sessionCreatePayload = sessionCreateEnvelope["data"] as? [String: Any],
+      let sessionID = sessionCreatePayload["sessionId"] as? String,
+      sessionCreatePayload["state"] == nil else {
+    fputs("Unexpected Rust Core LSP session create response: \(sessionCreateResponse)\n", stderr)
+    exit(1)
+}
+
+let sessionApplyRequestData = try JSONSerialization.data(withJSONObject: [
+    "id": "lsp-session-apply-test",
+    "command": "lsp.sessionExecute",
+    "payload": [
+        "action": "applyServerMessage",
+        "sessionId": sessionID,
+        "message": serverMessage
+    ]
+])
+let sessionApplyRequest = String(data: sessionApplyRequestData, encoding: .utf8)!
+guard let sessionApplyPointer = sessionApplyRequest.withCString({ executeJSON($0) }) else {
+    fputs("Rust Core LSP session apply bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(sessionApplyPointer) }
+
+let sessionApplyResponse = String(cString: sessionApplyPointer)
+guard let sessionApplyData = sessionApplyResponse.data(using: .utf8),
+      let sessionApplyEnvelope = try? JSONSerialization.jsonObject(with: sessionApplyData) as? [String: Any],
+      let sessionApplyPayload = sessionApplyEnvelope["data"] as? [String: Any],
+      sessionApplyPayload["state"] == nil,
+      let sessionCapabilities = sessionApplyPayload["serverCapabilities"] as? [String],
+      sessionCapabilities.contains("definition"),
+      sessionCapabilities.contains("completionResolve") else {
+    fputs("Unexpected Rust Core LSP session apply response: \(sessionApplyResponse)\n", stderr)
+    exit(1)
+}
+
+let sessionDestroyRequest = """
+{"id":"lsp-session-destroy-test","command":"lsp.sessionExecute","payload":{"action":"destroy","sessionId":"\(sessionID)"}}
+"""
+guard let sessionDestroyPointer = sessionDestroyRequest.withCString({ executeJSON($0) }) else {
+    fputs("Rust Core LSP session destroy bridge returned no response\n", stderr)
+    exit(1)
+}
+defer { freeJSON(sessionDestroyPointer) }
+
+let sessionDestroyResponse = String(cString: sessionDestroyPointer)
+guard let sessionDestroyData = sessionDestroyResponse.data(using: .utf8),
+      let sessionDestroyEnvelope = try? JSONSerialization.jsonObject(with: sessionDestroyData) as? [String: Any],
+      sessionDestroyEnvelope["ok"] as? Bool == true else {
+    fputs("Unexpected Rust Core LSP session destroy response: \(sessionDestroyResponse)\n", stderr)
+    exit(1)
+}
+
+print("Rust Core LSP session handle bridge passed")

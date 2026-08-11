@@ -43,6 +43,7 @@ pub enum CoreCommand {
     LspClientShutdown,
     LspClientRequest,
     LspClientApplyServerMessage,
+    LspSessionExecute,
     LspFrameMessage,
     LspParseServerMessages,
     JavaRunConfigurations,
@@ -104,6 +105,7 @@ impl CoreCommand {
             "lsp.clientShutdown" => Some(Self::LspClientShutdown),
             "lsp.clientRequest" => Some(Self::LspClientRequest),
             "lsp.clientApplyServerMessage" => Some(Self::LspClientApplyServerMessage),
+            "lsp.sessionExecute" => Some(Self::LspSessionExecute),
             "lsp.frameMessage" => Some(Self::LspFrameMessage),
             "lsp.parseServerMessages" => Some(Self::LspParseServerMessages),
             "java.runConfigurations" => Some(Self::JavaRunConfigurations),
@@ -152,6 +154,10 @@ mod tests {
         assert!(matches!(
             CoreCommand::parse("lsp.clientShutdown"),
             Some(CoreCommand::LspClientShutdown)
+        ));
+        assert!(matches!(
+            CoreCommand::parse("lsp.sessionExecute"),
+            Some(CoreCommand::LspSessionExecute)
         ));
     }
 }

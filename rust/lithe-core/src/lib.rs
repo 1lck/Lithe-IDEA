@@ -8,6 +8,7 @@ mod git;
 mod history;
 mod java;
 mod lsp;
+mod lsp_host;
 mod markdown;
 mod maven;
 mod model;
