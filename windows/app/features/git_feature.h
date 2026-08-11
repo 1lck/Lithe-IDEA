@@ -1,5 +1,6 @@
 #pragma once
 
+#include "document_feature.h"
 #include "dirty_documents_port.h"
 #include "git_workflow_types.h"
 #include "shelve_service.h"
@@ -35,6 +36,7 @@ struct GitFeatureState {
     std::optional<GitConflictMarkersDto> conflictMarkers;
     std::optional<GitStashRestoreDto> stashRestoreConflict;
     std::optional<GitPendingCheckout> pendingCheckout;
+    DocumentSafetySnapshot documentSafety;
     std::optional<CoreError> error;
 
     std::optional<GitCheckoutConflictRequest> pendingCheckoutConflict;
@@ -89,6 +91,8 @@ public:
                                                    std::optional<CoreError>)>;
 
     explicit GitFeatureModel(WorkbenchCoordinator& coordinator,
+                             DocumentSafetySnapshotProvider* documents = nullptr);
+    GitFeatureModel(WorkbenchCoordinator& coordinator,
                              DirtyDocumentsPort* dirtyDocuments = nullptr,
                              ShelveService* shelveService = nullptr);
 
@@ -193,6 +197,7 @@ public:
 
 private:
     WorkbenchCoordinator& coordinator_;
+    DocumentSafetySnapshotProvider* documents_ = nullptr;
     DirtyDocumentsPort* dirtyDocuments_ = nullptr;
     ShelveService* shelveService_ = nullptr;
     FreezeHandler onOperationBegan_;
@@ -290,6 +295,7 @@ private:
                     StateHandler handler,
                     std::uint64_t requestSerial);
     void rebuildConflictFilterPaths();
+    bool blockUnsafeDocumentMutation(const std::string& operation, StateHandler& handler);
     std::uint64_t applyRequestSerial_ = 0;
 };
 

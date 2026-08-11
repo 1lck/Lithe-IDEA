@@ -1,14 +1,20 @@
 #include "workbench_sidebar.h"
 
 #include "ui_translation.h"
+#include "ui_tokens.h"
+#include "workbench_icons.h"
 
 #include <QAbstractItemView>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QSize>
 #include <QStackedWidget>
 #include <QTabBar>
+#include <QToolButton>
 #include <QTreeWidget>
+#include <QStyle>
 #include <QVBoxLayout>
 
 namespace lithe::windows {
@@ -27,6 +33,7 @@ void configureList(QAbstractItemView* list) {
     list->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     list->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     list->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    list->setMouseTracking(true);
 }
 
 }
@@ -36,9 +43,88 @@ WorkbenchSidebar::WorkbenchSidebar(QWidget* parent)
     setObjectName(QStringLiteral("workbench.sidebar"));
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(8);
+    auto* shellLayout = new QHBoxLayout(this);
+    shellLayout->setContentsMargins(0, 0, 0, 0);
+    shellLayout->setSpacing(0);
+
+    auto* toolRail = new QWidget(this);
+    toolRail->setObjectName(QStringLiteral("workbench.sidebar.toolRail"));
+    toolRail->setFixedWidth(ui::ActivityRailWidth);
+    auto* railLayout = new QVBoxLayout(toolRail);
+    railLayout->setContentsMargins(6, 8, 6, 8);
+    railLayout->setSpacing(6);
+    const auto addRailButton = [this, railLayout](const QString& resource,
+                                                   QStyle::StandardPixmap fallback,
+                                                   const QString& tooltip,
+                                                   int page) {
+        auto* button = new QToolButton(this);
+        button->setObjectName(QStringLiteral("workbench.sidebar.railButton%1").arg(page));
+        button->setProperty("toolRail", true);
+        button->setIcon(resource.isEmpty() ? style()->standardIcon(fallback)
+                                           : workbenchActionIcon(resource));
+        button->setToolTip(tooltip);
+        button->setCheckable(true);
+        button->setAutoRaise(true);
+        button->setIconSize(QSize(18, 18));
+        button->setFixedSize(36, 32);
+        railLayout->addWidget(button);
+        connect(button, &QToolButton::clicked, this, [this, page] {
+            destinationSelector_->setCurrentIndex(page);
+        });
+        return button;
+    };
+    auto* projectRailButton = addRailButton(QStringLiteral("toolwindows/toolWindowProject.svg"),
+                                             QStyle::SP_DirOpenIcon,
+                                             uiText(QStringLiteral("Project")), 0);
+    auto* changesRailButton = addRailButton(QStringLiteral("toolwindows/toolWindowVcs.svg"),
+                                             QStyle::SP_FileDialogDetailedView,
+                                             uiText(QStringLiteral("Changes")), 1);
+    auto* searchRailButton = addRailButton(QStringLiteral("actions/search.svg"),
+                                            QStyle::SP_FileDialogContentsView,
+                                            uiText(QStringLiteral("Search")), 2);
+    railLayout->addStretch(1);
+    const auto addToolButton = [this, railLayout](const QString& resource,
+                                                  QStyle::StandardPixmap fallback,
+                                                  const QString& tooltip,
+                                                  auto signal) {
+        auto* button = new QToolButton(this);
+        button->setProperty("toolRail", true);
+        button->setIcon(resource.isEmpty()
+            ? style()->standardIcon(fallback)
+            : workbenchActionIcon(resource));
+        button->setToolTip(tooltip);
+        button->setAutoRaise(true);
+        button->setIconSize(QSize(17, 17));
+        button->setFixedSize(36, 32);
+        railLayout->addWidget(button);
+        connect(button, &QToolButton::clicked, this, signal);
+    };
+    addToolButton(QString{}, QStyle::SP_ComputerIcon,
+                  uiText(QStringLiteral("Terminal")),
+                  &WorkbenchSidebar::terminalRequested);
+    addToolButton(QStringLiteral("toolwindows/toolWindowVcs.svg"), QStyle::SP_FileIcon,
+                  uiText(QStringLiteral("Git")),
+                  &WorkbenchSidebar::gitRequested);
+    addToolButton(QStringLiteral("toolwindows/toolWindowProblems.svg"), QStyle::SP_MessageBoxWarning,
+                  uiText(QStringLiteral("Problems")),
+                  &WorkbenchSidebar::problemsRequested);
+    addToolButton(QStringLiteral("maven/toolWindowMaven.svg"), QStyle::SP_DriveHDIcon,
+                  uiText(QStringLiteral("Maven")),
+                  &WorkbenchSidebar::mavenRequested);
+    addToolButton(QStringLiteral("toolwindows/toolWindowDebugger.svg"), QStyle::SP_MessageBoxInformation,
+                  uiText(QStringLiteral("Debug")),
+                  &WorkbenchSidebar::debugRequested);
+    addToolButton(QStringLiteral("general/gear.svg"), QStyle::SP_FileDialogDetailedView,
+                  uiText(QStringLiteral("Settings")),
+                  &WorkbenchSidebar::settingsRequested);
+    shellLayout->addWidget(toolRail);
+
+    auto* content = new QWidget(this);
+    content->setObjectName(QStringLiteral("workbench.sidebar.content"));
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    shellLayout->addWidget(content, 1);
 
     destinationSelector_ = new QTabBar(this);
     destinationSelector_->setObjectName(
@@ -48,7 +134,7 @@ WorkbenchSidebar::WorkbenchSidebar(QWidget* parent)
     destinationSelector_->addTab(uiText(QStringLiteral("Project")));
     destinationSelector_->addTab(uiText(QStringLiteral("Changes")));
     destinationSelector_->addTab(uiText(QStringLiteral("Search")));
-    layout->addWidget(destinationSelector_);
+    destinationSelector_->setVisible(false);
 
     pages_ = new QStackedWidget(this);
     pages_->setObjectName(QStringLiteral("workbench.sidebar.pages"));
@@ -58,7 +144,26 @@ WorkbenchSidebar::WorkbenchSidebar(QWidget* parent)
     projectPage->setObjectName(QStringLiteral("workbench.sidebar.projectPage"));
     auto* projectLayout = new QVBoxLayout(projectPage);
     projectLayout->setContentsMargins(0, 0, 0, 0);
-    projectLayout->setSpacing(6);
+    projectLayout->setSpacing(0);
+    auto* projectHeader = new QWidget(projectPage);
+    projectHeader->setObjectName(QStringLiteral("workbench.sidebar.header"));
+    projectHeader->setFixedHeight(ui::PanelHeaderHeight);
+    auto* projectHeaderLayout = new QHBoxLayout(projectHeader);
+    projectHeaderLayout->setContentsMargins(10, 0, 6, 0);
+    auto* projectTitle = new QLabel(uiText(QStringLiteral("Project")), projectHeader);
+    projectTitle->setProperty("chromeRole", QStringLiteral("panelTitle"));
+    projectHeaderLayout->addWidget(projectTitle);
+    projectHeaderLayout->addStretch(1);
+    auto* projectRefresh = new QToolButton(projectHeader);
+    projectRefresh->setObjectName(QStringLiteral("workbench.sidebar.refresh"));
+    projectRefresh->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    projectRefresh->setToolTip(uiText(QStringLiteral("Refresh")));
+    projectRefresh->setAutoRaise(true);
+    projectRefresh->setFixedSize(28, 28);
+    projectHeaderLayout->addWidget(projectRefresh);
+    projectLayout->addWidget(projectHeader);
+    connect(projectRefresh, &QToolButton::clicked,
+            this, &WorkbenchSidebar::projectRefreshRequested);
     projectStatus_ = makeStatusLabel(projectPage, "workbench.sidebar.projectStatus");
     projectStatus_->setText(QStringLiteral("No project loaded."));
     projectLayout->addWidget(projectStatus_);
@@ -66,6 +171,10 @@ WorkbenchSidebar::WorkbenchSidebar(QWidget* parent)
     projectTree_->setObjectName(QStringLiteral("workbench.sidebar.projectTree"));
     projectTree_->setHeaderHidden(true);
     projectTree_->setContextMenuPolicy(Qt::CustomContextMenu);
+    projectTree_->setIconSize(QSize(ui::FileIconSize, ui::FileIconSize));
+    projectTree_->setIndentation(ui::SidebarIndent);
+    projectTree_->setUniformRowHeights(true);
+    projectTree_->setAnimated(false);
     configureList(projectTree_);
     projectLayout->addWidget(projectTree_, 1);
     pages_->addWidget(projectPage);
@@ -74,7 +183,12 @@ WorkbenchSidebar::WorkbenchSidebar(QWidget* parent)
     changesPage->setObjectName(QStringLiteral("workbench.sidebar.changesPage"));
     auto* changesLayout = new QVBoxLayout(changesPage);
     changesLayout->setContentsMargins(0, 0, 0, 0);
-    changesLayout->setSpacing(6);
+    changesLayout->setSpacing(0);
+    auto* changesTitle = new QLabel(uiText(QStringLiteral("Changes")), changesPage);
+    changesTitle->setProperty("chromeRole", QStringLiteral("panelTitle"));
+    changesTitle->setContentsMargins(10, 0, 0, 0);
+    changesTitle->setFixedHeight(ui::PanelHeaderHeight);
+    changesLayout->addWidget(changesTitle);
     changesStatus_ = makeStatusLabel(changesPage, "workbench.sidebar.changesStatus");
     changesStatus_->setText(QStringLiteral("No changes."));
     changesLayout->addWidget(changesStatus_);
@@ -89,6 +203,11 @@ WorkbenchSidebar::WorkbenchSidebar(QWidget* parent)
     auto* searchLayout = new QVBoxLayout(searchPage);
     searchLayout->setContentsMargins(0, 0, 0, 0);
     searchLayout->setSpacing(6);
+    auto* searchTitle = new QLabel(uiText(QStringLiteral("Search")), searchPage);
+    searchTitle->setProperty("chromeRole", QStringLiteral("panelTitle"));
+    searchTitle->setContentsMargins(10, 0, 0, 0);
+    searchTitle->setFixedHeight(ui::PanelHeaderHeight);
+    searchLayout->addWidget(searchTitle);
     searchField_ = new QLineEdit(searchPage);
     searchField_->setObjectName(QStringLiteral("workbench.sidebar.searchField"));
     searchField_->setPlaceholderText(QStringLiteral("Search workspace"));
@@ -111,6 +230,13 @@ WorkbenchSidebar::WorkbenchSidebar(QWidget* parent)
         pages_->setCurrentIndex(index);
         emit pageChanged(page_);
     });
+    connect(destinationSelector_, &QTabBar::currentChanged,
+            this, [projectRailButton, changesRailButton, searchRailButton](int index) {
+        projectRailButton->setChecked(index == 0);
+        changesRailButton->setChecked(index == 1);
+        searchRailButton->setChecked(index == 2);
+    });
+    projectRailButton->setChecked(true);
     connect(projectTree_, &QTreeWidget::itemActivated,
             this, &WorkbenchSidebar::projectItemActivated);
     connect(projectTree_, &QTreeWidget::customContextMenuRequested,

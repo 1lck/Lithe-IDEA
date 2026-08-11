@@ -1,15 +1,10 @@
 #pragma once
 
 #include "document_feature.h"
-#include "dirty_documents_port.h"
-#include "diff_split_widget.h"
-#include "git_changes_panel.h"
+#include "git_graph_layout.h"
 #include "git_feature.h"
-#include "git_log_panel.h"
-#include "git_watcher_freeze.h"
-#include "git_workflow_dialogs.h"
-#include "git_workflow_ui.h"
 #include "history_feature.h"
+#include "shelf_feature.h"
 #include "java_debug_service.h"
 #include "java_language_server.h"
 #include "java_run_service.h"
@@ -17,9 +12,12 @@
 #include "maven_java_feature.h"
 #include "ai_commit_service.h"
 #include "app_persistence.h"
+#include "workbench_editor_area.h"
+#include "workbench_layout_persistence.h"
+#include "workbench_sidebar.h"
+#include "workbench_tool_window.h"
 #include "project_runtime_service.h"
 #include "search_feature.h"
-#include "shelve_service.h"
 #include "workspace_feature.h"
 #include "ports.h"
 #include "win32_key_value_store.h"
@@ -31,6 +29,8 @@
 #include "win32_runtime_locator.h"
 #include "win32_secure_store.h"
 #include "win32_terminal_transport.h"
+#include "terminal_model.h"
+#include "terminal_panel.h"
 #include "windows_update_service.h"
 
 #include <QMainWindow>
@@ -43,20 +43,23 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 
 class QLineEdit;
+class QComboBox;
+class QToolButton;
 class QLabel;
+class QCheckBox;
 class QPoint;
 class QObject;
 class QDialog;
 class QEvent;
+class QCloseEvent;
 class QListWidget;
 class QListWidgetItem;
 class QPlainTextEdit;
 class QPushButton;
-class QSplitter;
-class QStackedWidget;
 class QTimer;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -64,8 +67,8 @@ class QTableWidget;
 class QTableWidgetItem;
 class QTabBar;
 class QTextBrowser;
-class QToolButton;
 class QWidget;
+class QSplitter;
 
 namespace lithe::windows {
 
@@ -91,14 +94,14 @@ private slots:
     void loadGitHistory();
     void openGitHistoryItem(QListWidgetItem* item);
     void loadGitStashes();
+    void loadShelves();
+    void createShelf();
+    void restoreSelectedShelf();
+    void deleteSelectedShelf();
+    void setShelfActionsEnabled(bool enabled);
     void compareGitReference();
     void switchGitReference();
     void createGitBranch();
-    void fetchGitRemote();
-    void pushGitReference();
-    void mergeGitReference();
-    void rebaseGitReference();
-    void pullGitRemote();
     void applySelectedStash();
     void popSelectedStash();
     void dropSelectedStash();
@@ -107,30 +110,6 @@ private slots:
     void discardSelectedHunk();
     void stageAllChanges();
     void commitChanges();
-    void commitAndPushChanges();
-    void continueGitOperation();
-    void abortGitOperation();
-    void skipGitOperation();
-    void filterGitConflicts();
-    void clearGitConflictFilter();
-    void filterStashRestoreConflicts();
-    void dismissStashRestoreNotice();
-    void showChangesSidebar();
-    void showProjectSidebar();
-    void toggleGitLogPanel();
-    void stageGitPath(const QString& path);
-    void unstageGitPath(const QString& path);
-    void applyShelfById(const QString& shelfId);
-    void dropShelfById(const QString& shelfId);
-    void applyStashByReference(const QString& reference);
-    void popStashByReference(const QString& reference);
-    void dropStashByReference(const QString& reference);
-    void checkoutGitReference(const QString& fullName,
-                              const QString& kind,
-                              const QString& shortName);
-    void selectGitCommit(const QString& hash);
-    void openGitCommitFile(const QString& path);
-    void openGitChangeDiff(const QString& path, bool staged, bool untracked);
     void toggleBlame();
     void generateAICommitMessage();
     void checkForUpdates();
@@ -169,9 +148,12 @@ private slots:
     void findJavaUsages();
     void startTerminal();
     void stopTerminal();
+    void applyTerminalWorkspace();
+    QStringList availableShells() const;
 
 private:
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
 
     void buildActions();
     void loadSnapshot();
@@ -194,27 +176,23 @@ private:
     void refreshGitStatus();
     void applyStashOperation(const QString& operation);
     void renderDiffReview();
-    void closeDiffReview();
     void applySelectedHunk(const QString& mode);
     QTreeWidgetItem* findTreeItem(const QString& relativePath) const;
     void applyWorkspaceState(const app::WorkspaceFeatureState& state);
     void applyDocumentState(const app::DocumentFeatureState& state);
+    void connectDocumentEditor(WorkbenchCodeEditor* editor);
+    void updateDocumentTabState(const QString& relativePath);
+    bool requestDocumentTransition(std::function<void()> transition);
+    void finishDocumentTransitionSave(const QString& relativePath,
+                                      const app::DocumentFeatureState& state);
+    bool ensureDocumentsSafeForGit();
     void applySearchState(const app::SearchFeatureState& state);
     void applySearchEverywhereState(const app::SearchEverywhereFeatureState& state);
     void openSearchResult(QListWidgetItem* item);
     void openJavaNavigationItem(QListWidgetItem* item);
     void applyGitState(const app::GitFeatureState& state);
-    void presentPendingGitDialogs(const app::GitFeatureState& state);
-    void syncDirtyDocumentsPort(const app::DocumentFeatureState& state);
-    void applyGitStateAsync(app::GitFeatureState state);
-    void connectGitPanels();
-    void setLeftSidebarIndex(int index);
-    void setGitLogVisible(bool visible);
-    void updateWorkbenchChromeForFocus();
-    std::optional<GitReferenceDto> pickGitReference(const QString& title);
-    void pickGitReferenceAsync(const QString& title,
-                               std::function<void(std::optional<GitReferenceDto>)> onPicked);
     void applyHistoryState(const app::HistoryFeatureState& state);
+    void applyShelfState(const app::ShelfFeatureState& state);
     void applyMavenJavaState(const app::MavenJavaFeatureState& state,
                              bool renderCodeVision = false,
                              bool renderStructure = false);
@@ -238,6 +216,11 @@ private:
     void ensureJavaLanguageServer();
     void closeLanguageServerDocument();
     void synchronizeLanguageServerDocument();
+    void restoreWorkbenchLayout();
+    void saveWorkbenchLayout();
+    void scheduleWorkbenchLayoutSave();
+    void showToolWindow(BottomToolKind kind);
+    void updateWorkbenchStatusBar();
     void appendTreeNode(QTreeWidgetItem* parent, const WorkspaceNodeDto& node);
     int ensureEditorTab(const QString& relativePath);
     void showFeatureError(const std::optional<CoreError>& error, const QString& fallback);
@@ -251,6 +234,7 @@ private:
     app::RecentProjectsStore recentProjectsStore_;
     app::WorkspaceSessionStore workspaceSessionStore_;
     app::AppSettingsStore appSettingsStore_;
+    WorkbenchLayoutPersistence layoutPersistence_;
     app::AppSettings appSettings_;
     Win32RuntimeLocator runtimeLocator_;
     app::ProjectRuntimeService runtimeService_;
@@ -260,8 +244,6 @@ private:
     app::MavenBuildService mavenBuildService_;
     std::unique_ptr<app::WorkbenchCoordinator> coordinator_;
     std::unique_ptr<FileStorage> storage_;
-    std::unique_ptr<app::FakeDirtyDocumentsPort> dirtyDocuments_;
-    std::unique_ptr<app::ShelveService> shelveService_;
     Win32SecureStore secureStore_;
     Win32HttpTransport httpTransport_;
     Win32AuthenticodeVerifier authenticodeVerifier_;
@@ -273,8 +255,8 @@ private:
     std::unique_ptr<app::DocumentFeatureModel> documentFeature_;
     std::unique_ptr<app::SearchFeatureModel> searchFeature_;
     std::unique_ptr<app::GitFeatureModel> gitFeature_;
-    app::GitWatcherFreezeController gitWatcherFreeze_;
     std::unique_ptr<app::HistoryFeatureModel> historyFeature_;
+    std::unique_ptr<app::ShelfFeatureModel> shelfFeature_;
     std::unique_ptr<app::MavenJavaFeatureModel> mavenJavaFeature_;
     std::unique_ptr<Win32ProcessSession> mavenSession_;
     std::unique_ptr<Win32ProcessSession> javaSession_;
@@ -285,21 +267,15 @@ private:
     std::uint64_t workspaceEpoch_ = 0;
     QString activePath_;
     bool librarySourcePreview_ = false;
-    bool handlingGitDialog_ = false;
-    /// After Open Diff from a preflight dialog, keep pending context but do not
-    /// re-exec the modal until the pending conflict is cleared or retried.
-    bool suppressPendingGitDialog_ = false;
-    QToolButton* projectSidebarButton_ = nullptr;
-    QToolButton* changesSidebarButton_ = nullptr;
-    QToolButton* gitLogButton_ = nullptr;
-    QStackedWidget* leftSidebarStack_ = nullptr;
-    QSplitter* contentSplitter_ = nullptr;
     QTreeWidget* tree_ = nullptr;
-    GitChangesPanel* gitChangesPanel_ = nullptr;
-    GitLogPanel* gitLogPanel_ = nullptr;
     WorkbenchCodeEditor* editor_ = nullptr;
     QTabBar* editorTabs_ = nullptr;
     QLineEdit* searchField_ = nullptr;
+    QToolButton* projectSwitcherButton_ = nullptr;
+    QToolButton* branchSwitcherButton_ = nullptr;
+    QComboBox* runConfigurationSelector_ = nullptr;
+    QLabel* statusPath_ = nullptr;
+    QLabel* statusInfo_ = nullptr;
     QWidget* findBar_ = nullptr;
     QLineEdit* findField_ = nullptr;
     QLabel* findStatus_ = nullptr;
@@ -308,13 +284,24 @@ private:
     QLineEdit* searchEverywhereField_ = nullptr;
     QListWidget* searchEverywhereResults_ = nullptr;
     QListWidget* navigation_ = nullptr;
-    DiffSplitWidget* diffSplit_ = nullptr;
-    QStackedWidget* editorStack_ = nullptr;
-    QWidget* editorPage_ = nullptr;
+    QListWidget* changes_ = nullptr;
+    QListWidget* gitHistory_ = nullptr;
+    QListWidget* gitStashes_ = nullptr;
+    QWidget* gitStashActions_ = nullptr;
+    QListWidget* gitShelves_ = nullptr;
+    QWidget* gitShelfActions_ = nullptr;
+    QPushButton* createShelfButton_ = nullptr;
+    QPushButton* restoreShelfButton_ = nullptr;
+    QPushButton* deleteShelfButton_ = nullptr;
+    QPlainTextEdit* gitDetails_ = nullptr;
+    QListWidget* commitFiles_ = nullptr;
+    QPlainTextEdit* commitEditor_ = nullptr;
+    QCheckBox* amendCommit_ = nullptr;
+    QWidget* diffActions_ = nullptr;
+    QTableWidget* diff_ = nullptr;
     QListWidget* history_ = nullptr;
     QLabel* analysisStatus_ = nullptr;
     QListWidget* diagnostics_ = nullptr;
-    QWidget* mavenControls_ = nullptr;
     QPlainTextEdit* mavenOutput_ = nullptr;
     QWidget* debugPanel_ = nullptr;
     QPlainTextEdit* debugOutput_ = nullptr;
@@ -322,20 +309,27 @@ private:
     QListWidget* debugVariables_ = nullptr;
     QListWidget* debugThreads_ = nullptr;
     QListWidget* debugStack_ = nullptr;
-    QWidget* terminalPanel_ = nullptr;
-    QPlainTextEdit* terminalOutput_ = nullptr;
-    QLineEdit* terminalInput_ = nullptr;
+    TerminalPanel* terminalPanel_ = nullptr;
     QWidget* diffReviewPanel_ = nullptr;
+    QListWidget* diffOverview_ = nullptr;
     QTimer* workspaceRefreshTimer_ = nullptr;
     QTimer* gitRefreshTimer_ = nullptr;
+    QTimer* layoutSaveTimer_ = nullptr;
     QTimer* debugPollTimer_ = nullptr;
     bool historyContentSelectionPending_ = false;
     std::optional<app::WorkspaceSession> pendingWorkspaceSession_;
+    std::unordered_map<std::string, app::WorkspaceSession::DocumentView> pendingDocumentViews_;
+    std::unordered_set<std::string> workspaceExpandedPaths_;
     QString selectedDiffHunk_;
     std::optional<GitDiffDto> diffReview_;
+    algorithms::GitGraphLayout gitHistoryGraph_;
     std::unordered_set<std::string> expandedDiffRegions_;
+    std::function<void()> pendingDocumentTransition_;
+    std::unordered_set<std::string> pendingDocumentSavePaths_;
+    bool documentTransitionSaveFailed_ = false;
     QString selectedGitCommit_;
     QString selectedGitStash_;
+    QString selectedShelf_;
     QString blamePath_;
     std::optional<std::uint64_t> pendingNavigationLine_;
     std::optional<std::uint64_t> pendingNavigationColumn_;
@@ -346,13 +340,18 @@ private:
     bool suppressEditorChange_ = false;
     bool languageServerDocumentOpen_ = false;
     bool diffIsCommitReview_ = false;
-    bool presentDiffReview_ = false;
     std::chrono::steady_clock::time_point lastShiftPress_{};
-    std::unique_ptr<Win32TerminalTransport> terminal_;
+    std::unique_ptr<app::TerminalModel> terminalModel_;
     std::thread aiWorker_;
     std::thread updateWorker_;
     std::atomic<bool> aiGenerating_{false};
     std::atomic<bool> updateBusy_{false};
+    WorkbenchSidebar* sidebar_ = nullptr;
+    WorkbenchEditorArea* editorArea_ = nullptr;
+    WorkbenchToolWindow* toolWindow_ = nullptr;
+    QSplitter* shellSplitter_ = nullptr;
+    QSplitter* editorToolSplitter_ = nullptr;
+    WorkbenchLayoutState layoutState_;
 };
 
 } // namespace lithe::windows

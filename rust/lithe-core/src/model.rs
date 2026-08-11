@@ -105,6 +105,9 @@ pub struct ReplacementPreviewResponse {
 pub struct FileReadResponse {
     pub path: String,
     pub text: String,
+    pub version: String,
+    pub line_ending: String,
+    pub has_utf8_bom: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,6 +115,7 @@ pub struct FileReadResponse {
 pub struct FileWriteResponse {
     pub path: String,
     pub bytes_written: usize,
+    pub new_version: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

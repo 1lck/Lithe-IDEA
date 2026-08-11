@@ -1,6 +1,7 @@
 #include "workbench_code_editor.h"
 
 #include "syntax_highlighter.h"
+#include "ui_tokens.h"
 
 #include <QColor>
 #include <QAbstractSlider>
@@ -31,19 +32,19 @@ namespace {
 QColor colorForToken(algorithms::SyntaxHighlightKind kind) {
     switch (kind) {
     case algorithms::SyntaxHighlightKind::Keyword:
-        return QColor(42, 91, 170);
+        return QColor(QStringLiteral("#cc7ac4"));
     case algorithms::SyntaxHighlightKind::Annotation:
-        return QColor(143, 74, 145);
+        return QColor(QStringLiteral("#dbb856"));
     case algorithms::SyntaxHighlightKind::Type:
-        return QColor(20, 118, 111);
+        return QColor(QStringLiteral("#6bb8e6"));
     case algorithms::SyntaxHighlightKind::Number:
-        return QColor(156, 93, 20);
+        return QColor(QStringLiteral("#a6c07d"));
     case algorithms::SyntaxHighlightKind::String:
-        return QColor(126, 91, 24);
+        return QColor(QStringLiteral("#8cc079"));
     case algorithms::SyntaxHighlightKind::Comment:
-        return QColor(105, 112, 122);
+        return QColor(QStringLiteral("#64906b"));
     }
-    return QColor(30, 33, 38);
+    return ui::PrimaryText;
 }
 
 int utf16OffsetForUtf8Byte(const QByteArray& utf8, std::size_t byteOffset) {
@@ -96,6 +97,10 @@ private:
 WorkbenchCodeEditor::WorkbenchCodeEditor(QWidget* parent)
     : QPlainTextEdit(parent) {
     setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    auto editorFont = font();
+    editorFont.setPointSize(13);
+    setFont(editorFont);
+    setTabStopDistance(fontMetrics().horizontalAdvance(u' ') * 4.0);
     setLineWrapMode(QPlainTextEdit::NoWrap);
     new WorkbenchSyntaxHighlighter(document());
 
@@ -234,7 +239,12 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
         if (block.isVisible() && blockRect.bottom() >= event->rect().top()) {
             const auto line = block.blockNumber();
             const auto textTop = blockRect.top();
-            const auto baseline = qRound(textTop) + fontMetrics().ascent();
+            const auto* layout = block.layout();
+            if (layout == nullptr || layout->lineCount() == 0) {
+                block = block.next();
+                continue;
+            }
+            const auto baseline = qRound(textTop + layout->lineAt(0).ascent());
             const auto lineNumber = QString::number(line + 1);
             painter.setPen(palette().color(QPalette::Mid));
             if (blameVisible_) {
@@ -255,8 +265,9 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
             }
             const auto lineNumberWidth = blameVisible_ ? gutter_->width() - 8 : 44;
             painter.setFont(font());
-            painter.drawText(0, baseline, lineNumberWidth,
-                             fontMetrics().height(), Qt::AlignRight, lineNumber);
+            painter.drawText(
+                lineNumberWidth - fontMetrics().horizontalAdvance(lineNumber),
+                baseline, lineNumber);
             if (!blameVisible_) {
                 const auto annotation = codeVisionForLine(line);
                 const auto annotationWidth = gutter_->width() - 58;
@@ -266,10 +277,10 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
                     annotationFont.setItalic(true);
                     painter.setFont(annotationFont);
                     painter.setPen(palette().color(QPalette::PlaceholderText));
-                    painter.drawText(52, baseline, annotationWidth,
-                                     painter.fontMetrics().height(), Qt::AlignLeft,
-                                     painter.fontMetrics().elidedText(
-                                         annotation, Qt::ElideRight, annotationWidth));
+                    painter.drawText(
+                        52, baseline,
+                        painter.fontMetrics().elidedText(
+                            annotation, Qt::ElideRight, annotationWidth));
                 }
             }
         }
@@ -278,11 +289,19 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
 }
 
 void WorkbenchCodeEditor::paintEvent(QPaintEvent* event) {
+    const auto contentOffset = QPlainTextEdit::contentOffset();
+    if (auto block = textCursor().block(); block.isValid() && block.isVisible()) {
+        QPainter currentLinePainter(viewport());
+        currentLinePainter.fillRect(
+            QRect(0, blockBoundingGeometry(block).translated(contentOffset).top(),
+                  viewport()->width(), fontMetrics().height()),
+            QColor(ui::SubtleSelection.red(), ui::SubtleSelection.green(),
+                   ui::SubtleSelection.blue(), 58));
+    }
     QPlainTextEdit::paintEvent(event);
 
     QPainter painter(viewport());
     painter.setRenderHint(QPainter::TextAntialiasing);
-    const auto contentOffset = QPlainTextEdit::contentOffset();
     const auto visibleRect = event->rect();
     const auto textColor = palette().color(QPalette::Text);
     const auto inlayColor = QColor(textColor.red(), textColor.green(), textColor.blue(), 125);

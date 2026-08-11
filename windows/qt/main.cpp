@@ -5,6 +5,7 @@
 #include "win32_key_value_store.h"
 #include "ui_translation.h"
 #include "ui_theme.h"
+#include "windows_chrome.h"
 
 #include <QApplication>
 #include <QDateTime>
@@ -90,6 +91,7 @@ int main(int argc, char* argv[]) {
     qInfo() << "Lithe starting";
     lithe::windows::WorkbenchWindow window(
         std::make_unique<lithe::windows::Win32DirectoryChangeSource>());
+    lithe::windows::applyWindowsWindowChrome(window);
     window.show();
     return application.exec();
 }

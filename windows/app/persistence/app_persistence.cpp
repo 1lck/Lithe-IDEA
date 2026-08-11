@@ -1,7 +1,9 @@
 #include "app_persistence.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <charconv>
 #include <variant>
 
 namespace lithe::windows::app {
@@ -20,6 +22,48 @@ std::optional<T> read(const KeyValueStore& store, const char* key) {
 
 bool write(KeyValueStore& store, const char* key, KeyValueValue value, std::string& error) {
     return store.writeValue(key, value, error);
+}
+
+std::vector<std::string> encodeDocumentViews(
+    const std::vector<WorkspaceSession::DocumentView>& views) {
+    std::vector<std::string> encoded;
+    encoded.reserve(views.size());
+    for (const auto& view : views) {
+        encoded.push_back(view.path + "|" + std::to_string(view.cursor) + "|" +
+            std::to_string(view.anchor) + "|" + std::to_string(view.verticalScroll) + "|" +
+            std::to_string(view.horizontalScroll));
+    }
+    return encoded;
+}
+
+std::vector<WorkspaceSession::DocumentView> decodeDocumentViews(
+    const std::vector<std::string>& encoded) {
+    std::vector<WorkspaceSession::DocumentView> views;
+    for (const auto& value : encoded) {
+        std::array<std::string_view, 5> fields;
+        std::size_t start = 0;
+        bool valid = true;
+        for (std::size_t index = 0; index < fields.size(); ++index) {
+            const auto separator = value.find('|', start);
+            const auto end = separator == std::string::npos ? value.size() : separator;
+            fields[index] = std::string_view(value).substr(start, end - start);
+            if (index + 1 < fields.size() && separator == std::string::npos) valid = false;
+            start = end + 1;
+        }
+        if (!valid || fields[0].empty()) continue;
+        WorkspaceSession::DocumentView view;
+        view.path = fields[0];
+        auto parse = [](std::string_view field, std::uint64_t& output) {
+            const auto [end, error] = std::from_chars(
+                field.data(), field.data() + field.size(), output);
+            return error == std::errc{} && end == field.data() + field.size();
+        };
+        if (!parse(fields[1], view.cursor) || !parse(fields[2], view.anchor) ||
+            !parse(fields[3], view.verticalScroll) ||
+            !parse(fields[4], view.horizontalScroll)) continue;
+        views.push_back(std::move(view));
+    }
+    return views;
 }
 
 } // namespace
@@ -144,6 +188,10 @@ WorkspaceSession WorkspaceSessionStore::load(const std::string& workspaceRoot) c
     if (const auto value = read<std::string>(store_, key(workspaceRoot, "activePath").c_str())) {
         result.activePath = *value;
     }
+    if (const auto value = read<std::vector<std::string>>(
+            store_, key(workspaceRoot, "documentViews").c_str())) {
+        result.documentViews = decodeDocumentViews(*value);
+    }
     return result;
 }
 
@@ -152,11 +200,13 @@ bool WorkspaceSessionStore::save(const std::string& workspaceRoot,
                                  std::string& error) {
     if (!write(store_, key(workspaceRoot, "openPaths").c_str(), session.openPaths, error)) return false;
     if (!write(store_, key(workspaceRoot, "expandedPaths").c_str(), session.expandedPaths, error)) return false;
-    return write(store_, key(workspaceRoot, "activePath").c_str(), session.activePath, error);
+    if (!write(store_, key(workspaceRoot, "activePath").c_str(), session.activePath, error)) return false;
+    return write(store_, key(workspaceRoot, "documentViews").c_str(),
+                 encodeDocumentViews(session.documentViews), error);
 }
 
 bool WorkspaceSessionStore::clear(const std::string& workspaceRoot, std::string& error) {
-    const auto fields = {"openPaths", "expandedPaths", "activePath"};
+    const auto fields = {"openPaths", "expandedPaths", "activePath", "documentViews"};
     for (const auto* field : fields) {
         const auto value = store_.readValue(key(workspaceRoot, field));
         if (!value) continue;

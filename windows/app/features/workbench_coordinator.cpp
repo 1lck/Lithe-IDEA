@@ -312,12 +312,20 @@ void WorkbenchCoordinator::replacementPreview(ReplacementPreviewRequestDto reque
 void WorkbenchCoordinator::writeFile(std::string relativePath,
                                      std::string text,
                                      ResponseHandler handler) {
+    FileWriteRequestDto request;
+    request.path = std::move(relativePath);
+    request.text = std::move(text);
+    writeFile(std::move(request), std::move(handler));
+}
+
+void WorkbenchCoordinator::writeFile(FileWriteRequestDto request,
+                                     ResponseHandler handler) {
     bool missingWorkspace = false;
     bool invalidPath = false;
     try {
         std::lock_guard lock(stateMutex_);
         if (!workspacePaths_) missingWorkspace = true;
-        else (void)workspacePaths_->toAbsolute(relativePath);
+        else (void)workspacePaths_->toAbsolute(request.path);
     } catch (const std::invalid_argument&) {
         invalidPath = true;
     }
@@ -344,12 +352,12 @@ void WorkbenchCoordinator::writeFile(std::string relativePath,
         std::lock_guard lock(stateMutex_);
         workspaceEpoch = workspaceEpoch_;
         generation = ++documentGeneration_;
+        request.root = *root;
         loading_ = false;
         call = workers_.makeCall(InteractiveTimeoutMilliseconds);
         currentCall_ = call;
     }
-    execute("file.write", encodeFileWriteRequest(FileWriteRequestDto{*root, relativePath,
-                                                                       std::move(text)}),
+    execute("file.write", encodeFileWriteRequest(request),
             OperationDomain::Document,
             workspaceEpoch, generation, call, std::move(handler));
 }
@@ -1206,7 +1214,8 @@ void WorkbenchCoordinator::complete(OperationDomain domain,
             }
             return std::uint64_t{};
         }();
-        stale = workspaceEpoch != workspaceEpoch_ || generation != currentGeneration;
+        stale = workspaceEpoch != workspaceEpoch_ ||
+            (domain != OperationDomain::Document && generation != currentGeneration);
         if (!stale) {
             if (domain == OperationDomain::Workspace) loading_ = false;
             if (currentCall_ && currentCall_->operationID == call.operationID) currentCall_.reset();

@@ -7,6 +7,13 @@
 class QColor;
 class QToolButton;
 
+namespace lithe::windows {
+
+QIcon workbenchIconForPath(const QString& relativePath, bool isDirectory);
+QIcon workbenchActionIcon(const QString& resourceName);
+
+} // namespace lithe::windows
+
 namespace lithe::windows::ui {
 
 /// Loads IntelliJ Platform SVGs from Resources/IDEAIcons (same catalog as macOS LitheIcons).

@@ -55,6 +55,10 @@ struct FileWriteRequestDto {
     std::string root;
     std::string path;
     std::string text;
+    std::optional<std::string> expectedVersion;
+    std::string lineEnding = "lf";
+    bool hasUtf8Bom = false;
+    bool createOnly = false;
 };
 
 struct HistoryRecordRequestDto {

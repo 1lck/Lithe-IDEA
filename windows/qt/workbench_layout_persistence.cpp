@@ -8,6 +8,8 @@
 namespace lithe::windows {
 namespace {
 
+constexpr std::int64_t LayoutVersion = 2;
+
 template <typename T>
 std::optional<T> readTypedValue(const KeyValueStore& store,
                                 const std::string& key) {
@@ -49,6 +51,10 @@ WorkbenchLayoutState WorkbenchLayoutPersistence::load(
     WorkbenchLayoutState result;
     if (workspaceRoot.empty()) return result;
 
+    const auto version = readTypedValue<std::int64_t>(
+        store_, key(workspaceRoot, "layoutVersion"));
+    if (!version || *version != LayoutVersion) return result;
+
     result.sidebarWidth = readIntValue(
         store_, key(workspaceRoot, "sidebarWidth"), result.sidebarWidth);
     result.editorTopHeight = readIntValue(
@@ -81,6 +87,10 @@ bool WorkbenchLayoutPersistence::save(const std::string& workspaceRoot,
                                       std::string& error) {
     if (workspaceRoot.empty()) {
         error = "workspace root is empty";
+        return false;
+    }
+    if (!writeValue(store_, key(workspaceRoot, "layoutVersion"),
+                    LayoutVersion, error)) {
         return false;
     }
     if (!writeValue(store_, key(workspaceRoot, "sidebarWidth"),

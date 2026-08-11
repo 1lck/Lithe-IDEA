@@ -61,8 +61,8 @@ stable error code and a user-facing message:
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
-| `file.read` | Read a UTF-8 file using a workspace-relative path |
-| `file.write` | Write a UTF-8 file using a workspace-relative path |
+| `file.read` | Read normalized UTF-8 text plus its raw-byte version and format |
+| `file.write` | Conditionally and atomically write UTF-8 text while preserving its format |
 | `history.record` | Store a versioned text snapshot and metadata |
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
@@ -111,6 +111,25 @@ Java processes, and runtime discovery remain platform adapters.
 
 The protocol version is currently `1`. Add a fixture under `shared/fixtures/`
 before changing a response shape or search rule.
+
+`file.read` accepts `root`, a workspace-relative `path`, and optional
+`formatAware`. When `formatAware` is `true`, it removes an optional UTF-8 BOM,
+normalizes CRLF and CR editor text to LF, and returns
+`path`, `text`, an opaque raw-byte `version`, `lineEnding` (`lf` or `crlf`),
+and `hasUtf8Bom`. Mixed files use the dominant newline style, with LF winning
+ties. The version covers the exact disk bytes, including BOM and newlines.
+When omitted or `false`, `text` preserves the original UTF-8 content for
+compatibility with existing consumers.
+
+`file.write` accepts `root`, `path`, normalized `text`, optional
+`expectedVersion`, `lineEnding`, `hasUtf8Bom`, `createOnly`, and `formatAware`.
+When `formatAware` is `true`, the requested line ending and BOM are encoded;
+otherwise `text` is written as its existing UTF-8 bytes for compatibility. A
+mismatched version, a missing expected file, or an occupied create-only path returns
+`external_conflict` without changing the target. Writes use a flushed
+same-directory temporary file and atomic replacement, then return `path`,
+`bytesWritten`, and `newVersion`. `createOnly` cannot be combined with
+`expectedVersion`.
 
 `git.command` accepts `{ "root": string, "arguments": string[], "input": string? }`.
 Arguments are passed directly to the Git executable without a shell. A

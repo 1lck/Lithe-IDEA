@@ -1,11 +1,13 @@
 #include "workbench_window.h"
 
 #include "diff_collapse.h"
-#include "diff_split_layout.h"
-#include "diff_split_widget.h"
+#include "project_import_dialog.h"
+#include "ui_translation.h"
+#include "ui_tokens.h"
 #include "workbench_code_editor.h"
+#include "workbench_document_protection.h"
+#include "workbench_document_view.h"
 #include "workbench_icons.h"
-#include "workbench_ui_theme.h"
 #include "win32_file_storage.h"
 
 #include <QAction>
@@ -14,6 +16,7 @@
 #include <QColor>
 #include <QCheckBox>
 #include <QClipboard>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDateTime>
@@ -28,6 +31,7 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QIcon>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
@@ -47,6 +51,7 @@
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QPointer>
+#include <QScrollBar>
 #include <QTimer>
 #include <QSplitter>
 #include <QStatusBar>
@@ -54,6 +59,8 @@
 #include <QStyleOptionViewItem>
 #include <QStyledItemDelegate>
 #include <QSignalBlocker>
+#include <QSize>
+#include <QSizePolicy>
 #include <QStringList>
 #include <QTabBar>
 #include <QTabWidget>
@@ -68,8 +75,6 @@
 #include <QTextEdit>
 #include <QToolBar>
 #include <QToolButton>
-#include <QButtonGroup>
-#include <QStackedWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QUrl>
@@ -96,11 +101,15 @@ namespace {
 constexpr int RelativePathRole = Qt::UserRole;
 constexpr int DirectoryRole = Qt::UserRole + 1;
 constexpr int HistoryContentPathRole = Qt::UserRole + 2;
+constexpr int DiffHunkRole = Qt::UserRole + 3;
 constexpr int NavigationLineRole = Qt::UserRole + 4;
 constexpr int NavigationColumnRole = Qt::UserRole + 5;
+constexpr int DiffRegionRole = Qt::UserRole + 6;
 constexpr int GitCommitHashRole = Qt::UserRole + 7;
 constexpr int GitStashReferenceRole = Qt::UserRole + 8;
+constexpr int DiffOverviewRowRole = Qt::UserRole + 9;
 constexpr int NavigationAbsolutePathRole = Qt::UserRole + 10;
+constexpr int ShelfIdRole = Qt::UserRole + 11;
 
 algorithms::DiffRowKind diffRowKind(std::string_view kind) {
     if (kind == "changed") return algorithms::DiffRowKind::Changed;
@@ -108,6 +117,27 @@ algorithms::DiffRowKind diffRowKind(std::string_view kind) {
     if (kind == "removal") return algorithms::DiffRowKind::Removal;
     if (kind == "information") return algorithms::DiffRowKind::Information;
     return algorithms::DiffRowKind::Context;
+}
+
+QColor diffBackground(algorithms::DiffRowKind kind) {
+    switch (kind) {
+    case algorithms::DiffRowKind::Changed: return QColor(255, 247, 204);
+    case algorithms::DiffRowKind::Addition: return QColor(222, 247, 229);
+    case algorithms::DiffRowKind::Removal: return QColor(255, 228, 228);
+    case algorithms::DiffRowKind::Information: return QColor(228, 236, 247);
+    case algorithms::DiffRowKind::Context: return QColor(248, 249, 251);
+    }
+    return QColor(248, 249, 251);
+}
+
+QString numberedDiffText(const std::optional<std::uint64_t>& line,
+                         const std::optional<std::string>& text) {
+    const auto number = line
+        ? QString::number(static_cast<qulonglong>(*line)).rightJustified(6, ' ')
+        : QStringLiteral("      ");
+    return number + QStringLiteral("  ") +
+        (text ? QString::fromUtf8(text->data(), static_cast<qsizetype>(text->size()))
+              : QStringLiteral(""));
 }
 
 QString fromUtf8(std::string_view value) {
@@ -186,7 +216,156 @@ int enumIndex(Enum value) {
     return static_cast<int>(value);
 }
 
-} // namespace
+class GitHistoryDelegate final : public QStyledItemDelegate {
+public:
+    GitHistoryDelegate(const algorithms::GitGraphLayout* layout, QObject* parent)
+        : QStyledItemDelegate(parent), layout_(layout) {}
+
+    QSize sizeHint(const QStyleOptionViewItem& option,
+                   const QModelIndex& index) const override {
+        auto size = QStyledItemDelegate::sizeHint(option, index);
+        size.setHeight(std::max(size.height(), 32));
+        return size;
+    }
+
+    void paint(QPainter* painter,
+               const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override {
+        if (layout_ == nullptr || index.row() < 0 ||
+            static_cast<std::size_t>(index.row()) >= layout_->rows.size()) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+
+        constexpr int LaneSpacing = 16;
+        constexpr int GraphPadding = 10;
+        const auto& row = layout_->rows[static_cast<std::size_t>(index.row())];
+        const auto graphWidth = std::max(74,
+            GraphPadding * 2 + static_cast<int>(layout_->laneCount) * LaneSpacing);
+        auto textOption = option;
+        textOption.rect.adjust(graphWidth, 0, 0, 0);
+        QStyledItemDelegate::paint(painter, textOption, index);
+
+        const auto colorFor = [](std::size_t index) {
+            static const std::array<QColor, 6> colors{
+                QColor(64, 124, 206), QColor(218, 108, 77), QColor(82, 164, 102),
+                QColor(157, 105, 190), QColor(205, 160, 52), QColor(74, 164, 164),
+            };
+            return colors[index % colors.size()];
+        };
+        const auto xForLane = [&](std::size_t lane) {
+            return option.rect.left() + GraphPadding +
+                static_cast<int>(lane) * LaneSpacing;
+        };
+        const auto top = option.rect.top();
+        const auto center = option.rect.center().y();
+        const auto bottom = option.rect.bottom();
+
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        for (std::size_t lane = 0; lane < row.incomingLaneColors.size(); ++lane) {
+            QPen pen(colorFor(row.incomingLaneColors[lane]));
+            pen.setWidth(2);
+            painter->setPen(pen);
+            painter->drawLine(xForLane(lane), top, xForLane(lane), center);
+        }
+
+        const auto currentX = xForLane(row.lane);
+        for (const auto& edge : row.parentEdges) {
+            QPen pen(colorFor(edge.colorIndex));
+            pen.setWidth(2);
+            if (edge.isMissing) pen.setStyle(Qt::DashLine);
+            painter->setPen(pen);
+            const auto targetX = edge.targetLane ? xForLane(*edge.targetLane) : currentX;
+            painter->drawLine(currentX, center, targetX, bottom);
+        }
+        painter->setPen(QPen(colorFor(row.incomingLaneColors.empty()
+                                          ? row.lane : row.incomingLaneColors[row.lane %
+                                                                               row.incomingLaneColors.size()]),
+                              2));
+        painter->setBrush(option.state & QStyle::State_Selected
+                              ? option.palette.highlight()
+                              : option.palette.base());
+        painter->drawEllipse(QPointF(currentX, center), 4.5, 4.5);
+        painter->restore();
+    }
+
+private:
+    const algorithms::GitGraphLayout* layout_ = nullptr;
+};
+
+class DiffReviewTable final : public QTableWidget {
+public:
+    struct Connection {
+        int firstRow = 0;
+        int lastRow = 0;
+        algorithms::DiffRowKind kind = algorithms::DiffRowKind::Changed;
+    };
+
+    using QTableWidget::QTableWidget;
+
+    void setConnections(std::vector<Connection> connections) {
+        connections_ = std::move(connections);
+        viewport()->update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        QTableWidget::paintEvent(event);
+        if (connections_.empty() || model() == nullptr) return;
+
+        QPainter painter(viewport());
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        for (const auto& connection : connections_) {
+            if (connection.firstRow < 0 || connection.lastRow < connection.firstRow ||
+                connection.lastRow >= rowCount()) {
+                continue;
+            }
+            const auto first = visualRect(model()->index(connection.firstRow, 0));
+            const auto last = visualRect(model()->index(connection.lastRow, 0));
+            if (!first.isValid() || !last.isValid() ||
+                first.bottom() < 0 || last.top() > viewport()->height()) {
+                continue;
+            }
+
+            const auto leftEdge = columnViewportPosition(0) + columnWidth(0) - 2;
+            const auto rightEdge = columnViewportPosition(1) + 2;
+            if (rightEdge <= leftEdge) continue;
+            const auto top = std::max(0, first.top() + 3);
+            const auto bottom = std::min(viewport()->height() - 3, last.bottom() - 3);
+            if (bottom < 0 || top > viewport()->height() || bottom < top) continue;
+
+            QColor color;
+            switch (connection.kind) {
+            case algorithms::DiffRowKind::Addition:
+                color = QColor(67, 160, 93, 72);
+                break;
+            case algorithms::DiffRowKind::Removal:
+                color = QColor(214, 75, 75, 72);
+                break;
+            case algorithms::DiffRowKind::Changed:
+                color = QColor(205, 160, 52, 72);
+                break;
+            default:
+                continue;
+            }
+            const auto bend = std::min(12, (rightEdge - leftEdge) / 3);
+            QPolygonF ribbon{
+                QPointF(leftEdge, top), QPointF(leftEdge + bend, top),
+                QPointF(rightEdge - bend, bottom), QPointF(rightEdge, bottom),
+                QPointF(rightEdge, bottom + 4), QPointF(rightEdge - bend, bottom + 4),
+                QPointF(leftEdge + bend, top + 4), QPointF(leftEdge, top + 4),
+            };
+            painter.setPen(QPen(color.darker(125), 1));
+            painter.setBrush(color);
+            painter.drawPolygon(ribbon);
+        }
+    }
+
+private:
+    std::vector<Connection> connections_;
+};
+}
 
 WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
                                  QWidget* parent)
@@ -195,6 +374,7 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
       recentProjectsStore_(keyValueStore_),
       workspaceSessionStore_(keyValueStore_),
       appSettingsStore_(keyValueStore_),
+      layoutPersistence_(keyValueStore_),
       appSettings_(appSettingsStore_.load()),
       runtimeLocator_(),
       runtimeService_(runtimeLocator_),
@@ -204,8 +384,6 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
       mavenBuildService_(runtimeService_, mavenRunner_),
       coordinator_(std::make_unique<app::WorkbenchCoordinator>()),
       storage_(std::make_unique<Win32FileStorage>()),
-      dirtyDocuments_(std::make_unique<app::FakeDirtyDocumentsPort>()),
-      shelveService_(std::make_unique<app::ShelveService>(*storage_)),
       secureStore_(),
       httpTransport_(),
       authenticodeVerifier_(),
@@ -219,9 +397,10 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
       workspaceFeature_(std::make_unique<app::WorkspaceFeatureModel>(*coordinator_)),
       documentFeature_(std::make_unique<app::DocumentFeatureModel>(*coordinator_)),
       searchFeature_(std::make_unique<app::SearchFeatureModel>(*coordinator_)),
-      gitFeature_(std::make_unique<app::GitFeatureModel>(
-          *coordinator_, dirtyDocuments_.get(), shelveService_.get())),
+      gitFeature_(std::make_unique<app::GitFeatureModel>(*coordinator_, documentFeature_.get())),
       historyFeature_(std::make_unique<app::HistoryFeatureModel>(*coordinator_, *storage_)),
+      shelfFeature_(std::make_unique<app::ShelfFeatureModel>(*coordinator_, *storage_,
+                                                             appSettings_.dataDirectory)),
       mavenJavaFeature_(std::make_unique<app::MavenJavaFeatureModel>(*coordinator_)),
       mavenSession_(std::make_unique<Win32ProcessSession>()),
       javaSession_(std::make_unique<Win32ProcessSession>()),
@@ -229,234 +408,172 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
       languageServer_(std::make_unique<app::JavaLanguageServerClient>(
           runtimeService_, *storage_, *languageServerSession_, &archiveReader_)),
       watcher_(std::move(watcher)),
-      terminal_(std::make_unique<Win32TerminalTransport>()) {
+      terminalModel_(std::make_unique<app::TerminalModel>(
+          []() -> std::unique_ptr<TerminalTransport> {
+              return std::make_unique<Win32TerminalTransport>();
+          })) {
     if (qApp != nullptr) qApp->installEventFilter(this);
-    setWindowTitle("Lithe");
+    setWindowTitle(uiText(QStringLiteral("Lithe")));
+    setWindowIcon(QIcon(QStringLiteral(":/lithe.ico")));
     resize(1280, 800);
 
-    gitFeature_->setOperationLifecycleHandlers(
-        [this] { gitWatcherFreeze_.begin(); },
-        [this] { gitWatcherFreeze_.end(); });
-    gitWatcherFreeze_.setFlushHandler(
-        [this](std::vector<DirectoryChangeSource::Change> changes) {
-            // Match macOS: only catch up the workspace after Git already refreshed
-            // under freeze. Empty pending means nothing to flush. Skip a second Git
-            // status refresh here — it raced with Abort cleanup when freeze ended
-            // before refreshWorkflow completed.
-            if (changes.empty()) return;
-            QMetaObject::invokeMethod(this, [this, changes = std::move(changes)]() mutable {
-                scheduleWorkspaceRefresh();
-                if (activePath_.isEmpty() || documentFeature_ == nullptr) return;
-                bool activeTouched = false;
-                for (const auto& change : changes) {
-                    const auto path = normalizedRelativePath(fromUtf8(change.path));
-                    if (path.isEmpty() || !sameRelativePath(path, activePath_)) continue;
-                    activeTouched = true;
-                    break;
-                }
-                if (!activeTouched) return;
-                const auto state = documentFeature_->state();
-                if (state.isDirty || state.isLoading || state.isSaving) return;
-                const auto expectedPath = activePath_;
-                documentFeature_->open(expectedPath.toUtf8().toStdString(),
-                    [this, expectedPath](app::DocumentFeatureState next) {
-                    QMetaObject::invokeMethod(this, [this, expectedPath,
-                                                      next = std::move(next)]() mutable {
-                        if (!sameRelativePath(expectedPath, activePath_) ||
-                            !sameRelativePath(expectedPath, fromUtf8(next.relativePath))) {
-                            return;
-                        }
-                        applyDocumentState(next);
-                    }, Qt::QueuedConnection);
-                });
-            }, Qt::QueuedConnection);
-        });
-
     auto* central = new QWidget(this);
-    central->setObjectName(QStringLiteral("WorkbenchCentral"));
-    central->setStyleSheet(QStringLiteral(
-        "QWidget#WorkbenchCentral {"
-        "  background-color: %1;"
-        "  color: %2;"
-        "}"
-        "QSplitter::handle {"
-        "  background-color: %3;"
-        "}"
-        "QSplitter::handle:hover {"
-        "  background-color: rgba(79, 148, 250, 90);"
-        "}"
-        "QStatusBar {"
-        "  background-color: %4;"
-        "  color: %5;"
-        "}"
-        "QTabBar::tab {"
-        "  background: %4;"
-        "  color: %5;"
-        "  padding: 6px 12px;"
-        "  border: none;"
-        "  border-top-left-radius: 4px;"
-        "  border-top-right-radius: 4px;"
-        "  margin-right: 2px;"
-        "}"
-        "QTabBar::tab:selected {"
-        "  background: %6;"
-        "  color: %2;"
-        "  border-bottom: 2px solid %7;"
-        "}")
-        .arg(ui::Theme::rgba(ui::Theme::sidebar()),
-             ui::Theme::rgba(ui::Theme::primaryText()),
-             ui::Theme::rgba(ui::Theme::divider()),
-             ui::Theme::rgba(ui::Theme::toolHeader()),
-             ui::Theme::rgba(ui::Theme::secondaryText()),
-             ui::Theme::rgba(ui::Theme::editor()),
-             ui::Theme::rgba(ui::Theme::accent())));
     auto* layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
-    auto* mainSplitter = new QSplitter(Qt::Horizontal, central);
+    shellSplitter_ = new QSplitter(Qt::Horizontal, central);
+    shellSplitter_->setObjectName(QStringLiteral("workbench.shellSplitter"));
 
-    auto* activityBar = new QWidget(mainSplitter);
-    activityBar->setObjectName(QStringLiteral("ActivityBar"));
-    activityBar->setFixedWidth(48);
-    activityBar->setStyleSheet(QStringLiteral(
-        "QWidget#ActivityBar {"
-        "  background-color: %1;"
-        "  border-right: 1px solid %2;"
-        "}"
-        "QWidget#ActivityBar QToolButton {"
-        "  background: transparent;"
-        "  border: none;"
-        "  border-radius: 8px;"
-        "  color: %3;"
-        "  font-size: 15px;"
-        "}"
-        "QWidget#ActivityBar QToolButton:hover {"
-        "  background-color: rgba(255, 255, 255, 14);"
-        "  color: %4;"
-        "}"
-        "QWidget#ActivityBar QToolButton:checked {"
-        "  background-color: %5;"
-        "  color: %4;"
-        "}")
-        .arg(ui::Theme::rgba(ui::Theme::toolHeader()),
-             ui::Theme::rgba(ui::Theme::divider()),
-             ui::Theme::rgba(ui::Theme::secondaryText()),
-             ui::Theme::rgba(ui::Theme::primaryText()),
-             ui::Theme::rgba(ui::Theme::subtleSelection())));
-    auto* activityLayout = new QVBoxLayout(activityBar);
-    activityLayout->setContentsMargins(6, 10, 6, 10);
-    activityLayout->setSpacing(8);
-    projectSidebarButton_ = new QToolButton(activityBar);
-    projectSidebarButton_->setToolTip(QStringLiteral("Project"));
-    projectSidebarButton_->setCheckable(true);
-    projectSidebarButton_->setChecked(true);
-    projectSidebarButton_->setFixedSize(40, 34);
-    projectSidebarButton_->setAutoRaise(true);
-    projectSidebarButton_->setFocusPolicy(Qt::NoFocus);
-    ui::IdeaIcons::applyToToolButton(
-        projectSidebarButton_,
-        QStringLiteral("toolwindows/toolWindowProject.svg"),
-        16,
-        ui::Theme::primaryText());
-    changesSidebarButton_ = new QToolButton(activityBar);
-    changesSidebarButton_->setToolTip(QStringLiteral("Commit / Shelf"));
-    changesSidebarButton_->setCheckable(true);
-    changesSidebarButton_->setFixedSize(40, 34);
-    changesSidebarButton_->setAutoRaise(true);
-    changesSidebarButton_->setFocusPolicy(Qt::NoFocus);
-    // macOS SidebarDestination.changes → toolwindows/toolWindowCommit.svg
-    ui::IdeaIcons::applyToToolButton(
-        changesSidebarButton_,
-        QStringLiteral("toolwindows/toolWindowCommit.svg"),
-        16,
-        ui::Theme::secondaryText());
-    gitLogButton_ = new QToolButton(activityBar);
-    gitLogButton_->setToolTip(QStringLiteral("Git Log"));
-    gitLogButton_->setCheckable(true);
-    gitLogButton_->setFixedSize(40, 34);
-    gitLogButton_->setAutoRaise(true);
-    gitLogButton_->setFocusPolicy(Qt::NoFocus);
-    // macOS activity Git tool → toolwindows/toolWindowVcs.svg
-    ui::IdeaIcons::applyToToolButton(
-        gitLogButton_,
-        QStringLiteral("toolwindows/toolWindowVcs.svg"),
-        16,
-        ui::Theme::secondaryText());
-    activityLayout->addWidget(projectSidebarButton_);
-    activityLayout->addWidget(changesSidebarButton_);
-    activityLayout->addWidget(gitLogButton_);
-    activityLayout->addStretch(1);
-    // Do not put Git Log into the exclusive group — it toggles the bottom tool
-    // window independently of the left sidebar destination (same as macOS).
-    auto* sidebarGroup = new QButtonGroup(activityBar);
-    sidebarGroup->setExclusive(true);
-    sidebarGroup->addButton(projectSidebarButton_, 0);
-    sidebarGroup->addButton(changesSidebarButton_, 1);
-    mainSplitter->addWidget(activityBar);
-
-    leftSidebarStack_ = new QStackedWidget(mainSplitter);
-    tree_ = new QTreeWidget(leftSidebarStack_);
-    tree_->setHeaderLabel("Workspace");
-    tree_->setMinimumWidth(240);
-    connect(tree_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int column) {
-        presentDiffReview_ = false;
-        if (editorStack_ != nullptr && editorPage_ != nullptr) {
-            editorStack_->setCurrentWidget(editorPage_);
-        }
-        openTreeItem(item, column);
+    sidebar_ = new WorkbenchSidebar(shellSplitter_);
+    tree_ = sidebar_->projectTree();
+    tree_->setHeaderHidden(true);
+    tree_->setMinimumWidth(260);
+    tree_->setIconSize(QSize(ui::FileIconSize, ui::FileIconSize));
+    connect(tree_, &QTreeWidget::itemDoubleClicked, this, &WorkbenchWindow::openTreeItem);
+    connect(tree_, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
+        if (item == nullptr || !item->data(0, DirectoryRole).toBool()) return;
+        const auto path = item->data(0, RelativePathRole).toString();
+        if (!path.isEmpty()) workspaceExpandedPaths_.insert(path.toUtf8().toStdString());
     });
-    tree_->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(tree_, &QTreeWidget::customContextMenuRequested,
+    connect(tree_, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
+        if (item == nullptr || !item->data(0, DirectoryRole).toBool()) return;
+        const auto path = item->data(0, RelativePathRole).toString();
+        if (!path.isEmpty()) workspaceExpandedPaths_.erase(path.toUtf8().toStdString());
+    });
+    connect(sidebar_, &WorkbenchSidebar::projectItemActivated,
+            this, &WorkbenchWindow::openTreeItem);
+    connect(sidebar_, &WorkbenchSidebar::projectContextMenuRequested,
             this, &WorkbenchWindow::showTreeContextMenu);
-    leftSidebarStack_->addWidget(tree_);
+    connect(sidebar_, &WorkbenchSidebar::projectRefreshRequested,
+            this, &WorkbenchWindow::refreshWorkspace);
+    connect(sidebar_, &WorkbenchSidebar::terminalRequested,
+            this, &WorkbenchWindow::startTerminal);
+    connect(sidebar_, &WorkbenchSidebar::gitRequested, this, [this] {
+        sidebar_->setPage(WorkbenchSidebar::SidebarPage::Changes);
+        loadGitHistory();
+    });
+    connect(sidebar_, &WorkbenchSidebar::problemsRequested,
+            this, [this] { showToolWindow(BottomToolKind::Problems); });
+    connect(sidebar_, &WorkbenchSidebar::mavenRequested,
+            this, [this] { showToolWindow(BottomToolKind::Build); });
+    connect(sidebar_, &WorkbenchSidebar::debugRequested,
+            this, [this] { showToolWindow(BottomToolKind::Debug); });
+    connect(sidebar_, &WorkbenchSidebar::settingsRequested,
+            this, &WorkbenchWindow::showSettings);
 
-    gitChangesPanel_ = new GitChangesPanel(leftSidebarStack_);
-    leftSidebarStack_->addWidget(gitChangesPanel_);
-    leftSidebarStack_->setMinimumWidth(280);
-    mainSplitter->addWidget(leftSidebarStack_);
-
-    contentSplitter_ = new QSplitter(Qt::Vertical, mainSplitter);
-    auto* right = new QWidget(contentSplitter_);
-    auto* rightLayout = new QVBoxLayout(right);
-    rightLayout->setContentsMargins(8, 8, 8, 8);
-    searchField_ = new QLineEdit(right);
-    searchField_->setPlaceholderText("Search workspace");
+    searchField_ = sidebar_->searchField();
+    searchField_->setPlaceholderText(uiText(QStringLiteral("Search workspace")));
     connect(searchField_, &QLineEdit::returnPressed, this, &WorkbenchWindow::searchWorkspace);
-    rightLayout->addWidget(searchField_);
 
-    findBar_ = new QWidget(right);
-    auto* findLayout = new QHBoxLayout(findBar_);
-    findLayout->setContentsMargins(0, 0, 0, 0);
-    findField_ = new QLineEdit(findBar_);
-    findField_->setPlaceholderText(QStringLiteral("Find in editor"));
-    findLayout->addWidget(findField_, 1);
-    auto* previousFind = new QPushButton(QStringLiteral("Previous"), findBar_);
-    auto* nextFind = new QPushButton(QStringLiteral("Next"), findBar_);
-    auto* closeFind = new QPushButton(QStringLiteral("Close"), findBar_);
-    findStatus_ = new QLabel(findBar_);
-    findStatus_->setMinimumWidth(72);
-    findLayout->addWidget(previousFind);
-    findLayout->addWidget(nextFind);
-    findLayout->addWidget(findStatus_);
-    findLayout->addWidget(closeFind);
+    changes_ = sidebar_->changesList();
+    connect(sidebar_, &WorkbenchSidebar::changesItemActivated,
+            this, &WorkbenchWindow::openChangeItem);
+
+    editorToolSplitter_ = new QSplitter(Qt::Vertical, shellSplitter_);
+    editorToolSplitter_->setObjectName(QStringLiteral("workbench.editorToolSplitter"));
+    editorArea_ = new WorkbenchEditorArea(editorToolSplitter_);
+    toolWindow_ = new WorkbenchToolWindow(editorToolSplitter_);
+    editorToolSplitter_->addWidget(editorArea_);
+    editorToolSplitter_->addWidget(toolWindow_);
+    editorToolSplitter_->setStretchFactor(0, 1);
+    editorToolSplitter_->setStretchFactor(1, 0);
+
+    shellSplitter_->addWidget(sidebar_);
+    shellSplitter_->addWidget(editorToolSplitter_);
+    shellSplitter_->setStretchFactor(0, 0);
+    shellSplitter_->setStretchFactor(1, 1);
+    layout->addWidget(shellSplitter_, 1);
+    setCentralWidget(central);
+
+    statusPath_ = new QLabel(this);
+    statusPath_->setObjectName(QStringLiteral("workbench.statusPath"));
+    statusPath_->setText(uiText(QStringLiteral("No file selected")));
+    statusPath_->setAccessibleName(uiText(QStringLiteral("Current file")));
+    statusPath_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    statusBar()->addWidget(statusPath_, 1);
+    statusInfo_ = new QLabel(this);
+    statusInfo_->setObjectName(QStringLiteral("workbench.statusInfo"));
+    statusInfo_->setText(QStringLiteral("LF  |  UTF-8  |  4 spaces"));
+    statusInfo_->setAccessibleName(uiText(QStringLiteral("Editor status")));
+    statusBar()->addPermanentWidget(statusInfo_);
+    statusBar()->setSizeGripEnabled(false);
+
+    findBar_ = editorArea_->findBar();
+    findField_ = editorArea_->findField();
+    findStatus_ = editorArea_->findStatus();
+    editor_ = editorArea_->editor();
+    editorTabs_ = editorArea_->editorTabs();
+    results_ = editorArea_->searchResults();
+    navigation_ = editorArea_->javaNavigationResults();
+    diagnostics_ = editorArea_->diagnostics();
+    connectDocumentEditor(editor_);
+    connect(editorArea_, &WorkbenchEditorArea::editorCreated,
+            this, &WorkbenchWindow::connectDocumentEditor);
+
     connect(findField_, &QLineEdit::textChanged, this,
             &WorkbenchWindow::updateFindHighlights);
-    connect(findField_, &QLineEdit::returnPressed, this, &WorkbenchWindow::findNext);
-    connect(previousFind, &QPushButton::clicked, this, &WorkbenchWindow::findPrevious);
-    connect(nextFind, &QPushButton::clicked, this, &WorkbenchWindow::findNext);
-    connect(closeFind, &QPushButton::clicked, this, &WorkbenchWindow::hideFindBar);
-    findBar_->setVisible(false);
-    rightLayout->addWidget(findBar_);
-
-    analysisStatus_ = new QLabel(right);
-    analysisStatus_->setText("Project analysis idle");
-    rightLayout->addWidget(analysisStatus_);
-
-    diagnostics_ = new QListWidget(right);
-    diagnostics_->setMaximumHeight(140);
-    diagnostics_->setVisible(false);
-    connect(diagnostics_, &QListWidget::itemDoubleClicked, this,
-            [this](QListWidgetItem* item) { openSearchResult(item); });
-    rightLayout->addWidget(diagnostics_);
+    connect(editorArea_, &WorkbenchEditorArea::findNextRequested,
+            this, &WorkbenchWindow::findNext);
+    connect(editorArea_, &WorkbenchEditorArea::findPreviousRequested,
+            this, &WorkbenchWindow::findPrevious);
+    connect(editorArea_, &WorkbenchEditorArea::findBarCloseRequested,
+            this, &WorkbenchWindow::hideFindBar);
+    connect(editorArea_, &WorkbenchEditorArea::tabChanged,
+            this, &WorkbenchWindow::switchEditorTab);
+    connect(editorArea_, &WorkbenchEditorArea::tabCloseRequested,
+            this, &WorkbenchWindow::closeEditorTab);
+    connect(editorArea_, &WorkbenchEditorArea::searchResultActivated,
+            this, &WorkbenchWindow::openSearchResult);
+    connect(editorArea_, &WorkbenchEditorArea::javaNavigationResultActivated,
+            this, &WorkbenchWindow::openJavaNavigationItem);
+    connect(editorArea_, &WorkbenchEditorArea::diagnosticActivated,
+            this, &WorkbenchWindow::openSearchResult);
+    connect(editorArea_, &WorkbenchEditorArea::keepEditorVersionRequested,
+            this, [this](const QString& path) {
+        if (!documentFeature_->keepEditorVersion(path.toUtf8().toStdString())) return;
+        editorArea_->clearDocumentStatus(path);
+        updateDocumentTabState(path);
+    });
+    connect(editorArea_, &WorkbenchEditorArea::loadDiskVersionRequested,
+            this, [this](const QString& path) {
+        const auto choice = QMessageBox::warning(
+            this, uiText(QStringLiteral("Load Disk Version")),
+            uiText(QStringLiteral("Discard editor changes and load the version on disk?")),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (choice != QMessageBox::Yes ||
+            !documentFeature_->loadExternalVersion(path.toUtf8().toStdString())) return;
+        editorArea_->clearDocumentStatus(path);
+        updateDocumentTabState(path);
+        if (sameRelativePath(path, activePath_)) applyDocumentState(*documentFeature_->state(
+            path.toUtf8().toStdString()));
+    });
+    connect(editorArea_, &WorkbenchEditorArea::recreateDeletedFileRequested,
+            this, [this](const QString& path) {
+        const QPointer<WorkbenchWindow> guardedWindow(this);
+        documentFeature_->save(path.toUtf8().toStdString(),
+            [guardedWindow, path](app::DocumentFeatureState state) {
+            if (!guardedWindow) return;
+            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, path,
+                                      state = std::move(state)]() mutable {
+                if (!guardedWindow) return;
+                guardedWindow->updateDocumentTabState(path);
+                if (state.error) {
+                    guardedWindow->editorArea_->showDocumentError(
+                        path, fromUtf8(state.error->message));
+                } else {
+                    guardedWindow->editorArea_->clearDocumentStatus(path);
+                }
+            }, Qt::QueuedConnection);
+        });
+    });
+    connect(editorArea_, &WorkbenchEditorArea::closeDeletedFileRequested,
+            this, [this](const QString& path) {
+        for (int index = 0; index < editorTabs_->count(); ++index) {
+            if (sameRelativePath(editorTabs_->tabData(index).toString(), path)) {
+                closeEditorTab(index);
+                break;
+            }
+        }
+    });
 
     workspaceRefreshTimer_ = new QTimer(this);
     workspaceRefreshTimer_->setSingleShot(true);
@@ -470,60 +587,95 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     connect(gitRefreshTimer_, &QTimer::timeout,
             this, &WorkbenchWindow::refreshGitStatus);
 
-    mavenControls_ = new QWidget(right);
-    mavenControls_->setObjectName(QStringLiteral("MavenControls"));
-    auto* mavenLayout = new QHBoxLayout(mavenControls_);
+    layoutSaveTimer_ = new QTimer(this);
+    layoutSaveTimer_->setSingleShot(true);
+    layoutSaveTimer_->setInterval(150);
+    connect(layoutSaveTimer_, &QTimer::timeout, this, &WorkbenchWindow::saveWorkbenchLayout);
+
+    connect(shellSplitter_, &QSplitter::splitterMoved,
+            this, [this] { scheduleWorkbenchLayoutSave(); });
+    connect(editorToolSplitter_, &QSplitter::splitterMoved,
+            this, [this] { scheduleWorkbenchLayoutSave(); });
+    connect(sidebar_, &WorkbenchSidebar::pageChanged, this,
+            [this](WorkbenchSidebar::SidebarPage page) {
+        layoutState_.sidebarDestination = page == WorkbenchSidebar::SidebarPage::Project
+            ? SidebarDestination::Project
+            : page == WorkbenchSidebar::SidebarPage::Search
+                ? SidebarDestination::Search : SidebarDestination::Git;
+        scheduleWorkbenchLayoutSave();
+    });
+    connect(toolWindow_, &WorkbenchToolWindow::toolChanged, this,
+            [this](BottomToolKind kind) {
+        layoutState_.bottomToolKind = kind;
+        layoutState_.bottomVisible = true;
+        scheduleWorkbenchLayoutSave();
+    });
+    connect(toolWindow_, &WorkbenchToolWindow::hideRequested, this, [this] {
+        toolWindow_->setVisible(false);
+        layoutState_.bottomVisible = false;
+        scheduleWorkbenchLayoutSave();
+    });
+    auto* mavenPanel = new QWidget(toolWindow_);
+    auto* mavenPanelLayout = new QVBoxLayout(mavenPanel);
+    mavenPanelLayout->setContentsMargins(8, 8, 8, 8);
+    analysisStatus_ = new QLabel(mavenPanel);
+    analysisStatus_->setText(uiText(QStringLiteral("Project analysis idle")));
+    mavenPanelLayout->addWidget(analysisStatus_);
+
+    auto* mavenControls = new QWidget(mavenPanel);
+    auto* mavenLayout = new QHBoxLayout(mavenControls);
     mavenLayout->setContentsMargins(0, 0, 0, 0);
-    auto* mavenLabel = new QLabel("Maven", mavenControls_);
+    auto* mavenLabel = new QLabel(uiText(QStringLiteral("Maven")), mavenControls);
     mavenLayout->addWidget(mavenLabel);
     for (const auto& phase : {QStringLiteral("clean"), QStringLiteral("test"),
                               QStringLiteral("package"), QStringLiteral("verify")}) {
-        auto* action = new QPushButton(phase, mavenControls_);
+        auto* action = new QPushButton(phase, mavenControls);
         mavenLayout->addWidget(action);
         connect(action, &QPushButton::clicked, this, [this, phase] {
             runMavenPhase(phase);
         });
     }
-    auto* stopMaven = new QPushButton("Stop", mavenControls_);
+    auto* stopMaven = new QPushButton(uiText(QStringLiteral("Stop")), mavenControls);
     mavenLayout->addWidget(stopMaven);
     connect(stopMaven, &QPushButton::clicked, this, &WorkbenchWindow::stopMavenBuild);
-    auto* runJava = new QPushButton("Run Java", mavenControls_);
+    auto* runJava = new QPushButton(uiText(QStringLiteral("Run Java")), mavenControls);
     mavenLayout->addWidget(runJava);
     connect(runJava, &QPushButton::clicked, this, &WorkbenchWindow::runCurrentJava);
-    auto* runSpring = new QPushButton("Run Spring", mavenControls_);
+    auto* runSpring = new QPushButton(uiText(QStringLiteral("Run Spring")), mavenControls);
     mavenLayout->addWidget(runSpring);
     connect(runSpring, &QPushButton::clicked, this, &WorkbenchWindow::runSpringBoot);
-    auto* stopJava = new QPushButton("Stop Java", mavenControls_);
+    auto* stopJava = new QPushButton(uiText(QStringLiteral("Stop Java")), mavenControls);
     mavenLayout->addWidget(stopJava);
     connect(stopJava, &QPushButton::clicked, this, &WorkbenchWindow::stopJavaRun);
     mavenLayout->addStretch(1);
-    rightLayout->addWidget(mavenControls_);
+    mavenPanelLayout->addWidget(mavenControls);
 
-    mavenOutput_ = new QPlainTextEdit(right);
+    mavenOutput_ = new QPlainTextEdit(mavenPanel);
     mavenOutput_->setReadOnly(true);
     mavenOutput_->setLineWrapMode(QPlainTextEdit::NoWrap);
     mavenOutput_->setMaximumHeight(160);
-    mavenOutput_->setPlaceholderText("Maven output");
-    rightLayout->addWidget(mavenOutput_);
+    mavenOutput_->setPlaceholderText(uiText(QStringLiteral("Maven output")));
+    mavenPanelLayout->addWidget(mavenOutput_, 1);
+    toolWindow_->setPanel(BottomToolKind::Build, mavenPanel);
 
-    debugPanel_ = new QWidget(right);
+    debugPanel_ = new QWidget(toolWindow_);
     auto* debugLayout = new QVBoxLayout(debugPanel_);
     debugLayout->setContentsMargins(0, 0, 0, 0);
     auto* debugInspectControls = new QHBoxLayout();
-    auto* threads = new QPushButton("Threads", debugPanel_);
-    auto* stack = new QPushButton("Stack", debugPanel_);
-    auto* variables = new QPushButton("Variables", debugPanel_);
+    auto* threads = new QPushButton(uiText(QStringLiteral("Threads")), debugPanel_);
+    auto* stack = new QPushButton(uiText(QStringLiteral("Stack")), debugPanel_);
+    auto* variables = new QPushButton(uiText(QStringLiteral("Variables")), debugPanel_);
     debugInspectControls->addWidget(threads);
     debugInspectControls->addWidget(stack);
     debugInspectControls->addWidget(variables);
     debugExpression_ = new QLineEdit(debugPanel_);
-    debugExpression_->setPlaceholderText("Evaluate expression");
+    debugExpression_->setPlaceholderText(uiText(QStringLiteral("Evaluate expression")));
     debugInspectControls->addWidget(debugExpression_, 1);
     debugLayout->addLayout(debugInspectControls);
 
     auto* debugViews = new QSplitter(Qt::Horizontal, debugPanel_);
     debugVariables_ = new QListWidget(debugViews);
-    debugVariables_->setToolTip("Double-click a variable to expand or collapse it");
+    debugVariables_->setToolTip(uiText(QStringLiteral("Double-click a variable to expand or collapse it")));
     debugThreads_ = new QListWidget(debugViews);
     debugStack_ = new QListWidget(debugViews);
     debugViews->addWidget(debugVariables_);
@@ -538,10 +690,9 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     debugOutput_->setReadOnly(true);
     debugOutput_->setLineWrapMode(QPlainTextEdit::NoWrap);
     debugOutput_->setMaximumHeight(150);
-    debugOutput_->setPlaceholderText("Debugger output");
+    debugOutput_->setPlaceholderText(uiText(QStringLiteral("Debugger output")));
     debugLayout->addWidget(debugOutput_);
-    debugPanel_->setVisible(false);
-    rightLayout->addWidget(debugPanel_);
+    toolWindow_->setPanel(BottomToolKind::Debug, debugPanel_);
 
     connect(threads, &QPushButton::clicked,
             this, &WorkbenchWindow::inspectDebuggerThreads);
@@ -561,124 +712,217 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
     });
     debugPollTimer_->start();
 
-    terminalPanel_ = new QWidget(right);
-    auto* terminalLayout = new QVBoxLayout(terminalPanel_);
-    terminalLayout->setContentsMargins(0, 0, 0, 0);
-    terminalOutput_ = new QPlainTextEdit(terminalPanel_);
-    terminalOutput_->setReadOnly(true);
-    terminalOutput_->setLineWrapMode(QPlainTextEdit::NoWrap);
-    terminalOutput_->setMaximumHeight(190);
-    terminalOutput_->setPlaceholderText("Terminal output");
-    terminalLayout->addWidget(terminalOutput_);
-    terminalInput_ = new QLineEdit(terminalPanel_);
-    terminalInput_->setPlaceholderText("Enter terminal command");
-    connect(terminalInput_, &QLineEdit::returnPressed, this, [this] {
-        if (!terminal_ || !terminal_->isRunning()) return;
-        terminal_->send(terminalInput_->text().toUtf8().toStdString() + "\r\n");
-        terminalInput_->clear();
-    });
-    terminalLayout->addWidget(terminalInput_);
-    terminalPanel_->setVisible(false);
-    rightLayout->addWidget(terminalPanel_);
+    terminalPanel_ = new TerminalPanel(toolWindow_);
+    terminalPanel_->setModel(terminalModel_.get());
+    toolWindow_->setPanel(BottomToolKind::Terminal, terminalPanel_);
 
-    editor_ = new WorkbenchCodeEditor(right);
-    editor_->setPlaceholderText("Open a file from the workspace tree");
-    auto editorFont = editor_->font();
-    editorFont.setPointSizeF(appSettings_.editorFontSize);
-    editor_->setFont(editorFont);
-    editorTabs_ = new QTabBar(right);
-    editorTabs_->setTabsClosable(true);
-    editorTabs_->setMovable(true);
-    editorTabs_->setExpanding(false);
-    connect(editorTabs_, &QTabBar::currentChanged,
-            this, &WorkbenchWindow::switchEditorTab);
-    connect(editorTabs_, &QTabBar::tabCloseRequested,
-            this, &WorkbenchWindow::closeEditorTab);
-    connect(editor_, &QPlainTextEdit::textChanged, this, [this] {
-        if (suppressEditorChange_ || activePath_.isEmpty()) return;
-        languageServerText_ = editor_->toPlainText().toUtf8().toStdString();
-        documentFeature_->setText(languageServerText_);
-        syncDirtyDocumentsPort(documentFeature_->state());
-        if (languageServerPath_.isEmpty()) return;
-        if (languageServer_ && languageServer_->isReady() && !languageServerUri_.empty()) {
-            languageServer_->didChange(languageServerUri_, languageServerText_);
-        }
-        if (findBar_ != nullptr && findBar_->isVisible()) updateFindHighlights();
-    });
+    connect(changes_, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem* item) { openChangeItem(item); });
 
-    editorStack_ = new QStackedWidget(right);
-    editorPage_ = new QWidget(editorStack_);
-    auto* editorPageLayout = new QVBoxLayout(editorPage_);
-    editorPageLayout->setContentsMargins(0, 0, 0, 0);
-    editorPageLayout->setSpacing(0);
-    editorPageLayout->addWidget(editorTabs_);
-    editorPageLayout->addWidget(editor_, 1);
-    editorStack_->addWidget(editorPage_);
+    auto* gitPanel = new QWidget(toolWindow_);
+    auto* gitPanelLayout = new QVBoxLayout(gitPanel);
+    gitPanelLayout->setContentsMargins(8, 8, 8, 8);
+    auto* diffPanel = new QWidget(toolWindow_);
+    auto* diffPanelLayout = new QVBoxLayout(diffPanel);
+    diffPanelLayout->setContentsMargins(8, 8, 8, 8);
 
-    diffReviewPanel_ = new QWidget(editorStack_);
-    auto* diffReviewLayout = new QVBoxLayout(diffReviewPanel_);
-    diffReviewLayout->setContentsMargins(0, 0, 0, 0);
-    diffReviewLayout->setSpacing(0);
-    diffSplit_ = new DiffSplitWidget(diffReviewPanel_);
-    connect(diffSplit_, &DiffSplitWidget::hunkSelected, this, [this](const QString& hunkId) {
-        selectedDiffHunk_ = hunkId;
+    auto* gitControls = new QWidget(gitPanel);
+    auto* gitControlLayout = new QHBoxLayout(gitControls);
+    gitControlLayout->setContentsMargins(0, 0, 0, 0);
+    auto* gitLog = new QPushButton(uiText(QStringLiteral("Git Log")), gitControls);
+    auto* gitStashes = new QPushButton(uiText(QStringLiteral("Stashes")), gitControls);
+    auto* shelves = new QPushButton(uiText(QStringLiteral("Shelves")), gitControls);
+    auto* gitCompare = new QPushButton(uiText(QStringLiteral("Compare...")), gitControls);
+    gitControlLayout->addWidget(gitLog);
+    gitControlLayout->addWidget(gitStashes);
+    gitControlLayout->addWidget(shelves);
+    gitControlLayout->addWidget(gitCompare);
+    gitControlLayout->addStretch(1);
+    connect(gitLog, &QPushButton::clicked, this, &WorkbenchWindow::loadGitHistory);
+    connect(gitStashes, &QPushButton::clicked, this, &WorkbenchWindow::loadGitStashes);
+    connect(shelves, &QPushButton::clicked, this, &WorkbenchWindow::loadShelves);
+    connect(gitCompare, &QPushButton::clicked, this, &WorkbenchWindow::compareGitReference);
+    gitPanelLayout->addWidget(gitControls);
+
+    gitHistory_ = new QListWidget(gitPanel);
+    gitHistory_->setMaximumHeight(230);
+    gitHistory_->setVisible(false);
+    gitHistory_->setItemDelegate(new GitHistoryDelegate(&gitHistoryGraph_, gitHistory_));
+    connect(gitHistory_, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem* item) { openGitHistoryItem(item); });
+    gitPanelLayout->addWidget(gitHistory_);
+
+    gitStashes_ = new QListWidget(gitPanel);
+    gitStashes_->setMaximumHeight(180);
+    gitStashes_->setVisible(false);
+    connect(gitStashes_, &QListWidget::itemClicked, this,
+            [this](QListWidgetItem* item) {
+        selectedGitStash_ = item == nullptr
+            ? QString() : item->data(GitStashReferenceRole).toString();
     });
-    connect(diffSplit_, &DiffSplitWidget::expandRegionRequested, this,
-            [this](const QString& regionId) {
-        if (regionId.isEmpty()) return;
-        expandedDiffRegions_.insert(regionId.toStdString());
-        renderDiffReview();
+    gitPanelLayout->addWidget(gitStashes_);
+
+    gitStashActions_ = new QWidget(gitPanel);
+    auto* gitStashActionLayout = new QHBoxLayout(gitStashActions_);
+    gitStashActionLayout->setContentsMargins(0, 0, 0, 0);
+    auto* applyStash = new QPushButton(uiText(QStringLiteral("Apply")), gitStashActions_);
+    auto* popStash = new QPushButton(uiText(QStringLiteral("Pop")), gitStashActions_);
+    auto* dropStash = new QPushButton(uiText(QStringLiteral("Drop")), gitStashActions_);
+    gitStashActionLayout->addWidget(applyStash);
+    gitStashActionLayout->addWidget(popStash);
+    gitStashActionLayout->addWidget(dropStash);
+    gitStashActionLayout->addStretch(1);
+    connect(applyStash, &QPushButton::clicked,
+            this, &WorkbenchWindow::applySelectedStash);
+    connect(popStash, &QPushButton::clicked,
+            this, &WorkbenchWindow::popSelectedStash);
+    connect(dropStash, &QPushButton::clicked,
+            this, &WorkbenchWindow::dropSelectedStash);
+    gitStashActions_->setVisible(false);
+    gitPanelLayout->addWidget(gitStashActions_);
+
+    gitShelves_ = new QListWidget(gitPanel);
+    gitShelves_->setMaximumHeight(180);
+    gitShelves_->setVisible(false);
+    connect(gitShelves_, &QListWidget::currentItemChanged, this,
+            [this](QListWidgetItem* item, QListWidgetItem*) {
+        selectedShelf_ = item == nullptr ? QString() : item->data(ShelfIdRole).toString();
+        if (gitShelfActions_ != nullptr) gitShelfActions_->setVisible(true);
+        setShelfActionsEnabled(true);
     });
-    connect(diffSplit_, &DiffSplitWidget::closeRequested, this,
-            &WorkbenchWindow::closeDiffReview);
-    connect(diffSplit_, &DiffSplitWidget::stageHunkRequested,
+    gitPanelLayout->addWidget(gitShelves_);
+
+    gitShelfActions_ = new QWidget(gitPanel);
+    auto* shelfActionLayout = new QHBoxLayout(gitShelfActions_);
+    shelfActionLayout->setContentsMargins(0, 0, 0, 0);
+    createShelfButton_ = new QPushButton(uiText(QStringLiteral("Create Shelf")), gitShelfActions_);
+    restoreShelfButton_ = new QPushButton(uiText(QStringLiteral("Restore")), gitShelfActions_);
+    deleteShelfButton_ = new QPushButton(uiText(QStringLiteral("Delete")), gitShelfActions_);
+    shelfActionLayout->addWidget(createShelfButton_);
+    shelfActionLayout->addWidget(restoreShelfButton_);
+    shelfActionLayout->addWidget(deleteShelfButton_);
+    shelfActionLayout->addStretch(1);
+    connect(createShelfButton_, &QPushButton::clicked, this, &WorkbenchWindow::createShelf);
+    connect(restoreShelfButton_, &QPushButton::clicked, this, &WorkbenchWindow::restoreSelectedShelf);
+    connect(deleteShelfButton_, &QPushButton::clicked, this, &WorkbenchWindow::deleteSelectedShelf);
+    gitShelfActions_->setVisible(false);
+    gitPanelLayout->addWidget(gitShelfActions_);
+
+    gitDetails_ = new QPlainTextEdit(gitPanel);
+    gitDetails_->setReadOnly(true);
+    gitDetails_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    gitDetails_->setMaximumHeight(190);
+    gitDetails_->setPlaceholderText(uiText(QStringLiteral("Git commit or comparison details")));
+    gitDetails_->setVisible(false);
+    gitPanelLayout->addWidget(gitDetails_);
+
+    commitFiles_ = new QListWidget(gitPanel);
+    commitFiles_->setMaximumHeight(150);
+    commitFiles_->setVisible(false);
+    connect(commitFiles_, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem* item) { openCommitFile(item); });
+    gitPanelLayout->addWidget(commitFiles_);
+
+    commitEditor_ = new QPlainTextEdit(gitPanel);
+    commitEditor_->setPlaceholderText(uiText(QStringLiteral("Commit message")));
+    commitEditor_->setMaximumHeight(90);
+    gitPanelLayout->addWidget(commitEditor_);
+
+    auto* commitControls = new QWidget(gitPanel);
+    auto* commitLayout = new QHBoxLayout(commitControls);
+    commitLayout->setContentsMargins(0, 0, 0, 0);
+    auto* stageAll = new QPushButton(uiText(QStringLiteral("Stage all")), commitControls);
+    auto* generateMessage = new QPushButton(uiText(QStringLiteral("AI message")), commitControls);
+    auto* commit = new QPushButton(uiText(QStringLiteral("Commit")), commitControls);
+    amendCommit_ = new QCheckBox(uiText(QStringLiteral("Amend")), commitControls);
+    commitLayout->addWidget(stageAll);
+    commitLayout->addWidget(generateMessage);
+    commitLayout->addWidget(commit);
+    commitLayout->addWidget(amendCommit_);
+    commitLayout->addStretch(1);
+    connect(stageAll, &QPushButton::clicked, this, &WorkbenchWindow::stageAllChanges);
+    connect(generateMessage, &QPushButton::clicked,
+            this, &WorkbenchWindow::generateAICommitMessage);
+    connect(commit, &QPushButton::clicked, this, &WorkbenchWindow::commitChanges);
+    gitPanelLayout->addWidget(commitControls);
+
+    diffActions_ = new QWidget(diffPanel);
+    auto* diffActionLayout = new QHBoxLayout(diffActions_);
+    auto* stageHunk = new QPushButton(uiText(QStringLiteral("Stage hunk")), diffActions_);
+    auto* unstageHunk = new QPushButton(uiText(QStringLiteral("Unstage hunk")), diffActions_);
+    auto* discardHunk = new QPushButton(uiText(QStringLiteral("Discard hunk")), diffActions_);
+    diffActionLayout->addWidget(stageHunk);
+    diffActionLayout->addWidget(unstageHunk);
+    diffActionLayout->addWidget(discardHunk);
+    connect(stageHunk, &QPushButton::clicked,
             this, &WorkbenchWindow::stageSelectedHunk);
-    connect(diffSplit_, &DiffSplitWidget::unstageHunkRequested,
+    connect(unstageHunk, &QPushButton::clicked,
             this, &WorkbenchWindow::unstageSelectedHunk);
-    connect(diffSplit_, &DiffSplitWidget::discardHunkRequested,
+    connect(discardHunk, &QPushButton::clicked,
             this, &WorkbenchWindow::discardSelectedHunk);
-    diffReviewLayout->addWidget(diffSplit_, 1);
-    editorStack_->addWidget(diffReviewPanel_);
-    editorStack_->setCurrentWidget(editorPage_);
-    rightLayout->addWidget(editorStack_, 1);
+    diffActions_->setVisible(false);
+    diffPanelLayout->addWidget(diffActions_);
 
-    results_ = new QListWidget(right);
-    results_->setMaximumHeight(170);
-    results_->setVisible(false);
-    connect(results_, &QListWidget::itemDoubleClicked, this,
-            [this](QListWidgetItem* item) { openSearchResult(item); });
-    rightLayout->addWidget(results_);
+    diffReviewPanel_ = new QWidget(diffPanel);
+    auto* diffReviewLayout = new QHBoxLayout(diffReviewPanel_);
+    diffReviewLayout->setContentsMargins(0, 0, 0, 0);
+    diffOverview_ = new QListWidget(diffReviewPanel_);
+    diffOverview_->setFixedWidth(118);
+    diffOverview_->setMaximumHeight(330);
+    diffOverview_->setSelectionMode(QAbstractItemView::SingleSelection);
+    diffOverview_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    diffOverview_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    diffOverview_->setVisible(false);
+    connect(diffOverview_, &QListWidget::itemClicked, this,
+            [this](QListWidgetItem* item) {
+        if (item == nullptr || diff_ == nullptr) return;
+        bool ok = false;
+        const auto row = item->data(DiffOverviewRowRole).toInt(&ok);
+        if (!ok || row < 0 || row >= diff_->rowCount()) return;
+        if (auto* target = diff_->item(row, 0)) {
+            selectedDiffHunk_ = target->data(DiffHunkRole).toString();
+            diff_->selectRow(row);
+            diff_->scrollToItem(target, QAbstractItemView::PositionAtCenter);
+        }
+    });
+    diffReviewLayout->addWidget(diffOverview_);
 
-    navigation_ = new QListWidget(right);
-    navigation_->setMaximumHeight(170);
-    navigation_->setVisible(false);
-    connect(navigation_, &QListWidget::itemDoubleClicked, this,
-            [this](QListWidgetItem* item) { openJavaNavigationItem(item); });
-    rightLayout->addWidget(navigation_);
+    diff_ = new DiffReviewTable(diffReviewPanel_);
+    diff_->setColumnCount(2);
+    diff_->setHorizontalHeaderLabels({uiText(QStringLiteral("Old")), uiText(QStringLiteral("New"))});
+    diff_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    diff_->verticalHeader()->setVisible(false);
+    diff_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    diff_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    diff_->setSelectionMode(QAbstractItemView::SingleSelection);
+    diff_->setWordWrap(false);
+    diff_->setMinimumHeight(180);
+    diff_->setMaximumHeight(330);
+    diff_->setVisible(false);
+    connect(diff_, &QTableWidget::itemClicked, this, [this](QTableWidgetItem* item) {
+        const auto region = item->data(DiffRegionRole).toString();
+        if (!region.isEmpty()) {
+            expandedDiffRegions_.insert(region.toStdString());
+            renderDiffReview();
+            return;
+        }
+        selectedDiffHunk_ = item->data(DiffHunkRole).toString();
+    });
+    diffReviewLayout->addWidget(diff_, 1);
+    diffReviewPanel_->setVisible(false);
+    diffPanelLayout->addWidget(diffReviewPanel_, 1);
 
-    history_ = new QListWidget(right);
+    history_ = new QListWidget(gitPanel);
     history_->setMaximumHeight(190);
     history_->setVisible(false);
     connect(history_, &QListWidget::itemDoubleClicked, this,
             [this](QListWidgetItem* item) { openHistoryItem(item); });
-    rightLayout->addWidget(history_);
+    gitPanelLayout->addWidget(history_);
+    gitPanelLayout->addStretch(1);
+    diffPanelLayout->addStretch(1);
+    toolWindow_->setPanel(BottomToolKind::Git, gitPanel);
+    toolWindow_->setPanel(BottomToolKind::Diff, diffPanel);
 
-    contentSplitter_->addWidget(right);
-
-    gitLogPanel_ = new GitLogPanel(contentSplitter_);
-    gitLogPanel_->setVisible(false);
-    gitLogPanel_->setMinimumHeight(220);
-    contentSplitter_->addWidget(gitLogPanel_);
-    contentSplitter_->setStretchFactor(0, 3);
-    contentSplitter_->setStretchFactor(1, 2);
-
-    mainSplitter->addWidget(contentSplitter_);
-    mainSplitter->setStretchFactor(0, 0);
-    mainSplitter->setStretchFactor(1, 0);
-    mainSplitter->setStretchFactor(2, 1);
-    layout->addWidget(mainSplitter);
-    setCentralWidget(central);
-    connectGitPanels();
     buildActions();
 
     mavenSession_->setOutputHandler([this](const std::string& output) {
@@ -711,26 +955,6 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
             applyJavaLifecycle(event);
         }, Qt::QueuedConnection);
     });
-    terminal_->setOutputHandler([this](const std::string& output) {
-        QMetaObject::invokeMethod(this, [this, output] {
-            if (terminalOutput_ == nullptr) return;
-            terminalOutput_->moveCursor(QTextCursor::End);
-            terminalOutput_->insertPlainText(fromUtf8(output));
-        }, Qt::QueuedConnection);
-    });
-    terminal_->setErrorHandler([this](const std::string& error) {
-        QMetaObject::invokeMethod(this, [this, error] {
-            if (terminalOutput_ == nullptr) return;
-            terminalOutput_->moveCursor(QTextCursor::End);
-            terminalOutput_->insertPlainText(fromUtf8(error));
-        }, Qt::QueuedConnection);
-    });
-    terminal_->setExitHandler([this] {
-        QMetaObject::invokeMethod(this, [this] {
-            statusBar()->showMessage(QStringLiteral("Terminal exited"), 3000);
-        }, Qt::QueuedConnection);
-    });
-
     languageServer_->setStateHandler([this](bool ready, const std::string& message) {
         QMetaObject::invokeMethod(this, [this, ready, message] {
             applyLanguageServerState(ready, message);
@@ -747,8 +971,9 @@ WorkbenchWindow::WorkbenchWindow(std::unique_ptr<DirectoryChangeSource> watcher,
                                   Qt::QueuedConnection);
     });
 
-    statusBar()->showMessage(QString("Rust Core %1")
+    statusBar()->showMessage(uiText(QStringLiteral("Rust Core %1"))
                                  .arg(fromUtf8(coordinator_->coreVersion())));
+    QTimer::singleShot(0, this, &WorkbenchWindow::restoreWorkbenchLayout);
     QTimer::singleShot(0, this, &WorkbenchWindow::restoreRecentWorkspace);
 }
 
@@ -756,14 +981,116 @@ WorkbenchWindow::~WorkbenchWindow() {
     if (qApp != nullptr) qApp->removeEventFilter(this);
     if (aiWorker_.joinable()) aiWorker_.join();
     if (updateWorker_.joinable()) updateWorker_.join();
-    stopTerminal();
+    if (terminalPanel_ != nullptr) terminalPanel_->setModel(nullptr);
+    if (terminalModel_) terminalModel_->shutdown();
     if (languageServer_) languageServer_->stop();
     stopDebugger();
     stopJavaRun();
     stopMavenBuild();
     if (watcher_) watcher_->stop();
+    saveWorkbenchLayout();
     saveWorkspaceSession();
     if (coordinator_) coordinator_->shutdown();
+}
+
+void WorkbenchWindow::restoreWorkbenchLayout() {
+    if (shellSplitter_ == nullptr || editorToolSplitter_ == nullptr ||
+        sidebar_ == nullptr || toolWindow_ == nullptr) return;
+
+    const auto requested = workspaceRoot_.isEmpty()
+        ? WorkbenchLayoutState{}
+        : layoutPersistence_.load(workspaceRoot_.toStdString());
+    const auto availableWidth = std::max(shellSplitter_->width(), kSidebarMinWidth + 1);
+    const auto availableHeight = std::max(editorToolSplitter_->height(),
+                                           kEditorTopMinHeight + kBottomToolMinHeight);
+    layoutState_ = normalizeWorkbenchLayout(requested, availableWidth, availableHeight);
+
+    const auto sidebarPage = layoutState_.sidebarDestination == SidebarDestination::Project
+        ? WorkbenchSidebar::SidebarPage::Project
+        : layoutState_.sidebarDestination == SidebarDestination::Search
+            ? WorkbenchSidebar::SidebarPage::Search
+            : WorkbenchSidebar::SidebarPage::Changes;
+    {
+        const QSignalBlocker sidebarBlocker(sidebar_);
+        sidebar_->setPage(sidebarPage);
+    }
+    {
+        const QSignalBlocker toolBlocker(toolWindow_);
+        toolWindow_->setKind(layoutState_.bottomToolKind);
+    }
+
+    const auto rightWidth = std::max(kMinimumUsablePaneSize,
+                                     availableWidth - layoutState_.sidebarWidth);
+    shellSplitter_->setSizes({layoutState_.sidebarWidth, rightWidth});
+    toolWindow_->setVisible(layoutState_.bottomVisible);
+    if (layoutState_.bottomVisible) {
+        const auto bottomHeight = std::max(kBottomToolMinHeight,
+                                           availableHeight - layoutState_.editorTopHeight);
+        editorToolSplitter_->setSizes({layoutState_.editorTopHeight, bottomHeight});
+    } else {
+        editorToolSplitter_->setSizes({availableHeight, 0});
+    }
+}
+
+void WorkbenchWindow::saveWorkbenchLayout() {
+    if (layoutSaveTimer_ != nullptr) layoutSaveTimer_->stop();
+    if (workspaceRoot_.isEmpty() || shellSplitter_ == nullptr ||
+        editorToolSplitter_ == nullptr || toolWindow_ == nullptr) return;
+
+    const auto shellSizes = shellSplitter_->sizes();
+    if (shellSizes.size() >= 2 && shellSizes[0] > 0) {
+        layoutState_.sidebarWidth = shellSizes[0];
+    }
+    const auto editorToolSizes = editorToolSplitter_->sizes();
+    if (toolWindow_->isVisible() && editorToolSizes.size() >= 2 && editorToolSizes[0] > 0) {
+        layoutState_.editorTopHeight = editorToolSizes[0];
+    }
+    layoutState_.bottomVisible = toolWindow_->isVisible();
+    std::string error;
+    if (!layoutPersistence_.save(workspaceRoot_.toStdString(), layoutState_, error) &&
+        !error.empty()) {
+        statusBar()->showMessage(uiText(QStringLiteral("Could not save workbench layout: ")) +
+                                     fromUtf8(error), 5000);
+    }
+}
+
+void WorkbenchWindow::scheduleWorkbenchLayoutSave() {
+    if (workspaceRoot_.isEmpty() || layoutSaveTimer_ == nullptr) return;
+    layoutSaveTimer_->start();
+}
+
+void WorkbenchWindow::showToolWindow(BottomToolKind kind) {
+    if (toolWindow_ == nullptr || editorToolSplitter_ == nullptr) return;
+    layoutState_.bottomToolKind = kind;
+    layoutState_.bottomVisible = true;
+    toolWindow_->setKind(kind);
+    toolWindow_->setVisible(true);
+    const auto availableHeight = std::max(editorToolSplitter_->height(),
+                                           kEditorTopMinHeight + kBottomToolMinHeight);
+    const auto normalized = normalizeWorkbenchLayout(
+        layoutState_, editorToolSplitter_->width(), availableHeight);
+    layoutState_.editorTopHeight = normalized.editorTopHeight;
+    editorToolSplitter_->setSizes({layoutState_.editorTopHeight,
+                                   availableHeight - layoutState_.editorTopHeight});
+    scheduleWorkbenchLayoutSave();
+}
+
+void WorkbenchWindow::updateWorkbenchStatusBar() {
+    if (statusPath_ == nullptr || statusInfo_ == nullptr) return;
+    if (activePath_.isEmpty()) {
+        statusPath_->setText(workspaceRoot_.isEmpty()
+            ? uiText(QStringLiteral("No file selected"))
+            : QFileInfo(workspaceRoot_).fileName());
+        statusInfo_->setText(QStringLiteral("LF  |  UTF-8  |  4 spaces"));
+        return;
+    }
+    auto displayPath = activePath_;
+    displayPath.replace(u'\\', u'/');
+    statusPath_->setText(displayPath);
+    const auto cursor = editor_ == nullptr ? QTextCursor{} : editor_->textCursor();
+    statusInfo_->setText(QStringLiteral("Ln %1, Col %2  |  LF  |  UTF-8  |  4 spaces")
+        .arg(cursor.blockNumber() + 1)
+        .arg(cursor.positionInBlock() + 1));
 }
 
 bool WorkbenchWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -789,49 +1116,61 @@ bool WorkbenchWindow::eventFilter(QObject* watched, QEvent* event) {
 }
 
 void WorkbenchWindow::buildActions() {
-    auto* toolbar = addToolBar("Workspace");
-    auto* open = toolbar->addAction("Open");
+    auto* toolbar = addToolBar(uiText(QStringLiteral("Workspace")));
+    toolbar->setObjectName(QStringLiteral("workbench.workspaceToolbar"));
+    toolbar->setIconSize(QSize(18, 18));
+    toolbar->setMovable(false);
+    toolbar->setFloatable(false);
+    toolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    toolbar->setFixedHeight(ui::ToolbarHeight);
+    auto* open = toolbar->addAction(uiText(QStringLiteral("Open")));
+    open->setIcon(workbenchActionIcon(QStringLiteral("toolwindows/toolWindowProject.svg")));
+    open->setToolTip(uiText(QStringLiteral("Open workspace")));
     open->setShortcut(QKeySequence::Open);
     connect(open, &QAction::triggered, this, &WorkbenchWindow::chooseWorkspace);
-    auto* refresh = toolbar->addAction("Refresh");
+    auto* refresh = toolbar->addAction(uiText(QStringLiteral("Refresh")));
+    refresh->setIcon(workbenchActionIcon(QStringLiteral("actions/refresh.svg")));
+    refresh->setToolTip(uiText(QStringLiteral("Refresh workspace")));
     connect(refresh, &QAction::triggered, this, &WorkbenchWindow::refreshWorkspace);
-    auto* save = toolbar->addAction("Save");
+    auto* save = toolbar->addAction(uiText(QStringLiteral("Save")));
+    save->setIcon(workbenchActionIcon(QStringLiteral("fileTypes/text.svg")));
+    save->setToolTip(uiText(QStringLiteral("Save document")));
     save->setShortcut(QKeySequence::Save);
     connect(save, &QAction::triggered, this, &WorkbenchWindow::saveDocument);
 
-    auto* fileMenu = menuBar()->addMenu("File");
+    auto* fileMenu = menuBar()->addMenu(uiText(QStringLiteral("File")));
     fileMenu->addAction(open);
     fileMenu->addAction(save);
     fileMenu->addAction(refresh);
-    auto* welcome = fileMenu->addAction("Welcome / Switch Workspace");
+    auto* welcome = fileMenu->addAction(uiText(QStringLiteral("Welcome / Switch Workspace")));
     connect(welcome, &QAction::triggered, this, &WorkbenchWindow::showWelcomeDialog);
-    auto* markdownPreview = fileMenu->addAction("Preview Markdown");
+    auto* markdownPreview = fileMenu->addAction(uiText(QStringLiteral("Preview Markdown")));
     connect(markdownPreview, &QAction::triggered, this, &WorkbenchWindow::showMarkdownPreview);
 
-    auto* searchMenu = menuBar()->addMenu("Search");
-    auto* find = searchMenu->addAction("Find in Editor");
+    auto* searchMenu = menuBar()->addMenu(uiText(QStringLiteral("Search")));
+    auto* find = searchMenu->addAction(uiText(QStringLiteral("Find in Editor")));
     find->setShortcut(QKeySequence::Find);
     connect(find, &QAction::triggered, this, &WorkbenchWindow::showFindBar);
-    auto* everywhere = searchMenu->addAction("Search Everywhere...");
+    auto* everywhere = searchMenu->addAction(uiText(QStringLiteral("Search Everywhere...")));
     everywhere->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E));
     connect(everywhere, &QAction::triggered, this, &WorkbenchWindow::showSearchEverywhere);
 
-    auto* gitMenu = menuBar()->addMenu("Git");
-    auto* blame = gitMenu->addAction("Toggle Blame");
+    auto* gitMenu = menuBar()->addMenu(uiText(QStringLiteral("Git")));
+    auto* blame = gitMenu->addAction(uiText(QStringLiteral("Toggle Blame")));
     connect(blame, &QAction::triggered, this, &WorkbenchWindow::toggleBlame);
     gitMenu->addSeparator();
-    auto* gitLog = gitMenu->addAction("Git Log");
-    connect(gitLog, &QAction::triggered, this, &WorkbenchWindow::toggleGitLogPanel);
-    auto* gitStashes = gitMenu->addAction("Stashes");
+    auto* gitLog = gitMenu->addAction(uiText(QStringLiteral("Git Log")));
+    connect(gitLog, &QAction::triggered, this, &WorkbenchWindow::loadGitHistory);
+    auto* gitStashes = gitMenu->addAction(uiText(QStringLiteral("Stashes")));
     connect(gitStashes, &QAction::triggered, this, &WorkbenchWindow::loadGitStashes);
-    auto* gitCompare = gitMenu->addAction("Compare Reference...");
+    auto* gitCompare = gitMenu->addAction(uiText(QStringLiteral("Compare Reference...")));
     connect(gitCompare, &QAction::triggered, this, &WorkbenchWindow::compareGitReference);
-    auto* switchBranch = gitMenu->addAction("Switch Branch...");
+    auto* switchBranch = gitMenu->addAction(uiText(QStringLiteral("Switch Branch...")));
     connect(switchBranch, &QAction::triggered, this, &WorkbenchWindow::switchGitReference);
-    auto* createBranch = gitMenu->addAction("New Branch...");
+    auto* createBranch = gitMenu->addAction(uiText(QStringLiteral("New Branch...")));
     connect(createBranch, &QAction::triggered, this, &WorkbenchWindow::createGitBranch);
 
-    auto* mavenMenu = menuBar()->addMenu("Maven");
+    auto* mavenMenu = menuBar()->addMenu(uiText(QStringLiteral("Maven")));
     for (const auto& phase : {QStringLiteral("clean"), QStringLiteral("test"),
                               QStringLiteral("package"), QStringLiteral("verify")}) {
         auto* action = mavenMenu->addAction(phase);
@@ -839,73 +1178,163 @@ void WorkbenchWindow::buildActions() {
             runMavenPhase(phase);
         });
     }
-    auto* stop = mavenMenu->addAction("Stop");
+    auto* stop = mavenMenu->addAction(uiText(QStringLiteral("Stop")));
     connect(stop, &QAction::triggered, this, &WorkbenchWindow::stopMavenBuild);
 
-    auto* runMenu = menuBar()->addMenu("Run");
-    auto* runJava = runMenu->addAction("Run Current Java File");
+    auto* runMenu = menuBar()->addMenu(uiText(QStringLiteral("Run")));
+    auto* runJava = runMenu->addAction(uiText(QStringLiteral("Run Current Java File")));
     connect(runJava, &QAction::triggered, this, &WorkbenchWindow::runCurrentJava);
-    auto* runSpring = runMenu->addAction("Run Spring Boot");
+    auto* runSpring = runMenu->addAction(uiText(QStringLiteral("Run Spring Boot")));
     connect(runSpring, &QAction::triggered, this, &WorkbenchWindow::runSpringBoot);
-    auto* stopJava = runMenu->addAction("Stop Java");
+    auto* stopJava = runMenu->addAction(uiText(QStringLiteral("Stop Java")));
     connect(stopJava, &QAction::triggered, this, &WorkbenchWindow::stopJavaRun);
-    auto* definition = runMenu->addAction("Go to Java Definition");
+    auto* definition = runMenu->addAction(uiText(QStringLiteral("Go to Java Definition")));
     definition->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_B));
     connect(definition, &QAction::triggered, this, &WorkbenchWindow::gotoJavaDefinition);
-    auto* usages = runMenu->addAction("Find Java Usages");
+    auto* usages = runMenu->addAction(uiText(QStringLiteral("Find Java Usages")));
     usages->setShortcut(QKeySequence(Qt::ALT | Qt::Key_F7));
     connect(usages, &QAction::triggered, this, &WorkbenchWindow::findJavaUsages);
 
-    auto* debugMenu = menuBar()->addMenu("Debug");
-    auto* debugJava = debugMenu->addAction("Debug Current Java File");
+    auto* debugMenu = menuBar()->addMenu(uiText(QStringLiteral("Debug")));
+    auto* debugJava = debugMenu->addAction(uiText(QStringLiteral("Debug Current Java File")));
     connect(debugJava, &QAction::triggered, this, &WorkbenchWindow::debugCurrentJava);
-    auto* debugSpring = debugMenu->addAction("Debug Spring Boot");
+    auto* debugSpring = debugMenu->addAction(uiText(QStringLiteral("Debug Spring Boot")));
     connect(debugSpring, &QAction::triggered, this, &WorkbenchWindow::debugSpringBoot);
-    auto* attach = debugMenu->addAction("Attach to JDWP...");
+    auto* attach = debugMenu->addAction(uiText(QStringLiteral("Attach to JDWP...")));
     connect(attach, &QAction::triggered, this, &WorkbenchWindow::attachRemoteDebugger);
     debugMenu->addSeparator();
-    auto* toggle = debugMenu->addAction("Toggle Breakpoint");
+    auto* toggle = debugMenu->addAction(uiText(QStringLiteral("Toggle Breakpoint")));
     toggle->setShortcut(QKeySequence(Qt::Key_F9));
     connect(toggle, &QAction::triggered, this, &WorkbenchWindow::toggleBreakpoint);
-    auto* continueAction = debugMenu->addAction("Continue");
+    auto* continueAction = debugMenu->addAction(uiText(QStringLiteral("Continue")));
     continueAction->setShortcut(QKeySequence(Qt::Key_F5));
     connect(continueAction, &QAction::triggered, this, &WorkbenchWindow::continueDebugger);
-    auto* pauseAction = debugMenu->addAction("Pause");
+    auto* pauseAction = debugMenu->addAction(uiText(QStringLiteral("Pause")));
     connect(pauseAction, &QAction::triggered, this, &WorkbenchWindow::pauseDebugger);
-    auto* stepInto = debugMenu->addAction("Step Into");
+    auto* stepInto = debugMenu->addAction(uiText(QStringLiteral("Step Into")));
     stepInto->setShortcut(QKeySequence(Qt::Key_F7));
     connect(stepInto, &QAction::triggered, this, &WorkbenchWindow::stepIntoDebugger);
-    auto* stepOver = debugMenu->addAction("Step Over");
+    auto* stepOver = debugMenu->addAction(uiText(QStringLiteral("Step Over")));
     stepOver->setShortcut(QKeySequence(Qt::Key_F8));
     connect(stepOver, &QAction::triggered, this, &WorkbenchWindow::stepOverDebugger);
-    auto* stepOut = debugMenu->addAction("Step Out");
+    auto* stepOut = debugMenu->addAction(uiText(QStringLiteral("Step Out")));
     connect(stepOut, &QAction::triggered, this, &WorkbenchWindow::stepOutDebugger);
-    auto* stopDebuggerAction = debugMenu->addAction("Stop Debugger");
+    auto* stopDebuggerAction = debugMenu->addAction(uiText(QStringLiteral("Stop Debugger")));
     connect(stopDebuggerAction, &QAction::triggered, this, &WorkbenchWindow::stopDebugger);
 
-    auto* terminalMenu = menuBar()->addMenu("Terminal");
-    auto* openTerminal = terminalMenu->addAction("Open Terminal");
+    auto* terminalMenu = menuBar()->addMenu(uiText(QStringLiteral("Terminal")));
+    auto* openTerminal = terminalMenu->addAction(uiText(QStringLiteral("Open Terminal")));
     connect(openTerminal, &QAction::triggered, this, &WorkbenchWindow::startTerminal);
-    auto* stopTerminalAction = terminalMenu->addAction("Stop Terminal");
+    auto* stopTerminalAction = terminalMenu->addAction(uiText(QStringLiteral("Stop Terminal")));
     connect(stopTerminalAction, &QAction::triggered, this, &WorkbenchWindow::stopTerminal);
 
-    auto* toolsMenu = menuBar()->addMenu("Tools");
-    auto* commandPalette = toolsMenu->addAction("Command Palette...");
+    auto* toolsMenu = menuBar()->addMenu(uiText(QStringLiteral("Tools")));
+    auto* commandPalette = toolsMenu->addAction(uiText(QStringLiteral("Command Palette...")));
     commandPalette->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P));
     connect(commandPalette, &QAction::triggered, this, &WorkbenchWindow::showCommandPalette);
-    auto* settings = toolsMenu->addAction("Settings...");
+    auto* settings = toolsMenu->addAction(uiText(QStringLiteral("Settings...")));
     connect(settings, &QAction::triggered, this, &WorkbenchWindow::showSettings);
     toolsMenu->addSeparator();
-    auto* aiMessage = toolsMenu->addAction("Generate AI Commit Message");
+    auto* aiMessage = toolsMenu->addAction(uiText(QStringLiteral("Generate AI Commit Message")));
     connect(aiMessage, &QAction::triggered,
             this, &WorkbenchWindow::generateAICommitMessage);
-    auto* update = toolsMenu->addAction("Check for Updates");
+    auto* update = toolsMenu->addAction(uiText(QStringLiteral("Check for Updates")));
     connect(update, &QAction::triggered, this, &WorkbenchWindow::checkForUpdates);
+
+    auto* commandMenu = new QMenu(this);
+    commandMenu->setObjectName(QStringLiteral("workbench.commandMenu"));
+    commandMenu->addActions(menuBar()->actions());
+    toolbar->clear();
+
+    projectSwitcherButton_ = new QToolButton(toolbar);
+    projectSwitcherButton_->setObjectName(QStringLiteral("workbench.projectSwitcher"));
+    projectSwitcherButton_->setIcon(QIcon(QStringLiteral(":/lithe.ico")));
+    projectSwitcherButton_->setIconSize(QSize(22, 22));
+    projectSwitcherButton_->setText(QStringLiteral("Lithe-IDEA"));
+    projectSwitcherButton_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    projectSwitcherButton_->setToolTip(uiText(QStringLiteral("Switch workspace")));
+    projectSwitcherButton_->setAutoRaise(true);
+    connect(projectSwitcherButton_, &QToolButton::clicked,
+            this, &WorkbenchWindow::showWelcomeDialog);
+    toolbar->addWidget(projectSwitcherButton_);
+    toolbar->addSeparator();
+
+    branchSwitcherButton_ = new QToolButton(toolbar);
+    branchSwitcherButton_->setObjectName(QStringLiteral("workbench.branchSwitcher"));
+    branchSwitcherButton_->setIcon(
+        workbenchActionIcon(QStringLiteral("toolwindows/toolWindowVcs.svg")));
+    branchSwitcherButton_->setText(uiText(QStringLiteral("No branch")));
+    branchSwitcherButton_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    branchSwitcherButton_->setToolTip(uiText(QStringLiteral("Switch Git branch")));
+    branchSwitcherButton_->setAutoRaise(true);
+    connect(branchSwitcherButton_, &QToolButton::clicked,
+            this, &WorkbenchWindow::switchGitReference);
+    toolbar->addWidget(branchSwitcherButton_);
+
+    auto* spacer = new QWidget(toolbar);
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolbar->addWidget(spacer);
+
+    runConfigurationSelector_ = new QComboBox(toolbar);
+    runConfigurationSelector_->setObjectName(
+        QStringLiteral("workbench.runConfigurationSelector"));
+    runConfigurationSelector_->setMinimumWidth(190);
+    runConfigurationSelector_->setMaximumWidth(230);
+    runConfigurationSelector_->addItem(
+        uiText(QStringLiteral("Current File")), QString{});
+    runConfigurationSelector_->setToolTip(
+        uiText(QStringLiteral("Select run configuration")));
+    toolbar->addWidget(runConfigurationSelector_);
+
+    runJava->setIcon(workbenchActionIcon(QStringLiteral("actions/execute.svg")));
+    runJava->setToolTip(uiText(QStringLiteral("Run selected configuration")));
+    disconnect(runJava, &QAction::triggered, this, &WorkbenchWindow::runCurrentJava);
+    connect(runJava, &QAction::triggered, this, [this] {
+        const auto selectedID = runConfigurationSelector_ == nullptr
+            ? QString{} : runConfigurationSelector_->currentData().toString();
+        if (!selectedID.isEmpty()) {
+            const auto state = mavenJavaFeature_->state();
+            if (state.runConfigurations) {
+                for (const auto& configuration : state.runConfigurations->configurations) {
+                    if (fromUtf8(configuration.id) == selectedID) {
+                        runJavaConfiguration(configuration);
+                        return;
+                    }
+                }
+            }
+        }
+        runCurrentJava();
+    });
+    toolbar->addAction(runJava);
+
+    debugJava->setIcon(
+        workbenchActionIcon(QStringLiteral("toolwindows/toolWindowDebugger.svg")));
+    debugJava->setToolTip(uiText(QStringLiteral("Debug current Java file")));
+    toolbar->addAction(debugJava);
+
+    everywhere->setIcon(workbenchActionIcon(QStringLiteral("actions/search.svg")));
+    everywhere->setToolTip(uiText(QStringLiteral("Search")));
+    toolbar->addAction(everywhere);
+
+    settings->setIcon(workbenchActionIcon(QStringLiteral("general/gear.svg")));
+    settings->setToolTip(uiText(QStringLiteral("Settings")));
+    toolbar->addAction(settings);
+
+    auto* menuButton = new QToolButton(toolbar);
+    menuButton->setObjectName(QStringLiteral("workbench.commandMenuButton"));
+    menuButton->setIcon(workbenchActionIcon(QStringLiteral("actions/moreVertical.svg")));
+    menuButton->setIconSize(QSize(18, 18));
+    menuButton->setToolTip(uiText(QStringLiteral("Main menu")));
+    menuButton->setMenu(commandMenu);
+    menuButton->setPopupMode(QToolButton::InstantPopup);
+    menuButton->setAutoRaise(true);
+    toolbar->addWidget(menuButton);
+    menuBar()->setVisible(false);
 }
 
 void WorkbenchWindow::showSettings() {
     QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Settings"));
+    dialog.setWindowTitle(uiText(QStringLiteral("Settings")));
     dialog.resize(680, 500);
     auto* outer = new QVBoxLayout(&dialog);
     auto* tabs = new QTabWidget(&dialog);
@@ -920,17 +1349,33 @@ void WorkbenchWindow::showSettings() {
     auto* general = new QWidget(tabs);
     auto* generalLayout = new QVBoxLayout(general);
     generalLayout->addWidget(new QLabel(
-        QStringLiteral("Windows-specific preferences for the Lithe workbench."), general));
+        uiText(QStringLiteral("Windows-specific preferences for the Lithe workbench.")), general));
     auto* generalForm = new QFormLayout();
-    generalForm->addRow(QStringLiteral("Workspace"),
+    generalForm->addRow(uiText(QStringLiteral("Workspace")),
                         new QLabel(workspaceRoot_.isEmpty()
-                                       ? QStringLiteral("No workspace open") : workspaceRoot_,
+                                       ? uiText(QStringLiteral("No workspace open")) : workspaceRoot_,
                                    general));
-    generalForm->addRow(QStringLiteral("Rust Core"),
+    generalForm->addRow(uiText(QStringLiteral("Rust Core")),
                         new QLabel(fromUtf8(coordinator_->coreVersion()), general));
+    auto* language = new QComboBox(general);
+    language->addItem(uiText(QStringLiteral("System default")), QStringLiteral("system"));
+    language->addItem(uiText(QStringLiteral("English")), QStringLiteral("en"));
+    language->addItem(uiText(QStringLiteral("Simplified Chinese")), QStringLiteral("zh_CN"));
+    const auto configuredLanguage = QString::fromStdString(
+        app::normalizeUiLanguage(appSettings_.uiLanguage));
+    const auto languageIndex = language->findData(configuredLanguage);
+    language->setCurrentIndex(languageIndex < 0 ? 0 : languageIndex);
+    generalForm->addRow(uiText(QStringLiteral("Interface language")), language);
+    auto* dataDirectory = new QLineEdit(general);
+    dataDirectory->setText(fromUtf8(appSettings_.dataDirectory));
+    dataDirectory->setPlaceholderText(uiText(QStringLiteral("Leave empty for the system default")));
+    dataDirectory->setToolTip(
+        uiText(QStringLiteral("Logs, shelves, and other data files are stored under this folder. "
+                              "Restart Lithe to apply.")));
+    generalForm->addRow(uiText(QStringLiteral("Data directory")), dataDirectory);
     generalLayout->addLayout(generalForm);
     generalLayout->addStretch(1);
-    tabs->addTab(general, QStringLiteral("General"));
+    tabs->addTab(general, uiText(QStringLiteral("General")));
 
     auto* editorPage = new QWidget(tabs);
     auto* editorForm = new QFormLayout(editorPage);
@@ -939,38 +1384,38 @@ void WorkbenchWindow::showSettings() {
     fontSize->setSingleStep(0.5);
     fontSize->setDecimals(1);
     fontSize->setValue(appSettings_.editorFontSize);
-    auto* codeVision = new QCheckBox(QStringLiteral("Show code vision and implementation markers"),
+    auto* codeVision = new QCheckBox(uiText(QStringLiteral("Show code vision and implementation markers")),
                                      editorPage);
     codeVision->setChecked(appSettings_.showCodeVision);
-    auto* inlayHints = new QCheckBox(QStringLiteral("Show Java inlay hints"), editorPage);
+    auto* inlayHints = new QCheckBox(uiText(QStringLiteral("Show Java inlay hints")), editorPage);
     inlayHints->setChecked(appSettings_.showInlayHints);
-    editorForm->addRow(QStringLiteral("Editor font size"), fontSize);
+    editorForm->addRow(uiText(QStringLiteral("Editor font size")), fontSize);
     editorForm->addRow(codeVision);
     editorForm->addRow(inlayHints);
-    tabs->addTab(editorPage, QStringLiteral("Editor"));
+    tabs->addTab(editorPage, uiText(QStringLiteral("Editor")));
 
     auto* projectPage = new QWidget(tabs);
     auto* projectForm = new QFormLayout(projectPage);
     auto* hiddenDirectories = new QLineEdit(projectPage);
     hiddenDirectories->setText(joinValues(appSettings_.hiddenDirectoryNames));
-    hiddenDirectories->setPlaceholderText(QStringLiteral(".git, build, target"));
+    hiddenDirectories->setPlaceholderText(uiText(QStringLiteral(".git, build, target")));
     auto* hiddenFiles = new QLineEdit(projectPage);
     hiddenFiles->setText(joinValues(appSettings_.hiddenFilePatterns));
-    hiddenFiles->setPlaceholderText(QStringLiteral(".DS_Store, *.class"));
-    projectForm->addRow(QStringLiteral("Hidden directories"), hiddenDirectories);
-    projectForm->addRow(QStringLiteral("Hidden file patterns"), hiddenFiles);
+    hiddenFiles->setPlaceholderText(uiText(QStringLiteral(".DS_Store, *.class")));
+    projectForm->addRow(uiText(QStringLiteral("Hidden directories")), hiddenDirectories);
+    projectForm->addRow(uiText(QStringLiteral("Hidden file patterns")), hiddenFiles);
     projectForm->addRow(new QLabel(
-        QStringLiteral("Values are comma-separated and apply after the workspace is refreshed."),
+        uiText(QStringLiteral("Values are comma-separated and apply after the workspace is refreshed.")),
         projectPage));
-    tabs->addTab(projectPage, QStringLiteral("Project"));
+    tabs->addTab(projectPage, uiText(QStringLiteral("Project")));
 
     auto* terminalPage = new QWidget(tabs);
     auto* terminalForm = new QFormLayout(terminalPage);
     auto* shellPath = new QLineEdit(terminalPage);
     shellPath->setText(fromUtf8(appSettings_.terminalShellPath));
-    shellPath->setPlaceholderText(QStringLiteral("Automatic: ComSpec or cmd.exe"));
-    terminalForm->addRow(QStringLiteral("Shell executable"), shellPath);
-    tabs->addTab(terminalPage, QStringLiteral("Terminal"));
+    shellPath->setPlaceholderText(uiText(QStringLiteral("Automatic: ComSpec or cmd.exe")));
+    terminalForm->addRow(uiText(QStringLiteral("Shell executable")), shellPath);
+    tabs->addTab(terminalPage, uiText(QStringLiteral("Terminal")));
 
     auto* aiPage = new QWidget(tabs);
     auto* aiLayout = new QVBoxLayout(aiPage);
@@ -979,38 +1424,44 @@ void WorkbenchWindow::showSettings() {
     const auto updateAIStatus = [this, aiStatus] {
         const auto settings = loadAISettings();
         if (settings.providers.empty()) {
-            aiStatus->setText(QStringLiteral("No AI commit-message provider configured."));
+            aiStatus->setText(uiText(QStringLiteral("No AI commit-message provider configured.")));
         } else {
-            aiStatus->setText(QStringLiteral("Provider: %1  Model: %2")
+            aiStatus->setText(uiText(QStringLiteral("Provider: %1  Model: %2"))
                                   .arg(fromUtf8(settings.providers.front().name))
                                   .arg(fromUtf8(settings.providers.front().model)));
         }
     };
     updateAIStatus();
     aiLayout->addWidget(aiStatus);
-    auto* configureAI = new QPushButton(QStringLiteral("Configure AI commit messages..."), aiPage);
+    auto* configureAI = new QPushButton(uiText(QStringLiteral("Configure AI commit messages...")), aiPage);
     aiLayout->addWidget(configureAI);
     connect(configureAI, &QPushButton::clicked, this, [this, updateAIStatus] {
         if (configureAISettings()) updateAIStatus();
     });
     aiLayout->addStretch(1);
-    tabs->addTab(aiPage, QStringLiteral("AI & Commit"));
+    tabs->addTab(aiPage, uiText(QStringLiteral("AI & Commit")));
 
     auto* updatesPage = new QWidget(tabs);
     auto* updatesLayout = new QVBoxLayout(updatesPage);
     auto* updatesInfo = new QLabel(
-        QStringLiteral("Windows releases are checked on GitHub and downloaded only after "
-                       "SHA-256 and Authenticode verification."), updatesPage);
+        uiText(QStringLiteral("Windows releases are checked on GitHub and downloaded only after "
+                       "SHA-256 and Authenticode verification.")), updatesPage);
     updatesInfo->setWordWrap(true);
     updatesLayout->addWidget(updatesInfo);
-    auto* checkUpdates = new QPushButton(QStringLiteral("Check for updates"), updatesPage);
+    auto* checkUpdates = new QPushButton(uiText(QStringLiteral("Check for updates")), updatesPage);
     updatesLayout->addWidget(checkUpdates);
     connect(checkUpdates, &QPushButton::clicked, this, &WorkbenchWindow::checkForUpdates);
     updatesLayout->addStretch(1);
-    tabs->addTab(updatesPage, QStringLiteral("Updates"));
+    tabs->addTab(updatesPage, uiText(QStringLiteral("Updates")));
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
                                          &dialog);
+    if (auto* ok = buttons->button(QDialogButtonBox::Ok)) {
+        ok->setText(uiText(QStringLiteral("OK")));
+    }
+    if (auto* cancel = buttons->button(QDialogButtonBox::Cancel)) {
+        cancel->setText(uiText(QStringLiteral("Cancel")));
+    }
     outer->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -1028,12 +1479,14 @@ void WorkbenchWindow::showSettings() {
     next.editorFontSize = fontSize->value();
     next.showCodeVision = codeVision->isChecked();
     next.showInlayHints = inlayHints->isChecked();
+    next.uiLanguage = language->currentData().toString().toStdString();
+    next.dataDirectory = dataDirectory->text().trimmed().toStdString();
     next.hiddenDirectoryNames = splitValues(hiddenDirectories->text());
     next.hiddenFilePatterns = splitValues(hiddenFiles->text());
     next.terminalShellPath = shellPath->text().trimmed().toUtf8().toStdString();
     std::string error;
     if (!appSettingsStore_.save(next, error)) {
-        statusBar()->showMessage(QStringLiteral("Could not save settings: ") + fromUtf8(error),
+        statusBar()->showMessage(uiText(QStringLiteral("Could not save settings: ")) + fromUtf8(error),
                                  6000);
         return;
     }
@@ -1049,7 +1502,16 @@ void WorkbenchWindow::showSettings() {
         applyMavenJavaState(mavenJavaFeature_->state(), true, true);
     }
     if (!workspaceRoot_.isEmpty()) loadSnapshot();
-    statusBar()->showMessage(QStringLiteral("Settings saved"), 3000);
+    if (effectiveUiLanguage(appSettings_.uiLanguage) !=
+            effectiveUiLanguage(configuredLanguage.toStdString()) ||
+        app::normalizeDataDirectory(appSettings_.dataDirectory) !=
+            app::normalizeDataDirectory(next.dataDirectory)) {
+        statusBar()->showMessage(
+            uiText(QStringLiteral("Restart Lithe to apply the interface language or data directory.")),
+            5000);
+    } else {
+        statusBar()->showMessage(uiText(QStringLiteral("Settings saved")), 3000);
+    }
 }
 
 void WorkbenchWindow::showCommandPalette() {
@@ -1058,39 +1520,39 @@ void WorkbenchWindow::showCommandPalette() {
         std::function<void()> action;
     };
     const std::vector<Command> commands{
-        {QStringLiteral("Open Workspace"), [this] { chooseWorkspace(); }},
-        {QStringLiteral("Welcome / Switch Workspace"), [this] { showWelcomeDialog(); }},
-        {QStringLiteral("Refresh Workspace"), [this] { refreshWorkspace(); }},
-        {QStringLiteral("Save Document"), [this] { saveDocument(); }},
-        {QStringLiteral("Find in Editor"), [this] { showFindBar(); }},
-        {QStringLiteral("Preview Markdown"), [this] { showMarkdownPreview(); }},
-        {QStringLiteral("Search Workspace"), [this] { searchWorkspace(); }},
-        {QStringLiteral("Search Everywhere"), [this] { showSearchEverywhere(); }},
-        {QStringLiteral("Git Log"), [this] { toggleGitLogPanel(); }},
-        {QStringLiteral("Git Stashes"), [this] { loadGitStashes(); }},
-        {QStringLiteral("Compare Git Reference"), [this] { compareGitReference(); }},
-        {QStringLiteral("Switch Git Branch"), [this] { switchGitReference(); }},
-        {QStringLiteral("Create Git Branch"), [this] { createGitBranch(); }},
-        {QStringLiteral("Stage All Changes"), [this] { stageAllChanges(); }},
-        {QStringLiteral("Commit Changes"), [this] { commitChanges(); }},
-        {QStringLiteral("Generate AI Commit Message"), [this] { generateAICommitMessage(); }},
-        {QStringLiteral("Run Current Java File"), [this] { runCurrentJava(); }},
-        {QStringLiteral("Run Spring Boot"), [this] { runSpringBoot(); }},
-        {QStringLiteral("Stop Java"), [this] { stopJavaRun(); }},
-        {QStringLiteral("Debug Current Java File"), [this] { debugCurrentJava(); }},
-        {QStringLiteral("Stop Debugger"), [this] { stopDebugger(); }},
-        {QStringLiteral("Open Terminal"), [this] { startTerminal(); }},
-        {QStringLiteral("Stop Terminal"), [this] { stopTerminal(); }},
-        {QStringLiteral("Settings"), [this] { showSettings(); }},
-        {QStringLiteral("Check for Updates"), [this] { checkForUpdates(); }},
+        {uiText(QStringLiteral("Open Workspace")), [this] { chooseWorkspace(); }},
+        {uiText(QStringLiteral("Welcome / Switch Workspace")), [this] { showWelcomeDialog(); }},
+        {uiText(QStringLiteral("Refresh Workspace")), [this] { refreshWorkspace(); }},
+        {uiText(QStringLiteral("Save Document")), [this] { saveDocument(); }},
+        {uiText(QStringLiteral("Find in Editor")), [this] { showFindBar(); }},
+        {uiText(QStringLiteral("Preview Markdown")), [this] { showMarkdownPreview(); }},
+        {uiText(QStringLiteral("Search Workspace")), [this] { searchWorkspace(); }},
+        {uiText(QStringLiteral("Search Everywhere")), [this] { showSearchEverywhere(); }},
+        {uiText(QStringLiteral("Git Log")), [this] { loadGitHistory(); }},
+        {uiText(QStringLiteral("Git Stashes")), [this] { loadGitStashes(); }},
+        {uiText(QStringLiteral("Compare Git Reference")), [this] { compareGitReference(); }},
+        {uiText(QStringLiteral("Switch Git Branch")), [this] { switchGitReference(); }},
+        {uiText(QStringLiteral("Create Git Branch")), [this] { createGitBranch(); }},
+        {uiText(QStringLiteral("Stage All Changes")), [this] { stageAllChanges(); }},
+        {uiText(QStringLiteral("Commit Changes")), [this] { commitChanges(); }},
+        {uiText(QStringLiteral("Generate AI Commit Message")), [this] { generateAICommitMessage(); }},
+        {uiText(QStringLiteral("Run Current Java File")), [this] { runCurrentJava(); }},
+        {uiText(QStringLiteral("Run Spring Boot")), [this] { runSpringBoot(); }},
+        {uiText(QStringLiteral("Stop Java")), [this] { stopJavaRun(); }},
+        {uiText(QStringLiteral("Debug Current Java File")), [this] { debugCurrentJava(); }},
+        {uiText(QStringLiteral("Stop Debugger")), [this] { stopDebugger(); }},
+        {uiText(QStringLiteral("Open Terminal")), [this] { startTerminal(); }},
+        {uiText(QStringLiteral("Stop Terminal")), [this] { stopTerminal(); }},
+        {uiText(QStringLiteral("Settings")), [this] { showSettings(); }},
+        {uiText(QStringLiteral("Check for Updates")), [this] { checkForUpdates(); }},
     };
 
     QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Command Palette"));
+    dialog.setWindowTitle(uiText(QStringLiteral("Command Palette")));
     dialog.resize(620, 420);
     auto* layout = new QVBoxLayout(&dialog);
     auto* input = new QLineEdit(&dialog);
-    input->setPlaceholderText(QStringLiteral("Type a command"));
+    input->setPlaceholderText(uiText(QStringLiteral("Type a command")));
     layout->addWidget(input);
     auto* list = new QListWidget(&dialog);
     list->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1128,22 +1590,22 @@ void WorkbenchWindow::showCommandPalette() {
 
 void WorkbenchWindow::showWelcomeDialog() {
     QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Welcome to Lithe"));
+    dialog.setWindowTitle(uiText(QStringLiteral("Welcome to Lithe")));
     dialog.resize(760, 520);
     auto* outer = new QVBoxLayout(&dialog);
 
-    auto* title = new QLabel(QStringLiteral("Welcome to Lithe"), &dialog);
+    auto* title = new QLabel(uiText(QStringLiteral("Welcome to Lithe")), &dialog);
     auto titleFont = title->font();
     titleFont.setPointSize(titleFont.pointSize() + 4);
     titleFont.setBold(true);
     title->setFont(titleFont);
     outer->addWidget(title);
     outer->addWidget(new QLabel(
-        QStringLiteral("Open a recent project, choose a folder, or clone a repository."),
+        uiText(QStringLiteral("Open a recent project, choose a folder, or clone a repository.")),
         &dialog));
 
     auto* filter = new QLineEdit(&dialog);
-    filter->setPlaceholderText(QStringLiteral("Search recent projects"));
+    filter->setPlaceholderText(uiText(QStringLiteral("Search recent projects")));
     outer->addWidget(filter);
     auto* projects = new QListWidget(&dialog);
     projects->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1163,7 +1625,7 @@ void WorkbenchWindow::showWelcomeDialog() {
         }
     }
     if (projects->count() == 0) {
-        auto* item = new QListWidgetItem(QStringLiteral("No recent projects"), projects);
+        auto* item = new QListWidgetItem(uiText(QStringLiteral("No recent projects")), projects);
         item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
     } else {
         projects->setCurrentRow(0);
@@ -1183,12 +1645,12 @@ void WorkbenchWindow::showWelcomeDialog() {
     status->setWordWrap(true);
     outer->addWidget(status);
     auto* buttons = new QHBoxLayout();
-    auto* openSelected = new QPushButton(QStringLiteral("Open Selected"), &dialog);
-    auto* openFolder = new QPushButton(QStringLiteral("Open Folder..."), &dialog);
-    auto* clone = new QPushButton(QStringLiteral("Clone..."), &dialog);
-    auto* settings = new QPushButton(QStringLiteral("Settings..."), &dialog);
-    auto* reveal = new QPushButton(QStringLiteral("Show in Explorer"), &dialog);
-    auto* cancel = new QPushButton(QStringLiteral("Close"), &dialog);
+    auto* openSelected = new QPushButton(uiText(QStringLiteral("Open Selected")), &dialog);
+    auto* openFolder = new QPushButton(uiText(QStringLiteral("Open Folder...")), &dialog);
+    auto* clone = new QPushButton(uiText(QStringLiteral("Clone...")), &dialog);
+    auto* settings = new QPushButton(uiText(QStringLiteral("Settings...")), &dialog);
+    auto* reveal = new QPushButton(uiText(QStringLiteral("Show in Explorer")), &dialog);
+    auto* cancel = new QPushButton(uiText(QStringLiteral("Close")), &dialog);
     buttons->addWidget(openSelected);
     buttons->addWidget(openFolder);
     buttons->addWidget(clone);
@@ -1215,11 +1677,11 @@ void WorkbenchWindow::showWelcomeDialog() {
     connect(projects, &QListWidget::itemDoubleClicked, &dialog,
             [openRoot](QListWidgetItem*) { openRoot(); });
     connect(openFolder, &QPushButton::clicked, &dialog, [this, &dialog] {
-        const auto root = QFileDialog::getExistingDirectory(
-            &dialog, QStringLiteral("Open Workspace"), workspaceRoot_);
-        if (root.isEmpty()) return;
+        ProjectImportDialog import(*storage_, runtimeService_, &dialog);
+        const auto selection = import.run(workspaceRoot_);
+        if (!selection) return;
         dialog.accept();
-        openWorkspaceRoot(root);
+        openWorkspaceRoot(fromUtf8(selection->workspaceRoot));
     });
     connect(clone, &QPushButton::clicked, &dialog, [this, &dialog] {
         dialog.accept();
@@ -1451,7 +1913,7 @@ void WorkbenchWindow::showMarkdownPreview() {
     if (editor_ == nullptr || activePath_.isEmpty() ||
         (!activePath_.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive) &&
          !activePath_.endsWith(QStringLiteral(".markdown"), Qt::CaseInsensitive))) {
-        statusBar()->showMessage(QStringLiteral("Open a Markdown file before previewing it"), 5000);
+        statusBar()->showMessage(uiText(QStringLiteral("Open a Markdown file before previewing it")), 5000);
         return;
     }
 
@@ -1470,9 +1932,9 @@ void WorkbenchWindow::showMarkdownPreview() {
 }
 
 void WorkbenchWindow::chooseWorkspace() {
-    const auto root = QFileDialog::getExistingDirectory(this, "Open Workspace", workspaceRoot_);
-    if (root.isEmpty()) return;
-    openWorkspaceRoot(root);
+    ProjectImportDialog dialog(*storage_, runtimeService_, this);
+    const auto selection = dialog.run(workspaceRoot_);
+    if (selection) openWorkspaceRoot(fromUtf8(selection->workspaceRoot));
 }
 
 void WorkbenchWindow::restoreRecentWorkspace() {
@@ -1489,7 +1951,14 @@ void WorkbenchWindow::openWorkspaceRoot(const QString& selectedRoot) {
     const auto root = QDir::cleanPath(
         QFileInfo(QDir::fromNativeSeparators(selectedRoot)).absoluteFilePath());
     if (root.isEmpty() || !QFileInfo(root).isDir()) return;
+    if (!workspaceRoot_.isEmpty() && root != workspaceRoot_) {
+        const QPointer<WorkbenchWindow> guardedWindow(this);
+        if (!requestDocumentTransition([guardedWindow, root] {
+                if (guardedWindow) guardedWindow->openWorkspaceRoot(root);
+            })) return;
+    }
     ++workspaceEpoch_;
+    if (terminalModel_) terminalModel_->closeAll();
     coordinator_->setWorkspaceVisibility(appSettings_.hiddenDirectoryNames,
                                           appSettings_.hiddenFilePatterns);
     historyFeature_->setVisibilityRules(appSettings_.hiddenDirectoryNames,
@@ -1507,21 +1976,44 @@ void WorkbenchWindow::openWorkspaceRoot(const QString& selectedRoot) {
     documentFeature_->resetForWorkspace();
     searchFeature_->resetForWorkspace();
     gitFeature_->resetForWorkspace();
-    // Align freeze depth with operationDepth_ = 0 so a mid-op workspace switch
-    // cannot leave the watcher permanently frozen.
-    gitWatcherFreeze_.reset();
-    suppressPendingGitDialog_ = false;
-    if (dirtyDocuments_) dirtyDocuments_->clear();
     historyFeature_->resetForWorkspace();
+    shelfFeature_->resetForWorkspace();
     mavenJavaFeature_->resetForWorkspace();
+    workspaceExpandedPaths_.clear();
     workspaceRoot_ = root;
+    applyTerminalWorkspace();
+    if (projectSwitcherButton_ != nullptr) {
+        projectSwitcherButton_->setText(
+            QFileInfo(workspaceRoot_).fileName());
+    }
+    if (branchSwitcherButton_ != nullptr) {
+        branchSwitcherButton_->setText(uiText(QStringLiteral("No branch")));
+    }
+    if (runConfigurationSelector_ != nullptr) {
+        runConfigurationSelector_->clear();
+        runConfigurationSelector_->addItem(
+            uiText(QStringLiteral("Current File")), QString{});
+    }
+    QTimer::singleShot(0, this, &WorkbenchWindow::restoreWorkbenchLayout);
     activePath_.clear();
+    updateWorkbenchStatusBar();
+    selectedShelf_.clear();
+    if (gitShelves_ != nullptr) {
+        gitShelves_->clear();
+        gitShelves_->setVisible(false);
+    }
+    if (gitShelfActions_ != nullptr) gitShelfActions_->setVisible(false);
     librarySourcePreview_ = false;
     if (editorTabs_ != nullptr) {
         QSignalBlocker blocker(editorTabs_);
         while (editorTabs_->count() > 0) {
             editorTabs_->removeTab(editorTabs_->count() - 1);
         }
+    }
+    if (editorArea_ != nullptr) {
+        editorArea_->clearEditors();
+        editor_ = editorArea_->editor();
+        editorArea_->setEmptyStateVisible(true);
     }
     editor_->setReadOnly(false);
     editor_->clear();
@@ -1584,14 +2076,8 @@ void WorkbenchWindow::handleDirectoryChanges(
     const std::vector<DirectoryChangeSource::Change>& changes) {
     if (workspaceRoot_.isEmpty() || changes.empty()) return;
 
-    gitWatcherFreeze_.noteChanges(changes);
-    if (gitWatcherFreeze_.isFrozen()) return;
-
     bool requiresWorkspaceRefresh = false;
     bool requiresGitRefresh = false;
-    bool activeFileWasRemoved = false;
-    bool activeFileWasModified = false;
-
     for (const auto& change : changes) {
         const auto path = normalizedRelativePath(fromUtf8(change.path));
         switch (change.kind) {
@@ -1603,8 +2089,12 @@ void WorkbenchWindow::handleDirectoryChanges(
             requiresWorkspaceRefresh = true;
             if ((change.kind == DirectoryChangeSource::ChangeKind::Removed ||
                  change.kind == DirectoryChangeSource::ChangeKind::RenamedOldName) &&
-                !path.isEmpty() && sameRelativePath(path, activePath_)) {
-                activeFileWasRemoved = true;
+                !path.isEmpty() && documentFeature_->state(path.toUtf8().toStdString())) {
+                documentFeature_->externalDeleted(path.toUtf8().toStdString());
+                updateDocumentTabState(path);
+                if (sameRelativePath(path, activePath_)) {
+                    editorArea_->showDeletedConflict(path);
+                }
             }
             break;
         case DirectoryChangeSource::ChangeKind::Modified:
@@ -1615,7 +2105,29 @@ void WorkbenchWindow::handleDirectoryChanges(
                 requiresWorkspaceRefresh = true;
             } else {
                 requiresGitRefresh = true;
-                if (sameRelativePath(path, activePath_)) activeFileWasModified = true;
+                if (documentFeature_->state(path.toUtf8().toStdString())) {
+                    const QPointer<WorkbenchWindow> guardedWindow(this);
+                    documentFeature_->externalModified(path.toUtf8().toStdString(),
+                        [guardedWindow, path](app::DocumentFeatureState state) {
+                        if (!guardedWindow) return;
+                        QMetaObject::invokeMethod(guardedWindow, [guardedWindow, path,
+                                                  state = std::move(state)]() mutable {
+                            if (!guardedWindow) return;
+                            guardedWindow->updateDocumentTabState(path);
+                            if (!sameRelativePath(path, guardedWindow->activePath_)) return;
+                            if (state.error) {
+                                guardedWindow->editorArea_->showDocumentError(
+                                    path, fromUtf8(state.error->message));
+                            } else if (state.externalState ==
+                                       app::DocumentExternalState::Modified) {
+                                guardedWindow->editorArea_->showModifiedConflict(path);
+                            } else {
+                                guardedWindow->editorArea_->clearDocumentStatus(path);
+                                guardedWindow->applyDocumentState(state);
+                            }
+                        }, Qt::QueuedConnection);
+                    });
+                }
             }
             break;
         }
@@ -1624,37 +2136,144 @@ void WorkbenchWindow::handleDirectoryChanges(
     if (requiresWorkspaceRefresh) scheduleWorkspaceRefresh();
     if (requiresGitRefresh) scheduleGitRefresh();
 
-    if (activeFileWasRemoved) {
-        const auto state = documentFeature_->state();
-        if (!state.isDirty && !state.isLoading && !state.isSaving) {
-            activePath_.clear();
-            blamePath_.clear();
-            closeLanguageServerDocument();
-            suppressEditorChange_ = true;
-            editor_->clearAnnotations();
-            editor_->clear();
-            suppressEditorChange_ = false;
-            statusBar()->showMessage(QStringLiteral("The open file was removed"), 5000);
-        } else {
-            statusBar()->showMessage(
-                QStringLiteral("The open file was removed; unsaved changes were kept"), 6000);
+}
+
+void WorkbenchWindow::closeEvent(QCloseEvent* event) {
+    const QPointer<WorkbenchWindow> guardedWindow(this);
+    if (requestDocumentTransition([guardedWindow] {
+            if (guardedWindow) guardedWindow->close();
+        })) {
+        event->accept();
+    } else {
+        event->ignore();
+    }
+}
+
+bool WorkbenchWindow::requestDocumentTransition(std::function<void()> transition) {
+    if (pendingDocumentTransition_) return false;
+    const auto snapshot = documentFeature_->documentSafetySnapshot();
+    const auto states = documentFeature_->states();
+    const auto hasLoading = std::any_of(states.begin(), states.end(),
+        [](const auto& state) { return state.isLoading; });
+    if (documentTransitionDecision(snapshot.isSaving || hasLoading,
+                                   snapshot.dirtyPaths.size()) ==
+        DocumentTransitionDecision::Block && (snapshot.isSaving || hasLoading)) {
+        QMessageBox::information(this, uiText(QStringLiteral("Document Operation in Progress")),
+            uiText(QStringLiteral("Wait for document loading or saving to finish before leaving.")));
+        return false;
+    }
+    if (documentTransitionDecision(false, snapshot.dirtyPaths.size()) ==
+        DocumentTransitionDecision::Proceed) return true;
+
+    const auto choice = QMessageBox::warning(
+        this, uiText(QStringLiteral("Unsaved Documents")),
+        uiText(QStringLiteral("%1 document(s) have unsaved changes."))
+            .arg(snapshot.dirtyPaths.size()),
+        QMessageBox::SaveAll | QMessageBox::Discard | QMessageBox::Cancel,
+        QMessageBox::Cancel);
+    const auto decision = documentTransitionDecision(false, snapshot.dirtyPaths.size(), choice);
+    if (decision == DocumentTransitionDecision::Block) return false;
+    if (decision == DocumentTransitionDecision::Proceed) return true;
+
+    pendingDocumentTransition_ = std::move(transition);
+    pendingDocumentSavePaths_.clear();
+    documentTransitionSaveFailed_ = false;
+    for (const auto& path : snapshot.dirtyPaths) {
+        pendingDocumentSavePaths_.insert(path);
+        if (auto* editor = editorArea_->editorForPath(fromUtf8(path))) editor->setReadOnly(true);
+    }
+    const QPointer<WorkbenchWindow> guardedWindow(this);
+    for (const auto& path : snapshot.dirtyPaths) {
+        const auto qtPath = fromUtf8(path);
+        documentFeature_->save(path,
+            [guardedWindow, qtPath](app::DocumentFeatureState state) {
+            if (!guardedWindow) return;
+            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, qtPath,
+                                      state = std::move(state)]() mutable {
+                if (guardedWindow) {
+                    guardedWindow->finishDocumentTransitionSave(qtPath, state);
+                }
+            }, Qt::QueuedConnection);
+        });
+        updateDocumentTabState(qtPath);
+    }
+    return false;
+}
+
+bool WorkbenchWindow::ensureDocumentsSafeForGit() {
+    const auto snapshot = documentFeature_->documentSafetySnapshot();
+    const auto states = documentFeature_->states();
+    const auto hasLoading = std::any_of(states.begin(), states.end(),
+        [](const auto& state) { return state.isLoading; });
+    if (snapshot.isSaving || hasLoading) {
+        QMessageBox::information(
+            this, uiText(QStringLiteral("Document Operation in Progress")),
+            uiText(QStringLiteral(
+                "Wait for document loading or saving to finish, then retry the Git operation.")));
+        return false;
+    }
+    if (snapshot.hasConflicts) {
+        QMessageBox::warning(
+            this, uiText(QStringLiteral("Resolve Document Conflicts")),
+            uiText(QStringLiteral(
+                "Resolve every external document conflict before changing the Git working tree.")));
+        return false;
+    }
+    if (snapshot.dirtyPaths.empty()) return true;
+
+    const auto choice = QMessageBox::warning(
+        this, uiText(QStringLiteral("Unsaved Documents")),
+        uiText(QStringLiteral(
+            "%1 document(s) have unsaved changes. Save them before retrying the Git operation."))
+            .arg(snapshot.dirtyPaths.size()),
+        QMessageBox::SaveAll | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (choice != QMessageBox::SaveAll) return false;
+
+    const QPointer<WorkbenchWindow> guardedWindow(this);
+    for (const auto& path : snapshot.dirtyPaths) {
+        const auto qtPath = fromUtf8(path);
+        documentFeature_->save(path, [guardedWindow, qtPath](app::DocumentFeatureState state) {
+            if (!guardedWindow) return;
+            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, qtPath,
+                                      state = std::move(state)]() mutable {
+                if (!guardedWindow) return;
+                guardedWindow->updateDocumentTabState(qtPath);
+                if (state.error) {
+                    guardedWindow->editorArea_->showDocumentError(
+                        qtPath, fromUtf8(state.error->message));
+                }
+            }, Qt::QueuedConnection);
+        });
+        updateDocumentTabState(qtPath);
+    }
+    return false;
+}
+
+void WorkbenchWindow::finishDocumentTransitionSave(
+    const QString& relativePath, const app::DocumentFeatureState& state) {
+    pendingDocumentSavePaths_.erase(relativePath.toUtf8().toStdString());
+    updateDocumentTabState(relativePath);
+    if (state.error || state.isDirty || state.isSaving) {
+        documentTransitionSaveFailed_ = true;
+        if (state.error) editorArea_->showDocumentError(relativePath, fromUtf8(state.error->message));
+    }
+    if (!pendingDocumentSavePaths_.empty()) return;
+
+    if (documentTransitionSaveFailed_) {
+        for (const auto& document : documentFeature_->states()) {
+            if (auto* editor = editorArea_->editorForPath(fromUtf8(document.relativePath))) {
+                editor->setReadOnly(document.isReadOnly);
+            }
         }
+        pendingDocumentTransition_ = {};
+        QMessageBox::warning(this, uiText(QStringLiteral("Documents Not Saved")),
+            uiText(QStringLiteral("At least one document could not be saved. The workspace remains open.")));
+        return;
     }
 
-    if (!activeFileWasModified || activePath_.isEmpty()) return;
-    const auto state = documentFeature_->state();
-    if (state.isDirty || state.isLoading || state.isSaving) return;
-
-    const auto expectedPath = activePath_;
-    documentFeature_->open(expectedPath.toUtf8().toStdString(),
-        [this, expectedPath](app::DocumentFeatureState next) {
-        QMetaObject::invokeMethod(this, [this, expectedPath,
-                                          next = std::move(next)]() mutable {
-            if (!sameRelativePath(expectedPath, activePath_) ||
-                !sameRelativePath(expectedPath, fromUtf8(next.relativePath))) return;
-            applyDocumentState(next);
-        }, Qt::QueuedConnection);
-    });
+    auto transition = std::move(pendingDocumentTransition_);
+    pendingDocumentTransition_ = {};
+    if (transition) transition();
 }
 
 void WorkbenchWindow::refreshGitStatus() {
@@ -1668,12 +2287,20 @@ void WorkbenchWindow::refreshGitStatus() {
 
 void WorkbenchWindow::loadGitHistory() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
+    showToolWindow(BottomToolKind::Git);
     selectedGitCommit_.clear();
     diffIsCommitReview_ = false;
-    if (gitLogPanel_ != nullptr) {
-        gitLogPanel_->setVisible(true);
-        gitLogPanel_->prepareForHistoryLoad();
-        if (gitLogButton_ != nullptr) gitLogButton_->setChecked(true);
+    gitHistory_->clear();
+    gitHistory_->setVisible(true);
+    gitStashes_->setVisible(false);
+    gitStashActions_->setVisible(false);
+    gitShelves_->setVisible(false);
+    gitShelfActions_->setVisible(false);
+    gitDetails_->clear();
+    gitDetails_->setVisible(false);
+    if (commitFiles_ != nullptr) {
+        commitFiles_->clear();
+        commitFiles_->setVisible(false);
     }
     gitFeature_->refreshHistory(std::nullopt, 300,
         [this](app::GitFeatureState state) {
@@ -1684,70 +2311,92 @@ void WorkbenchWindow::loadGitHistory() {
 }
 
 void WorkbenchWindow::openGitHistoryItem(QListWidgetItem* item) {
-    if (item == nullptr) return;
-    selectGitCommit(item->data(GitCommitHashRole).toString());
-}
-
-void WorkbenchWindow::openCommitFile(QListWidgetItem* item) {
-    if (item == nullptr) return;
-    openGitCommitFile(item->data(RelativePathRole).toString());
-}
-
-void WorkbenchWindow::selectGitCommit(const QString& hash) {
-    if (hash.isEmpty() || !gitFeature_) return;
+    if (item == nullptr || !gitFeature_) return;
+    const auto hash = item->data(GitCommitHashRole).toString();
+    if (hash.isEmpty()) return;
     selectedGitCommit_ = hash;
-    if (gitLogPanel_ != nullptr) gitLogPanel_->setSelectedCommitHash(hash);
     diffIsCommitReview_ = false;
+    gitDetails_->clear();
+    gitDetails_->setVisible(true);
+    if (commitFiles_ != nullptr) {
+        commitFiles_->clear();
+        commitFiles_->setVisible(false);
+    }
     const auto applyState = [this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
+        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+            applyGitState(state);
+        }, Qt::QueuedConnection);
     };
     gitFeature_->loadCommit(hash.toStdString(), applyState);
     gitFeature_->loadCommitFiles(hash.toStdString(), applyState);
 }
 
-void WorkbenchWindow::openGitCommitFile(const QString& path) {
-    if (path.isEmpty() || !gitFeature_ || selectedGitCommit_.isEmpty()) return;
+void WorkbenchWindow::openCommitFile(QListWidgetItem* item) {
+    if (item == nullptr || !gitFeature_ || selectedGitCommit_.isEmpty()) return;
+    const auto path = item->data(RelativePathRole).toString();
+    if (path.isEmpty()) return;
     diffIsCommitReview_ = true;
-    presentDiffReview_ = true;
     selectedDiffHunk_.clear();
-    activePath_ = path;
-    statusBar()->showMessage(QStringLiteral("Loading commit file diff..."));
+    if (diffActions_ != nullptr) diffActions_->setVisible(false);
+    statusBar()->showMessage(uiText(QStringLiteral("Loading commit file diff...")));
     gitFeature_->loadCommitDiff(
         selectedGitCommit_.toStdString(), {path.toUtf8().toStdString()},
         [this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
+        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+            applyGitState(state);
+        }, Qt::QueuedConnection);
     });
 }
 
 void WorkbenchWindow::loadGitStashes() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
+    showToolWindow(BottomToolKind::Git);
     selectedGitStash_.clear();
-    showChangesSidebar();
+    diffIsCommitReview_ = false;
+    gitStashes_->clear();
+    gitStashes_->setVisible(true);
+    gitHistory_->setVisible(false);
+    gitShelves_->setVisible(false);
+    gitShelfActions_->setVisible(false);
+    gitDetails_->clear();
+    gitDetails_->setVisible(false);
+    if (commitFiles_ != nullptr) {
+        commitFiles_->clear();
+        commitFiles_->setVisible(false);
+    }
     gitFeature_->refreshStashes([this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
-    gitFeature_->refreshShelves([this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
+        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+            applyGitState(state);
+        }, Qt::QueuedConnection);
     });
 }
 
 void WorkbenchWindow::compareGitReference() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    const auto referenceOpt = showGitTextInputDialog(
-        this,
-        QStringLiteral("Compare Git Reference"),
-        QStringLiteral("Reference (branch, tag, or commit):"),
-        QStringLiteral("HEAD~1"));
-    if (!referenceOpt) return;
-    const auto reference = *referenceOpt;
+    bool accepted = false;
+    const auto reference = QInputDialog::getText(
+        this, uiText(QStringLiteral("Compare Git Reference")),
+        uiText(QStringLiteral("Reference (branch, tag, or commit):")),
+        QLineEdit::Normal, QStringLiteral("HEAD~1"), &accepted).trimmed();
+    if (!accepted || reference.isEmpty()) return;
+    showToolWindow(BottomToolKind::Diff);
     diffIsCommitReview_ = false;
+    gitHistory_->setVisible(false);
+    gitStashes_->setVisible(false);
+    gitStashActions_->setVisible(false);
+    gitDetails_->clear();
+    gitDetails_->setVisible(true);
+    if (commitFiles_ != nullptr) {
+        commitFiles_->clear();
+        commitFiles_->setVisible(false);
+    }
     gitFeature_->loadComparison(reference.toStdString(),
         [this, reference](app::GitFeatureState state) {
         QMetaObject::invokeMethod(this, [this, reference,
                                           state = std::move(state)]() mutable {
             if (!state.error && !state.isLoadingComparison && state.comparison) {
                 statusBar()->showMessage(
-                    QString("Comparison with %1 loaded").arg(reference), 3000);
+                    uiText(QStringLiteral("Comparison with %1 loaded")).arg(reference), 3000);
             }
             applyGitState(state);
         }, Qt::QueuedConnection);
@@ -1756,288 +2405,257 @@ void WorkbenchWindow::compareGitReference() {
 
 void WorkbenchWindow::switchGitReference() {
     if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    pickGitReferenceAsync(QStringLiteral("Switch Git Reference"),
-        [this](std::optional<GitReferenceDto> reference) {
-        if (!reference) return;
-        gitFeature_->checkoutReference(reference->fullName, reference->kind, reference->shortName,
-            [this](app::GitFeatureState next) {
-            QMetaObject::invokeMethod(this, [this, next = std::move(next)]() mutable {
-                applyGitState(next);
-                if (next.error || next.isWriting || next.isPerformingBranchOperation) return;
-                if (next.pendingCheckoutConflict) return;
-                statusBar()->showMessage(QStringLiteral("Git reference switched"), 4000);
-                loadSnapshot();
-                loadGitHistory();
-            }, Qt::QueuedConnection);
-        });
-    });
-}
+    const auto state = gitFeature_->state();
+    if (!state.history || state.history->references.empty()) {
+    statusBar()->showMessage(uiText(QStringLiteral("Load Git Log before switching branches")), 4000);
+        loadGitHistory();
+        return;
+    }
 
-void WorkbenchWindow::createGitBranch() {
-    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    const auto nameOpt = showGitTextInputDialog(
-        this,
-        QStringLiteral("Create Git Branch"),
-        QStringLiteral("Branch name:"));
-    if (!nameOpt) return;
-    const auto name = *nameOpt;
+    QStringList choices;
+    for (const auto& reference : state.history->references) {
+        choices.push_back(QString("%1  [%2]")
+                              .arg(fromUtf8(reference.shortName))
+                              .arg(fromUtf8(reference.kind)));
+    }
+    bool accepted = false;
+    const auto selected = QInputDialog::getItem(
+        this, uiText(QStringLiteral("Switch Git Reference")), uiText(QStringLiteral("Reference:")),
+        choices, 0, false, &accepted);
+    if (!accepted || selected.isEmpty()) return;
+    const auto index = choices.indexOf(selected);
+    if (index < 0 || index >= static_cast<int>(state.history->references.size())) return;
+    const auto& reference = state.history->references[static_cast<std::size_t>(index)];
+    if (!ensureDocumentsSafeForGit()) return;
 
-    GitWriteRequestDto request;
-    request.operation = "createBranch";
-    request.name = name.toStdString();
-    request.reference = "HEAD";
-    request.checkout = true;
-    gitFeature_->write(std::move(request), [this, name](app::GitFeatureState next) {
-        QMetaObject::invokeMethod(this, [this, name,
-                                          next = std::move(next)]() mutable {
-            applyGitState(next);
-            if (next.error || next.isWriting) return;
-            statusBar()->showMessage(QString("Created branch %1").arg(name), 4000);
+    gitFeature_->checkout(reference.fullName, reference.kind, [this](app::GitFeatureState result) {
+        QMetaObject::invokeMethod(this, [this, result = std::move(result)]() mutable {
+            applyGitState(result);
+            if (result.error || result.isLoadingCheckoutPreflight) return;
+            if (!result.checkoutPreflight || !result.checkoutPreflight->blockingPaths.empty()) {
+                const auto count = result.checkoutPreflight
+                    ? result.checkoutPreflight->blockingPaths.size() : 0;
+                statusBar()->showMessage(
+                    uiText(QStringLiteral("Checkout blocked by %1 local path(s)"))
+                        .arg(static_cast<qulonglong>(count)), 5000);
+                return;
+            }
+            if (result.isWriting) return;
+            statusBar()->showMessage(uiText(QStringLiteral("Git reference switched")), 4000);
             loadSnapshot();
             loadGitHistory();
         }, Qt::QueuedConnection);
     });
 }
 
-std::optional<GitReferenceDto> WorkbenchWindow::pickGitReference(const QString& title) {
-    if (!gitFeature_) return std::nullopt;
-    const auto state = gitFeature_->state();
-    if (!state.history || state.history->references.empty()) {
-        return std::nullopt;
+void WorkbenchWindow::loadShelves() {
+    if (workspaceRoot_.isEmpty() || !shelfFeature_) return;
+    showToolWindow(BottomToolKind::Git);
+    selectedShelf_.clear();
+    diffIsCommitReview_ = false;
+    gitShelves_->clear();
+    gitShelves_->setVisible(true);
+    gitShelfActions_->setVisible(true);
+    setShelfActionsEnabled(true);
+    gitHistory_->setVisible(false);
+    gitStashes_->setVisible(false);
+    gitStashActions_->setVisible(false);
+    gitShelves_->setVisible(false);
+    gitShelfActions_->setVisible(false);
+    gitDetails_->clear();
+    gitDetails_->setVisible(false);
+    if (commitFiles_ != nullptr) {
+        commitFiles_->clear();
+        commitFiles_->setVisible(false);
     }
-
-    const bool excludeCurrent =
-        title.contains(QStringLiteral("Merge"), Qt::CaseInsensitive) ||
-        title.contains(QStringLiteral("Rebase"), Qt::CaseInsensitive);
-
-    QStringList choices;
-    std::vector<std::size_t> choiceIndexes;
-    int currentIndex = 0;
-    int preferredIndex = -1;
-    for (std::size_t i = 0; i < state.history->references.size(); ++i) {
-        const auto& reference = state.history->references[i];
-        if (excludeCurrent && reference.isCurrent) continue;
-        if (preferredIndex < 0) preferredIndex = static_cast<int>(choiceIndexes.size());
-        choices.push_back(QString("%1  [%2]")
-                              .arg(fromUtf8(reference.shortName))
-                              .arg(fromUtf8(reference.kind)));
-        choiceIndexes.push_back(i);
-        if (!excludeCurrent && reference.isCurrent) {
-            currentIndex = static_cast<int>(choiceIndexes.size()) - 1;
-        }
-    }
-    if (choices.isEmpty()) {
-        statusBar()->showMessage(
-            QStringLiteral("No other Git references available to %1")
-                .arg(title.contains(QStringLiteral("Rebase"), Qt::CaseInsensitive)
-                         ? QStringLiteral("rebase onto")
-                         : QStringLiteral("merge")),
-            6000);
-        return std::nullopt;
-    }
-    if (excludeCurrent && preferredIndex >= 0) currentIndex = preferredIndex;
-
-    const auto picked = showGitReferencePickerDialog(
-        this,
-        title,
-        QStringLiteral("Choose a Git reference to continue."),
-        choices,
-        currentIndex);
-    if (!picked || *picked < 0 || *picked >= static_cast<int>(choiceIndexes.size())) {
-        return std::nullopt;
-    }
-    return state.history->references[choiceIndexes[static_cast<std::size_t>(*picked)]];
-}
-
-void WorkbenchWindow::pickGitReferenceAsync(
-    const QString& title,
-    std::function<void(std::optional<GitReferenceDto>)> onPicked) {
-    if (!gitFeature_ || !onPicked) return;
-    const auto state = gitFeature_->state();
-    if (state.history && !state.history->references.empty()) {
-        onPicked(pickGitReference(title));
-        return;
-    }
-    statusBar()->showMessage(QStringLiteral("Loading Git references..."), 4000);
-    gitFeature_->refreshHistory(std::nullopt, 300,
-        [this, title, onPicked = std::move(onPicked)](app::GitFeatureState next) mutable {
-        QMetaObject::invokeMethod(this, [this, title, onPicked = std::move(onPicked),
-                                          next = std::move(next)]() mutable {
-            applyGitState(next);
-            if (next.error) {
-                showFeatureError(next.error, QStringLiteral("Could not load Git references"));
-                onPicked(std::nullopt);
-                return;
-            }
-            onPicked(pickGitReference(title));
+    shelfFeature_->load([this](app::ShelfFeatureState state) {
+        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+            applyShelfState(state);
         }, Qt::QueuedConnection);
     });
 }
 
-void WorkbenchWindow::applyGitStateAsync(app::GitFeatureState state) {
-    QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
-        applyGitState(state);
-    }, Qt::QueuedConnection);
-}
+void WorkbenchWindow::createShelf() {
+    if (workspaceRoot_.isEmpty() || !shelfFeature_ || !gitFeature_) return;
+    bool accepted = false;
+    const auto label = QInputDialog::getText(
+        this, uiText(QStringLiteral("Create Shelf")), uiText(QStringLiteral("Shelf name:")),
+        QLineEdit::Normal, uiText(QStringLiteral("Working tree snapshot")), &accepted).trimmed();
+    if (!accepted || label.isEmpty()) return;
+    setShelfActionsEnabled(false);
 
-void WorkbenchWindow::fetchGitRemote() {
-    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    gitFeature_->fetch([this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
-}
-
-void WorkbenchWindow::pushGitReference() {
-    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    const auto state = gitFeature_->state();
-    std::string reference;
-    std::string shortName;
-    if (state.history) {
-        for (const auto& item : state.history->references) {
-            if (item.isCurrent) {
-                reference = item.fullName;
-                shortName = item.shortName;
-                break;
+    gitFeature_->loadShelfPatches(
+        [this, label](std::optional<app::GitShelfPatches> patches,
+                      std::optional<CoreError> error) {
+        QMetaObject::invokeMethod(this, [this, label, patches = std::move(patches),
+                                          error = std::move(error)]() mutable {
+            if (error) {
+                setShelfActionsEnabled(true);
+                showFeatureError(error, uiText(QStringLiteral("Shelf patch request failed")));
+                return;
             }
-        }
-    }
-    if (reference.empty() && state.status && state.status->branch) {
-        reference = *state.status->branch;
-        shortName = *state.status->branch;
-    }
-    if (reference.empty()) {
-        const auto picked = pickGitReference(QStringLiteral("Push Git Reference"));
-        if (!picked) return;
-        reference = picked->fullName;
-        shortName = picked->shortName;
-    }
-    if (QMessageBox::question(
-            this,
-            QStringLiteral("Push"),
-            QStringLiteral("Push '%1' to its configured remote?")
-                .arg(fromUtf8(shortName))) != QMessageBox::Yes) {
+            if (!patches ||
+                (patches->stagedPatch.empty() && patches->workingTreePatch.empty())) {
+                setShelfActionsEnabled(true);
+                statusBar()->showMessage(uiText(QStringLiteral("No Git changes to shelve")), 4000);
+                return;
+            }
+            shelfFeature_->create(label.toUtf8().toStdString(), patches->stagedPatch,
+                                  patches->workingTreePatch,
+                                  [this](app::ShelfFeatureState shelfState) {
+                QMetaObject::invokeMethod(this, [this, shelfState = std::move(shelfState)]() mutable {
+                    setShelfActionsEnabled(true);
+                    applyShelfState(shelfState);
+                    if (!shelfState.error) {
+                        loadShelves();
+                        statusBar()->showMessage(uiText(QStringLiteral("Shelf created")), 4000);
+                    }
+                }, Qt::QueuedConnection);
+            });
+        }, Qt::QueuedConnection);
+    });
+}
+
+void WorkbenchWindow::restoreSelectedShelf() {
+    if (selectedShelf_.isEmpty() || !shelfFeature_ || !gitFeature_) {
+        statusBar()->showMessage(uiText(QStringLiteral("Select a Shelf first")), 4000);
         return;
     }
-    gitFeature_->push(std::move(reference), std::move(shortName),
-        [this](app::GitFeatureState next) {
-        applyGitStateAsync(std::move(next));
+    if (!ensureDocumentsSafeForGit()) return;
+    setShelfActionsEnabled(false);
+    const auto id = selectedShelf_.toStdString();
+    shelfFeature_->restore(id, [this](app::ShelfFeatureState state) {
+        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+            applyShelfState(state);
+            if (state.error || !state.restored) {
+                setShelfActionsEnabled(true);
+                return;
+            }
+            const auto staged = state.restored->stagedPatch;
+            const auto workingTree = state.restored->workingTreePatch;
+            const auto finish = [this](bool success) {
+                setShelfActionsEnabled(true);
+                if (success) {
+                    loadSnapshot();
+                    const auto expectedPath = activePath_;
+                    const auto documentState = documentFeature_->state();
+                    if (!expectedPath.isEmpty() && !documentState.isDirty &&
+                        !documentState.isLoading && !documentState.isSaving) {
+                        const QPointer<WorkbenchWindow> guardedWindow(this);
+                        documentFeature_->open(expectedPath.toUtf8().toStdString(),
+                            [guardedWindow, expectedPath](app::DocumentFeatureState next) {
+                            if (!guardedWindow) return;
+                            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, expectedPath,
+                                                              next = std::move(next)]() mutable {
+                                if (guardedWindow && expectedPath == guardedWindow->activePath_) {
+                                    guardedWindow->applyDocumentState(next);
+                                }
+                            }, Qt::QueuedConnection);
+                        });
+                    }
+                    statusBar()->showMessage(uiText(QStringLiteral("Shelf restored")), 4000);
+                }
+            };
+            const auto applyWorkingTree = [this, workingTree, finish]() {
+                if (workingTree.empty()) {
+                    finish(true);
+                    return;
+                }
+                gitFeature_->apply(workingTree, "worktree", [this, finish](app::GitFeatureState result) {
+                    QMetaObject::invokeMethod(this, [this, finish, result = std::move(result)]() mutable {
+                        applyGitState(result);
+                        finish(!result.error && !result.isApplying);
+                    }, Qt::QueuedConnection);
+                });
+            };
+            if (staged.empty()) {
+                applyWorkingTree();
+                return;
+            }
+            gitFeature_->apply(staged, "restoreIndex", [this, applyWorkingTree, finish](app::GitFeatureState result) mutable {
+                QMetaObject::invokeMethod(this, [this, applyWorkingTree, finish,
+                                                  result = std::move(result)]() mutable {
+                    applyGitState(result);
+                    if (result.error || result.isApplying) {
+                        finish(false);
+                        return;
+                    }
+                    applyWorkingTree();
+                }, Qt::QueuedConnection);
+            });
+        }, Qt::QueuedConnection);
     });
 }
 
-void WorkbenchWindow::mergeGitReference() {
-    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    pickGitReferenceAsync(QStringLiteral("Merge Git Reference"),
-        [this](std::optional<GitReferenceDto> reference) {
-        if (!reference) return;
-        if (reference->isCurrent) {
-            QMessageBox::warning(
-                this,
-                QStringLiteral("Merge"),
-                QStringLiteral("Cannot merge the current branch into itself. Pick another reference."));
-            return;
-        }
-        gitFeature_->mergeReference(reference->fullName, reference->shortName,
-            [this](app::GitFeatureState state) {
-            applyGitStateAsync(std::move(state));
-        });
-    });
-}
-
-void WorkbenchWindow::rebaseGitReference() {
-    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    pickGitReferenceAsync(QStringLiteral("Rebase Onto"),
-        [this](std::optional<GitReferenceDto> reference) {
-        if (!reference) return;
-        if (reference->isCurrent) {
-            QMessageBox::warning(
-                this,
-                QStringLiteral("Rebase"),
-                QStringLiteral("Cannot rebase onto the current branch. Pick another reference."));
-            return;
-        }
-        gitFeature_->rebaseOnto(reference->fullName, reference->shortName,
-            [this](app::GitFeatureState state) {
-            applyGitStateAsync(std::move(state));
-        });
-    });
-}
-
-void WorkbenchWindow::pullGitRemote() {
-    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
-    gitFeature_->pull([this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
-}
-
-void WorkbenchWindow::continueGitOperation() {
-    if (!gitFeature_) return;
-    gitFeature_->continueOperation([this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
-}
-
-void WorkbenchWindow::abortGitOperation() {
-    if (!gitFeature_) return;
-    if (!confirmDestructiveGitAction(
-            this,
-            QStringLiteral("Abort Git Operation"),
-            QStringLiteral("Abort the in-progress Git operation?"))) {
+void WorkbenchWindow::deleteSelectedShelf() {
+    if (selectedShelf_.isEmpty() || !shelfFeature_) {
+        statusBar()->showMessage(uiText(QStringLiteral("Select a Shelf first")), 4000);
         return;
     }
-    gitFeature_->abortOperation([this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
+    if (QMessageBox::question(this, uiText(QStringLiteral("Delete Shelf")),
+                              uiText(QStringLiteral("Delete the selected Shelf?"))) != QMessageBox::Yes) {
+        return;
+    }
+    setShelfActionsEnabled(false);
+    shelfFeature_->remove(selectedShelf_.toStdString(), [this](app::ShelfFeatureState state) {
+        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+            setShelfActionsEnabled(true);
+            applyShelfState(state);
+            if (!state.error) {
+                selectedShelf_.clear();
+                loadShelves();
+                statusBar()->showMessage(uiText(QStringLiteral("Shelf deleted")), 4000);
+            }
+        }, Qt::QueuedConnection);
     });
 }
 
-void WorkbenchWindow::skipGitOperation() {
-    if (!gitFeature_) return;
-    gitFeature_->skipOperation([this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
+void WorkbenchWindow::setShelfActionsEnabled(bool enabled) {
+    if (createShelfButton_ != nullptr) createShelfButton_->setEnabled(enabled);
+    if (restoreShelfButton_ != nullptr) {
+        restoreShelfButton_->setEnabled(enabled && !selectedShelf_.isEmpty());
+    }
+    if (deleteShelfButton_ != nullptr) {
+        deleteShelfButton_->setEnabled(enabled && !selectedShelf_.isEmpty());
+    }
 }
 
-void WorkbenchWindow::filterGitConflicts() {
-    if (!gitFeature_) return;
-    const auto state = gitFeature_->state();
-    if (!state.operationState) return;
-    gitFeature_->setConflictFilterPaths(state.operationState->conflictedPaths,
-        [this](app::GitFeatureState next) {
-        applyGitStateAsync(std::move(next));
-    });
-}
+void WorkbenchWindow::createGitBranch() {
+    if (workspaceRoot_.isEmpty() || !gitFeature_) return;
+    if (!ensureDocumentsSafeForGit()) return;
+    bool accepted = false;
+    const auto name = QInputDialog::getText(
+        this, uiText(QStringLiteral("Create Git Branch")), uiText(QStringLiteral("Branch name:")),
+        QLineEdit::Normal, QString(), &accepted).trimmed();
+    if (!accepted || name.isEmpty()) return;
 
-void WorkbenchWindow::clearGitConflictFilter() {
-    if (!gitFeature_) return;
-    gitFeature_->clearConflictFilterPaths([this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
-}
-
-void WorkbenchWindow::filterStashRestoreConflicts() {
-    if (!gitFeature_) return;
-    const auto state = gitFeature_->state();
-    if (!state.pendingStashRestoreConflict) return;
-    gitFeature_->setConflictFilterPaths(state.pendingStashRestoreConflict->conflictedPaths,
-        [this](app::GitFeatureState next) {
-        applyGitStateAsync(std::move(next));
-    });
-}
-
-void WorkbenchWindow::dismissStashRestoreNotice() {
-    if (!gitFeature_) return;
-    gitFeature_->dismissStashRestoreNotice([this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
+    GitWriteRequestDto request;
+    request.operation = "createBranch";
+    request.name = name.toStdString();
+    request.reference = "HEAD";
+    request.checkout = true;
+    gitFeature_->write(std::move(request), [this, name](app::GitFeatureState result) {
+        QMetaObject::invokeMethod(this, [this, name,
+                                          result = std::move(result)]() mutable {
+            applyGitState(result);
+            if (result.error || result.isWriting) return;
+            statusBar()->showMessage(uiText(QStringLiteral("Created branch %1")).arg(name), 4000);
+            loadSnapshot();
+            loadGitHistory();
+        }, Qt::QueuedConnection);
     });
 }
 
 void WorkbenchWindow::applyStashOperation(const QString& operation) {
     if (workspaceRoot_.isEmpty() || !gitFeature_ || selectedGitStash_.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("Select a stash first"), 4000);
+    statusBar()->showMessage(uiText(QStringLiteral("Select a stash first")), 4000);
         return;
     }
+    if ((operation == QStringLiteral("stashApply") ||
+         operation == QStringLiteral("stashPop")) && !ensureDocumentsSafeForGit()) return;
     if (operation == QStringLiteral("stashDrop") &&
-        QMessageBox::question(this, QStringLiteral("Drop Stash"),
-                              QString("Drop %1?").arg(selectedGitStash_)) != QMessageBox::Yes) {
+        QMessageBox::question(this, uiText(QStringLiteral("Drop Stash")),
+                              uiText(QStringLiteral("Drop %1?")).arg(selectedGitStash_)) != QMessageBox::Yes) {
         return;
     }
     const auto reference = selectedGitStash_;
@@ -2094,15 +2712,15 @@ void WorkbenchWindow::showTreeContextMenu(const QPoint& position) {
 
     const auto relative = item->data(0, RelativePathRole).toString();
     QMenu menu(this);
-    auto* newFile = menu.addAction(QStringLiteral("New File..."));
-    auto* newDirectory = menu.addAction(QStringLiteral("New Directory..."));
+    auto* newFile = menu.addAction(uiText(QStringLiteral("New File...")));
+    auto* newDirectory = menu.addAction(uiText(QStringLiteral("New Directory...")));
     menu.addSeparator();
-    auto* rename = menu.addAction(QStringLiteral("Rename..."));
-    auto* copy = menu.addAction(QStringLiteral("Duplicate..."));
-    auto* remove = menu.addAction(QStringLiteral("Delete"));
+    auto* rename = menu.addAction(uiText(QStringLiteral("Rename...")));
+    auto* copy = menu.addAction(uiText(QStringLiteral("Duplicate...")));
+    auto* remove = menu.addAction(uiText(QStringLiteral("Delete")));
     menu.addSeparator();
-    auto* copyRelative = menu.addAction(QStringLiteral("Copy Relative Path"));
-    auto* copyAbsolute = menu.addAction(QStringLiteral("Copy Absolute Path"));
+    auto* copyRelative = menu.addAction(uiText(QStringLiteral("Copy Relative Path")));
+    auto* copyAbsolute = menu.addAction(uiText(QStringLiteral("Copy Absolute Path")));
     rename->setEnabled(!relative.isEmpty());
     copy->setEnabled(!relative.isEmpty());
     remove->setEnabled(!relative.isEmpty());
@@ -2129,13 +2747,13 @@ void WorkbenchWindow::createWorkspaceItem(bool directory) {
 
     bool accepted = false;
     const auto name = QInputDialog::getText(
-        this, directory ? QStringLiteral("New Directory") : QStringLiteral("New File"),
-        QStringLiteral("Name"), QLineEdit::Normal, QString(), &accepted).trimmed();
+        this, directory ? uiText(QStringLiteral("New Directory")) : uiText(QStringLiteral("New File")),
+         uiText(QStringLiteral("Name")), QLineEdit::Normal, QString(), &accepted).trimmed();
     const auto normalizedName = QDir::fromNativeSeparators(name);
     if (!accepted || normalizedName.isEmpty() || normalizedName == QStringLiteral(".") ||
         normalizedName == QStringLiteral("..") ||
         QFileInfo(normalizedName).fileName() != normalizedName) {
-        if (accepted) statusBar()->showMessage(QStringLiteral("Invalid workspace item name"), 4000);
+    if (accepted) statusBar()->showMessage(uiText(QStringLiteral("Invalid workspace item name")), 4000);
         return;
     }
     const auto relative = parentPath.isEmpty()
@@ -2146,7 +2764,7 @@ void WorkbenchWindow::createWorkspaceItem(bool directory) {
     try {
         absolute = paths->toAbsolute(relative.toUtf8().toStdString());
     } catch (const std::invalid_argument&) {
-        statusBar()->showMessage(QStringLiteral("Invalid workspace path"), 4000);
+    statusBar()->showMessage(uiText(QStringLiteral("Invalid workspace path")), 4000);
         return;
     }
     std::string error;
@@ -2154,12 +2772,12 @@ void WorkbenchWindow::createWorkspaceItem(bool directory) {
         ? storage_->createDirectory(pathUtf8(absolute), false, error)
         : storage_->writeData(pathUtf8(absolute), {}, error);
     if (!success) {
-        statusBar()->showMessage(QStringLiteral("Could not create item: ") + fromUtf8(error), 6000);
+        statusBar()->showMessage(uiText(QStringLiteral("Could not create item: ")) + fromUtf8(error), 6000);
         return;
     }
     scheduleWorkspaceRefresh();
     scheduleGitRefresh();
-    statusBar()->showMessage(QStringLiteral("Created %1").arg(relative), 3000);
+    statusBar()->showMessage(uiText(QStringLiteral("Created %1")).arg(relative), 3000);
 }
 
 void WorkbenchWindow::renameWorkspaceItem() {
@@ -2170,7 +2788,7 @@ void WorkbenchWindow::renameWorkspaceItem() {
     if (oldRelative.isEmpty()) return;
     bool accepted = false;
     const auto name = QInputDialog::getText(
-        this, QStringLiteral("Rename Workspace Item"), QStringLiteral("Name"),
+        this, uiText(QStringLiteral("Rename Workspace Item")), uiText(QStringLiteral("Name")),
         QLineEdit::Normal, item->text(0), &accepted).trimmed();
     const auto normalizedName = QDir::fromNativeSeparators(name);
     if (!accepted || normalizedName.isEmpty() || normalizedName == QStringLiteral(".") ||
@@ -2184,6 +2802,19 @@ void WorkbenchWindow::renameWorkspaceItem() {
     const auto newRelative = parent.isEmpty()
         ? normalizedName : parent + QStringLiteral("/") + normalizedName;
     if (sameRelativePath(oldRelative, newRelative)) return;
+    std::vector<std::pair<QString, QString>> renamedDocuments;
+    for (const auto& state : documentFeature_->states()) {
+        const auto path = fromUtf8(state.relativePath);
+        if (!sameRelativePath(path, oldRelative) &&
+            !path.startsWith(oldRelative + QStringLiteral("/"), Qt::CaseInsensitive)) continue;
+        if (state.isLoading || state.isSaving) {
+            statusBar()->showMessage(
+                uiText(QStringLiteral("Wait for the document operation to finish")), 4000);
+            return;
+        }
+        const auto suffix = path.mid(oldRelative.size());
+        renamedDocuments.emplace_back(path, newRelative + suffix);
+    }
     const auto paths = coordinator_->workspacePaths();
     if (!paths) return;
     std::filesystem::path source;
@@ -2197,23 +2828,29 @@ void WorkbenchWindow::renameWorkspaceItem() {
     }
     std::string error;
     if (!storage_->moveItem(pathUtf8(source), pathUtf8(destination), error)) {
-        statusBar()->showMessage(QStringLiteral("Could not rename item: ") + fromUtf8(error), 6000);
+        statusBar()->showMessage(uiText(QStringLiteral("Could not rename item: ")) + fromUtf8(error), 6000);
         return;
     }
-    if (!activePath_.isEmpty() &&
-        (sameRelativePath(activePath_, oldRelative) ||
-         activePath_.startsWith(oldRelative + QStringLiteral("/"), Qt::CaseInsensitive))) {
-        activePath_.clear();
-        blamePath_.clear();
-        closeLanguageServerDocument();
-        suppressEditorChange_ = true;
-        editor_->clearAnnotations();
-        editor_->clear();
-        suppressEditorChange_ = false;
+    for (const auto& [sourcePath, destinationPath] : renamedDocuments) {
+        if (!documentFeature_->rename(sourcePath.toUtf8().toStdString(),
+                                      destinationPath.toUtf8().toStdString())) continue;
+        for (int index = 0; index < editorTabs_->count(); ++index) {
+            if (!sameRelativePath(editorTabs_->tabData(index).toString(), sourcePath)) continue;
+            editorTabs_->setTabData(index, destinationPath);
+            editorTabs_->setTabToolTip(index, destinationPath);
+            editorTabs_->setTabText(index, QFileInfo(destinationPath).fileName());
+            break;
+        }
+        if (auto* documentEditor = editorArea_->editorForPath(sourcePath)) {
+            documentEditor->setProperty("documentPath", destinationPath);
+        }
+        if (sameRelativePath(activePath_, sourcePath)) activePath_ = destinationPath;
+        historyFeature_->relocate(sourcePath.toUtf8().toStdString(),
+                                  destinationPath.toUtf8().toStdString());
     }
     scheduleWorkspaceRefresh();
     scheduleGitRefresh();
-    statusBar()->showMessage(QStringLiteral("Renamed to %1").arg(newRelative), 3000);
+    statusBar()->showMessage(uiText(QStringLiteral("Renamed to %1")).arg(newRelative), 3000);
 }
 
 void WorkbenchWindow::copyWorkspaceItem() {
@@ -2229,8 +2866,8 @@ void WorkbenchWindow::copyWorkspaceItem() {
         : info.completeBaseName() + QStringLiteral(" copy") +
               (info.suffix().isEmpty() ? QString() : QStringLiteral(".") + info.suffix());
     bool accepted = false;
-    const auto name = QInputDialog::getText(this, QStringLiteral("Duplicate Workspace Item"),
-                                            QStringLiteral("Name"), QLineEdit::Normal,
+    const auto name = QInputDialog::getText(this, uiText(QStringLiteral("Duplicate Workspace Item")),
+                                             uiText(QStringLiteral("Name")), QLineEdit::Normal,
                                             proposedName, &accepted).trimmed();
     const auto normalizedName = QDir::fromNativeSeparators(name);
     if (!accepted || normalizedName.isEmpty() || normalizedName == QStringLiteral(".") ||
@@ -2256,7 +2893,7 @@ void WorkbenchWindow::copyWorkspaceItem() {
     }
     std::error_code filesystemError;
     if (std::filesystem::exists(destination, filesystemError)) {
-        statusBar()->showMessage(QStringLiteral("Destination already exists"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Destination already exists")), 5000);
         return;
     }
     if (item->data(0, DirectoryRole).toBool()) {
@@ -2267,13 +2904,13 @@ void WorkbenchWindow::copyWorkspaceItem() {
                                    std::filesystem::copy_options::none, filesystemError);
     }
     if (filesystemError) {
-        statusBar()->showMessage(QStringLiteral("Could not duplicate item: ") +
+        statusBar()->showMessage(uiText(QStringLiteral("Could not duplicate item: ")) +
                                      fromUtf8(filesystemError.message()), 6000);
         return;
     }
     scheduleWorkspaceRefresh();
     scheduleGitRefresh();
-    statusBar()->showMessage(QStringLiteral("Duplicated as %1").arg(destinationRelative), 3000);
+    statusBar()->showMessage(uiText(QStringLiteral("Duplicated as %1")).arg(destinationRelative), 3000);
 }
 
 void WorkbenchWindow::deleteWorkspaceItem() {
@@ -2282,10 +2919,43 @@ void WorkbenchWindow::deleteWorkspaceItem() {
     if (item == nullptr) return;
     const auto relative = item->data(0, RelativePathRole).toString();
     if (relative.isEmpty()) return;
-    if (QMessageBox::question(this, QStringLiteral("Delete Workspace Item"),
-                              QStringLiteral("Delete %1 permanently?").arg(relative),
-                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No) !=
-        QMessageBox::Yes) return;
+    std::vector<QString> affectedDocuments;
+    bool hasDirtyDocument = false;
+    for (const auto& state : documentFeature_->states()) {
+        const auto path = fromUtf8(state.relativePath);
+        if (!sameRelativePath(path, relative) &&
+            !path.startsWith(relative + QStringLiteral("/"), Qt::CaseInsensitive)) continue;
+        if (state.isLoading || state.isSaving) {
+            statusBar()->showMessage(
+                uiText(QStringLiteral("Wait for the document operation to finish")), 4000);
+            return;
+        }
+        affectedDocuments.push_back(path);
+        hasDirtyDocument = hasDirtyDocument || state.isDirty;
+    }
+    bool keepBuffers = false;
+    if (hasDirtyDocument) {
+        QMessageBox decision(this);
+        decision.setIcon(QMessageBox::Warning);
+        decision.setWindowTitle(uiText(QStringLiteral("Delete Workspace Item")));
+        decision.setText(uiText(QStringLiteral("Open documents under %1 have unsaved changes."))
+                             .arg(relative));
+        auto* keep = decision.addButton(
+            uiText(QStringLiteral("Delete Disk and Keep Buffer")), QMessageBox::DestructiveRole);
+        auto* discard = decision.addButton(
+            uiText(QStringLiteral("Delete and Discard")), QMessageBox::DestructiveRole);
+        auto* cancel = decision.addButton(QMessageBox::Cancel);
+        decision.setDefaultButton(cancel);
+        decision.exec();
+        if (decision.clickedButton() == cancel) return;
+        keepBuffers = decision.clickedButton() == keep;
+        if (!keepBuffers && decision.clickedButton() != discard) return;
+    } else if (QMessageBox::question(
+                   this, uiText(QStringLiteral("Delete Workspace Item")),
+                   uiText(QStringLiteral("Delete %1 permanently?")).arg(relative),
+                   QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
     const auto paths = coordinator_->workspacePaths();
     if (!paths) return;
     std::filesystem::path absolute;
@@ -2297,23 +2967,41 @@ void WorkbenchWindow::deleteWorkspaceItem() {
     }
     std::string error;
     if (!storage_->removeItem(pathUtf8(absolute), error)) {
-        statusBar()->showMessage(QStringLiteral("Could not delete item: ") + fromUtf8(error), 6000);
+        statusBar()->showMessage(uiText(QStringLiteral("Could not delete item: ")) + fromUtf8(error), 6000);
         return;
     }
-    if (!activePath_.isEmpty() &&
-        (sameRelativePath(activePath_, relative) ||
-         activePath_.startsWith(relative + QStringLiteral("/"), Qt::CaseInsensitive))) {
-        activePath_.clear();
-        blamePath_.clear();
-        closeLanguageServerDocument();
-        suppressEditorChange_ = true;
-        editor_->clearAnnotations();
-        editor_->clear();
-        suppressEditorChange_ = false;
+    if (keepBuffers) {
+        for (const auto& path : affectedDocuments) {
+            documentFeature_->externalDeleted(path.toUtf8().toStdString());
+            updateDocumentTabState(path);
+            if (sameRelativePath(path, activePath_)) editorArea_->showDeletedConflict(path);
+        }
+    } else {
+        for (const auto& path : affectedDocuments) {
+            documentFeature_->close(path.toUtf8().toStdString(), true);
+            for (int index = editorTabs_->count() - 1; index >= 0; --index) {
+                if (sameRelativePath(editorTabs_->tabData(index).toString(), path)) {
+                    editorTabs_->removeTab(index);
+                }
+            }
+            editorArea_->removeEditor(path);
+        }
+        if (sameRelativePath(activePath_, relative) ||
+            activePath_.startsWith(relative + QStringLiteral("/"), Qt::CaseInsensitive)) {
+            activePath_.clear();
+            blamePath_.clear();
+            closeLanguageServerDocument();
+            if (editorTabs_->count() > 0) switchEditorTab(editorTabs_->currentIndex());
+            else {
+                editorArea_->clearEditors();
+                editor_ = editorArea_->editor();
+                editorArea_->setEmptyStateVisible(true);
+            }
+        }
     }
     scheduleWorkspaceRefresh();
     scheduleGitRefresh();
-    statusBar()->showMessage(QStringLiteral("Deleted %1").arg(relative), 3000);
+    statusBar()->showMessage(uiText(QStringLiteral("Deleted %1")).arg(relative), 3000);
 }
 
 void WorkbenchWindow::copyWorkspacePath(bool absolute) {
@@ -2323,7 +3011,7 @@ void WorkbenchWindow::copyWorkspacePath(bool absolute) {
     const auto relative = item->data(0, RelativePathRole).toString();
     const auto value = absolute ? QDir(workspaceRoot_).filePath(relative) : relative;
     QApplication::clipboard()->setText(value);
-    statusBar()->showMessage(QStringLiteral("Copied path"), 2000);
+    statusBar()->showMessage(uiText(QStringLiteral("Copied path")), 2000);
 }
 
 void WorkbenchWindow::loadProjectAnalysis() {
@@ -2347,10 +3035,23 @@ void WorkbenchWindow::applyWorkspaceState(const app::WorkspaceFeatureState& stat
         return;
     }
     if (state.isLoading || !state.snapshot) return;
-    tree_->clear();
-    appendTreeNode(nullptr, state.snapshot->root);
+    const auto selectedPath = tree_->currentItem() == nullptr
+        ? QString() : tree_->currentItem()->data(0, RelativePathRole).toString();
+
+    {
+        const QSignalBlocker blocker(tree_);
+        tree_->clear();
+        appendTreeNode(nullptr, state.snapshot->root);
+        for (const auto& path : workspaceExpandedPaths_) {
+            if (auto* item = findTreeItem(fromUtf8(path))) item->setExpanded(true);
+        }
+        if (!selectedPath.isEmpty()) {
+            if (auto* item = findTreeItem(selectedPath)) tree_->setCurrentItem(item);
+        }
+    }
+    sidebar_->showProjectReady();
     restoreWorkspaceSession();
-    statusBar()->showMessage(QString("Workspace loaded with %1 files").arg(
+    statusBar()->showMessage(uiText(QStringLiteral("Workspace loaded with %1 files")).arg(
         static_cast<qulonglong>(state.snapshot->files.size())));
     synchronizeJavaRunProject();
 }
@@ -2377,7 +3078,12 @@ void WorkbenchWindow::restoreWorkspaceSession() {
     if (!pendingWorkspaceSession_) return;
     const auto session = std::move(*pendingWorkspaceSession_);
     pendingWorkspaceSession_.reset();
+    pendingDocumentViews_.clear();
+    for (const auto& view : session.documentViews) {
+        pendingDocumentViews_.emplace(view.path, view);
+    }
     for (const auto& path : session.expandedPaths) {
+        workspaceExpandedPaths_.insert(path);
         if (auto* item = findTreeItem(fromUtf8(path))) item->setExpanded(true);
     }
     for (const auto& path : session.openPaths) {
@@ -2402,11 +3108,26 @@ void WorkbenchWindow::saveWorkspaceSession() {
     if (editorTabs_ != nullptr) {
         for (int index = 0; index < editorTabs_->count(); ++index) {
             const auto path = editorTabs_->tabData(index).toString();
-            if (!path.isEmpty()) session.openPaths.push_back(path.toStdString());
+            if (path.isEmpty()) continue;
+            const auto state = documentFeature_->state(path.toUtf8().toStdString());
+            if (!state || state->isDirty || state->isLoading || state->isSaving ||
+                state->externalState != app::DocumentExternalState::None || state->error) continue;
+            session.openPaths.push_back(path.toStdString());
+            if (auto* editor = editorArea_->editorForPath(path)) {
+                const auto cursor = editor->textCursor();
+                session.documentViews.push_back({
+                    path.toStdString(),
+                    static_cast<std::uint64_t>(std::max(0, cursor.position())),
+                    static_cast<std::uint64_t>(std::max(0, cursor.anchor())),
+                    static_cast<std::uint64_t>(std::max(0, editor->verticalScrollBar()->value())),
+                    static_cast<std::uint64_t>(std::max(0, editor->horizontalScrollBar()->value()))
+                });
+            }
         }
     }
-    if (session.openPaths.empty() && !activePath_.isEmpty()) {
-        session.openPaths.push_back(activePath_.toStdString());
+    if (std::find(session.openPaths.begin(), session.openPaths.end(),
+                  activePath_.toStdString()) != session.openPaths.end()) {
+        session.activePath = activePath_.toStdString();
     }
     std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* parent) {
         for (int index = 0; index < parent->childCount(); ++index) {
@@ -2441,6 +3162,7 @@ void WorkbenchWindow::appendTreeNode(QTreeWidgetItem* parent, const WorkspaceNod
     item->setText(0, fromUtf8(node.name));
     item->setData(0, RelativePathRole, relativePath);
     item->setData(0, DirectoryRole, node.isDirectory);
+    item->setIcon(0, workbenchIconForPath(relativePath, node.isDirectory));
     for (const auto& child : node.children) appendTreeNode(item, child);
     if (parent == nullptr) item->setExpanded(true);
 }
@@ -2448,65 +3170,105 @@ void WorkbenchWindow::appendTreeNode(QTreeWidgetItem* parent, const WorkspaceNod
 int WorkbenchWindow::ensureEditorTab(const QString& relativePath) {
     if (editorTabs_ == nullptr || relativePath.isEmpty()) return -1;
     for (int index = 0; index < editorTabs_->count(); ++index) {
-        if (sameRelativePath(editorTabs_->tabData(index).toString(), relativePath)) return index;
+        if (sameRelativePath(editorTabs_->tabData(index).toString(), relativePath)) {
+            if (editorArea_ != nullptr) editorArea_->ensureEditor(relativePath);
+            return index;
+        }
     }
     QSignalBlocker blocker(editorTabs_);
     const auto label = QFileInfo(relativePath).fileName().isEmpty()
         ? relativePath : QFileInfo(relativePath).fileName();
-    const auto index = editorTabs_->addTab(label);
+    const auto index = editorTabs_->addTab(
+        workbenchIconForPath(relativePath, false), label);
     editorTabs_->setTabData(index, relativePath);
     editorTabs_->setTabToolTip(index, relativePath);
+    editorTabs_->setIconSize(QSize(14, 14));
+    if (editorArea_ != nullptr) {
+        editorArea_->ensureEditor(relativePath);
+        editorArea_->setEmptyStateVisible(false);
+    }
     return index;
 }
 
 void WorkbenchWindow::switchEditorTab(int index) {
     if (editorTabs_ == nullptr || index < 0 || index >= editorTabs_->count()) return;
     const auto path = editorTabs_->tabData(index).toString();
-    if (path.isEmpty() || (!librarySourcePreview_ && sameRelativePath(path, activePath_))) return;
-    presentDiffReview_ = false;
-    if (editorStack_ != nullptr && editorPage_ != nullptr) {
-        editorStack_->setCurrentWidget(editorPage_);
-    }
+    if (path.isEmpty()) return;
+    if (editorArea_ != nullptr) editor_ = editorArea_->setActiveEditor(path);
+    documentFeature_->activate(path.toUtf8().toStdString());
+    if (!librarySourcePreview_ && sameRelativePath(path, activePath_)) return;
     if (auto* item = findTreeItem(path)) {
         openTreeItem(item, 0);
     } else {
-        statusBar()->showMessage(QStringLiteral("The tab file is no longer in the workspace"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("The tab file is no longer in the workspace")), 5000);
     }
 }
 
 void WorkbenchWindow::closeEditorTab(int index) {
     if (editorTabs_ == nullptr || index < 0 || index >= editorTabs_->count()) return;
     const auto path = editorTabs_->tabData(index).toString();
-    if (sameRelativePath(path, activePath_) && documentFeature_->state().isDirty) {
+    const auto documentState = documentFeature_->state(path.toUtf8().toStdString());
+    const auto operationInProgress = documentState &&
+        (documentState->isLoading || documentState->isSaving);
+    if (documentCloseDecision(operationInProgress,
+                              documentState && documentState->isDirty) ==
+        DocumentTransitionDecision::Block && operationInProgress) {
+        statusBar()->showMessage(uiText(QStringLiteral("Wait for the document operation to finish")), 4000);
+        return;
+    }
+    if (documentState && documentState->isDirty) {
         const auto choice = QMessageBox::warning(
-            this, QStringLiteral("Unsaved Changes"),
-            QStringLiteral("Save changes to %1 before closing?").arg(path),
+            this, uiText(QStringLiteral("Unsaved Changes")),
+            uiText(QStringLiteral("Save changes to %1 before closing?")).arg(path),
             QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
             QMessageBox::Save);
-        if (choice == QMessageBox::Cancel) return;
-        if (choice == QMessageBox::Save) saveDocument();
+        const auto decision = documentCloseDecision(false, true, choice);
+        if (decision == DocumentTransitionDecision::Block) return;
+        if (decision == DocumentTransitionDecision::SaveThenProceed) {
+            const QPointer<WorkbenchWindow> guardedWindow(this);
+            documentFeature_->save(path.toUtf8().toStdString(),
+                [guardedWindow, path](app::DocumentFeatureState state) {
+                if (!guardedWindow) return;
+                QMetaObject::invokeMethod(guardedWindow, [guardedWindow, path,
+                                          state = std::move(state)]() mutable {
+                    if (!guardedWindow) return;
+                    if (state.error || state.isDirty || state.isSaving) {
+                        guardedWindow->applySaveState(state);
+                        return;
+                    }
+                    for (int tab = 0; tab < guardedWindow->editorTabs_->count(); ++tab) {
+                        if (sameRelativePath(
+                                guardedWindow->editorTabs_->tabData(tab).toString(), path)) {
+                            guardedWindow->closeEditorTab(tab);
+                            break;
+                        }
+                    }
+                }, Qt::QueuedConnection);
+            });
+            return;
+        }
     }
-    if (dirtyDocuments_ && !path.isEmpty()) {
-        auto paths = dirtyDocuments_->dirtyRelativePaths();
-        const auto closed = path.toUtf8().toStdString();
-        paths.erase(std::remove(paths.begin(), paths.end(), closed), paths.end());
-        dirtyDocuments_->setDirtyPaths(std::move(paths));
-    }
+    if (!documentFeature_->close(path.toUtf8().toStdString(), true)) return;
     const auto wasCurrent = index == editorTabs_->currentIndex();
     {
         QSignalBlocker blocker(editorTabs_);
         editorTabs_->removeTab(index);
     }
+    if (editorArea_ != nullptr) editorArea_->removeEditor(path);
     if (!wasCurrent) return;
     activePath_.clear();
+    updateWorkbenchStatusBar();
     librarySourcePreview_ = false;
     blamePath_.clear();
     closeLanguageServerDocument();
-    suppressEditorChange_ = true;
-    editor_->clearAnnotations();
-    editor_->clear();
-    suppressEditorChange_ = false;
-    if (editorTabs_->count() == 0) return;
+    if (editorTabs_->count() == 0) {
+        if (editorArea_ != nullptr) {
+            editorArea_->clearEditors();
+            editor_ = editorArea_->editor();
+            editorArea_->setEmptyStateVisible(true);
+        }
+        return;
+    }
     const auto next = std::min(index, editorTabs_->count() - 1);
     {
         QSignalBlocker blocker(editorTabs_);
@@ -2520,18 +3282,8 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
     selectedDiffHunk_.clear();
     diffIsCommitReview_ = false;
     librarySourcePreview_ = false;
-    editor_->setReadOnly(false);
-    const auto nextPath = item->data(0, RelativePathRole).toString();
-    // Until W1 owns multi-buffer editors, switching tabs reloads from disk and
-    // discards the previous buffer — drop its dirty mark so preflight stays honest.
-    if (dirtyDocuments_ && documentFeature_ && documentFeature_->state().isDirty &&
-        !activePath_.isEmpty() && !sameRelativePath(activePath_, nextPath)) {
-        auto paths = dirtyDocuments_->dirtyRelativePaths();
-        const auto discarded = activePath_.toUtf8().toStdString();
-        paths.erase(std::remove(paths.begin(), paths.end(), discarded), paths.end());
-        dirtyDocuments_->setDirtyPaths(std::move(paths));
-    }
-    activePath_ = nextPath;
+    activePath_ = item->data(0, RelativePathRole).toString();
+    updateWorkbenchStatusBar();
     if (editorTabs_ != nullptr) {
         const auto tab = ensureEditorTab(activePath_);
         if (tab >= 0) {
@@ -2539,6 +3291,9 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
             editorTabs_->setCurrentIndex(tab);
         }
     }
+    if (editorArea_ != nullptr) editor_ = editorArea_->setActiveEditor(activePath_);
+    documentFeature_->activate(activePath_.toUtf8().toStdString());
+    editor_->setReadOnly(false);
     const auto openedPath = activePath_;
     if (editor_->blameVisible()) {
         blamePath_ = openedPath;
@@ -2546,25 +3301,27 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
     } else {
         blamePath_.clear();
     }
+    const QPointer<WorkbenchWindow> guardedWindow(this);
     documentFeature_->open(activePath_.toUtf8().toStdString(),
-        [this, openedPath](app::DocumentFeatureState state) {
-            QMetaObject::invokeMethod(this, [this, openedPath,
+        [guardedWindow, openedPath](app::DocumentFeatureState state) {
+            if (!guardedWindow) return;
+            QMetaObject::invokeMethod(guardedWindow, [guardedWindow, openedPath,
                                               state = std::move(state)]() mutable {
-            if (!sameRelativePath(openedPath, activePath_) ||
+            if (!guardedWindow || !sameRelativePath(openedPath, guardedWindow->activePath_) ||
                 !sameRelativePath(openedPath, fromUtf8(state.relativePath))) return;
-            applyDocumentState(state);
+            guardedWindow->applyDocumentState(state);
         }, Qt::QueuedConnection);
     });
-    // Only auto-load working-tree diff when opening from the project tree and
-    // the Diff review surface is already being presented.
-    if (presentDiffReview_) {
-        gitFeature_->loadDiff({activePath_.toUtf8().toStdString()}, false, false,
-            [this](app::GitFeatureState state) {
-            QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
-                applyGitState(state);
-            }, Qt::QueuedConnection);
-        });
+    const auto absoluteDocumentPath = QDir(workspaceRoot_).filePath(activePath_);
+    if (const auto metadata = storage_->metadata(absoluteDocumentPath.toUtf8().toStdString())) {
+        documentFeature_->setReadOnly(activePath_.toUtf8().toStdString(), !metadata->isWritable);
     }
+    gitFeature_->loadDiff({activePath_.toUtf8().toStdString()}, false, false,
+        [this](app::GitFeatureState state) {
+        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
+            applyGitState(state);
+        }, Qt::QueuedConnection);
+    });
     historyFeature_->loadEntries(activePath_.toUtf8().toStdString(),
         [this](app::HistoryFeatureState state) {
         QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
@@ -2582,49 +3339,9 @@ void WorkbenchWindow::openTreeItem(QTreeWidgetItem* item, int) {
     }
 }
 
-void WorkbenchWindow::openGitChangeDiff(const QString& path, bool staged, bool untracked) {
-    if (path.isEmpty() || !gitFeature_ || workspaceRoot_.isEmpty()) return;
-    presentDiffReview_ = true;
-    diffIsCommitReview_ = false;
-    selectedDiffHunk_.clear();
-    expandedDiffRegions_.clear();
-    activePath_ = path;
-    if (editorTabs_ != nullptr) {
-        const auto tab = ensureEditorTab(path);
-        if (tab >= 0) {
-            QSignalBlocker blocker(editorTabs_);
-            editorTabs_->setCurrentIndex(tab);
-        }
-    }
-    // Open the document for context when it exists; deleted/untracked files may fail.
-    if (auto* item = findTreeItem(path)) {
-        if (!item->data(0, DirectoryRole).toBool()) {
-            documentFeature_->open(path.toUtf8().toStdString(),
-                [this, path](app::DocumentFeatureState state) {
-                QMetaObject::invokeMethod(this, [this, path,
-                                                  state = std::move(state)]() mutable {
-                    if (!sameRelativePath(path, activePath_)) return;
-                    applyDocumentState(state);
-                }, Qt::QueuedConnection);
-            });
-        }
-    }
-    gitFeature_->loadDiff({path.toUtf8().toStdString()}, staged, untracked,
-        [this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
-    if (leftSidebarStack_ != nullptr && leftSidebarStack_->currentIndex() != 1) {
-        setLeftSidebarIndex(1);
-    }
-    if (gitLogPanel_ != nullptr && !gitLogPanel_->isVisible()) {
-        setGitLogVisible(true);
-    }
-    updateWorkbenchChromeForFocus();
-}
-
 void WorkbenchWindow::toggleBlame() {
     if (editor_ == nullptr || gitFeature_ == nullptr || activePath_.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("Open a file before showing Git blame"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Open a file before showing Git blame")), 5000);
         return;
     }
     const auto visible = !editor_->blameVisible();
@@ -2716,11 +3433,14 @@ void WorkbenchWindow::applyDocumentState(const app::DocumentFeatureState& state)
     }
     if (state.isLoading || state.relativePath.empty()) return;
     activePath_ = fromUtf8(state.relativePath);
-    syncDirtyDocumentsPort(state);
+    if (editorArea_ != nullptr) editor_ = editorArea_->setActiveEditor(activePath_);
     suppressEditorChange_ = true;
     editor_->clearAnnotations();
-    editor_->setPlainText(fromUtf8(state.text));
+    const auto nextText = fromUtf8(state.text);
+    replaceDocumentTextPreservingView(*editor_, nextText);
     suppressEditorChange_ = false;
+    editor_->setReadOnly(state.isReadOnly);
+    updateDocumentTabState(activePath_);
     if (findBar_ != nullptr && findBar_->isVisible()) updateFindHighlights();
     if (pendingNavigationLine_ && pendingNavigationColumn_) {
         const auto line = std::min<std::uint64_t>(
@@ -2739,7 +3459,21 @@ void WorkbenchWindow::applyDocumentState(const app::DocumentFeatureState& state)
         pendingNavigationLine_.reset();
         pendingNavigationColumn_.reset();
     }
+    if (const auto view = pendingDocumentViews_.find(state.relativePath);
+        view != pendingDocumentViews_.end()) {
+        const auto maximum = std::max(0, editor_->document()->characterCount() - 1);
+        QTextCursor cursor(editor_->document());
+        cursor.setPosition(static_cast<int>(std::min<std::uint64_t>(
+            view->second.anchor, static_cast<std::uint64_t>(maximum))));
+        cursor.setPosition(static_cast<int>(std::min<std::uint64_t>(
+            view->second.cursor, static_cast<std::uint64_t>(maximum))), QTextCursor::KeepAnchor);
+        editor_->setTextCursor(cursor);
+        editor_->verticalScrollBar()->setValue(static_cast<int>(view->second.verticalScroll));
+        editor_->horizontalScrollBar()->setValue(static_cast<int>(view->second.horizontalScroll));
+        pendingDocumentViews_.erase(view);
+    }
     statusBar()->showMessage(activePath_);
+    updateWorkbenchStatusBar();
     if (activePath_.endsWith(QStringLiteral(".java"), Qt::CaseInsensitive)) {
         if (languageServerPath_ != activePath_) closeLanguageServerDocument();
         languageServerPath_ = activePath_;
@@ -2767,8 +3501,92 @@ void WorkbenchWindow::applyDocumentState(const app::DocumentFeatureState& state)
     }
 }
 
+void WorkbenchWindow::connectDocumentEditor(WorkbenchCodeEditor* editor) {
+    if (editor == nullptr) return;
+    auto editorFont = editor->font();
+    editorFont.setPointSizeF(appSettings_.editorFontSize);
+    editor->setFont(editorFont);
+    const QPointer<WorkbenchCodeEditor> guardedEditor(editor);
+    connect(editor, &QPlainTextEdit::cursorPositionChanged, this,
+            [this, guardedEditor] {
+        if (!guardedEditor || guardedEditor != editor_) return;
+        updateWorkbenchStatusBar();
+    });
+    connect(editor, &QPlainTextEdit::textChanged, this, [this, guardedEditor] {
+        if (!guardedEditor || suppressEditorChange_) return;
+        const auto path = guardedEditor->property("documentPath").toString();
+        if (path.isEmpty()) return;
+        const auto text = guardedEditor->toPlainText().toUtf8().toStdString();
+        documentFeature_->setText(path.toUtf8().toStdString(), text);
+        updateDocumentTabState(path);
+        if (!sameRelativePath(path, activePath_)) return;
+        languageServerText_ = text;
+        if (languageServer_ && languageServer_->isReady() &&
+            !languageServerPath_.isEmpty() && !languageServerUri_.empty()) {
+            languageServer_->didChange(languageServerUri_, languageServerText_);
+        }
+        if (findBar_ != nullptr && findBar_->isVisible()) updateFindHighlights();
+    });
+}
+
+void WorkbenchWindow::updateDocumentTabState(const QString& relativePath) {
+    if (editorTabs_ == nullptr || relativePath.isEmpty()) return;
+    const auto state = documentFeature_->state(relativePath.toUtf8().toStdString());
+    QPixmap statusPixmap(14, 14);
+    statusPixmap.fill(Qt::transparent);
+    QString tooltip;
+    if (state) {
+        QPainter painter(&statusPixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        QColor color = palette().color(QPalette::Highlight);
+        if (state->externalState != app::DocumentExternalState::None ||
+            (state->error && state->error->code == CoreErrorCode::ExternalConflict)) {
+            color = palette().color(QPalette::LinkVisited);
+            if (!color.isValid()) color = QColor(210, 72, 72);
+            painter.setPen(QPen(color, 1.5));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawPolygon(QPolygonF{QPointF(7, 2), QPointF(12, 11), QPointF(2, 11)});
+            tooltip = uiText(QStringLiteral("External file conflict"));
+        } else if (state->error) {
+            color = palette().color(QPalette::BrightText);
+            painter.setPen(QPen(color, 1.8));
+            painter.drawLine(QPointF(3, 3), QPointF(11, 11));
+            painter.drawLine(QPointF(11, 3), QPointF(3, 11));
+            tooltip = uiText(QStringLiteral("Save or load failed"));
+        } else if (state->isSaving) {
+            painter.setPen(QPen(color, 1.7));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawArc(QRectF(2.5, 2.5, 9, 9), 35 * 16, 275 * 16);
+            tooltip = uiText(QStringLiteral("Saving"));
+        } else if (state->isReadOnly) {
+            color = palette().color(QPalette::Disabled, QPalette::Text);
+            painter.setPen(QPen(color, 1.4));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawArc(QRectF(4, 1.5, 6, 7), 0, 180 * 16);
+            painter.drawRect(QRectF(3, 6, 8, 6));
+            tooltip = uiText(QStringLiteral("Read-only"));
+        } else if (state->isDirty) {
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(color);
+            painter.drawEllipse(QRectF(4, 4, 6, 6));
+            tooltip = uiText(QStringLiteral("Unsaved changes"));
+        }
+    }
+    for (int index = 0; index < editorTabs_->count(); ++index) {
+        if (sameRelativePath(editorTabs_->tabData(index).toString(), relativePath)) {
+            editorTabs_->setTabIcon(index, tooltip.isEmpty()
+                ? workbenchIconForPath(relativePath, false)
+                : QIcon(statusPixmap));
+            editorTabs_->setTabToolTip(index, tooltip.isEmpty()
+                ? relativePath : relativePath + QStringLiteral(" — ") + tooltip);
+            break;
+        }
+    }
+}
+
 void WorkbenchWindow::searchWorkspace() {
     if (workspaceRoot_.isEmpty() || searchField_->text().trimmed().isEmpty()) return;
+    if (sidebar_ != nullptr) sidebar_->setPage(WorkbenchSidebar::SidebarPage::Search);
     searchFeature_->search(searchField_->text().toUtf8().toStdString(),
         [this](app::SearchFeatureState state) {
             QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
@@ -2779,7 +3597,7 @@ void WorkbenchWindow::searchWorkspace() {
 
 void WorkbenchWindow::showSearchEverywhere() {
     if (workspaceRoot_.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("Open a workspace before searching"), 5000);
+        statusBar()->showMessage(uiText(QStringLiteral("Open a workspace before searching")), 5000);
         return;
     }
     if (searchEverywhereDialog_ == nullptr) {
@@ -2819,7 +3637,7 @@ void WorkbenchWindow::searchEverywhere() {
     const auto query = searchEverywhereField_->text().trimmed();
     if (query.isEmpty()) {
         if (searchEverywhereResults_ != nullptr) searchEverywhereResults_->clear();
-        statusBar()->showMessage(QStringLiteral("Enter a search query"), 3000);
+        statusBar()->showMessage(uiText(QStringLiteral("Enter a search query")), 3000);
         return;
     }
     searchFeature_->searchEverywhere(query.toUtf8().toStdString(),
@@ -2853,7 +3671,7 @@ void WorkbenchWindow::applySearchState(const app::SearchFeatureState& state) {
         }
     }
     results_->setVisible(results_->count() > 0);
-    statusBar()->showMessage(QString("%1 search results").arg(results_->count()));
+    statusBar()->showMessage(uiText(QStringLiteral("%1 search results")).arg(results_->count()));
 }
 
 void WorkbenchWindow::applySearchEverywhereState(
@@ -2863,7 +3681,7 @@ void WorkbenchWindow::applySearchEverywhereState(
         return;
     }
     if (state.isLoading || searchEverywhereResults_ == nullptr) {
-        statusBar()->showMessage(QStringLiteral("Searching Everywhere..."));
+    statusBar()->showMessage(uiText(QStringLiteral("Searching Everywhere...")));
         return;
     }
     searchEverywhereResults_->clear();
@@ -2889,7 +3707,7 @@ void WorkbenchWindow::applySearchEverywhereState(
         }
     }
     searchEverywhereResults_->setVisible(true);
-    statusBar()->showMessage(QString("%1 Search Everywhere results")
+    statusBar()->showMessage(uiText(QStringLiteral("%1 Search Everywhere results"))
                                  .arg(searchEverywhereResults_->count()));
 }
 
@@ -2912,21 +3730,29 @@ void WorkbenchWindow::openSearchResult(QListWidgetItem* item) {
     }
     pendingNavigationLine_.reset();
     pendingNavigationColumn_.reset();
-    statusBar()->showMessage(QStringLiteral("Search result is no longer in the workspace"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Search result is no longer in the workspace")), 5000);
 }
 
 void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
-    if (state.notifyMessage && !state.notifyMessage->empty()) {
-        statusBar()->showMessage(fromUtf8(*state.notifyMessage), 6000);
-    }
     if (state.error) {
         showFeatureError(state.error, QStringLiteral("Git request failed"));
+        return;
     }
-    if (gitChangesPanel_ != nullptr) {
-        gitChangesPanel_->applyState(state);
-    }
-    if (gitLogPanel_ != nullptr && gitLogPanel_->isVisible()) {
-        gitLogPanel_->applyState(state);
+    if (state.status && !state.isLoadingStatus) {
+        if (branchSwitcherButton_ != nullptr) {
+            const auto branch = state.status->branch
+                ? fromUtf8(*state.status->branch)
+                : uiText(QStringLiteral("Detached HEAD"));
+            branchSwitcherButton_->setText(branch);
+        }
+        changes_->clear();
+        for (const auto& change : state.status->changes) {
+            auto* item = new QListWidgetItem(
+                QString("%1  %2").arg(fromUtf8(change.status)).arg(fromUtf8(change.path)), changes_);
+            item->setData(RelativePathRole, fromUtf8(change.path));
+        }
+        changes_->setVisible(changes_->count() > 0);
+    statusBar()->showMessage(uiText(QStringLiteral("%1 Git changes")).arg(changes_->count()));
     }
     if (state.diff && !state.isLoadingDiff) {
         if (!diffReview_ || diffReview_->patch != state.diff->patch) {
@@ -2935,59 +3761,97 @@ void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
         }
         diffReview_ = *state.diff;
         renderDiffReview();
-        const auto path = activePath_.isEmpty() ? QStringLiteral("") : activePath_;
-        const auto fileName = [&] {
-            const auto slash = path.lastIndexOf(QLatin1Char('/'));
-            return slash >= 0 ? path.mid(slash + 1) : path;
-        }();
-        if (diffSplit_ != nullptr) {
-            QString statusBadge = QStringLiteral("MODIFIED");
-            QString modeBadge = QStringLiteral("WORKING TREE");
-            bool stagedOnly = false;
-            if (state.status) {
-                for (const auto& change : state.status->changes) {
-                    if (fromUtf8(change.path) != path) continue;
-                    const auto status = fromUtf8(change.status).toUpper();
-                    if (status.startsWith(QLatin1Char('A')) || change.untracked) {
-                        statusBadge = QStringLiteral("ADDED");
-                    } else if (status.startsWith(QLatin1Char('D'))) {
-                        statusBadge = QStringLiteral("DELETED");
-                    } else if (status.contains(QLatin1Char('U')) ||
-                               status == QStringLiteral("AA") ||
-                               status == QStringLiteral("DD")) {
-                        statusBadge = QStringLiteral("CONFLICT");
-                    } else {
-                        statusBadge = QStringLiteral("MODIFIED");
-                    }
-                    stagedOnly = change.staged && !change.untracked;
-                    break;
-                }
-            }
-            if (diffIsCommitReview_) {
-                modeBadge = QStringLiteral("DIFF");
-                diffSplit_->setFileChrome(fileName, statusBadge, modeBadge);
-                diffSplit_->setVersionTitles(
-                    QStringLiteral("Parent version"), path,
-                    QStringLiteral("Commit version"), path);
-                QString subject;
-                if (state.commit) subject = fromUtf8(state.commit->commit.subject);
-                diffSplit_->setCommitContext(
-                    selectedGitCommit_.left(7), subject);
-                diffSplit_->setHunkActionsVisible(false);
-            } else {
-                modeBadge = stagedOnly ? QStringLiteral("STAGED")
-                                       : QStringLiteral("WORKING TREE");
-                diffSplit_->setFileChrome(fileName, statusBadge, modeBadge);
-                diffSplit_->setVersionTitles(
-                    QStringLiteral("Repository version"), path,
-                    QStringLiteral("Local changes"), path);
-                diffSplit_->setCommitContext({}, {});
-                diffSplit_->setHunkActionsVisible(true);
+        diffActions_->setVisible(!diffIsCommitReview_ && !state.diff->hunks.empty());
+    statusBar()->showMessage(uiText(QStringLiteral("%1 diff hunks")).arg(
+            static_cast<qulonglong>(state.diff->hunks.size())));
+    }
+    if (gitHistory_ != nullptr && gitHistory_->isVisible() && state.history &&
+        !state.isLoadingHistory) {
+        std::vector<algorithms::GitGraphCommit> graphCommits;
+        graphCommits.reserve(state.history->commits.size());
+        for (const auto& commit : state.history->commits) {
+            graphCommits.push_back({commit.hash, commit.parentHashes,
+                                    commit.decorations, commit.subject});
+        }
+        gitHistoryGraph_ = algorithms::layoutGitGraph(graphCommits);
+        gitHistory_->clear();
+        for (const auto& commit : state.history->commits) {
+            const auto current = commit.decorations.empty()
+                ? QString()
+                : QStringLiteral("* ");
+            auto* item = new QListWidgetItem(
+                QString("%1%2  %3  %4  %5")
+                    .arg(current)
+                    .arg(fromUtf8(commit.shortHash))
+                    .arg(fromUtf8(commit.subject))
+                    .arg(fromUtf8(commit.date))
+                    .arg(fromUtf8(commit.decorations)), gitHistory_);
+            item->setData(GitCommitHashRole, fromUtf8(commit.hash));
+            if (commit.hash == selectedGitCommit_.toStdString()) item->setSelected(true);
+        }
+        gitHistory_->viewport()->update();
+    statusBar()->showMessage(uiText(QStringLiteral("%1 Git commits")).arg(gitHistory_->count()), 3000);
+    }
+    if (gitStashes_ != nullptr && gitStashes_->isVisible() && state.stashes &&
+        !state.isLoadingStashes) {
+        gitStashes_->clear();
+        for (const auto& stash : state.stashes->stashes) {
+            auto* item = new QListWidgetItem(
+                QString("%1  %2  %3")
+                    .arg(fromUtf8(stash.reference))
+                    .arg(fromUtf8(stash.message))
+                    .arg(fromUtf8(stash.date)), gitStashes_);
+            item->setData(GitStashReferenceRole, fromUtf8(stash.reference));
+            if (stash.reference == selectedGitStash_.toStdString()) {
+                item->setSelected(true);
             }
         }
-        updateWorkbenchChromeForFocus();
-        statusBar()->showMessage(QString("%1 diff hunks").arg(
-            static_cast<qulonglong>(state.diff->hunks.size())));
+        gitStashActions_->setVisible(gitStashes_->count() > 0);
+    statusBar()->showMessage(uiText(QStringLiteral("%1 stashes")).arg(gitStashes_->count()), 3000);
+    }
+    if (gitDetails_ != nullptr && gitDetails_->isVisible()) {
+        QStringList details;
+        if (state.commit && !state.isLoadingCommit) {
+            const auto& commit = state.commit->commit;
+            details << QString("%1  %2")
+                .arg(fromUtf8(commit.hash))
+                .arg(fromUtf8(commit.subject));
+            details << QString("Author: %1 <%2>")
+                .arg(fromUtf8(commit.authorName))
+                .arg(fromUtf8(commit.authorEmail));
+            details << QString("Date: %1").arg(fromUtf8(commit.date));
+            if (!commit.decorations.empty()) {
+                details << QString("Refs: %1").arg(fromUtf8(commit.decorations));
+            }
+        }
+        if (state.commitFiles && !state.isLoadingCommitFiles) {
+            if (!details.isEmpty()) details << QString();
+            details << QStringLiteral("Changed files:");
+            if (commitFiles_ != nullptr) commitFiles_->clear();
+            for (const auto& file : state.commitFiles->files) {
+                details << QString("%1  %2")
+                    .arg(fromUtf8(file.status))
+                    .arg(fromUtf8(file.path));
+                if (commitFiles_ != nullptr) {
+                    auto* item = new QListWidgetItem(
+                        QString("%1  %2")
+                            .arg(fromUtf8(file.status))
+                            .arg(fromUtf8(file.path)), commitFiles_);
+                    item->setData(RelativePathRole, fromUtf8(file.path));
+                }
+            }
+            if (commitFiles_ != nullptr) commitFiles_->setVisible(!state.commitFiles->files.empty());
+            details << QStringLiteral("Double-click a file to review its diff.");
+        }
+        if (state.comparison && !state.isLoadingComparison) {
+            details << QStringLiteral("Compared files:");
+            for (const auto& file : state.comparison->files) {
+                details << QString("%1  %2")
+                    .arg(fromUtf8(file.status))
+                    .arg(fromUtf8(file.path));
+            }
+        }
+        if (!details.isEmpty()) gitDetails_->setPlainText(details.join('\n'));
     }
     if (state.blame && !state.isLoadingBlame && editor_ != nullptr &&
         blamePath_ == activePath_) {
@@ -3003,373 +3867,110 @@ void WorkbenchWindow::applyGitState(const app::GitFeatureState& state) {
         }
         editor_->setBlameAnnotations(std::move(annotations));
     }
-
-    if (!state.pendingCheckoutConflict && !state.pendingIntegrationConflict &&
-        !state.pendingPullStrategy) {
-        suppressPendingGitDialog_ = false;
-    }
-    if (!handlingGitDialog_ && !suppressPendingGitDialog_) {
-        presentPendingGitDialogs(state);
-    }
-}
-
-void WorkbenchWindow::connectGitPanels() {
-    connect(projectSidebarButton_, &QToolButton::clicked, this, [this](bool) {
-        showProjectSidebar();
-    });
-    connect(changesSidebarButton_, &QToolButton::clicked, this, [this](bool) {
-        showChangesSidebar();
-    });
-    connect(gitLogButton_, &QToolButton::clicked, this, [this](bool checked) {
-        // Use the post-toggle checked state from the checkable button so we do
-        // not invert visibility twice.
-        setGitLogVisible(checked);
-        if (checked && leftSidebarStack_ != nullptr &&
-            leftSidebarStack_->currentIndex() != 1) {
-            setLeftSidebarIndex(1);
-            refreshGitStatus();
-        }
-    });
-
-    connect(gitChangesPanel_, &GitChangesPanel::changeSelected, this,
-            [this](const QString& path, bool staged, bool untracked) {
-        openGitChangeDiff(path, staged, untracked);
-    });
-    // changeActivated kept for legacy listeners; single/double click both use
-    // changeSelected with staged/untracked (macOS selectChange parity).
-    connect(gitChangesPanel_, &GitChangesPanel::previewFirstChangeRequested, this, [this] {
-        if (!gitFeature_) return;
-        const auto state = gitFeature_->state();
-        if (!state.status || state.status->changes.empty()) return;
-        const auto& first = state.status->changes.front();
-        openGitChangeDiff(fromUtf8(first.path), first.staged, first.untracked);
-    });
-    connect(gitChangesPanel_, &GitChangesPanel::stagePathRequested,
-            this, &WorkbenchWindow::stageGitPath);
-    connect(gitChangesPanel_, &GitChangesPanel::unstagePathRequested,
-            this, &WorkbenchWindow::unstageGitPath);
-    connect(gitChangesPanel_, &GitChangesPanel::stageAllRequested,
-            this, &WorkbenchWindow::stageAllChanges);
-    connect(gitChangesPanel_, &GitChangesPanel::commitRequested,
-            this, &WorkbenchWindow::commitChanges);
-    connect(gitChangesPanel_, &GitChangesPanel::commitAndPushRequested,
-            this, &WorkbenchWindow::commitAndPushChanges);
-    connect(gitChangesPanel_, &GitChangesPanel::generateAiMessageRequested,
-            this, &WorkbenchWindow::generateAICommitMessage);
-    connect(gitChangesPanel_, &GitChangesPanel::refreshRequested,
-            this, &WorkbenchWindow::refreshGitStatus);
-    connect(gitChangesPanel_, &GitChangesPanel::settingsRequested,
-            this, &WorkbenchWindow::showSettings);
-    connect(gitChangesPanel_, &GitChangesPanel::discardPathRequested, this,
-            [this](const QString& path) {
-        if (!gitFeature_ || path.isEmpty()) return;
-        if (QMessageBox::question(
-                this,
-                QStringLiteral("Discard Changes"),
-                QStringLiteral("Discard local changes in %1?").arg(path),
-                QMessageBox::Yes | QMessageBox::No,
-                QMessageBox::No) != QMessageBox::Yes) {
-            return;
-        }
-        gitFeature_->discard({path.toUtf8().toStdString()},
-            [this](app::GitFeatureState state) {
-            applyGitStateAsync(std::move(state));
-        });
-    });
-    connect(gitChangesPanel_, &GitChangesPanel::continueOperationRequested,
-            this, &WorkbenchWindow::continueGitOperation);
-    connect(gitChangesPanel_, &GitChangesPanel::abortOperationRequested,
-            this, &WorkbenchWindow::abortGitOperation);
-    connect(gitChangesPanel_, &GitChangesPanel::skipOperationRequested,
-            this, &WorkbenchWindow::skipGitOperation);
-    connect(gitChangesPanel_, &GitChangesPanel::filterConflictsRequested,
-            this, &WorkbenchWindow::filterGitConflicts);
-    connect(gitChangesPanel_, &GitChangesPanel::clearConflictFilterRequested,
-            this, &WorkbenchWindow::clearGitConflictFilter);
-    connect(gitChangesPanel_, &GitChangesPanel::filterStashRestoreConflictsRequested,
-            this, &WorkbenchWindow::filterStashRestoreConflicts);
-    connect(gitChangesPanel_, &GitChangesPanel::dismissStashRestoreNoticeRequested,
-            this, &WorkbenchWindow::dismissStashRestoreNotice);
-    connect(gitChangesPanel_, &GitChangesPanel::applyShelfRequested,
-            this, &WorkbenchWindow::applyShelfById);
-    connect(gitChangesPanel_, &GitChangesPanel::dropShelfRequested,
-            this, &WorkbenchWindow::dropShelfById);
-    connect(gitChangesPanel_, &GitChangesPanel::applyStashRequested,
-            this, &WorkbenchWindow::applyStashByReference);
-    connect(gitChangesPanel_, &GitChangesPanel::popStashRequested,
-            this, &WorkbenchWindow::popStashByReference);
-    connect(gitChangesPanel_, &GitChangesPanel::dropStashRequested,
-            this, &WorkbenchWindow::dropStashByReference);
-    connect(gitChangesPanel_, &GitChangesPanel::createStashRequested, this,
-            [this](const QString& message, bool includeUntracked) {
-        if (!gitFeature_) return;
-        gitFeature_->stash(message.toStdString(), includeUntracked,
-            [this](app::GitFeatureState state) { applyGitStateAsync(std::move(state)); });
-    });
-    connect(gitChangesPanel_, &GitChangesPanel::createShelfRequested, this,
-            [this](const QString& message) {
-        if (!gitFeature_) return;
-        gitFeature_->shelveWorkingTree(message.toStdString(),
-            [this](app::GitFeatureState state) { applyGitStateAsync(std::move(state)); });
-    });
-    connect(gitChangesPanel_, &GitChangesPanel::refreshShelvesRequested, this, [this] {
-        if (!gitFeature_) return;
-        gitFeature_->refreshShelves([this](app::GitFeatureState state) {
-            applyGitStateAsync(std::move(state));
-        });
-    });
-    connect(gitChangesPanel_, &GitChangesPanel::refreshStashesRequested, this, [this] {
-        if (!gitFeature_) return;
-        gitFeature_->refreshStashes([this](app::GitFeatureState state) {
-            applyGitStateAsync(std::move(state));
-        });
-    });
-
-    connect(gitLogPanel_, &GitLogPanel::refreshRequested, this, &WorkbenchWindow::loadGitHistory);
-    connect(gitLogPanel_, &GitLogPanel::fetchRequested, this, &WorkbenchWindow::fetchGitRemote);
-    connect(gitLogPanel_, &GitLogPanel::pushRequested, this, &WorkbenchWindow::pushGitReference);
-    connect(gitLogPanel_, &GitLogPanel::mergeRequested, this, &WorkbenchWindow::mergeGitReference);
-    connect(gitLogPanel_, &GitLogPanel::rebaseRequested, this, &WorkbenchWindow::rebaseGitReference);
-    connect(gitLogPanel_, &GitLogPanel::pullRequested, this, &WorkbenchWindow::pullGitRemote);
-    connect(gitLogPanel_, &GitLogPanel::compareRequested, this, &WorkbenchWindow::compareGitReference);
-    connect(gitLogPanel_, &GitLogPanel::showAllReferencesRequested, this, [this] {
-        loadGitHistory();
-    });
-    connect(gitLogPanel_, &GitLogPanel::checkoutReferenceRequested,
-            this, &WorkbenchWindow::checkoutGitReference);
-    connect(gitLogPanel_, &GitLogPanel::commitSelected, this, &WorkbenchWindow::selectGitCommit);
-    connect(gitLogPanel_, &GitLogPanel::commitFileActivated,
-            this, &WorkbenchWindow::openGitCommitFile);
-}
-
-void WorkbenchWindow::setLeftSidebarIndex(int index) {
-    if (leftSidebarStack_ == nullptr) return;
-    leftSidebarStack_->setCurrentIndex(index);
-    if (projectSidebarButton_ != nullptr) {
-        projectSidebarButton_->setChecked(index == 0);
-        ui::IdeaIcons::applyToToolButton(
-            projectSidebarButton_,
-            QStringLiteral("toolwindows/toolWindowProject.svg"),
-            16,
-            index == 0 ? ui::Theme::primaryText() : ui::Theme::secondaryText());
-    }
-    if (changesSidebarButton_ != nullptr) {
-        changesSidebarButton_->setChecked(index == 1);
-        ui::IdeaIcons::applyToToolButton(
-            changesSidebarButton_,
-            QStringLiteral("toolwindows/toolWindowCommit.svg"),
-            16,
-            index == 1 ? ui::Theme::primaryText() : ui::Theme::secondaryText());
-    }
-    updateWorkbenchChromeForFocus();
-}
-
-void WorkbenchWindow::setGitLogVisible(bool visible) {
-    if (gitLogPanel_ == nullptr) return;
-    gitLogPanel_->setVisible(visible);
-    if (gitLogButton_ != nullptr) {
-        QSignalBlocker blocker(gitLogButton_);
-        gitLogButton_->setChecked(visible);
-        ui::IdeaIcons::applyToToolButton(
-            gitLogButton_,
-            QStringLiteral("toolwindows/toolWindowVcs.svg"),
-            16,
-            visible ? ui::Theme::primaryText() : ui::Theme::secondaryText());
-    }
-    if (visible) loadGitHistory();
-    updateWorkbenchChromeForFocus();
-}
-
-void WorkbenchWindow::updateWorkbenchChromeForFocus() {
-    const bool gitFocus = leftSidebarStack_ != nullptr &&
-        leftSidebarStack_->currentIndex() == 1;
-    const bool hideAux = gitFocus ||
-        (diffReviewPanel_ != nullptr && editorStack_ != nullptr &&
-         editorStack_->currentWidget() == diffReviewPanel_);
-    if (mavenControls_ != nullptr) mavenControls_->setVisible(!hideAux);
-    if (mavenOutput_ != nullptr) mavenOutput_->setVisible(!hideAux);
-    if (searchField_ != nullptr) searchField_->setVisible(!hideAux);
-    if (analysisStatus_ != nullptr) analysisStatus_->setVisible(!hideAux);
-    if (diagnostics_ != nullptr && hideAux) diagnostics_->setVisible(false);
-}
-
-void WorkbenchWindow::showProjectSidebar() {
-    setLeftSidebarIndex(0);
-}
-
-void WorkbenchWindow::showChangesSidebar() {
-    setLeftSidebarIndex(1);
-    setGitLogVisible(true);
-    refreshGitStatus();
-    if (gitFeature_) {
-        gitFeature_->refreshShelves([this](app::GitFeatureState state) {
-            applyGitStateAsync(std::move(state));
-        });
-    }
-}
-
-void WorkbenchWindow::toggleGitLogPanel() {
-    const bool visible = gitLogPanel_ != nullptr && !gitLogPanel_->isVisible();
-    setGitLogVisible(visible);
-}
-
-void WorkbenchWindow::presentPendingGitDialogs(const app::GitFeatureState& state) {
-    if (!gitFeature_ || handlingGitDialog_) return;
-
-    if (state.pendingCheckoutConflict) {
-        handlingGitDialog_ = true;
-        const auto request = *state.pendingCheckoutConflict;
-        const auto result = showGitCheckoutConflictDialog(this, request);
-        handlingGitDialog_ = false;
-        switch (result.decision) {
-        case app::GitCheckoutDialogDecision::Smart:
-            suppressPendingGitDialog_ = false;
-            gitFeature_->resolveCheckoutConflict(app::GitCheckoutConflictStrategy::Smart,
-                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            return;
-        case app::GitCheckoutDialogDecision::Force:
-            suppressPendingGitDialog_ = false;
-            gitFeature_->resolveCheckoutConflict(app::GitCheckoutConflictStrategy::Force,
-                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            return;
-        case app::GitCheckoutDialogDecision::OpenDiff:
-            if (!result.selectedPath.isEmpty()) {
-                suppressPendingGitDialog_ = true;
-                openGitChangeDiff(result.selectedPath, false, false);
-            }
-            return;
-        case app::GitCheckoutDialogDecision::DiscardAndRetry:
-            if (!result.selectedPath.isEmpty()) {
-                suppressPendingGitDialog_ = false;
-                gitFeature_->discardConflictPath(result.selectedPath.toUtf8().toStdString(),
-                    [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            }
-            return;
-        case app::GitCheckoutDialogDecision::Cancel:
-            suppressPendingGitDialog_ = false;
-            gitFeature_->cancelCheckoutConflict(
-                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            return;
-        }
-    }
-
-    if (state.pendingIntegrationConflict) {
-        handlingGitDialog_ = true;
-        const auto request = *state.pendingIntegrationConflict;
-        const auto result = showGitIntegrationConflictDialog(this, request);
-        handlingGitDialog_ = false;
-        switch (result.decision) {
-        case app::GitIntegrationDialogDecision::SaveAndContinue:
-            suppressPendingGitDialog_ = false;
-            gitFeature_->resolveIntegrationConflict(
-                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            return;
-        case app::GitIntegrationDialogDecision::OpenDiff:
-            if (!result.selectedPath.isEmpty()) {
-                suppressPendingGitDialog_ = true;
-                openGitChangeDiff(result.selectedPath, false, false);
-            }
-            return;
-        case app::GitIntegrationDialogDecision::DiscardAndRetry:
-            if (!result.selectedPath.isEmpty()) {
-                suppressPendingGitDialog_ = false;
-                gitFeature_->discardConflictPath(result.selectedPath.toUtf8().toStdString(),
-                    [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            }
-            return;
-        case app::GitIntegrationDialogDecision::Cancel:
-            suppressPendingGitDialog_ = false;
-            gitFeature_->cancelIntegrationConflict(
-                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            return;
-        }
-    }
-
-    if (state.pendingPullStrategy) {
-        handlingGitDialog_ = true;
-        const auto request = *state.pendingPullStrategy;
-        const auto result = showGitPullStrategyDialog(this, request);
-        handlingGitDialog_ = false;
-        switch (result.decision) {
-        case app::GitPullDialogDecision::FfOnly:
-            gitFeature_->resolvePullStrategy(app::GitPullStrategy::FfOnly,
-                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            return;
-        case app::GitPullDialogDecision::Merge:
-            gitFeature_->resolvePullStrategy(app::GitPullStrategy::Merge,
-                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            return;
-        case app::GitPullDialogDecision::Rebase:
-            gitFeature_->resolvePullStrategy(app::GitPullStrategy::Rebase,
-                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            return;
-        case app::GitPullDialogDecision::Cancel:
-            gitFeature_->cancelPullStrategy(
-                [this](app::GitFeatureState next) { applyGitStateAsync(std::move(next)); });
-            return;
-        }
-    }
-}
-
-void WorkbenchWindow::syncDirtyDocumentsPort(const app::DocumentFeatureState& state) {
-    if (!dirtyDocuments_ || state.relativePath.empty()) return;
-    // Upsert the current document only so other dirty tabs stay visible to
-    // preflight until W1 owns a real multi-buffer dirty port.
-    auto paths = dirtyDocuments_->dirtyRelativePaths();
-    paths.erase(std::remove(paths.begin(), paths.end(), state.relativePath), paths.end());
-    if (state.isDirty) {
-        paths.push_back(state.relativePath);
-    }
-    dirtyDocuments_->setDirtyPaths(std::move(paths));
 }
 
 void WorkbenchWindow::renderDiffReview() {
-    if (diffSplit_ == nullptr) return;
+    if (diff_ == nullptr) return;
+    diff_->setUpdatesEnabled(false);
+    diff_->clearContents();
+    diff_->setRowCount(0);
+    static_cast<DiffReviewTable*>(diff_)->setConnections({});
+    if (diffOverview_ != nullptr) diffOverview_->clear();
     if (!diffReview_) {
-        closeDiffReview();
+        diff_->setVisible(false);
+        if (diffReviewPanel_ != nullptr) diffReviewPanel_->setVisible(false);
+        diff_->setUpdatesEnabled(true);
         return;
     }
 
+    std::unordered_set<std::string> overviewHunks;
+    std::vector<DiffReviewTable::Connection> connections;
+    std::optional<DiffReviewTable::Connection> activeConnection;
+    const auto finishConnection = [&] {
+        if (!activeConnection) return;
+        connections.push_back(*activeConnection);
+        activeConnection.reset();
+    };
     std::vector<algorithms::DiffRow> rows;
     rows.reserve(diffReview_->rows.size());
     for (std::size_t index = 0; index < diffReview_->rows.size(); ++index) {
         const auto& source = diffReview_->rows[index];
-        std::optional<std::size_t> oldLine;
-        std::optional<std::size_t> newLine;
-        if (source.oldLine) oldLine = static_cast<std::size_t>(*source.oldLine);
-        if (source.newLine) newLine = static_cast<std::size_t>(*source.newLine);
-        rows.push_back({oldLine,
-                        newLine,
+        rows.push_back({source.oldLine,
+                        source.newLine,
                         source.left,
                         source.right,
                         diffRowKind(source.kind),
                         source.hunkId.value_or(std::string{}),
                         index});
     }
-    diffSplit_->setDiff(rows, expandedDiffRegions_);
-    if (!selectedDiffHunk_.isEmpty()) {
-        diffSplit_->setSelectedHunkId(selectedDiffHunk_);
-    }
-    const bool hasRows = !diffReview_->rows.empty();
-    if (editorStack_ != nullptr) {
-        if (presentDiffReview_ && hasRows) {
-            editorStack_->setCurrentWidget(diffReviewPanel_);
-        } else if (!presentDiffReview_) {
-            editorStack_->setCurrentWidget(editorPage_);
+    const auto display = algorithms::DiffCollapse::plan(rows, expandedDiffRegions_);
+    for (const auto& displayRow : display) {
+        const auto tableRow = diff_->rowCount();
+        diff_->insertRow(tableRow);
+        if (displayRow.isCollapsed()) {
+            finishConnection();
+            const auto& region = displayRow.region();
+            auto* item = new QTableWidgetItem(
+                QString("... %1 context lines hidden; click to expand")
+                    .arg(static_cast<qulonglong>(region.hiddenRowCount())));
+            item->setData(DiffRegionRole, fromUtf8(region.id));
+            item->setBackground(diffBackground(algorithms::DiffRowKind::Information));
+            item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+            diff_->setItem(tableRow, 0, item);
+            diff_->setSpan(tableRow, 0, 1, 2);
+            diff_->setRowHeight(tableRow, 24);
+            continue;
         }
-    }
-    updateWorkbenchChromeForFocus();
-}
 
-void WorkbenchWindow::closeDiffReview() {
-    presentDiffReview_ = false;
-    diffReview_.reset();
-    selectedDiffHunk_.clear();
-    if (diffSplit_ != nullptr) diffSplit_->clear();
-    if (editorStack_ != nullptr && editorPage_ != nullptr) {
-        editorStack_->setCurrentWidget(editorPage_);
+        const auto& row = displayRow.row();
+        const auto kind = row.kind;
+        const auto isDifference = kind == algorithms::DiffRowKind::Changed ||
+            kind == algorithms::DiffRowKind::Addition ||
+            kind == algorithms::DiffRowKind::Removal;
+        if (isDifference && (row.hasLeft() || row.hasRight())) {
+            if (!activeConnection || activeConnection->kind != kind ||
+                activeConnection->lastRow != tableRow - 1) {
+                finishConnection();
+                activeConnection = DiffReviewTable::Connection{tableRow, tableRow, kind};
+            } else {
+                activeConnection->lastRow = tableRow;
+            }
+        } else {
+            finishConnection();
+        }
+        auto right = row.right;
+        if (kind == algorithms::DiffRowKind::Context && !right) right = row.left;
+        auto* leftItem = new QTableWidgetItem(numberedDiffText(row.oldLine, row.left));
+        auto* rightItem = new QTableWidgetItem(numberedDiffText(row.newLine, right));
+        const auto background = diffBackground(kind);
+        leftItem->setBackground(background);
+        rightItem->setBackground(background);
+        leftItem->setData(DiffHunkRole, fromUtf8(row.hunkId));
+        rightItem->setData(DiffHunkRole, fromUtf8(row.hunkId));
+        diff_->setItem(tableRow, 0, leftItem);
+        diff_->setItem(tableRow, 1, rightItem);
+        if (diffOverview_ != nullptr && !row.hunkId.empty() &&
+            overviewHunks.insert(row.hunkId).second) {
+            auto* overview = new QListWidgetItem(
+                QStringLiteral("Hunk %1").arg(diffOverview_->count() + 1), diffOverview_);
+            overview->setData(DiffOverviewRowRole, tableRow);
+            overview->setData(DiffHunkRole, fromUtf8(row.hunkId));
+            overview->setToolTip(fromUtf8(row.hunkId));
+            overview->setBackground(diffBackground(kind));
+        }
+        if (kind == algorithms::DiffRowKind::Information) {
+            diff_->setSpan(tableRow, 0, 1, 2);
+        }
+        diff_->setRowHeight(tableRow, kind == algorithms::DiffRowKind::Information ? 25 : 21);
     }
-    updateWorkbenchChromeForFocus();
+    finishConnection();
+    static_cast<DiffReviewTable*>(diff_)->setConnections(std::move(connections));
+    const auto hasRows = diff_->rowCount() > 0;
+    diff_->setVisible(hasRows);
+    if (diffOverview_ != nullptr) diffOverview_->setVisible(!overviewHunks.empty());
+    if (diffReviewPanel_ != nullptr) diffReviewPanel_->setVisible(hasRows);
+    diff_->setUpdatesEnabled(true);
+    diff_->viewport()->update();
 }
 
 void WorkbenchWindow::stageSelectedHunk() {
@@ -3386,6 +3987,7 @@ void WorkbenchWindow::discardSelectedHunk() {
 
 void WorkbenchWindow::applySelectedHunk(const QString& mode) {
     if (selectedDiffHunk_.isEmpty()) return;
+    if (mode == QStringLiteral("discard") && !ensureDocumentsSafeForGit()) return;
     const auto state = gitFeature_->state();
     if (!state.diff || state.isApplying) return;
     const auto hunk = std::find_if(state.diff->hunks.begin(), state.diff->hunks.end(),
@@ -3417,27 +4019,21 @@ void WorkbenchWindow::stageAllChanges() {
                 showFeatureError(state.error, QStringLiteral("Could not stage changes"));
                 return;
             }
-            statusBar()->showMessage(QStringLiteral("All changes staged"), 3000);
+    statusBar()->showMessage(uiText(QStringLiteral("All changes staged")), 3000);
             loadSnapshot();
         }, Qt::QueuedConnection);
     });
 }
 
 void WorkbenchWindow::commitChanges() {
-    if (!gitFeature_ || workspaceRoot_.isEmpty() || gitChangesPanel_ == nullptr) return;
-    const auto current = gitFeature_->state();
-    if (app::commitBlockedByConflicts(current.status, {})) {
-        statusBar()->showMessage(
-            QStringLiteral("Resolve Git conflicts before committing"), 5000);
-        return;
-    }
-    const auto message = gitChangesPanel_->commitMessage().trimmed();
+    if (!gitFeature_ || workspaceRoot_.isEmpty() || commitEditor_ == nullptr) return;
+    const auto message = commitEditor_->toPlainText().trimmed();
     if (message.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("Enter a commit message first"), 4000);
-        gitChangesPanel_->focusCommitMessage();
+    statusBar()->showMessage(uiText(QStringLiteral("Enter a commit message first")), 4000);
+        commitEditor_->setFocus();
         return;
     }
-    const auto amend = gitChangesPanel_->isAmendChecked();
+    const auto amend = amendCommit_ != nullptr && amendCommit_->isChecked();
     gitFeature_->commit(message.toUtf8().toStdString(), amend,
         [this](app::GitFeatureState state) {
         QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
@@ -3446,41 +4042,8 @@ void WorkbenchWindow::commitChanges() {
                 return;
             }
             if (state.isWriting) return;
-            if (gitChangesPanel_ != nullptr) gitChangesPanel_->clearCommitMessage();
-            statusBar()->showMessage(QStringLiteral("Commit created"), 4000);
-            loadSnapshot();
-        }, Qt::QueuedConnection);
-    });
-}
-
-void WorkbenchWindow::commitAndPushChanges() {
-    if (!gitFeature_ || workspaceRoot_.isEmpty() || gitChangesPanel_ == nullptr) return;
-    const auto current = gitFeature_->state();
-    if (app::commitBlockedByConflicts(current.status, {})) {
-        statusBar()->showMessage(
-            QStringLiteral("Resolve Git conflicts before committing"), 5000);
-        return;
-    }
-    const auto message = gitChangesPanel_->commitMessage().trimmed();
-    if (message.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("Enter a commit message first"), 4000);
-        gitChangesPanel_->focusCommitMessage();
-        return;
-    }
-    if (!confirmDestructiveGitAction(
-            this,
-            QStringLiteral("Commit and Push"),
-            QStringLiteral("The staged changes will be committed and the current branch will be pushed to its configured remote."))) {
-        return;
-    }
-    const auto amend = gitChangesPanel_->isAmendChecked();
-    gitFeature_->commitAndPush(message.toUtf8().toStdString(), amend,
-        [this](app::GitFeatureState state) {
-        QMetaObject::invokeMethod(this, [this, state = std::move(state)]() mutable {
-            applyGitState(state);
-            if (state.error || state.isWriting || state.isPerformingBranchOperation) return;
-            if (gitChangesPanel_ != nullptr) gitChangesPanel_->clearCommitMessage();
-            statusBar()->showMessage(QStringLiteral("Commit created and pushed"), 4000);
+            if (commitEditor_ != nullptr) commitEditor_->clear();
+    statusBar()->showMessage(uiText(QStringLiteral("Commit created")), 4000);
             loadSnapshot();
         }, Qt::QueuedConnection);
     });
@@ -3639,7 +4202,7 @@ std::optional<app::AICommitSettings> WorkbenchWindow::configureAISettings() {
     settings.providers = {provider};
     settings.activeProviderID = provider.id;
     if (provider.endpoint.empty() || provider.model.empty()) {
-        statusBar()->showMessage(QStringLiteral("AI endpoint and model are required"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("AI endpoint and model are required")), 5000);
         return std::nullopt;
     }
     const auto key = apiKey->text().toUtf8().toStdString();
@@ -3665,7 +4228,7 @@ void WorkbenchWindow::startAIGeneration(app::AICommitInput input,
     if (aiGenerating_.exchange(true)) return;
     if (aiWorker_.joinable()) aiWorker_.join();
     const auto workspaceEpoch = workspaceEpoch_;
-    statusBar()->showMessage(QStringLiteral("Generating commit message..."));
+    statusBar()->showMessage(uiText(QStringLiteral("Generating commit message...")));
     aiWorker_ = std::thread([this, workspaceEpoch, input = std::move(input),
                               settings = std::move(settings)] {
         app::AICommitError error;
@@ -3679,8 +4242,8 @@ void WorkbenchWindow::startAIGeneration(app::AICommitInput input,
                                              fromUtf8(error.message), 8000);
                 return;
             }
-            if (gitChangesPanel_ != nullptr) gitChangesPanel_->setCommitMessage(fromUtf8(message));
-            statusBar()->showMessage(QStringLiteral("AI commit message ready"), 4000);
+            if (commitEditor_ != nullptr) commitEditor_->setPlainText(fromUtf8(message));
+    statusBar()->showMessage(uiText(QStringLiteral("AI commit message ready")), 4000);
         }, Qt::QueuedConnection);
     });
 }
@@ -3707,7 +4270,7 @@ void WorkbenchWindow::generateAICommitMessage() {
         changeKinds.emplace(change.path, change.status);
     }
     if (stagedPaths.empty()) {
-        statusBar()->showMessage(QStringLiteral("There are no staged changes"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("There are no staged changes")), 5000);
         return;
     }
     const auto workspaceEpoch = workspaceEpoch_;
@@ -3740,7 +4303,7 @@ void WorkbenchWindow::generateAICommitMessage() {
                 input.files.push_back({path, kind, stagedDiff.diff.patch});
             }
             if (input.files.empty()) {
-                statusBar()->showMessage(QStringLiteral("There is no staged textual diff"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("There is no staged textual diff")), 5000);
                 return;
             }
             startAIGeneration(std::move(input), std::move(settings));
@@ -3751,7 +4314,7 @@ void WorkbenchWindow::generateAICommitMessage() {
 void WorkbenchWindow::checkForUpdates() {
     if (updateBusy_.exchange(true)) return;
     if (updateWorker_.joinable()) updateWorker_.join();
-    statusBar()->showMessage(QStringLiteral("Checking for Windows updates..."));
+    statusBar()->showMessage(uiText(QStringLiteral("Checking for Windows updates...")));
     updateWorker_ = std::thread([this] {
         constexpr std::string_view CurrentVersion = "0.1.11";
         app::WindowsUpdateError error;
@@ -3765,16 +4328,16 @@ void WorkbenchWindow::checkForUpdates() {
                                           error = std::move(error)]() mutable {
             if (!release || !asset) {
                 if (error.code == app::WindowsUpdateErrorCode::NoPublishedRelease) {
-                    statusBar()->showMessage(QStringLiteral("Lithe is up to date"), 4000);
+    statusBar()->showMessage(uiText(QStringLiteral("Lithe is up to date")), 4000);
                 } else {
-                    statusBar()->showMessage(QStringLiteral("Update check failed: ") +
+                    statusBar()->showMessage(uiText(QStringLiteral("Update check failed: ")) +
                                                  fromUtf8(error.message), 8000);
                 }
                 return;
             }
-            const auto answer = QMessageBox::question(
-                this, QStringLiteral("Windows update available"),
-                QStringLiteral("Lithe %1 is available. Download the verified installer?")
+             const auto answer = QMessageBox::question(
+                 this, uiText(QStringLiteral("Windows update available")),
+                 uiText(QStringLiteral("Lithe %1 is available. Download the verified installer?"))
                     .arg(fromUtf8(release->version)),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
             if (answer != QMessageBox::Yes) return;
@@ -3782,7 +4345,7 @@ void WorkbenchWindow::checkForUpdates() {
             QDir().mkpath(cache);
             const auto filename = QString::fromUtf8(asset->name.data());
             const auto destination = QFileDialog::getSaveFileName(
-                this, QStringLiteral("Save Windows installer"), QDir(cache).filePath(filename),
+                 this, uiText(QStringLiteral("Save Windows installer")), QDir(cache).filePath(filename),
                 QStringLiteral("Windows installer (*.exe *.msi)"));
             if (!destination.isEmpty()) downloadUpdate(*asset, destination);
         }, Qt::QueuedConnection);
@@ -3811,14 +4374,14 @@ void WorkbenchWindow::downloadUpdate(const app::WindowsReleaseAsset& asset,
         QMetaObject::invokeMethod(this, [this, success, path,
                                           error = std::move(error)]() mutable {
             if (!success) {
-                statusBar()->showMessage(QStringLiteral("Update download failed: ") +
+                 statusBar()->showMessage(uiText(QStringLiteral("Update download failed: ")) +
                                              fromUtf8(error.message), 8000);
                 return;
             }
-            statusBar()->showMessage(QStringLiteral("Verified installer downloaded"), 5000);
+             statusBar()->showMessage(uiText(QStringLiteral("Verified installer downloaded")), 5000);
             const auto answer = QMessageBox::question(
-                this, QStringLiteral("Installer ready"),
-                QStringLiteral("The SHA-256 verified installer is ready. Launch it now?"),
+                 this, uiText(QStringLiteral("Installer ready")),
+                 uiText(QStringLiteral("The SHA-256 verified installer is ready. Launch it now?")),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
             if (answer != QMessageBox::Yes) return;
             const auto helper = QDir(QCoreApplication::applicationDirPath())
@@ -3831,11 +4394,11 @@ void WorkbenchWindow::downloadUpdate(const app::WindowsReleaseAsset& asset,
             };
             if (!QFileInfo(helper).isExecutable() ||
                 !QProcess::startDetached(helper, arguments, QFileInfo(helper).absolutePath())) {
-                statusBar()->showMessage(QStringLiteral("Could not launch the Windows update helper"),
+                 statusBar()->showMessage(uiText(QStringLiteral("Could not launch the Windows update helper")),
                                          6000);
                 return;
             }
-            statusBar()->showMessage(QStringLiteral("Closing Lithe to install the update"), 5000);
+             statusBar()->showMessage(uiText(QStringLiteral("Closing Lithe to install the update")), 5000);
             QCoreApplication::quit();
         }, Qt::QueuedConnection);
     });
@@ -3884,6 +4447,33 @@ void WorkbenchWindow::applyHistoryState(const app::HistoryFeatureState& state) {
     }
 }
 
+void WorkbenchWindow::applyShelfState(const app::ShelfFeatureState& state) {
+    if (state.error) {
+        setShelfActionsEnabled(true);
+        showFeatureError(state.error, uiText(QStringLiteral("Shelf request failed")));
+        return;
+    }
+    if (state.isLoading || gitShelves_ == nullptr) return;
+    if (state.shelves) {
+        gitShelves_->clear();
+        for (const auto& shelf : state.shelves->shelves) {
+            auto* item = new QListWidgetItem(
+                uiText(QStringLiteral("%1  staged:%2  worktree:%3"))
+                    .arg(fromUtf8(shelf.label))
+                    .arg(static_cast<qulonglong>(shelf.stagedByteCount))
+                    .arg(static_cast<qulonglong>(shelf.workingTreeByteCount)),
+                gitShelves_);
+            item->setData(ShelfIdRole, fromUtf8(shelf.id));
+            if (shelf.id == selectedShelf_.toStdString()) gitShelves_->setCurrentItem(item);
+        }
+        gitShelves_->setVisible(true);
+        gitShelfActions_->setVisible(true);
+        setShelfActionsEnabled(true);
+        statusBar()->showMessage(
+            uiText(QStringLiteral("%1 Shelves")).arg(gitShelves_->count()), 3000);
+    }
+}
+
 void WorkbenchWindow::applyMavenJavaState(const app::MavenJavaFeatureState& state,
                                           bool renderCodeVision,
                                           bool renderStructure) {
@@ -3897,18 +4487,32 @@ void WorkbenchWindow::applyMavenJavaState(const app::MavenJavaFeatureState& stat
             .arg(fromUtf8(state.maven->scan->artifactId))
             .arg(fromUtf8(state.maven->scan->packaging)));
     } else if (state.maven && !state.maven->scan) {
-        parts.push_back(QStringLiteral("No Maven project"));
+        parts.push_back(uiText(QStringLiteral("No Maven project")));
     }
     if (state.runConfigurations) {
-        parts.push_back(QString("%1 run configurations")
+        parts.push_back(uiText(QStringLiteral("%1 run configurations"))
             .arg(static_cast<qulonglong>(state.runConfigurations->configurations.size())));
+        if (runConfigurationSelector_ != nullptr) {
+            const auto selectedID = runConfigurationSelector_->currentData().toString();
+            const QSignalBlocker blocker(runConfigurationSelector_);
+            runConfigurationSelector_->clear();
+            runConfigurationSelector_->addItem(
+                uiText(QStringLiteral("Current File")), QString{});
+            for (const auto& configuration : state.runConfigurations->configurations) {
+                runConfigurationSelector_->addItem(
+                    fromUtf8(configuration.name), fromUtf8(configuration.id));
+            }
+            const auto restoredIndex = runConfigurationSelector_->findData(selectedID);
+            runConfigurationSelector_->setCurrentIndex(
+                restoredIndex >= 0 ? restoredIndex : 0);
+        }
     }
     if (state.codeVision) {
-        parts.push_back(QString("%1 code vision hints")
+        parts.push_back(uiText(QStringLiteral("%1 code vision hints"))
             .arg(static_cast<qulonglong>(state.codeVision->hints.size())));
     }
     if (state.structure) {
-        parts.push_back(QString("%1 fold regions")
+        parts.push_back(uiText(QStringLiteral("%1 fold regions"))
             .arg(static_cast<qulonglong>(state.structure->foldRegions.size())));
     }
     if (editor_ && activePath_.endsWith(QStringLiteral(".java"), Qt::CaseInsensitive) &&
@@ -3963,6 +4567,7 @@ void WorkbenchWindow::applyMavenJavaState(const app::MavenJavaFeatureState& stat
 
 void WorkbenchWindow::runMavenPhase(const QString& phase) {
     if (workspaceRoot_.isEmpty() || phase.trimmed().isEmpty()) return;
+    showToolWindow(BottomToolKind::Build);
     if (mavenSession_ && mavenSession_->isRunning()) mavenSession_->stop();
 
     app::MavenBuildRequest request;
@@ -3974,7 +4579,7 @@ void WorkbenchWindow::runMavenPhase(const QString& phase) {
     if (!process) {
         appendMavenOutput(QStringLiteral("Unable to start Maven: ") + fromUtf8(error) +
                           QStringLiteral("\n"));
-        statusBar()->showMessage(QStringLiteral("Maven could not start"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Maven could not start")), 5000);
         return;
     }
 
@@ -3984,7 +4589,7 @@ void WorkbenchWindow::runMavenPhase(const QString& phase) {
                       QStringLiteral(" ") + arguments.join(QStringLiteral(" ")) +
                       QStringLiteral("\n\n"));
     mavenSession_->start(*process);
-    statusBar()->showMessage(QStringLiteral("Maven %1 is running").arg(phase));
+    statusBar()->showMessage(uiText(QStringLiteral("Maven %1 is running")).arg(phase));
 }
 
 void WorkbenchWindow::stopMavenBuild() {
@@ -4008,23 +4613,23 @@ void WorkbenchWindow::appendMavenOutput(const QString& text) {
 void WorkbenchWindow::applyMavenLifecycle(const ProcessLifecycleEvent& event) {
     switch (event.state) {
     case ProcessLifecycleState::Starting:
-        statusBar()->showMessage(QStringLiteral("Starting Maven"));
+    statusBar()->showMessage(uiText(QStringLiteral("Starting Maven")));
         break;
     case ProcessLifecycleState::Running:
-        statusBar()->showMessage(QStringLiteral("Maven is running"));
+    statusBar()->showMessage(uiText(QStringLiteral("Maven is running")));
         break;
     case ProcessLifecycleState::Stopping:
-        statusBar()->showMessage(QStringLiteral("Stopping Maven"));
+    statusBar()->showMessage(uiText(QStringLiteral("Stopping Maven")));
         if (!event.message.empty()) appendMavenOutput(QStringLiteral("\n") + fromUtf8(event.message) +
                                                       QStringLiteral("\n"));
         break;
     case ProcessLifecycleState::Failed:
-        statusBar()->showMessage(QStringLiteral("Maven failed to start"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Maven failed to start")), 5000);
         if (!event.message.empty()) appendMavenOutput(QStringLiteral("\n") + fromUtf8(event.message) +
                                                       QStringLiteral("\n"));
         break;
     case ProcessLifecycleState::Finished:
-        statusBar()->showMessage(QStringLiteral("Maven finished with exit code %1")
+        statusBar()->showMessage(uiText(QStringLiteral("Maven finished with exit code %1"))
                                      .arg(event.exitCode.value_or(1)), 5000);
         appendMavenOutput(QStringLiteral("\nMaven finished with exit code ") +
                           QString::number(event.exitCode.value_or(1)) + QStringLiteral("\n"));
@@ -4078,7 +4683,7 @@ void WorkbenchWindow::runSpringBoot() {
             return configuration.kind == "springBoot";
         });
     if (found == project.configurations.end()) {
-        statusBar()->showMessage(QStringLiteral("No Spring Boot run configuration was detected"),
+    statusBar()->showMessage(uiText(QStringLiteral("No Spring Boot run configuration was detected")),
                                  5000);
         return;
     }
@@ -4092,7 +4697,7 @@ void WorkbenchWindow::runJavaConfiguration(const JavaRunConfigurationDto& config
     std::optional<std::filesystem::path> currentFile;
     if (configuration.kind == "currentFile") {
         if (activePath_.isEmpty()) {
-            statusBar()->showMessage(QStringLiteral("Open a Java file before running it"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Open a Java file before running it")), 5000);
             return;
         }
         currentFile = std::filesystem::path(workspaceRoot_.toStdWString()) /
@@ -4106,7 +4711,7 @@ void WorkbenchWindow::runJavaConfiguration(const JavaRunConfigurationDto& config
     if (!process) {
         appendMavenOutput(QStringLiteral("Unable to run Java: ") + fromUtf8(error) +
                           QStringLiteral("\n"));
-        statusBar()->showMessage(QStringLiteral("Java run could not start"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Java run could not start")), 5000);
         return;
     }
     QStringList arguments;
@@ -4115,7 +4720,7 @@ void WorkbenchWindow::runJavaConfiguration(const JavaRunConfigurationDto& config
                       QStringLiteral(" ") + arguments.join(QStringLiteral(" ")) +
                       QStringLiteral("\n\n"));
     javaSession_->start(*process);
-    statusBar()->showMessage(QStringLiteral("%1 is running")
+        statusBar()->showMessage(uiText(QStringLiteral("%1 is running"))
                                  .arg(fromUtf8(configuration.name)));
 }
 
@@ -4128,25 +4733,25 @@ void WorkbenchWindow::stopJavaRun() {
 void WorkbenchWindow::applyJavaLifecycle(const ProcessLifecycleEvent& event) {
     switch (event.state) {
     case ProcessLifecycleState::Starting:
-        statusBar()->showMessage(QStringLiteral("Starting Java"));
+    statusBar()->showMessage(uiText(QStringLiteral("Starting Java")));
         break;
     case ProcessLifecycleState::Running:
-        statusBar()->showMessage(QStringLiteral("Java is running"));
+    statusBar()->showMessage(uiText(QStringLiteral("Java is running")));
         break;
     case ProcessLifecycleState::Stopping:
-        statusBar()->showMessage(QStringLiteral("Stopping Java"));
+    statusBar()->showMessage(uiText(QStringLiteral("Stopping Java")));
         if (!event.message.empty()) appendMavenOutput(QStringLiteral("\n") +
                                                        fromUtf8(event.message) +
                                                        QStringLiteral("\n"));
         break;
     case ProcessLifecycleState::Failed:
-        statusBar()->showMessage(QStringLiteral("Java failed to start"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Java failed to start")), 5000);
         if (!event.message.empty()) appendMavenOutput(QStringLiteral("\n") +
                                                        fromUtf8(event.message) +
                                                        QStringLiteral("\n"));
         break;
     case ProcessLifecycleState::Finished:
-        statusBar()->showMessage(QStringLiteral("Java finished with exit code %1")
+        statusBar()->showMessage(uiText(QStringLiteral("Java finished with exit code %1"))
                                      .arg(event.exitCode.value_or(1)), 5000);
         appendMavenOutput(QStringLiteral("\nJava finished with exit code ") +
                           QString::number(event.exitCode.value_or(1)) + QStringLiteral("\n"));
@@ -4157,9 +4762,10 @@ void WorkbenchWindow::applyJavaLifecycle(const ProcessLifecycleEvent& event) {
 void WorkbenchWindow::debugCurrentJava() {
     if (workspaceRoot_.isEmpty() || activePath_.isEmpty() ||
         !activePath_.endsWith(QStringLiteral(".java"), Qt::CaseInsensitive)) {
-        statusBar()->showMessage(QStringLiteral("Open a Java file before debugging it"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Open a Java file before debugging it")), 5000);
         return;
     }
+    showToolWindow(BottomToolKind::Debug);
     const auto file = std::filesystem::path(workspaceRoot_.toStdWString()) /
                       std::filesystem::path(activePath_.toStdWString());
     javaDebugService_->startCurrentFile(file, editor_->toPlainText().toUtf8().toStdString(), {});
@@ -4177,6 +4783,7 @@ void WorkbenchWindow::debugSpringBoot() {
                                  5000);
         return;
     }
+    showToolWindow(BottomToolKind::Debug);
     javaDebugService_->startMaven(*found, {});
 }
 
@@ -4190,6 +4797,7 @@ void WorkbenchWindow::attachRemoteDebugger() {
                                            QStringLiteral("Port:"), 5005, 1, 65535, 1,
                                            &accepted);
     if (!accepted) return;
+    showToolWindow(BottomToolKind::Debug);
     javaDebugService_->attachRemote(host.trimmed().toStdString(),
                                     static_cast<std::uint16_t>(port));
 }
@@ -4223,7 +4831,7 @@ void WorkbenchWindow::stepOutDebugger() {
 void WorkbenchWindow::toggleBreakpoint() {
     if (!javaDebugService_ || workspaceRoot_.isEmpty() || activePath_.isEmpty() ||
         !activePath_.endsWith(QStringLiteral(".java"), Qt::CaseInsensitive)) {
-        statusBar()->showMessage(QStringLiteral("Open a Java file before adding a breakpoint"),
+    statusBar()->showMessage(uiText(QStringLiteral("Open a Java file before adding a breakpoint")),
                                  5000);
         return;
     }
@@ -4360,7 +4968,7 @@ void WorkbenchWindow::appendDebugVariable(const app::JavaDebugVariable& variable
 
 void WorkbenchWindow::gotoJavaDefinition() {
     if (!languageServer_ || !languageServer_->isReady() || languageServerUri_.empty()) {
-        statusBar()->showMessage(QStringLiteral("Java language server is not ready"), 5000);
+    statusBar()->showMessage(uiText(QStringLiteral("Java language server is not ready")), 5000);
         return;
     }
     const auto cursor = editor_->textCursor();
@@ -4513,7 +5121,7 @@ void WorkbenchWindow::applyLanguageServerDiagnostics(const std::string& uri,
     }
     diagnostics_->setVisible(diagnostics_->count() > 0);
     if (diagnostics_->count() > 0) {
-        statusBar()->showMessage(QString("%1 Java diagnostics")
+    statusBar()->showMessage(uiText(QStringLiteral("%1 Java diagnostics"))
                                      .arg(diagnostics_->count()), 5000);
     }
 }
@@ -4528,7 +5136,7 @@ void WorkbenchWindow::ensureJavaLanguageServer() {
     std::string error;
     const auto root = std::filesystem::path(projectRoot.toStdWString());
     if (!languageServer_->start(root, error)) {
-        statusBar()->showMessage(QStringLiteral("Java language server unavailable: ") +
+    statusBar()->showMessage(uiText(QStringLiteral("Java language server unavailable: ")) +
                                      fromUtf8(error), 5000);
         return;
     }
@@ -4563,67 +5171,95 @@ void WorkbenchWindow::synchronizeLanguageServerDocument() {
 }
 
 void WorkbenchWindow::startTerminal() {
-    if (workspaceRoot_.isEmpty() || !terminal_) return;
+    if (workspaceRoot_.isEmpty() || terminalPanel_ == nullptr || !terminalModel_) return;
+    showToolWindow(BottomToolKind::Terminal);
     terminalPanel_->setVisible(true);
-    if (terminal_->isRunning()) {
-        terminalInput_->setFocus();
-        return;
+    applyTerminalWorkspace();
+    if (terminalPanel_->sessionCount() == 0) {
+        terminalPanel_->newSession();
     }
-    terminalOutput_->clear();
-    const auto environment = runtimeLocator_.environment();
-    std::string shell = appSettings_.terminalShellPath;
-    if (shell.empty()) {
-        shell = "cmd.exe";
-        for (const auto& [key, value] : environment) {
-            if (key.size() == 7 && std::equal(key.begin(), key.end(), "ComSpec",
-                    [](char left, char right) {
-                        return std::tolower(static_cast<unsigned char>(left)) ==
-                               std::tolower(static_cast<unsigned char>(right));
-                    })) {
-                shell = value;
-                break;
-            }
-        }
-    }
-    ProcessRequest request;
-    request.operationID = "windows-terminal-" +
-        std::to_string(static_cast<unsigned long long>(QDateTime::currentMSecsSinceEpoch()));
-    request.executablePath = shell;
-    request.workingDirectory = workspaceRoot_.toStdString();
-    request.environment = environment;
-    terminal_->start(request);
-    terminalInput_->setFocus();
-    statusBar()->showMessage(QStringLiteral("Terminal started"), 3000);
+    statusBar()->showMessage(uiText(QStringLiteral("Terminal started")), 3000);
 }
 
 void WorkbenchWindow::stopTerminal() {
-    if (terminal_) terminal_->stop();
-    if (terminalPanel_) terminalPanel_->setVisible(false);
+    if (terminalPanel_ == nullptr || !terminalModel_) return;
+    terminalPanel_->closeCurrent();
+    if (terminalPanel_->sessionCount() == 0) terminalPanel_->setVisible(false);
+}
+
+void WorkbenchWindow::applyTerminalWorkspace() {
+    if (terminalPanel_ == nullptr) return;
+    terminalPanel_->setWorkspace(workspaceRoot_, runtimeLocator_.environment());
+    terminalPanel_->setAvailableShells(availableShells());
+}
+
+QStringList WorkbenchWindow::availableShells() const {
+    // Offer the configured shell plus any detected Windows shells (issue #31:
+    // "支持配置或选择可用 Shell"). Existence is checked so the menu never
+    // offers a shell that is not actually installed.
+    QStringList shells;
+    const QString configured = QString::fromStdString(appSettings_.terminalShellPath).trimmed();
+    if (!configured.isEmpty()) shells << configured;
+    const auto addIfExists = [&](const QString& path) {
+        if (!path.isEmpty() && QFile::exists(path) && !shells.contains(path)) shells << path;
+    };
+    const QString systemRoot = qEnvironmentVariable("SystemRoot");
+    const QString base = systemRoot.isEmpty() ? QStringLiteral("C:/Windows") : systemRoot;
+    addIfExists(base + "/System32/cmd.exe");
+    addIfExists(base + "/System32/WindowsPowerShell/v1.0/powershell.exe");
+    const QString programFiles = qEnvironmentVariable("ProgramFiles");
+    if (!programFiles.isEmpty()) addIfExists(programFiles + "/PowerShell/7/pwsh.exe");
+    return shells;
 }
 
 void WorkbenchWindow::saveDocument() {
     if (workspaceRoot_.isEmpty() || activePath_.isEmpty() || editor_->isReadOnly()) return;
     const auto savedPath = activePath_;
     documentFeature_->setText(editor_->toPlainText().toUtf8().toStdString());
-    documentFeature_->save([this, savedPath](app::DocumentFeatureState state) {
-        QMetaObject::invokeMethod(this, [this, savedPath,
+    updateDocumentTabState(savedPath);
+    const QPointer<WorkbenchWindow> guardedWindow(this);
+    documentFeature_->save([guardedWindow, savedPath](app::DocumentFeatureState state) {
+        if (!guardedWindow) return;
+        QMetaObject::invokeMethod(guardedWindow, [guardedWindow, savedPath,
                                           state = std::move(state)]() mutable {
-            if (!sameRelativePath(savedPath, activePath_) ||
+            if (!guardedWindow || !sameRelativePath(savedPath, guardedWindow->activePath_) ||
                 !sameRelativePath(savedPath, fromUtf8(state.relativePath))) return;
-            applySaveState(state);
+            guardedWindow->applySaveState(state);
         }, Qt::QueuedConnection);
     });
+    updateDocumentTabState(savedPath);
 }
 
 void WorkbenchWindow::applySaveState(const app::DocumentFeatureState& state) {
+    const auto path = fromUtf8(state.relativePath);
+    updateDocumentTabState(path);
     if (state.error) {
+        if (editorArea_ != nullptr) {
+            editorArea_->showDocumentError(path, fromUtf8(state.error->message));
+        }
+        if (state.error->code == CoreErrorCode::ExternalConflict) {
+            const QPointer<WorkbenchWindow> guardedWindow(this);
+            documentFeature_->externalModified(state.relativePath,
+                [guardedWindow, path](app::DocumentFeatureState checked) {
+                if (!guardedWindow) return;
+                QMetaObject::invokeMethod(guardedWindow, [guardedWindow, path,
+                                          checked = std::move(checked)]() mutable {
+                    if (!guardedWindow) return;
+                    guardedWindow->updateDocumentTabState(path);
+                    if (checked.externalState == app::DocumentExternalState::Modified &&
+                        sameRelativePath(path, guardedWindow->activePath_)) {
+                        guardedWindow->editorArea_->showModifiedConflict(path);
+                    }
+                }, Qt::QueuedConnection);
+            });
+        }
         showFeatureError(state.error, QStringLiteral("File save failed"));
         return;
     }
     if (state.isSaving || state.relativePath.empty()) return;
     activePath_ = fromUtf8(state.relativePath);
-    syncDirtyDocumentsPort(state);
-    statusBar()->showMessage(QString("Saved %1").arg(activePath_), 3000);
+    if (editorArea_ != nullptr) editorArea_->clearDocumentStatus(activePath_);
+    statusBar()->showMessage(uiText(QStringLiteral("Saved %1")).arg(activePath_), 3000);
     const auto savedPath = activePath_;
     historyFeature_->record(
         activePath_.toUtf8().toStdString(), "saved", state.text, true,
@@ -4641,99 +5277,7 @@ void WorkbenchWindow::showFeatureError(const std::optional<CoreError>& error,
     const auto message = error && !error->message.empty()
         ? fromUtf8(error->message)
         : fallback;
-    QString detail = message;
-    if (error && error->details && !error->details->empty()) {
-        detail += QStringLiteral(" — ") + fromUtf8(*error->details);
-    }
-    statusBar()->showMessage(detail, 10000);
-}
-
-
-void WorkbenchWindow::stageGitPath(const QString& path) {
-    if (!gitFeature_ || path.isEmpty()) return;
-    gitFeature_->stage({path.toUtf8().toStdString()}, [this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
-}
-
-void WorkbenchWindow::unstageGitPath(const QString& path) {
-    if (!gitFeature_ || path.isEmpty()) return;
-    gitFeature_->unstage({path.toUtf8().toStdString()}, [this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
-}
-
-void WorkbenchWindow::applyShelfById(const QString& shelfId) {
-    if (!gitFeature_ || shelfId.isEmpty()) return;
-    const auto state = gitFeature_->state();
-    for (const auto& shelf : state.shelves) {
-        if (shelf.id != shelfId.toStdString()) continue;
-        gitFeature_->applyShelf(shelf, [this](app::GitFeatureState next) {
-            applyGitStateAsync(std::move(next));
-            loadSnapshot();
-        });
-        return;
-    }
-}
-
-void WorkbenchWindow::dropShelfById(const QString& shelfId) {
-    if (!gitFeature_ || shelfId.isEmpty()) return;
-    if (!confirmDestructiveGitAction(
-            this, QStringLiteral("Drop Shelf"),
-            QStringLiteral("This removes the saved patch from Lithe and cannot be undone."))) {
-        return;
-    }
-    const auto state = gitFeature_->state();
-    for (const auto& shelf : state.shelves) {
-        if (shelf.id != shelfId.toStdString()) continue;
-        gitFeature_->dropShelf(shelf, [this](app::GitFeatureState next) {
-            applyGitStateAsync(std::move(next));
-        });
-        return;
-    }
-}
-
-void WorkbenchWindow::applyStashByReference(const QString& reference) {
-    if (!gitFeature_ || reference.isEmpty()) return;
-    selectedGitStash_ = reference;
-    gitFeature_->applyStash(reference.toStdString(), [this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-        loadSnapshot();
-    });
-}
-
-void WorkbenchWindow::popStashByReference(const QString& reference) {
-    if (!gitFeature_ || reference.isEmpty()) return;
-    selectedGitStash_ = reference;
-    gitFeature_->popStash(reference.toStdString(), [this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-        loadSnapshot();
-    });
-}
-
-void WorkbenchWindow::dropStashByReference(const QString& reference) {
-    if (!gitFeature_ || reference.isEmpty()) return;
-    if (!confirmDestructiveGitAction(
-            this, QStringLiteral("Drop Stash"),
-            QStringLiteral("This removes the stash from Git and cannot be undone."))) {
-        return;
-    }
-    selectedGitStash_ = reference;
-    gitFeature_->dropStash(reference.toStdString(), [this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-    });
-}
-
-void WorkbenchWindow::checkoutGitReference(const QString& fullName,
-                                          const QString& kind,
-                                          const QString& shortName) {
-    if (!gitFeature_ || fullName.isEmpty()) return;
-    gitFeature_->checkoutReference(
-        fullName.toStdString(), kind.toStdString(), shortName.toStdString(),
-        [this](app::GitFeatureState state) {
-        applyGitStateAsync(std::move(state));
-        loadSnapshot();
-    });
+    statusBar()->showMessage(message, 5000);
 }
 
 } // namespace lithe::windows

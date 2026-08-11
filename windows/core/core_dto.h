@@ -74,11 +74,15 @@ struct ReplacementPreviewDto {
 struct FileReadDto {
     std::string path;
     std::string text;
+    std::string version;
+    std::string lineEnding;
+    bool hasUtf8Bom = false;
 };
 
 struct FileWriteDto {
     std::string path;
     std::uint64_t bytesWritten = 0;
+    std::string newVersion;
 };
 
 struct HistoryEntryDto {

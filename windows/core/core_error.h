@@ -11,6 +11,7 @@ enum class CoreErrorCode {
     InvalidRequest,
     WorkspaceNotFound,
     PermissionDenied,
+    ExternalConflict,
     NotSupported,
     RuntimeMissing,
     ProcessStartFailed,

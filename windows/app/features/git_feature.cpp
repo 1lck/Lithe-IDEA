@@ -18,6 +18,10 @@ bool isBlank(const std::string& value) {
 } // namespace
 
 GitFeatureModel::GitFeatureModel(WorkbenchCoordinator& coordinator,
+                                 DocumentSafetySnapshotProvider* documents)
+    : coordinator_(coordinator), documents_(documents) {}
+
+GitFeatureModel::GitFeatureModel(WorkbenchCoordinator& coordinator,
                                  DirtyDocumentsPort* dirtyDocuments,
                                  ShelveService* shelveService)
     : coordinator_(coordinator)
@@ -60,8 +64,9 @@ void GitFeatureModel::clearNotify() {
 }
 
 std::vector<std::string> GitFeatureModel::dirtyDocumentPaths() const {
-    if (dirtyDocuments_ == nullptr) return {};
-    return dirtyDocuments_->dirtyRelativePaths();
+    if (dirtyDocuments_ != nullptr) return dirtyDocuments_->dirtyRelativePaths();
+    return documents_ == nullptr ? std::vector<std::string>{}
+                                 : documents_->documentSafetySnapshot().dirtyPaths;
 }
 
 std::optional<std::string> GitFeatureModel::repositoryRootLocked() const {
@@ -684,7 +689,35 @@ void GitFeatureModel::clearStashRestoreConflict() {
 }
 
 void GitFeatureModel::write(GitWriteRequestDto request, StateHandler handler) {
+    if (blockUnsafeDocumentMutation(request.operation, handler)) return;
     runWrite(std::move(request), std::move(handler));
+}
+
+bool GitFeatureModel::blockUnsafeDocumentMutation(const std::string& operation,
+                                                  StateHandler& handler) {
+    if (documents_ == nullptr) return false;
+    static const std::vector<std::string> worktreeMutations{
+        "discard", "discardAll", "checkout", "checkoutRevision", "pull", "merge",
+        "rebase", "cherryPick", "revert", "reset", "stashApply", "stashPop",
+        "operationContinue", "operationAbort", "operationSkip"
+    };
+    if (std::find(worktreeMutations.begin(), worktreeMutations.end(), operation) ==
+        worktreeMutations.end()) return false;
+    const auto snapshot = documents_->documentSafetySnapshot();
+    if (snapshot.dirtyPaths.empty() && !snapshot.isSaving && !snapshot.hasConflicts) return false;
+    GitFeatureState state;
+    {
+        std::lock_guard lock(mutex_);
+        state_.documentSafety = snapshot;
+        state_.isWriting = false;
+        state_.error = CoreError{
+            CoreErrorCode::InvalidRequest,
+            "Save or close dirty and conflicted documents before this Git operation",
+            std::nullopt};
+        state = state_;
+    }
+    if (handler) handler(std::move(state));
+    return true;
 }
 
 void GitFeatureModel::runCommand(std::vector<std::string> arguments,
@@ -848,6 +881,8 @@ void GitFeatureModel::cloneRepository(std::string remote,
 }
 
 void GitFeatureModel::apply(std::string patch, std::string mode, StateHandler handler) {
+    if ((mode == "discard" || mode == "restoreIndex" || mode == "worktree") &&
+        blockUnsafeDocumentMutation("discard", handler)) return;
     beginOperation();
     const auto requestSerial = ++applyRequestSerial_;
     {

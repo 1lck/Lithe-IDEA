@@ -51,9 +51,18 @@ private:
 };
 
 struct WorkspaceSession {
+    struct DocumentView {
+        std::string path;
+        std::uint64_t cursor = 0;
+        std::uint64_t anchor = 0;
+        std::uint64_t verticalScroll = 0;
+        std::uint64_t horizontalScroll = 0;
+    };
+
     std::vector<std::string> openPaths;
     std::vector<std::string> expandedPaths;
     std::string activePath;
+    std::vector<DocumentView> documentViews;
 };
 
 class WorkspaceSessionStore final {

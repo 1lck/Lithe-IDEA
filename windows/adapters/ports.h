@@ -251,6 +251,7 @@ struct FileMetadata {
     std::optional<std::int64_t> modificationTime;
     bool isRegularFile = false;
     bool isDirectory = false;
+    bool isWritable = true;
 };
 
 class FileStorage {

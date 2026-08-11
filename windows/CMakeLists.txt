@@ -218,6 +218,17 @@ target_include_directories(lithe_windows_app_tests PRIVATE
 target_link_libraries(lithe_windows_app_tests PRIVATE lithe_windows_app)
 add_test(NAME lithe_windows_app COMMAND lithe_windows_app_tests)
 
+add_executable(lithe_windows_document_feature_tests
+    tests/document_feature_test.cpp
+)
+target_compile_features(lithe_windows_document_feature_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_document_feature_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core"
+)
+target_link_libraries(lithe_windows_document_feature_tests PRIVATE lithe_windows_app)
+add_test(NAME lithe_windows_document_feature COMMAND lithe_windows_document_feature_tests)
+
 add_executable(lithe_windows_workbench_ui_state_tests
     tests/workbench_ui_state_test.cpp
     qt/workbench_ui_state.cpp
@@ -439,6 +450,7 @@ if(LITHE_BUILD_QT_UI)
         qt/project_import_dialog.h
         qt/ui_theme.cpp
         qt/ui_theme.h
+        qt/ui_tokens.h
         qt/ui_translation.cpp
         qt/ui_translation.h
         qt/workbench_code_editor.cpp
@@ -469,6 +481,8 @@ if(LITHE_BUILD_QT_UI)
         qt/terminal_keys.h
         qt/terminal_view.cpp
         qt/terminal_view.h
+        qt/windows_chrome.cpp
+        qt/windows_chrome.h
         packaging/lithe.rc
     )
     target_link_libraries(lithe_windows_qt PRIVATE
@@ -478,6 +492,9 @@ if(LITHE_BUILD_QT_UI)
         Qt6::Widgets
         Qt6::Svg
     )
+    if(WIN32)
+        target_link_libraries(lithe_windows_qt PRIVATE dwmapi)
+    endif()
     target_compile_features(lithe_windows_qt PRIVATE cxx_std_23)
     target_compile_definitions(lithe_windows_qt PRIVATE
         "LITHE_RESOURCES_DIR=\"${CMAKE_SOURCE_DIR}/../Resources\""
@@ -560,6 +577,8 @@ if(LITHE_BUILD_QT_UI)
         qt/lithe.qrc
         qt/ui_translation.cpp
         qt/ui_translation.h
+        qt/workbench_icons.cpp
+        qt/workbench_icons.h
         qt/workbench_sidebar.cpp
         qt/workbench_sidebar.h
     )
@@ -571,9 +590,25 @@ if(LITHE_BUILD_QT_UI)
     target_link_libraries(lithe_windows_workbench_sidebar_tests PRIVATE
         lithe_windows_app
         Qt6::Widgets
+        Qt6::Svg
     )
     add_test(NAME lithe_windows_workbench_sidebar COMMAND lithe_windows_workbench_sidebar_tests)
     set_tests_properties(lithe_windows_workbench_sidebar PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_executable(lithe_windows_workbench_icons_tests
+        tests/workbench_icons_test.cpp
+        qt/lithe.qrc
+        qt/workbench_icons.cpp
+        qt/workbench_icons.h
+    )
+    target_compile_features(lithe_windows_workbench_icons_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_workbench_icons_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+    )
+    target_link_libraries(lithe_windows_workbench_icons_tests PRIVATE Qt6::Widgets Qt6::Svg)
+    add_test(NAME lithe_windows_workbench_icons COMMAND lithe_windows_workbench_icons_tests)
+    set_tests_properties(lithe_windows_workbench_icons PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
     add_executable(lithe_windows_workbench_editor_area_tests
@@ -735,6 +770,7 @@ set(LITHE_WINDOWS_TEST_TARGETS
     lithe_windows_terminal_emulator_tests
     lithe_windows_terminal_model_tests
     lithe_windows_app_tests
+    lithe_windows_document_feature_tests
     lithe_windows_workbench_ui_state_tests
     lithe_windows_workbench_layout_persistence_tests
     lithe_windows_coordinator_tests

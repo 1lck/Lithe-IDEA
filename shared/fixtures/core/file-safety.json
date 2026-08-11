@@ -1,0 +1,34 @@
+{
+  "protocolVersion": 1,
+  "readRequest": {
+    "root": "C:/workspace",
+    "path": "src/App.java",
+    "formatAware": true
+  },
+  "readResponse": {
+    "path": "src/App.java",
+    "text": "class App {}\n",
+    "version": "sha256:opaque-raw-byte-version",
+    "lineEnding": "crlf",
+    "hasUtf8Bom": true
+  },
+  "writeRequest": {
+    "root": "C:/workspace",
+    "path": "src/App.java",
+    "text": "class App {}\n",
+    "expectedVersion": "sha256:opaque-raw-byte-version",
+    "lineEnding": "crlf",
+    "hasUtf8Bom": true,
+    "createOnly": false,
+    "formatAware": true
+  },
+  "writeResponse": {
+    "path": "src/App.java",
+    "bytesWritten": 17,
+    "newVersion": "sha256:opaque-new-raw-byte-version"
+  },
+  "conflictError": {
+    "code": "external_conflict",
+    "message": "File changed outside the editor"
+  }
+}

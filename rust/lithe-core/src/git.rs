@@ -15,6 +15,12 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusRequest {
@@ -2468,21 +2474,17 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
     })
 }
 
-// CREATE_NO_WINDOW (0x08000000, winbase.h): the Windows Qt app is a GUI
-// process without a console, so a CUI child like git would otherwise trigger
-// an implicit AllocConsole and flash a console window whenever it writes to
-// stdout/stderr. The flag is set only on Windows; other platforms get a plain
-// Command, so shared-core behavior is unchanged there.
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 pub(crate) fn git_command() -> Command {
-    let mut command = Command::new("git");
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
+        let mut command = Command::new("git");
         command.creation_flags(CREATE_NO_WINDOW);
+        command
     }
-    command
+    #[cfg(not(windows))]
+    {
+        Command::new("git")
+    }
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
