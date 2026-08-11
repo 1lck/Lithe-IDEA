@@ -153,6 +153,32 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func projectCatalogCanCreateRuntimeForANewProviderDynamically() {
+        let factory = TestLanguageProviderRuntimeFactory()
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: []),
+            runtimeFactory: factory
+        )
+        let descriptor = LanguageProviderDescriptor(
+            id: "roc",
+            displayName: "Roc",
+            fileExtensions: ["roc"],
+            capabilities: [.languageServer, .debugAdapter],
+            activationPolicy: .onDemand,
+            languageIdentifier: "roc",
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["roc_language_server"],
+                arguments: []
+            )
+        )
+
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [descriptor]))
+
+        #expect(manager.supportsGenericDebugging(for: URL(fileURLWithPath: "/tmp/main.roc")))
+        #expect(factory.createdDescriptors == [descriptor])
+    }
+
+    @Test
     func genericDebugCapabilityReflectsTheRuntimeFactoryWithoutStartingIt() throws {
         let catalog = LanguageProviderCatalog.standard
         let runtimeService = ProjectRuntimeService(
@@ -1028,7 +1054,9 @@ struct RunConfigurationIntegrationTests {
             languageIdentifier: "swift",
             languageServerLaunch: LanguageServerLaunchDescriptor(
                 executableNames: ["sourcekit-lsp"],
-                arguments: []
+                arguments: [],
+                environment: ["SOURCEKIT_TOOLCHAIN": "custom"],
+                initializationOptions: .object(["indexing": .bool(true)])
             )
         )
         let runtimeService = ProjectRuntimeService(
@@ -1036,6 +1064,7 @@ struct RunConfigurationIntegrationTests {
             store: RunTestKeyValueStore()
         )
         let process = RecordingRawProcessSession()
+        let initializationRecorder = TestLspInitializationRecorder()
         let root = URL(fileURLWithPath: "/tmp/swift-project", isDirectory: true)
         let source = root.appendingPathComponent("App.swift")
         let runtime = StdioLanguageProviderRuntime(
@@ -1043,7 +1072,10 @@ struct RunConfigurationIntegrationTests {
             runtimeService: runtimeService,
             processFactory: { process },
             languageServerLaunch: descriptor.languageServerLaunch,
-            languageServerCore: TestLspClientCore(diagnosticURL: source)
+            languageServerCore: TestLspClientCore(
+                diagnosticURL: source,
+                initializationRecorder: initializationRecorder
+            )
         )
         let manager = LanguageToolingSessionManager(
             catalog: LanguageProviderCatalog(descriptors: [descriptor]),
@@ -1058,6 +1090,8 @@ struct RunConfigurationIntegrationTests {
         let startRequest = try #require(process.requests.first)
         #expect(startRequest.executablePath == "/usr/bin/sourcekit-lsp")
         #expect(startRequest.arguments.isEmpty)
+        #expect(startRequest.environment?["SOURCEKIT_TOOLCHAIN"] == "custom")
+        #expect(initializationRecorder.options == .object(["indexing": .bool(true)]))
         #expect(manager.activeLanguageServerIDs == ["swift"])
         let firstFrameData = try #require(process.sentData.first)
         let firstFrame = try #require(String(data: firstFrameData, encoding: .utf8))
@@ -2973,11 +3007,28 @@ private final class RecordingRunExecutableResolver: RunExecutableResolving {
 
 private struct TestLspClientCore: LspClientCore {
     let diagnosticURL: URL
+    var initializationRecorder: TestLspInitializationRecorder?
+
+    init(
+        diagnosticURL: URL,
+        initializationRecorder: TestLspInitializationRecorder? = nil
+    ) {
+        self.diagnosticURL = diagnosticURL
+        self.initializationRecorder = initializationRecorder
+    }
 
     func lspClientInitialize(rootURL _: URL) -> RustCoreBridge.LspClientResponsePayload? {
         response(
             messages: [#"{"jsonrpc":"2.0","id":"1","method":"initialize","params":{}}"#]
         )
+    }
+
+    func lspClientInitialize(
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        initializationRecorder?.options = initializationOptions
+        return lspClientInitialize(rootURL: rootURL)
     }
 
     func lspClientOpenDocument(
@@ -3345,6 +3396,10 @@ private struct TestLspClientCore: LspClientCore {
     }
 }
 
+private final class TestLspInitializationRecorder: @unchecked Sendable {
+    var options: ToolingJSONValue?
+}
+
 private final class RecordingRawProcessSession: RawProcessSession, @unchecked Sendable {
     var isRunning = false
     var onOutput: (@Sendable (Data) -> Void)?
@@ -3553,6 +3608,21 @@ private final class TestDebugLanguageProviderRuntime: LanguageProviderRuntime {
         let session = TestDebugAdapterSession()
         debugAdapters.append(session)
         return session
+    }
+}
+
+@MainActor
+private final class TestLanguageProviderRuntimeFactory: LanguageProviderRuntimeFactory {
+    private(set) var createdDescriptors: [LanguageProviderDescriptor] = []
+
+    func makeRuntime(
+        for descriptor: LanguageProviderDescriptor
+    ) -> (any LanguageProviderRuntime)? {
+        createdDescriptors.append(descriptor)
+        return TestDebugLanguageProviderRuntime(
+            descriptor: descriptor,
+            supportsDebugAdapter: true
+        )
     }
 }
 

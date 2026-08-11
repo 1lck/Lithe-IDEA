@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/schemas/language-providers.schema.json",
+  "title": "Lithe language provider catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "providers"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "providers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/provider" }
+    }
+  },
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "displayName": { "type": "string", "minLength": 1 },
+        "fileExtensions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "fileNames": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "fileNamePrefixes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "enum": ["run", "languageServer", "debugAdapter", "formatting", "testing"]
+          },
+          "uniqueItems": true
+        },
+        "activationPolicy": { "enum": ["onDemand", "always"] },
+        "languageId": { "type": "string", "minLength": 1 },
+        "languageIdsByExtension": { "$ref": "#/$defs/stringMap" },
+        "languageIdsByFileName": { "$ref": "#/$defs/stringMap" },
+        "languageServerLaunch": { "$ref": "#/$defs/languageServerLaunch" },
+        "languageServerInstallation": { "$ref": "#/$defs/languageServerInstallation" },
+        "disabled": { "type": "boolean" }
+      }
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "languageServerLaunch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executableNames"],
+      "properties": {
+        "executableNames": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+          },
+          "uniqueItems": true
+        },
+        "arguments": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "environment": { "$ref": "#/$defs/stringMap" },
+        "initializationOptions": {}
+      }
+    },
+    "languageServerInstallation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "homebrewFormula": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9@+._/-]*$"
+        },
+        "officialDownloadURL": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        }
+      },
+      "anyOf": [
+        { "required": ["homebrewFormula"] },
+        { "required": ["officialDownloadURL"] }
+      ]
+    }
+  }
+}

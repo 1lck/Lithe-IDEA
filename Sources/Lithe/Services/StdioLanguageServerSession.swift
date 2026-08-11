@@ -2,6 +2,10 @@ import Foundation
 
 protocol LspClientCore: Sendable {
     func lspClientInitialize(rootURL: URL) -> RustCoreBridge.LspClientResponsePayload?
+    func lspClientInitialize(
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?
+    ) -> RustCoreBridge.LspClientResponsePayload?
     func lspClientOpenDocument(
         state: ToolingJSONValue,
         fileURL: URL,
@@ -46,6 +50,13 @@ protocol LspClientCore: Sendable {
 extension RustCoreBridge: LspClientCore {}
 
 extension LspClientCore {
+    func lspClientInitialize(
+        rootURL: URL,
+        initializationOptions _: ToolingJSONValue?
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        lspClientInitialize(rootURL: rootURL)
+    }
+
     func lspClientCloseDocument(
         state _: ToolingJSONValue,
         fileURL _: URL
@@ -61,6 +72,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private let executableURL: URL
     private let arguments: [String]
     private let environment: [String: String]
+    private let initializationOptions: ToolingJSONValue?
     private let process: any RawProcessSession
     private let core: any LspClientCore
     private var state: ToolingJSONValue?
@@ -80,12 +92,14 @@ final class StdioLanguageServerSession: LanguageServerSession {
         executableURL: URL,
         arguments: [String],
         environment: [String: String],
+        initializationOptions: ToolingJSONValue? = nil,
         process: any RawProcessSession,
         core: any LspClientCore = RustCoreBridge()
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.environment = environment
+        self.initializationOptions = initializationOptions
         self.process = process
         self.core = core
         process.onOutput = { [weak self] data in
@@ -107,7 +121,10 @@ final class StdioLanguageServerSession: LanguageServerSession {
             environment: environment,
             keepsStandardInputOpen: true
         ))
-        guard let response = core.lspClientInitialize(rootURL: rootURL) else { return }
+        guard let response = core.lspClientInitialize(
+            rootURL: rootURL,
+            initializationOptions: initializationOptions
+        ) else { return }
         apply(response)
     }
 

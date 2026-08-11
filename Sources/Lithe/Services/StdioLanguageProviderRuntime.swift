@@ -7,6 +7,7 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     private let processFactory: () -> any RawProcessSession
     private let languageServerLaunch: LanguageServerLaunchDescriptor?
     private let languageServerCore: any LspClientCore
+    private let languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)?
     private let debugLaunch: StdioDebugAdapterLaunch?
     private let debugSessionFactory: (() -> (any DebugAdapterSession)?)?
 
@@ -30,6 +31,7 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         processFactory: @escaping () -> any RawProcessSession,
         languageServerLaunch: LanguageServerLaunchDescriptor? = nil,
         languageServerCore: any LspClientCore = RustCoreBridge(),
+        languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
         debugLaunch: StdioDebugAdapterLaunch? = nil,
         debugSessionFactory: (() -> (any DebugAdapterSession)?)? = nil
     ) {
@@ -38,19 +40,25 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         self.processFactory = processFactory
         self.languageServerLaunch = languageServerLaunch
         self.languageServerCore = languageServerCore
+        self.languageServerExecutableResolver = languageServerExecutableResolver
         self.debugLaunch = debugLaunch
         self.debugSessionFactory = debugSessionFactory
     }
 
     func makeLanguageServerSession() -> (any LanguageServerSession)? {
         guard let languageServerLaunch else { return nil }
-        guard let executableURL = languageServerLaunch.executableNames.lazy.compactMap({
-            self.runtimeService.executableOnPath($0)
-        }).first else { return nil }
+        let configuredExecutable = languageServerExecutableResolver?(descriptor)
+        guard let executableURL = configuredExecutable
+            ?? languageServerLaunch.executableNames.lazy.compactMap({
+                self.runtimeService.executableOnPath($0)
+            }).first else { return nil }
+        var environment = runtimeService.processEnvironment()
+        environment.merge(languageServerLaunch.environment) { _, configured in configured }
         return StdioLanguageServerSession(
             executableURL: executableURL,
             arguments: languageServerLaunch.arguments,
-            environment: runtimeService.processEnvironment(),
+            environment: environment,
+            initializationOptions: languageServerLaunch.initializationOptions,
             process: processFactory(),
             core: languageServerCore
         )
@@ -81,6 +89,7 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         packs: [LanguagePack],
         runtimeService: ProjectRuntimeService,
         processFactory: @escaping () -> any RawProcessSession,
+        languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
         debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [:]
     ) -> [any LanguageProviderRuntime] {
         packs.compactMap { pack in
@@ -94,6 +103,7 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
                 runtimeService: runtimeService,
                 processFactory: processFactory,
                 languageServerLaunch: pack.descriptor.languageServerLaunch,
+                languageServerExecutableResolver: languageServerExecutableResolver,
                 debugLaunch: pack.debugAdapterLaunch,
                 debugSessionFactory: debugSessionFactories[pack.descriptor.id]
             )
@@ -104,13 +114,68 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         catalog: LanguageProviderCatalog,
         runtimeService: ProjectRuntimeService,
         processFactory: @escaping () -> any RawProcessSession,
+        languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
         debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [:]
     ) -> [any LanguageProviderRuntime] {
         standard(
             packs: LanguagePackRegistry.standard(catalog: catalog).packs,
             runtimeService: runtimeService,
             processFactory: processFactory,
+            languageServerExecutableResolver: languageServerExecutableResolver,
             debugSessionFactories: debugSessionFactories
+        )
+    }
+}
+
+@MainActor
+final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntimeFactory {
+    private let runtimeService: ProjectRuntimeService
+    private let processFactory: () -> any RawProcessSession
+    private let languageServerCore: any LspClientCore
+    private let languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)?
+    private let debugLaunches: [String: StdioDebugAdapterLaunch]
+    private let debugSessionFactories: [String: () -> (any DebugAdapterSession)?]
+
+    init(
+        runtimeService: ProjectRuntimeService,
+        processFactory: @escaping () -> any RawProcessSession,
+        languageServerCore: any LspClientCore = RustCoreBridge(),
+        languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
+        debugLaunches: [String: StdioDebugAdapterLaunch] = [:],
+        debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [:]
+    ) {
+        self.runtimeService = runtimeService
+        self.processFactory = processFactory
+        self.languageServerCore = languageServerCore
+        self.languageServerExecutableResolver = languageServerExecutableResolver
+        self.debugLaunches = debugLaunches
+        self.debugSessionFactories = debugSessionFactories
+    }
+
+    func makeRuntime(
+        for descriptor: LanguageProviderDescriptor
+    ) -> (any LanguageProviderRuntime)? {
+        let languageServerLaunch = descriptor.capabilities.contains(.languageServer)
+            ? descriptor.languageServerLaunch
+            : nil
+        let debugLaunch = descriptor.capabilities.contains(.debugAdapter)
+            ? debugLaunches[descriptor.id]
+            : nil
+        let debugSessionFactory = descriptor.capabilities.contains(.debugAdapter)
+            ? debugSessionFactories[descriptor.id]
+            : nil
+        guard languageServerLaunch != nil || debugLaunch != nil || debugSessionFactory != nil else {
+            return nil
+        }
+        return StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            processFactory: processFactory,
+            languageServerLaunch: languageServerLaunch,
+            languageServerCore: languageServerCore,
+            languageServerExecutableResolver: languageServerExecutableResolver,
+            debugLaunch: debugLaunch,
+            debugSessionFactory: debugSessionFactory
         )
     }
 }

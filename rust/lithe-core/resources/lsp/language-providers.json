@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "providers": [
     {
       "id": "java",
@@ -11,6 +11,10 @@
       "languageServerLaunch": {
         "executableNames": ["jdtls"],
         "arguments": []
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "jdtls",
+        "officialDownloadURL": "https://download.eclipse.org/jdtls/milestones/"
       }
     },
     {
@@ -23,6 +27,10 @@
       "languageServerLaunch": {
         "executableNames": ["gopls"],
         "arguments": []
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "gopls",
+        "officialDownloadURL": "https://go.dev/gopls/"
       }
     },
     {
@@ -35,6 +43,10 @@
       "languageServerLaunch": {
         "executableNames": ["basedpyright-langserver", "pyright-langserver"],
         "arguments": ["--stdio"]
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "pyright",
+        "officialDownloadURL": "https://github.com/microsoft/pyright"
       }
     },
     {
@@ -47,6 +59,10 @@
       "languageServerLaunch": {
         "executableNames": ["typescript-language-server"],
         "arguments": ["--stdio"]
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "typescript-language-server",
+        "officialDownloadURL": "https://github.com/typescript-language-server/typescript-language-server"
       },
       "languageIdsByExtension": {
         "jsx": "javascriptreact",
@@ -64,6 +80,10 @@
       "languageServerLaunch": {
         "executableNames": ["rust-analyzer"],
         "arguments": []
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "rust-analyzer",
+        "officialDownloadURL": "https://rust-analyzer.github.io/manual.html#installation"
       }
     },
     {
@@ -76,6 +96,10 @@
       "languageServerLaunch": {
         "executableNames": ["clangd"],
         "arguments": []
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "llvm",
+        "officialDownloadURL": "https://clangd.llvm.org/installation"
       },
       "languageIdsByExtension": {
         "c": "c",
@@ -110,6 +134,9 @@
       "languageServerLaunch": {
         "executableNames": ["sourcekit-lsp"],
         "arguments": []
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://github.com/swiftlang/sourcekit-lsp"
       }
     },
     {
@@ -122,6 +149,9 @@
       "languageServerLaunch": {
         "executableNames": ["kotlin-language-server"],
         "arguments": []
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://github.com/Kotlin/kotlin-lsp"
       }
     },
     {
@@ -134,6 +164,10 @@
       "languageServerLaunch": {
         "executableNames": ["metals"],
         "arguments": []
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "metals",
+        "officialDownloadURL": "https://scalameta.org/metals/docs/editors/overview.html"
       }
     },
     {
@@ -155,6 +189,9 @@
       "languageServerLaunch": {
         "executableNames": ["ruby-lsp"],
         "arguments": []
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://shopify.github.io/ruby-lsp/"
       }
     },
     {
@@ -167,6 +204,9 @@
       "languageServerLaunch": {
         "executableNames": ["intelephense", "phpactor"],
         "arguments": []
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://intelephense.com/"
       }
     },
     {
@@ -195,6 +235,9 @@
       "languageServerLaunch": {
         "executableNames": ["bash-language-server"],
         "arguments": ["start"]
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://github.com/bash-lsp/bash-language-server"
       }
     },
     {
@@ -271,6 +314,10 @@
       "languageServerLaunch": {
         "executableNames": ["yaml-language-server"],
         "arguments": ["--stdio"]
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "yaml-language-server",
+        "officialDownloadURL": "https://github.com/redhat-developer/yaml-language-server"
       }
     },
     {

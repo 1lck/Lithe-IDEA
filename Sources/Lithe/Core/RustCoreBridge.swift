@@ -1059,6 +1059,7 @@ struct RustCoreBridge: Sendable {
         let state: ToolingJSONValue?
         let rootUri: String
         let processId: Int?
+        let initializationOptions: ToolingJSONValue?
     }
 
     private struct LspClientOpenDocumentRequest: Encodable {
@@ -2097,12 +2098,20 @@ struct RustCoreBridge: Sendable {
     }
 
     func lspClientInitialize(rootURL: URL) -> LspClientResponsePayload? {
+        lspClientInitialize(rootURL: rootURL, initializationOptions: nil)
+    }
+
+    func lspClientInitialize(
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?
+    ) -> LspClientResponsePayload? {
         execute(
             command: "lsp.clientInitialize",
             payload: LspClientInitializeRequest(
                 state: nil,
                 rootUri: rootURL.standardizedFileURL.absoluteString,
-                processId: Int(ProcessInfo.processInfo.processIdentifier)
+                processId: Int(ProcessInfo.processInfo.processIdentifier),
+                initializationOptions: initializationOptions
             )
         )
     }

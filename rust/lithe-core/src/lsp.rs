@@ -37,14 +37,28 @@ pub struct LspProviderDescriptor {
     pub language_ids_by_extension: BTreeMap<String, String>,
     pub language_ids_by_file_name: BTreeMap<String, String>,
     pub language_server_launch: Option<LspServerLaunchDescriptor>,
+    pub language_server_installation: Option<LspServerInstallationDescriptor>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LspServerLaunchDescriptor {
     pub executable_names: Vec<String>,
     #[serde(default)]
     pub arguments: Vec<String>,
+    #[serde(default)]
+    pub environment: BTreeMap<String, String>,
+    #[serde(default)]
+    pub initialization_options: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LspServerInstallationDescriptor {
+    #[serde(default)]
+    pub homebrew_formula: Option<String>,
+    #[serde(default, rename = "officialDownloadURL")]
+    pub official_download_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
@@ -71,8 +85,10 @@ impl Default for LspActivationPolicy {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LspProviderConfigDocument {
+    #[serde(default, rename = "$schema")]
+    _schema: Option<String>,
     #[serde(default = "default_config_version")]
     version: u32,
     #[serde(default)]
@@ -80,7 +96,7 @@ struct LspProviderConfigDocument {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LspProviderPatch {
     id: String,
     #[serde(default)]
@@ -103,6 +119,8 @@ struct LspProviderPatch {
     language_ids_by_file_name: Option<BTreeMap<String, String>>,
     #[serde(default)]
     language_server_launch: Option<LspServerLaunchDescriptor>,
+    #[serde(default)]
+    language_server_installation: Option<LspServerInstallationDescriptor>,
     #[serde(default)]
     disabled: bool,
 }
@@ -299,6 +317,8 @@ pub struct ClientInitializeRequest {
     pub root_uri: String,
     #[serde(default)]
     pub process_id: Option<i64>,
+    #[serde(default)]
+    pub initialization_options: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -590,7 +610,7 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                     "completion": {
                         "dynamicRegistration": true,
                         "completionItem": {
-                            "snippetSupport": true,
+                            "snippetSupport": false,
                             "documentationFormat": ["markdown", "plaintext"]
                         }
                     },
@@ -627,7 +647,8 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                 "window": {
                     "workDoneProgress": true
                 }
-            }
+            },
+            "initializationOptions": request.initialization_options
         }),
     )?;
     Ok(client_response(state, vec![message], Vec::new()))
@@ -917,6 +938,7 @@ pub fn provider_catalog(workspace_root: Option<&Path>) -> LspProviderCatalog {
                 message,
             });
             LspProviderConfigDocument {
+                _schema: None,
                 version: 1,
                 providers: Vec::new(),
             }
@@ -1922,6 +1944,9 @@ impl LspProviderPatch {
         if patch.language_server_launch.is_some() {
             self.language_server_launch = patch.language_server_launch;
         }
+        if patch.language_server_installation.is_some() {
+            self.language_server_installation = patch.language_server_installation;
+        }
         self.disabled = patch.disabled;
     }
 }
@@ -1960,6 +1985,7 @@ impl LspProviderDescriptor {
                 false,
             ),
             language_server_launch: patch.language_server_launch,
+            language_server_installation: patch.language_server_installation,
         }
     }
 }
@@ -2391,6 +2417,20 @@ mod tests {
             swift_launch.executable_names,
             vec!["sourcekit-lsp".to_string()]
         );
+        let go = catalog
+            .providers
+            .iter()
+            .find(|provider| provider.id == "go")
+            .expect("go provider should exist");
+        let go_installation = go
+            .language_server_installation
+            .as_ref()
+            .expect("go installation descriptor should exist");
+        assert_eq!(go_installation.homebrew_formula.as_deref(), Some("gopls"));
+        assert_eq!(
+            go_installation.official_download_url.as_deref(),
+            Some("https://go.dev/gopls/")
+        );
     }
 
     #[test]
@@ -2415,7 +2455,17 @@ mod tests {
                   "fileExtensions": ["swift", "swiftinterface"],
                   "languageServerLaunch": {
                     "executableNames": ["custom-sourcekit-lsp"],
-                    "arguments": ["--stdio"]
+                    "arguments": ["--stdio"],
+                    "environment": {
+                      "SOURCEKIT_TOOLCHAIN": "custom"
+                    },
+                    "initializationOptions": {
+                      "indexing": true
+                    }
+                  },
+                  "languageServerInstallation": {
+                    "homebrewFormula": "custom-sourcekit-lsp",
+                    "officialDownloadURL": "https://example.com/sourcekit-lsp"
                   }
                 },
                 {
@@ -2449,6 +2499,22 @@ mod tests {
             vec!["custom-sourcekit-lsp".to_string()]
         );
         assert_eq!(swift_launch.arguments, vec!["--stdio".to_string()]);
+        assert_eq!(
+            swift_launch.environment.get("SOURCEKIT_TOOLCHAIN"),
+            Some(&"custom".to_string())
+        );
+        assert_eq!(
+            swift_launch.initialization_options,
+            Some(json!({ "indexing": true }))
+        );
+        let swift_installation = swift
+            .language_server_installation
+            .as_ref()
+            .expect("swift installation descriptor should be overridden");
+        assert_eq!(
+            swift_installation.homebrew_formula.as_deref(),
+            Some("custom-sourcekit-lsp")
+        );
         assert!(!catalog
             .providers
             .iter()
@@ -2461,10 +2527,31 @@ mod tests {
     fn ffi_json_is_a_standalone_catalog_document() {
         let raw = provider_catalog_json(None);
         let value: Value = serde_json::from_str(&raw).expect("catalog should be JSON");
-        assert_eq!(value["version"], 1);
+        assert_eq!(value["version"], 2);
         assert!(value["providers"].as_array().unwrap().len() > 10);
         assert!(value.get("ok").is_none());
         assert!(value.get("command").is_none());
+    }
+
+    #[test]
+    fn project_catalog_reports_unknown_configuration_fields() {
+        let root = temporary_root("project-config-unknown-field");
+        fs::create_dir_all(root.join(".lithe/lsp")).unwrap();
+        fs::write(
+            root.join(".lithe/lsp/language-providers.json"),
+            r#"{
+              "version": 2,
+              "providers": [{ "id": "go", "languageServerLanch": {} }]
+            }"#,
+        )
+        .unwrap();
+
+        let catalog = provider_catalog(Some(&root));
+        assert_eq!(catalog.diagnostics.len(), 1);
+        assert!(catalog.diagnostics[0].message.contains("unknown field"));
+        assert!(catalog.providers.iter().any(|provider| provider.id == "go"));
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -2651,6 +2738,9 @@ mod tests {
             state: LspClientState::default(),
             root_uri: "file:///tmp/project".to_string(),
             process_id: Some(42),
+            initialization_options: Some(json!({
+                "ui.semanticTokens": true
+            })),
         })
         .unwrap();
         assert_eq!(
@@ -2666,6 +2756,14 @@ mod tests {
         );
         let client_capabilities = &initialize_message["params"]["capabilities"];
         assert_eq!(client_capabilities["workspace"]["configuration"], true);
+        assert_eq!(
+            client_capabilities["textDocument"]["completion"]["completionItem"]["snippetSupport"],
+            false
+        );
+        assert_eq!(
+            initialize_message["params"]["initializationOptions"]["ui.semanticTokens"],
+            true
+        );
         assert!(client_capabilities["workspace"].get("applyEdit").is_none());
         assert!(client_capabilities["textDocument"]["synchronization"]
             .get("didSave")

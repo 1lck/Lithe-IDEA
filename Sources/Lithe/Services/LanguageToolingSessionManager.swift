@@ -35,6 +35,7 @@ final class LanguageToolingSessionManager: ObservableObject {
 
     private var catalog: LanguageProviderCatalog
     private var runtimesByID: [String: any LanguageProviderRuntime]
+    private let runtimeFactory: (any LanguageProviderRuntimeFactory)?
     private var languageServers: [String: any LanguageServerSession] = [:]
     private var languageServerRoots: [String: URL] = [:]
     private var languageFeatureProviders: [any LanguageFeatureProvider]
@@ -46,10 +47,12 @@ final class LanguageToolingSessionManager: ObservableObject {
     init(
         catalog: LanguageProviderCatalog = .standard,
         runtimes: [any LanguageProviderRuntime] = [],
+        runtimeFactory: (any LanguageProviderRuntimeFactory)? = nil,
         core: RustCoreBridge = RustCoreBridge(),
         languageFeatureProviders: [any LanguageFeatureProvider] = []
     ) {
         self.catalog = catalog
+        self.runtimeFactory = runtimeFactory
         self.languageFeatureProviders = languageFeatureProviders + [
             BuiltinLanguageFeatureProvider(core: core)
         ]
@@ -64,12 +67,26 @@ final class LanguageToolingSessionManager: ObservableObject {
     var activeDebugAdapterIDs: Set<String> { Set(debugAdapters.keys) }
 
     func updateCatalog(_ catalog: LanguageProviderCatalog) {
+        let previousDescriptors = Dictionary(
+            uniqueKeysWithValues: self.catalog.descriptors.map { ($0.id, $0) }
+        )
+        let updatedDescriptors = Dictionary(
+            uniqueKeysWithValues: catalog.descriptors.map { ($0.id, $0) }
+        )
+        let changedProviderIDs = Set(previousDescriptors.keys)
+            .union(updatedDescriptors.keys)
+            .filter { previousDescriptors[$0] != updatedDescriptors[$0] }
+
         self.catalog = catalog
         let validProviderIDs = Set(catalog.descriptors.map(\.id))
         languageServerFeatures = languageServerFeatures.filter { validProviderIDs.contains($0.key) }
         diagnostics = diagnostics.filter { catalog.provider(for: $0.key) != nil }
-        for providerID in Array(languageServers.keys) where !validProviderIDs.contains(providerID) {
+        for providerID in changedProviderIDs {
             stopLanguageServer(providerID: providerID)
+            stopDebugAdapter(providerID: providerID)
+            if runtimeFactory != nil {
+                runtimesByID[providerID] = nil
+            }
         }
     }
 
@@ -84,7 +101,7 @@ final class LanguageToolingSessionManager: ObservableObject {
     func supportsGenericDebugging(for fileURL: URL) -> Bool {
         guard let descriptor = catalog.provider(for: fileURL),
               descriptor.capabilities.contains(.debugAdapter) else { return false }
-        return runtimesByID[descriptor.id]?.supportsDebugAdapterSession == true
+        return runtime(for: descriptor)?.supportsDebugAdapterSession == true
     }
 
     func features(for fileURL: URL) -> LanguageServerFeatureSet {
@@ -122,7 +139,7 @@ final class LanguageToolingSessionManager: ObservableObject {
             throw LanguageToolingSessionError.noProvider(fileExtension: fileURL.pathExtension.lowercased())
         }
         guard descriptor.capabilities.contains(.languageServer) else { return }
-        guard let runtime = runtimesByID[descriptor.id],
+        guard let runtime = runtime(for: descriptor),
               runtime.supportsLanguageServerSession else {
             return
         }
@@ -430,7 +447,7 @@ final class LanguageToolingSessionManager: ObservableObject {
             debugAdapters[descriptor.id] = nil
             debugAdapterRoots[descriptor.id] = nil
         }
-        guard let runtime = runtimesByID[descriptor.id] else {
+        guard let runtime = runtime(for: descriptor) else {
             throw LanguageToolingSessionError.providerNotInstalled(descriptor.displayName)
         }
         guard let session = runtime.makeDebugAdapterSession(rootURL: normalizedRoot) else {
@@ -449,6 +466,21 @@ final class LanguageToolingSessionManager: ObservableObject {
             }
         }
         return session
+    }
+
+    private func runtime(
+        for descriptor: LanguageProviderDescriptor
+    ) -> (any LanguageProviderRuntime)? {
+        if let existing = runtimesByID[descriptor.id],
+           existing.descriptor == descriptor {
+            return existing
+        }
+        guard let runtimeFactory,
+              let runtime = runtimeFactory.makeRuntime(for: descriptor) else {
+            return runtimesByID[descriptor.id]
+        }
+        runtimesByID[descriptor.id] = runtime
+        return runtime
     }
 
     func stopDebugAdapter(providerID: String) {

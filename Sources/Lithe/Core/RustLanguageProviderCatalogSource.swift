@@ -13,11 +13,27 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
     private struct LanguageServerLaunchPayload: Decodable {
         let executableNames: [String]
         let arguments: [String]
+        let environment: [String: String]
+        let initializationOptions: ToolingJSONValue?
 
         func makeDescriptor() -> LanguageServerLaunchDescriptor {
             LanguageServerLaunchDescriptor(
                 executableNames: executableNames,
-                arguments: arguments
+                arguments: arguments,
+                environment: environment,
+                initializationOptions: initializationOptions
+            )
+        }
+    }
+
+    private struct LanguageServerInstallationPayload: Decodable {
+        let homebrewFormula: String?
+        let officialDownloadURL: String?
+
+        func makeDescriptor() -> LanguageServerInstallationDescriptor {
+            LanguageServerInstallationDescriptor(
+                homebrewFormula: homebrewFormula,
+                officialDownloadURL: officialDownloadURL.flatMap(URL.init(string:))
             )
         }
     }
@@ -34,6 +50,7 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
         let languageIdsByExtension: [String: String]
         let languageIdsByFileName: [String: String]
         let languageServerLaunch: LanguageServerLaunchPayload?
+        let languageServerInstallation: LanguageServerInstallationPayload?
 
         func makeDescriptor() -> LanguageProviderDescriptor {
             LanguageProviderDescriptor(
@@ -47,7 +64,8 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
                 languageIdentifier: languageId,
                 languageIdentifiersByExtension: languageIdsByExtension,
                 languageIdentifiersByFileName: languageIdsByFileName,
-                languageServerLaunch: languageServerLaunch?.makeDescriptor()
+                languageServerLaunch: languageServerLaunch?.makeDescriptor(),
+                languageServerInstallation: languageServerInstallation?.makeDescriptor()
             )
         }
     }

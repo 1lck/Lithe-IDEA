@@ -59,6 +59,25 @@ enum ToolingActivationPolicy: String, Codable, Hashable, Sendable {
 struct LanguageServerLaunchDescriptor: Hashable, Sendable {
     let executableNames: [String]
     let arguments: [String]
+    let environment: [String: String]
+    let initializationOptions: ToolingJSONValue?
+
+    init(
+        executableNames: [String],
+        arguments: [String] = [],
+        environment: [String: String] = [:],
+        initializationOptions: ToolingJSONValue? = nil
+    ) {
+        self.executableNames = executableNames
+        self.arguments = arguments
+        self.environment = environment
+        self.initializationOptions = initializationOptions
+    }
+}
+
+struct LanguageServerInstallationDescriptor: Hashable, Sendable {
+    let homebrewFormula: String?
+    let officialDownloadURL: URL?
 }
 
 struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
@@ -73,6 +92,7 @@ struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
     let languageIdentifiersByExtension: [String: String]
     let languageIdentifiersByFileName: [String: String]
     let languageServerLaunch: LanguageServerLaunchDescriptor?
+    let languageServerInstallation: LanguageServerInstallationDescriptor?
 
     init(
         id: String,
@@ -85,7 +105,8 @@ struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
         languageIdentifier: String? = nil,
         languageIdentifiersByExtension: [String: String] = [:],
         languageIdentifiersByFileName: [String: String] = [:],
-        languageServerLaunch: LanguageServerLaunchDescriptor? = nil
+        languageServerLaunch: LanguageServerLaunchDescriptor? = nil,
+        languageServerInstallation: LanguageServerInstallationDescriptor? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -106,6 +127,7 @@ struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
             }
         )
         self.languageServerLaunch = languageServerLaunch
+        self.languageServerInstallation = languageServerInstallation
     }
 
     func handles(fileURL: URL) -> Bool {
@@ -428,7 +450,7 @@ extension DebugAdapterSession {
     var state: DebugAdapterState { isRunning ? .running : .idle }
 }
 
-enum ToolingJSONValue: Codable, Equatable, Sendable {
+enum ToolingJSONValue: Codable, Equatable, Hashable, Sendable {
     case string(String)
     case integer(Int)
     case number(Double)
@@ -634,6 +656,11 @@ protocol LanguageProviderRuntime: AnyObject {
     func makeLanguageServerSession() -> (any LanguageServerSession)?
     func makeDebugAdapterSession() -> (any DebugAdapterSession)?
     func makeDebugAdapterSession(rootURL: URL) -> (any DebugAdapterSession)?
+}
+
+@MainActor
+protocol LanguageProviderRuntimeFactory: AnyObject {
+    func makeRuntime(for descriptor: LanguageProviderDescriptor) -> (any LanguageProviderRuntime)?
 }
 
 extension LanguageProviderRuntime {
