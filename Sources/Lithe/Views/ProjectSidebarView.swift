@@ -21,7 +21,7 @@ struct ProjectSidebarView: View {
             } else if let root = model.rootNode {
                 GeometryReader { geometry in
                     ScrollView([.vertical, .horizontal]) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 1) {
                             FileNodeRow(
                                 node: root,
                                 depth: 0,
@@ -222,11 +222,12 @@ private struct FileNodeRow: View {
             .contentShape(Rectangle())
             .litheRowHover(
                 cornerRadius: 4,
-                hoverBackground: .clear,
                 animation: nil
             )
         }
         .buttonStyle(LitheTreeRowButtonStyle())
+        .lithePointer()
+        .padding(.vertical, 0.5)
         .padding(.horizontal, Self.horizontalInset)
         .contextMenu { directoryContextMenu }
     }
@@ -256,11 +257,12 @@ private struct FileNodeRow: View {
                 isActive: activeDocumentURL == node.url,
                 cornerRadius: 4,
                 activeBackground: LitheTheme.subtleSelection,
-                hoverBackground: .clear,
                 animation: nil
             )
         }
         .buttonStyle(LitheTreeRowButtonStyle())
+        .lithePointer()
+        .padding(.vertical, 0.5)
         .padding(.horizontal, Self.horizontalInset)
         .contextMenu { fileContextMenu }
         .task(id: node.url.standardizedFileURL.path) {

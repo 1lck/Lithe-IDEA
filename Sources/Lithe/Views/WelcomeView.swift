@@ -6,6 +6,7 @@ struct WelcomeView: View {
     @EnvironmentObject private var updateChecker: UpdateChecker
     @State private var projectFilter = ""
     @State private var hoveredProjectID: String?
+    @State private var hoveredProjectMenuID: String?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -207,6 +208,7 @@ struct WelcomeView: View {
                             projectRow(project)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                 }
@@ -262,6 +264,8 @@ struct WelcomeView: View {
             .lithePointer()
             .disabled(!project.exists)
 
+            Spacer(minLength: 0)
+
             Menu {
                 if project.exists {
                     Button("Open") { model.openProject(project.url) }
@@ -273,18 +277,27 @@ struct WelcomeView: View {
                     model.removeRecentProject(project)
                 }
             } label: {
-                LitheSystemIcon(systemImage: "ellipsis")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+                ZStack {
+                    RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                        .fill(hoveredProjectMenuID == project.id ? LitheTheme.hoverBackground : .clear)
+                    LitheSystemIcon(systemImage: "ellipsis")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+                .onHover { isHovering in
+                    hoveredProjectMenuID = isHovering ? project.id : nil
+                }
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .lithePointer()
-            .foregroundStyle(LitheTheme.secondaryText)
+            .frame(width: 28, height: 28)
             .opacity(hoveredProjectID == project.id ? 1 : 0)
             .allowsHitTesting(hoveredProjectID == project.id)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .frame(height: 52)
         .background(hoveredProjectID == project.id ? LitheTheme.hoverBackground : .clear)
@@ -346,6 +359,7 @@ private struct WelcomeInitialFocusReset: NSViewRepresentable {
 
 private final class WelcomeInitialFocusResetView: NSView {
     private var didClearFocus = false
+    private var eventMonitor: Any?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -357,10 +371,29 @@ private final class WelcomeInitialFocusResetView: NSView {
             window.makeFirstResponder(nil)
             self.didClearFocus = true
         }
+
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self, let window = self.window, event.window === window else { return event }
+            var hitView = window.contentView?.hitTest(event.locationInWindow)
+            var clickedInput = false
+            while let view = hitView {
+                if view is NSTextField {
+                    clickedInput = true
+                    break
+                }
+                hitView = view.superview
+            }
+            if !clickedInput {
+                window.makeFirstResponder(nil)
+            }
+            return event
+        }
     }
 
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(nil)
-        super.mouseDown(with: event)
+    deinit {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
     }
 }
