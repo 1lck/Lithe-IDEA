@@ -43,7 +43,7 @@ jobs:
         with:
           version: "6.8.2"
           arch: win64_msvc2022_64
-          archives: qtbase
+          archives: qtbase qtsvg
           cache: true
 
       - name: Build Rust core and C++ targets

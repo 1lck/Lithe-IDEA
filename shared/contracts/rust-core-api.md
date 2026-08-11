@@ -82,6 +82,11 @@ stable error code and a user-facing message:
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
+| `git.checkoutPreflight` | List working-tree paths that would block switching to a reference |
+| `git.conflictMarkers` | List staged paths that still contain conflict markers |
+| `git.integrationPreflight` | Decide whether a merge or rebase can start, and which dirty paths block it |
+| `git.pullPreflight` | Report upstream tracking, ahead/behind counts, divergence, and local dirtiness |
+| `git.operationState` | Describe an in-progress merge, rebase, cherry-pick, or revert |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.shelfPatches` | Collect deterministic staged and working-tree patches for Shelf creation |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
@@ -111,7 +116,10 @@ before changing a response shape or search rule.
 Arguments are passed directly to the Git executable without a shell. A
 successful process launch returns `{ "output": string, "exitCode": number }`
 even when Git exits non-zero; process-start and workspace failures use the
-standard error envelope.
+standard error envelope. When a stash restore leaves unresolved merge
+conflicts, the response may also include
+`stashRestore: { "stashReference": string, "conflictedPaths": string[] }`.
+The key is omitted when restore completed cleanly.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
@@ -121,34 +129,53 @@ standard error envelope.
 and `operationSkip`. Optional fields are `paths`,
 `reference`, `referenceKind`, `revision`, `name`, `message`, `remote`,
 `destination`, `mode`, `includeUntracked`, `checkout`, `amend`, `force`, and
-`autoStash`.
+`autoStash`. `force` and `autoStash` default to `false`.
 
 The core validates pathspecs, revisions, branch names, references, reset modes,
 stash references, and operation-specific required fields before invoking Git.
 Successful process launch returns `{ "output": string, "exitCode": number }`
-even when Git exits non-zero. Invalid arguments use the standard
+even when Git exits non-zero. The same optional `stashRestore` object as
+`git.command` may appear when stash apply/pop or auto-stash checkout leaves
+conflicts. Invalid arguments use the standard
 `invalid_request` error envelope. `checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and
 `destination` as its target path. `force` permits a checkout that would
-overwrite local edits, while `autoStash` preserves and restores local changes
-around checkout. Operation actions resolve the operation currently reported by
-Git instead of trusting a client-supplied operation kind. The command response
-may contain a structured `stashRestore` object with `stashReference` and
-`conflictedPaths` when a stash restore keeps its entry because conflicts remain.
+overwrite local edits; `autoStash` stashes dirty work, switches, then restores
+the stash. Both default to `false`. `operationContinue`, `operationAbort`, and
+`operationSkip` resolve whichever merge, rebase, cherry-pick, or revert Git
+left in progress — they use the operation currently reported by Git instead of
+trusting a client-supplied operation kind. The command response may contain a
+structured `stashRestore` object with `stashReference` and `conflictedPaths`
+when a stash restore keeps its entry because conflicts remain.
 
 The Git safety commands expose structured state so clients do not parse
 localized process output:
 
-- `git.checkoutPreflight` accepts `root` and `reference`, returning
-  `blockingPaths`.
-- `git.pullPreflight` accepts `root`, returning nullable `upstream`, `ahead`,
-  `behind`, `diverged`, and `hasLocalChanges`.
-- `git.integrationPreflight` accepts `root`, `reference`, and an `operation` of
-  `merge` or `rebase`, returning `blockingPaths` and `blocksEntirely`.
-- `git.conflictMarkers` accepts `root`, returning `paths`.
-- `git.operationState` accepts `root`, returning `kind`, nullable `reference`,
-  nullable `step`/`total`, and `conflictedPaths`. An empty `kind` means no
-  sequential Git operation is in progress.
+`git.checkoutPreflight` accepts `{ "root": string, "reference": string }` and
+returns `{ "blockingPaths": string[] }` — dirty paths that also differ between
+HEAD and the target reference.
+
+`git.conflictMarkers` accepts `{ "root": string }` and returns
+`{ "paths": string[] }` for staged files that still contain conflict markers.
+
+`git.integrationPreflight` accepts
+`{ "root": string, "reference": string, "operation": "merge" | "rebase" }` and
+returns `{ "blockingPaths": string[], "blocksEntirely": boolean }`. Merge
+blocking paths are the overlap between dirty files and the merge result; rebase
+blocking paths are the full dirty set, and `blocksEntirely` is then true when
+any local change exists.
+
+`git.pullPreflight` accepts `{ "root": string }` and returns
+`{ "upstream": string | null, "ahead": number, "behind": number,
+"diverged": boolean, "hasLocalChanges": boolean }`. `upstream` is null when the
+branch tracks nothing. `diverged` is true when both ahead and behind are
+positive.
+
+`git.operationState` accepts `{ "root": string }` and returns
+`{ "kind": string, "reference": string | null, "step": number | null,
+"total": number | null, "conflictedPaths": string[] }`. `kind` is empty when
+nothing is in progress (no sequential Git operation). `step` and `total` are
+populated only for rebase progress.
 
 `git.diff` accepts `root`, `pathspecs`, optional `reference` or `commit`,
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],

@@ -1475,6 +1475,13 @@ mod tests {
         .expect("stashes response should be JSON");
         assert_eq!(stashes_response["ok"], true);
         assert_eq!(stashes_response["data"]["stashes"][0]["message"], "saved");
+        let stash_reference = stashes_response["data"]["stashes"][0]["reference"]
+            .as_str()
+            .expect("stash reference should be text");
+        assert!(
+            stash_reference.starts_with("stash@{") && !stash_reference.contains(' '),
+            "stash list must return index refs like stash@{{0}}, got {stash_reference}"
+        );
 
         let request = serde_json::json!({
             "id": "history",

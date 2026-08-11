@@ -146,62 +146,90 @@ int main() {
     const auto gitCommand = decodeGitCommand(*gitCommandEnvelope);
     assert(gitCommand && gitCommand->exitCode == -128 && !gitCommand->stashRestore);
 
-    const auto gitStashRestoreEnvelope = decodeCoreEnvelope(R"({
-        "id":"req-stash-restore","ok":true,"data":{
-          "output":"conflicts","exitCode":1,
-          "stashRestore":{"stashReference":"stash@{0}","conflictedPaths":["src/App.java"]}
+    const auto gitCommandWithStashEnvelope = decodeCoreEnvelope(R"({
+        "id":"req-8b","ok":true,"data":{
+          "output":"conflict","exitCode":1,
+          "stashRestore":{"stashReference":"stash@{0}","conflictedPaths":["conflict.txt"]}
         }
     })");
-    const auto gitStashRestore = decodeGitCommand(*gitStashRestoreEnvelope);
-    assert(gitStashRestore && gitStashRestore->stashRestore &&
-           gitStashRestore->stashRestore->stashReference == "stash@{0}" &&
-           gitStashRestore->stashRestore->conflictedPaths.size() == 1);
+    assert(gitCommandWithStashEnvelope);
+    const auto gitCommandWithStash = decodeGitCommand(*gitCommandWithStashEnvelope);
+    assert(gitCommandWithStash && gitCommandWithStash->stashRestore &&
+           gitCommandWithStash->stashRestore->stashReference == "stash@{0}" &&
+           gitCommandWithStash->stashRestore->conflictedPaths.size() == 1);
 
-    const auto gitCheckoutPreflightEnvelope = decodeCoreEnvelope(
-        R"({"id":"git-checkout","ok":true,"data":{"blockingPaths":["README.md"]}})");
-    const auto gitCheckoutPreflight = decodeGitCheckoutPreflight(*gitCheckoutPreflightEnvelope);
-    assert(gitCheckoutPreflight && gitCheckoutPreflight->blockingPaths ==
-           std::vector<std::string>{"README.md"});
+    const auto gitCommandNullStashEnvelope = decodeCoreEnvelope(
+        R"({"id":"req-8c","ok":true,"data":{"output":"ok","exitCode":0,"stashRestore":null}})");
+    assert(gitCommandNullStashEnvelope);
+    const auto gitCommandNullStash = decodeGitCommand(*gitCommandNullStashEnvelope);
+    assert(gitCommandNullStash && !gitCommandNullStash->stashRestore);
 
-    const auto gitPullPreflightEnvelope = decodeCoreEnvelope(R"({
-        "id":"git-pull","ok":true,"data":{"upstream":null,"ahead":2,"behind":3,
-          "diverged":true,"hasLocalChanges":false}
+    const auto checkoutPreflightEnvelope = decodeCoreEnvelope(
+        R"({"id":"preflight-1","ok":true,"data":{"blockingPaths":["conflict.txt"]}})");
+    assert(checkoutPreflightEnvelope);
+    const auto checkoutPreflight = decodeGitCheckoutPreflight(*checkoutPreflightEnvelope);
+    assert(checkoutPreflight && checkoutPreflight->blockingPaths.size() == 1 &&
+           checkoutPreflight->blockingPaths[0] == "conflict.txt");
+
+    const auto conflictMarkersEnvelope = decodeCoreEnvelope(
+        R"({"id":"preflight-2","ok":true,"data":{"paths":["src/Main.java"]}})");
+    assert(conflictMarkersEnvelope);
+    const auto conflictMarkers = decodeGitConflictMarkers(*conflictMarkersEnvelope);
+    assert(conflictMarkers && conflictMarkers->paths.size() == 1);
+
+    const auto integrationPreflightEnvelope = decodeCoreEnvelope(R"({
+        "id":"preflight-3","ok":true,"data":{"blockingPaths":["a.txt"],"blocksEntirely":true}
     })");
-    const auto gitPullPreflight = decodeGitPullPreflight(*gitPullPreflightEnvelope);
-    assert(gitPullPreflight && !gitPullPreflight->upstream && gitPullPreflight->ahead == 2 &&
-           gitPullPreflight->behind == 3 && gitPullPreflight->diverged &&
-           !gitPullPreflight->hasLocalChanges);
+    assert(integrationPreflightEnvelope);
+    const auto integrationPreflight = decodeGitIntegrationPreflight(*integrationPreflightEnvelope);
+    assert(integrationPreflight && integrationPreflight->blocksEntirely &&
+           integrationPreflight->blockingPaths.size() == 1);
 
-    const auto gitIntegrationPreflightEnvelope = decodeCoreEnvelope(R"({
-        "id":"git-integration","ok":true,"data":{
-          "blockingPaths":["src/App.java"],"blocksEntirely":true}
+    const auto pullPreflightEnvelope = decodeCoreEnvelope(R"({
+        "id":"preflight-4","ok":true,"data":{
+          "upstream":"origin/main","ahead":1,"behind":2,"diverged":true,"hasLocalChanges":false
+        }
     })");
-    const auto gitIntegrationPreflight =
-        decodeGitIntegrationPreflight(*gitIntegrationPreflightEnvelope);
-    assert(gitIntegrationPreflight && gitIntegrationPreflight->blocksEntirely &&
-           gitIntegrationPreflight->blockingPaths.size() == 1);
+    assert(pullPreflightEnvelope);
+    const auto pullPreflight = decodeGitPullPreflight(*pullPreflightEnvelope);
+    assert(pullPreflight && pullPreflight->upstream && *pullPreflight->upstream == "origin/main" &&
+           pullPreflight->ahead == 1 && pullPreflight->behind == 2 && pullPreflight->diverged &&
+           !pullPreflight->hasLocalChanges);
 
-    const auto gitConflictMarkersEnvelope = decodeCoreEnvelope(
-        R"({"id":"git-conflicts","ok":true,"data":{"paths":["src/App.java"]}})");
-    const auto gitConflictMarkers = decodeGitConflictMarkers(*gitConflictMarkersEnvelope);
-    assert(gitConflictMarkers && gitConflictMarkers->paths.size() == 1);
-
-    const auto gitOperationStateEnvelope = decodeCoreEnvelope(R"({
-        "id":"git-operation","ok":true,"data":{"kind":"rebase","reference":"main",
-          "step":2,"total":5,"conflictedPaths":["src/App.java"]}
+    const auto pullPreflightNullUpstreamEnvelope = decodeCoreEnvelope(R"({
+        "id":"preflight-5","ok":true,"data":{
+          "upstream":null,"ahead":0,"behind":0,"diverged":false,"hasLocalChanges":true
+        }
     })");
-    const auto gitOperationState = decodeGitOperationState(*gitOperationStateEnvelope);
-    assert(gitOperationState && gitOperationState->kind == "rebase" &&
-           gitOperationState->reference == "main" && gitOperationState->step == 2 &&
-           gitOperationState->total == 5 && gitOperationState->conflictedPaths.size() == 1);
+    assert(pullPreflightNullUpstreamEnvelope);
+    const auto pullPreflightNullUpstream = decodeGitPullPreflight(*pullPreflightNullUpstreamEnvelope);
+    assert(pullPreflightNullUpstream && !pullPreflightNullUpstream->upstream &&
+           pullPreflightNullUpstream->hasLocalChanges);
 
-    const auto idleGitOperationStateEnvelope = decodeCoreEnvelope(R"({
-        "id":"git-operation-idle","ok":true,"data":{"kind":"","reference":null,
-          "step":null,"total":null,"conflictedPaths":[]}
+    const auto operationStateIdleEnvelope = decodeCoreEnvelope(R"({
+        "id":"op-1","ok":true,"data":{
+          "kind":"","reference":null,"step":null,"total":null,"conflictedPaths":[]
+        }
     })");
-    const auto idleGitOperationState = decodeGitOperationState(*idleGitOperationStateEnvelope);
-    assert(idleGitOperationState && !idleGitOperationState->reference &&
-           !idleGitOperationState->step && !idleGitOperationState->total);
+    assert(operationStateIdleEnvelope);
+    const auto operationStateIdle = decodeGitOperationState(*operationStateIdleEnvelope);
+    assert(operationStateIdle && operationStateIdle->kind.empty() && !operationStateIdle->reference &&
+           !operationStateIdle->step && !operationStateIdle->total &&
+           operationStateIdle->conflictedPaths.empty());
+
+    const auto operationStateRebaseEnvelope = decodeCoreEnvelope(R"({
+        "id":"op-2","ok":true,"data":{
+          "kind":"rebase","reference":"refs/heads/feature","step":2,"total":5,
+          "conflictedPaths":["conflict.txt"]
+        }
+    })");
+    assert(operationStateRebaseEnvelope);
+    const auto operationStateRebase = decodeGitOperationState(*operationStateRebaseEnvelope);
+    assert(operationStateRebase && operationStateRebase->kind == "rebase" &&
+           operationStateRebase->reference && *operationStateRebase->reference == "refs/heads/feature" &&
+           operationStateRebase->step && *operationStateRebase->step == 2 &&
+           operationStateRebase->total && *operationStateRebase->total == 5 &&
+           operationStateRebase->conflictedPaths.size() == 1);
 
     const auto malformedGitOperationStateEnvelope = decodeCoreEnvelope(R"({
         "id":"git-operation-invalid","ok":true,"data":{"kind":"rebase",
@@ -339,7 +367,8 @@ int main() {
     assert(signedJson == "-7");
     assert(unsignedJson == "18446744073709551615");
     assert(floatingJson == "1.25");
-    assert(escapedJson == "\"line\\n\\\"quote\\\"\"");
+    const auto expectedEscapedJson = R"("line\n\"quote\"")";
+    assert(escapedJson == expectedEscapedJson);
     assert(parseJson(unsignedJson).succeeded());
 
     const auto searchRequest = parseJson(encodeSearchRequest(SearchRequestDto{
@@ -373,37 +402,47 @@ int main() {
     const auto gitWriteRequest = parseJson(encodeGitWriteRequest(GitWriteRequestDto{
         "/workspace", "stage", {"src/Main.java"}, std::string("main"), std::nullopt,
         std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
-        std::nullopt, false, false, false, true, true
+        std::nullopt, false, false, false, false, false
     }));
     assert(gitWriteRequest.succeeded());
     assert(*objectValue(*gitWriteRequest.value, "operation")->asString() == "stage");
     assert(*objectValue(*gitWriteRequest.value, "reference")->asString() == "main");
     assert(objectValue(*gitWriteRequest.value, "message") == nullptr);
-    assert(*objectValue(*gitWriteRequest.value, "force")->asBool());
-    assert(*objectValue(*gitWriteRequest.value, "autoStash")->asBool());
+    assert(!*objectValue(*gitWriteRequest.value, "force")->asBool());
+    assert(!*objectValue(*gitWriteRequest.value, "autoStash")->asBool());
 
-    const auto gitCheckoutPreflightRequest = parseJson(encodeGitCheckoutPreflightRequest(
-        GitCheckoutPreflightRequestDto{"/workspace", "feature"}));
-    assert(gitCheckoutPreflightRequest.succeeded());
-    assert(*objectValue(*gitCheckoutPreflightRequest.value, "reference")->asString() ==
-           "feature");
+    const auto gitWriteForceRequest = parseJson(encodeGitWriteRequest(GitWriteRequestDto{
+        "/workspace", "checkout", {}, std::string("refs/heads/main"),
+        std::string("local"), std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+        std::nullopt, std::nullopt, false, false, false, true, true
+    }));
+    assert(gitWriteForceRequest.succeeded());
+    assert(*objectValue(*gitWriteForceRequest.value, "force")->asBool());
+    assert(*objectValue(*gitWriteForceRequest.value, "autoStash")->asBool());
 
-    const auto gitPullPreflightRequest = parseJson(
-        encodeGitPullPreflightRequest(GitPullPreflightRequestDto{"/workspace"}));
-    assert(gitPullPreflightRequest.succeeded());
-    assert(*objectValue(*gitPullPreflightRequest.value, "root")->asString() == "/workspace");
+    const auto checkoutPreflightRequest = parseJson(encodeGitCheckoutPreflightRequest(
+        GitCheckoutPreflightRequestDto{"/workspace", "refs/heads/main"}));
+    assert(checkoutPreflightRequest.succeeded());
+    assert(*objectValue(*checkoutPreflightRequest.value, "reference")->asString() ==
+           "refs/heads/main");
 
-    const auto gitIntegrationPreflightRequest = parseJson(encodeGitIntegrationPreflightRequest(
-        GitIntegrationPreflightRequestDto{"/workspace", "feature", "rebase"}));
-    assert(gitIntegrationPreflightRequest.succeeded());
-    assert(*objectValue(*gitIntegrationPreflightRequest.value, "operation")->asString() ==
-           "rebase");
+    const auto conflictMarkersRequest = parseJson(encodeGitConflictMarkersRequest(
+        GitConflictMarkersRequestDto{"/workspace"}));
+    assert(conflictMarkersRequest.succeeded());
+    assert(*objectValue(*conflictMarkersRequest.value, "root")->asString() == "/workspace");
 
-    const auto gitConflictMarkersRequest = parseJson(
-        encodeGitConflictMarkersRequest(GitConflictMarkersRequestDto{"/workspace"}));
-    const auto gitOperationStateRequest = parseJson(
-        encodeGitOperationStateRequest(GitOperationStateRequestDto{"/workspace"}));
-    assert(gitConflictMarkersRequest.succeeded() && gitOperationStateRequest.succeeded());
+    const auto integrationPreflightRequest = parseJson(encodeGitIntegrationPreflightRequest(
+        GitIntegrationPreflightRequestDto{"/workspace", "refs/heads/feature", "merge"}));
+    assert(integrationPreflightRequest.succeeded());
+    assert(*objectValue(*integrationPreflightRequest.value, "operation")->asString() == "merge");
+
+    const auto pullPreflightRequest = parseJson(encodeGitPullPreflightRequest(
+        GitPullPreflightRequestDto{"/workspace"}));
+    assert(pullPreflightRequest.succeeded());
+
+    const auto operationStateRequest = parseJson(encodeGitOperationStateRequest(
+        GitOperationStateRequestDto{"/workspace"}));
+    assert(operationStateRequest.succeeded());
 
     const auto gitDiffRequest = parseJson(encodeGitDiffRequest(GitDiffRequestDto{
         "/workspace", {"src/Main.java"}, std::nullopt, std::nullopt,

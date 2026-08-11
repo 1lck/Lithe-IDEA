@@ -1,0 +1,14 @@
+{
+  "withStashRestore": {
+    "output": "Auto-merging conflict.txt\nCONFLICT (content): Merge conflict in conflict.txt\n",
+    "exitCode": 1,
+    "stashRestore": {
+      "stashReference": "stash@{0}",
+      "conflictedPaths": ["conflict.txt"]
+    }
+  },
+  "withoutStashRestore": {
+    "output": "Switched to branch 'main'\n",
+    "exitCode": 0
+  }
+}
