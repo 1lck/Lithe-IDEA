@@ -1491,6 +1491,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
 
     private func diagnosticColor(for severity: JavaDiagnosticSeverity) -> NSColor {
         switch severity {
+        case .unknown: NSColor.systemGray
         case .error: NSColor.systemRed
         case .warning: NSColor.systemOrange
         case .information: NSColor.systemBlue

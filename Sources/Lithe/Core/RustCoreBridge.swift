@@ -1050,6 +1050,26 @@ struct RustCoreBridge: Sendable {
         let message: String
         let source: String?
         let code: String?
+        let tags: [Int]?
+        let relatedInformation: [LspClientDiagnosticRelatedInformationPayload]?
+
+        init(
+            range: LspRangePayload,
+            severity: Int?,
+            message: String,
+            source: String?,
+            code: String?,
+            tags: [Int]? = nil,
+            relatedInformation: [LspClientDiagnosticRelatedInformationPayload]? = nil
+        ) {
+            self.range = range
+            self.severity = severity
+            self.message = message
+            self.source = source
+            self.code = code
+            self.tags = tags
+            self.relatedInformation = relatedInformation
+        }
 
         func makeModel() -> LanguageServerDiagnostic {
             LanguageServerDiagnostic(
@@ -1057,9 +1077,30 @@ struct RustCoreBridge: Sendable {
                 severity: severity,
                 message: message,
                 source: source,
-                code: code
+                code: code,
+                tags: tags ?? [],
+                relatedInformation: (relatedInformation ?? []).compactMap { $0.makeModel() }
             )
         }
+    }
+
+    struct LspClientDiagnosticRelatedInformationPayload: Decodable, Sendable {
+        let location: LspClientDiagnosticLocationPayload
+        let message: String
+
+        func makeModel() -> LanguageServerDiagnosticRelatedInformation? {
+            guard let fileURL = URL(string: location.uri) else { return nil }
+            return LanguageServerDiagnosticRelatedInformation(
+                fileURL: fileURL.standardizedFileURL,
+                range: location.range.makeModel(),
+                message: message
+            )
+        }
+    }
+
+    struct LspClientDiagnosticLocationPayload: Decodable, Sendable {
+        let uri: String
+        let range: LspRangePayload
     }
 
     private struct LspClientInitializeRequest: Encodable {
@@ -1110,6 +1151,18 @@ struct RustCoreBridge: Sendable {
         let message: String
         let source: String?
         let code: String?
+        let tags: [Int]
+        let relatedInformation: [LspClientDiagnosticRelatedInformationRequest]
+    }
+
+    private struct LspClientDiagnosticRelatedInformationRequest: Encodable {
+        let location: LspClientDiagnosticLocationRequest
+        let message: String
+    }
+
+    private struct LspClientDiagnosticLocationRequest: Encodable {
+        let uri: String
+        let range: LspTextEditsRequest.TextEdit.Range
     }
 
     private struct LspClientCompletionItemRequest: Encodable {
@@ -2384,18 +2437,7 @@ struct RustCoreBridge: Sendable {
                         end: .init(line: $0.end.line, utf16Column: $0.end.utf16Column)
                     )
                 },
-                diagnostics: diagnostics.map {
-                    LspClientDiagnosticRequest(
-                        range: .init(
-                            start: .init(line: $0.range.start.line, utf16Column: $0.range.start.utf16Column),
-                            end: .init(line: $0.range.end.line, utf16Column: $0.range.end.utf16Column)
-                        ),
-                        severity: $0.severity,
-                        message: $0.message,
-                        source: $0.source,
-                        code: $0.code
-                    )
-                },
+                diagnostics: diagnostics.map(Self.makeDiagnosticRequest),
                 completionItem: completionItem.map(Self.makeCompletionItemRequest),
                 codeAction: codeAction.map(Self.makeCodeActionRequest),
                 command: command.map(Self.makeCommandRequest)
@@ -2443,7 +2485,17 @@ struct RustCoreBridge: Sendable {
             severity: diagnostic.severity,
             message: diagnostic.message,
             source: diagnostic.source,
-            code: diagnostic.code
+            code: diagnostic.code,
+            tags: diagnostic.tags,
+            relatedInformation: diagnostic.relatedInformation.map {
+                LspClientDiagnosticRelatedInformationRequest(
+                    location: LspClientDiagnosticLocationRequest(
+                        uri: $0.fileURL.standardizedFileURL.absoluteString,
+                        range: makeRangeRequest($0.range)
+                    ),
+                    message: $0.message
+                )
+            }
         )
     }
 

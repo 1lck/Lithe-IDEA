@@ -180,6 +180,7 @@ struct ProblemsView: View {
 
     private func color(for severity: DiagnosticSeverity) -> Color {
         switch severity {
+        case .unknown: LitheTheme.secondaryText
         case .error: LitheTheme.error
         case .warning: LitheTheme.warning
         case .information: LitheTheme.accent

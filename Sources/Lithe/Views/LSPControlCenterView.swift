@@ -587,6 +587,7 @@ struct LSPControlCenterView: View {
 
     private func color(for severity: DiagnosticSeverity) -> Color {
         switch severity {
+        case .unknown: LitheTheme.secondaryText
         case .error: LitheTheme.error
         case .warning: LitheTheme.warning
         case .information: LitheTheme.accent
@@ -935,6 +936,7 @@ private extension DiagnosticSeverity {
         case .warning: 1
         case .information: 2
         case .hint: 3
+        case .unknown: 4
         }
     }
 }

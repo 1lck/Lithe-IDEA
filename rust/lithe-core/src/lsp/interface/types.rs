@@ -91,6 +91,24 @@ pub struct LspClientDiagnostic {
     pub message: String,
     pub source: Option<String>,
     pub code: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<i64>,
+    #[serde(default)]
+    pub related_information: Vec<LspClientDiagnosticRelatedInformation>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspClientDiagnosticRelatedInformation {
+    pub location: LspClientDiagnosticLocation,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspClientDiagnosticLocation {
+    pub uri: String,
+    pub range: LspRangeResponse,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -42,7 +42,10 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                         }
                     },
                     "publishDiagnostics": {
-                        "relatedInformation": true
+                        "relatedInformation": true,
+                        "tagSupport": {
+                            "valueSet": [1, 2]
+                        }
                     }
                 },
                 "workspace": {
@@ -504,20 +507,34 @@ fn lsp_range_json(range: LspRange) -> Value {
 
 fn lsp_diagnostic_json(diagnostic: &LspClientDiagnostic) -> Value {
     json!({
-        "range": {
-            "start": {
-                "line": diagnostic.range.start.line,
-                "character": diagnostic.range.start.utf16_column
-            },
-            "end": {
-                "line": diagnostic.range.end.line,
-                "character": diagnostic.range.end.utf16_column
-            }
-        },
+        "range": lsp_range_response_json(diagnostic.range),
         "severity": diagnostic.severity,
         "message": diagnostic.message,
         "source": diagnostic.source,
-        "code": diagnostic.code
+        "code": diagnostic.code,
+        "tags": diagnostic.tags,
+        "relatedInformation": diagnostic.related_information.iter().map(|information| {
+            json!({
+                "location": {
+                    "uri": information.location.uri,
+                    "range": lsp_range_response_json(information.location.range)
+                },
+                "message": information.message
+            })
+        }).collect::<Vec<_>>()
+    })
+}
+
+fn lsp_range_response_json(range: LspRangeResponse) -> Value {
+    json!({
+        "start": {
+            "line": range.start.line,
+            "character": range.start.utf16_column
+        },
+        "end": {
+            "line": range.end.line,
+            "character": range.end.utf16_column
+        }
     })
 }
 
@@ -553,6 +570,37 @@ fn parse_diagnostics(value: Option<&Value>) -> Vec<LspClientDiagnostic> {
                             Value::Number(value) => Some(value.to_string()),
                             _ => None,
                         }),
+                        tags: item
+                            .get("tags")
+                            .and_then(Value::as_array)
+                            .map(|tags| tags.iter().filter_map(Value::as_i64).collect())
+                            .unwrap_or_default(),
+                        related_information: parse_diagnostic_related_information(
+                            item.get("relatedInformation"),
+                        ),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_diagnostic_related_information(
+    value: Option<&Value>,
+) -> Vec<LspClientDiagnosticRelatedInformation> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let location = item.get("location")?;
+                    Some(LspClientDiagnosticRelatedInformation {
+                        location: LspClientDiagnosticLocation {
+                            uri: location.get("uri")?.as_str()?.to_string(),
+                            range: parse_lsp_range(location.get("range")?)?,
+                        },
+                        message: item.get("message")?.as_str()?.to_string(),
                     })
                 })
                 .collect()

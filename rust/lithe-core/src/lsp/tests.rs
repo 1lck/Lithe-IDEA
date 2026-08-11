@@ -434,6 +434,14 @@ fn client_core_initializes_and_applies_server_capabilities() {
     assert!(client_capabilities["textDocument"]["synchronization"]
         .get("didSave")
         .is_none());
+    assert_eq!(
+        client_capabilities["textDocument"]["publishDiagnostics"]["relatedInformation"],
+        true
+    );
+    assert_eq!(
+        client_capabilities["textDocument"]["publishDiagnostics"]["tagSupport"]["valueSet"],
+        json!([1, 2])
+    );
     assert_eq!(client_capabilities["window"]["workDoneProgress"], true);
 
     let applied = client_apply_server_message(ClientApplyServerMessageRequest {
@@ -888,6 +896,23 @@ fn client_core_shapes_feature_responses_for_swift_models() {
             message: "rename suggestion".to_string(),
             source: Some("rust-analyzer".to_string()),
             code: None,
+            tags: vec![1, 99],
+            related_information: vec![LspClientDiagnosticRelatedInformation {
+                location: LspClientDiagnosticLocation {
+                    uri: "file:///tmp/project/lib.rs".to_string(),
+                    range: LspRangeResponse {
+                        start: LspPositionResponse {
+                            line: 3,
+                            utf16_column: 4,
+                        },
+                        end: LspPositionResponse {
+                            line: 3,
+                            utf16_column: 8,
+                        },
+                    },
+                },
+                message: "declared here".to_string(),
+            }],
         }],
         completion_item: None,
         code_action: None,
@@ -899,6 +924,20 @@ fn client_core_shapes_feature_responses_for_swift_models() {
     assert_eq!(
         code_action_request["params"]["context"]["diagnostics"][0]["range"]["start"]["character"],
         12
+    );
+    assert_eq!(
+        code_action_request["params"]["context"]["diagnostics"][0]["tags"],
+        json!([1, 99])
+    );
+    assert_eq!(
+        code_action_request["params"]["context"]["diagnostics"][0]["relatedInformation"][0]
+            ["location"]["uri"],
+        "file:///tmp/project/lib.rs"
+    );
+    assert_eq!(
+        code_action_request["params"]["context"]["diagnostics"][0]["relatedInformation"][0]
+            ["location"]["range"]["start"]["character"],
+        4
     );
     let code_actioned = client_apply_server_message(ClientApplyServerMessageRequest {
         state: code_actions.state,
@@ -1108,10 +1147,20 @@ fn client_core_applies_diagnostics_and_dynamic_registrations() {
                             "start": { "line": 2, "character": 4 },
                             "end": { "line": 2, "character": 9 }
                         },
-                        "severity": 1,
                         "source": "pyright",
                         "code": "reportGeneralTypeIssues",
-                        "message": "Example diagnostic"
+                        "message": "Example diagnostic",
+                        "tags": [1, 2, 99],
+                        "relatedInformation": [{
+                            "location": {
+                                "uri": "file:///tmp/project/types.py",
+                                "range": {
+                                    "start": { "line": 8, "character": 2 },
+                                    "end": { "line": 8, "character": 7 }
+                                }
+                            },
+                            "message": "Type declared here"
+                        }]
                     }]
                 }
             }"#
@@ -1125,7 +1174,33 @@ fn client_core_applies_diagnostics_and_dynamic_registrations() {
         .unwrap();
     assert_eq!(stored[0].message, "Example diagnostic");
     assert_eq!(stored[0].range.start.utf16_column, 4);
+    assert_eq!(stored[0].severity, None);
+    assert_eq!(stored[0].tags, vec![1, 2, 99]);
+    assert_eq!(stored[0].related_information.len(), 1);
+    assert_eq!(
+        stored[0].related_information[0].location.uri,
+        "file:///tmp/project/types.py"
+    );
+    assert_eq!(
+        stored[0].related_information[0]
+            .location
+            .range
+            .start
+            .utf16_column,
+        2
+    );
+    assert_eq!(
+        stored[0].related_information[0].message,
+        "Type declared here"
+    );
     assert_eq!(diagnostics.events[0].kind, "diagnostics");
+    let event_json = serde_json::to_value(&diagnostics.events[0]).unwrap();
+    assert_eq!(event_json["diagnostics"][0]["tags"], json!([1, 2, 99]));
+    assert_eq!(
+        event_json["diagnostics"][0]["relatedInformation"][0]["location"]["range"]["start"]
+            ["utf16Column"],
+        2
+    );
 
     let registered = client_apply_server_message(ClientApplyServerMessageRequest {
         state: diagnostics.state,
