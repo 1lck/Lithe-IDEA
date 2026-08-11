@@ -60,6 +60,7 @@ public:
                  bool staged,
                  bool untracked,
                  ResponseHandler handler);
+    void gitShelfPatches(ResponseHandler handler);
     void gitCommitDiff(std::string commit,
                        std::vector<std::string> pathspecs,
                        ResponseHandler handler);
@@ -73,6 +74,13 @@ public:
     void gitCommitFiles(std::string commit, ResponseHandler handler);
     void gitComparison(std::string reference, ResponseHandler handler);
     void gitStashes(ResponseHandler handler);
+    void gitCheckoutPreflight(std::string reference, ResponseHandler handler);
+    void gitPullPreflight(ResponseHandler handler);
+    void gitIntegrationPreflight(std::string reference,
+                                 std::string operation,
+                                 ResponseHandler handler);
+    void gitConflictMarkers(ResponseHandler handler);
+    void gitOperationState(ResponseHandler handler);
     void gitBlame(std::string relativePath, ResponseHandler handler);
     void historyRecord(std::string storageRoot,
                        std::string path,
@@ -94,6 +102,14 @@ public:
                          std::string sourcePath,
                          std::string destinationPath,
                          ResponseHandler handler);
+    void shelfCreate(std::string storageRoot,
+                     std::string label,
+                     std::string stagedPatch,
+                     std::string workingTreePatch,
+                     ResponseHandler handler);
+    void shelfList(std::string storageRoot, ResponseHandler handler);
+    void shelfRestore(std::string storageRoot, std::string id, ResponseHandler handler);
+    void shelfDelete(std::string storageRoot, std::string id, ResponseHandler handler);
     void mavenScan(ResponseHandler handler);
     void mavenDiagnostics(std::string output, ResponseHandler handler);
     void javaRunConfigurations(std::vector<std::string> paths,
@@ -137,6 +153,7 @@ private:
         GitPullPreflight,
         GitOperationState,
         GitDiff,
+        GitShelfPatches,
         GitApply,
         GitWrite,
         GitCommand,
@@ -145,11 +162,20 @@ private:
         GitCommitFiles,
         GitComparison,
         GitStashes,
+        GitCheckoutPreflight,
+        GitPullPreflight,
+        GitIntegrationPreflight,
+        GitConflictMarkers,
+        GitOperationState,
         GitBlame,
         HistoryRecord,
         HistoryEntries,
         HistoryContent,
         HistoryRelocate,
+        ShelfCreate,
+        ShelfList,
+        ShelfRestore,
+        ShelfDelete,
         MavenScan,
         MavenDiagnostics,
         JavaRunConfigurations,
@@ -179,6 +205,7 @@ private:
     std::uint64_t gitPullPreflightGeneration_ = 0;
     std::uint64_t gitOperationStateGeneration_ = 0;
     std::uint64_t gitDiffGeneration_ = 0;
+    std::uint64_t gitShelfPatchesGeneration_ = 0;
     std::uint64_t gitApplyGeneration_ = 0;
     std::uint64_t gitWriteGeneration_ = 0;
     std::uint64_t gitCommandGeneration_ = 0;
@@ -187,11 +214,20 @@ private:
     std::uint64_t gitCommitFilesGeneration_ = 0;
     std::uint64_t gitComparisonGeneration_ = 0;
     std::uint64_t gitStashesGeneration_ = 0;
+    std::uint64_t gitCheckoutPreflightGeneration_ = 0;
+    std::uint64_t gitPullPreflightGeneration_ = 0;
+    std::uint64_t gitIntegrationPreflightGeneration_ = 0;
+    std::uint64_t gitConflictMarkersGeneration_ = 0;
+    std::uint64_t gitOperationStateGeneration_ = 0;
     std::uint64_t gitBlameGeneration_ = 0;
     std::uint64_t historyRecordGeneration_ = 0;
     std::uint64_t historyEntriesGeneration_ = 0;
     std::uint64_t historyContentGeneration_ = 0;
     std::uint64_t historyRelocateGeneration_ = 0;
+    std::uint64_t shelfCreateGeneration_ = 0;
+    std::uint64_t shelfListGeneration_ = 0;
+    std::uint64_t shelfRestoreGeneration_ = 0;
+    std::uint64_t shelfDeleteGeneration_ = 0;
     std::uint64_t mavenScanGeneration_ = 0;
     std::uint64_t mavenDiagnosticsGeneration_ = 0;
     std::uint64_t javaRunConfigurationsGeneration_ = 0;

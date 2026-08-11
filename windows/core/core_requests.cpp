@@ -119,6 +119,31 @@ std::string encodeHistoryRelocateRequest(const HistoryRelocateRequestDto& reques
                    {"destinationPath", request.destinationPath}});
 }
 
+std::string encodeShelfCreateRequest(const ShelfCreateRequestDto& request) {
+    return encode({{"workspaceRoot", request.workspaceRoot},
+                   {"storageRoot", request.storageRoot},
+                   {"label", request.label},
+                   {"stagedPatch", request.stagedPatch},
+                   {"workingTreePatch", request.workingTreePatch}});
+}
+
+std::string encodeShelfListRequest(const ShelfListRequestDto& request) {
+    return encode({{"workspaceRoot", request.workspaceRoot},
+                   {"storageRoot", request.storageRoot}});
+}
+
+std::string encodeShelfRestoreRequest(const ShelfRestoreRequestDto& request) {
+    return encode({{"workspaceRoot", request.workspaceRoot},
+                   {"storageRoot", request.storageRoot},
+                   {"id", request.id}});
+}
+
+std::string encodeShelfDeleteRequest(const ShelfDeleteRequestDto& request) {
+    return encode({{"workspaceRoot", request.workspaceRoot},
+                   {"storageRoot", request.storageRoot},
+                   {"id", request.id}});
+}
+
 std::string encodeMavenScanRequest(const MavenScanRequestDto& request) {
     return encode({{"root", request.root}});
 }
@@ -176,6 +201,10 @@ std::string encodeGitDiffRequest(const GitDiffRequestDto& request) {
     return encode(std::move(object));
 }
 
+std::string encodeGitShelfPatchesRequest(const GitShelfPatchesRequestDto& request) {
+    return encode({{"root", request.root}});
+}
+
 std::string encodeGitApplyRequest(const GitApplyRequestDto& request) {
     return encode({{"root", request.root}, {"patch", request.patch}, {"mode", request.mode}});
 }
@@ -212,17 +241,18 @@ std::string encodeGitCheckoutPreflightRequest(const GitCheckoutPreflightRequestD
     return encode({{"root", request.root}, {"reference", request.reference}});
 }
 
-std::string encodeGitConflictMarkersRequest(const GitConflictMarkersRequestDto& request) {
+std::string encodeGitPullPreflightRequest(const GitPullPreflightRequestDto& request) {
     return encode({{"root", request.root}});
 }
 
-std::string encodeGitIntegrationPreflightRequest(const GitIntegrationPreflightRequestDto& request) {
+std::string encodeGitIntegrationPreflightRequest(
+    const GitIntegrationPreflightRequestDto& request) {
     return encode({{"root", request.root},
                    {"reference", request.reference},
                    {"operation", request.operation}});
 }
 
-std::string encodeGitPullPreflightRequest(const GitPullPreflightRequestDto& request) {
+std::string encodeGitConflictMarkersRequest(const GitConflictMarkersRequestDto& request) {
     return encode({{"root", request.root}});
 }
 

@@ -3,6 +3,7 @@
 #include "history_feature.h"
 #include "maven_java_feature.h"
 #include "replacement_feature.h"
+#include "shelf_feature.h"
 
 #include <cassert>
 #include <algorithm>
@@ -132,6 +133,31 @@ char* lithe_core_execute_json(const char* request) {
     if (command == "git.write" && value.find("\"operation\":\"testFailure\"") != std::string::npos) {
         response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"output\":\"checkout failed\",\"exitCode\":7}}";
     }
+    if (command == "shelf.create") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"id\":\"shelf-1\",\"workspaceRoot\":\"/tmp/project\",\"label\":\"before checkout\",\"createdAt\":1720000000000,\"stagedByteCount\":6,\"workingTreeByteCount\":7}}";
+    } else if (command == "git.shelfPatches") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"stagedPatch\":\"staged\",\"workingTreePatch\":\"working\"}}";
+    } else if (command == "shelf.list") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"shelves\":[]}}";
+    } else if (command == "shelf.restore") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"id\":\"shelf-1\",\"stagedPatch\":\"staged\",\"workingTreePatch\":\"working\"}}";
+    } else if (command == "shelf.delete") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"deleted\":true}}";
+    }
+    if (command == "git.checkoutPreflight") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"blockingPaths\":[\"README.md\"]}}";
+    } else if (command == "git.pullPreflight") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"upstream\":\"origin/main\",\"ahead\":1,\"behind\":2,\"diverged\":true,\"hasLocalChanges\":true}}";
+    } else if (command == "git.integrationPreflight") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"blockingPaths\":[\"src/Conflict.java\"],\"blocksEntirely\":true}}";
+    } else if (command == "git.conflictMarkers") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"paths\":[\"src/Conflict.java\"]}}";
+    } else if (command == "git.operationState") {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"kind\":\"rebase\",\"reference\":\"main\",\"step\":2,\"total\":4,\"conflictedPaths\":[\"src/Conflict.java\"]}}";
+    } else if (command == "git.write" &&
+               value.find("\"operation\":\"testStashConflict\"") != std::string::npos) {
+        response = "{\"id\":\"test\",\"ok\":true,\"data\":{\"output\":\"conflicts\",\"exitCode\":1,\"stashRestore\":{\"stashReference\":\"stash@{0}\",\"conflictedPaths\":[\"src/Stash.java\"]}}}";
+    }
     auto* result = static_cast<char*>(std::malloc(response.size() + 1));
     assert(result != nullptr);
     std::memcpy(result, response.c_str(), response.size() + 1);
@@ -169,7 +195,6 @@ int main() {
     assert(snapshot->envelope && snapshot->envelope->ok);
     assert(!coordinator.isLoading());
     assert(coordinator.workspacePaths().has_value());
-
     {
         std::lock_guard lock(requestMutex);
         assert(!requests.empty());
@@ -178,6 +203,97 @@ int main() {
         assert(requests.back().find("\"root\":\"") != std::string::npos);
         assert(requests.back().find("\"root\":\"\"") == std::string::npos);
     }
+
+    std::optional<lithe::windows::app::WorkspaceOperationResult> shelfCreate;
+    coordinator.shelfCreate("C:/state", "before checkout", "staged", "working", [&](auto result) {
+        std::lock_guard lock(mutex);
+        shelfCreate = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return shelfCreate.has_value();
+        }));
+    }
+    assert(shelfCreate && !shelfCreate->stale && shelfCreate->envelope);
+    const auto shelf = lithe::windows::decodeShelfCreate(*shelfCreate->envelope);
+    assert(shelf && shelf->shelf.id == "shelf-1" && shelf->shelf.stagedByteCount == 6);
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"shelf.create\"") != std::string::npos);
+        assert(requests.back().find("\"stagedPatch\":\"staged\"") != std::string::npos);
+        assert(requests.back().find("\"workingTreePatch\":\"working\"") != std::string::npos);
+    }
+
+    std::optional<lithe::windows::app::WorkspaceOperationResult> shelfPatches;
+    coordinator.gitShelfPatches([&](auto result) {
+        std::lock_guard lock(mutex);
+        shelfPatches = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return shelfPatches.has_value();
+        }));
+    }
+    assert(shelfPatches && !shelfPatches->stale && shelfPatches->envelope);
+    const auto collectedPatches = lithe::windows::decodeGitShelfPatches(*shelfPatches->envelope);
+    assert(collectedPatches && collectedPatches->stagedPatch == "staged" &&
+           collectedPatches->workingTreePatch == "working");
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"git.shelfPatches\"") != std::string::npos);
+    }
+
+    std::optional<lithe::windows::app::WorkspaceOperationResult> shelfList;
+    coordinator.shelfList("C:/state", [&](auto result) {
+        std::lock_guard lock(mutex);
+        shelfList = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return shelfList.has_value();
+        }));
+    }
+    assert(shelfList && !shelfList->stale && shelfList->envelope);
+    const auto shelves = lithe::windows::decodeShelfList(*shelfList->envelope);
+    assert(shelves && shelves->shelves.empty());
+
+    std::optional<lithe::windows::app::WorkspaceOperationResult> shelfRestore;
+    coordinator.shelfRestore("C:/state", "shelf-1", [&](auto result) {
+        std::lock_guard lock(mutex);
+        shelfRestore = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return shelfRestore.has_value();
+        }));
+    }
+    assert(shelfRestore && !shelfRestore->stale && shelfRestore->envelope);
+    const auto restored = lithe::windows::decodeShelfRestore(*shelfRestore->envelope);
+    assert(restored && restored->stagedPatch == "staged" && restored->workingTreePatch == "working");
+
+    std::optional<lithe::windows::app::WorkspaceOperationResult> shelfDelete;
+    coordinator.shelfDelete("C:/state", "shelf-1", [&](auto result) {
+        std::lock_guard lock(mutex);
+        shelfDelete = std::move(result);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return shelfDelete.has_value();
+        }));
+    }
+    assert(shelfDelete && !shelfDelete->stale && shelfDelete->envelope);
+    const auto deleted = lithe::windows::decodeShelfDelete(*shelfDelete->envelope);
+    assert(deleted && deleted->deleted);
 
     std::optional<lithe::windows::app::WorkspaceOperationResult> read;
     coordinator.readFile("src/Main.java", [&](auto result) {
@@ -371,6 +487,95 @@ int main() {
     }
     assert(gitState && gitState->blame && gitState->blame->lines.size() == 1);
 
+    const auto awaitGitState = [&](auto start) {
+        gitState.reset();
+        start([&](auto state) {
+            std::lock_guard lock(mutex);
+            gitState = std::move(state);
+            condition.notify_one();
+        });
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return gitState.has_value();
+        }));
+    };
+
+    awaitGitState([&](auto handler) {
+        gitFeature.preflightCheckout("refs/heads/feature", std::move(handler));
+    });
+    assert(gitState->checkoutPreflight &&
+           gitState->checkoutPreflight->blockingPaths == std::vector<std::string>{"README.md"});
+    assert(!gitState->isLoadingCheckoutPreflight);
+    const auto requestCountAfterPreflight = [&] {
+        std::lock_guard lock(requestMutex);
+        return requests.size();
+    }();
+    awaitGitState([&](auto handler) {
+        gitFeature.checkout("refs/heads/feature", "branch", std::move(handler));
+    });
+    assert(gitState->checkoutPreflight &&
+           gitState->checkoutPreflight->blockingPaths == std::vector<std::string>{"README.md"});
+    assert(!gitState->pendingCheckout);
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.size() == requestCountAfterPreflight + 1);
+        assert(requests.back().find("\"command\":\"git.checkoutPreflight\"") !=
+               std::string::npos);
+    }
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"git.checkoutPreflight\"") !=
+               std::string::npos);
+        assert(requests.back().find("\"reference\":\"refs/heads/feature\"") !=
+               std::string::npos);
+    }
+
+    awaitGitState([&](auto handler) { gitFeature.preflightPull(std::move(handler)); });
+    assert(gitState->pullPreflight && gitState->pullPreflight->upstream == "origin/main" &&
+           gitState->pullPreflight->diverged && gitState->pullPreflight->ahead == 1 &&
+           gitState->pullPreflight->behind == 2 && gitState->pullPreflight->hasLocalChanges);
+
+    awaitGitState([&](auto handler) {
+        gitFeature.preflightIntegration(
+            "refs/heads/feature", "rebase", std::move(handler));
+    });
+    assert(gitState->integrationPreflight &&
+           gitState->integrationPreflight->blocksEntirely &&
+           gitState->integrationPreflight->blockingPaths.size() == 1);
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"git.integrationPreflight\"") !=
+               std::string::npos);
+        assert(requests.back().find("\"operation\":\"rebase\"") != std::string::npos);
+    }
+
+    awaitGitState([&](auto handler) {
+        gitFeature.refreshConflictMarkers(std::move(handler));
+    });
+    assert(gitState->conflictMarkers && gitState->conflictMarkers->paths.size() == 1);
+    assert(gitState->conflictFilterPaths == std::vector<std::string>{"src/Conflict.java"});
+
+    awaitGitState([&](auto handler) {
+        gitFeature.refreshOperationState(std::move(handler));
+    });
+    assert(gitState->operationState && gitState->operationState->kind == "rebase" &&
+           gitState->operationState->step == 2 && gitState->operationState->total == 4);
+    assert(gitState->conflictFilterPaths == std::vector<std::string>{"src/Conflict.java"});
+
+    lithe::windows::GitWriteRequestDto stashConflictRequest;
+    stashConflictRequest.operation = "testStashConflict";
+    awaitGitState([&](auto handler) {
+        gitFeature.write(std::move(stashConflictRequest), std::move(handler));
+    });
+    assert(gitState->stashRestoreConflict &&
+           gitState->stashRestoreConflict->stashReference == "stash@{0}");
+    assert(gitState->conflictFilterPaths ==
+           (std::vector<std::string>{"src/Conflict.java", "src/Stash.java"}));
+    gitFeature.clearStashRestoreConflict();
+    assert(!gitFeature.state().stashRestoreConflict &&
+           gitFeature.state().conflictFilterPaths ==
+               std::vector<std::string>{"src/Conflict.java"});
+
     gitState.reset();
     lithe::windows::GitWriteRequestDto writeRequest;
     writeRequest.operation = "stage";
@@ -544,7 +749,7 @@ int main() {
     public:
         std::string homeDirectory() const override { return "/tmp"; }
         std::string cacheDirectory() const override { return "/tmp/Lithe/cache"; }
-        std::string applicationSupportDirectory() const override { return "/tmp/Lithe"; }
+        std::string applicationSupportDirectory() const override { return support; }
         std::optional<lithe::windows::FileMetadata> metadata(const std::string&) const override {
             return std::nullopt;
         }
@@ -558,6 +763,7 @@ int main() {
         bool createDirectory(const std::string&, bool, std::string&) override { return false; }
         bool removeItem(const std::string&, std::string&) override { return false; }
         bool moveItem(const std::string&, const std::string&, std::string&) override { return false; }
+        std::string support = "/tmp/Lithe";
     } storage;
     lithe::windows::app::HistoryFeatureModel historyFeature(coordinator, storage);
     std::optional<lithe::windows::app::HistoryFeatureState> historyState;
@@ -629,6 +835,32 @@ int main() {
         }));
     }
     assert(historyState && !historyState->isRelocating && !historyState->error);
+
+    storage.support = std::string("C:/Users/") +
+        "\xE7\x94\xA8\xE6\x88\xB7" +
+        "/AppData/Roaming/Lithe";
+    lithe::windows::app::ShelfFeatureModel shelfFeature(coordinator, storage);
+    std::optional<lithe::windows::app::ShelfFeatureState> shelfState;
+    shelfFeature.load([&](auto state) {
+        std::lock_guard lock(mutex);
+        shelfState = std::move(state);
+        condition.notify_one();
+    });
+    {
+        std::unique_lock lock(mutex);
+        assert(condition.wait_for(lock, std::chrono::seconds(2), [&] {
+            return shelfState.has_value();
+        }));
+    }
+    assert(shelfState && shelfState->shelves && !shelfState->error);
+    const auto expectedShelfStorage = std::string("C:/Users/") +
+        "\xE7\x94\xA8\xE6\x88\xB7" +
+        "/AppData/Roaming/Lithe/lithe";
+    {
+        std::lock_guard lock(requestMutex);
+        assert(requests.back().find("\"command\":\"shelf.list\"") != std::string::npos);
+        assert(requests.back().find(expectedShelfStorage) != std::string::npos);
+    }
 
     std::optional<lithe::windows::app::WorkspaceOperationResult> everywhere;
     coordinator.searchEverywhere("Main", [&](auto result) {

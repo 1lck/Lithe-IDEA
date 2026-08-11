@@ -4,7 +4,8 @@ use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitStashesRequest, GitStatusRequest, GitWriteRequest,
+    GitPullPreflightRequest, GitShelfPatchesRequest, GitStashesRequest, GitStatusRequest,
+    GitWriteRequest,
 };
 use crate::history::{
     HistoryContentRequest, HistoryEntriesRequest, HistoryRecordRequest, HistoryRelocateRequest,
@@ -16,6 +17,7 @@ use crate::java::{
 use crate::markdown::MarkdownRenderRequest;
 use crate::maven::{MavenDiagnosticsRequest, MavenScanRequest};
 use crate::model::CoreResponse;
+use crate::shelf::{ShelfCreateRequest, ShelfDeleteRequest, ShelfListRequest, ShelfRestoreRequest};
 use crate::workspace::{
     self, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest, SearchRequest,
     WorkspaceSnapshotRequest,
@@ -217,6 +219,64 @@ fn execute(request: &str) -> CoreResponse {
                 .and_then(crate::history::relocate)
             {
                 Ok(()) => CoreResponse::success(id, serde_json::json!({"relocated": true})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::ShelfCreate => {
+            match serde_json::from_value::<ShelfCreateRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Shelf create request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::shelf::create)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Shelf create response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::ShelfList => match serde_json::from_value::<ShelfListRequest>(parsed.payload)
+            .map_err(|error| {
+                CoreError::new(ErrorCode::InvalidRequest, "Invalid Shelf list request")
+                    .with_details(error.to_string())
+            })
+            .and_then(crate::shelf::list)
+        {
+            Ok(data) => CoreResponse::success(
+                id,
+                serde_json::to_value(data).expect("Shelf list response should encode"),
+            ),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::ShelfRestore => {
+            match serde_json::from_value::<ShelfRestoreRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Shelf restore request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::shelf::restore)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Shelf restore response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::ShelfDelete => {
+            match serde_json::from_value::<ShelfDeleteRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Shelf delete request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::shelf::delete)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Shelf delete response should encode"),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -423,6 +483,24 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitShelfPatches => {
+            match serde_json::from_value::<GitShelfPatchesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git Shelf patches request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::shelf_patches)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git Shelf patches response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitApply => match serde_json::from_value::<GitApplyRequest>(parsed.payload)
             .map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Git apply request")

@@ -106,6 +106,33 @@ struct HistoryRelocateDto {
     bool relocated = false;
 };
 
+struct ShelfSummaryDto {
+    std::string id;
+    std::string workspaceRoot;
+    std::string label;
+    std::int64_t createdAt = 0;
+    std::uint64_t stagedByteCount = 0;
+    std::uint64_t workingTreeByteCount = 0;
+};
+
+struct ShelfCreateDto {
+    ShelfSummaryDto shelf;
+};
+
+struct ShelfListDto {
+    std::vector<ShelfSummaryDto> shelves;
+};
+
+struct ShelfRestoreDto {
+    std::string id;
+    std::string stagedPatch;
+    std::string workingTreePatch;
+};
+
+struct ShelfDeleteDto {
+    bool deleted = false;
+};
+
 struct MavenProfileDto {
     std::string id;
     bool isActiveByDefault = false;
@@ -245,6 +272,11 @@ struct GitDiffDto {
     std::vector<GitDiffHunkDto> hunks;
 };
 
+struct GitShelfPatchesDto {
+    std::string stagedPatch;
+    std::string workingTreePatch;
+};
+
 struct GitChangeDto {
     std::string path;
     std::optional<std::string> originalPath;
@@ -374,6 +406,10 @@ std::optional<HistoryRecordDto> decodeHistoryRecord(const CoreEnvelope& envelope
 std::optional<HistoryEntriesDto> decodeHistoryEntries(const CoreEnvelope& envelope);
 std::optional<HistoryContentDto> decodeHistoryContent(const CoreEnvelope& envelope);
 std::optional<HistoryRelocateDto> decodeHistoryRelocate(const CoreEnvelope& envelope);
+std::optional<ShelfCreateDto> decodeShelfCreate(const CoreEnvelope& envelope);
+std::optional<ShelfListDto> decodeShelfList(const CoreEnvelope& envelope);
+std::optional<ShelfRestoreDto> decodeShelfRestore(const CoreEnvelope& envelope);
+std::optional<ShelfDeleteDto> decodeShelfDelete(const CoreEnvelope& envelope);
 std::optional<MavenScanResultDto> decodeMavenScan(const CoreEnvelope& envelope);
 std::optional<MavenDiagnosticsDto> decodeMavenDiagnostics(const CoreEnvelope& envelope);
 std::optional<JavaRunConfigurationsDto> decodeJavaRunConfigurations(const CoreEnvelope& envelope);
@@ -383,12 +419,14 @@ std::optional<JavaSourceDefinitionResultDto> decodeJavaSourceDefinition(const Co
 std::optional<JavaServerPortDto> decodeJavaServerPort(const CoreEnvelope& envelope);
 std::optional<JavaStructureDto> decodeJavaStructure(const CoreEnvelope& envelope);
 std::optional<GitDiffDto> decodeGitDiff(const CoreEnvelope& envelope);
+std::optional<GitShelfPatchesDto> decodeGitShelfPatches(const CoreEnvelope& envelope);
 std::optional<GitStatusDto> decodeGitStatus(const CoreEnvelope& envelope);
 std::optional<GitCommandDto> decodeGitCommand(const CoreEnvelope& envelope);
 std::optional<GitCheckoutPreflightDto> decodeGitCheckoutPreflight(const CoreEnvelope& envelope);
-std::optional<GitConflictMarkersDto> decodeGitConflictMarkers(const CoreEnvelope& envelope);
-std::optional<GitIntegrationPreflightDto> decodeGitIntegrationPreflight(const CoreEnvelope& envelope);
 std::optional<GitPullPreflightDto> decodeGitPullPreflight(const CoreEnvelope& envelope);
+std::optional<GitIntegrationPreflightDto> decodeGitIntegrationPreflight(
+    const CoreEnvelope& envelope);
+std::optional<GitConflictMarkersDto> decodeGitConflictMarkers(const CoreEnvelope& envelope);
 std::optional<GitOperationStateDto> decodeGitOperationState(const CoreEnvelope& envelope);
 std::optional<GitHistoryDto> decodeGitHistory(const CoreEnvelope& envelope);
 std::optional<GitCommitLookupDto> decodeGitCommit(const CoreEnvelope& envelope);

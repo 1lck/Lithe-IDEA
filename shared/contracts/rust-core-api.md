@@ -67,6 +67,10 @@ stable error code and a user-facing message:
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
 | `history.relocate` | Move a file's history records after a rename |
+| `shelf.create` | Store separate staged and working-tree patches for one workspace |
+| `shelf.list` | List valid versioned Shelves for one workspace |
+| `shelf.restore` | Read both patches from a Shelf without deleting it |
+| `shelf.delete` | Delete one validated Shelf after a successful restore |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `java.runConfigurations` | Scan Java sources for main classes and return Maven/Spring run configurations |
@@ -84,12 +88,18 @@ stable error code and a user-facing message:
 | `git.pullPreflight` | Report upstream tracking, ahead/behind counts, divergence, and local dirtiness |
 | `git.operationState` | Describe an in-progress merge, rebase, cherry-pick, or revert |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
+| `git.shelfPatches` | Collect deterministic staged and working-tree patches for Shelf creation |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return deterministic refs, commits, parent hashes, decorations, and pagination state |
 | `git.commit` | Return one structured commit by revision |
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
+| `git.checkoutPreflight` | Return dirty paths that a checkout would overwrite |
+| `git.pullPreflight` | Return upstream, divergence, and local-change state before pulling |
+| `git.integrationPreflight` | Return paths blocking a merge or rebase |
+| `git.conflictMarkers` | Return staged paths that still contain conflict markers |
+| `git.operationState` | Return an in-progress merge, rebase, cherry-pick, or revert state |
 | `git.blame` | Return structured line blame metadata |
 
 Workspace paths in responses are relative and use `/` separators. Line numbers
@@ -115,8 +125,8 @@ The key is omitted when restore completed cleanly.
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
 `reset`, `createBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
-`stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`, and
-`operationSkip`. Optional fields are `paths`,
+`stashApply`, `stashPop`, `stashDrop`, `operationContinue`, `operationAbort`,
+and `operationSkip`. Optional fields are `paths`,
 `reference`, `referenceKind`, `revision`, `name`, `message`, `remote`,
 `destination`, `mode`, `includeUntracked`, `checkout`, `amend`, `force`, and
 `autoStash`. `force` and `autoStash` default to `false`.
@@ -129,10 +139,17 @@ even when Git exits non-zero. The same optional `stashRestore` object as
 conflicts. Invalid arguments use the standard
 `invalid_request` error envelope. `checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and
-`destination` as its target path. `force` discards local edits on checkout;
-`autoStash` stashes dirty work, switches, then restores the stash.
-`operationContinue`, `operationAbort`, and `operationSkip` resolve whichever
-merge, rebase, cherry-pick, or revert Git left in progress.
+`destination` as its target path. `force` permits a checkout that would
+overwrite local edits; `autoStash` stashes dirty work, switches, then restores
+the stash. Both default to `false`. `operationContinue`, `operationAbort`, and
+`operationSkip` resolve whichever merge, rebase, cherry-pick, or revert Git
+left in progress — they use the operation currently reported by Git instead of
+trusting a client-supplied operation kind. The command response may contain a
+structured `stashRestore` object with `stashReference` and `conflictedPaths`
+when a stash restore keeps its entry because conflicts remain.
+
+The Git safety commands expose structured state so clients do not parse
+localized process output:
 
 `git.checkoutPreflight` accepts `{ "root": string, "reference": string }` and
 returns `{ "blockingPaths": string[] }` — dirty paths that also differ between
@@ -157,18 +174,23 @@ positive.
 `git.operationState` accepts `{ "root": string }` and returns
 `{ "kind": string, "reference": string | null, "step": number | null,
 "total": number | null, "conflictedPaths": string[] }`. `kind` is empty when
-nothing is in progress. `step` and `total` are populated only for rebase
-progress.
+nothing is in progress (no sequential Git operation). `step` and `total` are
+populated only for rebase progress.
 
 `git.diff` accepts `root`, `pathspecs`, optional `reference` or `commit`,
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],
 "hunks": [] }`. Rows contain one-based `oldLine`/`newLine` values where
 available, `left`/`right` text, a `kind` (`context`, `changed`, `addition`,
-`removal`, or `information`), and an optional `hunkID`. For `context` and
+`removal`, or `information`), and an optional `hunkId`. For `context` and
 `information` rows both sides carry identical text, so `right` is omitted and
 clients must fall back to `left`. Hunk entries contain their header and the
 patch text needed for partial apply; rows are not duplicated per hunk, so
-clients group `rows` by `hunkID` instead.
+clients group `rows` by `hunkId` instead.
+`git.shelfPatches` accepts `{ "root": string }` and returns `{ "stagedPatch": string,
+"workingTreePatch": string }`. The core first resolves `git.status`, then collects
+each staged, tracked worktree, and untracked path with the appropriate diff mode;
+clients do not concatenate pathspecs or invoke Git directly. Patch ordering follows
+the stable status path ordering, and an empty patch means that side has no changes.
 `git.apply` accepts `root`, `patch`, and `mode`; supported modes are `stage`,
 `unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
 `worktreeCheck`. The two `*Check` modes only test whether the reverse patch
@@ -214,6 +236,15 @@ per file, and pruned after 30 days. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
 `contentPath` values. `history.content` rejects traversal, and
 `history.relocate` updates metadata and storage paths at the command boundary.
+
+The `shelf.*` commands accept an adapter-selected `storageRoot` and a
+workspace root. Shelf data is stored under a versioned, workspace-isolated
+directory and includes separate `staged.patch` and `working-tree.patch` files.
+`shelf.create` returns an id and byte counts; `shelf.list` returns deterministic
+newest-first summaries; `shelf.restore` returns both patch strings and does not
+delete or mutate the Shelf; `shelf.delete` is an explicit operation. Shelf ids
+reject absolute paths, separators, and traversal. A failed restore therefore
+leaves the original Shelf available for retry.
 
 `maven.scan` accepts `{ "root": string }` and returns `null` when the root does
 not contain a readable `pom.xml`. A project response contains `groupId`,

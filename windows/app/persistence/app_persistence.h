@@ -5,14 +5,22 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace lithe::windows::app {
+
+std::string normalizeUiLanguage(std::string_view configuredLanguage);
+std::string effectiveUiLanguage(std::string_view configuredLanguage,
+                                bool systemLocaleIsChinese);
+std::string normalizeDataDirectory(std::string_view configuredDirectory);
 
 struct AppSettings {
     double editorFontSize = 13.0;
     bool showCodeVision = true;
     bool showInlayHints = true;
+    std::string uiLanguage = "system";
+    std::string dataDirectory;
     std::string terminalShellPath;
     std::vector<std::string> hiddenDirectoryNames;
     std::vector<std::string> hiddenFilePatterns;

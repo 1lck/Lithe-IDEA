@@ -5,6 +5,10 @@ project(LitheWindows LANGUAGES CXX)
 include(CTest)
 enable_testing()
 
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 if(WIN32)
     add_compile_definitions(NOMINMAX)
 endif()
@@ -89,6 +93,7 @@ add_library(lithe_windows_app STATIC
     app/features/git_watcher_freeze.cpp
     app/features/git_workflow_ui.cpp
     app/features/history_feature.cpp
+    app/features/shelf_feature.cpp
     app/features/maven_java_feature.cpp
     app/features/replacement_feature.cpp
     app/features/editor_position.cpp
@@ -102,6 +107,7 @@ add_library(lithe_windows_app STATIC
     app/services/java_debug_service.cpp
     app/services/java_language_server.cpp
     app/services/project_runtime_service.cpp
+    app/services/project_detection_service.cpp
     app/services/ai_commit_service.cpp
     app/services/windows_update_service.cpp
     app/services/shelve_service.cpp
@@ -153,6 +159,32 @@ target_include_directories(lithe_windows_app_tests PRIVATE
 )
 target_link_libraries(lithe_windows_app_tests PRIVATE lithe_windows_app)
 add_test(NAME lithe_windows_app COMMAND lithe_windows_app_tests)
+
+add_executable(lithe_windows_workbench_ui_state_tests
+    tests/workbench_ui_state_test.cpp
+    qt/workbench_ui_state.cpp
+    qt/workbench_ui_state.h
+)
+target_compile_features(lithe_windows_workbench_ui_state_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_workbench_ui_state_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+)
+add_test(NAME lithe_windows_workbench_ui_state COMMAND lithe_windows_workbench_ui_state_tests)
+
+add_executable(lithe_windows_workbench_layout_persistence_tests
+    tests/workbench_layout_persistence_test.cpp
+    qt/workbench_layout_persistence.cpp
+    qt/workbench_layout_persistence.h
+    qt/workbench_ui_state.cpp
+    qt/workbench_ui_state.h
+)
+target_compile_features(lithe_windows_workbench_layout_persistence_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_workbench_layout_persistence_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+)
+add_test(NAME lithe_windows_workbench_layout_persistence
+    COMMAND lithe_windows_workbench_layout_persistence_tests)
 
 add_executable(lithe_windows_coordinator_tests
     tests/workbench_coordinator_test.cpp
@@ -247,6 +279,18 @@ target_include_directories(lithe_windows_runtime_service_tests PRIVATE
 target_link_libraries(lithe_windows_runtime_service_tests PRIVATE lithe_windows_app)
 add_test(NAME lithe_windows_runtime_service COMMAND lithe_windows_runtime_service_tests)
 
+add_executable(lithe_windows_project_detection_tests
+    tests/project_detection_test.cpp
+)
+target_compile_features(lithe_windows_project_detection_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_project_detection_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+    "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+)
+target_link_libraries(lithe_windows_project_detection_tests PRIVATE lithe_windows_app)
+add_test(NAME lithe_windows_project_detection COMMAND lithe_windows_project_detection_tests)
+
+
 add_executable(lithe_windows_java_run_service_tests
     tests/java_run_service_test.cpp
 )
@@ -320,9 +364,11 @@ if(LITHE_BUILD_QT_UI AND NOT LITHE_RUST_CORE_LIBRARY)
 endif()
 if(LITHE_BUILD_QT_UI)
     set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
     find_package(Qt6 REQUIRED COMPONENTS Widgets Svg)
-    add_executable(lithe_windows_qt
+    add_executable(lithe_windows_qt WIN32
         qt/main.cpp
+        qt/lithe.qrc
         qt/diff_split_widget.cpp
         qt/diff_split_widget.h
         qt/git_changes_panel.cpp
@@ -331,14 +377,31 @@ if(LITHE_BUILD_QT_UI)
         qt/git_log_panel.h
         qt/git_workflow_dialogs.cpp
         qt/git_workflow_dialogs.h
+        qt/project_import_dialog.cpp
+        qt/project_import_dialog.h
+        qt/ui_theme.cpp
+        qt/ui_theme.h
+        qt/ui_translation.cpp
+        qt/ui_translation.h
         qt/workbench_code_editor.cpp
         qt/workbench_code_editor.h
+        qt/workbench_editor_area.cpp
+        qt/workbench_editor_area.h
         qt/workbench_icons.cpp
         qt/workbench_icons.h
+        qt/workbench_layout_persistence.cpp
+        qt/workbench_layout_persistence.h
+        qt/workbench_sidebar.cpp
+        qt/workbench_sidebar.h
+        qt/workbench_tool_window.cpp
+        qt/workbench_tool_window.h
+        qt/workbench_ui_state.cpp
+        qt/workbench_ui_state.h
         qt/workbench_ui_theme.cpp
         qt/workbench_ui_theme.h
         qt/workbench_window.cpp
         qt/workbench_window.h
+        packaging/lithe.rc
     )
     target_link_libraries(lithe_windows_qt PRIVATE
         lithe_windows_app
@@ -359,6 +422,131 @@ if(LITHE_BUILD_QT_UI)
         "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
         "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+    )
+    add_executable(lithe_windows_ui_translation_tests
+        tests/ui_translation_test.cpp
+        qt/lithe.qrc
+        qt/ui_translation.cpp
+        qt/ui_translation.h
+    )
+    target_compile_features(lithe_windows_ui_translation_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_ui_translation_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
+        "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+    )
+    target_link_libraries(lithe_windows_ui_translation_tests PRIVATE
+        lithe_windows_app
+        Qt6::Widgets
+    )
+    add_test(NAME lithe_windows_ui_translation COMMAND lithe_windows_ui_translation_tests)
+    add_executable(lithe_windows_ui_theme_tests
+        tests/ui_theme_test.cpp
+        qt/ui_theme.cpp
+        qt/ui_theme.h
+    )
+    target_compile_features(lithe_windows_ui_theme_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_ui_theme_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+    )
+    target_link_libraries(lithe_windows_ui_theme_tests PRIVATE Qt6::Widgets)
+    add_test(NAME lithe_windows_ui_theme COMMAND lithe_windows_ui_theme_tests)
+    set_tests_properties(lithe_windows_ui_theme PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_executable(lithe_windows_terminal_transport_tests
+        tests/win32_terminal_transport_test.cpp
+    )
+    target_compile_features(lithe_windows_terminal_transport_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_terminal_transport_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+    )
+    target_link_libraries(lithe_windows_terminal_transport_tests PRIVATE
+        lithe_windows_adapters
+    )
+    add_test(NAME lithe_windows_terminal_transport COMMAND lithe_windows_terminal_transport_tests)
+    add_executable(lithe_windows_workbench_sidebar_tests
+        tests/workbench_sidebar_test.cpp
+        qt/lithe.qrc
+        qt/ui_translation.cpp
+        qt/ui_translation.h
+        qt/workbench_sidebar.cpp
+        qt/workbench_sidebar.h
+    )
+    target_compile_features(lithe_windows_workbench_sidebar_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_workbench_sidebar_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
+    )
+    target_link_libraries(lithe_windows_workbench_sidebar_tests PRIVATE
+        lithe_windows_app
+        Qt6::Widgets
+    )
+    add_test(NAME lithe_windows_workbench_sidebar COMMAND lithe_windows_workbench_sidebar_tests)
+    set_tests_properties(lithe_windows_workbench_sidebar PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_executable(lithe_windows_workbench_editor_area_tests
+        tests/workbench_editor_area_test.cpp
+        qt/workbench_editor_area.cpp
+        qt/workbench_editor_area.h
+        qt/workbench_code_editor.cpp
+        qt/workbench_code_editor.h
+    )
+    target_compile_features(lithe_windows_workbench_editor_area_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_workbench_editor_area_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
+    )
+    target_link_libraries(lithe_windows_workbench_editor_area_tests PRIVATE
+        lithe_windows_algorithms
+        Qt6::Widgets
+    )
+    add_test(NAME lithe_windows_workbench_editor_area
+        COMMAND lithe_windows_workbench_editor_area_tests)
+    set_tests_properties(lithe_windows_workbench_editor_area PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_executable(lithe_windows_workbench_code_editor_tests
+        tests/workbench_code_editor_test.cpp
+        qt/workbench_code_editor.cpp
+        qt/workbench_code_editor.h
+    )
+    target_compile_features(lithe_windows_workbench_code_editor_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_workbench_code_editor_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
+    )
+    target_link_libraries(lithe_windows_workbench_code_editor_tests PRIVATE
+        lithe_windows_algorithms
+        Qt6::Widgets
+    )
+    add_test(NAME lithe_windows_workbench_code_editor
+        COMMAND lithe_windows_workbench_code_editor_tests)
+    set_tests_properties(lithe_windows_workbench_code_editor PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+    add_executable(lithe_windows_workbench_tool_window_tests
+        tests/workbench_tool_window_test.cpp
+        qt/lithe.qrc
+        qt/ui_translation.cpp
+        qt/ui_translation.h
+        qt/workbench_tool_window.cpp
+        qt/workbench_tool_window.h
+    )
+    target_compile_features(lithe_windows_workbench_tool_window_tests PRIVATE cxx_std_23)
+    target_include_directories(lithe_windows_workbench_tool_window_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
+    )
+    target_link_libraries(lithe_windows_workbench_tool_window_tests PRIVATE
+        lithe_windows_app
+        Qt6::Widgets
+    )
+    add_test(NAME lithe_windows_workbench_tool_window
+        COMMAND lithe_windows_workbench_tool_window_tests)
+    set_tests_properties(lithe_windows_workbench_tool_window PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
     if(LITHE_RUST_CORE_LIBRARY)
         target_link_libraries(lithe_windows_qt PRIVATE "${LITHE_RUST_CORE_LIBRARY}")
@@ -404,10 +592,13 @@ set(LITHE_WINDOWS_TEST_TARGETS
     lithe_windows_phase0_tests
     lithe_windows_algorithms_tests
     lithe_windows_app_tests
+    lithe_windows_workbench_ui_state_tests
+    lithe_windows_workbench_layout_persistence_tests
     lithe_windows_coordinator_tests
     lithe_windows_core_dto_tests
     lithe_windows_persistence_tests
     lithe_windows_runtime_service_tests
+    lithe_windows_project_detection_tests
     lithe_windows_java_run_service_tests
     lithe_windows_java_debug_service_tests
     lithe_windows_java_language_server_tests
@@ -421,6 +612,27 @@ if(TARGET lithe_windows_core_ping)
 endif()
 if(TARGET lithe_windows_git_workflow_repo_tests)
     list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_git_workflow_repo_tests)
+endif()
+if(TARGET lithe_windows_workbench_sidebar_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_workbench_sidebar_tests)
+endif()
+if(TARGET lithe_windows_workbench_editor_area_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_workbench_editor_area_tests)
+endif()
+if(TARGET lithe_windows_workbench_code_editor_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_workbench_code_editor_tests)
+endif()
+if(TARGET lithe_windows_workbench_tool_window_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_workbench_tool_window_tests)
+endif()
+if(TARGET lithe_windows_ui_theme_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_ui_theme_tests)
+endif()
+if(TARGET lithe_windows_ui_translation_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_ui_translation_tests)
+endif()
+if(TARGET lithe_windows_terminal_transport_tests)
+    list(APPEND LITHE_WINDOWS_TEST_TARGETS lithe_windows_terminal_transport_tests)
 endif()
 if(MSVC)
     set(LITHE_UNDEFINE_NDEBUG_FLAG /UNDEBUG)

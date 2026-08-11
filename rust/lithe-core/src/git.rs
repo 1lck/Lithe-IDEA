@@ -4,8 +4,8 @@ use crate::model::{
     GitCommitLookupResponse, GitCommitResponse, GitComparisonResponse, GitConflictMarkerResponse,
     GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
     GitHistoryResponse, GitIntegrationPreflightResponse, GitOperationStateResponse,
-    GitPullPreflightResponse, GitReferenceResponse, GitStashResponse, GitStashesResponse,
-    GitStatusResponse,
+    GitPullPreflightResponse, GitReferenceResponse, GitShelfPatchesResponse, GitStashResponse,
+    GitStashesResponse, GitStatusResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::io::Read;
@@ -108,6 +108,12 @@ pub struct GitDiffRequest {
     pub context_lines: usize,
     #[serde(default)]
     pub ignore_all_whitespace: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitShelfPatchesRequest {
+    pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -585,6 +591,81 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
         rows: document.0,
         hunks: document.1,
     })
+}
+
+pub fn shelf_patches(
+    request: GitShelfPatchesRequest,
+) -> Result<GitShelfPatchesResponse, CoreError> {
+    let status = status(GitStatusRequest {
+        root: request.root.clone(),
+    })?;
+    let diff_root = status
+        .repository_root
+        .as_deref()
+        .map(PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                PathBuf::from(&request.root).join(path)
+            }
+        })
+        .unwrap_or_else(|| PathBuf::from(&request.root))
+        .canonicalize()
+        .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Repository does not exist"))?;
+    let diff_root = diff_root.to_string_lossy().replace('\\', "/");
+    let mut staged_paths = status
+        .changes
+        .iter()
+        .filter(|change| change.staged)
+        .map(|change| change.path.clone())
+        .collect::<Vec<_>>();
+    let mut working_paths = status
+        .changes
+        .iter()
+        .filter(|change| change.worktree || change.untracked)
+        .map(|change| (change.path.clone(), change.untracked))
+        .collect::<Vec<_>>();
+    staged_paths.sort();
+    staged_paths.dedup();
+    working_paths.sort_by(|left, right| left.0.cmp(&right.0));
+    working_paths.dedup_by(|left, right| left.0 == right.0);
+
+    let staged_patch = collect_shelf_patch(
+        &diff_root,
+        staged_paths.into_iter().map(|path| (path, false, true)),
+    )?;
+    let working_tree_patch = collect_shelf_patch(
+        &diff_root,
+        working_paths
+            .into_iter()
+            .map(|(path, untracked)| (path, untracked, false)),
+    )?;
+    Ok(GitShelfPatchesResponse {
+        staged_patch,
+        working_tree_patch,
+    })
+}
+
+fn collect_shelf_patch<I>(root: &str, paths: I) -> Result<String, CoreError>
+where
+    I: IntoIterator<Item = (String, bool, bool)>,
+{
+    let mut patch = String::new();
+    for (path, untracked, staged) in paths {
+        let response = diff(GitDiffRequest {
+            root: root.to_string(),
+            pathspecs: vec![path],
+            reference: None,
+            commit: None,
+            staged,
+            untracked,
+            context_lines: default_review_context_lines(),
+            ignore_all_whitespace: false,
+        })?;
+        patch.push_str(&response.patch);
+    }
+    Ok(patch)
 }
 
 pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> {
