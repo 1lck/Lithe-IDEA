@@ -54,6 +54,11 @@ struct LanguageServerSetupView: View {
         candidates.first
     }
 
+    private var executableVerificationState: LanguageServerExecutableVerificationState {
+        guard let selectedDescriptor else { return .unavailable }
+        return tools.executableVerificationState(for: selectedDescriptor)
+    }
+
     private var installPlan: LanguageServerInstallPlan? {
         selectedDescriptor.map(tools.installPlan(for:))
     }
@@ -128,11 +133,11 @@ struct LanguageServerSetupView: View {
             sectionTitle(copy.detectedExecutable)
             HStack(alignment: .top, spacing: 9) {
                 Circle()
-                    .fill(resolvedExecutable == nil ? LitheTheme.warning : LitheTheme.success)
+                    .fill(executableStatusColor)
                     .frame(width: 8, height: 8)
                     .padding(.top, 4)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(resolvedExecutable == nil ? copy.notFound : copy.ready)
+                    Text(executableStatusTitle)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                     Text(resolvedExecutable?.executableURL.path ?? expectedCommands)
@@ -289,6 +294,28 @@ struct LanguageServerSetupView: View {
         return copy.expectedCommands(commands.joined(separator: ", "))
     }
 
+    private var executableStatusTitle: String {
+        switch executableVerificationState {
+        case .unavailable:
+            copy.notFound
+        case .foundUnverified:
+            copy.executableFoundUnverified
+        case .executableVerified:
+            copy.executableVerified
+        }
+    }
+
+    private var executableStatusColor: Color {
+        switch executableVerificationState {
+        case .unavailable:
+            LitheTheme.warning
+        case .foundUnverified:
+            LitheTheme.accent
+        case .executableVerified:
+            LitheTheme.success
+        }
+    }
+
     private var canInstallWithHomebrew: Bool {
         guard installPlan?.homebrewFormula != nil,
               tools.isHomebrewAvailable() else { return false }
@@ -352,7 +379,12 @@ private struct LanguageServerSetupCopy {
     var subtitle: String { usesChinese ? "安装、探测并指定 LSP 可执行文件" : "Install, detect, and select LSP executables" }
     var languageServer: String { usesChinese ? "语言服务器" : "Language server" }
     var detectedExecutable: String { usesChinese ? "当前解析结果" : "Resolved executable" }
-    var ready: String { usesChinese ? "可用" : "Ready" }
+    var executableFoundUnverified: String {
+        usesChinese ? "已找到可执行文件（未验证）" : "Executable found (not verified)"
+    }
+    var executableVerified: String {
+        usesChinese ? "可执行文件已验证" : "Executable verified"
+    }
     var notFound: String { usesChinese ? "未找到可执行文件" : "Executable not found" }
     var executablePath: String { usesChinese ? "自定义路径" : "Custom path" }
     var useAutomatic: String { usesChinese ? "恢复自动探测" : "Use automatic detection" }

@@ -125,6 +125,59 @@ struct LanguageServerToolServiceTests {
     }
 
     @Test
+    func reportsFoundButUnverifiedWhenCatalogHasNoValidationCommand() {
+        let executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/gopls")
+        let store = LanguageServerToolTestStore()
+        let runner = LanguageServerToolTestProcessRunner()
+        let service = LanguageServerToolService(
+            runtimeService: makeRuntime(
+                executablePaths: [executableURL.path],
+                candidates: [
+                    "gopls": [RuntimeToolCandidate(
+                        command: "gopls",
+                        executableURL: executableURL,
+                        source: .homebrew
+                    )]
+                ],
+                store: store
+            ),
+            processRunner: runner,
+            store: store
+        )
+
+        #expect(service.executableVerificationState(for: goDescriptor()) == .foundUnverified)
+        #expect(runner.requests.isEmpty)
+    }
+
+    @Test
+    func reportsExecutableVerifiedOnlyAfterValidationCommandSucceeds() {
+        let executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/rust-analyzer")
+        let store = LanguageServerToolTestStore()
+        let runner = LanguageServerToolTestProcessRunner(
+            result: ProcessResult(output: "rust-analyzer 1.0.0", exitCode: 0)
+        )
+        let service = LanguageServerToolService(
+            runtimeService: makeRuntime(
+                executablePaths: [executableURL.path],
+                candidates: [
+                    "rust-analyzer": [RuntimeToolCandidate(
+                        command: "rust-analyzer",
+                        executableURL: executableURL,
+                        source: .homebrew
+                    )]
+                ],
+                store: store
+            ),
+            processRunner: runner,
+            store: store
+        )
+
+        #expect(service.executableVerificationState(for: rustDescriptor()) == .executableVerified)
+        #expect(runner.requests.count == 1)
+        #expect(runner.requests.first?.arguments == ["--version"])
+    }
+
+    @Test
     func installsVerifiedFormulaWithArgumentBasedProcessRequest() async throws {
         let brewURL = URL(fileURLWithPath: "/opt/homebrew/bin/brew")
         let store = LanguageServerToolTestStore()

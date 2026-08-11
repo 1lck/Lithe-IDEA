@@ -37,6 +37,12 @@ enum LanguageServerInstallationState: Equatable, Sendable {
     case failed(String)
 }
 
+enum LanguageServerExecutableVerificationState: Equatable, Sendable {
+    case unavailable
+    case foundUnverified
+    case executableVerified
+}
+
 enum LanguageServerToolConfigurationError: LocalizedError, Equatable {
     case executableRequired
     case executableInvalid(String)
@@ -129,6 +135,17 @@ final class LanguageServerToolService: ObservableObject {
         candidates(for: descriptor).first?.executableURL
     }
 
+    func executableVerificationState(
+        for descriptor: LanguageProviderDescriptor
+    ) -> LanguageServerExecutableVerificationState {
+        guard let candidate = candidates(for: descriptor).first else {
+            return .unavailable
+        }
+        return validate(candidate, for: descriptor).didExecute
+            ? .executableVerified
+            : .foundUnverified
+    }
+
     func setCustomExecutablePath(
         _ path: String,
         for descriptor: LanguageProviderDescriptor
@@ -212,7 +229,7 @@ final class LanguageServerToolService: ObservableObject {
         for descriptor: LanguageProviderDescriptor
     ) -> ExecutableValidationResult {
         let arguments = descriptor.languageServerLaunch?.validationArguments ?? []
-        guard !arguments.isEmpty else { return .usable }
+        guard !arguments.isEmpty else { return .unverifiedUsable }
         let key = ExecutableValidationKey(
             executablePath: candidate.executableURL.standardizedFileURL.path,
             arguments: arguments
@@ -232,6 +249,7 @@ final class LanguageServerToolService: ObservableObject {
         let validation = ExecutableValidationResult(
             isUsable: result.succeeded,
             message: output.isEmpty ? "Exited with code \(result.exitCode)." : output,
+            didExecute: true,
             checkedAt: Date()
         )
         validationCache[key] = validation
@@ -247,9 +265,15 @@ private struct ExecutableValidationKey: Hashable {
 private struct ExecutableValidationResult {
     let isUsable: Bool
     let message: String
+    let didExecute: Bool
     let checkedAt: Date
 
-    static let usable = Self(isUsable: true, message: "", checkedAt: .distantFuture)
+    static let unverifiedUsable = Self(
+        isUsable: true,
+        message: "",
+        didExecute: false,
+        checkedAt: .distantFuture
+    )
 }
 
 private struct LanguageServerToolSettingsStore {
