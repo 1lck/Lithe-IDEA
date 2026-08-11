@@ -14,6 +14,22 @@ enum LanguageServerTextEditApplicator {
     }
 
     static func apply(_ edits: [LanguageServerTextEdit], to text: String) throws -> String {
+        let core = RustCoreBridge()
+        if core.isAvailable {
+            switch core.applyLanguageServerTextEdits(edits, to: text) {
+            case .success(let payload):
+                return payload.text
+            case .failure(let error):
+                switch error.details {
+                case "overlappingEdits": throw Error.overlappingEdits
+                default: throw Error.invalidRange
+                }
+            }
+        }
+        return try applyFallback(edits, to: text)
+    }
+
+    private static func applyFallback(_ edits: [LanguageServerTextEdit], to text: String) throws -> String {
         let source = text as NSString
         var replacements: [(NSRange, String)] = []
         for edit in edits {
@@ -59,6 +75,9 @@ enum LanguageServerTextEditApplicator {
 
 enum LanguageServerSnippet {
     static func plainText(_ value: String) -> String {
+        if let text = RustCoreBridge().plainLanguageServerSnippet(value) {
+            return text
+        }
         var result = value
         if let placeholders = try? NSRegularExpression(pattern: #"\$\{\d+:([^}]*)\}"#) {
             result = placeholders.stringByReplacingMatches(

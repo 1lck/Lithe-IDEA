@@ -16,10 +16,15 @@ final class AppServices {
     /// registries remain exposed below for source compatibility with existing
     /// feature models while new composition should use this value.
     let languagePacks: LanguagePackRegistry
+    let languageProviderCatalogSource: any LanguageProviderCatalogSource
+    /// Initial catalog load outcome, including whether startup fell back to a
+    /// compatibility catalog or rejected a workspace override.
+    let languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot
     /// Metadata-only provider catalog; providers are activated on demand.
     let languageProviderCatalog: LanguageProviderCatalog
     let runToolchainRegistry: RunToolchainRegistry
     let languageToolingSessions: LanguageToolingSessionManager
+    let languageServerTools: LanguageServerToolService
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let languageTestService: LanguageTestService
     let workspaceOperations: any WorkspaceOperations
@@ -31,8 +36,6 @@ final class AppServices {
     let fileStorage: any FileStorage
     let fileOperations: any WorkspaceFileOperations
     let projectRuntimeService: ProjectRuntimeService
-    let javaLanguageService: JavaLanguageService
-    let javaImplementationMarkerService: JavaImplementationMarkerService
     let mavenService: MavenService
     let runService: RunService
     let javaDebugService: JavaDebugService
@@ -51,10 +54,12 @@ final class AppServices {
     let shortcutDetectorFactory: any ShortcutDetectorFactory
 
     init(
-        languageProviderCatalog: LanguageProviderCatalog = .standard,
+        languageProviderCatalogSource: any LanguageProviderCatalogSource,
+        languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
         languagePacks: LanguagePackRegistry? = nil,
         runToolchainRegistry: RunToolchainRegistry? = nil,
         languageToolingSessions: LanguageToolingSessionManager? = nil,
+        languageServerTools: LanguageServerToolService,
         debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver? = nil,
         languageTestService: LanguageTestService,
         workspaceOperations: any WorkspaceOperations,
@@ -66,8 +71,6 @@ final class AppServices {
         fileStorage: any FileStorage,
         fileOperations: any WorkspaceFileOperations,
         projectRuntimeService: ProjectRuntimeService,
-        javaLanguageService: JavaLanguageService,
-        javaImplementationMarkerService: JavaImplementationMarkerService,
         mavenService: MavenService,
         runService: RunService,
         javaDebugService: JavaDebugService,
@@ -85,14 +88,13 @@ final class AppServices {
         platformUI: any PlatformUI,
         shortcutDetectorFactory: any ShortcutDetectorFactory
     ) {
+        self.languageProviderCatalogSource = languageProviderCatalogSource
+        let resolvedCatalogSnapshot = languageProviderCatalogSnapshot
+            ?? languageProviderCatalogSource.load(workspaceURL: nil)
+        self.languageProviderCatalogSnapshot = resolvedCatalogSnapshot
+        let resolvedCatalog = resolvedCatalogSnapshot.catalog
         let resolvedLanguagePacks = languagePacks ?? LanguagePackRegistry.standard(
-            catalog: languageProviderCatalog,
-            runtimes: [
-                JavaLanguageProviderRuntime(
-                    service: javaLanguageService,
-                    catalog: languageProviderCatalog
-                )
-            ]
+            catalog: resolvedCatalog
         )
         self.languagePacks = resolvedLanguagePacks
         self.languageProviderCatalog = resolvedLanguagePacks.catalog
@@ -100,6 +102,7 @@ final class AppServices {
         self.languageToolingSessions = languageToolingSessions ?? LanguageToolingSessionManager(
             registry: resolvedLanguagePacks
         )
+        self.languageServerTools = languageServerTools
         self.debugLaunchConfigurationResolver = debugLaunchConfigurationResolver
             ?? DebugLaunchConfigurationResolver(fileStorage: fileStorage)
         self.languageTestService = languageTestService
@@ -112,8 +115,6 @@ final class AppServices {
         self.fileStorage = fileStorage
         self.fileOperations = fileOperations
         self.projectRuntimeService = projectRuntimeService
-        self.javaLanguageService = javaLanguageService
-        self.javaImplementationMarkerService = javaImplementationMarkerService
         self.mavenService = mavenService
         self.runService = runService
         self.javaDebugService = javaDebugService

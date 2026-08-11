@@ -11,6 +11,11 @@ __attribute__((weak)) char *lithe_core_execute_json(const char *request) {
     return NULL;
 }
 
+__attribute__((weak)) char *lithe_core_lsp_provider_catalog_json(const char *workspace_root) {
+    (void)workspace_root;
+    return NULL;
+}
+
 __attribute__((weak)) int32_t lithe_core_cancel(const char *operation_id) {
     (void)operation_id;
     return 0;
@@ -26,6 +31,10 @@ const char *lithe_bridge_version(void) {
 
 char *lithe_bridge_execute_json(const char *request) {
     return lithe_core_execute_json(request);
+}
+
+char *lithe_bridge_lsp_provider_catalog_json(const char *workspace_root) {
+    return lithe_core_lsp_provider_catalog_json(workspace_root);
 }
 
 int32_t lithe_bridge_cancel(const char *operation_id) {

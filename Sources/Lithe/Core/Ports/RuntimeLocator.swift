@@ -1,8 +1,8 @@
 import Foundation
 
 /// Where a tool candidate came from.  The value is intentionally platform
-/// neutral so the same run/LSP/DAP UI can explain a Windows registry entry or
-/// a macOS Homebrew/Xcode candidate without importing platform frameworks.
+/// neutral so the same run/DAP UI can explain a Windows registry entry or a
+/// macOS Homebrew/Xcode candidate without importing platform frameworks.
 enum RuntimeToolSource: String, Codable, Hashable, Sendable {
     case project
     case environment
@@ -117,5 +117,4 @@ protocol RuntimeLocator: Sendable {
     func mavenExecutable(forHomePath path: String) -> URL?
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate?
     func systemJDBExecutable() -> URL?
-    func javaLanguageServerExecutable() -> URL?
 }

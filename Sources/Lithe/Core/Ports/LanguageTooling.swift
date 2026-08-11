@@ -8,6 +8,25 @@ struct LanguageToolingCapability: OptionSet, Hashable, Sendable {
     static let debugAdapter = Self(rawValue: 1 << 2)
     static let formatting = Self(rawValue: 1 << 3)
     static let testing = Self(rawValue: 1 << 4)
+
+    static func named(_ name: String) -> Self? {
+        switch name {
+        case "run": .run
+        case "languageServer": .languageServer
+        case "debugAdapter": .debugAdapter
+        case "formatting": .formatting
+        case "testing": .testing
+        default: nil
+        }
+    }
+
+    static func names(_ names: [String]) -> Self {
+        names.reduce(into: Self()) { capabilities, name in
+            if let capability = Self.named(name) {
+                capabilities.insert(capability)
+            }
+        }
+    }
 }
 
 struct LanguageServerFeatureSet: OptionSet, Hashable, Sendable {
@@ -33,46 +52,112 @@ struct LanguageServerFeatureSet: OptionSet, Hashable, Sendable {
 }
 
 enum ToolingActivationPolicy: String, Codable, Hashable, Sendable {
-    /// Descriptor-only. No runtime process is created until a file or command
-    /// explicitly asks for this provider.
     case onDemand
     case always
+}
+
+struct LanguageServerLaunchDescriptor: Hashable, Sendable {
+    let executableNames: [String]
+    let arguments: [String]
+    let validationArguments: [String]
+    let environment: [String: String]
+    let initializationOptions: ToolingJSONValue?
+
+    init(
+        executableNames: [String],
+        arguments: [String] = [],
+        validationArguments: [String] = [],
+        environment: [String: String] = [:],
+        initializationOptions: ToolingJSONValue? = nil
+    ) {
+        self.executableNames = executableNames
+        self.arguments = arguments
+        self.validationArguments = validationArguments
+        self.environment = environment
+        self.initializationOptions = initializationOptions
+    }
+}
+
+struct LanguageServerInstallationDescriptor: Hashable, Sendable {
+    let homebrewFormula: String?
+    let officialDownloadURL: URL?
 }
 
 struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
     let id: String
     let displayName: String
     let fileExtensions: Set<String>
+    let fileNames: Set<String>
+    let fileNamePrefixes: Set<String>
     let capabilities: LanguageToolingCapability
     let activationPolicy: ToolingActivationPolicy
+    let languageIdentifier: String?
+    let languageIdentifiersByExtension: [String: String]
+    let languageIdentifiersByFileName: [String: String]
+    let languageServerLaunch: LanguageServerLaunchDescriptor?
+    let languageServerInstallation: LanguageServerInstallationDescriptor?
+
+    init(
+        id: String,
+        displayName: String,
+        fileExtensions: Set<String>,
+        fileNames: Set<String> = [],
+        fileNamePrefixes: Set<String> = [],
+        capabilities: LanguageToolingCapability,
+        activationPolicy: ToolingActivationPolicy,
+        languageIdentifier: String? = nil,
+        languageIdentifiersByExtension: [String: String] = [:],
+        languageIdentifiersByFileName: [String: String] = [:],
+        languageServerLaunch: LanguageServerLaunchDescriptor? = nil,
+        languageServerInstallation: LanguageServerInstallationDescriptor? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.fileExtensions = Set(fileExtensions.map { $0.lowercased() })
+        self.fileNames = Set(fileNames.map { $0.lowercased() })
+        self.fileNamePrefixes = Set(fileNamePrefixes.map { $0.lowercased() })
+        self.capabilities = capabilities
+        self.activationPolicy = activationPolicy
+        self.languageIdentifier = languageIdentifier
+        self.languageIdentifiersByExtension = Dictionary(
+            uniqueKeysWithValues: languageIdentifiersByExtension.map {
+                ($0.key.lowercased(), $0.value)
+            }
+        )
+        self.languageIdentifiersByFileName = Dictionary(
+            uniqueKeysWithValues: languageIdentifiersByFileName.map {
+                ($0.key.lowercased(), $0.value)
+            }
+        )
+        self.languageServerLaunch = languageServerLaunch
+        self.languageServerInstallation = languageServerInstallation
+    }
 
     func handles(fileURL: URL) -> Bool {
-        fileExtensions.contains(fileURL.pathExtension.lowercased())
+        let fileName = fileURL.lastPathComponent.lowercased()
+        return fileExtensions.contains(fileURL.pathExtension.lowercased())
+            || fileNames.contains(fileName)
+            || fileNamePrefixes.contains { fileName.hasPrefix($0) }
     }
 
     func languageIdentifier(for fileURL: URL) -> String {
-        switch (id, fileURL.pathExtension.lowercased()) {
-        case ("node", "ts"): "typescript"
-        case ("node", "tsx"): "typescriptreact"
-        case ("node", "jsx"): "javascriptreact"
-        case ("node", _): "javascript"
-        default: id
-        }
+        let extensionName = fileURL.pathExtension.lowercased()
+        let fileName = fileURL.lastPathComponent.lowercased()
+        return languageIdentifiersByFileName[fileName]
+            ?? languageIdentifiersByExtension[extensionName]
+            ?? languageIdentifier
+            ?? id
     }
 }
 
-/// The catalog is metadata only. Concrete LSP and DAP sessions are injected
-/// by a platform/provider adapter when a capability is used.
 struct LanguageProviderCatalog: Sendable {
     let descriptors: [LanguageProviderDescriptor]
 
-    static let standard = LanguageProviderCatalog(descriptors: [
+    /// Minimal fallback used only when the Rust core is not linked. The full
+    /// market language catalog is registered by Rust's dedicated LSP config.
+    static let compatibilityFallback = LanguageProviderCatalog(descriptors: [
         LanguageProviderDescriptor(
             id: "java", displayName: "Java", fileExtensions: ["java"],
-            // Java debugging still uses the legacy JDB integration. Keep it
-            // out of the generic DAP capability until a real Java DAP runtime
-            // is injected, so metadata cannot promise a session that does not
-            // exist.
             capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand
         ),
@@ -89,36 +174,24 @@ struct LanguageProviderCatalog: Sendable {
         LanguageProviderDescriptor(
             id: "node", displayName: "Node.js", fileExtensions: ["js", "jsx", "ts", "tsx", "mjs", "cjs"],
             capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
-            activationPolicy: .onDemand
+            activationPolicy: .onDemand,
+            languageIdentifier: "javascript",
+            languageIdentifiersByExtension: [
+                "ts": "typescript",
+                "tsx": "typescriptreact",
+                "jsx": "javascriptreact"
+            ]
         ),
         LanguageProviderDescriptor(
             id: "rust", displayName: "Rust", fileExtensions: ["rs"],
             capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
             activationPolicy: .onDemand
-        )
+        ),
     ])
 
     func provider(for fileURL: URL) -> LanguageProviderDescriptor? {
         descriptors.first { $0.handles(fileURL: fileURL) }
     }
-}
-
-@MainActor
-protocol LanguageServerSession: AnyObject {
-    var isRunning: Bool { get }
-    var isReady: Bool { get }
-    func start(rootURL: URL) throws
-    func stop()
-}
-
-@MainActor
-protocol LanguageServerFeatureReportingSession: LanguageServerSession {
-    var supportedFeatures: LanguageServerFeatureSet { get }
-    var onSupportedFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
-}
-
-extension LanguageServerSession {
-    var isReady: Bool { isRunning }
 }
 
 struct LanguageServerPosition: Equatable, Sendable {
@@ -131,12 +204,38 @@ struct LanguageServerRange: Equatable, Sendable {
     let end: LanguageServerPosition
 }
 
+struct LanguageServerDiagnosticRelatedInformation: Equatable, Sendable {
+    let fileURL: URL
+    let range: LanguageServerRange
+    let message: String
+}
+
 struct LanguageServerDiagnostic: Equatable, Sendable {
     let range: LanguageServerRange
     let severity: Int?
     let message: String
     let source: String?
     let code: String?
+    let tags: [Int]
+    let relatedInformation: [LanguageServerDiagnosticRelatedInformation]
+
+    init(
+        range: LanguageServerRange,
+        severity: Int?,
+        message: String,
+        source: String?,
+        code: String?,
+        tags: [Int] = [],
+        relatedInformation: [LanguageServerDiagnosticRelatedInformation] = []
+    ) {
+        self.range = range
+        self.severity = severity
+        self.message = message
+        self.source = source
+        self.code = code
+        self.tags = tags
+        self.relatedInformation = relatedInformation
+    }
 }
 
 struct LanguageServerLocation: Equatable, Sendable {
@@ -187,6 +286,51 @@ struct LanguageServerCommand: Equatable, Sendable {
     let arguments: [ToolingJSONValue]
 }
 
+enum LanguageServerLogLevel: String, Sendable {
+    case info
+    case warning
+    case error
+}
+
+enum LanguageServerSessionState: Equatable, Sendable {
+    case startingProcess
+    case initializing
+    case ready
+    case stopping
+    case stopped
+    case failed(exitCode: Int32?, message: String?)
+}
+
+struct LanguageServerInfo: Equatable, Sendable {
+    let name: String
+    let version: String?
+}
+
+struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let timestamp: Date
+    let providerID: String
+    let level: LanguageServerLogLevel
+    let message: String
+    let detail: String?
+
+    init(
+        id: UUID = UUID(),
+        timestamp: Date = Date(),
+        providerID: String,
+        level: LanguageServerLogLevel,
+        message: String,
+        detail: String? = nil
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.providerID = providerID
+        self.level = level
+        self.message = message
+        self.detail = detail
+    }
+}
+
 struct LanguageServerTextEdit: Equatable, Sendable {
     let range: LanguageServerRange
     let newText: String
@@ -231,9 +375,6 @@ enum LanguageTestScope: Equatable, Sendable {
     case testCase(identifier: String, fileURL: URL?)
 }
 
-/// Inputs available to a test provider when it selects a framework-specific
-/// runner. The provider receives metadata only; reading files or starting a
-/// process remains the responsibility of the injected platform services.
 struct LanguageTestContext: Equatable, Sendable {
     let workspaceURL: URL
     let projectFiles: [URL]
@@ -275,9 +416,6 @@ protocol LanguageTestProvider: Sendable {
 }
 
 extension LanguageTestProvider {
-    /// Context-aware discovery is optional for existing Providers. Providers
-    /// that need build-system markers can override this without forcing every
-    /// language implementation to change its public contract at once.
     func discoverTests(context: LanguageTestContext) -> [LanguageTestItem] {
         discoverTests(workspaceURL: context.workspaceURL, files: context.projectFiles)
     }
@@ -291,67 +429,88 @@ extension LanguageTestProvider {
 }
 
 @MainActor
-protocol LanguageServerDocumentSession: LanguageServerSession {
+protocol LanguageServerSession: AnyObject {
+    var isRunning: Bool { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
-    func synchronizeDocument(url: URL, languageIdentifier: String, text: String)
-    func closeDocument(url: URL)
-}
-
-@MainActor
-protocol LanguageServerNavigationSession: LanguageServerDocumentSession {
-    func locations(
-        method: String,
-        documentURL: URL,
-        position: LanguageServerPosition,
-        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
-    )
-}
-
-@MainActor
-protocol LanguageServerCodeIntelligenceSession: LanguageServerNavigationSession {
-    func hover(
-        documentURL: URL,
-        position: LanguageServerPosition,
-        completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
-    )
+    var onLog: ((LanguageServerLogLevel, String, String?) -> Void)? { get set }
+    var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
+    var features: LanguageServerFeatureSet { get }
+    var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
+    var serverInfo: LanguageServerInfo? { get }
+    var onServerInfoChange: ((LanguageServerInfo?) -> Void)? { get set }
+    func start(rootURL: URL) throws
+    func synchronize(fileURL: URL, text: String, languageID: String) throws
+    func closeDocument(_ fileURL: URL)
     func completions(
-        documentURL: URL,
+        fileURL: URL,
         position: LanguageServerPosition,
         completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
-    )
-}
-
-@MainActor
-protocol LanguageServerEditingSession: LanguageServerCodeIntelligenceSession {
+    ) throws
+    func hover(
+        fileURL: URL,
+        position: LanguageServerPosition,
+        completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
+    ) throws
+    func navigate(
+        method: String,
+        fileURL: URL,
+        position: LanguageServerPosition,
+        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) throws
     func rename(
-        documentURL: URL,
+        fileURL: URL,
         position: LanguageServerPosition,
         newName: String,
         completion: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
-    )
-    func formatting(
-        documentURL: URL,
-        options: [String: Any],
+    ) throws
+    func format(
+        fileURL: URL,
         completion: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
-    )
+    ) throws
     func codeActions(
-        documentURL: URL,
+        fileURL: URL,
         range: LanguageServerRange,
         diagnostics: [LanguageServerDiagnostic],
         completion: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
-    )
-    func execute(
-        command: LanguageServerCommand,
-        completion: @escaping (Result<Void, Error>) -> Void
-    )
+    ) throws
     func resolveCompletion(
         _ item: LanguageServerCompletionItem,
+        fileURL: URL,
         completion: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
-    )
+    ) throws
     func resolveCodeAction(
         _ action: LanguageServerCodeAction,
+        fileURL: URL,
         completion: @escaping (Result<LanguageServerCodeAction, Error>) -> Void
-    )
+    ) throws
+    func execute(
+        _ command: LanguageServerCommand,
+        fileURL: URL,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws
+    func stop()
+}
+
+extension LanguageServerSession {
+    var features: LanguageServerFeatureSet { [] }
+    var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onLog: ((LanguageServerLogLevel, String, String?) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onStateChange: ((LanguageServerSessionState) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var serverInfo: LanguageServerInfo? { nil }
+    var onServerInfoChange: ((LanguageServerInfo?) -> Void)? {
+        get { nil }
+        set {}
+    }
+    func closeDocument(_: URL) {}
 }
 
 @MainActor
@@ -362,9 +521,6 @@ protocol DebugAdapterSession: AnyObject {
     func stop()
 }
 
-/// Byte transport used by the language-neutral DAP state machine. Adapters may
-/// use a child process' stdio, a TCP socket, or another platform implementation
-/// without changing protocol sequencing and inspection behavior.
 @MainActor
 protocol DebugAdapterTransport: AnyObject {
     var isRunning: Bool { get }
@@ -376,10 +532,6 @@ protocol DebugAdapterTransport: AnyObject {
     func stop()
 }
 
-/// Server-style adapters can ask the client to start a child DAP session (for
-/// example a Node process, browser target, worker, or subprocess). The parent
-/// transport supplies another connection to the same adapter server without
-/// exposing platform sockets to the protocol state machine.
 @MainActor
 protocol DebugAdapterChildTransportProviding: AnyObject {
     func makeChildTransport() -> (any DebugAdapterTransport)?
@@ -389,7 +541,7 @@ extension DebugAdapterSession {
     var state: DebugAdapterState { isRunning ? .running : .idle }
 }
 
-enum ToolingJSONValue: Equatable, Sendable {
+enum ToolingJSONValue: Codable, Equatable, Hashable, Sendable {
     case string(String)
     case integer(Int)
     case number(Double)
@@ -426,6 +578,45 @@ enum ToolingJSONValue: Equatable, Sendable {
             return .object(object.compactMapValues(fromFoundation))
         }
         return nil
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .integer(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([ToolingJSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .object(try container.decode([String: ToolingJSONValue].self))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .integer(let value):
+            try container.encode(value)
+        case .number(let value):
+            try container.encode(value)
+        case .bool(let value):
+            try container.encode(value)
+        case .object(let value):
+            try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        }
     }
 }
 
@@ -550,27 +741,24 @@ protocol DebugAdapterControllingSession: DebugAdapterSession {
 @MainActor
 protocol LanguageProviderRuntime: AnyObject {
     var descriptor: LanguageProviderDescriptor { get }
-    /// Metadata-only indication that this provider exposes the shared editing
-    /// LSP contract. It must not start or probe a process.
-    var supportsEditingSession: Bool { get }
-    /// Metadata-only indication that this runtime has a configured debug
-    /// adapter factory. Executable discovery still happens lazily on launch.
+    var supportsLanguageServerSession: Bool { get }
     var supportsDebugAdapterSession: Bool { get }
-    /// Optional actionable guidance when a lazy runtime cannot be created.
-    /// This keeps installation details in the platform/provider adapter while
-    /// allowing the shared manager to present a useful error.
     var unavailableToolingMessage: String? { get }
-    var declaredLanguageServerFeatures: LanguageServerFeatureSet { get }
     func makeLanguageServerSession() -> (any LanguageServerSession)?
     func makeDebugAdapterSession() -> (any DebugAdapterSession)?
     func makeDebugAdapterSession(rootURL: URL) -> (any DebugAdapterSession)?
 }
 
+@MainActor
+protocol LanguageProviderRuntimeFactory: AnyObject {
+    func makeRuntime(for descriptor: LanguageProviderDescriptor) -> (any LanguageProviderRuntime)?
+}
+
 extension LanguageProviderRuntime {
-    var supportsEditingSession: Bool { false }
+    var supportsLanguageServerSession: Bool { false }
     var supportsDebugAdapterSession: Bool { false }
     var unavailableToolingMessage: String? { nil }
-    var declaredLanguageServerFeatures: LanguageServerFeatureSet { [] }
+    func makeLanguageServerSession() -> (any LanguageServerSession)? { nil }
     func makeDebugAdapterSession(rootURL: URL) -> (any DebugAdapterSession)? {
         makeDebugAdapterSession()
     }

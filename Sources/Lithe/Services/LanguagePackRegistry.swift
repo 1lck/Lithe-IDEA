@@ -4,8 +4,8 @@ import Foundation
 ///
 /// Existing registries remain available as focused implementation details, but
 /// the application composition root should create this registry once and pass
-/// its derived views to Run, LSP/DAP, and Test services. Adding a language then
-/// means adding one pack instead of editing every service initializer.
+/// its derived views to Run, Debug, and Test services. LSP metadata is resolved
+/// by the Rust language-server host, not by Swift language packs.
 @MainActor
 final class LanguagePackRegistry {
     let packs: [LanguagePack]
@@ -65,16 +65,13 @@ final class LanguagePackRegistry {
             let testProviders: [any LanguageTestProvider] = descriptor.capabilities.contains(.testing)
                 ? [StandardLanguageTestProvider(descriptor: descriptor)]
                 : []
-            let tooling = Self.standardToolingDefinition(for: descriptor.id)
-
             return LanguagePack(
                 descriptor: descriptor,
                 runProvider: runProvider,
                 toolchainProviders: standardToolchains.filter {
                     $0.languageProviderID == descriptor.id
                 },
-                languageServerLaunch: tooling.languageServer,
-                debugAdapterLaunch: tooling.debugAdapter,
+                debugAdapterLaunch: Self.standardDebugAdapterDefinition(for: descriptor.id),
                 toolingRuntime: runtimeByID[descriptor.id],
                 testProviders: testProviders
             )
@@ -82,80 +79,45 @@ final class LanguagePackRegistry {
         return Self(packs: packs)
     }
 
-    private struct StandardToolingDefinition {
-        let languageServer: StdioLanguageServerLaunch?
-        let debugAdapter: StdioDebugAdapterLaunch?
-    }
-
-    /// The standard catalog is intentionally assembled as complete packs.
-    /// Runtime implementations consume these definitions but never duplicate
-    /// language-name-to-executable maps of their own.
-    private static func standardToolingDefinition(for id: String) -> StandardToolingDefinition {
+    private static func standardDebugAdapterDefinition(for id: String) -> StdioDebugAdapterLaunch? {
         switch id {
         case "java":
-            return StandardToolingDefinition(
-                languageServer: nil,
-                debugAdapter: StdioDebugAdapterLaunch(
-                    adapterID: "java",
-                    executableNames: ["java-debug-adapter", "java-debug", "jdtls-debug"],
-                    arguments: ["--stdio"]
-                )
+            return StdioDebugAdapterLaunch(
+                adapterID: "java",
+                executableNames: ["java-debug-adapter", "java-debug"],
+                arguments: ["--stdio"]
             )
         case "go":
-            return StandardToolingDefinition(
-                languageServer: StdioLanguageServerLaunch(
-                    executableNames: ["gopls"],
-                    arguments: []
-                ),
-                debugAdapter: StdioDebugAdapterLaunch(
-                    adapterID: "go",
-                    executableNames: ["dlv"],
-                    arguments: ["dap"]
-                )
+            return StdioDebugAdapterLaunch(
+                adapterID: "go",
+                executableNames: ["dlv"],
+                arguments: ["dap"]
             )
         case "python":
-            return StandardToolingDefinition(
-                languageServer: StdioLanguageServerLaunch(
-                    executableNames: ["basedpyright-langserver", "pyright-langserver"],
-                    arguments: ["--stdio"]
-                ),
-                debugAdapter: StdioDebugAdapterLaunch(
-                    adapterID: "python",
-                    executableNames: ["python3", "python"],
-                    arguments: ["-m", "debugpy.adapter"]
-                )
+            return StdioDebugAdapterLaunch(
+                adapterID: "python",
+                executableNames: ["python3", "python"],
+                arguments: ["-m", "debugpy.adapter"]
             )
         case "node":
-            return StandardToolingDefinition(
-                languageServer: StdioLanguageServerLaunch(
-                    executableNames: ["typescript-language-server"],
-                    arguments: ["--stdio"]
-                ),
-                debugAdapter: StdioDebugAdapterLaunch(
-                    adapterID: "pwa-node",
-                    executableNames: ["js-debug-dap"],
-                    arguments: []
-                )
+            return StdioDebugAdapterLaunch(
+                adapterID: "pwa-node",
+                executableNames: ["js-debug-dap"],
+                arguments: []
             )
         case "rust":
-            return StandardToolingDefinition(
-                languageServer: StdioLanguageServerLaunch(
-                    executableNames: ["rust-analyzer"],
-                    arguments: []
-                ),
-                debugAdapter: StdioDebugAdapterLaunch(
-                    adapterID: "lldb",
-                    executableNames: ["lldb-dap"],
-                    arguments: [],
-                    fallbacks: [
-                        // Xcode exposes lldb-dap through xcrun even when the
-                        // app's inherited PATH does not contain the tool.
-                        .init(executableName: "xcrun", argumentPrefix: ["lldb-dap"])
-                    ]
-                )
+            return StdioDebugAdapterLaunch(
+                adapterID: "lldb",
+                executableNames: ["lldb-dap"],
+                arguments: [],
+                fallbacks: [
+                    // Xcode exposes lldb-dap through xcrun even when the
+                    // app's inherited PATH does not contain the tool.
+                    .init(executableName: "xcrun", argumentPrefix: ["lldb-dap"])
+                ]
             )
         default:
-            return StandardToolingDefinition(languageServer: nil, debugAdapter: nil)
+            return nil
         }
     }
 }

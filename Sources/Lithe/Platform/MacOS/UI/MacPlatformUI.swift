@@ -14,6 +14,17 @@ final class MacPlatformUI: PlatformUI {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
+    func chooseFile(title: String, prompt: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.prompt = prompt
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.resolvesAliases = true
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
     func revealInFileBrowser(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }

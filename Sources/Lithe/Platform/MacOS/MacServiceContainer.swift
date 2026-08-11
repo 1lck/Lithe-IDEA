@@ -41,101 +41,75 @@ final class MacServiceContainer {
             toolchainSource: runConfigurationStore,
             toolDiscovery: MacRuntimeToolDiscovery()
         )
-        let languageProviderCatalog = LanguageProviderCatalog.standard
+        let languageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
+        let languageProviderCatalogSnapshot = languageProviderCatalogSource.load()
+        let languageProviderCatalog = languageProviderCatalogSnapshot.catalog
+        let languageServerTools = LanguageServerToolService(
+            runtimeService: runtimeService,
+            processRunner: processRunner,
+            store: store
+        )
         // Build the catalog once so every standard runtime consumes the
         // language-pack launch metadata instead of maintaining a second map.
         let languagePackDefinitions = LanguagePackRegistry.standard(
             catalog: languageProviderCatalog
         )
-        let languageService = JavaLanguageService(
-            runtimeService: runtimeService,
-            process: MacRawProcessSession(),
-            archiveReader: MacArchiveEntryReader(processRunner: processRunner),
-            fileStorage: fileStorage,
-            javaMavenOperations: javaMavenOperations
-        )
-        let javaDebugLaunch = languagePackDefinitions.pack(id: "java")?.debugAdapterLaunch
-        let javaRuntime = JavaLanguageProviderRuntime(
-            service: languageService,
-            catalog: languageProviderCatalog,
-            debugAdapterAvailability: {
-                guard let projectURL = runtimeService.projectURL else { return false }
-                let locator = MacJavaDebugAdapterLocator(
-                    environment: runtimeService.processEnvironment(),
-                    launchDefinition: javaDebugLaunch
-                )
-                return locator.resolve(
-                    rootURL: projectURL,
-                    javaExecutableURL: runtimeService.configuredJavaExecutableURL()
-                ) != nil
-            },
-            debugAdapterUnavailableMessage: {
-                MacJavaDebugAdapterLocator(
-                    environment: runtimeService.processEnvironment(),
-                    launchDefinition: javaDebugLaunch
-                ).unavailableMessage
-            },
-            debugAdapterFactory: { rootURL in
-                let locator = MacJavaDebugAdapterLocator(
-                    environment: runtimeService.environment(for: .java),
-                    launchDefinition: javaDebugLaunch
-                )
-                guard let launch = locator.resolve(
-                    rootURL: rootURL,
-                    javaExecutableURL: runtimeService.javaExecutableURL()
-                ) else { return nil }
+        let debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [
+            "go": {
+                guard let dlv = runtimeService.executableOnPath("dlv") else { return nil }
                 return DebugAdapterProtocolSession(
-                    adapterID: "java",
-                    executableURL: launch.executableURL,
-                    arguments: launch.arguments,
-                    environment: launch.environment,
-                    process: MacRawProcessSession()
+                    adapterID: "go",
+                    transport: MacDlvDebugAdapterTransport(
+                        executableURL: dlv,
+                        environment: runtimeService.processEnvironment(),
+                        process: MacRawProcessSession()
+                    )
+                )
+            },
+            "node": {
+                guard let node = runtimeService.executableOnPath("node") else { return nil }
+                let environment = runtimeService.processEnvironment()
+                let locator = MacJavaScriptDebugAdapterLocator(
+                    environment: environment,
+                    executableOnPath: { runtimeService.executableOnPath($0) }
+                )
+                return DebugAdapterProtocolSession(
+                    adapterID: "pwa-node",
+                    transport: MacNodeDebugAdapterTransport(
+                        nodeExecutableURL: node,
+                        locator: locator,
+                        process: MacRawProcessSession()
+                    )
                 )
             }
+        ]
+        let debugLaunches = Dictionary(
+            uniqueKeysWithValues: languagePackDefinitions.packs.compactMap { pack in
+                pack.debugAdapterLaunch.map { (pack.descriptor.id, $0) }
+            }
         )
-        let languageToolingRuntimes: [any LanguageProviderRuntime] = [
-            javaRuntime
-        ] + StdioLanguageProviderRuntime.standard(
-            packs: languagePackDefinitions.packs,
+        let languageToolingRuntimeFactory = StdioLanguageProviderRuntimeFactory(
             runtimeService: runtimeService,
             processFactory: { MacRawProcessSession() },
-            debugSessionFactories: [
-                "go": {
-                    guard let dlv = runtimeService.executableOnPath("dlv") else { return nil }
-                    return DebugAdapterProtocolSession(
-                        adapterID: "go",
-                        transport: MacDlvDebugAdapterTransport(
-                            executableURL: dlv,
-                            environment: runtimeService.processEnvironment(),
-                            process: MacRawProcessSession()
-                        )
-                    )
-                },
-                "node": {
-                    guard let node = runtimeService.executableOnPath("node") else { return nil }
-                    let environment = runtimeService.processEnvironment()
-                    let locator = MacJavaScriptDebugAdapterLocator(
-                        environment: environment,
-                        executableOnPath: { runtimeService.executableOnPath($0) }
-                    )
-                    return DebugAdapterProtocolSession(
-                        adapterID: "pwa-node",
-                        transport: MacNodeDebugAdapterTransport(
-                            nodeExecutableURL: node,
-                            locator: locator,
-                            process: MacRawProcessSession()
-                        )
-                    )
-                }
-            ]
+            languageServerCore: rustCore,
+            languageServerExecutableResolver: { descriptor in
+                languageServerTools.executableURL(for: descriptor)
+            },
+            debugLaunches: debugLaunches,
+            debugSessionFactories: debugSessionFactories
         )
+        let languageToolingRuntimes: [any LanguageProviderRuntime] = languagePackDefinitions.packs
+            .compactMap { languageToolingRuntimeFactory.makeRuntime(for: $0.descriptor) }
         let languagePackRegistry = LanguagePackRegistry.standard(
             catalog: languageProviderCatalog,
             runtimes: languageToolingRuntimes
         )
         let runToolchainRegistry = languagePackRegistry.toolchainRegistry
         let languageToolingSessions = LanguageToolingSessionManager(
-            registry: languagePackRegistry
+            catalog: languagePackRegistry.catalog,
+            runtimes: languagePackRegistry.toolingRuntimes,
+            runtimeFactory: languageToolingRuntimeFactory,
+            core: rustCore
         )
         let testExecutableResolver = RunExecutableResolver(
             runtimeService: runtimeService,
@@ -175,9 +149,6 @@ final class MacServiceContainer {
             javaMavenOperations: javaMavenOperations,
             runConfigurationOperations: runConfigurationStore
         )
-        let javaImplementationMarkerService = JavaImplementationMarkerService(
-            languageService: languageService
-        )
         let gitOperations = RustGitOperations(core: rustCore)
         let workspaceOperations = RustWorkspaceOperations(core: rustCore)
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
@@ -201,10 +172,12 @@ final class MacServiceContainer {
             credentialResolver: credentialResolver
         )
         services = AppServices(
-            languageProviderCatalog: languagePackRegistry.catalog,
+            languageProviderCatalogSource: languageProviderCatalogSource,
+            languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             languagePacks: languagePackRegistry,
             runToolchainRegistry: runToolchainRegistry,
             languageToolingSessions: languageToolingSessions,
+            languageServerTools: languageServerTools,
             languageTestService: languageTestService,
             workspaceOperations: workspaceOperations,
             localHistoryOperations: localHistoryOperations,
@@ -215,8 +188,6 @@ final class MacServiceContainer {
             fileStorage: fileStorage,
             fileOperations: fileOperations,
             projectRuntimeService: runtimeService,
-            javaLanguageService: languageService,
-            javaImplementationMarkerService: javaImplementationMarkerService,
             mavenService: mavenService,
             runService: runService,
             javaDebugService: javaDebugService,

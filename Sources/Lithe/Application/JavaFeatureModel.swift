@@ -1,17 +1,14 @@
 import Combine
 import Foundation
 
-/// Owns Java-only code vision, inlay hints, Maven integration, and legacy Java
-/// debug behavior. Shared LSP navigation and editing live in the generic
-/// language-tooling pipeline.
+/// Owns Java-only code vision, fallback inlay hints, Maven integration, and
+/// legacy Java debug behavior. Java LSP navigation and editing are delegated
+/// to the Rust host.
 @MainActor
 final class JavaFeatureModel: ObservableObject {
-    @Published private(set) var javaDiagnostics: [URL: [JavaDiagnostic]] = [:]
     @Published private(set) var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] = [:]
     @Published private(set) var javaInlayHints: [URL: [JavaInlayHint]] = [:]
 
-    private let service: JavaLanguageService
-    private let markerService: JavaImplementationMarkerService
     private let operations: any JavaMavenOperations
     private let workspaceOperations: any WorkspaceOperations
     private var documentProvider: (@MainActor () -> EditorDocument?)?
@@ -23,18 +20,11 @@ final class JavaFeatureModel: ObservableObject {
     private var debugFeature: JavaDebugFeatureModel?
 
     init(
-        service: JavaLanguageService,
-        markerService: JavaImplementationMarkerService,
         operations: any JavaMavenOperations,
         workspaceOperations: any WorkspaceOperations
     ) {
-        self.service = service
-        self.markerService = markerService
         self.operations = operations
         self.workspaceOperations = workspaceOperations
-        service.onDiagnostics = { [weak self] fileURL, diagnostics in
-            self?.javaDiagnostics[fileURL.standardizedFileURL] = diagnostics
-        }
     }
 
     func configure(
@@ -57,8 +47,6 @@ final class JavaFeatureModel: ObservableObject {
         self.debugFeature = debugFeature
     }
 
-    var statusMessage: String { service.statusMessage }
-
     /// Explicit boundary for Java-only editor adornments and legacy services.
     /// Callers can avoid scheduling Java work for every supported language.
     func handles(fileURL: URL) -> Bool {
@@ -69,15 +57,9 @@ final class JavaFeatureModel: ObservableObject {
         handles(fileURL: fileURL)
     }
 
-    func configureProjectRoot(_ url: URL) {
-        service.configureProjectRoot(url)
-    }
-
     func stop() {
         inlayHintTasks.values.forEach { $0.cancel() }
         inlayHintTasks.removeAll()
-        service.stop()
-        javaDiagnostics = [:]
         javaCodeVisionHints = [:]
         javaInlayHints = [:]
     }
@@ -163,10 +145,8 @@ final class JavaFeatureModel: ObservableObject {
     }
 
     func close(_ document: EditorDocument) {
-        javaDiagnostics[document.url.standardizedFileURL] = nil
         javaCodeVisionHints[document.url.standardizedFileURL] = nil
         javaInlayHints[document.url.standardizedFileURL] = nil
-        markerService.invalidate(document)
     }
 
     func refreshCodeVision(
@@ -184,10 +164,9 @@ final class JavaFeatureModel: ObservableObject {
             blameLines: blame
         )
         let candidates = structure(source: document.text)?.implementationMarkers ?? []
-        let markers = await implementationMarkers(for: document, candidates: candidates)
-        let implementationCounts = Dictionary(
-            uniqueKeysWithValues: markers.map { ($0.line, $0.implementationCount) }
-        )
+        let implementationCounts = candidates.reduce(into: [Int: Int]()) { counts, marker in
+            counts[marker.line] = max(counts[marker.line] ?? 0, marker.implementationCount)
+        }
         guard documentProvider?()?.id == document.id else { return }
         javaCodeVisionHints[normalizedURL] = baseHints.map { hint in
             JavaCodeVisionHint(
@@ -214,8 +193,7 @@ final class JavaFeatureModel: ObservableObject {
             await self.requestInlayHints(
                 for: document,
                 projectFiles: projectFiles,
-                workspaceRoot: workspaceRoot,
-                attempt: 0
+                workspaceRoot: workspaceRoot
             )
             self.inlayHintTasks[document.id] = nil
         }
@@ -224,50 +202,15 @@ final class JavaFeatureModel: ObservableObject {
     private func requestInlayHints(
         for document: EditorDocument,
         projectFiles: [URL],
-        workspaceRoot: URL?,
-        attempt: Int
+        workspaceRoot: URL?
     ) async {
         guard !Task.isCancelled,
               documentProvider?()?.id == document.id else { return }
-        await withCheckedContinuation { continuation in
-            inlayHints(for: document) { [weak self] result in
-                guard let self else {
-                    continuation.resume()
-                    return
-                }
-                if case .success(let hints) = result {
-                    self.javaInlayHints[document.url.standardizedFileURL] = hints
-                    Task { @MainActor [weak self, weak document] in
-                        guard let self, let document else {
-                            continuation.resume()
-                            return
-                        }
-                        if hints.isEmpty, attempt < 3 {
-                            try? await Task.sleep(for: .milliseconds(900 * (attempt + 1)))
-                            guard !Task.isCancelled else {
-                                continuation.resume()
-                                return
-                            }
-                            await self.requestInlayHints(
-                                for: document,
-                                projectFiles: projectFiles,
-                                workspaceRoot: workspaceRoot,
-                                attempt: attempt + 1
-                            )
-                        } else if hints.isEmpty {
-                            await self.applyInlayFallback(
-                                for: document,
-                                projectFiles: projectFiles,
-                                workspaceRoot: workspaceRoot
-                            )
-                        }
-                        continuation.resume()
-                    }
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
+        await applyInlayFallback(
+            for: document,
+            projectFiles: projectFiles,
+            workspaceRoot: workspaceRoot
+        )
     }
 
     private func applyInlayFallback(
@@ -302,13 +245,6 @@ final class JavaFeatureModel: ObservableObject {
         return String(path.dropFirst(rootPath.count + 1))
     }
 
-    func implementationMarkers(
-        for document: EditorDocument,
-        candidates: [JavaImplementationMarker]
-    ) async -> [JavaImplementationMarker] {
-        await markerService.markers(for: document, candidates: candidates)
-    }
-
     func structure(source: String, declarationSources: [String] = []) -> JavaStructureResult? {
         operations.structure(source: source, declarationSources: declarationSources)
     }
@@ -326,13 +262,6 @@ final class JavaFeatureModel: ObservableObject {
             blameLines: blameLines,
             operations: operations
         )
-    }
-
-    func inlayHints(
-        for document: EditorDocument,
-        completion: @escaping (Result<[JavaInlayHint], Error>) -> Void
-    ) {
-        service.inlayHints(document: document, completion: completion)
     }
 
 }

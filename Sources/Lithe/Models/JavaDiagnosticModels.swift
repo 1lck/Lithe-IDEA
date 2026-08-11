@@ -1,6 +1,7 @@
 import Foundation
 
 enum DiagnosticSeverity: Int, CaseIterable, Hashable, Sendable {
+    case unknown = 0
     case error = 1
     case warning = 2
     case information = 3
@@ -8,6 +9,7 @@ enum DiagnosticSeverity: Int, CaseIterable, Hashable, Sendable {
 
     var title: String {
         switch self {
+        case .unknown: "Unknown"
         case .error: "Error"
         case .warning: "Warning"
         case .information: "Information"
@@ -17,6 +19,7 @@ enum DiagnosticSeverity: Int, CaseIterable, Hashable, Sendable {
 
     var systemImage: String {
         switch self {
+        case .unknown: "questionmark.circle.fill"
         case .error: "xmark.octagon.fill"
         case .warning: "exclamationmark.triangle.fill"
         case .information: "info.circle.fill"
@@ -134,46 +137,31 @@ struct EditorDiagnostic: Identifiable, Hashable, Sendable {
             utf16Column: column,
             endLine: endLine,
             endUTF16Column: endColumn,
-            severity: DiagnosticSeverity(rawValue: diagnostic.severity ?? 1) ?? .error,
+            severity: diagnostic.severity.flatMap(DiagnosticSeverity.init(rawValue:)) ?? .unknown,
             message: diagnostic.message,
             source: diagnostic.source,
             code: diagnostic.code,
-            tags: [],
-            relatedInformation: []
+            tags: Set(diagnostic.tags.compactMap(DiagnosticTag.init(rawValue:))),
+            relatedInformation: diagnostic.relatedInformation.map {
+                DiagnosticRelatedInformation(
+                    fileURL: $0.fileURL.standardizedFileURL,
+                    line: max(0, $0.range.start.line),
+                    utf16Column: max(0, $0.range.start.utf16Column),
+                    message: $0.message
+                )
+            }
         )
     }
 
-    static func merging(
-        _ editorDiagnostics: [URL: [EditorDiagnostic]],
-        languageServerDiagnostics: [URL: [LanguageServerDiagnostic]]
+    static func fromLanguageServerDiagnostics(
+        _ diagnosticsByFile: [URL: [LanguageServerDiagnostic]]
     ) -> [URL: [EditorDiagnostic]] {
-        var merged = Dictionary(uniqueKeysWithValues: editorDiagnostics.map {
-            ($0.key.standardizedFileURL, $0.value)
-        })
-        for (fileURL, diagnostics) in languageServerDiagnostics {
+        diagnosticsByFile.reduce(into: [URL: [EditorDiagnostic]]()) { mapped, entry in
+            let (fileURL, diagnostics) = entry
             let normalizedURL = fileURL.standardizedFileURL
-            var existing = merged[normalizedURL] ?? []
-            for diagnostic in diagnostics.map({
+            mapped[normalizedURL, default: []].append(contentsOf: diagnostics.map {
                 EditorDiagnostic(languageServerDiagnostic: $0, fileURL: normalizedURL)
-            }) where !existing.contains(where: { $0.semanticIdentity == diagnostic.semanticIdentity }) {
-                existing.append(diagnostic)
-            }
-            merged[normalizedURL] = existing
+            })
         }
-        return merged
-    }
-
-    private var semanticIdentity: String {
-        [
-            String(line), String(utf16Column), String(endLine), String(endUTF16Column),
-            source ?? "", code ?? "", message
-        ].joined(separator: "\u{1F}")
     }
 }
-
-// Transitional source compatibility while the Java feature moves onto the
-// editor-wide diagnostics capability.
-typealias JavaDiagnosticSeverity = DiagnosticSeverity
-typealias JavaDiagnosticTag = DiagnosticTag
-typealias JavaDiagnosticRelatedInformation = DiagnosticRelatedInformation
-typealias JavaDiagnostic = EditorDiagnostic

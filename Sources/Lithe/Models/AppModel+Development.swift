@@ -101,10 +101,6 @@ extension AppModel {
         )
     }
 
-    func openJavaDiagnostic(_ diagnostic: JavaDiagnostic) {
-        openDiagnostic(diagnostic)
-    }
-
     func selectRunConfiguration(_ configuration: RunConfiguration) {
         runFeature.select(configuration)
     }
@@ -803,6 +799,7 @@ extension AppModel {
                 self.isLoadingLanguageNavigation = false
                 switch result {
                 case .failure(let error):
+                    self.languageNavigationProviderID = nil
                     self.showNotification(error.localizedDescription)
                 case .success(let values):
                     if fallbackToImplementationsIfSelf,
@@ -828,6 +825,7 @@ extension AppModel {
             }
         } catch {
             isLoadingLanguageNavigation = false
+            languageNavigationProviderID = nil
             showNotification(error.localizedDescription)
         }
     }

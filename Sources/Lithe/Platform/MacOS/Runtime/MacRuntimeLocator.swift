@@ -36,8 +36,4 @@ struct MacRuntimeLocator: RuntimeLocator {
     func systemJDBExecutable() -> URL? {
         MacRuntimeDiscovery.systemJDBExecutable()
     }
-
-    func javaLanguageServerExecutable() -> URL? {
-        MacRuntimeDiscovery.javaLanguageServerExecutable()
-    }
 }

@@ -25,16 +25,6 @@ enum MacRuntimeDiscovery {
         .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
     }
 
-    static func javaLanguageServerExecutable() -> URL? {
-        [
-            "/opt/homebrew/bin/jdtls",
-            "/usr/local/bin/jdtls",
-            "/usr/bin/jdtls"
-        ]
-        .map(URL.init(fileURLWithPath:))
-        .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
-    }
-
     static func systemMavenExecutable(environment: [String: String]) -> URL? {
         discoverMavenExecutables(environment: environment).first
     }

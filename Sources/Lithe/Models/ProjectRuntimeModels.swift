@@ -61,7 +61,6 @@ enum JavaEnvironmentStatus: Equatable, Sendable {
     case jdkMissing
     case configuredJDKInvalid(path: String)
     case jdbMissing
-    case languageServerMissing
 
     var requiresAttention: Bool {
         self != .checking && self != .ready
@@ -70,14 +69,7 @@ enum JavaEnvironmentStatus: Equatable, Sendable {
     var blocksJavaRun: Bool {
         switch self {
         case .jdkMissing, .configuredJDKInvalid, .jdbMissing: true
-        case .checking, .ready, .languageServerMissing: false
-        }
-    }
-
-    var blocksJavaEditing: Bool {
-        switch self {
         case .checking, .ready: false
-        case .jdkMissing, .configuredJDKInvalid, .languageServerMissing, .jdbMissing: true
         }
     }
 }
@@ -88,7 +80,6 @@ struct JavaEnvironmentReport: Equatable, Sendable {
     let javaHomePath: String?
     let javaExecutablePath: String?
     let jdbExecutablePath: String?
-    let languageServerExecutablePath: String?
 
     static func checking(for projectURL: URL) -> Self {
         Self(
@@ -96,8 +87,7 @@ struct JavaEnvironmentReport: Equatable, Sendable {
             projectURL: projectURL.standardizedFileURL,
             javaHomePath: nil,
             javaExecutablePath: nil,
-            jdbExecutablePath: nil,
-            languageServerExecutablePath: nil
+            jdbExecutablePath: nil
         )
     }
 
@@ -108,24 +98,21 @@ struct JavaEnvironmentReport: Equatable, Sendable {
         case .jdkMissing: "JDK not found"
         case .configuredJDKInvalid: "Configured JDK is invalid"
         case .jdbMissing: "Java debugger is incomplete"
-        case .languageServerMissing: "Java language server not found"
         }
     }
 
     var message: String {
         switch status {
         case .checking:
-            "Lithe is checking the JDK, Java debugger, and Java language server."
+            "Lithe is checking the JDK and Java debugger."
         case .ready:
-            "JDK, JDB, and the Java language server are available for this project."
+            "JDK and JDB are available for this project."
         case .jdkMissing:
             "This project contains Java sources, but no usable JDK was detected."
         case .configuredJDKInvalid(let path):
             "The configured JDK path is not a valid JDK: \(path)"
         case .jdbMissing:
             "A JDK was found, but its bin/jdb debugger is unavailable."
-        case .languageServerMissing:
-            "The JDK is available, but JDT LS is not installed or configured."
         }
     }
 
@@ -138,8 +125,6 @@ struct JavaEnvironmentReport: Equatable, Sendable {
             "Choose another JDK in Project Settings or clear the invalid path."
         case .jdbMissing:
             "Use a full JDK distribution instead of a JRE or minimal runtime."
-        case .languageServerMissing:
-            "Install/configure jdtls in Project Settings; Java run/debug remains available where the JDK supports it."
         }
     }
 }

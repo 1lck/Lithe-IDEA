@@ -83,24 +83,33 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func languageProviderCatalogIsOnDemandAndDescribesCrossLanguageCapabilities() {
+    func languageProviderCatalogKeepsOnlyCompatibilityFallbackInSwiftWhenRustCoreIsUnavailable() {
         let catalog = LanguageProviderCatalog.standard
         let go = catalog.provider(for: URL(fileURLWithPath: "/tmp/cmd/main.go"))
         let python = catalog.provider(for: URL(fileURLWithPath: "/tmp/api/server.py"))
+        let node = catalog.provider(for: URL(fileURLWithPath: "/tmp/web/App.tsx"))
 
         #expect(go?.id == "go")
         #expect(python?.id == "python")
+        #expect(node?.id == "node")
+        #expect(node?.languageIdentifier(for: URL(fileURLWithPath: "/tmp/web/App.tsx")) == "typescriptreact")
         #expect(go?.activationPolicy == .onDemand)
         #expect(go?.capabilities.contains(.languageServer) == true)
         #expect(go?.capabilities.contains(.debugAdapter) == true)
         #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java"))?.capabilities.contains(.debugAdapter) == false)
+        if !RustCoreBridge().isAvailable {
+            #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Package.swift")) == nil)
+            #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Dockerfile")) == nil)
+        }
     }
 
     @Test
     func standardLanguagePackRegistryDerivesAllFocusedRegistries() {
         let registry = LanguagePackRegistry.standard()
+        let providerIDs = registry.packs.map(\.descriptor.id)
+        let providerIDSet = Set(providerIDs)
 
-        #expect(registry.packs.map { $0.descriptor.id } == ["java", "go", "python", "node", "rust"])
+        #expect(providerIDs.starts(with: ["java", "go", "python", "node", "rust"]))
         #expect(registry.catalog.provider(for: URL(fileURLWithPath: "/tmp/main.go"))?.id == "go")
         #expect(registry.runProviders.provider(for: URL(fileURLWithPath: "/tmp/main.py"))?.descriptor.id == "python")
         #expect(registry.testProviders.provider(id: "python")?.descriptor.id == "python")
@@ -111,11 +120,14 @@ struct RunConfigurationIntegrationTests {
         #expect(registry.pack(id: "go")?.toolchainProviders.contains {
             $0.languageProviderID == "go" && $0.identifiers.contains("project-go")
         } == true)
-        #expect(registry.pack(id: "go")?.languageServerLaunch?.executableNames == ["gopls"])
         #expect(registry.pack(id: "go")?.debugAdapterLaunch?.executableNames == ["dlv"])
         #expect(registry.pack(id: "python")?.debugAdapterLaunch?.adapterID == "python")
         #expect(registry.pack(id: "rust")?.debugAdapterLaunch?.fallbacks.first?.executableName == "xcrun")
         #expect(registry.pack(id: "java")?.debugAdapterLaunch?.adapterID == "java")
+        if !RustCoreBridge().isAvailable {
+            #expect(providerIDSet == ["java", "go", "python", "node", "rust"])
+            #expect(registry.catalog.provider(for: URL(fileURLWithPath: "/tmp/Dockerfile")) == nil)
+        }
     }
 
     @Test
@@ -141,6 +153,32 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func projectCatalogCanCreateRuntimeForANewProviderDynamically() {
+        let factory = TestLanguageProviderRuntimeFactory()
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: []),
+            runtimeFactory: factory
+        )
+        let descriptor = LanguageProviderDescriptor(
+            id: "roc",
+            displayName: "Roc",
+            fileExtensions: ["roc"],
+            capabilities: [.languageServer, .debugAdapter],
+            activationPolicy: .onDemand,
+            languageIdentifier: "roc",
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["roc_language_server"],
+                arguments: []
+            )
+        )
+
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [descriptor]))
+
+        #expect(manager.supportsGenericDebugging(for: URL(fileURLWithPath: "/tmp/main.roc")))
+        #expect(factory.createdDescriptors == [descriptor])
+    }
+
+    @Test
     func genericDebugCapabilityReflectsTheRuntimeFactoryWithoutStartingIt() throws {
         let catalog = LanguageProviderCatalog.standard
         let runtimeService = ProjectRuntimeService(
@@ -158,7 +196,7 @@ struct RunConfigurationIntegrationTests {
             }]
         ).first { $0.descriptor.id == "node" })
         let javaDescriptor = try #require(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java")))
-        let javaRuntime = TestLanguageProviderRuntime(descriptor: javaDescriptor)
+        let javaRuntime = TestDebugLanguageProviderRuntime(descriptor: javaDescriptor)
         let manager = LanguageToolingSessionManager(
             catalog: catalog,
             runtimes: [nodeRuntime, javaRuntime]
@@ -172,8 +210,14 @@ struct RunConfigurationIntegrationTests {
 
     @Test
     func aFutureJavaDAPRuntimeCanOverrideTheLegacyDebugBoundary() throws {
-        let catalog = LanguageProviderCatalog.standard
-        let javaDescriptor = try #require(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java")))
+        let javaDescriptor = LanguageProviderDescriptor(
+            id: "java",
+            displayName: "Java",
+            fileExtensions: ["java"],
+            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
+            activationPolicy: .onDemand
+        )
+        let catalog = LanguageProviderCatalog(descriptors: [javaDescriptor])
         let runtime = TestDebugLanguageProviderRuntime(
             descriptor: javaDescriptor,
             supportsDebugAdapter: true
@@ -217,9 +261,9 @@ struct RunConfigurationIntegrationTests {
     func macToolDiscoveryReportsProjectHomebrewAndXcodeSources() {
         let root = URL(fileURLWithPath: "/tmp/mac-tool-project", isDirectory: true)
         let executablePaths: Set<String> = [
-            root.appendingPathComponent(".lithe/toolchains/bin/gopls").path,
-            "/custom/bin/gopls",
-            "/opt/homebrew/bin/gopls",
+            root.appendingPathComponent(".lithe/toolchains/bin/dlv").path,
+            "/custom/bin/dlv",
+            "/opt/homebrew/bin/dlv",
             "/Library/Developer/CommandLineTools/usr/bin/lldb-dap"
         ]
         let discovery = MacRuntimeToolDiscovery(
@@ -228,15 +272,15 @@ struct RunConfigurationIntegrationTests {
         )
 
         let goCandidates = discovery.candidates(
-            for: "gopls",
+            for: "dlv",
             projectURL: root,
             environment: ["PATH": "/custom/bin"]
         )
         #expect(goCandidates.map(\.source) == [.project, .path, .homebrew])
         #expect(goCandidates.map(\.executableURL.path) == [
-            root.appendingPathComponent(".lithe/toolchains/bin/gopls").path,
-            "/custom/bin/gopls",
-            "/opt/homebrew/bin/gopls"
+            root.appendingPathComponent(".lithe/toolchains/bin/dlv").path,
+            "/custom/bin/dlv",
+            "/opt/homebrew/bin/dlv"
         ])
 
         let lldbCandidates = discovery.candidates(
@@ -247,6 +291,23 @@ struct RunConfigurationIntegrationTests {
         #expect(lldbCandidates.first?.source == .xcode)
         #expect(discovery.guidance(for: "java-debug-adapter", projectURL: root, environment: [:])
             .recovery.contains("LITHE_JAVA_DEBUG_PATH"))
+    }
+
+    @Test
+    func macToolDiscoveryFindsGoLanguageServerInUserBin() {
+        let discovery = MacRuntimeToolDiscovery(
+            homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
+            isExecutable: { $0.path == "/tmp/home/.go/bin/gopls" }
+        )
+
+        let candidates = discovery.candidates(
+            for: "gopls",
+            projectURL: nil,
+            environment: ["PATH": "/usr/bin"]
+        )
+
+        #expect(candidates.first?.executableURL.path == "/tmp/home/.go/bin/gopls")
+        #expect(candidates.first?.source == .environment)
     }
 
     @Test
@@ -731,17 +792,15 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func editorDiagnosticsMergeLanguagesAndMapLSPSeverities() throws {
+    func editorDiagnosticsMapLanguageServerFilesAndSeverities() throws {
         let javaURL = URL(fileURLWithPath: "/tmp/mixed/src/Main.java")
         let pythonURL = URL(fileURLWithPath: "/tmp/mixed/api/main.py")
-        let javaDiagnostic = EditorDiagnostic(
-            id: "java-warning",
-            fileURL: javaURL,
-            line: 2,
-            utf16Column: 4,
-            endLine: 2,
-            endUTF16Column: 8,
-            severity: .warning,
+        let javaDiagnostic = LanguageServerDiagnostic(
+            range: LanguageServerRange(
+                start: LanguageServerPosition(line: 2, utf16Column: 4),
+                end: LanguageServerPosition(line: 2, utf16Column: 8)
+            ),
+            severity: 2,
             message: "Java warning",
             source: "jdtls",
             code: "java-warning",
@@ -762,19 +821,21 @@ struct RunConfigurationIntegrationTests {
             )
         }
 
-        let merged = EditorDiagnostic.merging(
-            [javaURL: [javaDiagnostic]],
-            languageServerDiagnostics: [pythonURL: languageDiagnostics]
+        let mapped = EditorDiagnostic.fromLanguageServerDiagnostics(
+            [javaURL: [javaDiagnostic], pythonURL: languageDiagnostics]
         )
 
-        #expect(merged[javaURL.standardizedFileURL] == [javaDiagnostic])
-        let python = try #require(merged[pythonURL.standardizedFileURL])
+        let java = try #require(mapped[javaURL.standardizedFileURL])
+        #expect(java.count == 1)
+        #expect(java[0].severity == .warning)
+        #expect(java[0].source == "jdtls")
+        let python = try #require(mapped[pythonURL.standardizedFileURL])
         #expect(python.map(\.severity) == [.error, .warning, .information, .hint])
         #expect(python.allSatisfy { $0.source == "pyright" })
     }
 
     @Test
-    func editorDiagnosticsDeduplicateTheSameProviderResult() throws {
+    func editorDiagnosticsPreserveTheAuthoritativeLanguageServerResult() throws {
         let fileURL = URL(fileURLWithPath: "/tmp/mixed/src/Main.java")
         let lsp = LanguageServerDiagnostic(
             range: LanguageServerRange(
@@ -783,17 +844,17 @@ struct RunConfigurationIntegrationTests {
             ),
             severity: 1,
             message: "Cannot resolve symbol",
-            source: "jdtls",
+            source: "java",
             code: "resolve"
         )
-        let existing = EditorDiagnostic(languageServerDiagnostic: lsp, fileURL: fileURL)
 
-        let merged = EditorDiagnostic.merging(
-            [fileURL: [existing]],
-            languageServerDiagnostics: [fileURL: [lsp]]
+        let mapped = EditorDiagnostic.fromLanguageServerDiagnostics(
+            [fileURL: [lsp]]
         )
 
-        #expect(merged[fileURL.standardizedFileURL] == [existing])
+        let diagnostics = try #require(mapped[fileURL.standardizedFileURL])
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics[0] == EditorDiagnostic(languageServerDiagnostic: lsp, fileURL: fileURL))
     }
 
     @Test
@@ -928,66 +989,757 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func toolingSessionsStartLazilyAndReuseOneSessionPerProvider() throws {
+    func languageToolingSessionsKeepSwiftLSPAtTheRustHostBoundary() throws {
         let descriptor = try #require(LanguageProviderCatalog.standard.provider(
             for: URL(fileURLWithPath: "/tmp/main.go")
         ))
-        let runtime = TestLanguageProviderRuntime(descriptor: descriptor)
-        let manager = LanguageToolingSessionManager(
-            catalog: .standard,
-            runtimes: [runtime]
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
         )
+        let process = RecordingRawProcessSession()
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            processFactory: { process }
+        )
+        let manager = LanguageToolingSessionManager(runtimes: [runtime])
+        let root = URL(fileURLWithPath: "/tmp/go-project", isDirectory: true)
+        let source = root.appendingPathComponent("main.go")
+
         #expect(manager.activeLanguageServerIDs.isEmpty)
-
-        let first = try manager.activateLanguageServer(
-            for: URL(fileURLWithPath: "/tmp/main.go"),
-            rootURL: URL(fileURLWithPath: "/tmp/project")
+        #expect(manager.features(for: source).contains(.completion))
+        #expect(manager.supportsGenericEditing(for: source))
+        try manager.synchronizeLanguageServer(
+            for: source,
+            text: "package main\nfunc main() {}\n",
+            rootURL: root
         )
-        let second = try manager.activateLanguageServer(
-            for: URL(fileURLWithPath: "/tmp/other.go"),
-            rootURL: URL(fileURLWithPath: "/tmp/project")
-        )
+        #expect(process.requests.isEmpty)
+        #expect(process.sentData.isEmpty)
 
-        _ = first
-        _ = second
-        #expect(runtime.makeCount == 1)
-        #expect(runtime.languageServer.startCount == 1)
-        #expect(manager.activeLanguageServerIDs == ["go"])
+        var completionResult: Result<[LanguageServerCompletionItem], Error>?
+        try manager.completions(
+            fileURL: source,
+            text: "fu",
+            position: LanguageServerPosition(line: 0, utf16Column: 2),
+            rootURL: root
+        ) { result in
+            completionResult = result
+        }
+        #expect(try completionResult?.get().contains { $0.label == "func" } == true)
 
-        manager.stopAll()
-        #expect(runtime.languageServer.stopCount == 1)
+        #expect(throws: LanguageToolingSessionError.self) {
+            try manager.hover(
+                fileURL: source,
+                text: "package main\n",
+                position: LanguageServerPosition(line: 0, utf16Column: 1),
+                rootURL: root
+            ) { _ in }
+        }
+        #expect(throws: LanguageToolingSessionError.self) {
+            try manager.format(fileURL: source, text: "package main\n", rootURL: root) { _ in }
+        }
         #expect(manager.activeLanguageServerIDs.isEmpty)
     }
 
     @Test
-    func toolingSessionsReplaceExitedOrWrongWorkspaceProcesses() throws {
-        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
-            for: URL(fileURLWithPath: "/tmp/main.go")
+    func languageServerFailureClearsActiveSessionState() async throws {
+        let descriptor = LanguageProviderDescriptor(
+            id: "swift",
+            displayName: "Swift",
+            fileExtensions: ["swift"],
+            capabilities: [.languageServer, .formatting],
+            activationPolicy: .onDemand,
+            languageIdentifier: "swift",
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["sourcekit-lsp"]
+            )
+        )
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let process = RecordingRawProcessSession()
+        let source = URL(fileURLWithPath: "/tmp/swift-project/App.swift")
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            processFactory: { process },
+            languageServerLaunch: descriptor.languageServerLaunch,
+            languageServerCore: TestLspClientCore(diagnosticURL: source)
+        )
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            runtimes: [runtime]
+        )
+
+        try manager.synchronizeLanguageServer(
+            for: source,
+            text: "struct App {}\n",
+            rootURL: source.deletingLastPathComponent()
+        )
+        #expect(manager.activeLanguageServerIDs.isEmpty)
+        #expect(manager.languageServerStates["swift"] == .initializing)
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": ["capabilities": [:]]
+        ])
+        await Self.drainMainActorTasks()
+
+        #expect(manager.activeLanguageServerIDs == ["swift"])
+        #expect(manager.languageServerStates["swift"] == .ready)
+
+        process.terminate(exitCode: 1)
+        await Self.drainMainActorTasks()
+
+        #expect(manager.activeLanguageServerIDs.isEmpty)
+        #expect(manager.languageServerFeatures["swift"] == nil)
+        guard case .failed(let exitCode, let message)? = manager.languageServerStates["swift"] else {
+            Issue.record("Expected the Swift language server to fail after process termination")
+            return
+        }
+        #expect(exitCode == 1)
+        #expect(message?.contains("exit code 1") == true)
+    }
+
+    @Test
+    func initializeErrorNeverActivatesLanguageServer() async throws {
+        let harness = makeLanguageServerHarness()
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App {}\n",
+            rootURL: harness.root
+        )
+        #expect(harness.manager.languageServerStates["swift"] == .initializing)
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+
+        harness.process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "error": ["code": -32603, "message": "initialize rejected"]
+        ])
+        await Self.drainMainActorTasks()
+
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        #expect(!harness.process.isRunning)
+        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+            Issue.record("Expected initialize error to fail the language server")
+            return
+        }
+        #expect(message?.contains("initialize failed") == true)
+        #expect(!Self.framedMessages(harness.process.sentData).contains {
+            $0.contains("textDocument/didOpen")
+        })
+    }
+
+    @Test
+    func invalidInitializeResultNeverMarksLanguageServerReady() async throws {
+        let harness = makeLanguageServerHarness()
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App {}\n",
+            rootURL: harness.root
+        )
+        harness.process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": NSNull()
+        ])
+        await Self.drainMainActorTasks()
+
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        #expect(!harness.process.isRunning)
+        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+            Issue.record("Expected invalid initialize result to fail the language server")
+            return
+        }
+        #expect(message?.contains("invalid result") == true)
+    }
+
+    @Test
+    func initializeTimeoutTransitionsInitializingSessionToFailed() async throws {
+        let harness = makeLanguageServerHarness(initializeTimeoutNanoseconds: 2_000_000)
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App {}\n",
+            rootURL: harness.root
+        )
+        #expect(harness.manager.languageServerStates["swift"] == .initializing)
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+
+        let didFail = await Self.waitForMainActorCondition {
+            if case .failed = harness.manager.languageServerStates["swift"] {
+                return true
+            }
+            return false
+        }
+
+        #expect(didFail)
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        #expect(!harness.process.isRunning)
+        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+            Issue.record("Expected initialize timeout to fail the language server")
+            return
+        }
+        #expect(message?.contains("initialize timed out") == true)
+    }
+
+    @Test
+    func pendingCompletionFailsExactlyOnceWhenServerTerminates() async throws {
+        let harness = makeLanguageServerHarness()
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App { let title = 1 }\n",
+            rootURL: harness.root
+        )
+        Self.emitSuccessfulInitialize(on: harness.process)
+        await Self.drainMainActorTasks()
+
+        var completionResult: Result<[LanguageServerCompletionItem], Error>?
+        var completionCount = 0
+        try harness.manager.completions(
+            fileURL: harness.source,
+            text: "struct App { let ti = 1 }\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 19),
+            rootURL: harness.root
+        ) { result in
+            completionCount += 1
+            completionResult = result
+        }
+
+        harness.process.terminate(exitCode: 9)
+        await Self.drainMainActorTasks()
+
+        #expect(completionCount == 1)
+        guard case .failure(let error)? = completionResult else {
+            Issue.record("Expected pending completion to fail when the server terminates")
+            return
+        }
+        #expect(error.localizedDescription.contains("exit code 9"))
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+    }
+
+    @Test
+    func requestTimeoutSendsCancellationAndReturnsFailure() async throws {
+        let harness = makeLanguageServerHarness(requestTimeoutNanoseconds: 2_000_000)
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App { let title = 1 }\n",
+            rootURL: harness.root
+        )
+        Self.emitSuccessfulInitialize(on: harness.process)
+        await Self.drainMainActorTasks()
+
+        var completionResult: Result<[LanguageServerCompletionItem], Error>?
+        try harness.manager.completions(
+            fileURL: harness.source,
+            text: "struct App { let ti = 1 }\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 19),
+            rootURL: harness.root
+        ) { completionResult = $0 }
+
+        let didComplete = await Self.waitForMainActorCondition {
+            completionResult != nil
+        }
+
+        #expect(didComplete)
+        guard case .failure(let error)? = completionResult else {
+            Issue.record("Expected completion timeout to return failure")
+            return
+        }
+        #expect(error.localizedDescription.contains("timed out"))
+        #expect(harness.process.sentData.compactMap(Self.framedJSON).contains { message in
+            message["method"] as? String == "$/cancelRequest"
+                && (message["params"] as? [String: Any])?["id"] as? String == "2"
+        })
+        #expect(harness.manager.languageServerStates["swift"] == .ready)
+    }
+
+    @Test
+    func didOpenWriteFailureFailsSessionAndRetriesWithFullOpen() async throws {
+        let harness = makeLanguageServerHarness()
+        harness.process.sendFailurePredicate = { data in
+            String(decoding: data, as: UTF8.self).contains("textDocument/didOpen")
+        }
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App {}\n",
+            rootURL: harness.root
+        )
+        Self.emitSuccessfulInitialize(on: harness.process)
+        await Self.drainMainActorTasks()
+
+        #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        #expect(!harness.process.isRunning)
+        guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
+            Issue.record("Expected didOpen transport failure to fail the session")
+            return
+        }
+        #expect(message?.contains("transport failed") == true)
+        #expect(!Self.framedMessages(harness.process.sentData).contains {
+            $0.contains("textDocument/didOpen")
+        })
+
+        harness.process.sendFailurePredicate = nil
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App { let retried = true }\n",
+            rootURL: harness.root
+        )
+        Self.emitSuccessfulInitialize(on: harness.process)
+        await Self.drainMainActorTasks()
+
+        let openMessages = Self.framedMessages(harness.process.sentData).filter {
+            $0.contains("textDocument/didOpen")
+        }
+        #expect(openMessages.count == 1)
+        #expect(openMessages[0].contains(#""version":1"#))
+        #expect(openMessages[0].contains("retried"))
+        #expect(harness.manager.languageServerStates["swift"] == .ready)
+    }
+
+    @Test
+    func providerStopAndReconfigurationClearOnlyOwnedDiagnostics() async throws {
+        let root = URL(fileURLWithPath: "/tmp/lithe-owned-diagnostics", isDirectory: true)
+        let swiftSource = root.appendingPathComponent("App.swift")
+        let goSource = root.appendingPathComponent("main.go")
+        let swiftDescriptor = LanguageProviderDescriptor(
+            id: "swift",
+            displayName: "Swift",
+            fileExtensions: ["swift"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "swift"
+        )
+        let goDescriptor = LanguageProviderDescriptor(
+            id: "go",
+            displayName: "Go",
+            fileExtensions: ["go"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "go"
+        )
+        let swiftProcess = RecordingRawProcessSession()
+        let goProcess = RecordingRawProcessSession()
+        let swiftSession = StdioLanguageServerSession(
+            executableURL: URL(fileURLWithPath: "/usr/bin/sourcekit-lsp"),
+            arguments: [],
+            environment: [:],
+            process: swiftProcess,
+            core: TestLspClientCore(diagnosticURL: swiftSource)
+        )
+        let goSession = StdioLanguageServerSession(
+            executableURL: URL(fileURLWithPath: "/usr/bin/gopls"),
+            arguments: [],
+            environment: [:],
+            process: goProcess,
+            core: TestLspClientCore(diagnosticURL: goSource)
+        )
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [swiftDescriptor, goDescriptor]),
+            runtimes: [
+                TestLanguageServerRuntime(descriptor: swiftDescriptor, session: swiftSession),
+                TestLanguageServerRuntime(descriptor: goDescriptor, session: goSession)
+            ]
+        )
+
+        try manager.synchronizeLanguageServer(for: swiftSource, text: "struct App {}\n", rootURL: root)
+        Self.emitSuccessfulInitialize(on: swiftProcess)
+        try manager.synchronizeLanguageServer(for: goSource, text: "package main\n", rootURL: root)
+        Self.emitSuccessfulInitialize(on: goProcess)
+        await Self.drainMainActorTasks()
+        Self.emitPublishDiagnostics(on: swiftProcess)
+        Self.emitPublishDiagnostics(on: goProcess)
+        await Self.drainMainActorTasks()
+
+        #expect(manager.diagnostics(for: "swift")[swiftSource]?.count == 1)
+        #expect(manager.diagnostics(for: "go")[goSource]?.count == 1)
+        #expect(manager.diagnostics.count == 2)
+
+        manager.stopLanguageServer(providerID: "swift")
+        #expect(manager.diagnostics(for: "swift").isEmpty)
+        #expect(manager.diagnostics(for: "go")[goSource]?.count == 1)
+        #expect(manager.diagnostics.count == 1)
+
+        goProcess.terminate(exitCode: 7)
+        await Self.drainMainActorTasks()
+        #expect(manager.diagnostics(for: "go").isEmpty)
+        #expect(manager.diagnostics.isEmpty)
+
+        try manager.synchronizeLanguageServer(for: goSource, text: "package main\n", rootURL: root)
+        Self.emitSuccessfulInitialize(on: goProcess)
+        await Self.drainMainActorTasks()
+        Self.emitPublishDiagnostics(on: goProcess)
+        await Self.drainMainActorTasks()
+        #expect(manager.diagnostics(for: "go")[goSource]?.count == 1)
+
+        let reconfiguredGo = LanguageProviderDescriptor(
+            id: goDescriptor.id,
+            displayName: "Go (workspace override)",
+            fileExtensions: goDescriptor.fileExtensions,
+            fileNames: goDescriptor.fileNames,
+            fileNamePrefixes: goDescriptor.fileNamePrefixes,
+            capabilities: goDescriptor.capabilities,
+            activationPolicy: goDescriptor.activationPolicy,
+            languageIdentifier: goDescriptor.languageIdentifier,
+            languageIdentifiersByExtension: goDescriptor.languageIdentifiersByExtension,
+            languageIdentifiersByFileName: goDescriptor.languageIdentifiersByFileName,
+            languageServerLaunch: goDescriptor.languageServerLaunch,
+            languageServerInstallation: goDescriptor.languageServerInstallation
+        )
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [swiftDescriptor, reconfiguredGo]))
+
+        #expect(manager.diagnostics(for: "go").isEmpty)
+        #expect(manager.diagnostics.isEmpty)
+    }
+
+    @Test
+    func languageServerRuntimeStartsFromRustCatalogLaunchMetadata() async throws {
+        let descriptor = LanguageProviderDescriptor(
+            id: "swift",
+            displayName: "Swift",
+            fileExtensions: ["swift"],
+            capabilities: [.languageServer, .formatting],
+            activationPolicy: .onDemand,
+            languageIdentifier: "swift",
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["sourcekit-lsp"],
+                arguments: [],
+                environment: ["SOURCEKIT_TOOLCHAIN": "custom"],
+                initializationOptions: .object(["indexing": .bool(true)])
+            )
+        )
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let process = RecordingRawProcessSession()
+        let initializationRecorder = TestLspInitializationRecorder()
+        let root = URL(fileURLWithPath: "/tmp/swift-project", isDirectory: true)
+        let source = root.appendingPathComponent("App.swift")
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: runtimeService,
+            processFactory: { process },
+            languageServerLaunch: descriptor.languageServerLaunch,
+            languageServerCore: TestLspClientCore(
+                diagnosticURL: source,
+                initializationRecorder: initializationRecorder
+            )
+        )
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            runtimes: [runtime]
+        )
+
+        try manager.synchronizeLanguageServer(
+            for: source,
+            text: "struct App {}\n",
+            rootURL: root
+        )
+        let startRequest = try #require(process.requests.first)
+        #expect(startRequest.executablePath == "/usr/bin/sourcekit-lsp")
+        #expect(startRequest.arguments.isEmpty)
+        #expect(startRequest.environment?["SOURCEKIT_TOOLCHAIN"] == "custom")
+        #expect(initializationRecorder.options == .object(["indexing": .bool(true)]))
+        #expect(initializationRecorder.actions == ["create"])
+        #expect(manager.activeLanguageServerIDs.isEmpty)
+        #expect(manager.languageServerStates["swift"] == .initializing)
+        let firstFrameData = try #require(process.sentData.first)
+        let firstFrame = try #require(String(data: firstFrameData, encoding: .utf8))
+        #expect(firstFrame.hasPrefix("Content-Length: "))
+        #expect(firstFrame.contains("\r\n\r\n{\"jsonrpc\""))
+        #expect(firstFrame.contains("\"method\":\"initialize\""))
+
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": [
+                "capabilities": [
+                    "hoverProvider": true,
+                    "completionProvider": [:]
+                ],
+                "serverInfo": [
+                    "name": "sourcekit-lsp",
+                    "version": "6.2"
+                ]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(manager.activeLanguageServerIDs == ["swift"])
+        #expect(manager.languageServerStates["swift"] == .ready)
+        #expect(manager.languageServerInfos["swift"] == LanguageServerInfo(
+            name: "sourcekit-lsp",
+            version: "6.2"
         ))
-        let runtime = TestLanguageProviderRuntime(descriptor: descriptor)
-        let manager = LanguageToolingSessionManager(catalog: .standard, runtimes: [runtime])
-        let firstRoot = URL(fileURLWithPath: "/tmp/first-project")
-        let secondRoot = URL(fileURLWithPath: "/tmp/second-project")
+        #expect(manager.languageServerFeatures["swift"]?.contains(.completion) == true)
+        #expect(manager.languageServerFeatures["swift"]?.contains(.hover) == true)
+        #expect(initializationRecorder.actions.contains("applyServerMessage"))
+        #expect(initializationRecorder.actions.contains("openDocument"))
 
-        let first = try manager.activateLanguageServer(
-            for: firstRoot.appendingPathComponent("main.go"),
-            rootURL: firstRoot
-        )
-        first.stop()
-        let restarted = try manager.activateLanguageServer(
-            for: firstRoot.appendingPathComponent("other.go"),
-            rootURL: firstRoot
-        )
-        let moved = try manager.activateLanguageServer(
-            for: secondRoot.appendingPathComponent("main.go"),
-            rootURL: secondRoot
-        )
+        let framedOutput = process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+        #expect(framedOutput.contains("\"method\":\"initialized\""))
+        #expect(framedOutput.contains("\"method\":\"textDocument/didOpen\""))
 
-        #expect(first !== restarted)
-        #expect(restarted !== moved)
-        #expect(runtime.makeCount == 3)
-        #expect(runtime.languageServers.map(\.startCount) == [1, 1, 1])
-        #expect(runtime.languageServers[1].stopCount == 1)
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": [
+                "uri": source.standardizedFileURL.absoluteString,
+                "diagnostics": [[
+                    "range": [
+                        "start": ["line": 0, "character": 7],
+                        "end": ["line": 0, "character": 10]
+                    ],
+                    "severity": 2,
+                    "source": "sourcekit-lsp",
+                    "message": "example warning"
+                ]]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(manager.diagnostics[source.standardizedFileURL]?.first?.message == "example warning")
+
+        var completionsResult: Result<[LanguageServerCompletionItem], Error>?
+        try manager.completions(
+            fileURL: source,
+            text: "struct App { let tit }\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 20),
+            rootURL: root
+        ) { result in
+            completionsResult = result
+        }
+        #expect(process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+            .contains("\"method\":\"textDocument/completion\""))
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "2",
+            "result": [
+                "items": [[
+                    "label": "title",
+                    "insertText": "title",
+                    "kind": 6,
+                    "detail": "String"
+                ]]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try completionsResult?.get().first?.label == "title")
+
+        var completionResolveResult: Result<LanguageServerCompletionItem, Error>?
+        try manager.resolveCompletion(
+            LanguageServerCompletionItem(
+                label: "title",
+                detail: nil,
+                documentation: nil,
+                insertText: "title",
+                sortText: nil,
+                filterText: nil,
+                kind: 6,
+                textEdit: nil,
+                additionalTextEdits: [],
+                data: .object(["id": .string("completion-1")])
+            ),
+            fileURL: source,
+            text: "struct App { let ti = 1 }\n",
+            rootURL: root
+        ) { result in
+            completionResolveResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "6",
+            "result": [
+                "label": "title",
+                "insertText": "title",
+                "kind": 6,
+                "detail": "String",
+                "documentation": "Resolved docs"
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try completionResolveResult?.get().documentation == "Resolved docs")
+
+        var renameResult: Result<LanguageServerWorkspaceEdit, Error>?
+        try manager.rename(
+            fileURL: source,
+            text: "struct App { let title = 1 }\n",
+            position: LanguageServerPosition(line: 0, utf16Column: 17),
+            newName: "headline",
+            rootURL: root
+        ) { result in
+            renameResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "3",
+            "result": [
+                "changes": [
+                    source.standardizedFileURL.absoluteString: [[
+                        "range": [
+                            "start": ["line": 0, "character": 17],
+                            "end": ["line": 0, "character": 22]
+                        ],
+                        "newText": "headline"
+                    ]]
+                ]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try renameResult?.get().changes[source.standardizedFileURL]?.first?.newText == "headline")
+
+        var formatResult: Result<[LanguageServerTextEdit], Error>?
+        try manager.format(
+            fileURL: source,
+            text: "struct App{ }\n",
+            rootURL: root
+        ) { result in
+            formatResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "4",
+            "result": [[
+                "range": [
+                    "start": ["line": 0, "character": 10],
+                    "end": ["line": 0, "character": 10]
+                ],
+                "newText": " "
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try formatResult?.get().first?.newText == " ")
+
+        var actionsResult: Result<[LanguageServerCodeAction], Error>?
+        try manager.codeActions(
+            fileURL: source,
+            text: "struct App{ }\n",
+            range: LanguageServerRange(
+                start: LanguageServerPosition(line: 0, utf16Column: 0),
+                end: LanguageServerPosition(line: 0, utf16Column: 0)
+            ),
+            diagnostics: [
+                LanguageServerDiagnostic(
+                    range: LanguageServerRange(
+                        start: LanguageServerPosition(line: 0, utf16Column: 7),
+                        end: LanguageServerPosition(line: 0, utf16Column: 10)
+                    ),
+                    severity: 2,
+                    message: "example warning",
+                    source: "sourcekit-lsp",
+                    code: nil
+                )
+            ],
+            rootURL: root
+        ) { result in
+            actionsResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "5",
+            "result": [[
+                "title": "Fix warning",
+                "kind": "quickfix",
+                "isPreferred": true,
+                "command": [
+                    "title": "Apply fix",
+                    "command": "source.fix",
+                    "arguments": [["uri": source.standardizedFileURL.absoluteString]]
+                ],
+                "data": ["token": "fix-1"]
+            ]]
+        ])
+        await Self.drainMainActorTasks()
+        let actions = try actionsResult?.get()
+        #expect(actions?.first?.title == "Fix warning")
+        #expect(actions?.first?.command?.command == "source.fix")
+
+        var actionResolveResult: Result<LanguageServerCodeAction, Error>?
+        try manager.resolveCodeAction(
+            LanguageServerCodeAction(
+                title: "Fix warning",
+                kind: "quickfix",
+                isPreferred: true,
+                edit: nil,
+                command: nil,
+                data: .object(["token": .string("fix-1")])
+            ),
+            fileURL: source,
+            text: "struct App{ }\n",
+            rootURL: root
+        ) { result in
+            actionResolveResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "7",
+            "result": [
+                "title": "Fix warning",
+                "kind": "quickfix",
+                "edit": [
+                    "changes": [
+                        source.standardizedFileURL.absoluteString: [[
+                            "range": [
+                                "start": ["line": 0, "character": 10],
+                                "end": ["line": 0, "character": 10]
+                            ],
+                            "newText": " "
+                        ]]
+                    ]
+                ],
+                "data": ["token": "fix-1"]
+            ]
+        ])
+        await Self.drainMainActorTasks()
+        #expect(try actionResolveResult?.get().edit?.changes[source.standardizedFileURL]?.first?.newText == " ")
+
+        var executeResult: Result<Void, Error>?
+        try manager.execute(
+            LanguageServerCommand(
+                title: "Apply fix",
+                command: "source.fix",
+                arguments: [.object(["uri": .string(source.standardizedFileURL.absoluteString)])]
+            ),
+            fileURL: source,
+            text: "struct App{ }\n",
+            rootURL: root
+        ) { result in
+            executeResult = result
+        }
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "8",
+            "result": NSNull()
+        ])
+        await Self.drainMainActorTasks()
+        #expect(executeResult != nil)
+        try executeResult?.get()
+
+        manager.closeDocument(source)
+        #expect(process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+            .contains("\"method\":\"textDocument/didClose\""))
+        manager.stopLanguageServer(providerID: "swift")
+        #expect(process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+            .contains("\"method\":\"shutdown\""))
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "9",
+            "result": NSNull()
+        ])
+        await Self.drainMainActorTasks()
+        let shutdownOutput = process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
+        #expect(shutdownOutput.contains("\"method\":\"exit\""))
+        #expect(!process.isRunning)
+        #expect(initializationRecorder.actions.contains("closeDocument"))
+        #expect(initializationRecorder.actions.contains("shutdown"))
+        #expect(initializationRecorder.actions.filter { $0 == "destroy" }.count == 1)
     }
 
     @Test
@@ -1015,497 +1767,6 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func stdioLanguageProvidersInitializeOnlyWhenActivated() async throws {
-        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
-            for: URL(fileURLWithPath: "/tmp/main.go")
-        ))
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let process = RecordingRawProcessSession()
-        let runtime = StdioLanguageProviderRuntime(
-            descriptor: descriptor,
-            runtimeService: runtimeService,
-            processFactory: { process },
-            launch: StdioLanguageServerLaunch(executableNames: ["gopls"], arguments: [])
-        )
-        let manager = LanguageToolingSessionManager(runtimes: [runtime])
-        let root = URL(fileURLWithPath: "/tmp/go-project", isDirectory: true)
-
-        #expect(process.requests.isEmpty)
-        #expect(manager.supportsGenericEditing(for: root.appendingPathComponent("main.go")))
-        #expect(process.sentData.isEmpty)
-        let session = try manager.activateLanguageServer(
-            for: root.appendingPathComponent("main.go"),
-            rootURL: root
-        )
-        let request = try #require(process.requests.first)
-        #expect(request.executablePath == "/usr/bin/gopls")
-        #expect(request.keepsStandardInputOpen)
-        let initialize = try #require(Self.framedJSON(process.sentData.first))
-        #expect(initialize["method"] as? String == "initialize")
-        #expect(initialize["id"] as? Int == 1)
-        #expect(!session.isReady)
-        try manager.synchronizeLanguageServer(
-            for: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() {}\n",
-            rootURL: root
-        )
-
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": ["capabilities": [
-                "definitionProvider": true,
-                "referencesProvider": true,
-                "implementationProvider": true,
-                "hoverProvider": true,
-                "completionProvider": ["resolveProvider": true],
-                "renameProvider": ["prepareProvider": true],
-                "documentFormattingProvider": true,
-                "codeActionProvider": ["resolveProvider": true],
-                "executeCommandProvider": ["commands": ["gopls.organizeImports"]]
-            ]]
-        ], splitAt: 12)
-        await Task.yield()
-        await Task.yield()
-
-        #expect(session.isReady)
-        let features = manager.features(for: root.appendingPathComponent("main.go"))
-        #expect(features.contains([.definition, .completion, .completionResolve]))
-        #expect(features.contains([.rename, .formatting, .codeActions, .codeActionResolve]))
-        let initialized = try #require(Self.framedJSON(process.sentData.dropFirst().first))
-        #expect(initialized["method"] as? String == "initialized")
-        let didOpen = try #require(Self.framedJSON(process.sentData.last))
-        #expect(didOpen["method"] as? String == "textDocument/didOpen")
-        let openParameters = try #require(didOpen["params"] as? [String: Any])
-        let openedDocument = try #require(openParameters["textDocument"] as? [String: Any])
-        #expect(openedDocument["languageId"] as? String == "go")
-
-        try manager.synchronizeLanguageServer(
-            for: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { broken }\n",
-            rootURL: root
-        )
-        let didChange = try #require(Self.framedJSON(process.sentData.last))
-        #expect(didChange["method"] as? String == "textDocument/didChange")
-        let changeParameters = try #require(didChange["params"] as? [String: Any])
-        let changedDocument = try #require(changeParameters["textDocument"] as? [String: Any])
-        #expect(changedDocument["version"] as? Int == 2)
-
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "method": "textDocument/publishDiagnostics",
-            "params": [
-                "uri": root.appendingPathComponent("main.go").absoluteString,
-                "diagnostics": [[
-                    "range": [
-                        "start": ["line": 1, "character": 14],
-                        "end": ["line": 1, "character": 20]
-                    ],
-                    "severity": 1,
-                    "source": "gopls",
-                    "message": "undefined: broken"
-                ]]
-            ]
-        ])
-        await Task.yield()
-        await Task.yield()
-        let diagnostics = manager.diagnostics[root.appendingPathComponent("main.go").standardizedFileURL]
-        #expect(diagnostics?.first?.message == "undefined: broken")
-
-        var navigationResult: Result<[LanguageServerLocation], Error>?
-        try manager.navigate(
-            method: "textDocument/definition",
-            fileURL: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { broken }\n",
-            position: LanguageServerPosition(line: 1, utf16Column: 16),
-            rootURL: root
-        ) { navigationResult = $0 }
-        let definitionRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(definitionRequest["method"] as? String == "textDocument/definition")
-        let definitionID = try #require(definitionRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": definitionID,
-            "result": [[
-                "targetUri": root.appendingPathComponent("helper.go").absoluteString,
-                "targetRange": [
-                    "start": ["line": 4, "character": 0],
-                    "end": ["line": 4, "character": 6]
-                ],
-                "targetSelectionRange": [
-                    "start": ["line": 4, "character": 2],
-                    "end": ["line": 4, "character": 6]
-                ]
-            ]]
-        ])
-        await Self.drainMainActorTasks()
-        let definition = try #require(try navigationResult?.get().first)
-        #expect(definition.url == root.appendingPathComponent("helper.go").standardizedFileURL)
-        #expect(definition.range.start == LanguageServerPosition(line: 4, utf16Column: 2))
-
-        var hoverResult: Result<LanguageServerHover?, Error>?
-        try manager.hover(
-            fileURL: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { broken }\n",
-            position: LanguageServerPosition(line: 1, utf16Column: 16),
-            rootURL: root
-        ) { hoverResult = $0 }
-        let hoverRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(hoverRequest["method"] as? String == "textDocument/hover")
-        let hoverID = try #require(hoverRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": hoverID,
-            "result": [
-                "contents": ["kind": "markdown", "value": "```go\nfunc broken()\n```"],
-                "range": [
-                    "start": ["line": 1, "character": 14],
-                    "end": ["line": 1, "character": 20]
-                ]
-            ]
-        ])
-        await Self.drainMainActorTasks()
-        let hover = try #require(try hoverResult?.get())
-        #expect(hover.isMarkdown)
-        #expect(hover.contents.contains("func broken()"))
-        #expect(hover.range?.start == LanguageServerPosition(line: 1, utf16Column: 14))
-
-        var completionResult: Result<[LanguageServerCompletionItem], Error>?
-        try manager.completions(
-            fileURL: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { bro }\n",
-            position: LanguageServerPosition(line: 1, utf16Column: 17),
-            rootURL: root
-        ) { completionResult = $0 }
-        let completionRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(completionRequest["method"] as? String == "textDocument/completion")
-        let completionID = try #require(completionRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": completionID,
-            "result": [
-                "isIncomplete": false,
-                "items": [
-                    [
-                        "label": "brokenValue",
-                        "detail": "var brokenValue int",
-                        "documentation": ["kind": "markdown", "value": "A test value"],
-                        "insertText": "brokenValue",
-                        "sortText": "2"
-                    ],
-                    [
-                        "label": "broken",
-                        "textEdit": [
-                            "range": [
-                                "start": ["line": 1, "character": 14],
-                                "end": ["line": 1, "character": 17]
-                            ],
-                            "newText": "broken()"
-                        ],
-                        "additionalTextEdits": [[
-                            "range": [
-                                "start": ["line": 1, "character": 0],
-                                "end": ["line": 1, "character": 0]
-                            ],
-                            "newText": "// imported\n"
-                        ]],
-                        "data": ["token": 17, "lazy": true],
-                        "sortText": "1"
-                    ]
-                ]
-            ]
-        ])
-        await Self.drainMainActorTasks()
-        let completions = try #require(try completionResult?.get())
-        #expect(completions.map(\.label) == ["broken", "brokenValue"])
-        #expect(completions.first?.insertText == "broken()")
-        #expect(completions.first?.textEdit?.range.start.utf16Column == 14)
-        #expect(completions.first?.additionalTextEdits.first?.newText == "// imported\n")
-        #expect(completions.first?.data == .object(["token": .integer(17), "lazy": .bool(true)]))
-        #expect(completions.last?.documentation == "A test value")
-
-        let unresolvedCompletion = try #require(completions.first)
-        var resolvedCompletionResult: Result<LanguageServerCompletionItem, Error>?
-        try manager.resolveCompletion(
-            unresolvedCompletion,
-            fileURL: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { bro }\n",
-            rootURL: root
-        ) { resolvedCompletionResult = $0 }
-        let resolveCompletionRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(resolveCompletionRequest["method"] as? String == "completionItem/resolve")
-        let resolveCompletionID = try #require(resolveCompletionRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0", "id": resolveCompletionID,
-            "result": [
-                "label": "broken",
-                "detail": "resolved function",
-                "textEdit": [
-                    "range": [
-                        "start": ["line": 1, "character": 14],
-                        "end": ["line": 1, "character": 17]
-                    ],
-                    "newText": "broken()"
-                ],
-                "data": ["token": 17, "lazy": true]
-            ]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(try resolvedCompletionResult?.get().detail == "resolved function")
-
-        var renameResult: Result<LanguageServerWorkspaceEdit, Error>?
-        try manager.rename(
-            fileURL: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { broken() }\n",
-            position: LanguageServerPosition(line: 1, utf16Column: 19),
-            newName: "fixed",
-            rootURL: root
-        ) { renameResult = $0 }
-        let renameRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(renameRequest["method"] as? String == "textDocument/rename")
-        let renameID = try #require(renameRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0", "id": renameID,
-            "result": ["changes": [
-                root.appendingPathComponent("main.go").absoluteString: [[
-                    "range": [
-                        "start": ["line": 1, "character": 17],
-                        "end": ["line": 1, "character": 23]
-                    ],
-                    "newText": "fixed"
-                ]]
-            ]]
-        ])
-        await Self.drainMainActorTasks()
-        let rename = try #require(try renameResult?.get())
-        #expect(rename.changes[root.appendingPathComponent("main.go").standardizedFileURL]?.first?.newText == "fixed")
-
-        var formattingResult: Result<[LanguageServerTextEdit], Error>?
-        try manager.format(
-            fileURL: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { broken() }\n",
-            rootURL: root
-        ) { formattingResult = $0 }
-        let formattingRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(formattingRequest["method"] as? String == "textDocument/formatting")
-        let formattingID = try #require(formattingRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0", "id": formattingID,
-            "result": [[
-                "range": [
-                    "start": ["line": 1, "character": 0],
-                    "end": ["line": 1, "character": 29]
-                ],
-                "newText": "func main() {\n\tbroken()\n}"
-            ]]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(try formattingResult?.get().first?.newText.contains("broken()") == true)
-
-        var actionsResult: Result<[LanguageServerCodeAction], Error>?
-        try manager.codeActions(
-            fileURL: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { broken() }\n",
-            range: LanguageServerRange(
-                start: LanguageServerPosition(line: 1, utf16Column: 17),
-                end: LanguageServerPosition(line: 1, utf16Column: 23)
-            ),
-            diagnostics: [LanguageServerDiagnostic(
-                range: LanguageServerRange(
-                    start: LanguageServerPosition(line: 1, utf16Column: 17),
-                    end: LanguageServerPosition(line: 1, utf16Column: 23)
-                ),
-                severity: 1,
-                message: "undefined: broken",
-                source: "gopls",
-                code: nil
-            )],
-            rootURL: root
-        ) { actionsResult = $0 }
-        let actionsRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(actionsRequest["method"] as? String == "textDocument/codeAction")
-        let actionsID = try #require(actionsRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0", "id": actionsID,
-            "result": [[
-                "title": "Fix symbol",
-                "kind": "quickfix",
-                "isPreferred": true,
-                "edit": ["changes": [
-                    root.appendingPathComponent("main.go").absoluteString: []
-                ]],
-                "command": [
-                    "title": "Organize imports",
-                    "command": "gopls.organizeImports",
-                    "arguments": [["uri": root.appendingPathComponent("main.go").absoluteString]]
-                ],
-                "data": ["action": 4]
-            ]]
-        ])
-        await Self.drainMainActorTasks()
-        let action = try #require(try actionsResult?.get().first)
-        #expect(action.isPreferred)
-        #expect(action.data == .object(["action": .integer(4)]))
-
-        var resolvedActionResult: Result<LanguageServerCodeAction, Error>?
-        try manager.resolveCodeAction(
-            action,
-            fileURL: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { broken() }\n",
-            rootURL: root
-        ) { resolvedActionResult = $0 }
-        let resolveActionRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(resolveActionRequest["method"] as? String == "codeAction/resolve")
-        let resolveActionID = try #require(resolveActionRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0", "id": resolveActionID,
-            "result": [
-                "title": "Fix symbol",
-                "kind": "quickfix",
-                "command": [
-                    "title": "Organize imports",
-                    "command": "gopls.organizeImports",
-                    "arguments": [["uri": root.appendingPathComponent("main.go").absoluteString]]
-                ],
-                "data": ["action": 4]
-            ]
-        ])
-        await Self.drainMainActorTasks()
-        let resolvedAction = try #require(try resolvedActionResult?.get())
-        let actionCommand = try #require(resolvedAction.command)
-        #expect(actionCommand.command == "gopls.organizeImports")
-        #expect(actionCommand.arguments.first == .object([
-            "uri": .string(root.appendingPathComponent("main.go").absoluteString)
-        ]))
-
-        var commandResult: Result<Void, Error>?
-        try manager.execute(
-            actionCommand,
-            fileURL: root.appendingPathComponent("main.go"),
-            text: "package main\nfunc main() { broken() }\n",
-            rootURL: root
-        ) { commandResult = $0 }
-        let commandRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(commandRequest["method"] as? String == "workspace/executeCommand")
-        let commandID = try #require(commandRequest["id"] as? Int)
-        process.emitJSON(["jsonrpc": "2.0", "id": commandID, "result": NSNull()])
-        await Self.drainMainActorTasks()
-        #expect(commandResult != nil)
-        _ = try commandResult?.get()
-
-        manager.closeDocument(root.appendingPathComponent("main.go"))
-        let didClose = try #require(Self.framedJSON(process.sentData.last))
-        #expect(didClose["method"] as? String == "textDocument/didClose")
-        #expect(manager.diagnostics[root.appendingPathComponent("main.go").standardizedFileURL] == nil)
-    }
-
-    @Test
-    func languageServerDynamicRegistrationsUpdateFeaturesAndRequestGuards() async throws {
-        let source = URL(fileURLWithPath: "/tmp/dynamic-go-project/main.go")
-        let root = source.deletingLastPathComponent()
-        let descriptor = try #require(LanguageProviderCatalog.standard.provider(for: source))
-        let process = RecordingRawProcessSession()
-        let runtime = StdioLanguageProviderRuntime(
-            descriptor: descriptor,
-            runtimeService: ProjectRuntimeService(
-                runtimeLocator: RunTestRuntimeLocator(),
-                store: RunTestKeyValueStore()
-            ),
-            processFactory: { process },
-            launch: StdioLanguageServerLaunch(executableNames: ["gopls"], arguments: [])
-        )
-        let manager = LanguageToolingSessionManager(runtimes: [runtime])
-
-        _ = try manager.activateLanguageServer(for: source, rootURL: root)
-        let initialize = try #require(Self.framedJSON(process.sentData.first))
-        let capabilities = try #require(initialize["params"] as? [String: Any])
-        let clientCapabilities = try #require(capabilities["capabilities"] as? [String: Any])
-        let textDocument = try #require(clientCapabilities["textDocument"] as? [String: Any])
-        let formatting = try #require(textDocument["formatting"] as? [String: Any])
-        #expect(formatting["dynamicRegistration"] as? Bool == true)
-        let initializeID = try #require(initialize["id"] as? Int)
-
-        var earlyFormattingResult: Result<[LanguageServerTextEdit], Error>?
-        try manager.format(fileURL: source, text: "package main\n", rootURL: root) {
-            earlyFormattingResult = $0
-        }
-        #expect(process.sentData.count == 1)
-
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": initializeID,
-            "result": ["capabilities": ["definitionProvider": true]]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(manager.features(for: source) == .definition)
-        #expect(throws: (any Error).self) {
-            _ = try earlyFormattingResult?.get()
-        }
-        #expect(!process.sentData.compactMap(Self.framedJSON).contains {
-            $0["method"] as? String == "textDocument/formatting"
-        })
-
-        let countBeforeRejectedFormat = process.sentData.count
-        #expect(throws: LanguageToolingSessionError.self) {
-            try manager.format(fileURL: source, text: "package main\n", rootURL: root) { _ in }
-        }
-        #expect(process.sentData.count == countBeforeRejectedFormat)
-
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": 70,
-            "method": "client/registerCapability",
-            "params": ["registrations": [
-                [
-                    "id": "formatting-registration",
-                    "method": "textDocument/formatting",
-                    "registerOptions": [:]
-                ],
-                [
-                    "id": "completion-registration",
-                    "method": "textDocument/completion",
-                    "registerOptions": ["resolveProvider": true]
-                ]
-            ]]
-        ])
-        await Self.drainMainActorTasks()
-        let registeredFeatures = manager.features(for: source)
-        #expect(registeredFeatures.contains([.definition, .formatting, .completion, .completionResolve]))
-        let registrationResponse = try #require(Self.framedJSON(process.sentData.last))
-        #expect(registrationResponse["id"] as? Int == 70)
-        #expect(registrationResponse["result"] is NSNull)
-
-        try manager.format(fileURL: source, text: "package main\n", rootURL: root) { _ in }
-        let formattingRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(formattingRequest["method"] as? String == "textDocument/formatting")
-
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": 71,
-            "method": "client/unregisterCapability",
-            "params": ["unregisterations": [[
-                "id": "formatting-registration",
-                "method": "textDocument/formatting"
-            ]]]
-        ])
-        await Self.drainMainActorTasks()
-        let unregisteredFeatures = manager.features(for: source)
-        #expect(!unregisteredFeatures.contains(.formatting))
-        #expect(unregisteredFeatures.contains([.definition, .completion, .completionResolve]))
-        let unregistrationResponse = try #require(Self.framedJSON(process.sentData.last))
-        #expect(unregistrationResponse["id"] as? Int == 71)
-
-        let countBeforeSecondRejectedFormat = process.sentData.count
-        #expect(throws: LanguageToolingSessionError.self) {
-            try manager.format(fileURL: source, text: "package main\n", rootURL: root) { _ in }
-        }
-        #expect(process.sentData.count == countBeforeSecondRejectedFormat)
-    }
-
-    @Test
     func stdioDebugAdapterImplementsLaunchBreakpointsInspectionAndControl() async throws {
         let descriptor = try #require(LanguageProviderCatalog.standard.provider(
             for: URL(fileURLWithPath: "/tmp/main.py")
@@ -1519,10 +1780,6 @@ struct RunConfigurationIntegrationTests {
             descriptor: descriptor,
             runtimeService: runtimeService,
             processFactory: { process },
-            launch: StdioLanguageServerLaunch(
-                executableNames: ["pyright-langserver"],
-                arguments: ["--stdio"]
-            ),
             debugLaunch: StdioDebugAdapterLaunch(
                 adapterID: "python",
                 executableNames: ["python3"],
@@ -1821,7 +2078,6 @@ struct RunConfigurationIntegrationTests {
             descriptor: descriptor,
             runtimeService: runtimeService,
             processFactory: { process },
-            launch: StdioLanguageServerLaunch(executableNames: ["pyright-langserver"], arguments: ["--stdio"]),
             debugLaunch: StdioDebugAdapterLaunch(
                 adapterID: "python",
                 executableNames: ["python3"],
@@ -2251,7 +2507,6 @@ struct RunConfigurationIntegrationTests {
         #expect(report.javaHomePath == "/toolchains/jdk")
         #expect(report.jdbExecutablePath == "/toolchains/jdk/bin/jdb")
         #expect(!report.status.blocksJavaRun)
-        #expect(!report.status.blocksJavaEditing)
     }
 
     @Test
@@ -2267,185 +2522,7 @@ struct RunConfigurationIntegrationTests {
         let report = try #require(runtime.javaEnvironmentReport)
         #expect(report.status == .jdkMissing)
         #expect(report.status.blocksJavaRun)
-        #expect(report.status.blocksJavaEditing)
         #expect(report.recovery.contains("JAVA_HOME"))
-    }
-
-    @Test
-    func javaLanguageServerUsesTheSameProjectJDKWithSpaces() throws {
-        let root = URL(fileURLWithPath: "/tmp/lithe-language-toolchain", isDirectory: true)
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore(),
-            toolchainSource: RecordingToolchainSource(selection: ProjectToolchainSelection(
-                javaHomePath: "/local/JDK 21",
-                mavenExecutablePath: "",
-                mavenJavaHomePath: ""
-            ))
-        )
-        runtime.openProject(at: root)
-        let process = RecordingRawProcessSession()
-        let service = JavaLanguageService(
-            runtimeService: runtime,
-            process: process,
-            archiveReader: EmptyArchiveEntryReader(),
-            fileStorage: RunTestFileStorage(),
-            javaMavenOperations: RunTestJavaMavenOperations()
-        )
-
-        service.prepare(for: root)
-
-        let request = try #require(process.requests.first)
-        #expect(request.executablePath == "/toolchains/jdtls")
-        #expect(request.arguments.contains("--java-executable"))
-        #expect(request.arguments.contains("/local/JDK 21/bin/java"))
-    }
-
-    @Test
-    func javaLanguageServerParticipatesInTheGenericOnDemandLifecycle() async throws {
-        let root = URL(fileURLWithPath: "/tmp/lithe-generic-java-lsp", isDirectory: true)
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        runtime.openProject(at: root)
-        let process = RecordingRawProcessSession()
-        let service = JavaLanguageService(
-            runtimeService: runtime,
-            process: process,
-            archiveReader: EmptyArchiveEntryReader(),
-            fileStorage: RunTestFileStorage(),
-            javaMavenOperations: RunTestJavaMavenOperations()
-        )
-        let provider = JavaLanguageProviderRuntime(service: service)
-        let manager = LanguageToolingSessionManager(runtimes: [provider])
-
-        #expect(process.requests.isEmpty)
-        let source = root.appendingPathComponent("src/Main.java")
-        #expect(manager.supportsGenericEditing(for: source))
-        _ = try manager.activateLanguageServer(
-            for: source,
-            rootURL: root
-        )
-        #expect(process.requests.count == 1)
-        #expect(manager.activeLanguageServerIDs == ["java"])
-
-        let initialize = try #require(Self.framedJSON(process.sentData.first))
-        let initializeID = try #require(initialize["id"] as? Int)
-        let initializeParameters = try #require(initialize["params"] as? [String: Any])
-        let clientCapabilities = try #require(initializeParameters["capabilities"] as? [String: Any])
-        let textDocumentCapabilities = try #require(clientCapabilities["textDocument"] as? [String: Any])
-        let formattingCapability = try #require(textDocumentCapabilities["formatting"] as? [String: Any])
-        #expect(formattingCapability["dynamicRegistration"] as? Bool == true)
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": initializeID,
-            "result": ["capabilities": [
-                "definitionProvider": true,
-                "renameProvider": true,
-                "codeActionProvider": ["resolveProvider": true]
-            ]]
-        ])
-        await Self.drainMainActorTasks()
-        let javaFeatures = manager.features(for: source)
-        #expect(javaFeatures.contains([.definition, .rename, .codeActions, .codeActionResolve]))
-        #expect(!javaFeatures.contains(.formatting))
-
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": 501,
-            "method": "client/registerCapability",
-            "params": ["registrations": [[
-                "id": "java-formatting",
-                "method": "textDocument/formatting",
-                "registerOptions": [:]
-            ]]]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(manager.features(for: source).contains(.formatting))
-        #expect(Self.framedJSON(process.sentData.last)?["id"] as? Int == 501)
-
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": 502,
-            "method": "client/unregisterCapability",
-            "params": ["unregistrations": [[
-                "id": "java-formatting",
-                "method": "textDocument/formatting"
-            ]]]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(!manager.features(for: source).contains(.formatting))
-        #expect(Self.framedJSON(process.sentData.last)?["id"] as? Int == 502)
-
-        let countBeforeRejectedFormat = process.sentData.count
-        #expect(throws: LanguageToolingSessionError.self) {
-            try manager.format(fileURL: source, text: "class Main {}\n", rootURL: root) { _ in }
-        }
-        #expect(process.sentData.count == countBeforeRejectedFormat)
-
-        let text = "class Main { void oldName() {} }\n"
-        try manager.synchronizeLanguageServer(for: source, text: text, rootURL: root)
-        #expect(Self.framedJSON(process.sentData.last)?["method"] as? String == "textDocument/didOpen")
-
-        var renameResult: Result<LanguageServerWorkspaceEdit, Error>?
-        try manager.rename(
-            fileURL: source,
-            text: text,
-            position: LanguageServerPosition(line: 0, utf16Column: 20),
-            newName: "newName",
-            rootURL: root
-        ) { renameResult = $0 }
-        let renameRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(renameRequest["method"] as? String == "textDocument/rename")
-        let renameID = try #require(renameRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": renameID,
-            "result": ["changes": [source.absoluteString: [[
-                "range": [
-                    "start": ["line": 0, "character": 18],
-                    "end": ["line": 0, "character": 25]
-                ],
-                "newText": "newName"
-            ]]]]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(try renameResult?.get().changes[source.standardizedFileURL]?.first?.newText == "newName")
-
-        let unresolvedAction = LanguageServerCodeAction(
-            title: "Add import",
-            kind: "quickfix",
-            isPreferred: true,
-            edit: nil,
-            command: nil,
-            data: .object(["proposal": .integer(3)])
-        )
-        var resolvedActionResult: Result<LanguageServerCodeAction, Error>?
-        try manager.resolveCodeAction(
-            unresolvedAction,
-            fileURL: source,
-            text: text,
-            rootURL: root
-        ) { resolvedActionResult = $0 }
-        let resolveRequest = try #require(Self.framedJSON(process.sentData.last))
-        #expect(resolveRequest["method"] as? String == "codeAction/resolve")
-        let resolveID = try #require(resolveRequest["id"] as? Int)
-        process.emitJSON([
-            "jsonrpc": "2.0", "id": resolveID,
-            "result": [
-                "title": "Add import",
-                "kind": "quickfix",
-                "edit": ["changes": [source.absoluteString: []]],
-                "data": ["proposal": 3]
-            ]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(try resolvedActionResult?.get().edit != nil)
-
-        manager.stopAll()
-        #expect(!process.isRunning)
-        #expect(manager.activeLanguageServerIDs.isEmpty)
     }
 
     @Test
@@ -3069,6 +3146,83 @@ struct RunConfigurationIntegrationTests {
         return try? JSONSerialization.jsonObject(with: body) as? [String: Any]
     }
 
+    private func makeLanguageServerHarness(
+        initializeTimeoutNanoseconds: UInt64 = 10_000_000_000,
+        requestTimeoutNanoseconds: UInt64 = 30_000_000_000
+    ) -> LanguageServerReliabilityHarness {
+        let descriptor = LanguageProviderDescriptor(
+            id: "swift",
+            displayName: "Swift",
+            fileExtensions: ["swift"],
+            capabilities: [.languageServer, .formatting],
+            activationPolicy: .onDemand,
+            languageIdentifier: "swift"
+        )
+        let root = URL(fileURLWithPath: "/tmp/lithe-lsp-reliability", isDirectory: true)
+        let source = root.appendingPathComponent("App.swift")
+        let process = RecordingRawProcessSession()
+        let initializationRecorder = TestLspInitializationRecorder()
+        let session = StdioLanguageServerSession(
+            executableURL: URL(fileURLWithPath: "/usr/bin/sourcekit-lsp"),
+            arguments: [],
+            environment: [:],
+            initializeTimeoutNanoseconds: initializeTimeoutNanoseconds,
+            requestTimeoutNanoseconds: requestTimeoutNanoseconds,
+            process: process,
+            core: TestLspClientCore(
+                diagnosticURL: source,
+                initializationRecorder: initializationRecorder
+            )
+        )
+        let runtime = TestLanguageServerRuntime(descriptor: descriptor, session: session)
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            runtimes: [runtime]
+        )
+        return LanguageServerReliabilityHarness(
+            root: root,
+            source: source,
+            process: process,
+            session: session,
+            manager: manager
+        )
+    }
+
+    private static func emitSuccessfulInitialize(on process: RecordingRawProcessSession) {
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": [
+                "capabilities": [
+                    "hoverProvider": true,
+                    "completionProvider": [:]
+                ],
+                "serverInfo": [
+                    "name": "sourcekit-lsp",
+                    "version": "6.2"
+                ]
+            ]
+        ])
+    }
+
+    private static func emitPublishDiagnostics(on process: RecordingRawProcessSession) {
+        process.emitJSON([
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": [
+                "uri": "file:///ignored-by-test-core",
+                "diagnostics": []
+            ]
+        ])
+    }
+
+    private static func framedMessages(_ frames: [Data]) -> [String] {
+        frames.compactMap { data in
+            guard let separator = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+            return String(decoding: data[separator.upperBound...], as: UTF8.self)
+        }
+    }
+
     private static func debugRequest(named command: String, in frames: [Data]) -> [String: Any]? {
         frames.lazy
             .compactMap(framedJSON)
@@ -3081,6 +3235,27 @@ struct RunConfigurationIntegrationTests {
         await Task.yield()
         await Task.yield()
     }
+
+    private static func waitForMainActorCondition(
+        attempts: Int = 100,
+        _ condition: () -> Bool
+    ) async -> Bool {
+        for _ in 0..<attempts {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            await Task.yield()
+        }
+        return condition()
+    }
+}
+
+@MainActor
+private struct LanguageServerReliabilityHarness {
+    let root: URL
+    let source: URL
+    let process: RecordingRawProcessSession
+    let session: StdioLanguageServerSession
+    let manager: LanguageToolingSessionManager
 }
 
 @MainActor
@@ -3282,6 +3457,545 @@ private final class RecordingRunExecutableResolver: RunExecutableResolving {
     }
 }
 
+private struct TestLspClientCore: LspClientCore, LspSessionCore {
+    let diagnosticURL: URL
+    var initializationRecorder: TestLspInitializationRecorder?
+
+    init(
+        diagnosticURL: URL,
+        initializationRecorder: TestLspInitializationRecorder? = nil
+    ) {
+        self.diagnosticURL = diagnosticURL
+        self.initializationRecorder = initializationRecorder
+    }
+
+    func lspClientInitialize(rootURL _: URL) -> RustCoreBridge.LspClientResponsePayload? {
+        response(
+            messages: [#"{"jsonrpc":"2.0","id":"1","method":"initialize","params":{}}"#]
+        )
+    }
+
+    func lspClientInitialize(
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        initializationRecorder?.options = initializationOptions
+        return lspClientInitialize(rootURL: rootURL)
+    }
+
+    func lspClientOpenDocument(
+        state _: ToolingJSONValue,
+        fileURL: URL,
+        languageID: String,
+        text: String
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        response(messages: [
+            #"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"\#(fileURL.standardizedFileURL.absoluteString)","languageId":"\#(languageID)","version":1,"text":"\#(text)"}}}"#
+        ])
+    }
+
+    func lspClientChangeDocument(
+        state _: ToolingJSONValue,
+        fileURL _: URL,
+        text _: String
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        response()
+    }
+
+    func lspClientCloseDocument(
+        state: ToolingJSONValue,
+        fileURL: URL
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        response(
+            state: state,
+            messages: [
+                #"{"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":"\#(fileURL.standardizedFileURL.absoluteString)"}}}"#
+            ]
+        )
+    }
+
+    func lspClientShutdown(
+        state: ToolingJSONValue
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        response(
+            state: state,
+            messages: [#"{"jsonrpc":"2.0","id":"9","method":"shutdown"}"#]
+        )
+    }
+
+    func lspClientRequest(
+        state _: ToolingJSONValue,
+        fileURL _: URL,
+        method: String,
+        position _: LanguageServerPosition?,
+        newName _: String?,
+        range _: LanguageServerRange?,
+        diagnostics _: [LanguageServerDiagnostic],
+        completionItem _: LanguageServerCompletionItem?,
+        codeAction _: LanguageServerCodeAction?,
+        command _: LanguageServerCommand?
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        let id: String
+        switch method {
+        case "textDocument/rename":
+            id = "3"
+        case "textDocument/formatting":
+            id = "4"
+        case "textDocument/codeAction":
+            id = "5"
+        case "completionItem/resolve":
+            id = "6"
+        case "codeAction/resolve":
+            id = "7"
+        case "workspace/executeCommand":
+            id = "8"
+        default:
+            id = "2"
+        }
+        return response(messages: [
+            #"{"jsonrpc":"2.0","id":"\#(id)","method":"\#(method)","params":{}}"#
+        ])
+    }
+
+    func lspClientApplyServerMessage(
+        state _: ToolingJSONValue,
+        message: String
+    ) -> RustCoreBridge.LspClientResponsePayload? {
+        if let data = message.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           object["id"] as? String == "1" {
+            let result = object["result"].flatMap(ToolingJSONValue.fromFoundation)
+            let error = object["error"].map { String(describing: $0) }
+            return initializeResponse(result: result, error: error)
+        }
+        if message.contains("publishDiagnostics") {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "diagnostics",
+                    requestId: nil,
+                    method: nil,
+                    uri: diagnosticURL.standardizedFileURL.absoluteString,
+                    diagnostics: [
+                        RustCoreBridge.LspClientDiagnosticPayload(
+                            range: RustCoreBridge.LspRangePayload(
+                                start: RustCoreBridge.LspPositionPayload(line: 0, utf16Column: 7),
+                                end: RustCoreBridge.LspPositionPayload(line: 0, utf16Column: 10)
+                            ),
+                            severity: 2,
+                            message: "example warning",
+                            source: "sourcekit-lsp",
+                            code: nil
+                        )
+                    ],
+                    result: nil,
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"2""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "2",
+                    method: "textDocument/completion",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "items": .array([
+                            .object([
+                                "label": .string("title"),
+                                "insertText": .string("title"),
+                                "kind": .integer(6),
+                                "detail": .string("String"),
+                                "additionalTextEdits": .array([]),
+                                "data": .null
+                            ])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"3""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "3",
+                    method: "textDocument/rename",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "changes": .object([
+                            diagnosticURL.standardizedFileURL.path: .array([
+                                .object([
+                                    "range": .object([
+                                        "start": .object(["line": .integer(0), "utf16Column": .integer(17)]),
+                                        "end": .object(["line": .integer(0), "utf16Column": .integer(22)])
+                                    ]),
+                                    "newText": .string("headline")
+                                ])
+                            ])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"4""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "4",
+                    method: "textDocument/formatting",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "edits": .array([
+                            .object([
+                                "range": .object([
+                                    "start": .object(["line": .integer(0), "utf16Column": .integer(10)]),
+                                    "end": .object(["line": .integer(0), "utf16Column": .integer(10)])
+                                ]),
+                                "newText": .string(" ")
+                            ])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"5""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "5",
+                    method: "textDocument/codeAction",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "actions": .array([
+                            .object([
+                                "title": .string("Fix warning"),
+                                "kind": .string("quickfix"),
+                                "isPreferred": .bool(true),
+                                "command": .object([
+                                    "title": .string("Apply fix"),
+                                    "command": .string("source.fix"),
+                                    "arguments": .array([
+                                        .object(["uri": .string(diagnosticURL.standardizedFileURL.absoluteString)])
+                                    ])
+                                ]),
+                                "data": .object(["token": .string("fix-1")])
+                            ])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"6""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "6",
+                    method: "completionItem/resolve",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "item": .object([
+                            "label": .string("title"),
+                            "insertText": .string("title"),
+                            "kind": .integer(6),
+                            "detail": .string("String"),
+                            "documentation": .string("Resolved docs"),
+                            "additionalTextEdits": .array([]),
+                            "data": .object(["id": .string("completion-1")])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"7""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "7",
+                    method: "codeAction/resolve",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object([
+                        "action": .object([
+                            "title": .string("Fix warning"),
+                            "kind": .string("quickfix"),
+                            "isPreferred": .bool(false),
+                            "edit": .object([
+                                "changes": .object([
+                                    diagnosticURL.standardizedFileURL.path: .array([
+                                        .object([
+                                            "range": .object([
+                                                "start": .object(["line": .integer(0), "utf16Column": .integer(10)]),
+                                                "end": .object(["line": .integer(0), "utf16Column": .integer(10)])
+                                            ]),
+                                            "newText": .string(" ")
+                                        ])
+                                    ])
+                                ])
+                            ]),
+                            "data": .object(["token": .string("fix-1")])
+                        ])
+                    ]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"8""#) {
+            return response(events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: "response",
+                    requestId: "8",
+                    method: "workspace/executeCommand",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: .object(["ok": .bool(true)]),
+                    error: nil
+                )
+            ])
+        }
+        if message.contains(#""id":"9""#) {
+            return response(
+                state: .object([:]),
+                messages: [#"{"jsonrpc":"2.0","method":"exit"}"#],
+                events: [
+                    RustCoreBridge.LspClientEventPayload(
+                        kind: "response",
+                        requestId: "9",
+                        method: "shutdown",
+                        uri: nil,
+                        diagnostics: nil,
+                        result: .object(["ok": .bool(true)]),
+                        error: nil
+                    )
+                ]
+            )
+        }
+        return initializeResponse(
+            result: .object([
+                "capabilities": .object([:]),
+                "serverInfo": .object([
+                    "name": .string("sourcekit-lsp"),
+                    "version": .string("6.2")
+                ])
+            ]),
+            error: nil
+        )
+    }
+
+    private func initializeResponse(
+        result: ToolingJSONValue?,
+        error: String?
+    ) -> RustCoreBridge.LspClientResponsePayload {
+        response(
+            state: .object([
+                "serverCapabilities": .array([
+                    .string("hover"),
+                    .string("completion"),
+                    .string("completionResolve"),
+                    .string("rename"),
+                    .string("formatting"),
+                    .string("codeActions"),
+                    .string("codeActionResolve"),
+                    .string("executeCommand")
+                ])
+            ]),
+            messages: error == nil && result != nil
+                ? [#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#]
+                : [],
+            events: [
+                RustCoreBridge.LspClientEventPayload(
+                    kind: error == nil ? "response" : "error",
+                    requestId: "1",
+                    method: "initialize",
+                    uri: nil,
+                    diagnostics: nil,
+                    result: result,
+                    error: error
+                )
+            ]
+        )
+    }
+
+    func lspFrameMessage(_ message: String) -> RustCoreBridge.LspFramePayload? {
+        RustCoreBridge.LspFramePayload(
+            frame: "Content-Length: \(message.utf8.count)\r\n\r\n\(message)"
+        )
+    }
+
+    func lspParseServerMessages(
+        buffer: [UInt8],
+        chunk: [UInt8]
+    ) -> RustCoreBridge.LspParsedMessagesPayload? {
+        var data = Data(buffer + chunk)
+        var messages: [String] = []
+        while let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) {
+            let headerData = data[..<headerEnd.lowerBound]
+            guard let header = String(data: headerData, encoding: .utf8),
+                  let contentLength = header
+                    .split(separator: "\r\n")
+                    .first(where: { $0.lowercased().hasPrefix("content-length:") })?
+                    .split(separator: ":", maxSplits: 1)
+                    .last
+                    .flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }) else {
+                data.removeSubrange(...headerEnd.upperBound)
+                continue
+            }
+            let bodyStart = headerEnd.upperBound
+            guard data.count >= bodyStart + contentLength else { break }
+            let body = data.subdata(in: bodyStart..<(bodyStart + contentLength))
+            data.removeSubrange(0..<(bodyStart + contentLength))
+            if let message = String(data: body, encoding: .utf8) {
+                messages.append(message)
+            }
+        }
+        return RustCoreBridge.LspParsedMessagesPayload(buffer: Array(data), messages: messages)
+    }
+
+    func lspSessionCreate(
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.options = initializationOptions
+        initializationRecorder?.actions.append("create")
+        return lspClientInitialize(rootURL: rootURL).map(sessionResponse)
+    }
+
+    func lspSessionOpenDocument(
+        sessionID _: String,
+        fileURL: URL,
+        languageID: String,
+        text: String
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("openDocument")
+        return lspClientOpenDocument(
+            state: .object([:]),
+            fileURL: fileURL,
+            languageID: languageID,
+            text: text
+        ).map(sessionResponse)
+    }
+
+    func lspSessionChangeDocument(
+        sessionID _: String,
+        fileURL: URL,
+        text: String
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("changeDocument")
+        return lspClientChangeDocument(
+            state: .object([:]),
+            fileURL: fileURL,
+            text: text
+        ).map(sessionResponse)
+    }
+
+    func lspSessionCloseDocument(
+        sessionID _: String,
+        fileURL: URL
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("closeDocument")
+        return lspClientCloseDocument(state: .object([:]), fileURL: fileURL)
+            .map(sessionResponse)
+    }
+
+    func lspSessionShutdown(
+        sessionID _: String
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("shutdown")
+        return lspClientShutdown(state: .object([:])).map(sessionResponse)
+    }
+
+    func lspSessionRequest(
+        sessionID _: String,
+        fileURL: URL,
+        method: String,
+        position: LanguageServerPosition?,
+        newName: String?,
+        range: LanguageServerRange?,
+        diagnostics: [LanguageServerDiagnostic],
+        completionItem: LanguageServerCompletionItem?,
+        codeAction: LanguageServerCodeAction?,
+        command: LanguageServerCommand?
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("request")
+        return lspClientRequest(
+            state: .object([:]),
+            fileURL: fileURL,
+            method: method,
+            position: position,
+            newName: newName,
+            range: range,
+            diagnostics: diagnostics,
+            completionItem: completionItem,
+            codeAction: codeAction,
+            command: command
+        ).map(sessionResponse)
+    }
+
+    func lspSessionApplyServerMessage(
+        sessionID _: String,
+        message: String
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("applyServerMessage")
+        return lspClientApplyServerMessage(state: .object([:]), message: message)
+            .map(sessionResponse)
+    }
+
+    func lspSessionDestroy(sessionID _: String) {
+        initializationRecorder?.actions.append("destroy")
+    }
+
+    private func response(
+        state: ToolingJSONValue = .object([:]),
+        messages: [String] = [],
+        events: [RustCoreBridge.LspClientEventPayload] = []
+    ) -> RustCoreBridge.LspClientResponsePayload {
+        RustCoreBridge.LspClientResponsePayload(
+            state: state,
+            messages: messages,
+            events: events
+        )
+    }
+
+    private func sessionResponse(
+        _ response: RustCoreBridge.LspClientResponsePayload
+    ) -> RustCoreBridge.LspSessionResponsePayload {
+        let capabilities: [String]
+        if case .object(let state) = response.state,
+           case .array(let values)? = state["serverCapabilities"] {
+            capabilities = values.compactMap {
+                guard case .string(let value) = $0 else { return nil }
+                return value
+            }
+        } else {
+            capabilities = []
+        }
+        if !capabilities.isEmpty {
+            initializationRecorder?.serverCapabilities = capabilities
+        }
+        return RustCoreBridge.LspSessionResponsePayload(
+            sessionId: "test-session",
+            serverCapabilities: initializationRecorder?.serverCapabilities ?? capabilities,
+            messages: response.messages,
+            events: response.events
+        )
+    }
+}
+
+private final class TestLspInitializationRecorder: @unchecked Sendable {
+    var options: ToolingJSONValue?
+    var actions: [String] = []
+    var serverCapabilities: [String] = []
+}
+
 private final class RecordingRawProcessSession: RawProcessSession, @unchecked Sendable {
     var isRunning = false
     var onOutput: (@Sendable (Data) -> Void)?
@@ -3290,13 +4004,30 @@ private final class RecordingRawProcessSession: RawProcessSession, @unchecked Se
     var onStateChange: (@Sendable (ProcessLifecycleEvent) -> Void)?
     private(set) var requests: [ProcessRequest] = []
     private(set) var sentData: [Data] = []
+    var sendFailurePredicate: ((Data) -> Bool)?
 
     func start(_ request: ProcessRequest) throws {
         requests.append(request)
         isRunning = true
     }
-    func send(_ input: Data) throws { sentData.append(input) }
+    func send(_ input: Data) throws {
+        if sendFailurePredicate?(input) == true {
+            throw RecordingRawProcessSessionError.sendFailed
+        }
+        sentData.append(input)
+    }
     func stop() { isRunning = false }
+
+    func terminate(exitCode: Int32) {
+        isRunning = false
+        onStateChange?(ProcessLifecycleEvent(
+            operationID: requests.last?.operationID,
+            state: .finished,
+            exitCode: exitCode,
+            message: nil
+        ))
+        onTermination?(exitCode)
+    }
 
     func emitJSON(_ object: [String: Any], splitAt: Int? = nil) {
         let body = try! JSONSerialization.data(withJSONObject: object)
@@ -3309,6 +4040,12 @@ private final class RecordingRawProcessSession: RawProcessSession, @unchecked Se
             onOutput?(framed)
         }
     }
+}
+
+private enum RecordingRawProcessSessionError: LocalizedError {
+    case sendFailed
+
+    var errorDescription: String? { "Injected language server transport write failure." }
 }
 
 @MainActor
@@ -3336,10 +4073,6 @@ private final class RecordingDebugAdapterTransport: DebugAdapterTransport, Debug
         framed.append(body)
         onData?(framed)
     }
-}
-
-private struct EmptyArchiveEntryReader: ArchiveEntryReader {
-    func read(entry: String, from archive: URL) -> String? { nil }
 }
 
 private final class RecordingProcessFactory: @unchecked Sendable {
@@ -3414,7 +4147,6 @@ private struct RunTestRuntimeLocator: RuntimeLocator {
         )
     }
     func systemJDBExecutable() -> URL? { URL(fileURLWithPath: "/toolchains/jdk/bin/jdb") }
-    func javaLanguageServerExecutable() -> URL? { URL(fileURLWithPath: "/toolchains/jdtls") }
 }
 
 private struct MissingJavaRuntimeLocator: RuntimeLocator {
@@ -3429,7 +4161,6 @@ private struct MissingJavaRuntimeLocator: RuntimeLocator {
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
     func systemJDBExecutable() -> URL? { nil }
-    func javaLanguageServerExecutable() -> URL? { nil }
 }
 
 private struct XcrunOnlyRuntimeLocator: RuntimeLocator {
@@ -3442,46 +4173,6 @@ private struct XcrunOnlyRuntimeLocator: RuntimeLocator {
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
     func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
     func systemJDBExecutable() -> URL? { nil }
-    func javaLanguageServerExecutable() -> URL? { nil }
-}
-
-@MainActor
-private final class TestLanguageServerSession: LanguageServerSession {
-    private(set) var isRunning = false
-    private(set) var startCount = 0
-    private(set) var stopCount = 0
-
-    func start(rootURL: URL) throws {
-        startCount += 1
-        isRunning = true
-    }
-
-    func stop() {
-        stopCount += 1
-        isRunning = false
-    }
-}
-
-@MainActor
-private final class TestLanguageProviderRuntime: LanguageProviderRuntime {
-    let descriptor: LanguageProviderDescriptor
-    private(set) var languageServers: [TestLanguageServerSession] = []
-    private(set) var makeCount = 0
-
-    var languageServer: TestLanguageServerSession { languageServers[0] }
-
-    init(descriptor: LanguageProviderDescriptor) {
-        self.descriptor = descriptor
-    }
-
-    func makeLanguageServerSession() -> (any LanguageServerSession)? {
-        makeCount += 1
-        let session = TestLanguageServerSession()
-        languageServers.append(session)
-        return session
-    }
-
-    func makeDebugAdapterSession() -> (any DebugAdapterSession)? { nil }
 }
 
 @MainActor
@@ -3531,11 +4222,41 @@ private final class TestDebugLanguageProviderRuntime: LanguageProviderRuntime {
         self.descriptor = descriptor
         supportsDebugAdapterSession = supportsDebugAdapter
     }
-    func makeLanguageServerSession() -> (any LanguageServerSession)? { nil }
+
     func makeDebugAdapterSession() -> (any DebugAdapterSession)? {
         let session = TestDebugAdapterSession()
         debugAdapters.append(session)
         return session
+    }
+}
+
+@MainActor
+private final class TestLanguageServerRuntime: LanguageProviderRuntime {
+    let descriptor: LanguageProviderDescriptor
+    let supportsLanguageServerSession = true
+    private let session: any LanguageServerSession
+
+    init(descriptor: LanguageProviderDescriptor, session: any LanguageServerSession) {
+        self.descriptor = descriptor
+        self.session = session
+    }
+
+    func makeLanguageServerSession() -> (any LanguageServerSession)? { session }
+    func makeDebugAdapterSession() -> (any DebugAdapterSession)? { nil }
+}
+
+@MainActor
+private final class TestLanguageProviderRuntimeFactory: LanguageProviderRuntimeFactory {
+    private(set) var createdDescriptors: [LanguageProviderDescriptor] = []
+
+    func makeRuntime(
+        for descriptor: LanguageProviderDescriptor
+    ) -> (any LanguageProviderRuntime)? {
+        createdDescriptors.append(descriptor)
+        return TestDebugLanguageProviderRuntime(
+            descriptor: descriptor,
+            supportsDebugAdapter: true
+        )
     }
 }
 
