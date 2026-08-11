@@ -40,6 +40,7 @@ enum LanguageServerInstallationState: Equatable, Sendable {
 enum LanguageServerToolConfigurationError: LocalizedError, Equatable {
     case executableRequired
     case executableInvalid(String)
+    case executableValidationFailed(path: String, message: String)
     case homebrewUnavailable
     case homebrewUnsupported(String)
 
@@ -49,6 +50,8 @@ enum LanguageServerToolConfigurationError: LocalizedError, Equatable {
             "Choose a language-server executable."
         case .executableInvalid(let path):
             "The selected language-server path is not executable: \(path)"
+        case .executableValidationFailed(let path, let message):
+            "The selected language server could not run: \(path)\n\(message)"
         case .homebrewUnavailable:
             "Homebrew is not installed or is not available to Lithe."
         case .homebrewUnsupported(let provider):
@@ -65,6 +68,7 @@ final class LanguageServerToolService: ObservableObject {
     private let runtimeService: ProjectRuntimeService
     private let processRunner: any ProcessRunner
     private let settingsStore: LanguageServerToolSettingsStore
+    private var validationCache: [ExecutableValidationKey: ExecutableValidationResult] = [:]
 
     init(
         runtimeService: ProjectRuntimeService,
@@ -99,18 +103,22 @@ final class LanguageServerToolService: ObservableObject {
 
         if let path = customExecutablePath(for: descriptor.id),
            let executableURL = runtimeService.executableURL(at: path) {
-            result.append(RuntimeToolCandidate(
+            let candidate = RuntimeToolCandidate(
                 command: descriptor.languageServerLaunch?.executableNames.first ?? descriptor.id,
                 executableURL: executableURL,
                 source: .custom,
                 detail: "Lithe override"
-            ))
-            seen.insert(executableURL.path)
+            )
+            if validate(candidate, for: descriptor).isUsable {
+                result.append(candidate)
+                seen.insert(executableURL.path)
+            }
         }
 
         for command in descriptor.languageServerLaunch?.executableNames ?? [] {
             for candidate in runtimeService.executableCandidates(command) {
                 guard seen.insert(candidate.executableURL.path).inserted else { continue }
+                guard validate(candidate, for: descriptor).isUsable else { continue }
                 result.append(candidate)
             }
         }
@@ -121,7 +129,10 @@ final class LanguageServerToolService: ObservableObject {
         candidates(for: descriptor).first?.executableURL
     }
 
-    func setCustomExecutablePath(_ path: String, for providerID: String) throws {
+    func setCustomExecutablePath(
+        _ path: String,
+        for descriptor: LanguageProviderDescriptor
+    ) throws {
         let normalized = (path as NSString)
             .expandingTildeInPath
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -131,7 +142,21 @@ final class LanguageServerToolService: ObservableObject {
         guard let executableURL = runtimeService.executableURL(at: normalized) else {
             throw LanguageServerToolConfigurationError.executableInvalid(normalized)
         }
-        customExecutablePaths[providerID] = executableURL.path
+        validationCache.removeAll()
+        let candidate = RuntimeToolCandidate(
+            command: descriptor.languageServerLaunch?.executableNames.first ?? descriptor.id,
+            executableURL: executableURL,
+            source: .custom,
+            detail: "Lithe override"
+        )
+        let validation = validate(candidate, for: descriptor)
+        guard validation.isUsable else {
+            throw LanguageServerToolConfigurationError.executableValidationFailed(
+                path: executableURL.path,
+                message: validation.message
+            )
+        }
+        customExecutablePaths[descriptor.id] = executableURL.path
         settingsStore.save(customExecutablePaths)
     }
 
@@ -171,6 +196,7 @@ final class LanguageServerToolService: ObservableObject {
 
         let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         if result.succeeded {
+            validationCache.removeAll()
             installationStates[descriptor.id] = .installed(
                 output.isEmpty ? "brew install \(formula) completed." : output
             )
@@ -180,6 +206,50 @@ final class LanguageServerToolService: ObservableObject {
             )
         }
     }
+
+    private func validate(
+        _ candidate: RuntimeToolCandidate,
+        for descriptor: LanguageProviderDescriptor
+    ) -> ExecutableValidationResult {
+        let arguments = descriptor.languageServerLaunch?.validationArguments ?? []
+        guard !arguments.isEmpty else { return .usable }
+        let key = ExecutableValidationKey(
+            executablePath: candidate.executableURL.standardizedFileURL.path,
+            arguments: arguments
+        )
+        if let cached = validationCache[key],
+           Date().timeIntervalSince(cached.checkedAt) < 30 {
+            return cached
+        }
+        let result = processRunner.run(ProcessRequest(
+            operationID: "lsp-validate-\(descriptor.id)-\(UUID().uuidString)",
+            executablePath: key.executablePath,
+            arguments: arguments,
+            environment: runtimeService.processEnvironment(),
+            timeoutMilliseconds: 5_000
+        ))
+        let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let validation = ExecutableValidationResult(
+            isUsable: result.succeeded,
+            message: output.isEmpty ? "Exited with code \(result.exitCode)." : output,
+            checkedAt: Date()
+        )
+        validationCache[key] = validation
+        return validation
+    }
+}
+
+private struct ExecutableValidationKey: Hashable {
+    let executablePath: String
+    let arguments: [String]
+}
+
+private struct ExecutableValidationResult {
+    let isUsable: Bool
+    let message: String
+    let checkedAt: Date
+
+    static let usable = Self(isUsable: true, message: "", checkedAt: .distantFuture)
 }
 
 private struct LanguageServerToolSettingsStore {

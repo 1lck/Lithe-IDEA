@@ -48,6 +48,8 @@ pub struct LspServerLaunchDescriptor {
     #[serde(default)]
     pub arguments: Vec<String>,
     #[serde(default)]
+    pub validation_arguments: Vec<String>,
+    #[serde(default)]
     pub environment: BTreeMap<String, String>,
     #[serde(default)]
     pub initialization_options: Option<Value>,

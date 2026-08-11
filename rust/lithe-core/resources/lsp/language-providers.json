@@ -79,7 +79,8 @@
       "languageId": "rust",
       "languageServerLaunch": {
         "executableNames": ["rust-analyzer"],
-        "arguments": []
+        "arguments": [],
+        "validationArguments": ["--version"]
       },
       "languageServerInstallation": {
         "homebrewFormula": "rust-analyzer",

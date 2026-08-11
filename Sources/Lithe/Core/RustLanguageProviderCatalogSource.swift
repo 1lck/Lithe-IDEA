@@ -13,6 +13,7 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
     private struct LanguageServerLaunchPayload: Decodable {
         let executableNames: [String]
         let arguments: [String]
+        let validationArguments: [String]?
         let environment: [String: String]
         let initializationOptions: ToolingJSONValue?
 
@@ -20,6 +21,7 @@ struct RustLanguageProviderCatalogSource: LanguageProviderCatalogSource {
             LanguageServerLaunchDescriptor(
                 executableNames: executableNames,
                 arguments: arguments,
+                validationArguments: validationArguments ?? [],
                 environment: environment,
                 initializationOptions: initializationOptions
             )

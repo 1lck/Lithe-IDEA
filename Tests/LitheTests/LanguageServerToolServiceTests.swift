@@ -28,7 +28,7 @@ struct LanguageServerToolServiceTests {
             store: store
         )
 
-        try service.setCustomExecutablePath(customURL.path, for: descriptor.id)
+        try service.setCustomExecutablePath(customURL.path, for: descriptor)
         #expect(service.executableURL(for: descriptor) == customURL)
         #expect(service.candidates(for: descriptor).map(\.source) == [.custom, .homebrew])
 
@@ -52,7 +52,75 @@ struct LanguageServerToolServiceTests {
         )
 
         #expect(throws: LanguageServerToolConfigurationError.executableInvalid("/missing/gopls")) {
-            try service.setCustomExecutablePath("/missing/gopls", for: "go")
+            try service.setCustomExecutablePath("/missing/gopls", for: goDescriptor())
+        }
+    }
+
+    @Test
+    func rejectsBrokenProxyAndFallsBackToHomebrewCandidate() {
+        let proxyURL = URL(fileURLWithPath: "/Users/test/.cargo/bin/rust-analyzer")
+        let brewURL = URL(fileURLWithPath: "/opt/homebrew/bin/rust-analyzer")
+        let runner = LanguageServerToolTestProcessRunner(resultsByExecutablePath: [
+            proxyURL.path: ProcessResult(
+                output: "error: Unknown binary 'rust-analyzer' in official toolchain",
+                exitCode: 1
+            ),
+            brewURL.path: ProcessResult(output: "rust-analyzer 1.0.0", exitCode: 0)
+        ])
+        let store = LanguageServerToolTestStore()
+        let service = LanguageServerToolService(
+            runtimeService: makeRuntime(
+                executablePaths: [proxyURL.path, brewURL.path],
+                candidates: [
+                    "rust-analyzer": [
+                        RuntimeToolCandidate(
+                            command: "rust-analyzer",
+                            executableURL: proxyURL,
+                            source: .path
+                        ),
+                        RuntimeToolCandidate(
+                            command: "rust-analyzer",
+                            executableURL: brewURL,
+                            source: .homebrew
+                        )
+                    ]
+                ],
+                store: store
+            ),
+            processRunner: runner,
+            store: store
+        )
+
+        let candidates = service.candidates(for: rustDescriptor())
+
+        #expect(candidates.map(\.executableURL) == [brewURL])
+        #expect(service.executableURL(for: rustDescriptor()) == brewURL)
+        #expect(runner.requests.count == 2)
+        #expect(runner.requests.allSatisfy { $0.arguments == ["--version"] })
+    }
+
+    @Test
+    func rejectsCustomExecutableThatFailsCatalogValidation() {
+        let proxyURL = URL(fileURLWithPath: "/Users/test/.cargo/bin/rust-analyzer")
+        let store = LanguageServerToolTestStore()
+        let runner = LanguageServerToolTestProcessRunner(resultsByExecutablePath: [
+            proxyURL.path: ProcessResult(output: "unknown rustup proxy", exitCode: 1)
+        ])
+        let service = LanguageServerToolService(
+            runtimeService: makeRuntime(
+                executablePaths: [proxyURL.path],
+                candidates: [:],
+                store: store
+            ),
+            processRunner: runner,
+            store: store
+        )
+
+        #expect(throws: LanguageServerToolConfigurationError.executableValidationFailed(
+            path: proxyURL.path,
+            message: "unknown rustup proxy"
+        )) {
+            try service.setCustomExecutablePath(proxyURL.path, for: rustDescriptor())
         }
     }
 
@@ -147,6 +215,25 @@ struct LanguageServerToolServiceTests {
         )
     }
 
+    private func rustDescriptor() -> LanguageProviderDescriptor {
+        LanguageProviderDescriptor(
+            id: "rust",
+            displayName: "Rust",
+            fileExtensions: ["rs"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageIdentifier: "rust",
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["rust-analyzer"],
+                validationArguments: ["--version"]
+            ),
+            languageServerInstallation: LanguageServerInstallationDescriptor(
+                homebrewFormula: "rust-analyzer",
+                officialDownloadURL: URL(string: "https://rust-analyzer.github.io/manual.html#installation")
+            )
+        )
+    }
+
     private func makeRuntime(
         executablePaths: Set<String>,
         candidates: [String: [RuntimeToolCandidate]],
@@ -201,19 +288,28 @@ private struct LanguageServerToolTestDiscovery: RuntimeToolDiscovery {
 private final class LanguageServerToolTestProcessRunner: ProcessRunner, @unchecked Sendable {
     private let lock = NSLock()
     private let result: ProcessResult
-    private var recordedRequest: ProcessRequest?
+    private let resultsByExecutablePath: [String: ProcessResult]
+    private var recordedRequests: [ProcessRequest] = []
 
-    init(result: ProcessResult = ProcessResult(output: "", exitCode: 0)) {
+    init(
+        result: ProcessResult = ProcessResult(output: "", exitCode: 0),
+        resultsByExecutablePath: [String: ProcessResult] = [:]
+    ) {
         self.result = result
+        self.resultsByExecutablePath = resultsByExecutablePath
     }
 
     var lastRequest: ProcessRequest? {
-        lock.withLock { recordedRequest }
+        lock.withLock { recordedRequests.last }
+    }
+
+    var requests: [ProcessRequest] {
+        lock.withLock { recordedRequests }
     }
 
     func run(_ request: ProcessRequest) -> ProcessResult {
-        lock.withLock { recordedRequest = request }
-        return result
+        lock.withLock { recordedRequests.append(request) }
+        return resultsByExecutablePath[request.executablePath] ?? result
     }
 }
 

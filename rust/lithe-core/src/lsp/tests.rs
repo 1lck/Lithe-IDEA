@@ -61,6 +61,18 @@ fn builtin_catalog_describes_market_lsp_providers() {
         go_installation.official_download_url.as_deref(),
         Some("https://go.dev/gopls/")
     );
+    let rust = catalog
+        .providers
+        .iter()
+        .find(|provider| provider.id == "rust")
+        .expect("rust provider should exist");
+    assert_eq!(
+        rust.language_server_launch
+            .as_ref()
+            .expect("rust launch descriptor should exist")
+            .validation_arguments,
+        vec!["--version".to_string()]
+    );
 }
 
 #[test]

@@ -311,7 +311,7 @@ struct LanguageServerSetupView: View {
     private func savePath() {
         guard let descriptor = selectedDescriptor else { return }
         do {
-            try tools.setCustomExecutablePath(executablePathDraft, for: descriptor.id)
+            try tools.setCustomExecutablePath(executablePathDraft, for: descriptor)
             executablePathDraft = tools.customExecutablePath(for: descriptor.id) ?? executablePathDraft
             validationMessage = nil
             configurationChanged(descriptor.id)
@@ -391,6 +391,8 @@ private struct LanguageServerSetupCopy {
             usesChinese ? "请选择语言服务器可执行文件。" : error.localizedDescription
         case .executableInvalid(let path):
             usesChinese ? "该路径不是可执行文件：\(path)" : error.localizedDescription
+        case .executableValidationFailed(let path, let message):
+            usesChinese ? "语言服务器无法运行：\(path)\n\(message)" : error.localizedDescription
         case .homebrewUnavailable:
             usesChinese ? "Lithe 无法找到 Homebrew。" : error.localizedDescription
         case .homebrewUnsupported(let provider):

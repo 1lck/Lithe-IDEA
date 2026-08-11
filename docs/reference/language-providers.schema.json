@@ -77,6 +77,10 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "validationArguments": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "environment": { "$ref": "#/$defs/stringMap" },
         "initializationOptions": {}
       }

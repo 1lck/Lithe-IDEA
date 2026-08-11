@@ -59,17 +59,20 @@ enum ToolingActivationPolicy: String, Codable, Hashable, Sendable {
 struct LanguageServerLaunchDescriptor: Hashable, Sendable {
     let executableNames: [String]
     let arguments: [String]
+    let validationArguments: [String]
     let environment: [String: String]
     let initializationOptions: ToolingJSONValue?
 
     init(
         executableNames: [String],
         arguments: [String] = [],
+        validationArguments: [String] = [],
         environment: [String: String] = [:],
         initializationOptions: ToolingJSONValue? = nil
     ) {
         self.executableNames = executableNames
         self.arguments = arguments
+        self.validationArguments = validationArguments
         self.environment = environment
         self.initializationOptions = initializationOptions
     }
