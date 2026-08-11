@@ -29,6 +29,8 @@
 #include "win32_runtime_locator.h"
 #include "win32_secure_store.h"
 #include "win32_terminal_transport.h"
+#include "terminal_model.h"
+#include "terminal_panel.h"
 #include "windows_update_service.h"
 
 #include <QMainWindow>
@@ -141,6 +143,8 @@ private slots:
     void findJavaUsages();
     void startTerminal();
     void stopTerminal();
+    void applyTerminalWorkspace();
+    QStringList availableShells() const;
 
 private:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -287,9 +291,7 @@ private:
     QListWidget* debugVariables_ = nullptr;
     QListWidget* debugThreads_ = nullptr;
     QListWidget* debugStack_ = nullptr;
-    QWidget* terminalPanel_ = nullptr;
-    QPlainTextEdit* terminalOutput_ = nullptr;
-    QLineEdit* terminalInput_ = nullptr;
+    TerminalPanel* terminalPanel_ = nullptr;
     QWidget* diffReviewPanel_ = nullptr;
     QListWidget* diffOverview_ = nullptr;
     QTimer* workspaceRefreshTimer_ = nullptr;
@@ -316,7 +318,7 @@ private:
     bool languageServerDocumentOpen_ = false;
     bool diffIsCommitReview_ = false;
     std::chrono::steady_clock::time_point lastShiftPress_{};
-    std::unique_ptr<Win32TerminalTransport> terminal_;
+    std::unique_ptr<app::TerminalModel> terminalModel_;
     std::thread aiWorker_;
     std::thread updateWorker_;
     std::atomic<bool> aiGenerating_{false};

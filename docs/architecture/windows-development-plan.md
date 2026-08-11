@@ -104,7 +104,7 @@ Windows 已具备独立的 C++23、Qt Widgets 和 Win32 实现，并通过 Rust 
 | 项目替换      | 有预览 DTO 和 feature 骨架                 | 完整预览、选择、应用、历史留档和失败汇总     |
 | Local History | 可读取历史内容                             | 并排比较、文件与项目级恢复、恢复前留档       |
 | Java/Maven    | 服务层和基础操作可用                       | 配置选择编辑、Profiles、模块树和统一运行入口 |
-| 终端          | 单个 ConPTY 会话                           | 多会话、Shell 选择和完整会话操作             |
+| 终端          | 多会话 + 真实 VT 模拟器（libvterm）+ Mac 样式 chrome | 超链接、OSC 工作目录/标题、每会话 Shell |
 | 工作台        | 主流程可操作                               | 补齐命令、关闭保护、导航和 gutter 行为       |
 
 如果 macOS 在开发期间新增功能，先把它登记到上表或对应工作流，再决定是否进入
@@ -269,12 +269,12 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 ### 将终端改成多会话
 
-- [ ] 用 terminal feature model 管理会话集合和当前会话 ID。
-- [ ] 每个会话独立持有 ConPTY transport、缓冲区、标题、Shell 和退出状态。
-- [ ] 增加新建、选择、关闭和切换终端标签。
-- [ ] 支持选择 Shell、Clear、Interrupt 和 Restart。
-- [ ] 关闭项目和退出应用时停止全部终端进程树。
-- [ ] 会话销毁后不能再向已释放的 Qt 控件发送回调。
+- [x] 用 terminal feature model 管理会话集合和当前会话 ID。
+- [x] 每个会话独立持有 ConPTY transport、VT 模拟器（libvterm）、标题、Shell 和退出状态。
+- [x] 增加新建、选择、关闭和切换终端标签。
+- [x] 支持选择 Shell、Clear、Interrupt 和 Restart。
+- [x] 关闭项目和退出应用时停止全部终端进程树。
+- [x] 会话销毁后不能再向已释放的 Qt 控件发送回调。
 
 ### 补齐工作台入口
 
@@ -287,7 +287,7 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 ### 覆盖开发侧测试
 
-- [ ] terminal feature 测试覆盖创建、切换、关闭、重启和工作区关闭。
+- [x] terminal feature 测试覆盖创建、切换、关闭、重启和工作区关闭。
 - [ ] workspace session 测试覆盖无效路径过滤和布局恢复。
 - [ ] 命令注册表测试保证 macOS 基线动作在 Windows 有对应入口或明确的平台例外。
 
