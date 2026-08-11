@@ -112,10 +112,12 @@ LSP 控制中心标题栏的工具设置会在用户偏好中保存每个 provid
 
 当前 transport 是 LSP 标准的 stdio `Content-Length` framing。一个 provider 在一个 workspace root 下复用一个 session；同一 provider 切换到另一个 root 时，manager 会停止旧 session 并创建新 session。
 
+生产路径由 Rust `LspHost` 持有长生命周期 `sessionID -> LspClientState` registry。Swift 只保存不透明 `sessionID`，open/change/request/server-message/shutdown 请求不再携带整份 state 或已打开文档全文。registry 锁只保护 handle 的查找和增删，每个 session 独立串行化状态变更，因此不同 workspace 不会因一次 LSP reducer 调用而互相阻塞。Rust Core 只返回待发送 JSON-RPC 消息、typed event 和精简 capability 摘要。旧的 reducer API 暂时保留给未迁移 adapter 和纯函数测试，不再用于 `RustCoreBridge` 的 stdio 生产会话。
+
 启动顺序：
 
 1. adapter 启动进程并先安装 stdout/stderr handler，避免丢失启动阶段输出；
-2. Rust Core 生成 `initialize`，记录 pending request；
+2. Rust `LspHost` 创建 session handle、生成 `initialize` 并在内部记录 pending request；
 3. 收到响应后，Rust Core 保存服务器 capability 并生成 `initialized`；
 4. manager 发布实际 capability，随后通过 `didOpen`/全量 `didChange` 同步文档；
 5. 功能请求按 request ID 回到对应 completion handler。

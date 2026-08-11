@@ -1092,6 +1092,7 @@ struct RunConfigurationIntegrationTests {
         #expect(startRequest.arguments.isEmpty)
         #expect(startRequest.environment?["SOURCEKIT_TOOLCHAIN"] == "custom")
         #expect(initializationRecorder.options == .object(["indexing": .bool(true)]))
+        #expect(initializationRecorder.actions == ["create"])
         #expect(manager.activeLanguageServerIDs == ["swift"])
         let firstFrameData = try #require(process.sentData.first)
         let firstFrame = try #require(String(data: firstFrameData, encoding: .utf8))
@@ -1112,6 +1113,8 @@ struct RunConfigurationIntegrationTests {
         await Self.drainMainActorTasks()
         #expect(manager.languageServerFeatures["swift"]?.contains(.completion) == true)
         #expect(manager.languageServerFeatures["swift"]?.contains(.hover) == true)
+        #expect(initializationRecorder.actions.contains("applyServerMessage"))
+        #expect(initializationRecorder.actions.contains("openDocument"))
 
         let framedOutput = process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
         #expect(framedOutput.contains("\"method\":\"initialized\""))
@@ -1366,6 +1369,9 @@ struct RunConfigurationIntegrationTests {
         let shutdownOutput = process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
         #expect(shutdownOutput.contains("\"method\":\"exit\""))
         #expect(!process.isRunning)
+        #expect(initializationRecorder.actions.contains("closeDocument"))
+        #expect(initializationRecorder.actions.contains("shutdown"))
+        #expect(initializationRecorder.actions.filter { $0 == "destroy" }.count == 1)
     }
 
     @Test
@@ -3005,7 +3011,7 @@ private final class RecordingRunExecutableResolver: RunExecutableResolving {
     }
 }
 
-private struct TestLspClientCore: LspClientCore {
+private struct TestLspClientCore: LspClientCore, LspSessionCore {
     let diagnosticURL: URL
     var initializationRecorder: TestLspInitializationRecorder?
 
@@ -3383,6 +3389,99 @@ private struct TestLspClientCore: LspClientCore {
         return RustCoreBridge.LspParsedMessagesPayload(buffer: Array(data), messages: messages)
     }
 
+    func lspSessionCreate(
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.options = initializationOptions
+        initializationRecorder?.actions.append("create")
+        return lspClientInitialize(rootURL: rootURL).map(sessionResponse)
+    }
+
+    func lspSessionOpenDocument(
+        sessionID _: String,
+        fileURL: URL,
+        languageID: String,
+        text: String
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("openDocument")
+        return lspClientOpenDocument(
+            state: .object([:]),
+            fileURL: fileURL,
+            languageID: languageID,
+            text: text
+        ).map(sessionResponse)
+    }
+
+    func lspSessionChangeDocument(
+        sessionID _: String,
+        fileURL: URL,
+        text: String
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("changeDocument")
+        return lspClientChangeDocument(
+            state: .object([:]),
+            fileURL: fileURL,
+            text: text
+        ).map(sessionResponse)
+    }
+
+    func lspSessionCloseDocument(
+        sessionID _: String,
+        fileURL: URL
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("closeDocument")
+        return lspClientCloseDocument(state: .object([:]), fileURL: fileURL)
+            .map(sessionResponse)
+    }
+
+    func lspSessionShutdown(
+        sessionID _: String
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("shutdown")
+        return lspClientShutdown(state: .object([:])).map(sessionResponse)
+    }
+
+    func lspSessionRequest(
+        sessionID _: String,
+        fileURL: URL,
+        method: String,
+        position: LanguageServerPosition?,
+        newName: String?,
+        range: LanguageServerRange?,
+        diagnostics: [LanguageServerDiagnostic],
+        completionItem: LanguageServerCompletionItem?,
+        codeAction: LanguageServerCodeAction?,
+        command: LanguageServerCommand?
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("request")
+        return lspClientRequest(
+            state: .object([:]),
+            fileURL: fileURL,
+            method: method,
+            position: position,
+            newName: newName,
+            range: range,
+            diagnostics: diagnostics,
+            completionItem: completionItem,
+            codeAction: codeAction,
+            command: command
+        ).map(sessionResponse)
+    }
+
+    func lspSessionApplyServerMessage(
+        sessionID _: String,
+        message: String
+    ) -> RustCoreBridge.LspSessionResponsePayload? {
+        initializationRecorder?.actions.append("applyServerMessage")
+        return lspClientApplyServerMessage(state: .object([:]), message: message)
+            .map(sessionResponse)
+    }
+
+    func lspSessionDestroy(sessionID _: String) {
+        initializationRecorder?.actions.append("destroy")
+    }
+
     private func response(
         state: ToolingJSONValue = .object([:]),
         messages: [String] = [],
@@ -3394,10 +3493,36 @@ private struct TestLspClientCore: LspClientCore {
             events: events
         )
     }
+
+    private func sessionResponse(
+        _ response: RustCoreBridge.LspClientResponsePayload
+    ) -> RustCoreBridge.LspSessionResponsePayload {
+        let capabilities: [String]
+        if case .object(let state) = response.state,
+           case .array(let values)? = state["serverCapabilities"] {
+            capabilities = values.compactMap {
+                guard case .string(let value) = $0 else { return nil }
+                return value
+            }
+        } else {
+            capabilities = []
+        }
+        if !capabilities.isEmpty {
+            initializationRecorder?.serverCapabilities = capabilities
+        }
+        return RustCoreBridge.LspSessionResponsePayload(
+            sessionId: "test-session",
+            serverCapabilities: initializationRecorder?.serverCapabilities ?? capabilities,
+            messages: response.messages,
+            events: response.events
+        )
+    }
 }
 
 private final class TestLspInitializationRecorder: @unchecked Sendable {
     var options: ToolingJSONValue?
+    var actions: [String] = []
+    var serverCapabilities: [String] = []
 }
 
 private final class RecordingRawProcessSession: RawProcessSession, @unchecked Sendable {

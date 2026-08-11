@@ -49,6 +49,48 @@ protocol LspClientCore: Sendable {
 
 extension RustCoreBridge: LspClientCore {}
 
+protocol LspSessionCore: LspClientCore {
+    func lspSessionCreate(
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?
+    ) -> RustCoreBridge.LspSessionResponsePayload?
+    func lspSessionOpenDocument(
+        sessionID: String,
+        fileURL: URL,
+        languageID: String,
+        text: String
+    ) -> RustCoreBridge.LspSessionResponsePayload?
+    func lspSessionChangeDocument(
+        sessionID: String,
+        fileURL: URL,
+        text: String
+    ) -> RustCoreBridge.LspSessionResponsePayload?
+    func lspSessionCloseDocument(
+        sessionID: String,
+        fileURL: URL
+    ) -> RustCoreBridge.LspSessionResponsePayload?
+    func lspSessionShutdown(sessionID: String) -> RustCoreBridge.LspSessionResponsePayload?
+    func lspSessionRequest(
+        sessionID: String,
+        fileURL: URL,
+        method: String,
+        position: LanguageServerPosition?,
+        newName: String?,
+        range: LanguageServerRange?,
+        diagnostics: [LanguageServerDiagnostic],
+        completionItem: LanguageServerCompletionItem?,
+        codeAction: LanguageServerCodeAction?,
+        command: LanguageServerCommand?
+    ) -> RustCoreBridge.LspSessionResponsePayload?
+    func lspSessionApplyServerMessage(
+        sessionID: String,
+        message: String
+    ) -> RustCoreBridge.LspSessionResponsePayload?
+    func lspSessionDestroy(sessionID: String)
+}
+
+extension RustCoreBridge: LspSessionCore {}
+
 extension LspClientCore {
     func lspClientInitialize(
         rootURL: URL,
@@ -75,7 +117,8 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private let initializationOptions: ToolingJSONValue?
     private let process: any RawProcessSession
     private let core: any LspClientCore
-    private var state: ToolingJSONValue?
+    private var legacyState: ToolingJSONValue?
+    private var sessionID: String?
     private var readBuffer = Data()
     private var openedDocumentURIs: Set<String> = []
     private var pendingDocuments: [String: PendingDocument] = [:]
@@ -121,15 +164,23 @@ final class StdioLanguageServerSession: LanguageServerSession {
             environment: environment,
             keepsStandardInputOpen: true
         ))
-        guard let response = core.lspClientInitialize(
+        if let sessionCore = core as? any LspSessionCore,
+           let response = sessionCore.lspSessionCreate(
+               rootURL: rootURL,
+               initializationOptions: initializationOptions
+           ) {
+            sessionID = response.sessionId
+            apply(response)
+        } else if let response = core.lspClientInitialize(
             rootURL: rootURL,
             initializationOptions: initializationOptions
-        ) else { return }
-        apply(response)
+        ) {
+            apply(response)
+        }
     }
 
     func synchronize(fileURL: URL, text: String, languageID: String) throws {
-        guard let state else { return }
+        guard sessionID != nil || legacyState != nil else { return }
         let standardizedURL = fileURL.standardizedFileURL
         let uri = standardizedURL.absoluteString
         guard isInitialized else {
@@ -140,32 +191,62 @@ final class StdioLanguageServerSession: LanguageServerSession {
             )
             return
         }
-        let response: RustCoreBridge.LspClientResponsePayload?
-        if openedDocumentURIs.contains(uri) {
-            response = core.lspClientChangeDocument(state: state, fileURL: standardizedURL, text: text)
-        } else {
-            response = core.lspClientOpenDocument(
-                state: state,
-                fileURL: standardizedURL,
-                languageID: languageID,
-                text: text
-            )
-            openedDocumentURIs.insert(uri)
+        if let sessionCore = core as? any LspSessionCore,
+           let sessionID {
+            let response = openedDocumentURIs.contains(uri)
+                ? sessionCore.lspSessionChangeDocument(
+                    sessionID: sessionID,
+                    fileURL: standardizedURL,
+                    text: text
+                )
+                : sessionCore.lspSessionOpenDocument(
+                    sessionID: sessionID,
+                    fileURL: standardizedURL,
+                    languageID: languageID,
+                    text: text
+                )
+            if !openedDocumentURIs.contains(uri) { openedDocumentURIs.insert(uri) }
+            if let response { apply(response) }
+        } else if let legacyState {
+            let response: RustCoreBridge.LspClientResponsePayload?
+            if openedDocumentURIs.contains(uri) {
+                response = core.lspClientChangeDocument(
+                    state: legacyState,
+                    fileURL: standardizedURL,
+                    text: text
+                )
+            } else {
+                response = core.lspClientOpenDocument(
+                    state: legacyState,
+                    fileURL: standardizedURL,
+                    languageID: languageID,
+                    text: text
+                )
+                openedDocumentURIs.insert(uri)
+            }
+            if let response { apply(response) }
         }
-        if let response { apply(response) }
     }
 
     func closeDocument(_ fileURL: URL) {
         let standardizedURL = fileURL.standardizedFileURL
         let uri = standardizedURL.absoluteString
         pendingDocuments[uri] = nil
-        guard openedDocumentURIs.remove(uri) != nil,
-              let state,
-              let response = core.lspClientCloseDocument(
-                state: state,
-                fileURL: standardizedURL
-              ) else { return }
-        apply(response)
+        guard openedDocumentURIs.remove(uri) != nil else { return }
+        if let sessionCore = core as? any LspSessionCore,
+           let sessionID,
+           let response = sessionCore.lspSessionCloseDocument(
+               sessionID: sessionID,
+               fileURL: standardizedURL
+           ) {
+            apply(response)
+        } else if let legacyState,
+                  let response = core.lspClientCloseDocument(
+                    state: legacyState,
+                    fileURL: standardizedURL
+                  ) {
+            apply(response)
+        }
     }
 
     func completions(
@@ -315,15 +396,23 @@ final class StdioLanguageServerSession: LanguageServerSession {
             resetTransientState()
             return
         }
-        guard !isStopping,
-              isInitialized,
-              let state,
-              let response = core.lspClientShutdown(state: state) else {
+        guard !isStopping, isInitialized else {
             forceStop()
             return
         }
-        isStopping = true
-        apply(response)
+        if let sessionCore = core as? any LspSessionCore,
+           let sessionID,
+           let response = sessionCore.lspSessionShutdown(sessionID: sessionID) {
+            isStopping = true
+            apply(response)
+        } else if let legacyState,
+                  let response = core.lspClientShutdown(state: legacyState) {
+            isStopping = true
+            apply(response)
+        } else {
+            forceStop()
+            return
+        }
         shutdownFallbackTask?.cancel()
         // The task intentionally retains the session after its manager removes it.
         shutdownFallbackTask = Task { @MainActor [self] in
@@ -334,8 +423,14 @@ final class StdioLanguageServerSession: LanguageServerSession {
     }
 
     private func apply(_ response: RustCoreBridge.LspClientResponsePayload) {
-        state = response.state
+        legacyState = response.state
         updateFeatures(from: response.state)
+        response.messages.forEach(sendRawJSON)
+        handle(response.events)
+    }
+
+    private func apply(_ response: RustCoreBridge.LspSessionResponsePayload) {
+        updateFeatures(capabilityNames: response.serverCapabilities)
         response.messages.forEach(sendRawJSON)
         handle(response.events)
     }
@@ -375,34 +470,57 @@ final class StdioLanguageServerSession: LanguageServerSession {
         command: LanguageServerCommand? = nil,
         completion: @escaping (RustCoreBridge.LspClientEventPayload) -> Void
     ) throws {
-        guard let state, isInitialized else {
+        guard isInitialized else {
             throw StdioLanguageServerSessionError.notReady
         }
         guard openedDocumentURIs.contains(fileURL.standardizedFileURL.absoluteString) else {
             throw StdioLanguageServerSessionError.documentNotOpen
         }
-        guard let response = core.lspClientRequest(
-            state: state,
-            fileURL: fileURL,
-            method: method,
-            position: position,
-            newName: newName,
-            range: range,
-            diagnostics: diagnostics,
-            completionItem: completionItem,
-            codeAction: codeAction,
-            command: command
-        ) else {
+        let messages: [String]
+        let events: [RustCoreBridge.LspClientEventPayload]
+        if let sessionCore = core as? any LspSessionCore,
+           let sessionID,
+           let response = sessionCore.lspSessionRequest(
+               sessionID: sessionID,
+               fileURL: fileURL,
+               method: method,
+               position: position,
+               newName: newName,
+               range: range,
+               diagnostics: diagnostics,
+               completionItem: completionItem,
+               codeAction: codeAction,
+               command: command
+           ) {
+            updateFeatures(capabilityNames: response.serverCapabilities)
+            messages = response.messages
+            events = response.events
+        } else if let legacyState,
+                  let response = core.lspClientRequest(
+                    state: legacyState,
+                    fileURL: fileURL,
+                    method: method,
+                    position: position,
+                    newName: newName,
+                    range: range,
+                    diagnostics: diagnostics,
+                    completionItem: completionItem,
+                    codeAction: codeAction,
+                    command: command
+                  ) {
+            self.legacyState = response.state
+            messages = response.messages
+            events = response.events
+        } else {
             throw StdioLanguageServerSessionError.requestRejected
         }
-        self.state = response.state
-        for message in response.messages {
+        for message in messages {
             if let requestID = Self.requestID(from: message) {
                 responseHandlers[requestID] = completion
             }
             sendRawJSON(message)
         }
-        handle(response.events)
+        handle(events)
     }
 
     private func flushPendingDocuments() {
@@ -436,8 +554,18 @@ final class StdioLanguageServerSession: LanguageServerSession {
         ) else { return }
         readBuffer = Data(parsed.buffer)
         for message in parsed.messages {
-            guard let state else { continue }
-            if let response = core.lspClientApplyServerMessage(state: state, message: message) {
+            if let sessionCore = core as? any LspSessionCore,
+               let sessionID,
+               let response = sessionCore.lspSessionApplyServerMessage(
+                   sessionID: sessionID,
+                   message: message
+               ) {
+                apply(response)
+            } else if let legacyState,
+                      let response = core.lspClientApplyServerMessage(
+                        state: legacyState,
+                        message: message
+                      ) {
                 apply(response)
             }
         }
@@ -446,7 +574,12 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private func resetTransientState() {
         shutdownFallbackTask?.cancel()
         shutdownFallbackTask = nil
-        state = nil
+        if let sessionCore = core as? any LspSessionCore,
+           let sessionID {
+            sessionCore.lspSessionDestroy(sessionID: sessionID)
+        }
+        sessionID = nil
+        legacyState = nil
         readBuffer = Data()
         openedDocumentURIs = []
         pendingDocuments = [:]
@@ -473,6 +606,10 @@ final class StdioLanguageServerSession: LanguageServerSession {
             guard case .string(let name) = value else { return nil }
             return name
         }
+        updateFeatures(capabilityNames: names)
+    }
+
+    private func updateFeatures(capabilityNames names: [String]) {
         let updated = names.reduce(into: LanguageServerFeatureSet()) { result, name in
             switch name {
             case "definition": result.insert(.definition)
