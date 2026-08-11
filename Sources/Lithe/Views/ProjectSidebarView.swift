@@ -21,11 +21,12 @@ struct ProjectSidebarView: View {
             } else if let root = model.rootNode {
                 GeometryReader { geometry in
                     ScrollView([.vertical, .horizontal]) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 1) {
                             FileNodeRow(
                                 node: root,
                                 depth: 0,
                                 availableWidth: geometry.size.width,
+                                activeDocumentURL: model.activeDocument?.url,
                                 expandedDirectoryPaths: $expandedDirectoryPaths
                             )
                         }
@@ -148,15 +149,21 @@ struct ProjectSidebarView: View {
 }
 
 private struct FileNodeRow: View {
+    private static let horizontalInset: CGFloat = 10
+
     @EnvironmentObject private var model: AppModel
     let node: FileNode
     let depth: Int
     let availableWidth: CGFloat
+    let activeDocumentURL: URL?
     @Binding var expandedDirectoryPaths: Set<String>
     @State private var resolvedJavaIconKind: LitheIconKind?
 
     private var rowWidth: CGFloat {
-        max(availableWidth, CGFloat(depth * 14 + 8 + 180))
+        max(
+            availableWidth - (Self.horizontalInset * 2),
+            CGFloat(depth * 14 + 8 + 180)
+        )
     }
 
     private var isExpanded: Bool {
@@ -172,6 +179,7 @@ private struct FileNodeRow: View {
                         node: child,
                         depth: depth + 1,
                         availableWidth: availableWidth,
+                        activeDocumentURL: activeDocumentURL,
                         expandedDirectoryPaths: $expandedDirectoryPaths
                     )
                 }
@@ -197,10 +205,10 @@ private struct FileNodeRow: View {
                     .font(.system(size: 8, weight: .bold))
                     .frame(width: 10)
                     .foregroundStyle(LitheTheme.secondaryText)
-                LitheIcon(kind: node.iconKind, size: 14)
-                    .frame(width: 14, height: 14)
+                LitheIcon(kind: node.iconKind, size: LitheTheme.Metrics.treeIconSize)
+                    .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
-                    .font(.system(size: 12.5, weight: depth == 0 ? .semibold : .regular))
+                    .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -210,12 +218,17 @@ private struct FileNodeRow: View {
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
             .frame(width: rowWidth, alignment: .leading)
-            .frame(height: 25)
+            .frame(height: LitheTheme.Metrics.treeRowHeight)
             .contentShape(Rectangle())
-            .litheRowHover(cornerRadius: 4)
+            .litheRowHover(
+                cornerRadius: 4,
+                animation: nil
+            )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
+        .padding(.vertical, 0.5)
+        .padding(.horizontal, Self.horizontalInset)
         .contextMenu { directoryContextMenu }
     }
 
@@ -225,10 +238,10 @@ private struct FileNodeRow: View {
         } label: {
             HStack(spacing: 6) {
                 Color.clear.frame(width: 10)
-                LitheIcon(kind: resolvedJavaIconKind ?? node.iconKind, size: 14)
-                    .frame(width: 14)
+                LitheIcon(kind: resolvedJavaIconKind ?? node.iconKind, size: LitheTheme.Metrics.treeIconSize)
+                    .frame(width: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: LitheTheme.Metrics.treeFontSize))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -238,16 +251,19 @@ private struct FileNodeRow: View {
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
             .frame(width: rowWidth, alignment: .leading)
-            .frame(height: 25)
+            .frame(height: LitheTheme.Metrics.treeRowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
-                isActive: model.activeDocument?.url == node.url,
+                isActive: activeDocumentURL == node.url,
                 cornerRadius: 4,
-                activeBackground: LitheTheme.subtleSelection
+                activeBackground: LitheTheme.subtleSelection,
+                animation: nil
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
+        .padding(.vertical, 0.5)
+        .padding(.horizontal, Self.horizontalInset)
         .contextMenu { fileContextMenu }
         .task(id: node.url.standardizedFileURL.path) {
             guard node.url.pathExtension.lowercased() == "java" else { return }

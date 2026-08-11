@@ -97,13 +97,15 @@ struct LitheApp: App {
                 // changes. Re-identify the root so a language selection takes
                 // effect immediately across every workspace, including sheets.
                 .id(settings.language)
-                .frame(minWidth: 980, minHeight: 640)
                 .preferredColorScheme(.dark)
                 .task {
                     memoryUsageMonitor.start()
                 }
         }
-        .defaultSize(width: 1440, height: 900)
+        .defaultSize(
+            width: LitheWindowLayout.welcomeContentSize.width,
+            height: LitheWindowLayout.welcomeContentSize.height
+        )
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {

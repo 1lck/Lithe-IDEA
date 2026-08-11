@@ -37,6 +37,62 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func welcomeAndWorkspaceUseDistinctWindowSizes() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: false)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            registerWindow: { _ in }
+        )
+        let window = NSWindow()
+
+        coordinator.attach(to: window, layout: .welcome)
+        #expect(window.contentMinSize == LitheWindowLayout.welcome.minimumContentSize)
+        #expect(window.contentLayoutRect.size == LitheWindowLayout.welcome.contentSize)
+
+        coordinator.attach(to: window, layout: .workspace)
+        #expect(window.contentMinSize == LitheWindowLayout.workspace.minimumContentSize)
+        #expect(window.contentLayoutRect.width <= LitheWindowLayout.workspace.contentSize.width)
+        #expect(window.contentLayoutRect.height <= LitheWindowLayout.workspace.contentSize.height)
+        #expect(window.contentLayoutRect.width >= LitheWindowLayout.workspace.minimumContentSize.width)
+        #expect(window.contentLayoutRect.height >= LitheWindowLayout.workspace.minimumContentSize.height)
+    }
+
+    @Test
+    func workspaceWindowFitsInsideTheVisibleScreen() {
+        let visibleFrame = NSRect(x: 0, y: 24, width: 1280, height: 776)
+        let oversizedFrame = NSRect(x: -80, y: -40, width: 1440, height: 900)
+
+        let fittedFrame = LitheWindowLayout.frame(oversizedFrame, fitting: visibleFrame)
+
+        #expect(fittedFrame.minX >= visibleFrame.minX)
+        #expect(fittedFrame.maxX <= visibleFrame.maxX)
+        #expect(fittedFrame.minY >= visibleFrame.minY)
+        #expect(fittedFrame.maxY <= visibleFrame.maxY)
+    }
+
+    @Test
+    @MainActor
+    func workspaceTitleBarZoomsToTheVisibleScreenAndRestores() {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(
+            projectSessions: sessions,
+            registerWindow: { _ in }
+        )
+        let window = NSWindow()
+        coordinator.attach(to: window, layout: .workspace)
+        let restoredFrame = NSRect(x: 120, y: 70, width: 1000, height: 680)
+        let visibleFrame = NSRect(x: 0, y: 24, width: 1280, height: 776)
+        window.setFrame(restoredFrame, display: false)
+
+        coordinator.toggleWorkspaceZoom(fitting: visibleFrame)
+        #expect(window.frame == visibleFrame)
+
+        coordinator.toggleWorkspaceZoom(fitting: visibleFrame)
+        #expect(window.frame == restoredFrame)
+    }
+
+    @Test
+    @MainActor
     func dockReopenShowsTheHiddenWelcomeWindow() {
         let appDelegate = LitheAppDelegate()
         let window = NSWindow()
@@ -2685,6 +2741,56 @@ struct EditorDocumentTests {
         model.reorderDocuments(orderedPaths: urls.reversed().map(\.path))
         #expect(model.openDocuments.map(\.url.lastPathComponent) == ["C.swift", "B.swift", "A.swift"])
     }
+
+    @Test
+    @MainActor
+    func switchingToAnOpenDocumentWinsOverAPendingFileOpen() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-pending-open-tests")
+        let fileA = workspace.appendingPathComponent("A.swift")
+        let fileB = workspace.appendingPathComponent("B.swift")
+        let operations = BlockingWorkspaceOperations()
+        let model = DocumentFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        await model.openFileAsync(fileB, isReadOnly: false, displayPath: nil, activateWhenReady: true)
+        guard let documentB = model.openDocuments.first else {
+            Issue.record("B.swift did not open")
+            return
+        }
+        let pendingA = Task { @MainActor in
+            await model.openFileAsync(fileA, isReadOnly: false, displayPath: nil, activateWhenReady: true)
+        }
+
+        for _ in 0..<100 where !operations.didStartReadingA {
+            await Task.yield()
+        }
+        #expect(operations.didStartReadingA)
+
+        model.openFile(fileB)
+        #expect(model.activeDocumentID == documentB.id)
+
+        operations.releaseA()
+        await pendingA.value
+        #expect(model.activeDocumentID == documentB.id)
+    }
 }
 
 @MainActor
@@ -2917,6 +3023,61 @@ private struct EmptyWorkspaceOperations: WorkspaceOperations {
     ) -> [ProjectReplacementFile]? { nil }
 
     func readFile(at rootURL: URL, relativePath: String) -> String? { readFileValue }
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let releaseASemaphore = DispatchSemaphore(value: 0)
+    private var startedA = false
+
+    var didStartReadingA: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return startedA
+    }
+
+    func releaseA() {
+        releaseASemaphore.signal()
+    }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
+
+    func search(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> [FileSearchResult]? { nil }
+
+    func searchEverywhere(
+        at rootURL: URL,
+        query: String,
+        options: ProjectSearchOptions,
+        visibilityRules: FileVisibilityRules
+    ) -> SearchEverywhereResults? { nil }
+
+    func previewReplacement(
+        at rootURL: URL,
+        query: String,
+        replacement: String,
+        options: ProjectSearchOptions,
+        paths: [String],
+        textOverrides: [String: String],
+        visibilityRules: FileVisibilityRules
+    ) -> [ProjectReplacementFile]? { nil }
+
+    func readFile(at rootURL: URL, relativePath: String) -> String? {
+        if relativePath == "A.swift" {
+            lock.lock()
+            startedA = true
+            lock.unlock()
+            releaseASemaphore.wait()
+            return "A"
+        }
+        return "B"
+    }
+
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
 }
 

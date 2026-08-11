@@ -367,15 +367,11 @@ struct EditorAreaView: View {
         }
         .padding(.leading, 11)
         .padding(.trailing, 9)
-        .frame(width: 280, height: LitheTheme.Metrics.tabHeight, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(height: LitheTheme.Metrics.tabHeight, alignment: .leading)
         .background(LitheTheme.activeTabBackground)
         .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-                .stroke(LitheTheme.accent.opacity(0.85), lineWidth: 1)
-        }
         .shadow(color: .black.opacity(0.42), radius: 10, y: 6)
-        .scaleEffect(1.04)
         .compositingGroup()
     }
 

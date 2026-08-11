@@ -100,6 +100,18 @@ final class DocumentFeatureModel: ObservableObject {
         displayPath: String? = nil
     ) {
         let normalizedURL = url.standardizedFileURL
+
+        // Switching to an already-open document does not require file I/O.
+        // Apply that state change synchronously so repeated tree clicks feel immediate.
+        if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
+            latestFileOpenRequestID = UUID()
+            activeDocumentID = existing.id
+            if !isReadOnly {
+                onDocumentOpened?(existing)
+            }
+            return
+        }
+
         Task { await openFileAsync(
             normalizedURL,
             isReadOnly: isReadOnly,

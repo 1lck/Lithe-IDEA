@@ -58,13 +58,16 @@ enum LitheTheme {
     static let guideColor = guide
     static let activeGuideColor = activeGuide
 
-    static let uiFont = Font.system(size: 13, weight: .regular)
-    static let smallFont = Font.system(size: 11, weight: .regular)
+    static let uiFont = Font.system(size: 14, weight: .regular)
+    static let smallFont = Font.system(size: 12, weight: .regular)
     static let codeFont = Font.system(size: 13, design: .monospaced)
 
     /// 统一的尺寸与间距刻度，避免各视图各写一套魔法数字。
     enum Metrics {
         static let rowHeight: CGFloat = 24
+        static let treeRowHeight: CGFloat = 27
+        static let treeIconSize: CGFloat = 16
+        static let treeFontSize: CGFloat = 13.5
         static let tabHeight: CGFloat = 34
         static let toolbarHeight: CGFloat = 40
         static let toolWindowHeaderHeight: CGFloat = 30
@@ -92,13 +95,17 @@ extension View {
     func litheRowHover(
         isActive: Bool = false,
         cornerRadius: CGFloat = LitheTheme.Metrics.cornerRadius,
-        activeBackground: Color = LitheTheme.selection
+        activeBackground: Color = LitheTheme.selection,
+        hoverBackground: Color = LitheTheme.hoverBackground,
+        animation: Animation? = .easeOut(duration: 0.12)
     ) -> some View {
         modifier(
             LitheRowHoverModifier(
                 isActive: isActive,
                 cornerRadius: cornerRadius,
-                activeBackground: activeBackground
+                activeBackground: activeBackground,
+                hoverBackground: hoverBackground,
+                animation: animation
             )
         )
     }
@@ -124,21 +131,30 @@ struct LitheIconButtonStyle: ButtonStyle {
     }
 }
 
+/// Keeps file-tree rows visually stable while they are being activated.
+struct LitheTreeRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+    }
+}
+
 private struct LitheRowHoverModifier: ViewModifier {
     let isActive: Bool
     let cornerRadius: CGFloat
     let activeBackground: Color
+    let hoverBackground: Color
+    let animation: Animation?
     @State private var isHovering = false
 
     func body(content: Content) -> some View {
         content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(isActive ? activeBackground : (isHovering ? LitheTheme.hoverBackground : .clear))
+                    .fill(isActive ? activeBackground : (isHovering ? hoverBackground : .clear))
             )
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
-            .animation(.easeOut(duration: 0.12), value: isHovering)
+            .animation(animation, value: isHovering)
     }
 }
 
