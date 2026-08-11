@@ -18,6 +18,11 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         projectSessions?.stopAllSessions()
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard let projectSessions else { return }
+        Task { await projectSessions.resumeGitObservationAfterActivation() }
+    }
+
     static func confirmUnsavedDocuments(for projectSessions: ProjectSessionManager) -> Bool {
         guard projectSessions.hasUnsavedDocuments else { return true }
 
