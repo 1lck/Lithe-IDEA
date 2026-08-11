@@ -33,10 +33,8 @@ struct GitFeatureState {
     std::optional<GitPullPreflightDto> pullPreflight;
     std::optional<GitIntegrationPreflightDto> integrationPreflight;
     std::optional<GitConflictMarkersDto> conflictMarkers;
-    std::optional<GitOperationStateDto> operationState;
     std::optional<GitStashRestoreDto> stashRestoreConflict;
     std::optional<GitPendingCheckout> pendingCheckout;
-    std::vector<std::string> conflictFilterPaths;
     std::optional<CoreError> error;
 
     std::optional<GitCheckoutConflictRequest> pendingCheckoutConflict;

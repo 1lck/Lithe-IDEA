@@ -2691,11 +2691,7 @@ void GitFeatureModel::applyOperationState(WorkspaceOperationResult result,
         state_.isLoadingOperationState = false;
         if (result.envelope && result.envelope->ok) {
             if (auto operationState = decodeGitOperationState(*result.envelope)) {
-                if (operationState->kind.empty()) {
-                    state_.operationState.reset();
-                } else {
-                    state_.operationState = std::move(*operationState);
-                }
+                state_.operationState = toOperationState(*operationState);
                 rebuildConflictFilterPaths();
                 state_.error.reset();
             } else {
