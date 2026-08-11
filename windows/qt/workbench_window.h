@@ -47,6 +47,8 @@
 #include <unordered_set>
 
 class QLineEdit;
+class QComboBox;
+class QToolButton;
 class QLabel;
 class QCheckBox;
 class QPoint;
@@ -218,6 +220,7 @@ private:
     void saveWorkbenchLayout();
     void scheduleWorkbenchLayoutSave();
     void showToolWindow(BottomToolKind kind);
+    void updateWorkbenchStatusBar();
     void appendTreeNode(QTreeWidgetItem* parent, const WorkspaceNodeDto& node);
     int ensureEditorTab(const QString& relativePath);
     void showFeatureError(const std::optional<CoreError>& error, const QString& fallback);
@@ -268,6 +271,11 @@ private:
     WorkbenchCodeEditor* editor_ = nullptr;
     QTabBar* editorTabs_ = nullptr;
     QLineEdit* searchField_ = nullptr;
+    QToolButton* projectSwitcherButton_ = nullptr;
+    QToolButton* branchSwitcherButton_ = nullptr;
+    QComboBox* runConfigurationSelector_ = nullptr;
+    QLabel* statusPath_ = nullptr;
+    QLabel* statusInfo_ = nullptr;
     QWidget* findBar_ = nullptr;
     QLineEdit* findField_ = nullptr;
     QLabel* findStatus_ = nullptr;

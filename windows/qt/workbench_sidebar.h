@@ -50,6 +50,13 @@ public:
 
 signals:
     void pageChanged(SidebarPage page);
+    void projectRefreshRequested();
+    void terminalRequested();
+    void gitRequested();
+    void problemsRequested();
+    void mavenRequested();
+    void debugRequested();
+    void settingsRequested();
     void projectItemActivated(QTreeWidgetItem* item, int column);
     void projectContextMenuRequested(const QPoint& position);
     void changesItemActivated(QListWidgetItem* item);

@@ -17,6 +17,17 @@
 #include <optional>
 #include <string>
 
+namespace {
+
+class TerminalTabCloseButton final : public QToolButton {
+public:
+    explicit TerminalTabCloseButton(QWidget* parent) : QToolButton(parent) {}
+
+    QSize sizeHint() const override { return QSize(16, 16); }
+};
+
+}
+
 TerminalPanel::TerminalPanel(QWidget* parent)
     : QWidget(parent),
       statusBar_(new TerminalStatusBar(this)),
@@ -94,6 +105,10 @@ TerminalPanel::TerminalPanel(QWidget* parent)
             font-size: 10px;
             font-weight: 600;
             padding: 0px;
+            min-width: 16px;
+            max-width: 16px;
+            min-height: 16px;
+            max-height: 16px;
         }
         QToolButton#terminalTabClose:hover {
             background: rgba(255, 255, 255, 14);
@@ -194,7 +209,7 @@ QWidget* TerminalPanel::buildHeaderPrefix() {
 }
 
 void TerminalPanel::installTabCloseButton(int index) {
-    auto* button = new QToolButton(tabBar_);
+    auto* button = new TerminalTabCloseButton(tabBar_);
     button->setObjectName(QStringLiteral("terminalTabClose"));
     button->setText(QStringLiteral("×"));
     button->setToolTip(TerminalPanel::tr("Close this terminal session"));
@@ -283,8 +298,17 @@ void TerminalPanel::handleTabCloseRequested(int index) {
     if (model_ == nullptr) return;
     TerminalView* view = viewAt(index);
     if (view == nullptr) return;
+    const auto activeBeforeClose = model_->currentId();
+    const bool closingActive = activeBeforeClose.has_value() &&
+        *activeBeforeClose == view->sessionId().toStdString();
     model_->close(view->sessionId().toStdString());
     syncSessions();
+    if (!closingActive && activeBeforeClose.has_value() &&
+        model_->find(*activeBeforeClose) != nullptr) {
+        model_->select(*activeBeforeClose);
+        const int activeIndex = indexOfSession(QString::fromStdString(*activeBeforeClose));
+        if (activeIndex >= 0) tabBar_->setCurrentIndex(activeIndex);
+    }
     updateStatusBar();
 }
 

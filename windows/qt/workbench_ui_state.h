@@ -31,6 +31,7 @@ struct WorkbenchLayoutState {
     int editorTopHeight = kDefaultEditorTopHeight;
     SidebarDestination sidebarDestination = SidebarDestination::Project;
     BottomToolKind bottomToolKind = BottomToolKind::Terminal;
+    // The terminal is the primary Windows workbench tool window.
     bool bottomVisible = true;
 };
 

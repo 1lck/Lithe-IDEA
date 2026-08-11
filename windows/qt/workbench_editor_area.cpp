@@ -2,6 +2,7 @@
 
 #include "workbench_code_editor.h"
 #include "workbench_ui_state.h"
+#include "ui_tokens.h"
 
 #include <QAbstractItemView>
 #include <QHBoxLayout>
@@ -53,8 +54,8 @@ WorkbenchEditorArea::WorkbenchEditorArea(QWidget* parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(6);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
     findBar_ = new QWidget(this);
     findBar_->setObjectName(QStringLiteral("workbench.editorArea.findBar"));
@@ -89,6 +90,8 @@ WorkbenchEditorArea::WorkbenchEditorArea(QWidget* parent)
     editorTabs_->setMovable(true);
     editorTabs_->setExpanding(false);
     editorTabs_->setDocumentMode(true);
+    editorTabs_->setIconSize(QSize(14, 14));
+    editorTabs_->setFixedHeight(ui::EditorTabHeight);
     layout->addWidget(editorTabs_);
 
     statusBanner_ = new QWidget(this);

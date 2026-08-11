@@ -1,6 +1,7 @@
 #include "workbench_code_editor.h"
 
 #include "syntax_highlighter.h"
+#include "ui_tokens.h"
 
 #include <QColor>
 #include <QAbstractSlider>
@@ -31,19 +32,19 @@ namespace {
 QColor colorForToken(algorithms::SyntaxHighlightKind kind) {
     switch (kind) {
     case algorithms::SyntaxHighlightKind::Keyword:
-        return QColor(42, 91, 170);
+        return QColor(QStringLiteral("#cc7ac4"));
     case algorithms::SyntaxHighlightKind::Annotation:
-        return QColor(143, 74, 145);
+        return QColor(QStringLiteral("#dbb856"));
     case algorithms::SyntaxHighlightKind::Type:
-        return QColor(20, 118, 111);
+        return QColor(QStringLiteral("#6bb8e6"));
     case algorithms::SyntaxHighlightKind::Number:
-        return QColor(156, 93, 20);
+        return QColor(QStringLiteral("#a6c07d"));
     case algorithms::SyntaxHighlightKind::String:
-        return QColor(126, 91, 24);
+        return QColor(QStringLiteral("#8cc079"));
     case algorithms::SyntaxHighlightKind::Comment:
-        return QColor(105, 112, 122);
+        return QColor(QStringLiteral("#64906b"));
     }
-    return QColor(30, 33, 38);
+    return ui::PrimaryText;
 }
 
 int utf16OffsetForUtf8Byte(const QByteArray& utf8, std::size_t byteOffset) {
@@ -96,6 +97,10 @@ private:
 WorkbenchCodeEditor::WorkbenchCodeEditor(QWidget* parent)
     : QPlainTextEdit(parent) {
     setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    auto editorFont = font();
+    editorFont.setPointSize(13);
+    setFont(editorFont);
+    setTabStopDistance(fontMetrics().horizontalAdvance(u' ') * 4.0);
     setLineWrapMode(QPlainTextEdit::NoWrap);
     new WorkbenchSyntaxHighlighter(document());
 
@@ -284,11 +289,19 @@ void WorkbenchCodeEditor::paintGutter(QPaintEvent* event) {
 }
 
 void WorkbenchCodeEditor::paintEvent(QPaintEvent* event) {
+    const auto contentOffset = QPlainTextEdit::contentOffset();
+    if (auto block = textCursor().block(); block.isValid() && block.isVisible()) {
+        QPainter currentLinePainter(viewport());
+        currentLinePainter.fillRect(
+            QRect(0, blockBoundingGeometry(block).translated(contentOffset).top(),
+                  viewport()->width(), fontMetrics().height()),
+            QColor(ui::SubtleSelection.red(), ui::SubtleSelection.green(),
+                   ui::SubtleSelection.blue(), 58));
+    }
     QPlainTextEdit::paintEvent(event);
 
     QPainter painter(viewport());
     painter.setRenderHint(QPainter::TextAntialiasing);
-    const auto contentOffset = QPlainTextEdit::contentOffset();
     const auto visibleRect = event->rect();
     const auto textColor = palette().color(QPalette::Text);
     const auto inlayColor = QColor(textColor.red(), textColor.green(), textColor.blue(), 125);

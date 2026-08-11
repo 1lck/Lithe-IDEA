@@ -1,12 +1,14 @@
 #include "workbench_tool_window.h"
 
 #include "ui_translation.h"
+#include "ui_tokens.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QTabBar>
+#include <QStyle>
 #include <QVBoxLayout>
 
 namespace lithe::windows {
@@ -35,13 +37,14 @@ WorkbenchToolWindow::WorkbenchToolWindow(QWidget* parent)
 
     auto* header = new QWidget(this);
     header->setObjectName(QStringLiteral("workbench.toolWindow.header"));
+    header->setFixedHeight(ui::ToolWindowHeaderHeight);
     auto* headerLayout = new QHBoxLayout(header);
-    headerLayout->setContentsMargins(10, 4, 6, 4);
-    headerLayout->setSpacing(8);
+    headerLayout->setContentsMargins(8, 0, 6, 0);
+    headerLayout->setSpacing(4);
     title_ = new QLabel(header);
     title_->setObjectName(QStringLiteral("workbench.toolWindow.title"));
     title_->setText(titleFor(kind_));
-    headerLayout->addWidget(title_);
+    title_->setVisible(false);
 
     toolSelector_ = new QTabBar(header);
     toolSelector_->setObjectName(QStringLiteral("workbench.toolWindow.selector"));
@@ -51,10 +54,11 @@ WorkbenchToolWindow::WorkbenchToolWindow(QWidget* parent)
     headerLayout->addWidget(toolSelector_);
     headerLayout->addStretch(1);
 
-    auto* hide = new QPushButton(QStringLiteral("-"), header);
+    auto* hide = new QPushButton(header);
     hide->setObjectName(QStringLiteral("workbench.toolWindow.hideButton"));
     hide->setToolTip(QStringLiteral("Hide tool window"));
-    hide->setFixedWidth(30);
+    hide->setIcon(style()->standardIcon(QStyle::SP_TitleBarShadeButton));
+    hide->setFixedSize(28, 28);
     headerLayout->addWidget(hide);
     layout->addWidget(header);
 
