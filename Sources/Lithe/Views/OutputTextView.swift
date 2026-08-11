@@ -33,7 +33,7 @@ struct OutputTextView: View {
                 } else {
                     Text(renderedOutput)
                         .font(.custom("Menlo", size: 11.5))
-                        .tint(Color(red: 0.35, green: 0.55, blue: 0.90))
+                        .tint(LitheTheme.accent)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .padding(12)
@@ -225,7 +225,7 @@ struct OutputTextView: View {
                 .padding(.vertical, 5)
                 .background(LitheTheme.raised.opacity(0.9))
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                .overlay(Capsule().stroke(LitheTheme.panelBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .lithePointer()
@@ -248,7 +248,7 @@ struct OutputTextView: View {
                 .padding(.vertical, 5)
                 .background(LitheTheme.raised.opacity(0.92))
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                .overlay(Capsule().stroke(LitheTheme.panelBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .lithePointer()
@@ -344,7 +344,7 @@ private struct ScrollPositionTracker: NSViewRepresentable {
 /// 终端、Maven 构建输出与运行输出共用。
 enum ANSIOutputRenderer {
     struct Style {
-        var foreground = Color(red: 0.82, green: 0.84, blue: 0.86)
+        var foreground = LitheTheme.primaryText
         var background: Color?
         var bold = false
     }

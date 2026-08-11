@@ -1,4 +1,16 @@
 /* English is the default UI language. */
+"Appearance" = "Appearance";
+"Theme" = "Theme";
+"Color theme" = "Color theme";
+"Appearance mode" = "Appearance mode";
+"Lithe" = "Lithe";
+"Codex" = "Codex";
+"Linear" = "Linear";
+"System" = "System";
+"Light" = "Light";
+"Dark" = "Dark";
+"Choose whether Lithe follows the system appearance or always uses a light or dark theme." = "Choose whether Lithe follows the system appearance or always uses a light or dark theme.";
+"Choose a color theme and whether Lithe follows the system appearance." = "Choose a color theme and whether Lithe follows the system appearance.";
 "Editor tabs" = "Editor tabs";
 "Single row" = "Single row";
 "Wrap into rows" = "Wrap into rows";

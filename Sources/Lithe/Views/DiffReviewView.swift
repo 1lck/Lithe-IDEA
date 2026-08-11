@@ -703,11 +703,11 @@ struct SingleFileDiffRowView: View {
                     .lineLimit(1)
                 Spacer()
             }
-            .foregroundStyle(Color(red: 0.50, green: 0.72, blue: 0.98))
+            .foregroundStyle(LitheTheme.diffInformationText)
             .padding(.horizontal, 12)
             .frame(height: 27)
             .frame(maxWidth: .infinity)
-            .background(Color(red: 0.13, green: 0.20, blue: 0.30).opacity(isSearchMatch ? 0.92 : 1))
+            .background(LitheTheme.diffInformationBackground.opacity(isSearchMatch ? 0.92 : 1))
             .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {
@@ -769,7 +769,7 @@ struct SingleFileDiffRowView: View {
     }
 
     private var changeColor: Color {
-        isAddition ? LitheTheme.success : .red
+        isAddition ? LitheTheme.success : LitheTheme.error
     }
 }
 
@@ -816,11 +816,11 @@ struct DiffRowView: View {
                     .lineLimit(1)
                 Spacer()
             }
-            .foregroundStyle(Color(red: 0.50, green: 0.72, blue: 0.98))
+            .foregroundStyle(LitheTheme.diffInformationText)
             .padding(.horizontal, 12)
             .frame(height: 27)
             .frame(maxWidth: .infinity)
-            .background(Color(red: 0.13, green: 0.20, blue: 0.30))
+            .background(LitheTheme.diffInformationBackground)
             .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {
@@ -1389,13 +1389,13 @@ enum DiffSyntaxHighlighter {
         let color: Color
     }
 
-    private static let keywordColor = Color(red: 0.82, green: 0.52, blue: 0.78)
-    private static let typeColor = Color(red: 0.43, green: 0.72, blue: 0.92)
-    private static let stringColor = Color(red: 0.58, green: 0.76, blue: 0.49)
-    private static let numberColor = Color(red: 0.70, green: 0.76, blue: 0.48)
-    private static let commentColor = Color(red: 0.39, green: 0.57, blue: 0.43)
-    private static let tagColor = Color(red: 0.82, green: 0.66, blue: 0.37)
-    private static let baseColor = LitheTheme.primaryText
+    private static var keywordColor: Color { LitheTheme.skill }
+    private static var typeColor: Color { LitheTheme.accent }
+    private static var stringColor: Color { LitheTheme.success }
+    private static var numberColor: Color { LitheTheme.warning }
+    private static var commentColor: Color { LitheTheme.secondaryText }
+    private static var tagColor: Color { LitheTheme.warning }
+    private static var baseColor: Color { LitheTheme.primaryText }
 
     private static let keywords: Set<String> = [
         "class", "struct", "enum", "protocol", "extension", "func", "let", "var", "if", "else",
