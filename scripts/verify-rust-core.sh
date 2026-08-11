@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+scripts/verify-rust-core-layout.sh
 cargo fmt --manifest-path rust/Cargo.toml -- --check
 cargo test --manifest-path rust/Cargo.toml
 
