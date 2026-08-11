@@ -1173,9 +1173,14 @@ struct RunConfigurationIntegrationTests {
         #expect(harness.manager.languageServerStates["swift"] == .initializing)
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
 
-        try await Task.sleep(nanoseconds: 20_000_000)
-        await Self.drainMainActorTasks()
+        let didFail = await Self.waitForMainActorCondition {
+            if case .failed = harness.manager.languageServerStates["swift"] {
+                return true
+            }
+            return false
+        }
 
+        #expect(didFail)
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
         #expect(!harness.process.isRunning)
         guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
@@ -1239,9 +1244,11 @@ struct RunConfigurationIntegrationTests {
             rootURL: harness.root
         ) { completionResult = $0 }
 
-        try await Task.sleep(nanoseconds: 20_000_000)
-        await Self.drainMainActorTasks()
+        let didComplete = await Self.waitForMainActorCondition {
+            completionResult != nil
+        }
 
+        #expect(didComplete)
         guard case .failure(let error)? = completionResult else {
             Issue.record("Expected completion timeout to return failure")
             return
@@ -3247,6 +3254,18 @@ struct RunConfigurationIntegrationTests {
     private static func drainMainActorTasks() async {
         await Task.yield()
         await Task.yield()
+    }
+
+    private static func waitForMainActorCondition(
+        attempts: Int = 100,
+        _ condition: () -> Bool
+    ) async -> Bool {
+        for _ in 0..<attempts {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            await Task.yield()
+        }
+        return condition()
     }
 }
 
