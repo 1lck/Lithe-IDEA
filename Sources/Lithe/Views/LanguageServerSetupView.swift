@@ -90,6 +90,10 @@ struct LanguageServerSetupView: View {
             executablePathDraft = tools.customExecutablePath(for: providerID) ?? ""
             validationMessage = nil
         }
+        .task(id: selectedProviderID) {
+            guard let descriptor = selectedDescriptor else { return }
+            await tools.refreshCandidates(for: descriptor)
+        }
     }
 
     private var setupHeader: some View {
@@ -337,16 +341,18 @@ struct LanguageServerSetupView: View {
 
     private func savePath() {
         guard let descriptor = selectedDescriptor else { return }
-        do {
-            try tools.setCustomExecutablePath(executablePathDraft, for: descriptor)
-            executablePathDraft = tools.customExecutablePath(for: descriptor.id) ?? executablePathDraft
-            validationMessage = nil
-            configurationChanged(descriptor.id)
-        } catch {
-            validationMessage = if let configurationError = error as? LanguageServerToolConfigurationError {
-                copy.message(for: configurationError)
-            } else {
-                error.localizedDescription
+        Task {
+            do {
+                try await tools.setCustomExecutablePath(executablePathDraft, for: descriptor)
+                executablePathDraft = tools.customExecutablePath(for: descriptor.id) ?? executablePathDraft
+                validationMessage = nil
+                configurationChanged(descriptor.id)
+            } catch {
+                validationMessage = if let configurationError = error as? LanguageServerToolConfigurationError {
+                    copy.message(for: configurationError)
+                } else {
+                    error.localizedDescription
+                }
             }
         }
     }
@@ -357,6 +363,7 @@ struct LanguageServerSetupView: View {
         executablePathDraft = ""
         validationMessage = nil
         configurationChanged(descriptor.id)
+        Task { await tools.refreshCandidates(for: descriptor) }
     }
 
     private func installWithHomebrew() {

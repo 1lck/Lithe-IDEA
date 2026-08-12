@@ -54,6 +54,12 @@ final class MacServiceContainer {
         let languagePackDefinitions = LanguagePackRegistry.standard(
             catalog: languageProviderCatalog
         )
+        Task {
+            for descriptor in languageProviderCatalog.descriptors where
+                descriptor.capabilities.contains(.languageServer) {
+                await languageServerTools.refreshCandidates(for: descriptor)
+            }
+        }
         let debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [
             "go": {
                 guard let dlv = runtimeService.executableOnPath("dlv") else { return nil }

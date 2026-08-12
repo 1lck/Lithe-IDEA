@@ -70,6 +70,8 @@ enum LanguageServerToolConfigurationError: LocalizedError, Equatable {
 final class LanguageServerToolService: ObservableObject {
     @Published private(set) var customExecutablePaths: [String: String]
     @Published private(set) var installationStates: [String: LanguageServerInstallationState] = [:]
+    @Published private var validatedCandidates: [String: [RuntimeToolCandidate]] = [:]
+    var onCandidatesChanged: ((String) -> Void)?
 
     private let runtimeService: ProjectRuntimeService
     private let processRunner: any ProcessRunner
@@ -104,6 +106,40 @@ final class LanguageServerToolService: ObservableObject {
     }
 
     func candidates(for descriptor: LanguageProviderDescriptor) -> [RuntimeToolCandidate] {
+        if let cached = validatedCandidates[descriptor.id] {
+            return cached
+        }
+        guard descriptor.languageServerLaunch?.validationArguments.isEmpty != false else {
+            return []
+        }
+        return discoveredCandidates(for: descriptor)
+    }
+
+    @discardableResult
+    func refreshCandidates(
+        for descriptor: LanguageProviderDescriptor
+    ) async -> [RuntimeToolCandidate] {
+        let discovered = discoveredCandidates(for: descriptor)
+        let arguments = descriptor.languageServerLaunch?.validationArguments ?? []
+        guard !arguments.isEmpty else {
+            validatedCandidates[descriptor.id] = discovered
+            onCandidatesChanged?(descriptor.id)
+            return discovered
+        }
+        var usable: [RuntimeToolCandidate] = []
+        for candidate in discovered {
+            if await validate(candidate, for: descriptor).isUsable {
+                usable.append(candidate)
+            }
+        }
+        validatedCandidates[descriptor.id] = usable
+        onCandidatesChanged?(descriptor.id)
+        return usable
+    }
+
+    private func discoveredCandidates(
+        for descriptor: LanguageProviderDescriptor
+    ) -> [RuntimeToolCandidate] {
         var result: [RuntimeToolCandidate] = []
         var seen = Set<String>()
 
@@ -115,16 +151,13 @@ final class LanguageServerToolService: ObservableObject {
                 source: .custom,
                 detail: "Lithe override"
             )
-            if validate(candidate, for: descriptor).isUsable {
-                result.append(candidate)
-                seen.insert(executableURL.path)
-            }
+            result.append(candidate)
+            seen.insert(executableURL.path)
         }
 
         for command in descriptor.languageServerLaunch?.executableNames ?? [] {
             for candidate in runtimeService.executableCandidates(command) {
                 guard seen.insert(candidate.executableURL.path).inserted else { continue }
-                guard validate(candidate, for: descriptor).isUsable else { continue }
                 result.append(candidate)
             }
         }
@@ -141,15 +174,19 @@ final class LanguageServerToolService: ObservableObject {
         guard let candidate = candidates(for: descriptor).first else {
             return .unavailable
         }
-        return validate(candidate, for: descriptor).didExecute
-            ? .executableVerified
-            : .foundUnverified
+        let arguments = descriptor.languageServerLaunch?.validationArguments ?? []
+        guard !arguments.isEmpty else { return .foundUnverified }
+        let key = ExecutableValidationKey(
+            executablePath: candidate.executableURL.standardizedFileURL.path,
+            arguments: arguments
+        )
+        return validationCache[key]?.didExecute == true ? .executableVerified : .unavailable
     }
 
     func setCustomExecutablePath(
         _ path: String,
         for descriptor: LanguageProviderDescriptor
-    ) throws {
+    ) async throws {
         let normalized = (path as NSString)
             .expandingTildeInPath
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -160,13 +197,14 @@ final class LanguageServerToolService: ObservableObject {
             throw LanguageServerToolConfigurationError.executableInvalid(normalized)
         }
         validationCache.removeAll()
+        validatedCandidates[descriptor.id] = nil
         let candidate = RuntimeToolCandidate(
             command: descriptor.languageServerLaunch?.executableNames.first ?? descriptor.id,
             executableURL: executableURL,
             source: .custom,
             detail: "Lithe override"
         )
-        let validation = validate(candidate, for: descriptor)
+        let validation = await validate(candidate, for: descriptor)
         guard validation.isUsable else {
             throw LanguageServerToolConfigurationError.executableValidationFailed(
                 path: executableURL.path,
@@ -175,10 +213,12 @@ final class LanguageServerToolService: ObservableObject {
         }
         customExecutablePaths[descriptor.id] = executableURL.path
         settingsStore.save(customExecutablePaths)
+        await refreshCandidates(for: descriptor)
     }
 
     func clearCustomExecutablePath(for providerID: String) {
         customExecutablePaths[providerID] = nil
+        validatedCandidates[providerID] = nil
         settingsStore.save(customExecutablePaths)
     }
 
@@ -214,9 +254,11 @@ final class LanguageServerToolService: ObservableObject {
         let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         if result.succeeded {
             validationCache.removeAll()
+            validatedCandidates[descriptor.id] = nil
             installationStates[descriptor.id] = .installed(
                 output.isEmpty ? "brew install \(formula) completed." : output
             )
+            await refreshCandidates(for: descriptor)
         } else {
             installationStates[descriptor.id] = .failed(
                 output.isEmpty ? "brew install \(formula) failed with exit code \(result.exitCode)." : output
@@ -227,7 +269,7 @@ final class LanguageServerToolService: ObservableObject {
     private func validate(
         _ candidate: RuntimeToolCandidate,
         for descriptor: LanguageProviderDescriptor
-    ) -> ExecutableValidationResult {
+    ) async -> ExecutableValidationResult {
         let arguments = descriptor.languageServerLaunch?.validationArguments ?? []
         guard !arguments.isEmpty else { return .unverifiedUsable }
         let key = ExecutableValidationKey(
@@ -238,13 +280,17 @@ final class LanguageServerToolService: ObservableObject {
            Date().timeIntervalSince(cached.checkedAt) < 30 {
             return cached
         }
-        let result = processRunner.run(ProcessRequest(
+        let request = ProcessRequest(
             operationID: "lsp-validate-\(descriptor.id)-\(UUID().uuidString)",
             executablePath: key.executablePath,
             arguments: arguments,
             environment: runtimeService.processEnvironment(),
             timeoutMilliseconds: 5_000
-        ))
+        )
+        let runner = processRunner
+        let result = await Task.detached(priority: .userInitiated) {
+            runner.run(request)
+        }.value
         let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         let validation = ExecutableValidationResult(
             isUsable: result.succeeded,

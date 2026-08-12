@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct LanguageServerToolServiceTests {
     @Test
-    func customExecutablePersistsAndOverridesAutomaticDiscovery() throws {
+    func customExecutablePersistsAndOverridesAutomaticDiscovery() async throws {
         let customURL = URL(fileURLWithPath: "/custom/bin/gopls")
         let brewURL = URL(fileURLWithPath: "/opt/homebrew/bin/gopls")
         let store = LanguageServerToolTestStore()
@@ -28,7 +28,7 @@ struct LanguageServerToolServiceTests {
             store: store
         )
 
-        try service.setCustomExecutablePath(customURL.path, for: descriptor)
+        try await service.setCustomExecutablePath(customURL.path, for: descriptor)
         #expect(service.executableURL(for: descriptor) == customURL)
         #expect(service.candidates(for: descriptor).map(\.source) == [.custom, .homebrew])
 
@@ -43,7 +43,7 @@ struct LanguageServerToolServiceTests {
     }
 
     @Test
-    func rejectsNonExecutableCustomPath() {
+    func rejectsNonExecutableCustomPath() async {
         let store = LanguageServerToolTestStore()
         let service = LanguageServerToolService(
             runtimeService: makeRuntime(executablePaths: [], candidates: [:], store: store),
@@ -51,13 +51,13 @@ struct LanguageServerToolServiceTests {
             store: store
         )
 
-        #expect(throws: LanguageServerToolConfigurationError.executableInvalid("/missing/gopls")) {
-            try service.setCustomExecutablePath("/missing/gopls", for: goDescriptor())
+        await #expect(throws: LanguageServerToolConfigurationError.executableInvalid("/missing/gopls")) {
+            try await service.setCustomExecutablePath("/missing/gopls", for: goDescriptor())
         }
     }
 
     @Test
-    func rejectsBrokenProxyAndFallsBackToHomebrewCandidate() {
+    func rejectsBrokenProxyAndFallsBackToHomebrewCandidate() async {
         let proxyURL = URL(fileURLWithPath: "/Users/test/.cargo/bin/rust-analyzer")
         let brewURL = URL(fileURLWithPath: "/opt/homebrew/bin/rust-analyzer")
         let runner = LanguageServerToolTestProcessRunner(resultsByExecutablePath: [
@@ -91,7 +91,7 @@ struct LanguageServerToolServiceTests {
             store: store
         )
 
-        let candidates = service.candidates(for: rustDescriptor())
+        let candidates = await service.refreshCandidates(for: rustDescriptor())
 
         #expect(candidates.map(\.executableURL) == [brewURL])
         #expect(service.executableURL(for: rustDescriptor()) == brewURL)
@@ -100,7 +100,7 @@ struct LanguageServerToolServiceTests {
     }
 
     @Test
-    func rejectsCustomExecutableThatFailsCatalogValidation() {
+    func rejectsCustomExecutableThatFailsCatalogValidation() async {
         let proxyURL = URL(fileURLWithPath: "/Users/test/.cargo/bin/rust-analyzer")
         let store = LanguageServerToolTestStore()
         let runner = LanguageServerToolTestProcessRunner(resultsByExecutablePath: [
@@ -116,11 +116,11 @@ struct LanguageServerToolServiceTests {
             store: store
         )
 
-        #expect(throws: LanguageServerToolConfigurationError.executableValidationFailed(
+        await #expect(throws: LanguageServerToolConfigurationError.executableValidationFailed(
             path: proxyURL.path,
             message: "unknown rustup proxy"
         )) {
-            try service.setCustomExecutablePath(proxyURL.path, for: rustDescriptor())
+            try await service.setCustomExecutablePath(proxyURL.path, for: rustDescriptor())
         }
     }
 
@@ -150,7 +150,7 @@ struct LanguageServerToolServiceTests {
     }
 
     @Test
-    func reportsExecutableVerifiedOnlyAfterValidationCommandSucceeds() {
+    func reportsExecutableVerifiedOnlyAfterValidationCommandSucceeds() async {
         let executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/rust-analyzer")
         let store = LanguageServerToolTestStore()
         let runner = LanguageServerToolTestProcessRunner(
@@ -172,6 +172,8 @@ struct LanguageServerToolServiceTests {
             store: store
         )
 
+        #expect(service.executableVerificationState(for: rustDescriptor()) == .unavailable)
+        await service.refreshCandidates(for: rustDescriptor())
         #expect(service.executableVerificationState(for: rustDescriptor()) == .executableVerified)
         #expect(runner.requests.count == 1)
         #expect(runner.requests.first?.arguments == ["--version"])

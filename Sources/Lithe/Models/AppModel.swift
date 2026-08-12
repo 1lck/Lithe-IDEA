@@ -433,6 +433,15 @@ final class AppModel: ObservableObject, Identifiable {
         runtimeFeature.setOnRuntimeChanged { [weak self] in
             self?.reloadJavaRuntimeServices()
         }
+        languageServerTools.onCandidatesChanged = { [weak self] providerID in
+            guard let self,
+                  self.languageServerStartupFailures[providerID] != nil,
+                  let document = self.activeDocument,
+                  self.languageProviderCatalog.provider(for: document.url)?.id == providerID else {
+                return
+            }
+            _ = self.activateLanguageServerIfAvailable(for: document)
+        }
         doubleShiftDetector = services.shortcutDetectorFactory.make { [weak self] in
             self?.toggleSearchEverywhere()
         }

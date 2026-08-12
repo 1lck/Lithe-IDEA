@@ -54,11 +54,14 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
 
     func makeLanguageServerSession() -> (any LanguageServerSession)? {
         guard let languageServerLaunch else { return nil }
-        let configuredExecutable = languageServerExecutableResolver?(descriptor)
-        guard let executableURL = configuredExecutable
-            ?? languageServerLaunch.executableNames.lazy.compactMap({
+        let executableURL = if let languageServerExecutableResolver {
+            languageServerExecutableResolver(descriptor)
+        } else {
+            languageServerLaunch.executableNames.lazy.compactMap({
                 self.runtimeService.executableOnPath($0)
-            }).first else { return nil }
+            }).first
+        }
+        guard let executableURL else { return nil }
         var environment = runtimeService.processEnvironment()
         environment.merge(languageServerLaunch.environment) { _, configured in configured }
         return StdioLanguageServerSession(
