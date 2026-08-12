@@ -38,11 +38,8 @@ App::App() {
 
 void App::OnLaunched(Microsoft::UI::Xaml::LaunchActivatedEventArgs const&) {
     try {
-        WriteStartupError(L"OnLaunched: creating window");
         window_ = make<MainWindow>();
-        WriteStartupError(L"OnLaunched: window created");
         window_.Activate();
-        WriteStartupError(L"OnLaunched: window activated");
     } catch (winrt::hresult_error const& error) {
         WriteStartupError(error.message());
         throw;
