@@ -285,11 +285,17 @@ struct RustCoreBridge: Sendable {
                 let programArguments: [String]?
                 let profiles: [String]?
             }
+            struct Java: Codable, Sendable {
+                let homePath: String?
+                let mavenExecutablePath: String?
+                let mavenJavaHomePath: String?
+            }
             struct Debug: Codable, Sendable {
                 let adapter: String
             }
             struct Extensions: Codable, Sendable {
                 let maven: Maven?
+                let java: Java?
             }
             let id: String
             let name: String
@@ -1317,6 +1323,9 @@ struct RustCoreBridge: Sendable {
         let arguments: String
         let environment: [String: String]
         let mavenProfiles: [String]
+        let javaHomePath: String
+        let mavenExecutablePath: String
+        let mavenJavaHomePath: String
     }
     private struct RunConfigurationCreateUserRequest: Encodable {
         let root: String
@@ -1769,7 +1778,10 @@ struct RustCoreBridge: Sendable {
                 jvmArguments: options.vmArguments,
                 arguments: options.arguments,
                 environment: options.environment,
-                mavenProfiles: options.activeProfiles.sorted()
+                mavenProfiles: options.activeProfiles.sorted(),
+                javaHomePath: scope == .local ? options.javaHomePath : "",
+                mavenExecutablePath: scope == .local ? options.mavenExecutablePath : "",
+                mavenJavaHomePath: scope == .local ? options.mavenJavaHomePath : ""
             )
         )
     }

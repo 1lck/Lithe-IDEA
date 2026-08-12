@@ -82,6 +82,12 @@ pub struct UpdateOptionsRequest {
     pub environment: BTreeMap<String, String>,
     #[serde(default)]
     pub maven_profiles: Vec<String>,
+    #[serde(default)]
+    pub java_home_path: String,
+    #[serde(default)]
+    pub maven_executable_path: String,
+    #[serde(default)]
+    pub maven_java_home_path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -763,7 +769,16 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
                 "jvmArguments": split_arguments(&request.jvm_arguments),
                 "programArguments": split_arguments(&request.arguments),
                 "profiles": request.maven_profiles.into_iter().collect::<BTreeSet<_>>()
+            },
+            "java": {
+                "homePath": request.java_home_path,
+                "mavenExecutablePath": request.maven_executable_path,
+                "mavenJavaHomePath": request.maven_java_home_path
             }
+        });
+    } else if !request.java_home_path.is_empty() {
+        patch["extensions"] = json!({
+            "java": { "homePath": request.java_home_path }
         });
     } else {
         patch["args"] = json!(split_arguments(&request.arguments));

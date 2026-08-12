@@ -84,6 +84,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         let configurations: [EffectiveRunConfiguration] = payload.configurations.map { value in
             let kind = configurationKind(value.provider)
             let maven = value.maven
+            let java = value.extensions?.java
             return EffectiveRunConfiguration(
                 configuration: RunConfiguration(
                     id: value.id,
@@ -94,10 +95,13 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     mainClass: maven?.mainClass
                 ),
                 options: RunOptions(
+                    javaHomePath: java?.homePath ?? "",
                     workingDirectoryPath: (value.cwd ?? ".") == "." ? "" : (value.cwd ?? "."),
                     vmArguments: (maven?.jvmArguments ?? []).joined(separator: " "),
                     programArguments: (maven?.programArguments ?? value.args ?? []).joined(separator: " "),
                     activeProfiles: Set(maven?.profiles ?? []),
+                    mavenExecutablePath: java?.mavenExecutablePath ?? "",
+                    mavenJavaHomePath: java?.mavenJavaHomePath ?? "",
                     environment: value.env ?? [:]
                 ),
                 source: RunConfigurationSource(rawValue: value.source ?? "generated") ?? .generated
@@ -162,9 +166,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             options: options
         )
         try writeMutation(mutation, to: url, root: root)
-        if scope == .local, !options.javaHomePath.isEmpty {
-            try saveJavaHome(options.javaHomePath, at: root)
-        }
     }
 
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
@@ -179,43 +180,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
         try writeMutation(mutation, to: url, root: root)
         return id
-    }
-
-    func loadLocalToolchains(at projectURL: URL) -> ProjectToolchainSelection {
-        let url = projectURL.standardizedFileURL.appendingPathComponent(".lithe/toolchains/local.json")
-        guard storage.fileExists(at: url),
-              let data = try? storage.readData(from: url, options: []),
-              let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let toolchains = document["toolchains"] as? [String: [String: String]] else {
-            return ProjectToolchainSelection()
-        }
-        return ProjectToolchainSelection(
-            javaHomePath: toolchains["project-jdk"]?["home"] ?? "",
-            mavenExecutablePath: toolchains["project-maven"]?["executable"] ?? "",
-            mavenJavaHomePath: toolchains["project-maven"]?["javaHome"] ?? ""
-        )
-    }
-
-    func saveLocalToolchains(_ selection: ProjectToolchainSelection, at projectURL: URL) throws {
-        let root = projectURL.standardizedFileURL
-        guard storage.fileExists(at: root.appendingPathComponent(".lithe/run/generated.json")) else { return }
-        let url = root.appendingPathComponent(".lithe/toolchains/local.json")
-        var document = try jsonDocument(at: url, fallbackKey: "toolchains", fallbackValue: [:])
-        var toolchains = document["toolchains"] as? [String: [String: String]] ?? [:]
-        var jdk = toolchains["project-jdk"] ?? [:]
-        set(selection.javaHomePath, key: "home", in: &jdk)
-        if jdk.isEmpty { toolchains.removeValue(forKey: "project-jdk") }
-        else { toolchains["project-jdk"] = jdk }
-
-        var maven = toolchains["project-maven"] ?? [:]
-        set(selection.mavenExecutablePath, key: "executable", in: &maven)
-        set(selection.mavenJavaHomePath, key: "javaHome", in: &maven)
-        if maven.isEmpty { toolchains.removeValue(forKey: "project-maven") }
-        else { toolchains["project-maven"] = maven }
-
-        document["version"] = 1
-        document["toolchains"] = toolchains
-        try writeJSONObject(document, to: url, root: root)
     }
 
     /// Converts the legacy per-project UserDefaults values into local-only JSON once.
@@ -244,8 +208,13 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 )
                 try writeMutation(mutation, to: localURL, root: root)
             }
+            try migrateLegacyToolchainsIntoServices(
+                root: root,
+                projectKey: projectKey,
+                configurationIDs: configurationIDs,
+                localURL: localURL
+            )
         }
-        try migrateLegacyToolchains(root: root, projectKey: projectKey)
         preferences.set(true, forKey: markerKey)
     }
 
@@ -265,7 +234,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             let generatedData = try JSONEncoder.prettySorted.encode(result.generated)
             let requirementsData = try JSONEncoder.prettySorted.encode(result.toolchainRequirements)
             try atomicWrite(requirementsData, to: requirementsURL, root: root)
-            let ignore = "run/local.json\ntoolchains/local.json\n**/*.tmp\n"
+            let ignore = "run/local.json\n**/*.tmp\n"
             if !storage.fileExists(at: ignoreURL) { try atomicWrite(Data(ignore.utf8), to: ignoreURL, root: root) }
             if !storage.fileExists(at: manifestURL) {
                 // A framework service is what the user most likely wants to
@@ -322,43 +291,39 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             ".lithe/run/configurations.json",
             ".lithe/run/local.json",
             ".lithe/toolchains/requirements.json",
-            ".lithe/toolchains/local.json",
             ".lithe/project.json"
         ].first(where: message.contains)
     }
 
-    private func migrateLegacyToolchains(root: URL, projectKey: String) throws {
+    private func migrateLegacyToolchainsIntoServices(
+        root: URL,
+        projectKey: String,
+        configurationIDs: [String],
+        localURL: URL
+    ) throws {
         let key = "lithe.project-runtime.\(projectKey)"
         guard let data = preferences.data(forKey: key),
               let settings = try? JSONDecoder().decode(ProjectRuntimeSettings.self, from: data) else { return }
-        var toolchains: [String: [String: String]] = [:]
-        if !settings.javaHomePath.isEmpty { toolchains["project-jdk"] = ["home": settings.javaHomePath] }
-        if settings.mavenHomeSelection == .custom, !settings.mavenHomePath.isEmpty {
-            toolchains["project-maven"] = ["executable": URL(fileURLWithPath: settings.mavenHomePath).appendingPathComponent("bin/mvn").path]
-        } else if settings.mavenHomeSelection == .wrapper {
-            toolchains["project-maven"] = ["executable": "./mvnw"]
+        let mavenExecutable = settings.mavenHomeSelection == .custom && !settings.mavenHomePath.isEmpty
+            ? URL(fileURLWithPath: settings.mavenHomePath).appendingPathComponent("bin/mvn").path
+            : (settings.mavenHomeSelection == .wrapper ? "./mvnw" : "")
+        guard !settings.javaHomePath.isEmpty || !mavenExecutable.isEmpty || !settings.mavenJavaHomePath.isEmpty else { return }
+        for id in configurationIDs {
+            let legacyKey = "lithe.java-run-options.\(projectKey).\(id)"
+            var options = preferences.data(forKey: legacyKey)
+                .flatMap { try? JSONDecoder().decode(RunOptions.self, from: $0) }
+                ?? RunOptions()
+            options.javaHomePath = settings.javaHomePath
+            options.mavenExecutablePath = mavenExecutable
+            options.mavenJavaHomePath = settings.mavenJavaHomePath
+            let mutation = try documentMutator.updateOptionsDocument(
+                at: root,
+                configurationID: id,
+                scope: .local,
+                options: options
+            )
+            try writeMutation(mutation, to: localURL, root: root)
         }
-        if !settings.mavenJavaHomePath.isEmpty {
-            toolchains["project-maven", default: [:]]["javaHome"] = settings.mavenJavaHomePath
-        }
-        guard !toolchains.isEmpty else { return }
-        let url = root.appendingPathComponent(".lithe/toolchains/local.json")
-        guard !storage.fileExists(at: url) else { return }
-        let document: [String: Any] = ["version": 1, "toolchains": toolchains]
-        let output = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys, .prettyPrinted])
-        try validateWriteTarget(url, root: root)
-        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try atomicWrite(output, to: url, root: root)
-    }
-
-    private func saveJavaHome(_ path: String, at root: URL) throws {
-        let url = root.appendingPathComponent(".lithe/toolchains/local.json")
-        var document = try jsonDocument(at: url, fallbackKey: "toolchains", fallbackValue: [:])
-        var toolchains = document["toolchains"] as? [String: [String: String]] ?? [:]
-        toolchains["project-jdk", default: [:]]["home"] = path
-        document["version"] = 1
-        document["toolchains"] = toolchains
-        try writeJSONObject(document, to: url, root: root)
     }
 
     private func jsonDocument(

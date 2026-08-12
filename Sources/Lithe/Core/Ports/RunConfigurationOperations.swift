@@ -129,12 +129,7 @@ struct ProjectToolchainCandidate: Codable, Equatable, Sendable {
     let vendor: String
 }
 
-protocol ProjectToolchainConfigurationSource: Sendable {
-    func loadLocalToolchains(at projectURL: URL) -> ProjectToolchainSelection
-    func saveLocalToolchains(_ selection: ProjectToolchainSelection, at projectURL: URL) throws
-}
-
-protocol RunConfigurationOperations: ProjectToolchainConfigurationSource, Sendable {
+protocol RunConfigurationOperations: Sendable {
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
     func generate(
         at projectURL: URL,

@@ -8,31 +8,22 @@ enum ProjectRuntimeProcessKind: Sendable {
 @MainActor
 final class ProjectRuntimeService: ObservableObject {
     @Published private(set) var projectURL: URL?
-    @Published private(set) var settings = ProjectRuntimeSettings()
     @Published private(set) var javaRuntimes: [JavaRuntimeCandidate] = []
     @Published private(set) var mavenRuntimes: [MavenRuntimeCandidate] = []
     @Published private(set) var javaEnvironmentReport: JavaEnvironmentReport?
     @Published private(set) var isDiscovering = false
-
-    var onRuntimeChanged: (() -> Void)?
+    private var activeServiceJavaHomePath = ""
 
     private let runtimeLocator: any RuntimeLocator
     private let toolDiscovery: any RuntimeToolDiscovery
-    private let toolchainSource: (any ProjectToolchainConfigurationSource)?
     private var discoveryTask: Task<Void, Never>?
-    private var localToolchains = ProjectToolchainSelection()
-
-    private let settingsStore: ProjectRuntimeSettingsStore
-
     init(
         runtimeLocator: any RuntimeLocator,
         store: any KeyValueStore,
-        toolchainSource: (any ProjectToolchainConfigurationSource)? = nil,
         toolDiscovery: (any RuntimeToolDiscovery)? = nil
     ) {
         self.runtimeLocator = runtimeLocator
-        self.settingsStore = ProjectRuntimeSettingsStore(store: store)
-        self.toolchainSource = toolchainSource
+        _ = store
         self.toolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
     }
 
@@ -44,9 +35,6 @@ final class ProjectRuntimeService: ObservableObject {
         discoveryTask?.cancel()
         let normalizedURL = url.standardizedFileURL
         projectURL = normalizedURL
-        settings = settingsStore.load(for: normalizedURL)
-        localToolchains = toolchainSource?.loadLocalToolchains(at: normalizedURL) ?? ProjectToolchainSelection()
-        apply(localToolchains, to: &settings)
         javaRuntimes = []
         mavenRuntimes = []
         javaEnvironmentReport = .checking(for: normalizedURL)
@@ -59,47 +47,19 @@ final class ProjectRuntimeService: ObservableObject {
         discoveryTask?.cancel()
         discoveryTask = nil
         projectURL = nil
-        settings = ProjectRuntimeSettings()
-        localToolchains = ProjectToolchainSelection()
         javaRuntimes = []
         mavenRuntimes = []
         javaEnvironmentReport = nil
         isDiscovering = false
+        activeServiceJavaHomePath = ""
     }
 
-    func updateJavaHomePath(_ path: String) {
-        var next = settings
-        next.javaHomePath = normalizedPath(path)
-        updateSettings(next)
+    func setActiveServiceJavaHomePath(_ path: String) {
+        activeServiceJavaHomePath = path.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func updateMavenHomeSelection(_ selection: MavenHomeSelection) {
-        var next = settings
-        next.mavenHomeSelection = selection
-        updateSettings(next)
-    }
-
-    func updateMavenHomePath(_ path: String) {
-        var next = settings
-        next.mavenHomePath = normalizedPath(path)
-        updateSettings(next)
-    }
-
-    func updateMavenJavaHomePath(_ path: String) {
-        var next = settings
-        next.mavenJavaHomePath = normalizedPath(path)
-        updateSettings(next)
-    }
-
-    func updateSettings(_ next: ProjectRuntimeSettings) {
-        settings = next
-        if let projectURL {
-            settingsStore.save(next, for: projectURL)
-            localToolchains = toolchainSelection(from: next)
-            try? toolchainSource?.saveLocalToolchains(localToolchains, at: projectURL)
-        }
-        refreshJavaEnvironmentReport(using: javaRuntimes)
-        onRuntimeChanged?()
+    func activeServiceJavaExecutableURL() -> URL? {
+        javaExecutableURL(overridePath: activeServiceJavaHomePath)
     }
 
     func refreshAvailableRuntimes() async {
@@ -114,7 +74,6 @@ final class ProjectRuntimeService: ObservableObject {
         mavenRuntimes = result.mavenRuntimes
         refreshJavaEnvironmentReport(using: result.javaRuntimes)
         isDiscovering = false
-        onRuntimeChanged?()
     }
 
     func javaHomeURL(overridePath: String? = nil) -> URL? {
@@ -122,7 +81,7 @@ final class ProjectRuntimeService: ObservableObject {
            !normalizedPath(overridePath).isEmpty {
             return runtimeLocator.validJavaHome(path: normalizedPath(overridePath))
         }
-        let paths = [localToolchains.javaHomePath, settings.javaHomePath, runtimeLocator.environment()["JAVA_HOME"]]
+        let paths = [runtimeLocator.environment()["JAVA_HOME"]]
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
             if let home = runtimeLocator.validJavaHome(path: path) { return home }
         }
@@ -144,11 +103,7 @@ final class ProjectRuntimeService: ObservableObject {
         if let overridePath, !normalizedPath(overridePath).isEmpty {
             paths = [overridePath]
         } else {
-            paths = [
-                localToolchains.javaHomePath,
-                settings.javaHomePath,
-                runtimeLocator.environment()["JAVA_HOME"]
-            ]
+            paths = [runtimeLocator.environment()["JAVA_HOME"]]
         }
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
             if let home = runtimeLocator.validJavaHome(path: path) {
@@ -179,13 +134,7 @@ final class ProjectRuntimeService: ObservableObject {
            !normalizedPath(overridePath).isEmpty {
             return runtimeLocator.validJavaHome(path: normalizedPath(overridePath))
         }
-        let paths = [
-            localToolchains.mavenJavaHomePath,
-            localToolchains.javaHomePath,
-            settings.mavenJavaHomePath,
-            settings.javaHomePath,
-            runtimeLocator.environment()["JAVA_HOME"]
-        ]
+        let paths = [runtimeLocator.environment()["JAVA_HOME"]]
         for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
             if let home = runtimeLocator.validJavaHome(path: path) { return home }
         }
@@ -264,24 +213,7 @@ final class ProjectRuntimeService: ObservableObject {
             return
         }
 
-        let configuredPath = normalizedPath(settings.javaHomePath)
-        if !configuredPath.isEmpty,
-           runtimeLocator.validJavaHome(path: configuredPath) == nil {
-            javaEnvironmentReport = JavaEnvironmentReport(
-                status: .configuredJDKInvalid(path: configuredPath),
-                projectURL: projectURL,
-                javaHomePath: configuredPath,
-                javaExecutablePath: nil,
-                jdbExecutablePath: nil
-            )
-            return
-        }
-
-        let javaHome: URL? = if !configuredPath.isEmpty {
-            runtimeLocator.validJavaHome(path: configuredPath)
-        } else {
-            discoveredJavaRuntimes.first.flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
-        }
+        let javaHome = discoveredJavaRuntimes.first.flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
         guard let javaHome else {
             javaEnvironmentReport = JavaEnvironmentReport(
                 status: .jdkMissing,
@@ -333,32 +265,30 @@ final class ProjectRuntimeService: ObservableObject {
         return runtimeLocator.isExecutable(at: url) ? url : nil
     }
 
-    func mavenExecutable(for project: MavenProject) -> URL? {
-        mavenExecutable(at: project.rootURL)
+    func mavenExecutable(for project: MavenProject, overridePath: String? = nil) -> URL? {
+        mavenExecutable(at: project.rootURL, overridePath: overridePath)
     }
 
-    func mavenExecutable(at rootURL: URL) -> URL? {
-        let configured = localToolchains.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+    func mavenExecutable(at rootURL: URL, overridePath: String? = nil) -> URL? {
+        let configured = overridePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !configured.isEmpty {
-            let candidate = configured.hasPrefix("/")
+            let resolved = configured.hasPrefix("/")
                 ? URL(fileURLWithPath: configured)
                 : rootURL.appendingPathComponent(configured)
-            if runtimeLocator.isExecutable(at: candidate.standardizedFileURL) {
+            let candidates = [
+                resolved,
+                resolved.appendingPathComponent("bin/mvn")
+            ]
+            if let candidate = candidates.first(where: { runtimeLocator.isExecutable(at: $0.standardizedFileURL) }) {
                 return candidate.standardizedFileURL
             }
+            return nil
         }
         let wrapper = rootURL.appendingPathComponent("mvnw")
-        switch settings.mavenHomeSelection {
-        case .wrapper:
-            return runtimeLocator.isExecutable(at: wrapper) ? wrapper : nil
-        case .custom:
-            return runtimeLocator.mavenExecutable(forHomePath: settings.mavenHomePath)
-        case .automatic:
-            if runtimeLocator.isExecutable(at: wrapper) {
-                return wrapper
-            }
-            return runtimeLocator.systemMavenExecutable()
+        if runtimeLocator.isExecutable(at: wrapper) {
+            return wrapper
         }
+        return runtimeLocator.systemMavenExecutable()
     }
 
     /// Resolves a Gradle wrapper before falling back to a system Gradle. The
@@ -419,71 +349,4 @@ final class ProjectRuntimeService: ObservableObject {
         ((path as NSString).expandingTildeInPath as NSString).standardizingPath
     }
 
-    private func toolchainSelection(from settings: ProjectRuntimeSettings) -> ProjectToolchainSelection {
-        let mavenExecutable: String
-        switch settings.mavenHomeSelection {
-        case .wrapper:
-            mavenExecutable = "./mvnw"
-        case .custom where !settings.mavenHomePath.isEmpty:
-            mavenExecutable = URL(fileURLWithPath: settings.mavenHomePath)
-                .appendingPathComponent("bin/mvn")
-                .path
-        case .automatic, .custom:
-            mavenExecutable = ""
-        }
-        return ProjectToolchainSelection(
-            javaHomePath: settings.javaHomePath,
-            mavenExecutablePath: mavenExecutable,
-            mavenJavaHomePath: settings.mavenJavaHomePath
-        )
-    }
-
-    private func apply(
-        _ selection: ProjectToolchainSelection,
-        to settings: inout ProjectRuntimeSettings
-    ) {
-        if !selection.javaHomePath.isEmpty {
-            settings.javaHomePath = selection.javaHomePath
-        }
-        if !selection.mavenJavaHomePath.isEmpty {
-            settings.mavenJavaHomePath = selection.mavenJavaHomePath
-        }
-        let executable = selection.mavenExecutablePath
-        if executable == "./mvnw" || executable == "mvnw" {
-            settings.mavenHomeSelection = .wrapper
-        } else if !executable.isEmpty {
-            let binDirectory = URL(fileURLWithPath: executable).deletingLastPathComponent()
-            settings.mavenHomeSelection = .custom
-            settings.mavenHomePath = binDirectory.lastPathComponent == "bin"
-                ? binDirectory.deletingLastPathComponent().path
-                : binDirectory.path
-        }
-    }
-
-}
-
-private struct ProjectRuntimeSettingsStore {
-    private static let prefix = "lithe.project-runtime."
-    private let store: any KeyValueStore
-
-    init(store: any KeyValueStore) {
-        self.store = store
-    }
-
-    func load(for projectURL: URL) -> ProjectRuntimeSettings {
-        guard let data = store.data(forKey: Self.key(for: projectURL)),
-              let settings = try? JSONDecoder().decode(ProjectRuntimeSettings.self, from: data) else {
-            return ProjectRuntimeSettings()
-        }
-        return settings
-    }
-
-    func save(_ settings: ProjectRuntimeSettings, for projectURL: URL) {
-        guard let data = try? JSONEncoder().encode(settings) else { return }
-        store.set(data, forKey: Self.key(for: projectURL))
-    }
-
-    private static func key(for projectURL: URL) -> String {
-        prefix + projectURL.standardizedFileURL.path.replacingOccurrences(of: "/", with: "_")
-    }
 }

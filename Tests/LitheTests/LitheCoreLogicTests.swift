@@ -968,7 +968,7 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func runConfigurationMigrationWritesLocalOnlyOverridesAndToolchains() throws {
+    func runConfigurationMigrationWritesToolchainsIntoServiceOverrides() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-run-migration-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1012,10 +1012,7 @@ struct LitheCoreLogicTests {
         let configs = local?["configurations"] as? [[String: Any]]
         #expect(configs?.first?["workingDirectory"] as? String == "backend app")
         #expect(configs?.first?["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx1g"])
-        let toolchains = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent(".lithe/toolchains/local.json"))) as? [String: Any]
-        let values = toolchains?["toolchains"] as? [String: [String: String]]
-        #expect(values?["project-jdk"]?["home"] == "/Library/Java/jdk-22")
-        #expect(values?["project-maven"]?["executable"] == "/opt/maven/bin/mvn")
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/toolchains/local.json").path))
         #expect(store.object(forKey: "lithe.run-configuration-migrated.\(projectKey)") as? Bool == true)
         #expect(store.data(forKey: "lithe.java-run-options.\(projectKey).current-file") != nil)
         #expect(store.data(forKey: "lithe.java-run-options.\(projectKey).current-file") != nil)

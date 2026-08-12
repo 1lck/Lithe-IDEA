@@ -8,7 +8,6 @@ struct FileVisibilityRules: Hashable, Sendable {
     static let builtInHiddenFilePatterns = [
         ".DS_Store",
         ".lithe/run/local.json",
-        ".lithe/toolchains/local.json"
     ]
 
     var hiddenDirectoryNames: [String]

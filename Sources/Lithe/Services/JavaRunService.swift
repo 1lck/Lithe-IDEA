@@ -217,6 +217,9 @@ final class RunService: ObservableObject {
 
     func select(_ configuration: RunConfiguration) {
         selectedConfigurationID = configuration.id
+        if configuration.kind.capabilities.contains(.javaRuntime) {
+            runtimeService.setActiveServiceJavaHomePath(options(for: configuration).javaHomePath)
+        }
     }
 
     private func selectionPreferenceKey(for projectURL: URL) -> String {
@@ -239,6 +242,12 @@ final class RunService: ObservableObject {
         scope: RunConfigurationSaveScope = .local
     ) -> Bool {
         configurationSaveError = nil
+        var options = options
+        if scope == .project {
+            options.javaHomePath = ""
+            options.mavenExecutablePath = ""
+            options.mavenJavaHomePath = ""
+        }
         if configurationStatus == .ready, let projectURL {
             do {
                 try runConfigurationOperations.saveOptions(
@@ -253,6 +262,9 @@ final class RunService: ObservableObject {
             }
         }
         optionsByConfigurationID[configuration.id] = options
+        if configuration.kind.capabilities.contains(.javaRuntime) {
+            runtimeService.setActiveServiceJavaHomePath(options.javaHomePath)
+        }
         effectiveSourcesByConfigurationID[configuration.id] = scope == .local ? .local : .project
         persist(options, for: configuration.id)
         refreshPortConflicts()
@@ -530,6 +542,11 @@ final class RunService: ObservableObject {
         optionsByConfigurationID = Dictionary(uniqueKeysWithValues: resolved.map {
             ($0.configuration.id, $0.options)
         })
+        let preferredJava = resolved.first { item in
+            item.configuration.id == preferredConfigurationID
+                && item.configuration.kind.capabilities.contains(.javaRuntime)
+        } ?? resolved.first { $0.configuration.kind.capabilities.contains(.javaRuntime) }
+        runtimeService.setActiveServiceJavaHomePath(preferredJava?.options.javaHomePath ?? "")
         effectiveSourcesByConfigurationID = Dictionary(uniqueKeysWithValues: resolved.map {
             ($0.configuration.id, $0.source)
         })
@@ -617,7 +634,9 @@ final class RunService: ObservableObject {
               let projectURL else { return }
         moduleSessions.removeAll { $0.id == configuration.id }
         let options = self.options(for: configuration)
-        let configuredJavaHome = options.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuredJavaHome = (options.mavenJavaHomePath.isEmpty
+            ? options.javaHomePath
+            : options.mavenJavaHomePath).trimmingCharacters(in: .whitespacesAndNewlines)
         if !configuredJavaHome.isEmpty && runtimeService.mavenJavaHomeURL(overridePath: configuredJavaHome) == nil {
             moduleSessions.append(RunSession(
                 id: configuration.id,

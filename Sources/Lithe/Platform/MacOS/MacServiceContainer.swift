@@ -38,7 +38,6 @@ final class MacServiceContainer {
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store,
-            toolchainSource: runConfigurationStore,
             toolDiscovery: MacRuntimeToolDiscovery()
         )
         let languageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
@@ -103,7 +102,7 @@ final class MacServiceContainer {
             },
             // JDT LS runs on a JDK the Rust runtime cannot discover for itself.
             languageServerRuntimeResolver: { descriptor in
-                descriptor.id == "java" ? runtimeService.javaExecutableURL() : nil
+                descriptor.id == "java" ? runtimeService.activeServiceJavaExecutableURL() : nil
             },
             languageServerCacheDirectory: fileStorage
                 .cacheDirectory()

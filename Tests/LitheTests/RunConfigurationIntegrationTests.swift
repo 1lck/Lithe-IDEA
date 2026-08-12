@@ -2493,17 +2493,11 @@ struct RunConfigurationIntegrationTests {
         #expect(fixture.processFactory.processes.count == 1)    }
 
     @Test
-    func projectRuntimeUsesAndUpdatesLitheLocalToolchains() throws {
+    func projectRuntimeResolvesServiceLevelToolchainOverrides() throws {
         let root = URL(fileURLWithPath: "/tmp/lithe-runtime-toolchains", isDirectory: true)
-        let source = RecordingToolchainSource(selection: ProjectToolchainSelection(
-            javaHomePath: "/local/JDK 21",
-            mavenExecutablePath: "/local/Maven 3.9/bin/mvn",
-            mavenJavaHomePath: "/local/Maven JDK"
-        ))
         let runtime = ProjectRuntimeService(
             runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore(),
-            toolchainSource: source
+            store: RunTestKeyValueStore()
         )
         runtime.openProject(at: root)
         let project = MavenProject(
@@ -2518,14 +2512,9 @@ struct RunConfigurationIntegrationTests {
             hasWrapper: false
         )
 
-        #expect(runtime.javaExecutableURL()?.path == "/local/JDK 21/bin/java")
-        #expect(runtime.mavenExecutable(for: project)?.path == "/local/Maven 3.9/bin/mvn")
-        #expect(runtime.environment(for: .maven)["JAVA_HOME"] == "/local/Maven JDK")
-
-        runtime.updateJavaHomePath("/updated/jdk")
-        let saved = try #require(source.saved.last)
-        #expect(saved.javaHomePath == "/updated/jdk")
-        #expect(saved.mavenExecutablePath == "/local/Maven 3.9/bin/mvn")
+        #expect(runtime.javaExecutableURL(overridePath: "/local/JDK 21")?.path == "/local/JDK 21/bin/java")
+        #expect(runtime.mavenExecutable(for: project, overridePath: "/local/Maven 3.9/bin/mvn")?.path == "/local/Maven 3.9/bin/mvn")
+        #expect(runtime.environment(for: .maven, javaHomeOverride: "/local/Maven JDK")["JAVA_HOME"] == "/local/Maven JDK")
     }
 
     @Test
@@ -2765,6 +2754,39 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func serviceToolchainOverridesRoundTripThroughRustConfigurationDocuments() throws {
+        let core = RustCoreBridge()
+        guard core.isAvailable else { return }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-service-toolchains-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/run"), withIntermediateDirectories: true)
+        try Data(#"{"version":2,"configurations":[{"id":"spring","name":"Spring","provider":"spring-boot.maven","execution":"service","toolchains":{"java":"project-jdk","maven":"project-maven"},"extensions":{"maven":{"module":"."}}}]}"#.utf8)
+            .write(to: root.appendingPathComponent(".lithe/run/generated.json"))
+        let store = MacRunConfigurationStore(
+            core: core,
+            storage: MacFileStorage(),
+            preferences: RunTestKeyValueStore()
+        )
+        try store.saveOptions(
+            RunOptions(
+                javaHomePath: "/test/jdk-21",
+                mavenExecutablePath: "/test/maven/bin/mvn",
+                mavenJavaHomePath: "/test/maven-jdk"
+            ),
+            configurationID: "spring",
+            scope: .local,
+            at: root
+        )
+
+        let resolved = try store.resolve(at: root, toolchainCandidates: [])
+        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring" }?.options)
+        #expect(options.javaHomePath == "/test/jdk-21")
+        #expect(options.mavenExecutablePath == "/test/maven/bin/mvn")
+        #expect(options.mavenJavaHomePath == "/test/maven-jdk")
+    }
+
+    @Test
     func goRuntimeToolchainFlowsFromSharedJSONIntoProcessRequest() async throws {
         let core = RustCoreBridge()
         guard core.isAvailable else { return }
@@ -2786,8 +2808,7 @@ struct RunConfigurationIntegrationTests {
         )
         let runtime = ProjectRuntimeService(
             runtimeLocator: RunTestRuntimeLocator(),
-            store: preferences,
-            toolchainSource: store
+            store: preferences
         )
         let process = RecordingStreamingProcess()
         let service = RunService(
@@ -3094,8 +3115,11 @@ struct RunConfigurationIntegrationTests {
         #expect(MacRunConfigurationStore.recoveryAction(for: "parse_failed") == .editConfiguration)
         #expect(MacRunConfigurationStore.recoveryAction(for: "permission_denied") == .fixPermissions)
         #expect(MacRunConfigurationStore.recoveryPath(
+            in: "Configuration JSON is invalid: .lithe/run/local.json: line 1"
+        ) == ".lithe/run/local.json")
+        #expect(MacRunConfigurationStore.recoveryPath(
             in: "Configuration JSON is invalid: .lithe/toolchains/local.json: line 1"
-        ) == ".lithe/toolchains/local.json")
+        ) == nil)
     }
 
     @Test
@@ -3351,10 +3375,6 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {
         migrationCalls += 1
     }
-    func loadLocalToolchains(at projectURL: URL) -> ProjectToolchainSelection {
-        ProjectToolchainSelection()
-    }
-    func saveLocalToolchains(_ selection: ProjectToolchainSelection, at projectURL: URL) throws {}
 }
 
 private final class BlockingInspectionOperations: RunConfigurationOperations, @unchecked Sendable {
@@ -3414,8 +3434,6 @@ private final class BlockingInspectionOperations: RunConfigurationOperations, @u
         throw RunConfigurationOperationFailure(message: "Creation is unavailable in this test double")
     }
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
-    func loadLocalToolchains(at projectURL: URL) -> ProjectToolchainSelection { ProjectToolchainSelection() }
-    func saveLocalToolchains(_ selection: ProjectToolchainSelection, at projectURL: URL) throws {}
 }
 
 private final class RecordingStreamingProcess: StreamingProcess, @unchecked Sendable {
@@ -3857,20 +3875,6 @@ private final class ToolchainVersionProcessRunner: ProcessRunner, @unchecked Sen
         default: output = ""
         }
         return ProcessResult(output: output, exitCode: output.isEmpty ? 1 : 0)
-    }
-}
-
-private final class RecordingToolchainSource: ProjectToolchainConfigurationSource, @unchecked Sendable {
-    let selection: ProjectToolchainSelection
-    private(set) var saved: [ProjectToolchainSelection] = []
-
-    init(selection: ProjectToolchainSelection) {
-        self.selection = selection
-    }
-
-    func loadLocalToolchains(at projectURL: URL) -> ProjectToolchainSelection { selection }
-    func saveLocalToolchains(_ selection: ProjectToolchainSelection, at projectURL: URL) throws {
-        saved.append(selection)
     }
 }
 

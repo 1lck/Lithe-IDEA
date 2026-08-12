@@ -151,9 +151,12 @@ final class JavaDebugService: ObservableObject {
             fail(error.localizedDescription)
             return
         }
-        guard runtimeService.mavenJavaHomeURL(overridePath: options.javaHomePath) != nil,
+        let mavenJavaHome = options.mavenJavaHomePath.isEmpty
+            ? options.javaHomePath
+            : options.mavenJavaHomePath
+        guard runtimeService.mavenJavaHomeURL(overridePath: mavenJavaHome) != nil,
               let jdbURL = runtimeService.jdbExecutableURL(
-                  overridePath: options.javaHomePath,
+                  overridePath: mavenJavaHome,
                   for: .maven
               ) else {
             fail("No JDK with jdb was found. Set JDK Home or JAVA_HOME.")
@@ -166,8 +169,11 @@ final class JavaDebugService: ObservableObject {
             title: configuration.name,
             launchesDebuggee: true
         )
-        guard let executable = runtimeService.mavenExecutable(for: project) else {
-            fail("No Maven executable was found. Configure Maven in Project Settings.")
+        guard let executable = runtimeService.mavenExecutable(
+            for: project,
+            overridePath: options.mavenExecutablePath
+        ) else {
+            fail("No Maven executable was found. Edit this service configuration.")
             return
         }
         append("$ " + executable.lastPathComponent + " " + plan.arguments.joined(separator: " ") + "\n\n")
@@ -179,7 +185,7 @@ final class JavaDebugService: ObservableObject {
                 fallback: project.rootURL,
                 relativeTo: projectURL
             ),
-            environment: runtimeService.environment(for: .maven, javaHomeOverride: options.javaHomePath),
+            environment: runtimeService.environment(for: .maven, javaHomeOverride: mavenJavaHome),
             jdbURL: jdbURL,
             host: "127.0.0.1",
             port: debugPort,

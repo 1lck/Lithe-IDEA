@@ -224,16 +224,21 @@ private final class MavenRunToolchainProvider: RunToolchainProvider {
         options: RunOptions,
         runtimeService: ProjectRuntimeService
     ) throws -> ResolvedRunToolchain {
-        guard let executable = runtimeService.mavenExecutable(at: projectURL) else {
+        guard let executable = runtimeService.mavenExecutable(
+            at: projectURL,
+            overridePath: options.mavenExecutablePath
+        ) else {
             throw RunExecutableResolutionError(
-                message: String(localized: "No Maven executable was found. Configure Maven in Project Settings.")
+                message: String(localized: "No Maven executable was found. Edit this service configuration.")
             )
         }
         return ResolvedRunToolchain(
             executableURL: executable,
             environment: runtimeService.environment(
                 for: .maven,
-                javaHomeOverride: options.javaHomePath
+                javaHomeOverride: options.mavenJavaHomePath.isEmpty
+                    ? options.javaHomePath
+                    : options.mavenJavaHomePath
             )
         )
     }

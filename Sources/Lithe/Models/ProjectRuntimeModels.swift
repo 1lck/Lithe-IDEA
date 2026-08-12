@@ -120,9 +120,9 @@ struct JavaEnvironmentReport: Equatable, Sendable {
         switch status {
         case .checking, .ready: ""
         case .jdkMissing:
-            "Choose a JDK in Project Settings or install a full JDK and set JAVA_HOME."
+            "Choose a JDK in the Java service settings or install a full JDK and set JAVA_HOME."
         case .configuredJDKInvalid:
-            "Choose another JDK in Project Settings or clear the invalid path."
+            "Choose another JDK in the Java service settings or clear the invalid path."
         case .jdbMissing:
             "Use a full JDK distribution instead of a JRE or minimal runtime."
         }

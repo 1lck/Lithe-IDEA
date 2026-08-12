@@ -7,8 +7,37 @@ import Foundation
 struct RunOptions: Codable, Hashable, Sendable {
     struct JavaCapability: Codable, Hashable, Sendable {
         var homePath = ""
+        var mavenExecutablePath = ""
+        var mavenJavaHomePath = ""
         var vmArguments = ""
         var activeMavenProfiles: Set<String> = []
+
+        private enum CodingKeys: String, CodingKey {
+            case homePath, mavenExecutablePath, mavenJavaHomePath, vmArguments, activeMavenProfiles
+        }
+
+        init(
+            homePath: String = "",
+            mavenExecutablePath: String = "",
+            mavenJavaHomePath: String = "",
+            vmArguments: String = "",
+            activeMavenProfiles: Set<String> = []
+        ) {
+            self.homePath = homePath
+            self.mavenExecutablePath = mavenExecutablePath
+            self.mavenJavaHomePath = mavenJavaHomePath
+            self.vmArguments = vmArguments
+            self.activeMavenProfiles = activeMavenProfiles
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            homePath = try container.decodeIfPresent(String.self, forKey: .homePath) ?? ""
+            mavenExecutablePath = try container.decodeIfPresent(String.self, forKey: .mavenExecutablePath) ?? ""
+            mavenJavaHomePath = try container.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
+            vmArguments = try container.decodeIfPresent(String.self, forKey: .vmArguments) ?? ""
+            activeMavenProfiles = try container.decodeIfPresent(Set<String>.self, forKey: .activeMavenProfiles) ?? []
+        }
     }
 
     var workingDirectoryPath = ""
@@ -22,6 +51,8 @@ struct RunOptions: Codable, Hashable, Sendable {
         vmArguments: String = "",
         programArguments: String = "",
         activeProfiles: Set<String> = [],
+        mavenExecutablePath: String = "",
+        mavenJavaHomePath: String = "",
         environment: [String: String] = [:]
     ) {
         self.workingDirectoryPath = workingDirectoryPath
@@ -29,6 +60,8 @@ struct RunOptions: Codable, Hashable, Sendable {
         self.environment = environment
         java = JavaCapability(
             homePath: javaHomePath,
+            mavenExecutablePath: mavenExecutablePath,
+            mavenJavaHomePath: mavenJavaHomePath,
             vmArguments: vmArguments,
             activeMavenProfiles: activeProfiles
         )
@@ -44,6 +77,16 @@ struct RunOptions: Codable, Hashable, Sendable {
     var vmArguments: String {
         get { java.vmArguments }
         set { java.vmArguments = newValue }
+    }
+
+    var mavenExecutablePath: String {
+        get { java.mavenExecutablePath }
+        set { java.mavenExecutablePath = newValue }
+    }
+
+    var mavenJavaHomePath: String {
+        get { java.mavenJavaHomePath }
+        set { java.mavenJavaHomePath = newValue }
     }
 
     var programArguments: String {
