@@ -29,7 +29,10 @@ permissions:
 jobs:
   build:
     name: Build and test Windows implementation
-    runs-on: windows-latest
+    # The WinUI project targets the Visual Studio 2022 v143 toolset. Pin the
+    # hosted image so a future windows-latest migration cannot silently select
+    # Visual Studio 18 and drop the required UWP/WinUI build tools.
+    runs-on: windows-2022
 
     steps:
       - name: Check out source
