@@ -547,10 +547,16 @@ final class WorkspaceFeatureModel: ObservableObject {
 
     private func scheduleDirectoryChange(_ batch: DirectoryChangeBatch) {
         guard !batch.isEmpty else { return }
+        if !batch.workspacePaths.isEmpty {
+            pendingExternalPaths.formUnion(batch.workspacePaths)
+            externalRefreshGeneration += 1
+        }
         if batch.watchRootsChanged || batch.requiresFullRescan {
             pendingWatchRootsChanged = pendingWatchRootsChanged || batch.watchRootsChanged
             pendingFullRescan = pendingFullRescan || batch.requiresFullRescan
             pendingGitRefresh = true
+            refreshTask?.cancel()
+            refreshTask = nil
             gitRefreshTask?.cancel()
             gitRefreshTask = nil
             scheduleRecovery()
@@ -559,7 +565,7 @@ final class WorkspaceFeatureModel: ObservableObject {
 
         if !batch.workspacePaths.isEmpty {
             if batch.gitStateMayHaveChanged { pendingGitRefresh = true }
-            scheduleExternalRefresh(paths: batch.workspacePaths)
+            schedulePendingExternalRefresh()
         } else if batch.gitStateMayHaveChanged {
             scheduleGitRefresh()
         }
@@ -596,6 +602,13 @@ final class WorkspaceFeatureModel: ObservableObject {
         }
         if fullRescan {
             await refreshCurrent()
+        } else if !pendingExternalPaths.isEmpty {
+            let changedPaths = Array(pendingExternalPaths)
+            pendingExternalPaths.removeAll()
+            externalRefreshGeneration += 1
+            refreshTask?.cancel()
+            refreshTask = nil
+            await applyExternalRefresh(changedPaths, at: workspaceURL)
         }
         if pendingGitRefresh {
             await drainGitRefreshes()
@@ -606,6 +619,11 @@ final class WorkspaceFeatureModel: ObservableObject {
         guard !paths.isEmpty else { return }
         pendingExternalPaths.formUnion(paths)
         externalRefreshGeneration += 1
+        schedulePendingExternalRefresh()
+    }
+
+    private func schedulePendingExternalRefresh() {
+        guard !pendingExternalPaths.isEmpty else { return }
         guard gitOperationFreezeDepth == 0 else {
             refreshTask?.cancel()
             refreshTask = nil

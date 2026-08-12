@@ -2826,6 +2826,53 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func watchRootsRecoveryRetainsWorkspacePathsAndRefreshesSnapshotAndDocuments() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-watch-roots-recovery/workspace")
+        let changedFile = workspace.appendingPathComponent("Sources/App.swift")
+        let gitDirectory = workspace.appendingPathComponent(".git")
+        let context = GitWatchContext(
+            repositoryRoot: workspace,
+            gitDirectory: gitDirectory,
+            gitCommonDirectory: gitDirectory
+        )
+        let watcherFactory = TestDirectoryWatcherFactory()
+        var processedPaths: [URL] = []
+        var refreshCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(snapshotAvailability: [true]),
+            fileOperations: ExistingWorkspaceFileOperations(paths: [changedFile.path]),
+            provider: SequencedGitWatchContextProvider([context]),
+            watcherFactory: watcherFactory,
+            refreshGit: { refreshCount += 1 },
+            processExternalChanges: { paths in
+                processedPaths.append(contentsOf: paths)
+                return false
+            }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        watcherFactory.source?.emit(
+            DirectoryChangeBatch(
+                workspacePaths: [changedFile.path],
+                gitStateMayHaveChanged: true,
+                watchRootsChanged: true
+            )
+        )
+
+        let recovered = await waitForWorkspaceObservation {
+            model.rootNode != nil && processedPaths.map(\.path) == [changedFile.path]
+                && refreshCount == 1
+        }
+
+        #expect(recovered)
+        #expect(model.rootNode != nil)
+        #expect(processedPaths.map(\.path) == [changedFile.path])
+        #expect(watcherFactory.configurations.last?.repositoryRoot == workspace)
+        #expect(refreshCount == 1)
+    }
+
+    @Test
+    @MainActor
     func foregroundRecoveryReparsesContextReplacesWatcherAndRefreshes() async {
         let workspace = URL(fileURLWithPath: "/tmp/lithe-foreground/workspace")
         let gitDirectory = URL(fileURLWithPath: "/tmp/lithe-foreground/metadata.git")
@@ -2956,6 +3003,7 @@ struct EditorDocumentTests {
 @MainActor
 private func makeWorkspaceObservationUnitModel(
     operations: any WorkspaceOperations = EmptyWorkspaceOperations(),
+    fileOperations: any WorkspaceFileOperations = EmptyWorkspaceFileOperations(),
     provider: any GitWatchContextProviding,
     watcherFactory: TestDirectoryWatcherFactory,
     refreshGit: @escaping @MainActor () async -> Void,
@@ -2964,7 +3012,7 @@ private func makeWorkspaceObservationUnitModel(
 ) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: operations,
-        fileOperations: EmptyWorkspaceFileOperations(),
+        fileOperations: fileOperations,
         gitWatchContextProvider: provider,
         directoryWatcherFactory: watcherFactory,
         workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
@@ -3350,6 +3398,24 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
 
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+private struct ExistingWorkspaceFileOperations: WorkspaceFileOperations {
+    let paths: Set<String>
+
+    init(paths: [String]) {
+        self.paths = Set(paths)
+    }
+
+    func fileExists(at url: URL) -> Bool { paths.contains(url.standardizedFileURL.path) }
+    func isDirectory(at url: URL) -> Bool { false }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func removeItem(at url: URL) throws {}
+    func trashItem(at url: URL) throws {}
+    func writeText(_ text: String, to url: URL) throws {}
 }
 
 private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
