@@ -59,7 +59,21 @@ if ($LASTEXITCODE -ne 0) { throw "CMake build failed" }
 if ($BuildWinUI) {
     $msbuild = Get-Command msbuild.exe -ErrorAction SilentlyContinue
     if ($null -eq $msbuild) {
-        throw "MSBuild was not found. Run from a Visual Studio 2022 developer environment."
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} `
+            "Microsoft Visual Studio/Installer/vswhere.exe"
+        if (Test-Path -LiteralPath $vswhere) {
+            $installationPath = & $vswhere -latest -products * `
+                -requires Microsoft.Component.MSBuild -property installationPath
+            if ($LASTEXITCODE -eq 0 -and $installationPath) {
+                $candidate = Join-Path $installationPath "MSBuild/Current/Bin/MSBuild.exe"
+                if (Test-Path -LiteralPath $candidate) {
+                    $msbuild = Get-Item -LiteralPath $candidate
+                }
+            }
+        }
+    }
+    if ($null -eq $msbuild) {
+        throw "MSBuild was not found in PATH or a Visual Studio 2022 installation."
     }
     $winUIPlatform = switch -Wildcard ($RustTarget) {
         "aarch64-*" { "ARM64"; break }
@@ -76,7 +90,8 @@ if ($BuildWinUI) {
         "/p:Platform=$winUIPlatform",
         "/p:LitheRustCoreLibrary=$($rustLibrary.FullName)"
     )
-    & $msbuild.Source @msbuildArgs
+    $msbuildPath = if ($msbuild.Source) { $msbuild.Source } else { $msbuild.FullName }
+    & $msbuildPath @msbuildArgs
     if ($LASTEXITCODE -ne 0) { throw "WinUI 3 build failed" }
 }
 
