@@ -9,15 +9,17 @@ use super::{
 };
 use crate::lsp::languages::jdt::{
     adapt_start, initialized_notification, virtual_source_resolve_params, workspace_configuration,
-    JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
+    JdtStartContext, WorkspaceConfigurationItem,
+};
+use super::process::{
+    LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher,
 };
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, VecDeque};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
@@ -233,6 +235,10 @@ pub struct LspRuntimeError {
 pub struct EngineSnapshot {
     pub session_id: String,
     pub provider_id: String,
+    /// The workspace this session serves. Replacing a workspace means stopping
+    /// the session bound to the old root, so callers need to be able to tell
+    /// which root a session belongs to.
+    pub root_uri: String,
     pub state: LspLifecycleState,
     pub initialized: bool,
     pub open_documents: BTreeMap<String, LspClientDocument>,
@@ -276,15 +282,18 @@ struct RuntimeSession {
     provider_id: String,
     root_uri: String,
     state: Mutex<SessionState>,
-    stdin: Mutex<Option<ChildStdin>>,
-    child: Mutex<Child>,
+    process: Arc<dyn LspProcessHandle>,
     active: AtomicBool,
 }
 
-struct LspEngine {
+/// The engine is a process-owning singleton in production, but it holds no
+/// global state of its own beyond the session registry, so tests construct
+/// private instances with a scripted launcher.
+pub(super) struct LspEngine {
     next_session_id: AtomicU64,
     next_operation_id: AtomicU64,
     sessions: Mutex<BTreeMap<String, Arc<RuntimeSession>>>,
+    launcher: Arc<dyn LspProcessLauncher>,
 }
 
 fn default_initialize_timeout() -> u64 {
@@ -360,10 +369,15 @@ fn engine() -> &'static LspEngine {
 
 impl LspEngine {
     fn new() -> Self {
+        Self::with_launcher(Arc::new(SystemProcessLauncher))
+    }
+
+    fn with_launcher(launcher: Arc<dyn LspProcessLauncher>) -> Self {
         Self {
             next_session_id: AtomicU64::new(1),
             next_operation_id: AtomicU64::new(1),
             sessions: Mutex::new(BTreeMap::new()),
+            launcher,
         }
     }
 
@@ -408,38 +422,11 @@ impl LspEngine {
             })?;
         }
 
-        let mut command = Command::new(&request.executable_path);
-        command
-            .args(&adaptation.arguments)
-            .current_dir(&workspace_root)
-            .envs(&request.environment)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|error| {
-            CoreError::new(
-                ErrorCode::ProcessStartFailed,
-                "Could not start the language-server process.",
-            )
-            .with_details(error.to_string())
-        })?;
-        let stdin = child.stdin.take().ok_or_else(|| {
-            CoreError::new(
-                ErrorCode::ProcessStartFailed,
-                "Language-server stdin was unavailable.",
-            )
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            CoreError::new(
-                ErrorCode::ProcessStartFailed,
-                "Language-server stdout was unavailable.",
-            )
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| {
-            CoreError::new(
-                ErrorCode::ProcessStartFailed,
-                "Language-server stderr was unavailable.",
-            )
+        let process = self.launcher.launch(LspProcessSpec {
+            executable: PathBuf::from(&request.executable_path),
+            arguments: adaptation.arguments,
+            working_directory: workspace_root,
+            environment: request.environment,
         })?;
 
         let initialize_timeout = Duration::from_millis(request.initialize_timeout_milliseconds);
@@ -480,8 +467,7 @@ impl LspEngine {
                 shutdown_timeout,
                 terminal_event_emitted: false,
             }),
-            stdin: Mutex::new(Some(stdin)),
-            child: Mutex::new(child),
+            process: process.handle,
             active: AtomicBool::new(true),
         });
         session.transition(LspLifecycleState::Created, None)?;
@@ -490,7 +476,7 @@ impl LspEngine {
 
         self.lock_sessions()?
             .insert(session_id.clone(), session.clone());
-        session.spawn_readers(stdout, stderr);
+        session.spawn_readers(process.output, process.errors);
         session.spawn_monitor();
         if let Err(error) = session.send_messages(initialize.messages) {
             session.fail(
@@ -873,6 +859,7 @@ impl RuntimeSession {
         Ok(EngineSnapshot {
             session_id: self.id.clone(),
             provider_id: self.provider_id.clone(),
+            root_uri: self.root_uri.clone(),
             state: state.lifecycle,
             initialized: state.client.initialized,
             open_documents: state.client.open_documents.clone(),
@@ -883,8 +870,8 @@ impl RuntimeSession {
 
     fn spawn_readers(
         self: &Arc<Self>,
-        mut stdout: std::process::ChildStdout,
-        mut stderr: std::process::ChildStderr,
+        mut stdout: Box<dyn Read + Send>,
+        mut stderr: Box<dyn Read + Send>,
     ) {
         let output_session = self.clone();
         thread::spawn(move || {
@@ -972,13 +959,8 @@ impl RuntimeSession {
         let session = self.clone();
         thread::spawn(move || {
             while session.active.load(Ordering::Acquire) {
-                let exit = session
-                    .child
-                    .lock()
-                    .ok()
-                    .and_then(|mut child| child.try_wait().ok().flatten());
-                if let Some(status) = exit {
-                    session.handle_process_exit(status.code());
+                if let Some(exit_code) = session.process.exit_status() {
+                    session.handle_process_exit(exit_code);
                     break;
                 }
                 session.expire_deadlines();
@@ -1336,9 +1318,7 @@ impl RuntimeSession {
 
     fn handle_process_exit(&self, exit_code: Option<i32>) {
         self.active.store(false, Ordering::Release);
-        if let Ok(mut input) = self.stdin.lock() {
-            *input = None;
-        }
+        self.process.close_input();
         if let Ok(mut state) = self.lock_state() {
             let was_stopping = state.lifecycle == LspLifecycleState::Stopping;
             if !state.terminal_event_emitted {
@@ -1483,41 +1463,15 @@ impl RuntimeSession {
     }
 
     fn send_messages(&self, messages: Vec<String>) -> Result<(), CoreError> {
-        if messages.is_empty() {
-            return Ok(());
-        }
-        let mut input = self.stdin.lock().map_err(|_| {
-            CoreError::new(
-                ErrorCode::Unknown,
-                "Language-server stdin lock was poisoned.",
-            )
-        })?;
-        let input = input.as_mut().ok_or_else(|| {
-            CoreError::new(ErrorCode::ProcessFailed, "Language-server stdin is closed.")
-        })?;
         for message in messages {
             let frame = frame_message(FrameMessageRequest { message })?.frame;
-            input.write_all(frame.as_bytes()).map_err(|error| {
-                CoreError::new(
-                    ErrorCode::ProcessFailed,
-                    "Could not write to language-server stdin.",
-                )
-                .with_details(error.to_string())
-            })?;
+            self.process.write_input(frame.as_bytes())?;
         }
-        input.flush().map_err(|error| {
-            CoreError::new(
-                ErrorCode::ProcessFailed,
-                "Could not flush language-server stdin.",
-            )
-            .with_details(error.to_string())
-        })
+        Ok(())
     }
 
     fn kill_process(&self) {
-        if let Ok(mut child) = self.child.lock() {
-            let _ = child.kill();
-        }
+        self.process.terminate();
     }
 
     fn lock_state(&self) -> Result<MutexGuard<'_, SessionState>, CoreError> {
@@ -1951,7 +1905,916 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::scripted::ScriptedServer;
     use super::*;
+
+    /// The capabilities every test needs to reach `Ready` with a usable feature
+    /// surface. Individual tests narrow or extend this.
+    fn ready_capabilities() -> Value {
+        json!({
+            "hoverProvider": true,
+            "definitionProvider": true,
+            "completionProvider": {},
+            "renameProvider": true
+        })
+    }
+
+    fn start_request(server: &ScriptedServer) -> StartServerRequest {
+        let _ = server;
+        StartServerRequest {
+            // A non-Java provider keeps JDT argument adaptation out of the way;
+            // `adapt_start` is covered by its own tests.
+            provider_id: "gopls".to_string(),
+            executable_path: "/usr/bin/scripted-server".to_string(),
+            arguments: vec!["--stdio".to_string()],
+            environment: BTreeMap::new(),
+            root_uri: "file:///workspace".to_string(),
+            working_directory: "/workspace".to_string(),
+            initialization_options: None,
+            runtime_executable_path: None,
+            cache_directory: None,
+            initialize_timeout_milliseconds: 10_000,
+            request_timeout_milliseconds: 10_000,
+            shutdown_timeout_milliseconds: 10_000,
+        }
+    }
+
+    /// An engine with a scripted server behind it, plus the started session.
+    struct Harness {
+        engine: LspEngine,
+        server: ScriptedServer,
+        session_id: String,
+        /// Events are drained by every poll, so the harness accumulates them and
+        /// tests assert against the whole history.
+        events: Vec<LspRuntimeEvent>,
+    }
+
+    impl Harness {
+        fn start(configure: impl FnOnce(&mut StartServerRequest)) -> Self {
+            let server = ScriptedServer::new();
+            let engine = LspEngine::with_launcher(server.launcher());
+            let mut request = start_request(&server);
+            configure(&mut request);
+            let started = engine.start_server(request).expect("the server should start");
+            Self {
+                engine,
+                server,
+                session_id: started.session_id,
+                events: Vec::new(),
+            }
+        }
+
+        fn ready() -> Self {
+            let mut harness = Self::start(|_| {});
+            harness.server.complete_initialize(ready_capabilities());
+            harness.await_state(LspLifecycleState::Ready);
+            harness
+        }
+
+        fn session(&self) -> Arc<RuntimeSession> {
+            self.engine
+                .session(&self.session_id)
+                .expect("the session should be registered")
+        }
+
+        fn poll(&mut self) -> &[LspRuntimeEvent] {
+            let events = self.session().poll_events().expect("polling should succeed");
+            self.events.extend(events);
+            &self.events
+        }
+
+        /// Waits until the session reports `lifecycle`, draining events as it
+        /// goes so nothing is lost to the poll that observes the transition.
+        fn await_state(&mut self, lifecycle: LspLifecycleState) {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                self.poll();
+                if self.snapshot().state == lifecycle {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+            self.poll();
+            panic!(
+                "session stayed in {:?} instead of reaching {lifecycle:?}",
+                self.snapshot().state
+            );
+        }
+
+        /// Waits until an event matching `matches` has been observed.
+        fn await_event(
+            &mut self,
+            matches: impl Fn(&LspRuntimeEvent) -> bool,
+        ) -> &LspRuntimeEvent {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                self.poll();
+                if self.events.iter().any(&matches) {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+            self.events
+                .iter()
+                .find(|event| matches(event))
+                .expect("the expected runtime event was never emitted")
+        }
+
+        fn snapshot(&self) -> EngineSnapshot {
+            self.session().snapshot().expect("snapshot should succeed")
+        }
+
+        fn sync(&self, uri: &str, text: &str) {
+            self.session()
+                .sync_document(SyncDocumentRequest {
+                    session_id: self.session_id.clone(),
+                    uri: uri.to_string(),
+                    language_id: "go".to_string(),
+                    text: text.to_string(),
+                })
+                .expect("syncing a document should succeed");
+        }
+
+        /// Issues a feature request and returns its opaque operation ID.
+        fn request(&self, operation: LspSemanticOperation, uri: &str) -> String {
+            let operation_id = self.engine.next_operation_id();
+            self.session()
+                .request(
+                    SemanticRequest {
+                        session_id: self.session_id.clone(),
+                        operation_id: Some(operation_id.clone()),
+                        operation,
+                        uri: Some(uri.to_string()),
+                        virtual_uri: None,
+                        position: Some(LspPosition { line: 0, utf16_column: 0 }),
+                        new_name: None,
+                        range: None,
+                        diagnostics: Vec::new(),
+                        completion_item: None,
+                        code_action: None,
+                        command: None,
+                    },
+                    operation_id.clone(),
+                )
+                .expect("a ready session should accept the request");
+            operation_id
+        }
+
+        /// The notification the server received for `method`, if any.
+        fn notification(&self, method: &str) -> Option<Value> {
+            self.server.messages().into_iter().find(|message| {
+                message.get("method").and_then(Value::as_str) == Some(method)
+            })
+        }
+    }
+
+    /// Criterion 1: a spawned process that never initializes cannot become ready.
+    #[test]
+    fn a_server_that_never_answers_initialize_fails_instead_of_becoming_ready() {
+        let mut harness = Harness::start(|request| {
+            request.initialize_timeout_milliseconds = 30;
+        });
+        harness.await_state(LspLifecycleState::Failed);
+
+        let states: Vec<_> = harness
+            .events
+            .iter()
+            .filter_map(|event| event.state)
+            .collect();
+        assert!(
+            !states.contains(&LspLifecycleState::Ready),
+            "an uninitialized session must never pass through Ready: {states:?}"
+        );
+        let failure = harness
+            .events
+            .iter()
+            .find_map(|event| event.error.as_ref())
+            .expect("the timeout should be reported as a runtime error");
+        assert_eq!(failure.code, "initializeTimeout");
+        assert_eq!(failure.stage, "initialize");
+    }
+
+    /// Criterion 2: an initialize error cannot become ready.
+    #[test]
+    fn an_initialize_error_response_fails_the_session() {
+        let mut harness = Harness::start(|_| {});
+        let id = harness
+            .server
+            .await_request("initialize")
+            .expect("initialize should be sent");
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": -32603, "message": "workspace is unsupported" }
+        }));
+        harness.await_state(LspLifecycleState::Failed);
+
+        assert!(!harness.snapshot().initialized);
+        let failure = harness
+            .events
+            .iter()
+            .find_map(|event| event.error.as_ref())
+            .expect("the rejection should be reported as a runtime error");
+        assert_eq!(failure.code, "initializeFailed");
+        assert!(
+            failure
+                .underlying_message
+                .as_deref()
+                .is_some_and(|detail| detail.contains("workspace is unsupported")),
+            "the server's own message must survive into the error: {:?}",
+            failure.underlying_message
+        );
+    }
+
+    /// Criterion 3: two syncs emit open version 1 then change version 2.
+    #[test]
+    fn consecutive_syncs_open_at_version_one_and_change_to_version_two() {
+        let harness = Harness::ready();
+        let uri = "file:///workspace/main.go";
+        harness.sync(uri, "package main");
+        harness.sync(uri, "package main\nfunc main() {}");
+
+        let versions: Vec<_> = harness
+            .server
+            .messages()
+            .into_iter()
+            .filter_map(|message| {
+                let method = message.get("method")?.as_str()?.to_string();
+                let document = message.get("params")?.get("textDocument")?;
+                let version = document.get("version")?.as_i64()?;
+                Some((method, version))
+            })
+            .collect();
+        assert_eq!(
+            versions,
+            vec![
+                ("textDocument/didOpen".to_string(), 1),
+                ("textDocument/didChange".to_string(), 2)
+            ]
+        );
+        assert_eq!(harness.snapshot().open_documents[uri].version, 2);
+    }
+
+    /// Criterion 4: a crash fails pending operations with `serverExited`.
+    #[test]
+    fn a_crash_fails_every_pending_operation_once_with_server_exited() {
+        let mut harness = Harness::ready();
+        let uri = "file:///workspace/main.go";
+        harness.sync(uri, "package main");
+        let hover = harness.request(LspSemanticOperation::Hover, uri);
+        let definition = harness.request(LspSemanticOperation::Definition, uri);
+
+        harness.server.exit(Some(134));
+        harness.await_state(LspLifecycleState::Failed);
+
+        let failures: Vec<_> = harness
+            .events
+            .iter()
+            .filter(|event| event.kind == "requestCompleted")
+            .collect();
+        assert_eq!(
+            failures.len(),
+            2,
+            "each pending operation must fail exactly once"
+        );
+        for event in failures {
+            let error = event.error.as_ref().expect("a crash cannot yield a result");
+            assert_eq!(error.code, "serverExited");
+            assert_eq!(error.process_exit_code, Some(134));
+        }
+        let completed: Vec<_> = harness
+            .events
+            .iter()
+            .filter_map(|event| event.operation_id.clone())
+            .collect();
+        assert!(completed.contains(&hover) && completed.contains(&definition));
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
+    /// Criterion 5: a request deadline removes the pending request.
+    /// Criterion 6: a late response after that timeout is ignored.
+    #[test]
+    fn a_timed_out_request_is_removed_cancelled_and_deaf_to_its_late_response() {
+        let mut harness = Harness::start(|request| {
+            request.request_timeout_milliseconds = 30;
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/main.go";
+        harness.sync(uri, "package main");
+        let operation = harness.request(LspSemanticOperation::Hover, uri);
+        let request_id = harness
+            .server
+            .await_request("textDocument/hover")
+            .expect("the hover request should reach the server");
+
+        let timeout = harness
+            .await_event(|event| {
+                event.error.as_ref().is_some_and(|error| error.code == "requestTimeout")
+            })
+            .clone();
+        assert_eq!(timeout.operation_id.as_deref(), Some(operation.as_str()));
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+        // The completion event is queued before the cancellation is written, so
+        // the wire assertion has to wait for the write rather than assume it.
+        assert!(
+            harness.server.await_notification("$/cancelRequest"),
+            "a timed-out request must be cancelled on the wire"
+        );
+
+        // The server answers anyway. Nothing may reach the application: the
+        // operation has already been completed with its timeout error.
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": { "contents": "too late" }
+        }));
+        thread::sleep(Duration::from_millis(50));
+        harness.poll();
+        let completions = harness
+            .events
+            .iter()
+            .filter(|event| event.operation_id.as_deref() == Some(operation.as_str()))
+            .count();
+        assert_eq!(
+            completions, 1,
+            "a late response must not complete the operation a second time"
+        );
+    }
+
+    /// Criterion 7: responses from an old session cannot affect a restarted one.
+    #[test]
+    fn a_restarted_session_ignores_the_previous_session_s_responses() {
+        // The first session is taken to Ready and then torn down. Its hover
+        // request id is recorded first, because every session numbers its
+        // requests from one: an id alone cannot tell two sessions apart, so only
+        // per-session pending state can reject a foreign response.
+        let mut first = Harness::ready();
+        let uri = "file:///workspace/main.go";
+        first.sync(uri, "package main");
+        first.request(LspSemanticOperation::Hover, uri);
+        let stale_id = first
+            .server
+            .await_request("textDocument/hover")
+            .expect("the hover request should reach the server");
+        first.server.exit(Some(0));
+        first.await_state(LspLifecycleState::Failed);
+        first.engine.destroy(&first.session_id).unwrap();
+
+        let mut restarted = Harness::ready();
+        restarted.sync(uri, "package main");
+        let operation = restarted.request(LspSemanticOperation::Hover, uri);
+        assert_eq!(
+            restarted
+                .server
+                .await_request("textDocument/hover")
+                .as_deref(),
+            Some(stale_id.as_str()),
+            "the restarted session must reuse the id, or this proves nothing"
+        );
+
+        // Delivered to the new session, the id does match a pending request, so
+        // isolation cannot rest on ids. It rests on the process: the old
+        // session's reader thread is gone with its process, so its responses
+        // have no path into the new session at all.
+        let before = restarted.snapshot();
+        first.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": stale_id,
+            "result": { "contents": "from the dead session" }
+        }));
+        thread::sleep(Duration::from_millis(50));
+        restarted.poll();
+        assert_eq!(
+            restarted.snapshot().pending_operation_ids,
+            before.pending_operation_ids,
+            "the old session's response must not complete the new session's request"
+        );
+        assert!(
+            !restarted
+                .events
+                .iter()
+                .any(|event| event.kind == "requestCompleted"),
+            "no operation may complete from a foreign session's traffic"
+        );
+
+        // The new session's own response still lands, so the isolation above is
+        // not merely a dead session.
+        restarted.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": stale_id,
+            "result": { "contents": "from the live session" }
+        }));
+        let completion = restarted
+            .await_event(|event| event.kind == "requestCompleted")
+            .clone();
+        assert_eq!(completion.operation_id.as_deref(), Some(operation.as_str()));
+        assert_eq!(
+            completion
+                .result
+                .as_ref()
+                .and_then(|result| result.get("hover")?.get("contents"))
+                .and_then(Value::as_str),
+            Some("from the live session")
+        );
+    }
+
+    /// Provider adaptation has to reach the process boundary, not just the
+    /// adapter: the arguments a Windows launcher receives are the ones asserted
+    /// here.
+    #[test]
+    fn the_launched_process_receives_the_adapted_provider_arguments() {
+        let server = ScriptedServer::new();
+        let engine = LspEngine::with_launcher(server.launcher());
+        let cache = std::env::temp_dir().join("lithe-core-engine-tests");
+        let mut request = start_request(&server);
+        request.provider_id = "java".to_string();
+        request.arguments = vec!["-data".to_string(), "/stale/data".to_string()];
+        request.runtime_executable_path = Some("/opt/jdk/bin/java".to_string());
+        request.cache_directory = Some(cache.to_string_lossy().into_owned());
+        engine.start_server(request).expect("the server should start");
+
+        let spec = server
+            .launched_spec()
+            .expect("starting a server must launch a process");
+        assert_eq!(spec.executable, "/usr/bin/scripted-server");
+        assert_eq!(spec.working_directory, "/workspace");
+        assert!(
+            !spec.arguments.iter().any(|argument| argument == "/stale/data"),
+            "a caller-supplied -data must be replaced, not appended: {:?}",
+            spec.arguments
+        );
+        assert_eq!(
+            spec.arguments
+                .iter()
+                .position(|argument| argument == "--java-executable")
+                .map(|index| spec.arguments[index + 1].as_str()),
+            Some("/opt/jdk/bin/java")
+        );
+        let data = spec
+            .arguments
+            .iter()
+            .position(|argument| argument == "-data")
+            .map(|index| spec.arguments[index + 1].clone())
+            .expect("JDT requires a data directory");
+        assert!(Path::new(&data).starts_with(&cache));
+        assert!(
+            Path::new(&data).is_dir(),
+            "the data directory must exist before the server starts"
+        );
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    /// A write that fails mid-session is a transport failure, not a silent drop.
+    #[test]
+    fn a_broken_stdin_fails_the_session_and_stops_writing() {
+        let mut harness = Harness::ready();
+        let written = harness.server.written_bytes().len();
+        harness.server.break_input();
+        let error = harness
+            .session()
+            .sync_document(SyncDocumentRequest {
+                session_id: harness.session_id.clone(),
+                uri: "file:///workspace/main.go".to_string(),
+                language_id: "go".to_string(),
+                text: "package main".to_string(),
+            })
+            .expect_err("a broken pipe must surface to the caller");
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+
+        harness.await_state(LspLifecycleState::Failed);
+        let failure = harness
+            .events
+            .iter()
+            .find_map(|event| event.error.as_ref())
+            .expect("the failure should be reported as a runtime error");
+        assert_eq!(failure.code, "transportFailed");
+        assert_eq!(
+            harness.server.written_bytes().len(),
+            written,
+            "nothing may be written after the pipe breaks"
+        );
+    }
+
+    /// The stopped session's own late response is dropped rather than acted on,
+    /// which is the same rule seen from the other side of a restart.
+    #[test]
+    fn a_response_to_an_already_failed_session_is_logged_and_dropped() {
+        let mut harness = Harness::ready();
+        let uri = "file:///workspace/main.go";
+        harness.sync(uri, "package main");
+        harness.request(LspSemanticOperation::Hover, uri);
+        let request_id = harness
+            .server
+            .await_request("textDocument/hover")
+            .expect("the hover request should reach the server");
+
+        harness.server.exit(Some(1));
+        harness.await_state(LspLifecycleState::Failed);
+        let completions = harness
+            .events
+            .iter()
+            .filter(|event| event.kind == "requestCompleted")
+            .count();
+        assert_eq!(completions, 1, "the crash already completed the operation");
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": { "contents": "unreachable" }
+        }));
+        thread::sleep(Duration::from_millis(50));
+        harness.poll();
+        assert_eq!(
+            harness
+                .events
+                .iter()
+                .filter(|event| event.kind == "requestCompleted")
+                .count(),
+            completions,
+            "a response after the terminal state must not complete anything"
+        );
+        assert_eq!(harness.snapshot().state, LspLifecycleState::Failed);
+    }
+
+    /// Criterion 8: diagnostics for a stale document version are ignored.
+    /// Criterion 9: closing a document clears document and diagnostic state.
+    #[test]
+    fn diagnostics_follow_the_current_document_version_and_clear_on_close() {
+        let mut harness = Harness::ready();
+        let uri = "file:///workspace/main.go";
+        harness.sync(uri, "package main");
+        harness.sync(uri, "package main\nfunc main() {}");
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "version": 2,
+                "diagnostics": [{
+                    "range": {
+                        "start": { "line": 1, "character": 0 },
+                        "end": { "line": 1, "character": 4 }
+                    },
+                    "severity": 1,
+                    "message": "current"
+                }]
+            }
+        }));
+        harness.await_event(|event| {
+            event.kind == "diagnostics"
+                && event.diagnostics.as_ref().is_some_and(|list| list.len() == 1)
+        });
+        assert_eq!(harness.snapshot().diagnostic_versions[uri], 2);
+
+        // Version 1 is behind the open document, so it cannot replace version 2.
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": { "uri": uri, "version": 1, "diagnostics": [] }
+        }));
+        thread::sleep(Duration::from_millis(50));
+        harness.poll();
+        assert_eq!(
+            harness.snapshot().diagnostic_versions[uri], 2,
+            "a stale version must not clear current diagnostics"
+        );
+
+        harness.session().close_document(uri).unwrap();
+        let snapshot = harness.snapshot();
+        assert!(!snapshot.open_documents.contains_key(uri));
+        assert!(!snapshot.diagnostic_versions.contains_key(uri));
+        assert!(
+            harness.notification("textDocument/didClose").is_some(),
+            "the server must be told the document closed"
+        );
+        // Clearing is published so the editor drops its markers, rather than
+        // leaving them until the next unrelated publish.
+        let cleared = harness.poll().iter().rev().find(|event| {
+            event.kind == "diagnostics" && event.uri.as_deref() == Some(uri)
+        });
+        assert_eq!(
+            cleared.and_then(|event| event.diagnostics.as_ref()).map(Vec::len),
+            Some(0)
+        );
+    }
+
+    /// Criterion 10: shutdown sends exit after the response, and a shutdown that
+    /// is never answered force-terminates.
+    #[test]
+    fn shutdown_sends_exit_after_the_response_and_force_terminates_on_timeout() {
+        let mut harness = Harness::ready();
+        harness.session().stop().unwrap();
+        let shutdown_id = harness
+            .server
+            .await_request("shutdown")
+            .expect("stop should request shutdown");
+        assert!(
+            harness.notification("exit").is_none(),
+            "exit must not precede the shutdown response"
+        );
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": shutdown_id,
+            "result": null
+        }));
+        assert!(
+            harness.server.await_notification("exit"),
+            "exit must follow the shutdown response"
+        );
+        harness.server.exit(Some(0));
+        harness.await_state(LspLifecycleState::Stopped);
+
+        let mut silent = Harness::start(|request| {
+            request.shutdown_timeout_milliseconds = 30;
+        });
+        silent.server.complete_initialize(ready_capabilities());
+        silent.await_state(LspLifecycleState::Ready);
+        silent.session().stop().unwrap();
+        silent
+            .server
+            .await_request("shutdown")
+            .expect("stop should request shutdown");
+        // No response ever arrives, so the deadline must kill the process
+        // instead of leaving the session stuck in Stopping.
+        silent.await_state(LspLifecycleState::Stopped);
+        silent.await_event(|event| {
+            event.kind == "log"
+                && event
+                    .message
+                    .as_deref()
+                    .is_some_and(|message| message.contains("shutdown timed out"))
+        });
+    }
+
+    /// Criterion 11: a malformed `Content-Length` is a transport failure.
+    #[test]
+    fn a_malformed_content_length_header_fails_the_session_in_transport() {
+        let mut harness = Harness::ready();
+        harness
+            .server
+            .send_raw(b"Content-Length: banana\r\n\r\n{}");
+        harness.await_state(LspLifecycleState::Failed);
+
+        let failure = harness
+            .events
+            .iter()
+            .find_map(|event| event.error.as_ref())
+            .expect("bad framing should be reported as a runtime error");
+        assert_eq!(failure.code, "transportFailed");
+        assert_eq!(failure.stage, "transport");
+    }
+
+    /// Criterion 12: a partial frame is retained until it completes.
+    /// Criterion 13: consecutive frames are handled in order.
+    #[test]
+    fn partial_frames_are_buffered_and_consecutive_frames_arrive_in_order() {
+        let mut harness = Harness::ready();
+        let uri = "file:///workspace/main.go";
+        harness.sync(uri, "package main");
+
+        let split = |uri: &str, message: &str| {
+            let body = json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/publishDiagnostics",
+                "params": {
+                    "uri": uri,
+                    "version": 1,
+                    "diagnostics": [{
+                        "range": {
+                            "start": { "line": 0, "character": 0 },
+                            "end": { "line": 0, "character": 1 }
+                        },
+                        "severity": 1,
+                        "message": message
+                    }]
+                }
+            })
+            .to_string();
+            format!("Content-Length: {}\r\n\r\n{body}", body.len())
+        };
+
+        let first = split(uri, "first");
+        let boundary = first.len() - 12;
+        harness.server.send_raw(first[..boundary].as_bytes());
+        thread::sleep(Duration::from_millis(40));
+        harness.poll();
+        assert!(
+            !harness.events.iter().any(|event| event.kind == "diagnostics"),
+            "an incomplete frame must not be delivered"
+        );
+
+        // The tail of the first frame and a whole second frame arrive together,
+        // which is exactly how a stream coalesces writes.
+        harness
+            .server
+            .send_raw(format!("{}{}", &first[boundary..], split(uri, "second")).as_bytes());
+        harness.await_event(|event| {
+            event
+                .diagnostics
+                .as_ref()
+                .and_then(|list| list.first())
+                .is_some_and(|diagnostic| diagnostic.message == "second")
+        });
+        let delivered: Vec<_> = harness
+            .events
+            .iter()
+            .filter(|event| event.kind == "diagnostics")
+            .filter_map(|event| event.diagnostics.as_ref())
+            .filter_map(|list| list.first())
+            .map(|diagnostic| diagnostic.message.clone())
+            .collect();
+        assert_eq!(delivered, vec!["first".to_string(), "second".to_string()]);
+        assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
+    }
+
+    /// Criterion 14: dynamic registration and unregistration change availability.
+    #[test]
+    fn dynamic_capability_registration_and_unregistration_change_availability() {
+        let mut harness = Harness::start(|_| {});
+        // Formatting is absent from the static capabilities, so it can only
+        // become available through dynamic registration.
+        harness.server.complete_initialize(json!({ "hoverProvider": true }));
+        harness.await_state(LspLifecycleState::Ready);
+        let uri = "file:///workspace/main.go";
+        harness.sync(uri, "package main");
+        assert!(harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some("op-formatting".to_string()),
+                    operation: LspSemanticOperation::Formatting,
+                    uri: Some(uri.to_string()),
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                "op-formatting".to_string(),
+            )
+            .is_err());
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": "registration-1",
+            "method": "client/registerCapability",
+            "params": {
+                "registrations": [{
+                    "id": "formatting-1",
+                    "method": "textDocument/formatting",
+                    "registerOptions": {}
+                }]
+            }
+        }));
+        let registered = harness
+            .await_event(|event| {
+                event
+                    .capabilities
+                    .as_ref()
+                    .is_some_and(|names| names.iter().any(|name| name == "formatting"))
+            })
+            .clone();
+        assert_eq!(registered.kind, "featuresChanged");
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": "registration-2",
+            "method": "client/unregisterCapability",
+            "params": {
+                "unregisterations": [{
+                    "id": "formatting-1",
+                    "method": "textDocument/formatting"
+                }]
+            }
+        }));
+        // The initialize handshake also emitted a formatting-free feature set, so
+        // the withdrawal is only identifiable by coming after the registration.
+        let registered_at = registered.sequence;
+        harness.await_event(|event| {
+            event.kind == "featuresChanged"
+                && event.sequence > registered_at
+                && event
+                    .capabilities
+                    .as_ref()
+                    .is_some_and(|names| !names.iter().any(|name| name == "formatting"))
+        });
+        assert!(
+            harness
+                .session()
+                .request(
+                    SemanticRequest {
+                        session_id: harness.session_id.clone(),
+                        operation_id: Some("op-formatting-2".to_string()),
+                        operation: LspSemanticOperation::Formatting,
+                        uri: Some(uri.to_string()),
+                        virtual_uri: None,
+                        position: None,
+                        new_name: None,
+                        range: None,
+                        diagnostics: Vec::new(),
+                        completion_item: None,
+                        code_action: None,
+                        command: None,
+                    },
+                    "op-formatting-2".to_string(),
+                )
+                .is_err(),
+            "an unregistered capability must stop being offered"
+        );
+    }
+
+    /// Criterion 15: replacing the workspace stops the old root and clears it.
+    #[test]
+    fn replacing_the_workspace_stops_the_old_root_and_clears_its_state() {
+        let old_server = ScriptedServer::new();
+        let engine = LspEngine::with_launcher(old_server.launcher());
+        let old = engine.start_server(start_request(&old_server)).unwrap();
+        old_server.complete_initialize(ready_capabilities());
+        let old_session = engine.session(&old.session_id).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline
+            && old_session.snapshot().unwrap().state != LspLifecycleState::Ready
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+        let uri = "file:///workspace/main.go";
+        old_session
+            .sync_document(SyncDocumentRequest {
+                session_id: old.session_id.clone(),
+                uri: uri.to_string(),
+                language_id: "go".to_string(),
+                text: "package main".to_string(),
+            })
+            .unwrap();
+        old_server.send(json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "version": 1,
+                "diagnostics": [{
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 0, "character": 1 }
+                    },
+                    "severity": 1,
+                    "message": "old root"
+                }]
+            }
+        }));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline
+            && !old_session
+                .snapshot()
+                .unwrap()
+                .diagnostic_versions
+                .contains_key(uri)
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+
+        old_session.stop().unwrap();
+        let shutdown = old_server.await_request("shutdown").unwrap();
+        old_server.send(json!({ "jsonrpc": "2.0", "id": shutdown, "result": null }));
+        old_server.exit(Some(0));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline
+            && old_session.snapshot().unwrap().state != LspLifecycleState::Stopped
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+
+        let stopped = old_session.snapshot().unwrap();
+        assert_eq!(stopped.root_uri, "file:///workspace");
+        assert_eq!(stopped.state, LspLifecycleState::Stopped);
+        assert!(stopped.open_documents.is_empty());
+        assert!(stopped.diagnostic_versions.is_empty());
+        assert!(stopped.pending_operation_ids.is_empty());
+        assert!(
+            old_server.input_was_closed(),
+            "the old root's stdin must be released"
+        );
+
+        // Only a stopped session may be destroyed, and a destroyed one is
+        // unreachable, so the replacement cannot inherit any of its state.
+        engine.destroy(&old.session_id).unwrap();
+        assert!(engine.session(&old.session_id).is_err());
+        assert!(old_session
+            .sync_document(SyncDocumentRequest {
+                session_id: old.session_id.clone(),
+                uri: uri.to_string(),
+                language_id: "go".to_string(),
+                text: "package main".to_string(),
+            })
+            .is_err());
+    }
 
     #[test]
     fn semantic_operations_are_protocol_methods_but_never_expose_request_ids() {

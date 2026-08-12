@@ -1265,6 +1265,162 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    // MARK: - Language-server runtime
+    //
+    // Rust owns the language-server process, its framing, its request IDs, and
+    // its document versions. These types carry only what the UI needs: an opaque
+    // session ID, opaque operation IDs, and the events Rust chooses to publish.
+
+    struct LspStartServerPayload: Decodable, Sendable {
+        let sessionId: String
+        let state: String
+    }
+
+    private struct LspStartServerRequest: Encodable {
+        let providerId: String
+        let executablePath: String
+        let arguments: [String]
+        let environment: [String: String]
+        let rootUri: String
+        let workingDirectory: String
+        let initializationOptions: ToolingJSONValue?
+        let runtimeExecutablePath: String?
+        let cacheDirectory: String?
+        let initializeTimeoutMilliseconds: Int
+        let requestTimeoutMilliseconds: Int
+        let shutdownTimeoutMilliseconds: Int
+    }
+
+    private struct LspSessionIdentifierRequest: Encodable {
+        let sessionId: String
+    }
+
+    private struct LspSyncDocumentRequest: Encodable {
+        let sessionId: String
+        let uri: String
+        let languageId: String
+        let text: String
+    }
+
+    private struct LspCloseDocumentRequest: Encodable {
+        let sessionId: String
+        let uri: String
+    }
+
+    /// A semantic request names the operation it wants, not the LSP method that
+    /// implements it, so the wire protocol stays Rust's concern.
+    private struct LspSemanticRequest: Encodable {
+        let sessionId: String
+        let operationId: String?
+        let operation: String
+        let uri: String?
+        let virtualUri: String?
+        let position: LspTextEditsRequest.TextEdit.Range.Position?
+        let newName: String?
+        let range: LspTextEditsRequest.TextEdit.Range?
+        let diagnostics: [LspClientDiagnosticRequest]
+        let completionItem: LspClientCompletionItemRequest?
+        let codeAction: LspClientCodeActionRequest?
+        let command: LspClientCommandRequest?
+
+        init(
+            sessionId: String,
+            operationId: String? = nil,
+            operation: String,
+            uri: String? = nil,
+            virtualUri: String? = nil,
+            position: LspTextEditsRequest.TextEdit.Range.Position? = nil,
+            newName: String? = nil,
+            range: LspTextEditsRequest.TextEdit.Range? = nil,
+            diagnostics: [LspClientDiagnosticRequest] = [],
+            completionItem: LspClientCompletionItemRequest? = nil,
+            codeAction: LspClientCodeActionRequest? = nil,
+            command: LspClientCommandRequest? = nil
+        ) {
+            self.sessionId = sessionId
+            self.operationId = operationId
+            self.operation = operation
+            self.uri = uri
+            self.virtualUri = virtualUri
+            self.position = position
+            self.newName = newName
+            self.range = range
+            self.diagnostics = diagnostics
+            self.completionItem = completionItem
+            self.codeAction = codeAction
+            self.command = command
+        }
+    }
+
+    private struct LspCancelOperationRequest: Encodable {
+        let sessionId: String
+        let operationId: String
+    }
+
+    struct LspOperationPayload: Decodable, Sendable {
+        let operationId: String
+    }
+
+    struct LspPollEventsPayload: Decodable, Sendable {
+        let events: [LspRuntimeEventPayload]
+    }
+
+    struct LspRuntimeEventPayload: Decodable, Sendable {
+        let type: String
+        let sequence: UInt64
+        let providerId: String
+        let sessionId: String
+        let state: String?
+        let operationId: String?
+        let method: String?
+        let uri: String?
+        let version: Int?
+        let diagnostics: [LspClientDiagnosticPayload]?
+        let result: ToolingJSONValue?
+        let error: LspRuntimeErrorPayload?
+        let capabilities: [String]?
+        let serverInfo: LspServerInfoPayload?
+        let level: String?
+        let message: String?
+        let detail: String?
+    }
+
+    struct LspRuntimeErrorPayload: Decodable, Sendable {
+        let code: String
+        let providerId: String
+        let sessionId: String
+        let stage: String
+        let method: String?
+        let documentUri: String?
+        let requestId: String?
+        let message: String
+        let underlyingMessage: String?
+        let processExitCode: Int?
+    }
+
+    struct LspServerInfoPayload: Decodable, Sendable {
+        let name: String
+        let version: String?
+    }
+
+    struct LspSnapshotPayload: Decodable, Sendable {
+        let sessionId: String
+        let providerId: String
+        let rootUri: String
+        let state: String
+        let initialized: Bool
+        let openDocuments: [String: LspSnapshotDocumentPayload]
+        let pendingOperationIds: [String]
+        let diagnosticVersions: [String: Int]
+    }
+
+    struct LspSnapshotDocumentPayload: Decodable, Sendable {
+        let uri: String
+        let languageId: String
+        let version: Int
+        let text: String
+    }
+
     struct LspFramePayload: Decodable, Sendable {
         let frame: String
     }
@@ -2215,6 +2371,166 @@ struct RustCoreBridge: Sendable {
         return response?.makeModels()
     }
 
+    // MARK: - Language-server runtime
+
+    /// Starts a language server and returns its opaque session ID. Rust spawns
+    /// and owns the process; nothing about it crosses back except this ID.
+    func lspStartServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue? = nil,
+        runtimeExecutableURL: URL? = nil,
+        cacheDirectoryURL: URL? = nil,
+        initializeTimeout: TimeInterval = 60,
+        requestTimeout: TimeInterval = 30,
+        shutdownTimeout: TimeInterval = 2
+    ) -> Result<LspStartServerPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.startServer",
+            payload: LspStartServerRequest(
+                providerId: providerID,
+                executablePath: executableURL.standardizedFileURL.path,
+                arguments: arguments,
+                environment: environment,
+                rootUri: rootURL.standardizedFileURL.absoluteString,
+                workingDirectory: workingDirectoryURL.standardizedFileURL.path,
+                initializationOptions: initializationOptions,
+                runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
+                cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
+                initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
+                requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),
+                shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)
+            )
+        )
+    }
+
+    /// Asks the server to shut down. The session stays addressable until
+    /// `lspDestroyServer`, so its terminal events can still be polled.
+    func lspStopServer(sessionID: String) {
+        executeVoid(
+            command: "lsp.stopServer",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
+    /// Publishes the current text of a document. Rust decides whether that means
+    /// an open or a change, and assigns the version.
+    func lspSyncDocument(
+        sessionID: String,
+        fileURL: URL,
+        languageID: String,
+        text: String
+    ) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.syncDocument",
+            payload: LspSyncDocumentRequest(
+                sessionId: sessionID,
+                uri: fileURL.standardizedFileURL.absoluteString,
+                languageId: languageID,
+                text: text
+            )
+        )
+    }
+
+    func lspCloseDocument(sessionID: String, fileURL: URL) {
+        executeVoid(
+            command: "lsp.closeDocument",
+            payload: LspCloseDocumentRequest(
+                sessionId: sessionID,
+                uri: fileURL.standardizedFileURL.absoluteString
+            )
+        )
+    }
+
+    /// Issues a semantic request and returns the operation ID its completion
+    /// event will carry. The result arrives through `lspPollEvents`, not here.
+    func lspRequest(
+        sessionID: String,
+        operation: LanguageServerOperation,
+        fileURL: URL? = nil,
+        virtualURI: String? = nil,
+        position: LanguageServerPosition? = nil,
+        newName: String? = nil,
+        range: LanguageServerRange? = nil,
+        diagnostics: [LanguageServerDiagnostic] = [],
+        completionItem: LanguageServerCompletionItem? = nil,
+        codeAction: LanguageServerCodeAction? = nil,
+        command: LanguageServerCommand? = nil
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.request",
+            payload: LspSemanticRequest(
+                sessionId: sessionID,
+                operation: operation.rawValue,
+                uri: fileURL?.standardizedFileURL.absoluteString,
+                virtualUri: virtualURI,
+                position: position.map {
+                    .init(line: $0.line, utf16Column: $0.utf16Column)
+                },
+                newName: newName,
+                range: range.map(Self.makeRangeRequest),
+                diagnostics: diagnostics.map(Self.makeDiagnosticRequest),
+                completionItem: completionItem.map(Self.makeCompletionItemRequest),
+                codeAction: codeAction.map(Self.makeCodeActionRequest),
+                command: command.map(Self.makeCommandRequest)
+            )
+        )
+    }
+
+    /// Cancels a pending operation. Its completion event still arrives, carrying
+    /// a cancellation error, so callers never leak a continuation.
+    func lspCancelOperation(sessionID: String, operationID: String) {
+        executeVoid(
+            command: "lsp.cancelOperation",
+            payload: LspCancelOperationRequest(
+                sessionId: sessionID,
+                operationId: operationID
+            )
+        )
+    }
+
+    /// Drains everything the runtime has published since the last poll.
+    func lspPollEvents(sessionID: String) -> [LspRuntimeEventPayload] {
+        let payload: LspPollEventsPayload? = execute(
+            command: "lsp.pollEvents",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+        return payload?.events ?? []
+    }
+
+    func lspClearDiagnostics(sessionID: String) {
+        executeVoid(
+            command: "lsp.clearDiagnostics",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
+    /// The runtime's own view of the session. Diagnostics for tests and support,
+    /// never a substitute for the event stream.
+    func lspSnapshot(sessionID: String) -> LspSnapshotPayload? {
+        execute(
+            command: "lsp.snapshot",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
+    /// Releases a stopped or failed session. A running session is refused, so
+    /// callers stop first and destroy once the terminal event arrives.
+    func lspDestroyServer(sessionID: String) {
+        executeVoid(
+            command: "lsp.destroyServer",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
+    private static func milliseconds(_ interval: TimeInterval) -> Int {
+        Int((interval * 1000).rounded())
+    }
+
     func lspClientInitialize(rootURL: URL) -> LspClientResponsePayload? {
         lspClientInitialize(rootURL: rootURL, initializationOptions: nil)
     }
@@ -2582,10 +2898,47 @@ struct RustCoreBridge: Sendable {
         try? executeResult(command: command, payload: payload).get()
     }
 
+    /// Runs a command whose success carries no data. The core encodes those as a
+    /// null payload, so success is the absence of an error rather than a decoded
+    /// value, and `executeResult`'s missing-data check does not apply.
+    @discardableResult
+    private func executeVoid<Payload: Encodable>(
+        command: String,
+        payload: Payload
+    ) -> Result<Void, CoreCallError> {
+        let outcome: Result<Envelope<ToolingJSONValue>, CoreCallError> = decodeEnvelope(
+            command: command,
+            payload: payload
+        )
+        return outcome.map { _ in () }
+    }
+
     private func executeResult<Payload: Encodable, Data: Decodable>(
         command: String,
         payload: Payload
     ) -> Result<Data, CoreCallError> {
+        let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(
+            command: command,
+            payload: payload
+        )
+        return outcome.flatMap { envelope in
+            guard let value = envelope.data else {
+                return .failure(CoreCallError(
+                    code: "unknown",
+                    message: "Rust Core response did not contain data",
+                    details: nil
+                ))
+            }
+            return .success(value)
+        }
+    }
+
+    /// Performs the call and reports the envelope's own verdict. Whether a
+    /// payload is required is the caller's business.
+    private func decodeEnvelope<Payload: Encodable, Data: Decodable>(
+        command: String,
+        payload: Payload
+    ) -> Result<Envelope<Data>, CoreCallError> {
         guard isAvailable else {
             return .failure(CoreCallError(
                 code: "unknown",
@@ -2634,14 +2987,7 @@ struct RustCoreBridge: Sendable {
                 details: error.details
             ))
         }
-        guard let value = envelope.data else {
-            return .failure(CoreCallError(
-                code: "unknown",
-                message: "Rust Core response did not contain data",
-                details: nil
-            ))
-        }
-        return .success(value)
+        return .success(envelope)
     }
 
     @discardableResult

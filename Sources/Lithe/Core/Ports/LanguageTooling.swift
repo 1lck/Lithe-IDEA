@@ -292,6 +292,31 @@ enum LanguageServerLogLevel: String, Sendable {
     case error
 }
 
+/// What the editor wants from a language server, named by intent rather than by
+/// the LSP method that satisfies it. The core maps these to methods and owns the
+/// request IDs, so the UI never names a protocol method or reads a raw response.
+enum LanguageServerOperation: String, Equatable, Sendable {
+    case completion
+    case hover
+    case definition
+    case declaration
+    case typeDefinition
+    case references
+    case implementation
+    case rename
+    case formatting
+    case codeActions
+    case resolveCompletion
+    case resolveCodeAction
+    case executeCommand
+    case inlayHints
+    case foldingRanges
+    case codeLens
+    /// Resolving a server-owned source that has no file on disk, such as a
+    /// decompiled class behind a `jdt://` URI.
+    case virtualDocument
+}
+
 enum LanguageServerSessionState: Equatable, Sendable {
     case startingProcess
     case initializing

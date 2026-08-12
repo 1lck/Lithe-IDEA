@@ -50,10 +50,10 @@ struct RealGoplsIntegrationTests {
             languageIdentifier: "go"
         )
         let session = StdioLanguageServerSession(
+            providerID: descriptor.id,
             executableURL: goplsURL,
             arguments: [],
             environment: environment,
-            process: MacRawProcessSession(),
             core: core
         )
         let runtime = RealGoplsLanguageRuntime(descriptor: descriptor, session: session)

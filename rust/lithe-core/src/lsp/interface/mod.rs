@@ -3,6 +3,9 @@
 mod client;
 mod engine;
 mod host;
+mod process;
+#[cfg(test)]
+mod scripted;
 mod transport;
 mod types;
 

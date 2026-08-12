@@ -1,33 +1,39 @@
 import Foundation
 
-protocol LspClientCore: Sendable {
-    func lspClientInitialize(rootURL: URL) -> RustCoreBridge.LspClientResponsePayload?
-    func lspClientInitialize(
+/// The semantic language-server surface the application depends on.
+///
+/// Rust owns the child process, the `Content-Length` framing, the JSON-RPC
+/// request IDs, the document versions, and the protocol deadlines. This protocol
+/// exposes only opaque session and operation IDs, so the facade below can be
+/// driven by a test double without a real server behind it.
+protocol LanguageServerRuntimeCore: Sendable {
+    func lspStartServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
         rootURL: URL,
-        initializationOptions: ToolingJSONValue?
-    ) -> RustCoreBridge.LspClientResponsePayload?
-    func lspClientOpenDocument(
-        state: ToolingJSONValue,
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?,
+        cacheDirectoryURL: URL?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<RustCoreBridge.LspStartServerPayload, RustCoreBridge.CoreCallError>
+    func lspStopServer(sessionID: String)
+    func lspSyncDocument(
+        sessionID: String,
         fileURL: URL,
         languageID: String,
         text: String
-    ) -> RustCoreBridge.LspClientResponsePayload?
-    func lspClientChangeDocument(
-        state: ToolingJSONValue,
-        fileURL: URL,
-        text: String
-    ) -> RustCoreBridge.LspClientResponsePayload?
-    func lspClientCloseDocument(
-        state: ToolingJSONValue,
-        fileURL: URL
-    ) -> RustCoreBridge.LspClientResponsePayload?
-    func lspClientShutdown(
-        state: ToolingJSONValue
-    ) -> RustCoreBridge.LspClientResponsePayload?
-    func lspClientRequest(
-        state: ToolingJSONValue,
-        fileURL: URL,
-        method: String,
+    ) -> Result<Void, RustCoreBridge.CoreCallError>
+    func lspCloseDocument(sessionID: String, fileURL: URL)
+    func lspRequest(
+        sessionID: String,
+        operation: LanguageServerOperation,
+        fileURL: URL?,
+        virtualURI: String?,
         position: LanguageServerPosition?,
         newName: String?,
         range: LanguageServerRange?,
@@ -35,102 +41,44 @@ protocol LspClientCore: Sendable {
         completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
-    ) -> RustCoreBridge.LspClientResponsePayload?
-    func lspClientApplyServerMessage(
-        state: ToolingJSONValue,
-        message: String
-    ) -> RustCoreBridge.LspClientResponsePayload?
-    func lspFrameMessage(_ message: String) -> RustCoreBridge.LspFramePayload?
-    func lspParseServerMessages(
-        buffer: [UInt8],
-        chunk: [UInt8]
-    ) -> RustCoreBridge.LspParsedMessagesPayload?
+    ) -> Result<RustCoreBridge.LspOperationPayload, RustCoreBridge.CoreCallError>
+    func lspCancelOperation(sessionID: String, operationID: String)
+    func lspPollEvents(sessionID: String) -> [RustCoreBridge.LspRuntimeEventPayload]
+    func lspDestroyServer(sessionID: String)
 }
 
-extension RustCoreBridge: LspClientCore {}
+extension RustCoreBridge: LanguageServerRuntimeCore {}
 
-protocol LspSessionCore: LspClientCore {
-    func lspSessionCreate(
-        rootURL: URL,
-        initializationOptions: ToolingJSONValue?
-    ) -> RustCoreBridge.LspSessionResponsePayload?
-    func lspSessionOpenDocument(
-        sessionID: String,
-        fileURL: URL,
-        languageID: String,
-        text: String
-    ) -> RustCoreBridge.LspSessionResponsePayload?
-    func lspSessionChangeDocument(
-        sessionID: String,
-        fileURL: URL,
-        text: String
-    ) -> RustCoreBridge.LspSessionResponsePayload?
-    func lspSessionCloseDocument(
-        sessionID: String,
-        fileURL: URL
-    ) -> RustCoreBridge.LspSessionResponsePayload?
-    func lspSessionShutdown(sessionID: String) -> RustCoreBridge.LspSessionResponsePayload?
-    func lspSessionRequest(
-        sessionID: String,
-        fileURL: URL,
-        method: String,
-        position: LanguageServerPosition?,
-        newName: String?,
-        range: LanguageServerRange?,
-        diagnostics: [LanguageServerDiagnostic],
-        completionItem: LanguageServerCompletionItem?,
-        codeAction: LanguageServerCodeAction?,
-        command: LanguageServerCommand?
-    ) -> RustCoreBridge.LspSessionResponsePayload?
-    func lspSessionApplyServerMessage(
-        sessionID: String,
-        message: String
-    ) -> RustCoreBridge.LspSessionResponsePayload?
-    func lspSessionDestroy(sessionID: String)
-}
-
-extension RustCoreBridge: LspSessionCore {}
-
-extension LspClientCore {
-    func lspClientInitialize(
-        rootURL: URL,
-        initializationOptions _: ToolingJSONValue?
-    ) -> RustCoreBridge.LspClientResponsePayload? {
-        lspClientInitialize(rootURL: rootURL)
-    }
-
-    func lspClientCloseDocument(
-        state _: ToolingJSONValue,
-        fileURL _: URL
-    ) -> RustCoreBridge.LspClientResponsePayload? { nil }
-
-    func lspClientShutdown(
-        state _: ToolingJSONValue
-    ) -> RustCoreBridge.LspClientResponsePayload? { nil }
-}
-
+/// A language-server session projected from the Rust runtime.
+///
+/// This type starts a session, publishes semantic requests, drains
+/// `lsp.pollEvents`, and turns each event into the UI-facing callbacks and
+/// completion closures the application already expects. The only state it keeps
+/// is the opaque session ID, the last lifecycle state it observed, and the
+/// closures waiting on opaque operation IDs.
 @MainActor
 final class StdioLanguageServerSession: LanguageServerSession {
+    /// How often the event queue is drained. Waiting on a completion is worth a
+    /// tighter loop than sitting idle with nothing outstanding.
+    private static let activePollNanoseconds: UInt64 = 10_000_000
+    private static let idlePollNanoseconds: UInt64 = 50_000_000
+
+    private let providerID: String
     private let executableURL: URL
     private let arguments: [String]
     private let environment: [String: String]
     private let initializationOptions: ToolingJSONValue?
-    private let initializeTimeoutNanoseconds: UInt64
-    private let requestTimeoutNanoseconds: UInt64
-    private let process: any RawProcessSession
-    private let core: any LspClientCore
-    private var legacyState: ToolingJSONValue?
+    private let runtimeExecutableURL: URL?
+    private let cacheDirectoryURL: URL?
+    private let initializeTimeout: TimeInterval
+    private let requestTimeout: TimeInterval
+    private let shutdownTimeout: TimeInterval
+    private let core: any LanguageServerRuntimeCore
+
     private var sessionID: String?
-    private var readBuffer = Data()
-    private var openedDocumentURIs: Set<String> = []
-    private var pendingDocuments: [String: PendingDocument] = [:]
-    private var responseHandlers: [String: PendingResponse] = [:]
-    private var responseTimeoutTasks: [String: Task<Void, Never>] = [:]
-    private var isInitialized = false
-    private var isStopping = false
+    private var pendingOperations: [String: PendingOperation] = [:]
+    private var pollTask: Task<Void, Never>?
     private var state: LanguageServerSessionState = .stopped
-    private var initializeTimeoutTask: Task<Void, Never>?
-    private var shutdownFallbackTask: Task<Void, Never>?
 
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     var onLog: ((LanguageServerLogLevel, String, String?) -> Void)?
@@ -141,198 +89,98 @@ final class StdioLanguageServerSession: LanguageServerSession {
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
 
     init(
+        providerID: String,
         executableURL: URL,
         arguments: [String],
         environment: [String: String],
         initializationOptions: ToolingJSONValue? = nil,
-        initializeTimeoutNanoseconds: UInt64 = 10_000_000_000,
-        requestTimeoutNanoseconds: UInt64 = 30_000_000_000,
-        process: any RawProcessSession,
-        core: any LspClientCore = RustCoreBridge()
+        runtimeExecutableURL: URL? = nil,
+        cacheDirectoryURL: URL? = nil,
+        initializeTimeout: TimeInterval = 60,
+        requestTimeout: TimeInterval = 30,
+        shutdownTimeout: TimeInterval = 2,
+        core: any LanguageServerRuntimeCore = RustCoreBridge()
     ) {
+        self.providerID = providerID
         self.executableURL = executableURL
         self.arguments = arguments
         self.environment = environment
         self.initializationOptions = initializationOptions
-        self.initializeTimeoutNanoseconds = initializeTimeoutNanoseconds
-        self.requestTimeoutNanoseconds = requestTimeoutNanoseconds
-        self.process = process
+        self.runtimeExecutableURL = runtimeExecutableURL
+        self.cacheDirectoryURL = cacheDirectoryURL
+        self.initializeTimeout = initializeTimeout
+        self.requestTimeout = requestTimeout
+        self.shutdownTimeout = shutdownTimeout
         self.core = core
-        process.onOutput = { [weak self] data in
-            Task { @MainActor [weak self] in self?.receive(data) }
-        }
-        process.onError = { [weak self] data in
-            Task { @MainActor [weak self] in self?.receiveError(data) }
-        }
-        process.onStateChange = { [weak self] event in
-            Task { @MainActor [weak self] in self?.receiveStateChange(event) }
-        }
-        process.onTermination = { [weak self] exitCode in
-            Task { @MainActor [weak self] in
-                self?.recordTermination(exitCode: exitCode)
-                self?.resetTransientState()
-            }
+    }
+
+    /// Derived from the last lifecycle state Rust published: there is no local
+    /// process handle to ask.
+    var isRunning: Bool {
+        guard sessionID != nil else { return false }
+        switch state {
+        case .stopped, .failed:
+            return false
+        case .startingProcess, .initializing, .ready, .stopping:
+            return true
         }
     }
 
-    var isRunning: Bool { process.isRunning }
-
     func start(rootURL: URL) throws {
+        guard sessionID == nil else { return }
+        let normalizedRoot = rootURL.standardizedFileURL
         transition(to: .startingProcess)
         onLog?(
             .info,
             "Starting language server",
             ([executableURL.path] + arguments).joined(separator: " ")
         )
-        do {
-            try process.start(ProcessRequest(
-                operationID: UUID().uuidString,
-                executablePath: executableURL.path,
-                arguments: arguments,
-                workingDirectory: rootURL.standardizedFileURL.path,
-                environment: environment,
-                keepsStandardInputOpen: true
-            ))
-            transition(to: .initializing)
-            if let sessionCore = core as? any LspSessionCore {
-                guard let response = sessionCore.lspSessionCreate(
-                    rootURL: rootURL,
-                    initializationOptions: initializationOptions
-                ) else {
-                    throw StdioLanguageServerSessionError.coreRejected("initialize")
-                }
-                sessionID = response.sessionId
-                try apply(response)
-            } else {
-                guard let response = core.lspClientInitialize(
-                    rootURL: rootURL,
-                    initializationOptions: initializationOptions
-                ) else {
-                    throw StdioLanguageServerSessionError.coreRejected("initialize")
-                }
-                try apply(response)
-            }
-            if !isInitialized {
-                scheduleInitializeTimeout()
-            }
-        } catch {
-            failSession(error)
-            throw error
+        switch core.lspStartServer(
+            providerID: providerID,
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            rootURL: normalizedRoot,
+            workingDirectoryURL: normalizedRoot,
+            initializationOptions: initializationOptions,
+            runtimeExecutableURL: runtimeExecutableURL,
+            cacheDirectoryURL: cacheDirectoryURL,
+            initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout
+        ) {
+        case .success(let payload):
+            sessionID = payload.sessionId
+            transition(to: Self.sessionState(payload.state) ?? .initializing)
+            startPolling()
+        case .failure(let error):
+            let failure = StdioLanguageServerSessionError.startFailed(error.userMessage)
+            let message = failure.localizedDescription
+            transition(to: .failed(exitCode: nil, message: message))
+            onLog?(.error, "Language server failed to start", message)
+            throw failure
         }
     }
 
     func synchronize(fileURL: URL, text: String, languageID: String) throws {
-        guard sessionID != nil || legacyState != nil else {
-            throw StdioLanguageServerSessionError.notReady
-        }
-        let standardizedURL = fileURL.standardizedFileURL
-        let uri = standardizedURL.absoluteString
-        guard isInitialized else {
-            pendingDocuments[uri] = PendingDocument(
-                fileURL: standardizedURL,
-                text: text,
-                languageID: languageID
-            )
-            return
-        }
-        if let sessionCore = core as? any LspSessionCore,
-           let sessionID {
-            let wasOpen = openedDocumentURIs.contains(uri)
-            let response = wasOpen
-                ? sessionCore.lspSessionChangeDocument(
-                    sessionID: sessionID,
-                    fileURL: standardizedURL,
-                    text: text
-                )
-                : sessionCore.lspSessionOpenDocument(
-                    sessionID: sessionID,
-                    fileURL: standardizedURL,
-                    languageID: languageID,
-                    text: text
-                )
-            guard let response else {
-                let error = StdioLanguageServerSessionError.coreRejected(
-                    wasOpen ? "textDocument/didChange" : "textDocument/didOpen"
-                )
-                failSession(error)
-                throw error
-            }
-            do {
-                try apply(response)
-                if !wasOpen { openedDocumentURIs.insert(uri) }
-            } catch {
-                failSession(error)
-                throw error
-            }
-        } else if let legacyState {
-            let response: RustCoreBridge.LspClientResponsePayload?
-            let wasOpen = openedDocumentURIs.contains(uri)
-            if wasOpen {
-                response = core.lspClientChangeDocument(
-                    state: legacyState,
-                    fileURL: standardizedURL,
-                    text: text
-                )
-            } else {
-                response = core.lspClientOpenDocument(
-                    state: legacyState,
-                    fileURL: standardizedURL,
-                    languageID: languageID,
-                    text: text
-                )
-            }
-            guard let response else {
-                let error = StdioLanguageServerSessionError.coreRejected(
-                    wasOpen ? "textDocument/didChange" : "textDocument/didOpen"
-                )
-                failSession(error)
-                throw error
-            }
-            do {
-                try apply(response)
-                if !wasOpen { openedDocumentURIs.insert(uri) }
-            } catch {
-                failSession(error)
-                throw error
-            }
+        guard let sessionID else { throw StdioLanguageServerSessionError.notReady }
+        // Documents synced before initialize completes are held by the runtime and
+        // opened once the server is ready, so there is nothing to queue here.
+        if case .failure(let error) = core.lspSyncDocument(
+            sessionID: sessionID,
+            fileURL: fileURL.standardizedFileURL,
+            languageID: languageID,
+            text: text
+        ) {
+            throw StdioLanguageServerSessionError.documentSyncFailed(error.userMessage)
         }
     }
 
     func closeDocument(_ fileURL: URL) {
-        let standardizedURL = fileURL.standardizedFileURL
-        let uri = standardizedURL.absoluteString
-        pendingDocuments[uri] = nil
-        guard openedDocumentURIs.contains(uri) else { return }
-        if let sessionCore = core as? any LspSessionCore,
-           let sessionID {
-            guard let response = sessionCore.lspSessionCloseDocument(
-               sessionID: sessionID,
-               fileURL: standardizedURL
-            ) else {
-                failSession(StdioLanguageServerSessionError.coreRejected("textDocument/didClose"))
-                return
-            }
-            do {
-                try apply(response)
-                openedDocumentURIs.remove(uri)
-            } catch {
-                failSession(error)
-            }
-        } else if let legacyState {
-            guard let response = core.lspClientCloseDocument(
-                    state: legacyState,
-                    fileURL: standardizedURL
-            ) else {
-                failSession(StdioLanguageServerSessionError.coreRejected("textDocument/didClose"))
-                return
-            }
-            do {
-                try apply(response)
-                openedDocumentURIs.remove(uri)
-            } catch {
-                failSession(error)
-            }
-        }
+        guard let sessionID else { return }
+        // The runtime owns which documents are open, so closing one it does not
+        // know about is simply not its business.
+        core.lspCloseDocument(sessionID: sessionID, fileURL: fileURL.standardizedFileURL)
     }
 
     func completions(
@@ -340,11 +188,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
         position: LanguageServerPosition,
         completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
     ) throws {
-        try requestFeature(
-            method: "textDocument/completion",
-            fileURL: fileURL,
-            position: position
-        ) { result in
+        try request(.completion, fileURL: fileURL, position: position) { result in
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: RustCoreBridge.BuiltinCompletionPayload.self)
             }.map { $0.makeModels() })
@@ -356,11 +200,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
         position: LanguageServerPosition,
         completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
     ) throws {
-        try requestFeature(
-            method: "textDocument/hover",
-            fileURL: fileURL,
-            position: position
-        ) { result in
+        try request(.hover, fileURL: fileURL, position: position) { result in
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: RustCoreBridge.BuiltinHoverPayload.self)
             }.map { $0.hover?.makeModel() })
@@ -373,7 +213,10 @@ final class StdioLanguageServerSession: LanguageServerSession {
         position: LanguageServerPosition,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws {
-        try requestFeature(method: method, fileURL: fileURL, position: position) { result in
+        guard let operation = Self.navigationOperation(for: method) else {
+            throw StdioLanguageServerSessionError.unsupportedNavigation(method)
+        }
+        try request(operation, fileURL: fileURL, position: position) { result in
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: RustCoreBridge.BuiltinNavigationPayload.self)
             }.map { $0.makeModels() })
@@ -386,12 +229,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
         newName: String,
         completion: @escaping (Result<LanguageServerWorkspaceEdit, Error>) -> Void
     ) throws {
-        try requestFeature(
-            method: "textDocument/rename",
-            fileURL: fileURL,
-            position: position,
-            newName: newName
-        ) { result in
+        try request(.rename, fileURL: fileURL, position: position, newName: newName) { result in
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: RustCoreBridge.LspWorkspaceEditPayload.self)
             }.map { $0.makeModel() })
@@ -402,11 +240,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
         fileURL: URL,
         completion: @escaping (Result<[LanguageServerTextEdit], Error>) -> Void
     ) throws {
-        try requestFeature(
-            method: "textDocument/formatting",
-            fileURL: fileURL,
-            position: nil
-        ) { result in
+        try request(.formatting, fileURL: fileURL) { result in
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: RustCoreBridge.LspFormattingPayload.self)
             }.map { $0.makeModels() })
@@ -419,10 +253,9 @@ final class StdioLanguageServerSession: LanguageServerSession {
         diagnostics: [LanguageServerDiagnostic],
         completion: @escaping (Result<[LanguageServerCodeAction], Error>) -> Void
     ) throws {
-        try requestFeature(
-            method: "textDocument/codeAction",
+        try request(
+            .codeActions,
             fileURL: fileURL,
-            position: nil,
             range: range,
             diagnostics: diagnostics
         ) { result in
@@ -437,12 +270,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
         fileURL: URL,
         completion: @escaping (Result<LanguageServerCompletionItem, Error>) -> Void
     ) throws {
-        try requestFeature(
-            method: "completionItem/resolve",
-            fileURL: fileURL,
-            position: nil,
-            completionItem: item
-        ) { result in
+        try request(.resolveCompletion, fileURL: fileURL, completionItem: item) { result in
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: RustCoreBridge.LspCompletionResolvePayload.self)
             }.map { $0.makeModel() })
@@ -454,12 +282,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
         fileURL: URL,
         completion: @escaping (Result<LanguageServerCodeAction, Error>) -> Void
     ) throws {
-        try requestFeature(
-            method: "codeAction/resolve",
-            fileURL: fileURL,
-            position: nil,
-            codeAction: action
-        ) { result in
+        try request(.resolveCodeAction, fileURL: fileURL, codeAction: action) { result in
             completion(result.flatMap {
                 Self.decodeEventResult($0, as: RustCoreBridge.LspCodeActionResolvePayload.self)
             }.map { $0.makeModel() })
@@ -471,358 +294,172 @@ final class StdioLanguageServerSession: LanguageServerSession {
         fileURL: URL,
         completion: @escaping (Result<Void, Error>) -> Void
     ) throws {
-        try requestFeature(
-            method: "workspace/executeCommand",
-            fileURL: fileURL,
-            position: nil,
-            command: command
-        ) { result in
-            switch result {
-            case .success(let event):
-                if let error = event.error {
-                    completion(.failure(StdioLanguageServerSessionError.serverError(error)))
-                } else {
-                    completion(.success(()))
-                }
-            case .failure(let error):
-                completion(.failure(error))
-            }
+        // A workspace command belongs to the server rather than to a document, so
+        // it carries no document URI and is not gated on one being open.
+        _ = fileURL
+        try request(.executeCommand, fileURL: nil, command: command) { result in
+            completion(result.map { _ in () })
         }
     }
 
     func stop() {
-        guard process.isRunning else {
-            failPendingRequests(with: StdioLanguageServerSessionError.sessionStopped)
-            resetTransientState()
+        guard let sessionID else {
+            failPendingOperations(with: StdioLanguageServerSessionError.sessionStopped)
             transition(to: .stopped)
             return
         }
-        guard !isStopping, isInitialized else {
-            forceStop(pendingError: StdioLanguageServerSessionError.sessionStopped)
-            return
-        }
-        failPendingRequests(with: StdioLanguageServerSessionError.sessionStopped)
-        isStopping = true
-        transition(to: .stopping)
-        do {
-            if let sessionCore = core as? any LspSessionCore,
-               let sessionID,
-               let response = sessionCore.lspSessionShutdown(sessionID: sessionID) {
-                try apply(response)
-            } else if let legacyState,
-                      let response = core.lspClientShutdown(state: legacyState) {
-                try apply(response)
-            } else {
-                forceStop(pendingError: StdioLanguageServerSessionError.sessionStopped)
-                return
-            }
-        } catch {
-            failSession(error)
-            return
-        }
-        shutdownFallbackTask?.cancel()
-        // The task intentionally retains the session after its manager removes it.
-        shutdownFallbackTask = Task { @MainActor [self] in
-            do {
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-            } catch {
-                return
-            }
-            forceStop(pendingError: StdioLanguageServerSessionError.sessionStopped)
-        }
+        // The runtime sends the shutdown, force-terminates on its own deadline,
+        // and publishes the terminal transition. The poll loop releases the
+        // session when that arrives, so nothing here waits on the server.
+        core.lspStopServer(sessionID: sessionID)
+        if isRunning { transition(to: .stopping) }
     }
 
-    private func apply(_ response: RustCoreBridge.LspClientResponsePayload) throws {
-        try validateInitializeEvents(response.events)
-        for message in response.messages {
-            try sendRawJSON(message)
-        }
-        legacyState = response.state
-        updateFeatures(from: response.state)
-        try handle(response.events)
-    }
+    // MARK: - Requests
 
-    private func apply(_ response: RustCoreBridge.LspSessionResponsePayload) throws {
-        try validateInitializeEvents(response.events)
-        for message in response.messages {
-            try sendRawJSON(message)
-        }
-        updateFeatures(capabilityNames: response.serverCapabilities)
-        try handle(response.events)
-    }
-
-    private func handle(_ events: [RustCoreBridge.LspClientEventPayload]) throws {
-        for event in events {
-            if let requestID = event.requestId,
-               let pending = responseHandlers.removeValue(forKey: requestID) {
-                responseTimeoutTasks.removeValue(forKey: requestID)?.cancel()
-                pending.completion(.success(event))
-            }
-            if event.method == "initialize" {
-                try handleInitialize(event)
-            }
-            if event.method == "shutdown" {
-                forceStop(pendingError: StdioLanguageServerSessionError.sessionStopped)
-                return
-            }
-            if event.kind == "diagnostics",
-               let uri = event.uri,
-               let url = URL(string: uri),
-               let diagnostics = event.diagnostics {
-                onDiagnostics?(url.standardizedFileURL, diagnostics.map { $0.makeModel() })
-            }
-        }
-    }
-
-    private func requestFeature(
-        method: String,
-        fileURL: URL,
-        position: LanguageServerPosition?,
+    private func request(
+        _ operation: LanguageServerOperation,
+        fileURL: URL?,
+        position: LanguageServerPosition? = nil,
         newName: String? = nil,
         range: LanguageServerRange? = nil,
         diagnostics: [LanguageServerDiagnostic] = [],
         completionItem: LanguageServerCompletionItem? = nil,
         codeAction: LanguageServerCodeAction? = nil,
         command: LanguageServerCommand? = nil,
-        completion: @escaping (Result<RustCoreBridge.LspClientEventPayload, Error>) -> Void
+        completion: @escaping (Result<RustCoreBridge.LspRuntimeEventPayload, Error>) -> Void
     ) throws {
-        guard isInitialized else {
+        guard let sessionID, state == .ready else {
             throw StdioLanguageServerSessionError.notReady
         }
-        guard openedDocumentURIs.contains(fileURL.standardizedFileURL.absoluteString) else {
-            throw StdioLanguageServerSessionError.documentNotOpen
-        }
-        let messages: [String]
-        let events: [RustCoreBridge.LspClientEventPayload]
-        var updatedLegacyState: ToolingJSONValue?
-        var updatedCapabilityNames: [String]?
-        if let sessionCore = core as? any LspSessionCore,
-           let sessionID,
-           let response = sessionCore.lspSessionRequest(
-               sessionID: sessionID,
-               fileURL: fileURL,
-               method: method,
-               position: position,
-               newName: newName,
-               range: range,
-               diagnostics: diagnostics,
-               completionItem: completionItem,
-               codeAction: codeAction,
-               command: command
-           ) {
-            updatedCapabilityNames = response.serverCapabilities
-            messages = response.messages
-            events = response.events
-        } else if let legacyState,
-                  let response = core.lspClientRequest(
-                    state: legacyState,
-                    fileURL: fileURL,
-                    method: method,
-                    position: position,
-                    newName: newName,
-                    range: range,
-                    diagnostics: diagnostics,
-                    completionItem: completionItem,
-                    codeAction: codeAction,
-                    command: command
-                  ) {
-            updatedLegacyState = response.state
-            messages = response.messages
-            events = response.events
-        } else {
-            throw StdioLanguageServerSessionError.requestRejected
-        }
-        guard let requestID = messages.lazy.compactMap({ Self.requestID(from: $0) }).first else {
-            throw StdioLanguageServerSessionError.missingRequestID
-        }
-        responseHandlers[requestID] = PendingResponse(
-            method: method,
-            fileURL: fileURL.standardizedFileURL,
-            completion: completion
-        )
-        do {
-            for message in messages {
-                try sendRawJSON(message)
-            }
-            if let updatedLegacyState {
-                legacyState = updatedLegacyState
-                updateFeatures(from: updatedLegacyState)
-            } else if let updatedCapabilityNames {
-                updateFeatures(capabilityNames: updatedCapabilityNames)
-            }
-            try handle(events)
-        } catch {
-            responseHandlers[requestID] = nil
-            responseTimeoutTasks.removeValue(forKey: requestID)?.cancel()
-            failSession(error)
-            throw error
-        }
-        if responseHandlers[requestID] != nil {
-            scheduleRequestTimeout(requestID: requestID)
+        switch core.lspRequest(
+            sessionID: sessionID,
+            operation: operation,
+            fileURL: fileURL?.standardizedFileURL,
+            virtualURI: nil,
+            position: position,
+            newName: newName,
+            range: range,
+            diagnostics: diagnostics,
+            completionItem: completionItem,
+            codeAction: codeAction,
+            command: command
+        ) {
+        case .success(let payload):
+            pendingOperations[payload.operationId] = PendingOperation(completion: completion)
+        case .failure(let error):
+            throw StdioLanguageServerSessionError.requestRejected(error.userMessage)
         }
     }
 
-    private func flushPendingDocuments() throws {
-        let documents = pendingDocuments.sorted { $0.key < $1.key }
-        for (uri, document) in documents {
-            try synchronize(
-                fileURL: document.fileURL,
-                text: document.text,
-                languageID: document.languageID
-            )
-            pendingDocuments[uri] = nil
-        }
-    }
+    // MARK: - Event delivery
 
-    private func sendRawJSON(_ message: String) throws {
-        guard process.isRunning else {
-            throw StdioLanguageServerSessionError.transportFailure("Language server process is not running.")
-        }
-        if let frame = core.lspFrameMessage(message)?.frame,
-           let data = frame.data(using: .utf8) {
-            do {
-                try process.send(data)
-            } catch {
-                throw StdioLanguageServerSessionError.transportFailure(error.localizedDescription)
-            }
-            return
-        }
-        guard let body = message.data(using: .utf8) else {
-            throw StdioLanguageServerSessionError.transportFailure("Could not encode LSP message as UTF-8.")
-        }
-        var fallback = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
-        fallback.append(body)
-        do {
-            try process.send(fallback)
-        } catch {
-            throw StdioLanguageServerSessionError.transportFailure(error.localizedDescription)
-        }
-    }
-
-    private func receive(_ data: Data) {
-        guard !isFailed else { return }
-        receiveServerData(data)
-    }
-
-    private func receiveServerData(_ data: Data) {
-        guard let parsed = core.lspParseServerMessages(
-            buffer: Array(readBuffer),
-            chunk: Array(data)
-        ) else {
-            failSession(StdioLanguageServerSessionError.protocolFailure(
-                "Rust core could not parse the language server output."
-            ))
-            return
-        }
-        readBuffer = Data(parsed.buffer)
-        do {
-            for message in parsed.messages {
-                if let sessionCore = core as? any LspSessionCore,
-                   let sessionID {
-                    guard let response = sessionCore.lspSessionApplyServerMessage(
-                        sessionID: sessionID,
-                        message: message
-                    ) else {
-                        throw StdioLanguageServerSessionError.coreRejected("server message")
-                    }
-                    try apply(response)
-                } else if let legacyState {
-                    guard let response = core.lspClientApplyServerMessage(
-                        state: legacyState,
-                        message: message
-                    ) else {
-                        throw StdioLanguageServerSessionError.coreRejected("server message")
-                    }
-                    try apply(response)
-                } else {
-                    throw StdioLanguageServerSessionError.notReady
+    private func startPolling() {
+        pollTask?.cancel()
+        // The task intentionally retains the session: it is what releases the
+        // runtime session once the terminal transition arrives, and it has to
+        // survive the manager dropping its own reference during shutdown.
+        pollTask = Task { @MainActor [self] in
+            while !Task.isCancelled {
+                guard let sessionID else { return }
+                let events = core.lspPollEvents(sessionID: sessionID)
+                var reachedTerminalState = false
+                for event in events where handle(event) {
+                    reachedTerminalState = true
+                }
+                if reachedTerminalState {
+                    releaseSession()
+                    return
+                }
+                let isIdle = events.isEmpty && pendingOperations.isEmpty
+                do {
+                    try await Task.sleep(
+                        nanoseconds: isIdle ? Self.idlePollNanoseconds : Self.activePollNanoseconds
+                    )
+                } catch {
+                    return
                 }
             }
-        } catch {
-            failSession(error)
         }
     }
 
-    private func receiveError(_ data: Data) {
-        let raw = String(decoding: data, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else { return }
-        onLog?(.warning, "Language server stderr", raw)
-    }
-
-    private func receiveStateChange(_ event: ProcessLifecycleEvent) {
-        switch event.state {
-        case .starting:
-            if state == .stopped { transition(to: .startingProcess) }
-            onLog?(.info, "Language server process is starting", nil)
-        case .running:
-            if state == .startingProcess { transition(to: .initializing) }
-            onLog?(.info, "Language server process is running", nil)
-        case .stopping:
-            if !isFailed { transition(to: .stopping) }
-            onLog?(.info, "Language server process is stopping", event.message)
-        case .finished:
-            onLog?(
-                isStopping ? .info : .warning,
-                "Language server process finished",
-                event.message ?? exitCodeDetail(event.exitCode)
-            )
-            if let exitCode = event.exitCode {
-                recordTermination(exitCode: exitCode)
+    /// Applies one runtime event and reports whether it ended the session.
+    private func handle(_ event: RustCoreBridge.LspRuntimeEventPayload) -> Bool {
+        switch event.type {
+        case "stateChanged":
+            return handleStateChange(event)
+        case "requestCompleted":
+            guard let operationID = event.operationId,
+                  let pending = pendingOperations.removeValue(forKey: operationID) else {
+                return false
             }
+            if let error = event.error {
+                pending.completion(.failure(
+                    StdioLanguageServerSessionError.serverError(Self.message(for: error))
+                ))
+            } else {
+                pending.completion(.success(event))
+            }
+            return false
+        case "diagnostics":
+            guard let uri = event.uri, let url = URL(string: uri) else { return false }
+            onDiagnostics?(
+                url.standardizedFileURL,
+                (event.diagnostics ?? []).map { $0.makeModel() }
+            )
+            return false
+        case "featuresChanged":
+            updateFeatures(capabilityNames: event.capabilities ?? [])
+            return false
+        case "serverInfoChanged":
+            let updated = event.serverInfo.map {
+                LanguageServerInfo(name: $0.name, version: $0.version)
+            }
+            guard updated != serverInfo else { return false }
+            serverInfo = updated
+            onServerInfoChange?(updated)
+            return false
+        case "log":
+            let level = event.level.flatMap(LanguageServerLogLevel.init(rawValue:)) ?? .info
+            onLog?(level, event.message ?? "Language server", event.detail)
+            return false
+        default:
+            return false
+        }
+    }
+
+    private func handleStateChange(_ event: RustCoreBridge.LspRuntimeEventPayload) -> Bool {
+        guard let updated = event.state.flatMap(Self.sessionState) else { return false }
+        switch updated {
         case .failed:
-            failSession(
-                StdioLanguageServerSessionError.transportFailure(
-                    event.message ?? "Language server process failed to start."
-                ),
-                exitCode: event.exitCode,
-                stopProcess: false
-            )
-        }
-    }
-
-    private func recordTermination(exitCode: Int32) {
-        guard !isFailed, state != .stopped else { return }
-        if isStopping {
-            failPendingRequests(with: StdioLanguageServerSessionError.sessionStopped)
-            resetTransientState()
+            let failure = Self.failureState(from: event)
+            transition(to: failure)
+            if case .failed(_, let message) = failure {
+                onLog?(.error, "Language server session failed", message)
+            }
+            return true
+        case .stopped:
             transition(to: .stopped)
-            onLog?(.info, "Language server terminated", exitCodeDetail(exitCode))
-        } else {
-            failSession(
-                StdioLanguageServerSessionError.sessionTerminated(exitCode),
-                exitCode: exitCode,
-                stopProcess: false
-            )
+            onLog?(.info, "Language server terminated", event.message)
+            return true
+        case .ready:
+            transition(to: .ready)
+            onLog?(.info, "Language server is ready", serverInfo?.name)
+            return false
+        default:
+            transition(to: updated)
+            return false
         }
     }
 
-    private func exitCodeDetail(_ exitCode: Int32?) -> String? {
-        guard let exitCode else { return nil }
-        return "exit code \(exitCode)"
-    }
-
-    private func resetTransientState() {
-        initializeTimeoutTask?.cancel()
-        initializeTimeoutTask = nil
-        shutdownFallbackTask?.cancel()
-        shutdownFallbackTask = nil
-        responseTimeoutTasks.values.forEach { $0.cancel() }
-        responseTimeoutTasks = [:]
-        if !responseHandlers.isEmpty {
-            failPendingRequests(with: StdioLanguageServerSessionError.sessionStopped)
-        }
-        if let sessionCore = core as? any LspSessionCore,
-           let sessionID {
-            sessionCore.lspSessionDestroy(sessionID: sessionID)
+    /// Hands the session back to the runtime once it has reached a terminal state.
+    private func releaseSession() {
+        pollTask = nil
+        failPendingOperations(with: StdioLanguageServerSessionError.sessionStopped)
+        if let sessionID {
+            core.lspDestroyServer(sessionID: sessionID)
         }
         sessionID = nil
-        legacyState = nil
-        readBuffer = Data()
-        openedDocumentURIs = []
-        pendingDocuments = [:]
-        isInitialized = false
-        isStopping = false
         if !features.isEmpty {
             features = []
             onFeaturesChange?([])
@@ -833,182 +470,18 @@ final class StdioLanguageServerSession: LanguageServerSession {
         }
     }
 
-    private func forceStop(pendingError: Error) {
-        shutdownFallbackTask?.cancel()
-        shutdownFallbackTask = nil
-        failPendingRequests(with: pendingError)
-        isStopping = true
-        if !isFailed { transition(to: .stopping) }
-        process.stop()
-        resetTransientState()
-        if !isFailed { transition(to: .stopped) }
-    }
-
-    private var isFailed: Bool {
-        if case .failed = state { return true }
-        return false
+    private func failPendingOperations(with error: Error) {
+        let pending = pendingOperations
+        pendingOperations = [:]
+        for operation in pending.values {
+            operation.completion(.failure(error))
+        }
     }
 
     private func transition(to updatedState: LanguageServerSessionState) {
         guard state != updatedState else { return }
         state = updatedState
         onStateChange?(updatedState)
-    }
-
-    private func failSession(
-        _ error: Error,
-        exitCode: Int32? = nil,
-        stopProcess: Bool = true
-    ) {
-        guard !isFailed else { return }
-        initializeTimeoutTask?.cancel()
-        initializeTimeoutTask = nil
-        failPendingRequests(with: error)
-        let message = error.localizedDescription
-        transition(to: .failed(exitCode: exitCode, message: message))
-        onLog?(.error, "Language server session failed", message)
-        if stopProcess, process.isRunning {
-            process.stop()
-        }
-        resetTransientState()
-    }
-
-    private func failPendingRequests(with error: Error) {
-        let pending = responseHandlers
-        responseHandlers = [:]
-        let timeoutTasks = responseTimeoutTasks.values
-        responseTimeoutTasks = [:]
-        timeoutTasks.forEach { $0.cancel() }
-        for response in pending.values {
-            response.completion(.failure(error))
-        }
-    }
-
-    private func handleInitialize(_ event: RustCoreBridge.LspClientEventPayload) throws {
-        let result = try validatedInitializeResult(event)
-        initializeTimeoutTask?.cancel()
-        initializeTimeoutTask = nil
-        isInitialized = true
-        let initializedServerInfo = Self.serverInfo(from: result["serverInfo"])
-        transition(to: .ready)
-        if initializedServerInfo != serverInfo {
-            serverInfo = initializedServerInfo
-            onServerInfoChange?(initializedServerInfo)
-        }
-        onLog?(.info, "Language server is ready", initializedServerInfo?.name)
-        try flushPendingDocuments()
-    }
-
-    private func validateInitializeEvents(
-        _ events: [RustCoreBridge.LspClientEventPayload]
-    ) throws {
-        for event in events where event.method == "initialize" {
-            _ = try validatedInitializeResult(event)
-        }
-    }
-
-    private func validatedInitializeResult(
-        _ event: RustCoreBridge.LspClientEventPayload
-    ) throws -> [String: ToolingJSONValue] {
-        if event.kind == "error" || event.error != nil {
-            throw StdioLanguageServerSessionError.initializeFailed(
-                event.error ?? "Language server rejected initialize."
-            )
-        }
-        guard event.kind == "response",
-              case .object(let result)? = event.result,
-              case .object = result["capabilities"] else {
-            throw StdioLanguageServerSessionError.invalidInitializeResult
-        }
-        return result
-    }
-
-    private func scheduleInitializeTimeout() {
-        initializeTimeoutTask?.cancel()
-        let timeout = initializeTimeoutNanoseconds
-        initializeTimeoutTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: timeout)
-            } catch {
-                return
-            }
-            guard let self, !self.isInitialized, !self.isStopping, !self.isFailed else { return }
-            self.failSession(StdioLanguageServerSessionError.initializeTimedOut)
-        }
-    }
-
-    private func scheduleRequestTimeout(requestID: String) {
-        responseTimeoutTasks[requestID]?.cancel()
-        let timeout = requestTimeoutNanoseconds
-        responseTimeoutTasks[requestID] = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: timeout)
-            } catch {
-                return
-            }
-            guard let self,
-                  let pending = self.responseHandlers.removeValue(forKey: requestID) else { return }
-            self.responseTimeoutTasks[requestID] = nil
-            let timeoutError = StdioLanguageServerSessionError.requestTimedOut(
-                method: pending.method,
-                fileURL: pending.fileURL
-            )
-            var transportError: Error?
-            do {
-                try self.sendCancellation(requestID: requestID)
-            } catch {
-                transportError = error
-            }
-            pending.completion(.failure(timeoutError))
-            if let transportError {
-                self.failSession(transportError)
-            }
-        }
-    }
-
-    private func sendCancellation(requestID: String) throws {
-        let object: [String: Any] = [
-            "jsonrpc": "2.0",
-            "method": "$/cancelRequest",
-            "params": ["id": requestID]
-        ]
-        let data: Data
-        do {
-            data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-        } catch {
-            throw StdioLanguageServerSessionError.protocolFailure(
-                "Could not encode cancellation for LSP request \(requestID)."
-            )
-        }
-        guard let message = String(data: data, encoding: .utf8) else {
-            throw StdioLanguageServerSessionError.protocolFailure(
-                "Could not encode cancellation for LSP request \(requestID)."
-            )
-        }
-        try sendRawJSON(message)
-    }
-
-    private static func serverInfo(from value: ToolingJSONValue?) -> LanguageServerInfo? {
-        guard case .object(let object)? = value,
-              case .string(let name)? = object["name"],
-              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        let version: String?
-        if case .string(let value)? = object["version"], !value.isEmpty {
-            version = value
-        } else {
-            version = nil
-        }
-        return LanguageServerInfo(name: name, version: version)
-    }
-
-    private func updateFeatures(from state: ToolingJSONValue) {
-        guard case .object(let object) = state,
-              case .array(let capabilityValues)? = object["serverCapabilities"] else { return }
-        let names = capabilityValues.compactMap { value -> String? in
-            guard case .string(let name) = value else { return nil }
-            return name
-        }
-        updateFeatures(capabilityNames: names)
     }
 
     private func updateFeatures(capabilityNames names: [String]) {
@@ -1033,22 +506,53 @@ final class StdioLanguageServerSession: LanguageServerSession {
         onFeaturesChange?(updated)
     }
 
-    private static func requestID(from message: String) -> String? {
-        guard let data = message.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let id = object["id"] else { return nil }
-        if let string = id as? String { return string }
-        if let number = id as? NSNumber { return number.stringValue }
-        return nil
+    private static func sessionState(_ lifecycle: String) -> LanguageServerSessionState? {
+        switch lifecycle {
+        case "created", "processStarting": .startingProcess
+        case "initializing": .initializing
+        case "ready": .ready
+        case "stopping": .stopping
+        case "stopped": .stopped
+        case "failed": .failed(exitCode: nil, message: nil)
+        default: nil
+        }
+    }
+
+    private static func failureState(
+        from event: RustCoreBridge.LspRuntimeEventPayload
+    ) -> LanguageServerSessionState {
+        guard let error = event.error else {
+            return .failed(exitCode: nil, message: event.message)
+        }
+        return .failed(
+            exitCode: error.processExitCode.map(Int32.init),
+            message: message(for: error)
+        )
+    }
+
+    private static func message(for error: RustCoreBridge.LspRuntimeErrorPayload) -> String {
+        var message = error.message
+        if let underlying = error.underlyingMessage, !underlying.isEmpty {
+            message += ": \(underlying)"
+        }
+        return message
+    }
+
+    private static func navigationOperation(for method: String) -> LanguageServerOperation? {
+        switch method {
+        case "textDocument/definition": .definition
+        case "textDocument/declaration": .declaration
+        case "textDocument/typeDefinition": .typeDefinition
+        case "textDocument/implementation": .implementation
+        case "textDocument/references": .references
+        default: nil
+        }
     }
 
     private static func decodeEventResult<Payload: Decodable>(
-        _ event: RustCoreBridge.LspClientEventPayload,
+        _ event: RustCoreBridge.LspRuntimeEventPayload,
         as _: Payload.Type
     ) -> Result<Payload, Error> {
-        if let error = event.error {
-            return .failure(StdioLanguageServerSessionError.serverError(error))
-        }
         guard let result = event.result else {
             return .failure(StdioLanguageServerSessionError.missingResult)
         }
@@ -1060,32 +564,17 @@ final class StdioLanguageServerSession: LanguageServerSession {
         }
     }
 
-    private struct PendingDocument {
-        let fileURL: URL
-        let text: String
-        let languageID: String
-    }
-
-    private struct PendingResponse {
-        let method: String
-        let fileURL: URL
-        let completion: (Result<RustCoreBridge.LspClientEventPayload, Error>) -> Void
+    private struct PendingOperation {
+        let completion: (Result<RustCoreBridge.LspRuntimeEventPayload, Error>) -> Void
     }
 
     private enum StdioLanguageServerSessionError: LocalizedError {
         case notReady
-        case documentNotOpen
-        case requestRejected
-        case missingRequestID
+        case startFailed(String)
+        case documentSyncFailed(String)
+        case requestRejected(String)
+        case unsupportedNavigation(String)
         case missingResult
-        case coreRejected(String)
-        case initializeFailed(String)
-        case invalidInitializeResult
-        case initializeTimedOut
-        case transportFailure(String)
-        case protocolFailure(String)
-        case requestTimedOut(method: String, fileURL: URL)
-        case sessionTerminated(Int32)
         case sessionStopped
         case serverError(String)
 
@@ -1093,30 +582,16 @@ final class StdioLanguageServerSession: LanguageServerSession {
             switch self {
             case .notReady:
                 "Language server is not ready."
-            case .documentNotOpen:
-                "Document is not open in the language server."
-            case .requestRejected:
-                "Language server request was rejected by Rust core."
-            case .missingRequestID:
-                "Language server request did not include a JSON-RPC request ID."
+            case .startFailed(let message):
+                "Language server failed to start: \(message)"
+            case .documentSyncFailed(let message):
+                "Language server document sync failed: \(message)"
+            case .requestRejected(let message):
+                "Language server request was rejected: \(message)"
+            case .unsupportedNavigation(let method):
+                "Language server navigation \(method) is not supported."
             case .missingResult:
                 "Language server response did not include a result."
-            case .coreRejected(let operation):
-                "Rust core rejected the LSP \(operation) operation."
-            case .initializeFailed(let message):
-                "Language server initialize failed: \(message)"
-            case .invalidInitializeResult:
-                "Language server initialize returned an invalid result."
-            case .initializeTimedOut:
-                "Language server initialize timed out."
-            case .transportFailure(let message):
-                "Language server transport failed: \(message)"
-            case .protocolFailure(let message):
-                "Language server protocol failed: \(message)"
-            case .requestTimedOut(let method, let fileURL):
-                "Language server request \(method) timed out for \(fileURL.lastPathComponent)."
-            case .sessionTerminated(let exitCode):
-                "Language server terminated unexpectedly with exit code \(exitCode)."
             case .sessionStopped:
                 "Language server session stopped before the request completed."
             case .serverError(let message):

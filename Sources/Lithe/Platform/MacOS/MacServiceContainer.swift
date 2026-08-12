@@ -95,6 +95,13 @@ final class MacServiceContainer {
             languageServerExecutableResolver: { descriptor in
                 languageServerTools.executableURL(for: descriptor)
             },
+            // JDT LS runs on a JDK the Rust runtime cannot discover for itself.
+            languageServerRuntimeResolver: { descriptor in
+                descriptor.id == "java" ? runtimeService.javaExecutableURL() : nil
+            },
+            languageServerCacheDirectory: fileStorage
+                .cacheDirectory()
+                .appendingPathComponent("Lithe/language-servers", isDirectory: true),
             debugLaunches: debugLaunches,
             debugSessionFactories: debugSessionFactories
         )
