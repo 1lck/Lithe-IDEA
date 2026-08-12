@@ -1,0 +1,132 @@
+---
+title: Table Import
+description: Use a guided workflow to import CSV, TSV, text, JSON, or Excel data into an existing table or create new tables in batches.
+---
+
+Table Import writes file data into database tables. DBX parses and previews the source first, then asks you to review parsing options, the target, column mappings, and execution settings before any rows are written.
+
+<Callout type="warn">Import performs real database writes. Connection read-only protection blocks the operation, but database privileges remain the final boundary. Verify the target connection, target table, and backup plan before importing into production.</Callout>
+
+## Target Modes
+
+| Target mode | Behavior | Typical use |
+| --- | --- | --- |
+| Existing table | Loads target columns and maps source fields; supports append or truncate-then-import | Backfills, test data restoration, and sample data replacement |
+| Create new table | Infers column types from preview data and lets you edit the table name, column names, and types | Fast file-to-table workflows, spreadsheet migration, and multi-file imports |
+
+Create-table mode accepts multiple files at once. Excel workbooks are expanded into separate tasks per worksheet. DBX suggests a table name for each file or sheet and requires the final names to be unique. Tasks run sequentially and keep independent previews, mappings, and type settings.
+
+## Supported Files
+
+| Format | Details |
+| --- | --- |
+| CSV | Comma-delimited by default, with configurable header row, row range, and encoding |
+| TSV | Tab-delimited text |
+| Delimited text | Files such as `.txt` with a custom delimiter |
+| JSON | A single object, object rows, or array rows; the shape can be selected explicitly |
+| Excel | `.xlsx`, `.xlsm`, and `.xls`, with worksheet selection |
+
+Desktop reads selected local files directly. Docker/Web uploads browser-selected files to temporary server storage, then releases the prepared source after preview and import finish.
+
+## Import Wizard
+
+<Steps>
+  <Step>
+    ### Choose Files and Target Mode
+
+    Opening the action from a table preselects that table. You can instead create a new table and select one or more files.
+
+  </Step>
+  <Step>
+    ### Configure Parsing
+
+    Review encoding, title row, data range, worksheet, JSON shape, empty-string behavior, and whitespace trimming.
+
+  </Step>
+  <Step>
+    ### Review Column Mapping
+
+    Map source fields to an existing table, or review inferred names and data types for a new table. Use the data preview to verify real values.
+
+  </Step>
+  <Step>
+    ### Review the Plan
+
+    Confirm the connection, database, schema, table name, import mode, mapping count, estimated row count, and batch size.
+
+  </Step>
+  <Step>
+    ### Run and Inspect Results
+
+    The execution view reports reading and writing phases, imported rows, byte progress, elapsed time, errors, and cancellation state.
+
+  </Step>
+</Steps>
+
+## Parsing Options
+
+### Text Encoding
+
+CSV, TSV, and delimited text support auto detection, UTF-8, GBK, UTF-16 LE, and UTF-16 BE. If detection is wrong, select an encoding manually and recheck the preview.
+
+### Row Range
+
+- **Title row** chooses the row used for field names
+- **Data start row** skips leading notes or blank rows
+- **Last data row** limits the import; `0` reads to end of file
+- **Preview rows** controls the mapping preview only, not the final import size
+
+### Value Handling
+
+- **Trim values** removes surrounding whitespace from text values
+- **Empty string as NULL** is enabled by default; disable it to preserve empty strings
+- **JSON shape** can be detected automatically or forced to object rows or array rows
+- **Worksheet** selects an Excel sheet; batch create mode creates an independent task for each sheet
+
+## Mapping and Table Creation
+
+For existing tables, DBX first matches exact names, then normalized names. Normalization ignores case and differences in spaces, underscores, and hyphens.
+
+- Source columns can be skipped
+- A target column cannot be mapped more than once
+- At least one column must be mapped
+- Required unmapped columns need a default, auto-generated behavior, or nullable definition
+
+For new tables, source columns initially map to same-name targets and DBX suggests database-specific types from preview values. Suggestions are only a starting point; review dates, precision, long text, JSON, binary values, and engine-specific types before execution.
+
+## Modes and Batches
+
+| Option | Behavior |
+| --- | --- |
+| Append | Keeps existing rows and inserts new ones |
+| Truncate then import | Clears the target table on supported paths before writing file data |
+| Batch size | Controls rows written per batch; the default is 500 |
+
+New-table and multi-file imports always use append because each target is created by the current task. Truncate-then-import is destructive, and transaction or `TRUNCATE` semantics differ by database. Do not assume every completed operation will be rolled back after a later failure.
+
+## Database Coverage
+
+DBX exposes Table Import through the driver capability manifest. Only connections that implement column discovery, table creation or writing, and required type conversion enable the action. Specialized Redis, MongoDB, search, vector, message queue, and configuration-center workspaces use their own workflows instead of this relational table importer.
+
+Being able to connect does not imply Table Import support. If the action is absent, check the database type, driver mode, and DBX version before treating it as a privilege problem.
+
+## Failure and Cancellation
+
+- Parsing failures usually indicate an incorrect encoding, delimiter, title row, JSON shape, or worksheet setting
+- Write failures usually come from type mismatches, required columns, key conflicts, privileges, or target schema differences
+- Cancellation stops later batches, but already committed batches are not guaranteed to roll back
+- Batch create tasks run sequentially; a failed task keeps its error state, while previously completed tables are not automatically removed
+
+## Related Features
+
+<Cards>
+  <Card title="Data Transfer" href="/en/docs/data-transfer">
+    Copy table data between connections, databases, or engines.
+  </Card>
+  <Card title="Database Export" href="/en/docs/database-export">
+    Export structure, data, and supported objects as SQL.
+  </Card>
+  <Card title="Production Safety" href="/en/docs/production-safety">
+    Understand read-only protection, production protection, and database privilege boundaries.
+  </Card>
+</Cards>

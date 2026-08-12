@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Lithe
@@ -307,6 +308,69 @@ private let testCommitMessageInput = CommitMessageInput(
 @Suite("Commit message settings")
 @MainActor
 struct CommitMessageSettingsTests {
+    @Test
+    func themeSettingsPersistAndDefaultToDarkLithe() {
+        let store = InMemoryKeyValueStore()
+        let initialSettings = AppSettings(store: store)
+        #expect(initialSettings.colorTheme == .lithe)
+        #expect(initialSettings.themePreference == .dark)
+        #expect(AppThemeRuntime.shared.activeTheme == .lithe)
+
+        initialSettings.colorTheme = .linear
+        initialSettings.themePreference = .light
+        #expect(AppThemeRuntime.shared.activeTheme == .linear)
+        let reloadedSettings = AppSettings(store: store)
+        #expect(reloadedSettings.colorTheme == .linear)
+        #expect(reloadedSettings.themePreference == .light)
+
+        reloadedSettings.restoreDefaults()
+        #expect(reloadedSettings.colorTheme == .lithe)
+        #expect(reloadedSettings.themePreference == .dark)
+    }
+
+    @Test
+    func bundledThemeTokensMatchTheirDefinitions() {
+        let cases: [(AppColorTheme, Bool, LitheTheme.ResolvedColorToken, UInt32)] = [
+            (.codex, true, .editor, 0x111111),
+            (.codex, true, .primaryText, 0xfcfcfc),
+            (.codex, true, .accent, 0x0169cc),
+            (.codex, true, .success, 0x00a240),
+            (.codex, true, .error, 0xe02e2a),
+            (.codex, true, .skill, 0xb06dff),
+            (.codex, false, .editor, 0xffffff),
+            (.codex, false, .primaryText, 0x0d0d0d),
+            (.codex, false, .accent, 0x0169cc),
+            (.codex, false, .success, 0x00a240),
+            (.codex, false, .error, 0xe02e2a),
+            (.codex, false, .skill, 0x751ed9),
+            (.linear, true, .editor, 0x0f0f11),
+            (.linear, true, .primaryText, 0xe3e4e6),
+            (.linear, true, .accent, 0x606acc),
+            (.linear, true, .success, 0x69c967),
+            (.linear, true, .error, 0xff7e78),
+            (.linear, true, .skill, 0xc2a1ff),
+            (.linear, false, .editor, 0xfcfcfd),
+            (.linear, false, .primaryText, 0x1b1b1b),
+            (.linear, false, .accent, 0x5e6ad2),
+            (.linear, false, .success, 0x52a450),
+            (.linear, false, .error, 0xc94446),
+            (.linear, false, .skill, 0x8160d8)
+        ]
+
+        for (theme, isDark, token, expected) in cases {
+            let color = LitheTheme.nsColor(token, theme: theme, isDark: isDark)
+            #expect(rgbHex(color) == expected)
+        }
+    }
+
+    private func rgbHex(_ color: NSColor) -> UInt32? {
+        guard let color = color.usingColorSpace(.sRGB) else { return nil }
+        let red = UInt32((color.redComponent * 255).rounded())
+        let green = UInt32((color.greenComponent * 255).rounded())
+        let blue = UInt32((color.blueComponent * 255).rounded())
+        return (red << 16) | (green << 8) | blue
+    }
+
     @Test
     func projectOpenBehaviorPersistsAndDefaultsToAsk() {
         let store = InMemoryKeyValueStore()

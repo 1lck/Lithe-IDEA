@@ -31,6 +31,14 @@ extension AppModel {
             activateCurrentDocumentLanguageServerIfAvailable()
         }
     }
+
+    func moveOpenDocument(_ documentID: UUID, before targetDocumentID: UUID) {
+        documentFeature.moveDocument(documentID, before: targetDocumentID)
+    }
+
+    func moveOpenDocument(_ documentID: UUID, after targetDocumentID: UUID) {
+        documentFeature.moveDocument(documentID, after: targetDocumentID)
+    }
     var pendingCloseDocument: EditorDocument? { documentFeature.pendingCloseDocument }
     var isPendingProjectClose: Bool { documentFeature.isPendingProjectClose }
 
@@ -138,6 +146,7 @@ extension AppModel {
     }
     var isLoadingWorkspace: Bool { workspaceFeature.isLoadingWorkspace }
     var isRefreshingWorkspace: Bool { workspaceFeature.isRefreshingWorkspace }
+    var workspaceLoadErrorMessage: String? { workspaceFeature.loadErrorMessage }
     var searchResults: [FileSearchResult] { searchFeature.searchResults }
     var isSearching: Bool { searchFeature.isSearching }
     var searchEverywhereResults: SearchEverywhereResults { searchFeature.searchEverywhereResults }

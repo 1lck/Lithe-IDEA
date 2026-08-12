@@ -93,10 +93,23 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
                     "Path is outside the workspace",
                 ));
             }
+            // Baseline collection visits every visible workspace file. Reject
+            // directories and oversized assets before `fs::read` so a large
+            // movie/archive is never loaded only to be discarded afterward.
+            let metadata = fs::metadata(&file).map_err(CoreError::from)?;
+            if !metadata.is_file() || metadata.len() > MAX_FILE_SIZE as u64 {
+                return Ok(None);
+            }
             fs::read(file).map_err(CoreError::from)?
         }
     };
     if content.len() > MAX_FILE_SIZE {
+        return Ok(None);
+    }
+    let Ok(text) = std::str::from_utf8(&content) else {
+        return Ok(None);
+    };
+    if !crate::workspace::is_plain_text(text) {
         return Ok(None);
     }
     let storage = storage_root(&request.storage_root)?;

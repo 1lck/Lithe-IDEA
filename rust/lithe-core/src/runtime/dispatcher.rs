@@ -2,7 +2,8 @@ use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitStashesRequest, GitStatusRequest, GitWriteRequest,
+    GitPullPreflightRequest, GitStashesRequest, GitStatusRequest, GitWatchContextRequest,
+    GitWriteRequest,
 };
 use crate::languages::{
     JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
@@ -82,6 +83,48 @@ fn execute(request: &str) -> CoreResponse {
                     id,
                     serde_json::to_value(data).expect("snapshot should encode"),
                 ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceSearchIndexWarm => {
+            match serde_json::from_value::<SearchIndexRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid search index request")
+                        .with_details(error.to_string())
+                })
+                .and_then(workspace::warm_search_index)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("search index status should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceSearchIndexUpdate => {
+            match serde_json::from_value::<SearchIndexUpdateRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid search index update")
+                        .with_details(error.to_string())
+                })
+                .and_then(workspace::update_search_index)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("search index status should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceSearchIndexInvalidate => {
+            match serde_json::from_value::<SearchIndexRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid search index request")
+                        .with_details(error.to_string())
+                })
+                .and_then(workspace::invalidate_search_index)
+            {
+                Ok(()) => CoreResponse::success(id, json!({})),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -675,6 +718,25 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitWatchContext => {
+            match serde_json::from_value::<GitWatchContextRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git watch context request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::watch_context)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git watch context should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+
         CoreCommand::GitCommand => {
             match serde_json::from_value::<GitCommandRequest>(parsed.payload)
                 .map_err(|error| {

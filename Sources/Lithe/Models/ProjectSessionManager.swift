@@ -153,6 +153,12 @@ final class ProjectSessionManager: ObservableObject {
         }
     }
 
+    func resumeGitObservationAfterActivation() async {
+        for model in openProjects {
+            await model.resumeGitObservationAfterActivation()
+        }
+    }
+
     private func openInThisWindow(_ url: URL) {
         let model: AppModel
         if activeModel.workspaceURL == nil {

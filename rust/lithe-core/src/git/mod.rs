@@ -5,7 +5,7 @@ use crate::protocol::{
     GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
     GitHistoryResponse, GitIntegrationPreflightResponse, GitOperationStateResponse,
     GitPullPreflightResponse, GitReferenceResponse, GitStashResponse, GitStashesResponse,
-    GitStatusResponse,
+    GitStatusResponse, GitWatchContextResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::io::Read;
@@ -18,6 +18,12 @@ use std::time::Duration;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusRequest {
+    pub root: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWatchContextRequest {
     pub root: String,
 }
 
@@ -2330,6 +2336,57 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
         })
         .collect();
     (rows, hunks)
+}
+
+pub fn watch_context(
+    request: GitWatchContextRequest,
+) -> Result<Option<GitWatchContextResponse>, CoreError> {
+    let root = PathBuf::from(&request.root)
+        .canonicalize()
+        .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
+    if !root.is_dir() {
+        return Err(CoreError::new(
+            ErrorCode::WorkspaceNotFound,
+            "Workspace does not exist",
+        ));
+    }
+
+    let repository_root = run_git(&root, &["rev-parse", "--show-toplevel"])?;
+    if !repository_root.status.success() {
+        return Ok(None);
+    }
+    let git_directory = run_git(&root, &["rev-parse", "--absolute-git-dir"])?;
+    let git_common_directory = run_git(
+        &root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?;
+
+    Ok(Some(GitWatchContextResponse {
+        repository_root: canonical_git_output(repository_root, "repository root")?,
+        git_directory: canonical_git_output(git_directory, "Git directory")?,
+        git_common_directory: canonical_git_output(git_common_directory, "Git common directory")?,
+    }))
+}
+
+fn canonical_git_output(output: std::process::Output, label: &str) -> Result<String, CoreError> {
+    if !output.status.success() {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            format!("Could not resolve {label}"),
+        )
+        .with_details(String::from_utf8_lossy(&output.stderr)));
+    }
+    let raw_path = String::from_utf8_lossy(&output.stdout);
+    let path = PathBuf::from(raw_path.trim());
+    path.canonicalize()
+        .map(|path| path.to_string_lossy().into_owned())
+        .map_err(|error| {
+            CoreError::new(
+                ErrorCode::ProcessFailed,
+                format!("Could not resolve {label}"),
+            )
+            .with_details(error.to_string())
+        })
 }
 
 pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError> {

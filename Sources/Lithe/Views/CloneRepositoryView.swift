@@ -74,11 +74,10 @@ struct CloneRepositoryView: View {
         }
         .frame(width: 560, height: 360)
         .background(LitheTheme.window)
-        .preferredColorScheme(.dark)
         .onAppear {
             focusedField = .remote
         }
-        .onChange(of: remoteURL) { _, value in
+        .onChange(of: remoteURL) { value in
             guard folderName.isEmpty else { return }
             folderName = defaultFolderName(from: value)
         }

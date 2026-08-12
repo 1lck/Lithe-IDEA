@@ -35,7 +35,6 @@ struct SettingsView: View {
         }
         .frame(width: 820, height: 620)
         .background(LitheTheme.window)
-        .preferredColorScheme(.dark)
         .onAppear {
             syncVisibilityDrafts()
             model.refreshAIConfigurations()
@@ -125,6 +124,36 @@ struct SettingsView: View {
 
     private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
+            group("Appearance") {
+                row("Color theme") {
+                    Picker("", selection: $settings.colorTheme) {
+                        ForEach(AppColorTheme.allCases) { theme in
+                            Text(LocalizedStringKey(theme.title)).tag(theme)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 180, alignment: .leading)
+                    .lithePointer()
+                }
+
+                row("Appearance mode") {
+                    Picker("", selection: $settings.themePreference) {
+                        ForEach(AppThemePreference.allCases) { preference in
+                            Text(LocalizedStringKey(preference.title)).tag(preference)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 260)
+                    .lithePointer()
+                }
+
+                Text("Choose a color theme and whether Lithe follows the system appearance.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
             group("Language") {
                 Picker("Language", selection: $settings.language) {
                     ForEach(AppLanguage.allCases) { language in
@@ -231,15 +260,27 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Display") {
                 row("Font size") {
-                        Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
+                    Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
                         Text("\(Int(settings.editorFontSize)) pt")
                             .monospacedDigit()
                             .frame(width: 42, alignment: .trailing)
-                        }
-                        .lithePointer()
                     }
+                    .lithePointer()
+                }
                 Toggle("Show usages and Git author", isOn: $settings.showCodeVision)
                     .lithePointer()
+            }
+            group("Editor tabs") {
+                row("Layout") {
+                    Picker("", selection: $settings.editorTabLayoutMode) {
+                        ForEach(EditorTabLayoutMode.allCases) { mode in
+                            Text(LocalizedStringKey(mode.title)).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                    .lithePointer()
+                }
             }
             group("Indentation") {
                 row("Tab width") {
@@ -267,7 +308,7 @@ struct SettingsView: View {
                 .labelsHidden()
                 .frame(width: 180)
                 .lithePointer()
-                .onChange(of: settings.terminalShell) {
+                .onChange(of: settings.terminalShell) { _ in
                     guard model.activeTerminalSession?.isRunning == true else { return }
                     let path = settings.terminalShellPath
                         ?? ProcessInfo.processInfo.environment["SHELL"]

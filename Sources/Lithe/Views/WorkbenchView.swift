@@ -1,4 +1,13 @@
+import AppKit
 import SwiftUI
+
+private enum ActivityBarMetrics {
+    static let width: CGFloat = 38
+    static let buttonWidth: CGFloat = 30
+    static let buttonHeight: CGFloat = 30
+    static let spacing: CGFloat = 4
+    static let edgeInset: CGFloat = 4
+}
 
 struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
@@ -220,13 +229,13 @@ struct WorkbenchView: View {
         .onAppear {
             restoreLayout()
         }
-        .onChange(of: sidebarWidth) { _, _ in
+        .onChange(of: sidebarWidth) { _ in
             saveLayout()
         }
-        .onChange(of: topPaneHeight) { _, _ in
+        .onChange(of: topPaneHeight) { _ in
             saveLayout()
         }
-        .onChange(of: model.workspaceURL?.standardizedFileURL.path) { _, _ in
+        .onChange(of: model.workspaceURL?.standardizedFileURL.path) { _ in
             didRestoreLayout = false
             restoreLayout()
         }
@@ -257,7 +266,7 @@ struct WorkbenchView: View {
                 .onAppear {
                     proxy.scrollTo(projectSessions.activeSessionID, anchor: .center)
                 }
-                .onChange(of: projectSessions.activeSessionID) { _, id in
+                .onChange(of: projectSessions.activeSessionID) { id in
                     withAnimation(.easeOut(duration: 0.12)) {
                         proxy.scrollTo(id, anchor: .center)
                     }
@@ -483,6 +492,7 @@ struct WorkbenchView: View {
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .lithePointer()
             .frame(width: 28, height: 28)
             .help("More actions")
@@ -490,30 +500,33 @@ struct WorkbenchView: View {
         .padding(.leading, 76)
         .padding(.trailing, 10)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
-        .background(LitheTheme.titlebar)
+        .background {
+            LitheTheme.titlebar
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    (NSApplication.shared.keyWindow?.delegate as? LitheWindowCoordinator)?
+                        .toggleWorkspaceZoom()
+                }
+        }
     }
 
     private var activityBar: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                VStack(spacing: 6) {
+                VStack(spacing: ActivityBarMetrics.spacing) {
                     ForEach(SidebarDestination.allCases) { destination in
                         Button {
                             model.selectedSidebar = destination
                         } label: {
                             LitheIDEAIcon(
                                 resourcePath: destination.ideaAssetPath,
-                                size: 16,
+                                size: 18,
                                 fallbackSystemImage: destination.systemImage
                             )
-                                .frame(width: 40, height: 34)
-                                .overlay(alignment: .leading) {
-                                    if model.selectedSidebar == destination {
-                                        Rectangle()
-                                            .fill(LitheTheme.accent)
-                                            .frame(width: 2, height: 21)
-                                    }
-                                }
+                                .frame(
+                                    width: ActivityBarMetrics.buttonWidth,
+                                    height: ActivityBarMetrics.buttonHeight
+                                )
                                 .litheRowHover(
                                     isActive: model.selectedSidebar == destination,
                                     cornerRadius: 4,
@@ -526,10 +539,11 @@ struct WorkbenchView: View {
                         .help(LocalizedStringKey(destination.title))
                     }
                 }
+                .padding(.top, ActivityBarMetrics.edgeInset)
 
                 Spacer(minLength: 0)
 
-                VStack(spacing: 6) {
+                VStack(spacing: ActivityBarMetrics.spacing) {
                     activityToolButton(
                         systemImage: "terminal",
                         help: "Terminal",
@@ -605,12 +619,12 @@ struct WorkbenchView: View {
                         model.showSettings()
                     }
                 }
-                .padding(.bottom, 8)
+                .padding(.bottom, ActivityBarMetrics.edgeInset)
             }
-            .frame(width: 48, height: geometry.size.height, alignment: .top)
+            .frame(width: ActivityBarMetrics.width, height: geometry.size.height, alignment: .top)
             .background(LitheTheme.titlebar)
         }
-        .frame(width: 48)
+        .frame(width: ActivityBarMetrics.width)
     }
 
     private var runControls: some View {
@@ -731,27 +745,23 @@ struct WorkbenchView: View {
                 if let ideaAssetPath {
                     LitheIDEAIcon(
                         resourcePath: ideaAssetPath,
-                        size: 17,
+                        size: 18,
                         fallbackSystemImage: systemImage
                     )
                 } else {
                     Image(systemName: systemImage)
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                 }
             }
-            .frame(width: 40, height: 34)
-                .overlay(alignment: .leading) {
-                    if isSelected {
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(LitheTheme.accent)
-                            .frame(width: 3, height: 22)
-                    }
-                }
-                .litheRowHover(
-                    isActive: isSelected,
-                    cornerRadius: 4,
-                    activeBackground: LitheTheme.subtleSelection
-                )
+            .frame(
+                width: ActivityBarMetrics.buttonWidth,
+                height: ActivityBarMetrics.buttonHeight
+            )
+            .litheRowHover(
+                isActive: isSelected,
+                cornerRadius: 4,
+                activeBackground: LitheTheme.subtleSelection
+            )
         }
         .buttonStyle(.plain)
         .lithePointer()
@@ -880,6 +890,8 @@ struct WorkbenchView: View {
                 ChangesSidebarView()
             case .search:
                 SearchSidebarView()
+            case .database:
+                DatabaseSidebarView()
             }
         }
         .background(LitheTheme.sidebar)

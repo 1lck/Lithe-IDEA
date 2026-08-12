@@ -1,0 +1,86 @@
+name: lithe-database-validation
+
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: lithe-database-validation-mariadb
+    restart: unless-stopped
+    ports:
+      - "${LITHE_BIND_ADDRESS:-127.0.0.1}:${LITHE_MARIADB_PORT:-53307}:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: "${LITHE_DB_PASSWORD:-lithe_root}"
+      MARIADB_DATABASE: lithe_test
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      - ./mariadb-init.sql:/docker-entrypoint-initdb.d/001-validation.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mariadb-admin ping -h 127.0.0.1 -uroot -p"$$MARIADB_ROOT_PASSWORD" --silent
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  mongodb:
+    image: mongo:7.0
+    container_name: lithe-database-validation-mongodb
+    restart: unless-stopped
+    ports:
+      - "${LITHE_BIND_ADDRESS:-127.0.0.1}:${LITHE_MONGODB_PORT:-57019}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: "${LITHE_DB_PASSWORD:-lithe_root}"
+      MONGO_INITDB_DATABASE: lithe_test
+    volumes:
+      - mongodb-data:/data/db
+      - ./mongodb-init.js:/docker-entrypoint-initdb.d/001-validation.js:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'mongosh --quiet --username root --password "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval ''db.adminCommand({ ping: 1 }).ok'' | grep 1'
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: lithe-database-validation-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - "${LITHE_DB_PASSWORD:-lithe_root}"
+    environment:
+      REDIS_PASSWORD: "${LITHE_DB_PASSWORD:-lithe_root}"
+      REDISCLI_AUTH: "${LITHE_DB_PASSWORD:-lithe_root}"
+    ports:
+      - "${LITHE_BIND_ADDRESS:-127.0.0.1}:${LITHE_REDIS_PORT:-6381}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis-seed:
+    image: redis:7.4-alpine
+    container_name: lithe-database-validation-redis-seed
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_PASSWORD: "${LITHE_DB_PASSWORD:-lithe_root}"
+    entrypoint: ["/bin/sh", "/usr/local/bin/redis-seed.sh"]
+    volumes:
+      - ./redis-seed.sh:/usr/local/bin/redis-seed.sh:ro
+    restart: "no"
+
+volumes:
+  mariadb-data:
+  mongodb-data:
+  redis-data:

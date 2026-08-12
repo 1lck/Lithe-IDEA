@@ -14,7 +14,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 cd "$ROOT_DIR"
-export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 export CARGO_TARGET_DIR="${LITHE_RUST_TARGET_DIR:-$ROOT_DIR/rust/target/macos}"
 if [[ -n "$TARGET" ]]; then
     TARGET_LIBDIR="$(rustc --print target-libdir --target "$TARGET")"
@@ -28,7 +28,7 @@ if [[ -n "${RUSTFLAGS:-}" ]]; then
 else
     export RUSTFLAGS="-C link-arg=-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
 fi
-BUILD_ARGS=(build --manifest-path rust/Cargo.toml)
+BUILD_ARGS=(build --manifest-path rust/Cargo.toml -p lithe-core)
 OUTPUT_DIR="$CARGO_TARGET_DIR"
 if [[ -n "$TARGET" ]]; then
     BUILD_ARGS+=(--target "$TARGET")

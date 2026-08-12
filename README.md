@@ -19,7 +19,7 @@
 
   <p>
     <a href="https://github.com/1lck/Lithe-IDEA/releases/latest"><img src="https://img.shields.io/github/v/release/1lck/Lithe-IDEA?style=for-the-badge&label=latest%20release&logo=github&logoColor=white" alt="Latest release"></a>
-    <img src="https://img.shields.io/badge/platform-macOS%2014%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14+">
+    <img src="https://img.shields.io/badge/platform-macOS%2013%2B-111827?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13+">
     <img src="https://img.shields.io/badge/Swift-6.2%2B-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 6.2+">
   </p>
   <p>
@@ -131,6 +131,37 @@ open "/Applications/Lithe.app"
 
 After opening a project, use **Settings → Project** to configure the project JDK, Maven, and the JDK used by Maven. Lithe also detects Java and Maven from common system locations.
 
+### Database workspace and external MCP
+
+The optional Database workspace supports MySQL, MariaDB, PostgreSQL, SQLite,
+Microsoft SQL Server, MongoDB, Redis, and Nacos through an on-demand Rust helper.
+The helper is not started while the database workspace is unused. SQL connections provide table CRUD, TSV batch paste,
+find/replace within the current page, plus CSV, JSON, and SQL import and export.
+MariaDB reuses the MySQL-compatible engine; SQL Server has a native TDS data-grid
+adapter. MongoDB collections use the document grid with paging, filters, indexes,
+and protected insert/update/delete operations.
+Redis uses incremental `SCAN` pages instead of loading an entire keyspace, and its
+first workspace supports String and Hash editing, TTL changes, key renaming, and
+deletion. Nacos provides configuration search and publishing, plus service and
+instance health views. Redis and Nacos writes follow the same read-only and
+production-protection rules as SQL writes. SQL backups are complete by default,
+without a per-table row limit. Restoring a SQL backup always requires confirmation,
+verifies the backup before changing the target, and then replaces the current
+database objects and data. Release bundles also include
+`Contents/Helpers/lithe-db-mcp`, an independent MCP stdio adapter for external
+automation. It provides database tools only; Lithe does not include an in-app
+natural-language Agent conversation.
+
+For upstream audit, `third_party/dbx` contains a source-only snapshot of
+[t8y2/dbx](https://github.com/t8y2/dbx) at commit
+[`996ce42e80387bba4b33a2bf1713f590ef79d476`](https://github.com/t8y2/dbx/commit/996ce42e80387bba4b33a2bf1713f590ef79d476).
+It is not a Git submodule or runtime dependency and is excluded from Lithe's
+release bundle; the database helper is implemented and built independently.
+The eight database brand marks used by the current workspace are copied into
+`Resources/DatabaseIcons` as independent application resources. Their DBX
+source, Apache-2.0 license, and trademark-use notice are recorded alongside
+the files, so the packaged application never resolves assets from `third_party`.
+
 ## Architecture
 
 ```mermaid
@@ -188,7 +219,7 @@ open dist/Lithe.app
 Before submitting a change, run:
 
 ```bash
-swift test --disable-sandbox
+./scripts/test-macos.sh
 ./scripts/verify-core.sh
 ./scripts/verify-git-graph.sh
 ./scripts/verify-service-boundaries.sh

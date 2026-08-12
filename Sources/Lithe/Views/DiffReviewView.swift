@@ -34,17 +34,17 @@ struct DiffReviewView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: model.diffRows.count) { _, _ in
+        .onChange(of: model.diffRows.count) { _ in
             selectedDifferenceIndex = 0
             selectedDiffSearchIndex = 0
             expandedCollapseRegionIDs.removeAll()
             mapTargetRowID = nil
         }
-        .onChange(of: change.id) { _, _ in
+        .onChange(of: change.id) { _ in
             expandedCollapseRegionIDs.removeAll()
             mapTargetRowID = nil
         }
-        .onChange(of: diffSearchQuery) { _, _ in
+        .onChange(of: diffSearchQuery) { _ in
             selectedDiffSearchIndex = 0
         }
     }
@@ -98,29 +98,29 @@ struct DiffReviewView: View {
     private func diffToolbar(proxy: ScrollViewProxy) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                Button {
-                    navigateDifference(by: -1, proxy: proxy)
-                } label: {
-                    Image(systemName: "arrow.up")
+                Group {
+                    Button {
+                        navigateDifference(by: -1, proxy: proxy)
+                    } label: {
+                        Image(systemName: "arrow.up")
+                    }
+                    .litheIconButton()
+                    .disabled(differenceStarts.isEmpty)
+                    .help("Previous difference")
+
+                    Button {
+                        navigateDifference(by: 1, proxy: proxy)
+                    } label: {
+                        Image(systemName: "arrow.down")
+                    }
+                    .litheIconButton()
+                    .disabled(differenceStarts.isEmpty)
+                    .help("Next difference")
+
+                    toolbarDivider
+                    diffSearchControl(proxy: proxy)
+                    toolbarDivider
                 }
-                .litheIconButton()
-                .disabled(differenceStarts.isEmpty)
-                .help("Previous difference")
-
-                Button {
-                    navigateDifference(by: 1, proxy: proxy)
-                } label: {
-                    Image(systemName: "arrow.down")
-                }
-                .litheIconButton()
-                .disabled(differenceStarts.isEmpty)
-                .help("Next difference")
-
-                toolbarDivider
-
-                diffSearchControl(proxy: proxy)
-
-                toolbarDivider
 
                 toolbarLabel(
                     usesSingleFileDiff ? "Single file" : "Side-by-side",
@@ -179,20 +179,22 @@ struct DiffReviewView: View {
                         : "Collapse long unchanged regions"
                 )
 
-                toolbarDivider
+                Group {
+                    toolbarDivider
 
-                Text(change.path)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .frame(maxWidth: 260, alignment: .leading)
+                    Text(change.path)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
+                        .frame(maxWidth: 260, alignment: .leading)
 
-                Text(differenceStarts.count == 1 ? "1 difference" : "\(differenceStarts.count) differences")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .padding(.horizontal, 7)
+                    Text(differenceStarts.count == 1 ? "1 difference" : "\(differenceStarts.count) differences")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(LitheTheme.primaryText)
+                        .padding(.horizontal, 7)
 
-                toolbarDivider
+                    toolbarDivider
+                }
 
                 if change.isStaged && !change.hasWorkingTreeChange {
                     Button("Unstage") {
@@ -466,12 +468,11 @@ struct DiffReviewView: View {
                 .font(.system(size: 11.5))
                 .frame(width: 145)
                 .focused($diffSearchFocused)
-                .onKeyPress(keys: [.return]) { press in
+                .macReturnKeyHandler(isEnabled: diffSearchFocused) { isShiftPressed in
                     navigateDiffSearch(
-                        by: press.modifiers.contains(.shift) ? -1 : 1,
+                        by: isShiftPressed ? -1 : 1,
                         proxy: proxy
                     )
-                    return .handled
                 }
 
             Text(diffSearchLabel)
@@ -702,11 +703,11 @@ struct SingleFileDiffRowView: View {
                     .lineLimit(1)
                 Spacer()
             }
-            .foregroundStyle(Color(red: 0.50, green: 0.72, blue: 0.98))
+            .foregroundStyle(LitheTheme.diffInformationText)
             .padding(.horizontal, 12)
             .frame(height: 27)
             .frame(maxWidth: .infinity)
-            .background(Color(red: 0.13, green: 0.20, blue: 0.30).opacity(isSearchMatch ? 0.92 : 1))
+            .background(LitheTheme.diffInformationBackground.opacity(isSearchMatch ? 0.92 : 1))
             .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {
@@ -768,7 +769,7 @@ struct SingleFileDiffRowView: View {
     }
 
     private var changeColor: Color {
-        isAddition ? LitheTheme.success : .red
+        isAddition ? LitheTheme.success : LitheTheme.error
     }
 }
 
@@ -815,11 +816,11 @@ struct DiffRowView: View {
                     .lineLimit(1)
                 Spacer()
             }
-            .foregroundStyle(Color(red: 0.50, green: 0.72, blue: 0.98))
+            .foregroundStyle(LitheTheme.diffInformationText)
             .padding(.horizontal, 12)
             .frame(height: 27)
             .frame(maxWidth: .infinity)
-            .background(Color(red: 0.13, green: 0.20, blue: 0.30))
+            .background(LitheTheme.diffInformationBackground)
             .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {
@@ -1388,13 +1389,13 @@ enum DiffSyntaxHighlighter {
         let color: Color
     }
 
-    private static let keywordColor = Color(red: 0.82, green: 0.52, blue: 0.78)
-    private static let typeColor = Color(red: 0.43, green: 0.72, blue: 0.92)
-    private static let stringColor = Color(red: 0.58, green: 0.76, blue: 0.49)
-    private static let numberColor = Color(red: 0.70, green: 0.76, blue: 0.48)
-    private static let commentColor = Color(red: 0.39, green: 0.57, blue: 0.43)
-    private static let tagColor = Color(red: 0.82, green: 0.66, blue: 0.37)
-    private static let baseColor = LitheTheme.primaryText
+    private static var keywordColor: Color { LitheTheme.skill }
+    private static var typeColor: Color { LitheTheme.accent }
+    private static var stringColor: Color { LitheTheme.success }
+    private static var numberColor: Color { LitheTheme.warning }
+    private static var commentColor: Color { LitheTheme.secondaryText }
+    private static var tagColor: Color { LitheTheme.warning }
+    private static var baseColor: Color { LitheTheme.primaryText }
 
     private static let keywords: Set<String> = [
         "class", "struct", "enum", "protocol", "extension", "func", "let", "var", "if", "else",

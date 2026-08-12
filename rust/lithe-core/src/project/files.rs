@@ -3,9 +3,10 @@ use crate::protocol::{
     FileReadResponse, FileWriteResponse, ReplacementPreviewResponse, SearchMatch, SearchResponse,
     WorkspaceNode, WorkspaceSnapshotResponse,
 };
+use crate::search_index::{self, UpdateOutcome, WorkspaceSearchIndex};
 use regex::{Regex, RegexBuilder};
-use serde::Deserialize;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -25,6 +26,7 @@ const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
 ];
 const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store"];
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
+const MAX_OPEN_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +64,37 @@ pub struct SearchRequest {
     /// 逗号分隔的文件掩码，如 `*.java, *.kt`。空串表示不过滤。
     #[serde(default)]
     pub file_mask: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchIndexRequest {
+    pub root: String,
+    #[serde(default)]
+    pub hidden_directory_names: Vec<String>,
+    #[serde(default)]
+    pub hidden_file_patterns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchIndexUpdateRequest {
+    pub root: String,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub hidden_directory_names: Vec<String>,
+    #[serde(default)]
+    pub hidden_file_patterns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchIndexStatusResponse {
+    pub file_count: usize,
+    pub symbol_count: usize,
+    pub posting_count: usize,
+    pub rebuilt: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,6 +145,7 @@ fn default_max_results() -> usize {
 
 pub fn snapshot(request: WorkspaceSnapshotRequest) -> Result<WorkspaceSnapshotResponse, CoreError> {
     let root = existing_root(&request.root)?;
+    search_index::invalidate_root(&root);
     let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
     let mut files = Vec::new();
     let node = scan_node(&root, &root, &rules, &mut files)?;
@@ -127,13 +161,25 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
         });
     }
 
-    let snapshot = snapshot(WorkspaceSnapshotRequest {
-        root: root.to_string_lossy().into_owned(),
-        hidden_directory_names: request.hidden_directory_names,
-        hidden_file_patterns: request.hidden_file_patterns,
-    })?;
+    let rules = VisibilityRules::new(
+        request.hidden_directory_names.clone(),
+        request.hidden_file_patterns.clone(),
+    );
+    let index = search_index::get_or_build(&root, &rules)?;
+    let index = index
+        .read()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
+    search_with_index(&root, &request, &query, &index)
+}
+
+fn search_with_index(
+    root: &Path,
+    request: &SearchRequest,
+    query: &str,
+    index: &WorkspaceSearchIndex,
+) -> Result<SearchResponse, CoreError> {
     let matcher = Matcher::new(
-        &query,
+        query,
         request.case_sensitive,
         request.whole_words,
         request.regular_expression,
@@ -150,6 +196,10 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
         if matches.len() >= limit || file_matches >= file_limit {
             break;
         }
+        let Some(indexed_file) = index.file(id) else {
+            continue;
+        };
+        let path = &indexed_file.path;
         if !file_mask_allows(&masks, path) {
             continue;
         }
@@ -171,23 +221,16 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
         if matches.len() >= limit || content_matches >= content_limit {
             break;
         }
+        let Some(indexed_file) = index.file(id) else {
+            continue;
+        };
+        let path = &indexed_file.path;
         if !file_mask_allows(&masks, path) {
             continue;
         }
         let file = root.join(path);
-        if !is_readable_text_file(&file) {
+        let Some(text) = read_searchable_text(&file) else {
             continue;
-        }
-        let metadata = match fs::metadata(&file) {
-            Ok(metadata) if metadata.len() <= MAX_FILE_SIZE => metadata,
-            _ => continue,
-        };
-        if !metadata.is_file() {
-            continue;
-        }
-        let text = match fs::read_to_string(&file) {
-            Ok(text) => text,
-            Err(_) => continue,
         };
         for (index, line) in text.split('\n').enumerate() {
             crate::protocol::cancellation::check()?;
@@ -212,17 +255,21 @@ pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
 
 pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     let root = existing_root(&request.root)?;
-    let response = search(request.clone())?;
     let query = request.query.trim().to_string();
     if query.is_empty() {
-        return Ok(response);
+        return Ok(SearchResponse {
+            matches: Vec::new(),
+        });
     }
-
-    let snapshot = snapshot(WorkspaceSnapshotRequest {
-        root: root.to_string_lossy().into_owned(),
-        hidden_directory_names: request.hidden_directory_names,
-        hidden_file_patterns: request.hidden_file_patterns,
-    })?;
+    let rules = VisibilityRules::new(
+        request.hidden_directory_names.clone(),
+        request.hidden_file_patterns.clone(),
+    );
+    let index = search_index::get_or_build(&root, &rules)?;
+    let index = index
+        .read()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
+    let response = search_with_index(&root, &request, &query, &index)?;
     let matcher = Matcher::new(
         &query,
         request.case_sensitive,
@@ -237,11 +284,7 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
         if types.len() >= symbol_limit && symbols.len() >= symbol_limit {
             break;
         }
-        if !path.to_lowercase().ends_with(".java") {
-            continue;
-        }
-        let file = root.join(&path);
-        let Ok(text) = fs::read_to_string(&file) else {
+        let Some(indexed_file) = index.file(id) else {
             continue;
         };
         for symbol in java_symbols(&path, &text) {
@@ -249,13 +292,7 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
             if !matcher.matches(&symbol.name) {
                 continue;
             }
-            let result = SearchMatch {
-                kind: symbol.kind,
-                path: path.clone(),
-                line: Some(symbol.line),
-                preview: symbol.signature,
-                symbol_name: Some(symbol.name),
-            };
+            let result = search_index::make_symbol_match(symbol, indexed_file.path.clone());
             if result.kind == "type" {
                 if types.len() < symbol_limit {
                     types.push(result);
@@ -288,22 +325,43 @@ pub fn replace_preview(
     if query.is_empty() {
         return Ok(ReplacementPreviewResponse { files: Vec::new() });
     }
+    let rules = VisibilityRules::new(
+        request.hidden_directory_names.clone(),
+        request.hidden_file_patterns.clone(),
+    );
+    let shared_index = search_index::get_or_build(&root, &rules)?;
+    let index = shared_index
+        .read()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
     let matcher = Matcher::new(
         &query,
         request.case_sensitive,
         request.whole_words,
         request.regular_expression,
     )?;
+    let candidate_ids = index.candidate_ids(&query, request.regular_expression);
+    let candidate_set = candidate_ids.iter().copied().collect::<HashSet<_>>();
     let paths = if request.paths.is_empty() {
-        snapshot(WorkspaceSnapshotRequest {
-            root: root.to_string_lossy().into_owned(),
-            hidden_directory_names: request.hidden_directory_names,
-            hidden_file_patterns: request.hidden_file_patterns,
-        })?
-        .files
+        candidate_ids
+            .into_iter()
+            .filter_map(|id| index.file(id).map(|file| file.path.clone()))
+            .collect::<Vec<_>>()
     } else {
-        request.paths
+        let mut paths = Vec::new();
+        for value in &request.paths {
+            let relative = safe_relative_path_string(value)?;
+            let include = request.text_overrides.contains_key(&relative)
+                || index
+                    .id_for_path(&relative)
+                    .map(|id| candidate_set.contains(&id))
+                    .unwrap_or(true);
+            if include {
+                paths.push(relative);
+            }
+        }
+        paths
     };
+    drop(index);
     let masks = parse_file_mask(&request.file_mask);
     let mut files = Vec::new();
     for path in paths {
@@ -347,13 +405,75 @@ pub fn replace_preview(
     Ok(ReplacementPreviewResponse { files })
 }
 
+pub fn warm_search_index(
+    request: SearchIndexRequest,
+) -> Result<SearchIndexStatusResponse, CoreError> {
+    let root = existing_root(&request.root)?;
+    let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
+    let index = search_index::get_or_build(&root, &rules)?;
+    let index = index
+        .read()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
+    let stats = index.stats();
+    Ok(SearchIndexStatusResponse {
+        file_count: stats.file_count,
+        symbol_count: stats.symbol_count,
+        posting_count: stats.posting_count,
+        rebuilt: false,
+    })
+}
+
+pub fn update_search_index(
+    request: SearchIndexUpdateRequest,
+) -> Result<SearchIndexStatusResponse, CoreError> {
+    let root = existing_root(&request.root)?;
+    let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
+    let outcome = search_index::update_paths(&root, &rules, &request.paths);
+    let rebuilt = matches!(outcome, UpdateOutcome::RequiresRebuild);
+    if rebuilt {
+        search_index::invalidate_root(&root);
+    }
+    let index = search_index::get_or_build(&root, &rules)?;
+    let index = index
+        .read()
+        .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))?;
+    let stats = index.stats();
+    Ok(SearchIndexStatusResponse {
+        file_count: stats.file_count,
+        symbol_count: stats.symbol_count,
+        posting_count: stats.posting_count,
+        rebuilt: rebuilt || matches!(outcome, UpdateOutcome::NotIndexed),
+    })
+}
+
+pub fn invalidate_search_index(request: SearchIndexRequest) -> Result<(), CoreError> {
+    let requested_root = PathBuf::from(&request.root);
+    let root = search_index::canonicalize_with_missing_components(&requested_root)
+        .unwrap_or(requested_root);
+    search_index::invalidate_root(&root);
+    Ok(())
+}
+
 pub fn read_file(request: FileReadRequest) -> Result<FileReadResponse, CoreError> {
     let root = existing_root(&request.root)?;
     let path = safe_relative_path(&root, &request.path)?;
+    let metadata = fs::metadata(&path)?;
+    if metadata.len() > MAX_OPEN_FILE_SIZE {
+        return Err(
+            CoreError::new(ErrorCode::ParseFailed, "File is too large to open")
+                .with_details("The maximum supported file size is 32 MB"),
+        );
+    }
     let text = fs::read_to_string(&path).map_err(|error| {
         CoreError::new(ErrorCode::ParseFailed, "File is not valid UTF-8")
             .with_details(error.to_string())
     })?;
+    if !is_plain_text(&text) {
+        return Err(CoreError::new(
+            ErrorCode::ParseFailed,
+            "File is not plain text",
+        ));
+    }
     Ok(FileReadResponse {
         path: relative_path(&path, &root),
         text,
@@ -370,15 +490,16 @@ pub fn write_file(request: FileWriteRequest) -> Result<FileWriteResponse, CoreEr
         CoreError::new(ErrorCode::PermissionDenied, "Could not write file")
             .with_details(error.to_string())
     })?;
+    search_index::update_cached_file(&root, &path);
     Ok(FileWriteResponse {
         path: relative_path(&path, &root),
         bytes_written: request.text.len(),
     })
 }
 
-struct VisibilityRules {
-    hidden_directories: Vec<String>,
-    hidden_file_patterns: Vec<String>,
+pub(crate) struct VisibilityRules {
+    pub(crate) hidden_directories: Vec<String>,
+    pub(crate) hidden_file_patterns: Vec<String>,
 }
 
 impl VisibilityRules {
@@ -399,7 +520,7 @@ impl VisibilityRules {
         }
     }
 
-    fn is_hidden(&self, path: &str, is_directory: bool) -> bool {
+    pub(crate) fn is_hidden(&self, path: &str, is_directory: bool) -> bool {
         let components = path
             .split('/')
             .filter(|value| !value.is_empty())
@@ -568,7 +689,7 @@ fn writable_relative_path(root: &Path, value: &str) -> Result<PathBuf, CoreError
     Ok(path)
 }
 
-fn relative_path(path: &Path, root: &Path) -> String {
+pub(crate) fn relative_path(path: &Path, root: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()
@@ -800,14 +921,14 @@ impl Matcher {
     }
 }
 
-struct JavaSymbol {
-    name: String,
-    kind: String,
-    line: usize,
-    signature: String,
+pub(crate) struct JavaSymbol {
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) line: usize,
+    pub(crate) signature: String,
 }
 
-fn java_symbols(path: &str, source: &str) -> Vec<JavaSymbol> {
+pub(crate) fn java_symbols(path: &str, source: &str) -> Vec<JavaSymbol> {
     if !path.to_lowercase().ends_with(".java") {
         return Vec::new();
     }
@@ -891,56 +1012,22 @@ fn safe_relative_path_string(value: &str) -> Result<String, CoreError> {
     Ok(value.replace('\\', "/").trim_matches('/').to_string())
 }
 
-fn read_searchable_text(path: &Path) -> Option<String> {
-    if !is_readable_text_file(path) || fs::metadata(path).ok()?.len() > MAX_FILE_SIZE {
+pub(crate) fn read_searchable_text(path: &Path) -> Option<String> {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_FILE_SIZE {
         return None;
     }
-    fs::read_to_string(path).ok()
+    let text = fs::read_to_string(path).ok()?;
+    is_plain_text(&text).then_some(text)
+}
+
+pub(crate) fn is_plain_text(text: &str) -> bool {
+    text.chars().all(|character| {
+        let value = character as u32;
+        value != 0 && !(value < 0x09 || (value > 0x0D && value < 0x20) || value == 0x7F)
+    })
 }
 
 fn is_word_character(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '_' || character == '$'
-}
-
-fn is_readable_text_file(path: &Path) -> bool {
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_lowercase();
-    matches!(
-        extension.as_str(),
-        "c" | "cc"
-            | "cpp"
-            | "css"
-            | "go"
-            | "h"
-            | "hpp"
-            | "html"
-            | "java"
-            | "js"
-            | "json"
-            | "jsx"
-            | "kt"
-            | "kts"
-            | "md"
-            | "m"
-            | "mm"
-            | "php"
-            | "plist"
-            | "properties"
-            | "py"
-            | "rb"
-            | "rs"
-            | "sh"
-            | "sql"
-            | "swift"
-            | "toml"
-            | "ts"
-            | "tsx"
-            | "txt"
-            | "xml"
-            | "yaml"
-            | "yml"
-    ) || extension.is_empty()
 }

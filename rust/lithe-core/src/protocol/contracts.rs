@@ -294,6 +294,14 @@ pub struct GitStatusResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GitWatchContextResponse {
+    pub repository_root: String,
+    pub git_directory: String,
+    pub git_common_directory: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitReferenceResponse {
     pub full_name: String,
     pub short_name: String,

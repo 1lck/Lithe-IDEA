@@ -12,6 +12,11 @@ protocol PlatformUI: AnyObject {
     func markdownImageFromClipboard() -> MarkdownImageSource?
 }
 
+extension PlatformUI {
+    func startAccessingProject(_ url: URL) -> Bool { false }
+    func stopAccessingProject(_ url: URL) {}
+}
+
 protocol ShortcutDetector: AnyObject {
     func start()
     func stop()

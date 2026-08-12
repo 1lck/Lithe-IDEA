@@ -33,6 +33,7 @@ final class ProjectRuntimeService: ObservableObject {
 
     func openProject(at url: URL) {
         discoveryTask?.cancel()
+        activeDiscoveryID = nil
         let normalizedURL = url.standardizedFileURL
         projectURL = normalizedURL
         javaRuntimes = []
@@ -46,6 +47,7 @@ final class ProjectRuntimeService: ObservableObject {
     func closeProject() {
         discoveryTask?.cancel()
         discoveryTask = nil
+        activeDiscoveryID = nil
         projectURL = nil
         javaRuntimes = []
         mavenRuntimes = []
@@ -60,12 +62,22 @@ final class ProjectRuntimeService: ObservableObject {
 
     func refreshAvailableRuntimes() async {
         let targetProjectURL = projectURL
+        let discoveryID = UUID()
+        activeDiscoveryID = discoveryID
         isDiscovering = true
+        defer {
+            if activeDiscoveryID == discoveryID {
+                activeDiscoveryID = nil
+                isDiscovering = false
+            }
+        }
         let runtimeLocator = runtimeLocator
         let result = await Task.detached(priority: .utility) {
             runtimeLocator.discover()
         }.value
-        guard !Task.isCancelled, projectURL == targetProjectURL else { return }
+        guard !Task.isCancelled,
+              projectURL == targetProjectURL,
+              activeDiscoveryID == discoveryID else { return }
         javaRuntimes = result.javaRuntimes
         mavenRuntimes = result.mavenRuntimes
         refreshJavaEnvironmentReport(using: result.javaRuntimes)

@@ -67,6 +67,5 @@ struct OpenProjectLocationDialog: View {
         }
         .frame(width: 470)
         .background(LitheTheme.window)
-        .preferredColorScheme(.dark)
     }
 }

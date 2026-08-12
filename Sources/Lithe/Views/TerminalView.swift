@@ -13,7 +13,7 @@ struct TerminalView: View {
             terminalToolbar
             terminalCanvas
         }
-        .background(Color(red: 0.071, green: 0.075, blue: 0.081))
+        .background(LitheTheme.editor)
         .task(id: session.id) {
             requestInputFocus()
         }
@@ -191,10 +191,10 @@ struct TerminalView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 8)
             } else {
-                Color(red: 0.071, green: 0.075, blue: 0.081)
+                LitheTheme.editor
             }
         }
-        .background(Color(red: 0.071, green: 0.075, blue: 0.081))
+        .background(LitheTheme.editor)
     }
 
     private var existingShells: [String] {

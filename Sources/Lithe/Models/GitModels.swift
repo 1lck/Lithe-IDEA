@@ -1,5 +1,11 @@
 import Foundation
 
+struct GitWatchContext: Equatable, Sendable {
+    let repositoryRoot: URL
+    let gitDirectory: URL
+    let gitCommonDirectory: URL
+}
+
 struct GitSnapshot: Sendable {
     let repositoryRoot: URL
     let branch: String
