@@ -74,7 +74,6 @@ struct CloneRepositoryView: View {
         }
         .frame(width: 560, height: 360)
         .background(LitheTheme.window)
-        .preferredColorScheme(.dark)
         .onAppear {
             focusedField = .remote
         }

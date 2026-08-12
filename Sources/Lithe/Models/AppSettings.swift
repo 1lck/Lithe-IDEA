@@ -3,6 +3,8 @@ import Foundation
 @MainActor
 final class AppSettings: ObservableObject {
     private enum Key {
+        static let colorTheme = "settings.colorTheme"
+        static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
         static let tabWidth = "settings.tabWidth"
@@ -20,6 +22,15 @@ final class AppSettings: ObservableObject {
 
     private let defaults: any KeyValueStore
 
+    @Published var colorTheme: AppColorTheme {
+        didSet {
+            AppThemeRuntime.shared.activate(colorTheme)
+            defaults.set(colorTheme.rawValue, forKey: Key.colorTheme)
+        }
+    }
+    @Published var themePreference: AppThemePreference {
+        didSet { defaults.set(themePreference.rawValue, forKey: Key.themePreference) }
+    }
     @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
     @Published var tabWidth: Int { didSet { defaults.set(tabWidth, forKey: Key.tabWidth) } }
@@ -56,6 +67,12 @@ final class AppSettings: ObservableObject {
 
     init(store: any KeyValueStore) {
         self.defaults = store
+        colorTheme = AppColorTheme(
+            rawValue: defaults.string(forKey: Key.colorTheme) ?? ""
+        ) ?? .lithe
+        themePreference = AppThemePreference(
+            rawValue: defaults.string(forKey: Key.themePreference) ?? ""
+        ) ?? .dark
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
@@ -82,6 +99,7 @@ final class AppSettings: ObservableObject {
         } else {
             commitMessageAI = .default
         }
+        AppThemeRuntime.shared.activate(colorTheme)
     }
 
     var terminalShellPath: String? { terminalShell.path }
@@ -111,6 +129,8 @@ final class AppSettings: ObservableObject {
     }
 
     func restoreDefaults() {
+        colorTheme = .lithe
+        themePreference = .dark
         language = .english
         editorFontSize = 13
         tabWidth = 4
@@ -209,6 +229,59 @@ final class AppSettings: ObservableObject {
     private func saveCommitMessageAI() {
         guard let data = try? JSONEncoder().encode(commitMessageAI) else { return }
         defaults.set(data, forKey: Key.commitMessageAI)
+    }
+}
+
+enum AppColorTheme: String, CaseIterable, Identifiable {
+    case lithe
+    case codex
+    case linear
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .lithe: "Lithe"
+        case .codex: "Codex"
+        case .linear: "Linear"
+        }
+    }
+}
+
+final class AppThemeRuntime: @unchecked Sendable {
+    static let shared = AppThemeRuntime()
+
+    private let lock = NSLock()
+    private var value: AppColorTheme = .lithe
+
+    private init() {}
+
+    func activate(_ theme: AppColorTheme) {
+        lock.lock()
+        value = theme
+        lock.unlock()
+    }
+
+    var activeTheme: AppColorTheme {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
+enum AppThemePreference: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
     }
 }
 

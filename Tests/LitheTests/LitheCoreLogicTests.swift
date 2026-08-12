@@ -9,10 +9,7 @@ struct LitheCoreLogicTests {
     @MainActor
     func closingAWorkspaceWindowClosesTheProjectInsteadOfTheWindow() {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
-        let coordinator = LitheWindowCoordinator(
-            projectSessions: sessions,
-            registerWindow: { _ in }
-        )
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
         let window = NSWindow()
 
         #expect(!coordinator.windowShouldClose(window))
@@ -21,28 +18,28 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func closingTheWelcomeWindowKeepsItAvailableForDockReopen() {
+    func closingTheWelcomeWindowAllowsTheApplicationToTerminate() {
         let sessions = TestProjectWindowSessions(hasActiveProject: false)
-        let coordinator = LitheWindowCoordinator(
-            projectSessions: sessions,
-            registerWindow: { _ in }
-        )
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
         let window = NSWindow()
-        window.orderFront(nil)
 
-        #expect(!coordinator.windowShouldClose(window))
-        #expect(!window.isVisible)
+        #expect(coordinator.windowShouldClose(window))
         #expect(sessions.closeActiveProjectCallCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func applicationTerminatesAfterItsLastWindowCloses() {
+        let appDelegate = LitheAppDelegate()
+
+        #expect(appDelegate.applicationShouldTerminateAfterLastWindowClosed(NSApplication.shared))
     }
 
     @Test
     @MainActor
     func welcomeAndWorkspaceUseDistinctWindowSizes() {
         let sessions = TestProjectWindowSessions(hasActiveProject: false)
-        let coordinator = LitheWindowCoordinator(
-            projectSessions: sessions,
-            registerWindow: { _ in }
-        )
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
         let window = NSWindow()
 
         coordinator.attach(to: window, layout: .welcome)
@@ -74,10 +71,7 @@ struct LitheCoreLogicTests {
     @MainActor
     func workspaceTitleBarZoomsToTheVisibleScreenAndRestores() {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)
-        let coordinator = LitheWindowCoordinator(
-            projectSessions: sessions,
-            registerWindow: { _ in }
-        )
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
         let window = NSWindow()
         coordinator.attach(to: window, layout: .workspace)
         let restoredFrame = NSRect(x: 120, y: 70, width: 1000, height: 680)
@@ -89,24 +83,6 @@ struct LitheCoreLogicTests {
 
         coordinator.toggleWorkspaceZoom(fitting: visibleFrame)
         #expect(window.frame == restoredFrame)
-    }
-
-    @Test
-    @MainActor
-    func dockReopenShowsTheHiddenWelcomeWindow() {
-        let appDelegate = LitheAppDelegate()
-        let window = NSWindow()
-        appDelegate.registerMainWindow(window)
-        window.orderOut(nil)
-        defer { window.orderOut(nil) }
-
-        let shouldPerformDefaultReopen = appDelegate.applicationShouldHandleReopen(
-            NSApplication.shared,
-            hasVisibleWindows: false
-        )
-
-        #expect(!shouldPerformDefaultReopen)
-        #expect(window.isVisible)
     }
 
     @Test

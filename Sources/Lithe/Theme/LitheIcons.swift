@@ -456,6 +456,7 @@ enum LitheIcons {
 // MARK: - SwiftUI 图标
 
 struct LitheIcon: View {
+    @Environment(\.colorScheme) private var colorScheme
     let kind: LitheIconKind
     var size: CGFloat = 14
 
@@ -464,6 +465,11 @@ struct LitheIcon: View {
             Image(nsImage: image)
                 .resizable()
                 .interpolation(.high)
+                // IntelliJ's catalog is authored against a dark canvas. A
+                // small contrast normalization keeps its semantic colors
+                // legible on light surfaces without turning them monochrome.
+                .saturation(colorScheme == .light ? 0.94 : 1)
+                .contrast(colorScheme == .light ? 0.90 : 1)
                 .frame(width: size, height: size)
         } else {
             switch LitheIcons.appearance(for: kind) {
@@ -488,6 +494,7 @@ struct LitheIDEAIcon: View {
     var body: some View {
         if let image = LitheIcons.ideaImage(resourcePath: resourcePath) {
             Image(nsImage: image)
+                .renderingMode(.template)
                 .resizable()
                 .interpolation(.high)
                 .frame(width: size, height: size)
@@ -517,6 +524,8 @@ struct LitheSystemIcon: View {
             )
         } else {
             Image(systemName: systemImage)
+                .font(.system(size: size, weight: .medium))
+                .frame(width: size, height: size)
         }
     }
 }

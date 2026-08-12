@@ -228,18 +228,11 @@ extension ProjectSessionManager: ProjectWindowSessionHandling {
 final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     var projectSessions: any ProjectWindowSessionHandling
     weak var window: NSWindow?
-    private let registerWindow: @MainActor (NSWindow) -> Void
     private var layout: LitheWindowLayout?
     private var restoredWorkspaceFrame: NSRect?
 
-    init(
-        projectSessions: any ProjectWindowSessionHandling,
-        registerWindow: @escaping @MainActor (NSWindow) -> Void = { window in
-            (NSApplication.shared.delegate as? LitheAppDelegate)?.registerMainWindow(window)
-        }
-    ) {
+    init(projectSessions: any ProjectWindowSessionHandling) {
         self.projectSessions = projectSessions
-        self.registerWindow = registerWindow
     }
 
     func attach(to window: NSWindow?, layout: LitheWindowLayout) {
@@ -247,7 +240,6 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         if self.window !== window {
             self.window = window
             window.delegate = self
-            registerWindow(window)
             self.layout = nil
             restoredWorkspaceFrame = nil
         }
@@ -278,12 +270,9 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if projectSessions.hasActiveProject {
             projectSessions.closeActiveProject()
-        } else {
-            // Keep the SwiftUI scene alive so a Dock reopen event can bring
-            // the welcome window back instead of leaving a headless process.
-            sender.orderOut(nil)
+            return false
         }
-        return false
+        return true
     }
 
     private func apply(_ layout: LitheWindowLayout, to window: NSWindow) {

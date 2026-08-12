@@ -1,7 +1,58 @@
 import AppKit
 import SwiftUI
 
+fileprivate struct CodeEditorPalette {
+    let isDark: Bool
+    let theme: AppColorTheme
+
+    static let dark = CodeEditorPalette(isDark: true, theme: .lithe)
+
+    var background: NSColor { themeColor(.editor) }
+    var gutterBackground: NSColor { themeColor(.sidebar) }
+    var text: NSColor { themeColor(.primaryText) }
+    var caret: NSColor { themeColor(.primaryText) }
+    var selection: NSColor { themeColor(.accent).withAlphaComponent(isDark ? 0.42 : 0.24) }
+    var selectionText: NSColor { themeColor(.primaryText) }
+    var currentLine: NSColor { color(light: (0, 0, 0, 0.035), dark: (1, 1, 1, 0.035)) }
+    var bracket: NSColor { color(light: (0.18, 0.43, 0.79, 0.19), dark: (0.72, 0.72, 0.72, 0.22)) }
+    var symbol: NSColor { color(light: (0.18, 0.43, 0.79, 0.11), dark: (0.68, 0.68, 0.68, 0.14)) }
+    var guide: NSColor { themeColor(.guide) }
+    var activeGuide: NSColor { themeColor(.activeGuide) }
+    var unusedCode: NSColor { color(light: (0.48, 0.49, 0.52, 1), dark: (0.48, 0.48, 0.48, 1)) }
+    var link: NSColor { themeColor(.accent) }
+    var lineNumber: NSColor { color(light: (0.43, 0.45, 0.49, 1), dark: (0.34, 0.34, 0.34, 1)) }
+    var foldHover: NSColor { color(light: (0, 0, 0, 0.07), dark: (1, 1, 1, 0.07)) }
+    var foldIndicator: NSColor { color(light: (0.28, 0.30, 0.34, 0.58), dark: (0.62, 0.62, 0.62, 0.46)) }
+    var foldIndicatorHover: NSColor { color(light: (0.12, 0.14, 0.17, 0.90), dark: (0.86, 0.86, 0.86, 0.96)) }
+    var blameText: NSColor { color(light: (0.38, 0.40, 0.44, 1), dark: (0.53, 0.53, 0.53, 1)) }
+
+    var keyword: NSColor { themeColor(.skill) }
+    var annotation: NSColor { themeColor(.warning) }
+    var type: NSColor { themeColor(.accent) }
+    var number: NSColor { themeColor(.warning) }
+    var string: NSColor { themeColor(.success) }
+    var comment: NSColor { themeColor(.secondaryText) }
+
+    private func themeColor(_ token: LitheTheme.ResolvedColorToken) -> NSColor {
+        LitheTheme.nsColor(token, theme: theme, isDark: isDark)
+    }
+
+    private func color(
+        light: (CGFloat, CGFloat, CGFloat, CGFloat),
+        dark: (CGFloat, CGFloat, CGFloat, CGFloat)
+    ) -> NSColor {
+        let components = isDark ? dark : light
+        return NSColor(
+            srgbRed: components.0,
+            green: components.1,
+            blue: components.2,
+            alpha: components.3
+        )
+    }
+}
+
 struct CodeEditorView: NSViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
@@ -19,6 +70,7 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> EditorContainerView {
+        let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
         let container = EditorContainerView()
         let scrollView = NSScrollView(frame: .zero)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -27,7 +79,7 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(red: 0.085, green: 0.089, blue: 0.096, alpha: 1)
+        scrollView.backgroundColor = palette.background
         scrollView.wantsLayer = true
         scrollView.layer?.masksToBounds = true
 
@@ -65,18 +117,12 @@ struct CodeEditorView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 12, height: 10)
         textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
         textView.indentationWidth = settings.tabWidth
-        textView.backgroundColor = scrollView.backgroundColor
-        textView.textColor = NSColor(white: 0.82, alpha: 1)
-        textView.insertionPointColor = .white
+        textView.applyAppearance(palette)
         textView.isEditable = !document.isReadOnly
         textView.isSelectable = true
         textView.onWindowAttached = { [weak coordinator = context.coordinator] in
             coordinator?.requestInitialFocusIfNeeded()
         }
-        textView.selectedTextAttributes = [
-            .backgroundColor: NSColor(red: 0.16, green: 0.31, blue: 0.54, alpha: 1),
-            .foregroundColor: NSColor.white
-        ]
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -100,6 +146,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         scrollView.documentView = textView
         gutter.attach(textView: textView, scrollView: scrollView)
+        gutter.applyAppearance(palette)
         context.coordinator.attachMarkdownScrollSync(to: scrollView)
 
         context.coordinator.textView = textView
@@ -108,6 +155,8 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
         context.coordinator.inlayHintOverlay = JavaInlayHintOverlayController(textView: textView)
+        context.coordinator.isDarkAppearance = palette.isDark
+        context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.highlight()
         textView.updateEditorDecorations()
         context.coordinator.refreshFoldRegions(useDefaultImportFold: true)
@@ -124,20 +173,28 @@ struct CodeEditorView: NSViewRepresentable {
 
     func updateNSView(_ container: EditorContainerView, context: Context) {
         guard let textView = container.scrollView?.documentView as? NSTextView else { return }
+        let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
+        let appearanceChanged = context.coordinator.isDarkAppearance != palette.isDark
+            || context.coordinator.colorTheme != settings.colorTheme
         context.coordinator.document = document
         context.coordinator.model = model
         context.coordinator.debugService = debugService
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.markdownScrollPosition = markdownScrollPosition
         if let scrollView = container.scrollView {
+            scrollView.backgroundColor = palette.background
             context.coordinator.attachMarkdownScrollSync(to: scrollView)
             context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         }
+        context.coordinator.isDarkAppearance = palette.isDark
+        context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.requestInitialFocusIfNeeded()
         textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
         if let codeTextView = textView as? CodeTextView {
             codeTextView.indentationWidth = settings.tabWidth
+            codeTextView.applyAppearance(palette)
         }
+        container.gutter?.applyAppearance(palette)
         textView.isEditable = !document.isReadOnly
         textView.isSelectable = true
         // Keep IME marked text (for example, an active Chinese pinyin
@@ -152,6 +209,10 @@ struct CodeEditorView: NSViewRepresentable {
             context.coordinator.highlight()
             (textView as? CodeTextView)?.updateEditorDecorations()
             container.gutter?.needsDisplay = true
+        }
+        if appearanceChanged {
+            context.coordinator.highlight()
+            (textView as? CodeTextView)?.updateEditorDecorations()
         }
         context.coordinator.updateCodeVisionAndBlame()
         context.coordinator.updateDiagnostics()
@@ -174,6 +235,8 @@ struct CodeEditorView: NSViewRepresentable {
         var codeVisionOverlay: CodeVisionOverlayController?
         var inlayHintOverlay: JavaInlayHintOverlayController?
         var isApplyingEditorChange = false
+        var isDarkAppearance = true
+        var colorTheme: AppColorTheme = .lithe
         var shouldFocus = true
         var markdownScrollPosition: Binding<MarkdownScrollPosition>?
         var appliedNavigationTargetID: UUID?
@@ -389,7 +452,11 @@ struct CodeEditorView: NSViewRepresentable {
 
         func highlight() {
             guard let textStorage = textView?.textStorage else { return }
-            SyntaxHighlighter.apply(to: textStorage, fileExtension: fileExtension)
+            SyntaxHighlighter.apply(
+                to: textStorage,
+                fileExtension: fileExtension,
+                isDark: isDarkAppearance
+            )
         }
 
         func refreshFoldRegions(useDefaultImportFold: Bool) {
@@ -632,12 +699,15 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
 
-    private let currentLineColor = NSColor(white: 1, alpha: 0.035)
-    private let bracketColor = NSColor(white: 0.72, alpha: 0.22)
-    private let symbolColor = NSColor(white: 0.68, alpha: 0.14)
-    private let guideColor = NSColor(white: 1, alpha: 0.085)
-    private let activeGuideColor = NSColor(white: 1, alpha: 0.24)
-    private let unusedCodeColor = NSColor(white: 0.48, alpha: 1)
+    private var currentLineColor = CodeEditorPalette.dark.currentLine
+    private var bracketColor = CodeEditorPalette.dark.bracket
+    private var symbolColor = CodeEditorPalette.dark.symbol
+    private var guideColor = CodeEditorPalette.dark.guide
+    private var activeGuideColor = CodeEditorPalette.dark.activeGuide
+    private var unusedCodeColor = CodeEditorPalette.dark.unusedCode
+    private var linkColor = CodeEditorPalette.dark.link
+    private var appliedDarkAppearance: Bool?
+    private var appliedColorTheme: AppColorTheme?
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
@@ -648,6 +718,28 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var hoveredFoldID: String?
     private var lineIndex = TextLineIndex(source: "" as NSString)
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
+
+    fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
+        guard appliedDarkAppearance != palette.isDark
+            || appliedColorTheme != palette.theme else { return }
+        appliedDarkAppearance = palette.isDark
+        appliedColorTheme = palette.theme
+        backgroundColor = palette.background
+        textColor = palette.text
+        insertionPointColor = palette.caret
+        selectedTextAttributes = [
+            .backgroundColor: palette.selection,
+            .foregroundColor: palette.selectionText
+        ]
+        currentLineColor = palette.currentLine
+        bracketColor = palette.bracket
+        symbolColor = palette.symbol
+        guideColor = palette.guide
+        activeGuideColor = palette.activeGuide
+        unusedCodeColor = palette.unusedCode
+        linkColor = palette.link
+        needsDisplay = true
+    }
 
     override func paste(_ sender: Any?) {
         if onPasteImage?() == true { return }
@@ -1328,7 +1420,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
               let layoutManager else { return }
         layoutManager.addTemporaryAttribute(
             .foregroundColor,
-            value: NSColor(red: 0.42, green: 0.68, blue: 1, alpha: 1),
+            value: linkColor,
             forCharacterRange: linkRange
         )
         layoutManager.addTemporaryAttribute(
@@ -1338,7 +1430,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         )
         layoutManager.addTemporaryAttribute(
             .underlineColor,
-            value: NSColor(red: 0.42, green: 0.68, blue: 1, alpha: 1),
+            value: linkColor,
             forCharacterRange: linkRange
         )
     }
@@ -1677,6 +1769,7 @@ final class LineNumberGutterView: NSView {
     private var scrollRefreshScheduled = false
     private var hoveredFoldID: String?
     private var trackingArea: NSTrackingArea?
+    private var palette = CodeEditorPalette.dark
 
     override var isFlipped: Bool { true }
 
@@ -1699,7 +1792,7 @@ final class LineNumberGutterView: NSView {
         self.textView = textView
         self.scrollView = scrollView
         wantsLayer = true
-        layer?.backgroundColor = NSColor(red: 0.075, green: 0.080, blue: 0.087, alpha: 1).cgColor
+        layer?.backgroundColor = palette.gutterBackground.cgColor
         scrollView.contentView.postsBoundsChangedNotifications = true
         boundsObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
@@ -1710,6 +1803,13 @@ final class LineNumberGutterView: NSView {
                 self?.scheduleScrollRefresh()
             }
         }
+    }
+
+    fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
+        guard self.palette.isDark != palette.isDark || self.palette.theme != palette.theme else { return }
+        self.palette = palette
+        layer?.backgroundColor = palette.gutterBackground.cgColor
+        needsDisplay = true
     }
 
     private func scheduleScrollRefresh() {
@@ -1825,7 +1925,7 @@ final class LineNumberGutterView: NSView {
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }
 
-        NSColor(red: 0.075, green: 0.080, blue: 0.087, alpha: 1).setFill()
+        palette.gutterBackground.setFill()
         dirtyRect.fill()
 
         let visibleRect = scrollView.documentVisibleRect
@@ -1875,7 +1975,7 @@ final class LineNumberGutterView: NSView {
                 continue
             }
             if lineNumber - 1 == currentLine {
-                NSColor(white: 1, alpha: 0.035).setFill()
+                palette.currentLine.setFill()
                 NSRect(x: 0, y: y, width: bounds.width, height: lineRect.height).fill()
             }
             if isBlameVisible, let blame = blameByLine[lineNumber - 1] {
@@ -1933,7 +2033,7 @@ final class LineNumberGutterView: NSView {
         let label = String(number) as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
-            .foregroundColor: NSColor(white: 0.34, alpha: 1)
+            .foregroundColor: palette.lineNumber
         ]
         let size = label.size(withAttributes: attributes)
         label.draw(at: NSPoint(x: bounds.width - size.width - 9, y: y), withAttributes: attributes)
@@ -1949,7 +2049,7 @@ final class LineNumberGutterView: NSView {
                 width: 18,
                 height: 17
             )
-            NSColor(white: 1, alpha: 0.07).setFill()
+            palette.foldHover.setFill()
             NSBezierPath(roundedRect: hoverRect, xRadius: 3, yRadius: 3).fill()
         }
         let path = NSBezierPath()
@@ -1963,10 +2063,7 @@ final class LineNumberGutterView: NSView {
             path.line(to: NSPoint(x: 13, y: centerY - 2))
         }
         path.close()
-        NSColor(
-            white: isHovered ? 0.86 : 0.62,
-            alpha: isHovered ? 0.96 : 0.46
-        ).setFill()
+        (isHovered ? palette.foldIndicatorHover : palette.foldIndicator).setFill()
         path.fill()
     }
 
@@ -2002,7 +2099,7 @@ final class LineNumberGutterView: NSView {
     private func drawBlame(_ blame: GitBlameLine, y: CGFloat) {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 10.5),
-            .foregroundColor: NSColor(white: 0.53, alpha: 1)
+            .foregroundColor: palette.blameText
         ]
         (blame.date as NSString).draw(at: NSPoint(x: 8, y: y), withAttributes: attributes)
         (blame.authorName as NSString).draw(
@@ -2316,22 +2413,23 @@ private final class ClosureButton: NSButton {
 
 @MainActor
 private enum SyntaxHighlighter {
-    static func apply(to storage: NSTextStorage, fileExtension: String) {
+    static func apply(to storage: NSTextStorage, fileExtension: String, isDark: Bool) {
         let fullRange = NSRange(location: 0, length: storage.length)
         guard fullRange.length > 0 else { return }
+        let palette = CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme)
 
         storage.beginEditing()
         storage.setAttributes([
             .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-            .foregroundColor: NSColor(white: 0.80, alpha: 1)
+            .foregroundColor: palette.text
         ], range: fullRange)
 
-        apply(pattern: #"\b(class|struct|enum|protocol|extension|func|let|var|if|else|guard|switch|case|for|while|return|throw|throws|try|catch|async|await|public|private|internal|protected|static|final|new|import|package|interface|implements|extends|void|boolean|int|long|const|function|def|in|from|as|true|false|null|nil|self|this)\b"#, color: NSColor(red: 0.80, green: 0.48, blue: 0.77, alpha: 1), storage: storage)
-        apply(pattern: #"@[A-Za-z_][A-Za-z0-9_]*"#, color: NSColor(red: 0.86, green: 0.72, blue: 0.34, alpha: 1), storage: storage)
-        apply(pattern: #"\b[A-Z][A-Za-z0-9_]*\b"#, color: NSColor(red: 0.42, green: 0.72, blue: 0.90, alpha: 1), storage: storage)
-        apply(pattern: #"\b\d+(?:\.\d+)?\b"#, color: NSColor(red: 0.65, green: 0.75, blue: 0.49, alpha: 1), storage: storage)
-        apply(pattern: #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#, color: NSColor(red: 0.55, green: 0.75, blue: 0.48, alpha: 1), storage: storage)
-        apply(pattern: #"//.*$|#.*$|/\*[\s\S]*?\*/"#, options: [.anchorsMatchLines], color: NSColor(red: 0.39, green: 0.56, blue: 0.42, alpha: 1), storage: storage)
+        apply(pattern: #"\b(class|struct|enum|protocol|extension|func|let|var|if|else|guard|switch|case|for|while|return|throw|throws|try|catch|async|await|public|private|internal|protected|static|final|new|import|package|interface|implements|extends|void|boolean|int|long|const|function|def|in|from|as|true|false|null|nil|self|this)\b"#, color: palette.keyword, storage: storage)
+        apply(pattern: #"@[A-Za-z_][A-Za-z0-9_]*"#, color: palette.annotation, storage: storage)
+        apply(pattern: #"\b[A-Z][A-Za-z0-9_]*\b"#, color: palette.type, storage: storage)
+        apply(pattern: #"\b\d+(?:\.\d+)?\b"#, color: palette.number, storage: storage)
+        apply(pattern: #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#, color: palette.string, storage: storage)
+        apply(pattern: #"//.*$|#.*$|/\*[\s\S]*?\*/"#, options: [.anchorsMatchLines], color: palette.comment, storage: storage)
         storage.endEditing()
     }
 

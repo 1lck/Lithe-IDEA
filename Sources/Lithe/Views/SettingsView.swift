@@ -41,7 +41,6 @@ struct SettingsView: View {
         }
         .frame(width: 820, height: 620)
         .background(LitheTheme.window)
-        .preferredColorScheme(.dark)
         .onAppear {
             syncVisibilityDrafts()
             syncRuntimeDrafts()
@@ -243,6 +242,36 @@ struct SettingsView: View {
 
     private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
+            group("Appearance") {
+                row("Color theme") {
+                    Picker("", selection: $settings.colorTheme) {
+                        ForEach(AppColorTheme.allCases) { theme in
+                            Text(LocalizedStringKey(theme.title)).tag(theme)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 180, alignment: .leading)
+                    .lithePointer()
+                }
+
+                row("Appearance mode") {
+                    Picker("", selection: $settings.themePreference) {
+                        ForEach(AppThemePreference.allCases) { preference in
+                            Text(LocalizedStringKey(preference.title)).tag(preference)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 260)
+                    .lithePointer()
+                }
+
+                Text("Choose a color theme and whether Lithe follows the system appearance.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
             group("Language") {
                 Picker("Language", selection: $settings.language) {
                     ForEach(AppLanguage.allCases) { language in

@@ -1252,6 +1252,7 @@ private struct DatabaseBackupScheduleEditor: View {
 }
 
 private struct SQLSyntaxEditor: NSViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var text: String
     let completions: [String]
     let onRun: () -> Void
@@ -1260,19 +1261,17 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(text: $text, completions: completions, onRun: onRun, onSelectionChange: onSelectionChange) }
 
     func makeNSView(context: Context) -> NSScrollView {
+        let isDark = colorScheme == .dark
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
-        scrollView.backgroundColor = NSColor(red: 0.075, green: 0.082, blue: 0.102, alpha: 1)
 
         let textView = SQLTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
         textView.delegate = context.coordinator
         textView.string = text
         textView.font = .monospacedSystemFont(ofSize: 12.5, weight: .regular)
-        textView.textColor = NSColor(white: 0.84, alpha: 1)
-        textView.backgroundColor = scrollView.backgroundColor
-        textView.insertionPointColor = .white
+        applyAppearance(to: textView, in: scrollView, isDark: isDark)
         textView.textContainerInset = NSSize(width: 11, height: 9)
         textView.isRichText = false
         textView.importsGraphics = false
@@ -1292,6 +1291,7 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
         textView.onRun = onRun
         context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.textView = textView
+        context.coordinator.isDarkAppearance = isDark
         context.coordinator.highlight()
         scrollView.documentView = textView
         return scrollView
@@ -1299,10 +1299,17 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? SQLTextView else { return }
+        let isDark = colorScheme == .dark
+        let appearanceChanged = context.coordinator.isDarkAppearance != isDark
+        context.coordinator.isDarkAppearance = isDark
         context.coordinator.completions = completions
         context.coordinator.onSelectionChange = onSelectionChange
         textView.completionItems = completions
         textView.onRun = onRun
+        if appearanceChanged {
+            applyAppearance(to: textView, in: scrollView, isDark: isDark)
+            context.coordinator.highlight()
+        }
         if textView.string != text, !textView.hasMarkedText(), !context.coordinator.isApplyingChange {
             let selection = textView.selectedRange()
             textView.string = text
@@ -1313,6 +1320,25 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
         }
     }
 
+    private func applyAppearance(to textView: NSTextView, in scrollView: NSScrollView, isDark: Bool) {
+        let background = isDark
+            ? NSColor(srgbRed: 0.075, green: 0.082, blue: 0.102, alpha: 1)
+            : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        let foreground = isDark
+            ? NSColor(srgbRed: 0.84, green: 0.84, blue: 0.84, alpha: 1)
+            : NSColor(srgbRed: 0.16, green: 0.17, blue: 0.19, alpha: 1)
+        scrollView.backgroundColor = background
+        textView.backgroundColor = background
+        textView.textColor = foreground
+        textView.insertionPointColor = foreground
+        textView.selectedTextAttributes = [
+            .backgroundColor: isDark
+                ? NSColor(srgbRed: 0.16, green: 0.31, blue: 0.54, alpha: 1)
+                : NSColor(srgbRed: 0.69, green: 0.82, blue: 0.98, alpha: 1),
+            .foregroundColor: foreground
+        ]
+    }
+
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         private var text: Binding<String>
@@ -1321,6 +1347,7 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
         var onSelectionChange: (String) -> Void
         weak var textView: SQLTextView?
         var isApplyingChange = false
+        var isDarkAppearance = true
 
         init(text: Binding<String>, completions: [String], onRun: @escaping () -> Void, onSelectionChange: @escaping (String) -> Void) {
             self.text = text
@@ -1361,7 +1388,7 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
 
         func highlight() {
             guard let storage = textView?.textStorage else { return }
-            SQLSyntaxHighlighter.apply(to: storage)
+            SQLSyntaxHighlighter.apply(to: storage, isDark: isDarkAppearance)
         }
     }
 }
@@ -1385,17 +1412,20 @@ private final class SQLTextView: NSTextView {
 }
 
 private enum SQLSyntaxHighlighter {
-    static func apply(to storage: NSTextStorage) {
+    static func apply(to storage: NSTextStorage, isDark: Bool) {
         let range = NSRange(location: 0, length: storage.length)
+        let textColor = isDark
+            ? NSColor(srgbRed: 0.84, green: 0.84, blue: 0.84, alpha: 1)
+            : NSColor(srgbRed: 0.16, green: 0.17, blue: 0.19, alpha: 1)
         storage.beginEditing()
         storage.setAttributes([
             .font: NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular),
-            .foregroundColor: NSColor(white: 0.84, alpha: 1)
+            .foregroundColor: textColor
         ], range: range)
-        apply(pattern: "(?i)\\b(SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|DELETE|MERGE|REPLACE|CREATE|ALTER|DROP|TRUNCATE|TABLE|VIEW|INDEX|DATABASE|SCHEMA|TRIGGER|PROCEDURE|FUNCTION|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|AND|OR|NOT|NULL|IS|IN|EXISTS|BETWEEN|LIKE|DISTINCT|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|UNION|ALL|WITH|RETURNING|SET|SHOW|DESCRIBE|DESC|EXPLAIN|PRAGMA|BEGIN|COMMIT|ROLLBACK|GRANT|REVOKE)\\b", color: NSColor(red: 0.43, green: 0.67, blue: 0.98, alpha: 1), in: storage)
-        apply(pattern: "\\b\\d+(?:\\.\\d+)?\\b", color: NSColor(red: 0.87, green: 0.69, blue: 0.38, alpha: 1), in: storage)
-        apply(pattern: "'(?:''|[^'])*'|\\\"(?:\\\"\\\"|[^\\\"])*\\\"|`(?:``|[^`])*`", color: NSColor(red: 0.66, green: 0.80, blue: 0.53, alpha: 1), in: storage)
-        apply(pattern: "--[^\\n]*|/\\*[\\s\\S]*?\\*/", color: NSColor(red: 0.48, green: 0.55, blue: 0.61, alpha: 1), in: storage)
+        apply(pattern: "(?i)\\b(SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|DELETE|MERGE|REPLACE|CREATE|ALTER|DROP|TRUNCATE|TABLE|VIEW|INDEX|DATABASE|SCHEMA|TRIGGER|PROCEDURE|FUNCTION|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|AND|OR|NOT|NULL|IS|IN|EXISTS|BETWEEN|LIKE|DISTINCT|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|UNION|ALL|WITH|RETURNING|SET|SHOW|DESCRIBE|DESC|EXPLAIN|PRAGMA|BEGIN|COMMIT|ROLLBACK|GRANT|REVOKE)\\b", color: isDark ? NSColor(srgbRed: 0.43, green: 0.67, blue: 0.98, alpha: 1) : NSColor(srgbRed: 0.10, green: 0.39, blue: 0.72, alpha: 1), in: storage)
+        apply(pattern: "\\b\\d+(?:\\.\\d+)?\\b", color: isDark ? NSColor(srgbRed: 0.87, green: 0.69, blue: 0.38, alpha: 1) : NSColor(srgbRed: 0.55, green: 0.39, blue: 0.03, alpha: 1), in: storage)
+        apply(pattern: "'(?:''|[^'])*'|\\\"(?:\\\"\\\"|[^\\\"])*\\\"|`(?:``|[^`])*`", color: isDark ? NSColor(srgbRed: 0.66, green: 0.80, blue: 0.53, alpha: 1) : NSColor(srgbRed: 0.17, green: 0.48, blue: 0.20, alpha: 1), in: storage)
+        apply(pattern: "--[^\\n]*|/\\*[\\s\\S]*?\\*/", color: isDark ? NSColor(srgbRed: 0.48, green: 0.55, blue: 0.61, alpha: 1) : NSColor(srgbRed: 0.38, green: 0.42, blue: 0.46, alpha: 1), in: storage)
         storage.endEditing()
     }
 

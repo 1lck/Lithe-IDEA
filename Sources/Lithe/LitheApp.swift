@@ -4,20 +4,9 @@ import SwiftUI
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     weak var projectSessions: ProjectSessionManager?
-    var mainWindow: NSWindow?
 
-    func registerMainWindow(_ window: NSWindow) {
-        mainWindow = window
-    }
-
-    func applicationShouldHandleReopen(
-        _ sender: NSApplication,
-        hasVisibleWindows: Bool
-    ) -> Bool {
-        guard !hasVisibleWindows, let mainWindow else { return true }
-        mainWindow.makeKeyAndOrderFront(nil)
-        sender.activate(ignoringOtherApps: true)
-        return false
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -97,7 +86,7 @@ struct LitheApp: App {
                 // changes. Re-identify the root so a language selection takes
                 // effect immediately across every workspace, including sheets.
                 .id(settings.language)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(settings.themePreference.preferredColorScheme)
                 .task {
                     memoryUsageMonitor.start()
                 }
@@ -243,5 +232,15 @@ struct LitheApp: App {
             at: Bundle.main.bundleURL,
             configuration: configuration
         )
+    }
+}
+
+private extension AppThemePreference {
+    var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
     }
 }
