@@ -173,10 +173,7 @@ final class AppModel: ObservableObject, Identifiable {
     func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
         if enabled {
             disabledLanguageServerProviderIDs.remove(providerID)
-            guard let document = openDocuments.first(where: {
-                languageProviderCatalog.provider(for: $0.url)?.id == providerID
-            }) else { return }
-            activateLanguageServerIfAvailable(for: document)
+            synchronizeOpenDocumentsWithLanguageServer(providerID: providerID)
         } else {
             disableLanguageServerForCurrentWorkspace(providerID: providerID)
         }
@@ -216,9 +213,12 @@ final class AppModel: ObservableObject, Identifiable {
         settings.javaLanguageServerJDKPath = path
         languageToolingSessions.stopLanguageServer(providerID: "java")
         disabledLanguageServerProviderIDs.remove("java")
-        if let document = openDocuments.first(where: {
-            languageProviderCatalog.provider(for: $0.url)?.id == "java"
-        }) {
+        synchronizeOpenDocumentsWithLanguageServer(providerID: "java")
+    }
+
+    private func synchronizeOpenDocumentsWithLanguageServer(providerID: String) {
+        for document in openDocuments where
+            languageProviderCatalog.provider(for: document.url)?.id == providerID {
             activateLanguageServerIfAvailable(for: document)
         }
     }

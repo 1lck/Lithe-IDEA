@@ -3,6 +3,7 @@ import SwiftUI
 struct LSPControlCenterView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
+    @State private var configuredProviderID: String?
 
     private var usesChinese: Bool { settings.language == .simplifiedChinese }
 
@@ -76,6 +77,22 @@ struct LSPControlCenterView: View {
                         .lineLimit(2)
                 }
                 Spacer(minLength: 12)
+                if hasConfiguration(for: descriptor) {
+                    Button {
+                        configuredProviderID = configuredProviderID == descriptor.id
+                            ? nil
+                            : descriptor.id
+                    } label: {
+                        LitheSystemIcon(systemImage: "gearshape")
+                    }
+                    .litheIconButton()
+                    .help(usesChinese
+                        ? "配置 \(descriptor.displayName) 语言服务器"
+                        : "Configure \(descriptor.displayName) language server")
+                    .accessibilityLabel(Text(usesChinese
+                        ? "配置 \(descriptor.displayName) 语言服务器"
+                        : "Configure \(descriptor.displayName) language server"))
+                }
                 Toggle("", isOn: Binding(
                     get: { isEnabled },
                     set: { model.setLanguageServerEnabled($0, providerID: descriptor.id) }
@@ -88,7 +105,7 @@ struct LSPControlCenterView: View {
                     : "Enable \(descriptor.displayName) language server"))
             }
 
-            if descriptor.id == "java" {
+            if configuredProviderID == descriptor.id, descriptor.id == "java" {
                 Divider().overlay(LitheTheme.divider)
                 VStack(alignment: .leading, spacing: 7) {
                     Text(usesChinese ? "LSP 运行 JDK" : "LSP Runtime JDK")
@@ -197,6 +214,10 @@ struct LSPControlCenterView: View {
             .filter { descriptor in
                 model.projectFiles.contains { descriptor.handles(fileURL: $0) }
             }
+    }
+
+    private func hasConfiguration(for descriptor: LanguageProviderDescriptor) -> Bool {
+        descriptor.id == "java"
     }
 
     private var javaJDKDisplayPath: String {

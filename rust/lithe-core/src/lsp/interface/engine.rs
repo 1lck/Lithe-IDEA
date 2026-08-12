@@ -2212,6 +2212,39 @@ mod tests {
         assert_eq!(harness.snapshot().open_documents[uri].version, 2);
     }
 
+    #[test]
+    fn all_documents_synced_during_initialize_are_opened_when_ready() {
+        let mut harness = Harness::start(|_| {});
+        let first_uri = "file:///workspace/first.go";
+        let second_uri = "file:///workspace/second.go";
+        harness.sync(first_uri, "package main\nvar first = 1");
+        harness.sync(second_uri, "package main\nvar second = 2");
+
+        harness.server.complete_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+
+        let opened_uris: Vec<_> = harness
+            .server
+            .messages()
+            .into_iter()
+            .filter(|message| {
+                message.get("method").and_then(Value::as_str) == Some("textDocument/didOpen")
+            })
+            .filter_map(|message| {
+                message
+                    .get("params")?
+                    .get("textDocument")?
+                    .get("uri")?
+                    .as_str()
+                    .map(ToString::to_string)
+            })
+            .collect();
+        assert_eq!(opened_uris, vec![first_uri.to_string(), second_uri.to_string()]);
+        let snapshot = harness.snapshot();
+        assert_eq!(snapshot.open_documents[first_uri].version, 1);
+        assert_eq!(snapshot.open_documents[second_uri].version, 1);
+    }
+
     /// Criterion 4: a crash fails pending operations with `serverExited`.
     #[test]
     fn a_crash_fails_every_pending_operation_once_with_server_exited() {
