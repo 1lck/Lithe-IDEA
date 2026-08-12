@@ -8,7 +8,8 @@ Set-Location $root
 $sourceFiles = Get-ChildItem -Path windows -Recurse -File |
     Where-Object {
         $_.Extension -in @(".h", ".hpp", ".cpp", ".cc", ".cxx") -and
-        $_.FullName -notmatch "[\\/]build([\\/]|$)"
+        $_.FullName -notmatch "[\\/]build(?:-[^\\/]+)?([\\/]|$)" -and
+        $_.FullName -notmatch "[\\/](?:obj|Generated Files)([\\/]|$)"
     }
 if ($sourceFiles.Count -gt 0) {
     $macOSReference = Select-String -Path $sourceFiles.FullName `
@@ -87,7 +88,10 @@ if ($qtFiles.Count -gt 0) {
 }
 
 $winUIFiles = Get-ChildItem -Path windows/winui -Recurse -File |
-    Where-Object { $_.Extension -in @(".h", ".cpp", ".hpp") }
+    Where-Object {
+        $_.Extension -in @(".h", ".cpp", ".hpp") -and
+        $_.FullName -notmatch "[\\/](?:obj|Generated Files)([\\/]|$)"
+    }
 if ($winUIFiles.Count -gt 0) {
     $directCoreClientIncludes = Select-String -Path $winUIFiles.FullName `
         -Pattern '#include\s*[<"]core_client\.h[>"]'
