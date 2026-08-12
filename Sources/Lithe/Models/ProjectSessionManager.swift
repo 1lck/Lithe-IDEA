@@ -149,7 +149,7 @@ final class ProjectSessionManager: ObservableObject {
 
     func stopAllSessions() {
         for model in sessions {
-            model.stopTerminalSessions()
+            model.shutdownProjectSession()
         }
     }
 

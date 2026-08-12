@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/toolchain-requirements-v1.schema.json",
+  "title": "Lithe Toolchain Requirements v1",
+  "type": "object",
+  "required": ["version", "toolchains"],
+  "properties": {
+    "version": { "const": 1 },
+    "toolchains": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/requirement" }
+    }
+  },
+  "$defs": {
+    "requirement": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["java", "maven"] },
+        "minimumVersion": { "type": "string", "minLength": 1 },
+        "preferredVendor": { "type": "string", "minLength": 1 },
+        "wrapper": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).*$" },
+        "version": { "type": "string", "minLength": 1 },
+        "java": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

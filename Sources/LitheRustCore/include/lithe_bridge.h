@@ -9,6 +9,7 @@ extern "C" {
 
 const char *lithe_bridge_version(void);
 char *lithe_bridge_execute_json(const char *request);
+char *lithe_bridge_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_bridge_cancel(const char *operation_id);
 void lithe_bridge_free_string(char *value);
 

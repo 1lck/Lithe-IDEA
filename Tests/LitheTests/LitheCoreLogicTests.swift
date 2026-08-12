@@ -1335,6 +1335,61 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func languageServerTextEditsUseUTF16AndApplyFromTheEnd() throws {
+        let result = try LanguageServerTextEditApplicator.apply([
+            LanguageServerTextEdit(
+                range: LanguageServerRange(
+                    start: LanguageServerPosition(line: 0, utf16Column: 4),
+                    end: LanguageServerPosition(line: 0, utf16Column: 6)
+                ),
+                newText: "rocket"
+            ),
+            LanguageServerTextEdit(
+                range: LanguageServerRange(
+                    start: LanguageServerPosition(line: 1, utf16Column: 4),
+                    end: LanguageServerPosition(line: 1, utf16Column: 9)
+                ),
+                newText: "four"
+            )
+        ], to: "one 😀\ntwo three\n")
+
+        #expect(result == "one rocket\ntwo four\n")
+    }
+
+    @Test
+    func languageServerTextEditsRejectInvalidAndOverlappingRanges() {
+        #expect(throws: LanguageServerTextEditApplicator.Error.invalidRange) {
+            try LanguageServerTextEditApplicator.apply([
+                LanguageServerTextEdit(
+                    range: LanguageServerRange(
+                        start: LanguageServerPosition(line: 9, utf16Column: 0),
+                        end: LanguageServerPosition(line: 9, utf16Column: 1)
+                    ),
+                    newText: "x"
+                )
+            ], to: "one line")
+        }
+        #expect(throws: LanguageServerTextEditApplicator.Error.overlappingEdits) {
+            try LanguageServerTextEditApplicator.apply([
+                LanguageServerTextEdit(
+                    range: LanguageServerRange(
+                        start: LanguageServerPosition(line: 0, utf16Column: 0),
+                        end: LanguageServerPosition(line: 0, utf16Column: 4)
+                    ),
+                    newText: "a"
+                ),
+                LanguageServerTextEdit(
+                    range: LanguageServerRange(
+                        start: LanguageServerPosition(line: 0, utf16Column: 2),
+                        end: LanguageServerPosition(line: 0, utf16Column: 6)
+                    ),
+                    newText: "b"
+                )
+            ], to: "one line")
+        }
+    }
+
+    @Test
     func fileVisibilityRulesHideBuiltInAndCustomPatterns() {
         let root = URL(fileURLWithPath: "/tmp/lithe-visibility-tests")
         let rules = FileVisibilityRules(hiddenDirectoryNames: ["generated"], hiddenFilePatterns: ["*.generated.swift"])
@@ -1356,6 +1411,20 @@ struct LitheCoreLogicTests {
         #expect(
             rules.isHidden(
                 root.appendingPathComponent("Sources/Model.generated.swift"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            rules.isHidden(
+                root.appendingPathComponent(".lithe/run/local.json"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            !rules.isHidden(
+                root.appendingPathComponent(".lithe/run/configurations.json"),
                 relativeTo: root,
                 isDirectory: false
             )
@@ -1977,6 +2046,25 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    @MainActor
+    func codeEditorLanguageMenuTracksCurrentServerFeatures() {
+        let textView = CodeTextView(frame: .zero)
+
+        textView.languageServerFeatures = [.definition, .hover]
+        #expect(textView.languageContextMenuItems().map(\.title) == [
+            "Go to Definition", "Quick Documentation"
+        ])
+
+        textView.languageServerFeatures = [.completion, .formatting, .codeActions]
+        #expect(textView.languageContextMenuItems().map(\.title) == [
+            "Complete Symbol", "Format Document", "Source Actions…"
+        ])
+
+        textView.languageServerFeatures = []
+        #expect(textView.languageContextMenuItems().isEmpty)
+    }
+
+    @Test
     func markdownImageInsertionSeparatesTheReferenceFromRawHTML() {
         let source = "<table>\n</table>\n"
         let reference = "![pasted image](assets/pasted-image.png)"
@@ -2190,6 +2278,57 @@ struct LitheCoreLogicTests {
         #expect(firstObserverCalls == 1)
         #expect(secondObserverCalls == 2)
     }
+
+    @Test
+    func runConfigurationMigrationWritesToolchainsIntoServiceOverrides() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-run-migration-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MutableKeyValueStore()
+        let projectKey = root.standardizedFileURL.path.replacingOccurrences(of: "/", with: "_")
+        store.set(try JSONEncoder().encode(JavaRunOptions(
+            javaHomePath: "/jdk/legacy",
+            workingDirectoryPath: "backend",
+            vmArguments: "-Xmx2g",
+            programArguments: "--spring.profiles.active=dev",
+            activeProfiles: ["dev"]
+        )), forKey: "lithe.java-run-options.\(projectKey).current-file")
+        store.set(try JSONEncoder().encode(ProjectRuntimeSettings(
+            javaHomePath: "/Library/Java/jdk-21",
+            mavenHomeSelection: .custom,
+            mavenHomePath: "/opt/maven",
+            mavenJavaHomePath: "/Library/Java/jdk-17"
+        )), forKey: "lithe.project-runtime.\(projectKey)")
+
+        let adapter = MacRunConfigurationStore(
+            core: RustCoreBridge(),
+            storage: MacFileStorage(),
+            preferences: store,
+            documentMutator: RunTestDocumentMutator()
+        )
+        try adapter.migrateLegacySettings(at: root, configurationIDs: ["current-file"])
+        try adapter.saveOptions(
+            JavaRunOptions(
+                javaHomePath: "/Library/Java/jdk-22",
+                workingDirectoryPath: "backend app",
+                vmArguments: "\"-Dlabel=hello world\" -Xmx1g",
+                programArguments: "--dev",
+                activeProfiles: ["local"]
+            ),
+            configurationID: "current-file",
+            scope: .local,
+            at: root
+        )
+
+        let local = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent(".lithe/run/local.json"))) as? [String: Any]
+        let configs = local?["configurations"] as? [[String: Any]]
+        #expect(configs?.first?["workingDirectory"] as? String == "backend app")
+        #expect(configs?.first?["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx1g"])
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/toolchains/local.json").path))
+        #expect(store.object(forKey: "lithe.run-configuration-migrated.\(projectKey)") as? Bool == true)
+        #expect(store.data(forKey: "lithe.java-run-options.\(projectKey).current-file") != nil)
+        #expect(store.data(forKey: "lithe.java-run-options.\(projectKey).current-file") != nil)
+    }
 }
 
 @MainActor
@@ -2302,6 +2441,29 @@ struct EditorDocumentTests {
         #expect(throws: EditorDocument.DocumentError.self) {
             try document.save()
         }
+    }
+
+    @Test
+    func virtualDocumentOpensFromMemoryAsReadOnly() throws {
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        let url = try #require(URL(string: "jdt://contents/java.base/java/lang/String.class"))
+
+        model.openVirtualDocument(
+            url,
+            text: "public final class String {}",
+            displayPath: "java.base/java/lang/String.class"
+        )
+
+        let document = try #require(model.activeDocument)
+        #expect(document.url == url)
+        #expect(document.text == "public final class String {}")
+        #expect(document.isReadOnly)
+        #expect(document.displayName == "String.class")
     }
 
     @Test
@@ -2497,7 +2659,8 @@ struct EditorDocumentTests {
 
         let target = TerminalLinkResolver.resolve(
             "Sources/App.swift:12:4",
-            relativeTo: workspace
+            relativeTo: workspace,
+            fileExists: { fileManager.fileExists(atPath: $0.path) }
         )
 
         #expect(target == .file(
@@ -2509,7 +2672,8 @@ struct EditorDocumentTests {
     func terminalLinkResolverKeepsExternalURLsAsExternalTargets() {
         let target = TerminalLinkResolver.resolve(
             "https://example.com/docs",
-            relativeTo: URL(fileURLWithPath: "/tmp")
+            relativeTo: URL(fileURLWithPath: "/tmp"),
+            fileExists: { _ in false }
         )
 
         #expect(target == .external(URL(string: "https://example.com/docs")!))
@@ -3190,69 +3354,32 @@ private struct EmptyKeyValueStore: KeyValueStore {
     func set(_ value: Any?, forKey key: String) {}
 }
 
+private final class MutableKeyValueStore: KeyValueStore {
+    private var values: [String: Any] = [:]
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
 private let dbxPlainConnectionExport = #"""
 {
   "connections": [
     {
-      "id": "mysql-1",
-      "name": "Production MySQL",
-      "db_type": "mysql",
-      "host": "db.example.com",
-      "port": 3306,
-      "username": "root",
-      "password": "db-secret",
-      "database": "app",
-      "color": "#ff5500",
-      "read_only": true,
-      "is_production": true,
-      "ssl": true,
+      "id": "mysql-1", "name": "Production MySQL", "db_type": "mysql",
+      "host": "db.example.com", "port": 3306, "username": "root",
+      "password": "db-secret", "database": "app", "color": "#ff5500",
+      "read_only": true, "is_production": true, "ssl": true,
       "ca_cert_path": "/tmp/ca.pem",
-      "transport_layers": [
-        {
-          "type": "ssh",
-          "enabled": true,
-          "host": "jump.example.com",
-          "port": 22,
-          "user": "deploy",
-          "key_path": "/tmp/id_ed25519"
-        }
-      ]
+      "transport_layers": [{"type":"ssh","enabled":true,"host":"jump.example.com","port":22,"user":"deploy","key_path":"/tmp/id_ed25519"}]
     },
-    {
-      "id": "sqlite-1",
-      "name": "Local SQLite",
-      "db_type": "sqlite",
-      "host": "/tmp/local.sqlite",
-      "port": 0,
-      "username": "",
-      "password": "",
-      "database": ""
-    },
-    {
-      "id": "oracle-1",
-      "name": "Oracle",
-      "db_type": "oracle",
-      "host": "oracle.example.com",
-      "port": 1521,
-      "username": "scott",
-      "password": "tiger"
-    }
+    { "id": "sqlite-1", "name": "Local SQLite", "db_type": "sqlite", "host": "/tmp/local.sqlite", "port": 0, "username": "", "password": "", "database": "" },
+    { "id": "oracle-1", "name": "Oracle", "db_type": "oracle", "host": "oracle.example.com", "port": 1521, "username": "scott", "password": "tiger" }
   ],
   "layout": {
-    "groups": [
-      { "id": "g1", "name": "Production", "collapsed": false },
-      { "id": "g2", "name": "Local", "collapsed": false }
-    ],
-    "order": [
-      {
-        "type": "group",
-        "id": "g1",
-        "connectionIds": ["mysql-1"],
-        "children": [
-          { "type": "group", "id": "g2", "connectionIds": ["sqlite-1"] }
-        ]
-      }
-    ]
+    "groups": [{"id":"g1","name":"Production","collapsed":false},{"id":"g2","name":"Local","collapsed":false}],
+    "order": [{"type":"group","id":"g1","connectionIds":["mysql-1"],"children":[{"type":"group","id":"g2","connectionIds":["sqlite-1"]}]}]
   }
 }
 """#
@@ -3416,6 +3543,7 @@ private struct ExistingWorkspaceFileOperations: WorkspaceFileOperations {
     func removeItem(at url: URL) throws {}
     func trashItem(at url: URL) throws {}
     func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { throw CocoaError(.fileReadNoSuchFile) }
 }
 
 private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
@@ -3428,6 +3556,7 @@ private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
     func removeItem(at url: URL) throws {}
     func trashItem(at url: URL) throws {}
     func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { "" }
 }
 
 private final class TestDirectoryChangeSource: DirectoryChangeSource {

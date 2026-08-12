@@ -1,0 +1,92 @@
+{
+  "name": "Gradle service detection and toolchain requirements",
+  "notes": [
+    "A Gradle build is runnable when a plugin contributes a start task. The build script is matched for plugin ids rather than executed, because running `gradle tasks` on project open would spawn a daemon per module.",
+    "Subproject tasks are invoked from the build root, because Gradle only resolves task paths from the directory holding the settings file. The configuration name is the full Gradle project path so two modules with the same leaf name stay distinct.",
+    "The command is the bare program name `gradle`. Wrapper preference travels in the toolchain requirement so the platform adapter resolves `./gradlew` or `gradlew.bat` for its own operating system."
+  ],
+  "requests": [
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "build.gradle": "plugins { id 'org.springframework.boot' version '3.2.0' }\n",
+        "gradlew": "#!/bin/sh\n"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "gradle.service:bootRun",
+            "provider": "gradle.service",
+            "name": "bootRun",
+            "execution": "service",
+            "confidence": "declared",
+            "command": "gradle",
+            "args": ["bootRun"],
+            "cwd": ".",
+            "source": "build.gradle",
+            "extensions": {
+              "gradle": {
+                "task": "bootRun",
+                "plugin": "org.springframework.boot",
+                "project": ":"
+              }
+            }
+          }
+        ],
+        "toolchains": {
+          "project-gradle": {
+            "type": "gradle",
+            "wrapper": "./gradlew",
+            "java": "project-jdk"
+          },
+          "project-jdk": { "type": "java" }
+        }
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "settings.gradle": "include 'services:orders'\ninclude 'services:shipping'\n",
+        "services/orders/build.gradle": "plugins { id 'org.springframework.boot' }\n",
+        "services/shipping/build.gradle": "plugins { id 'application' }\n"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "gradle.service:services:orders",
+            "provider": "gradle.service",
+            "name": "services:orders",
+            "execution": "service",
+            "command": "gradle",
+            "args": [":services:orders:bootRun"],
+            "cwd": ".",
+            "source": "build.gradle"
+          },
+          {
+            "id": "gradle.application:services:shipping",
+            "provider": "gradle.application",
+            "name": "services:shipping",
+            "execution": "application",
+            "command": "gradle",
+            "args": [":services:shipping:run"],
+            "cwd": ".",
+            "source": "build.gradle"
+          }
+        ]
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "build.gradle": "plugins { id 'java-library' }\n// id 'org.springframework.boot'\n"
+      },
+      "expected": {
+        "configurations": [],
+        "reason": "A library build contributes no start task, and a commented plugin id is not applied."
+      }
+    }
+  ]
+}

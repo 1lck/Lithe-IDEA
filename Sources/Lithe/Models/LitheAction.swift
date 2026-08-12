@@ -110,7 +110,7 @@ enum LitheActionRegistry {
             LitheAction(
                 id: "toggle-problems",
                 title: "Toggle Problems",
-                subtitle: "Show or hide Java diagnostics",
+                subtitle: "Show or hide language diagnostics",
                 group: .window
             ) { model.toggleProblems() },
             LitheAction(
@@ -131,6 +131,12 @@ enum LitheActionRegistry {
                 subtitle: "Show or hide run output",
                 group: .window
             ) { model.isRunVisible.toggle() },
+            LitheAction(
+                id: "toggle-tests",
+                title: "Toggle Tests",
+                subtitle: "Show or hide language-neutral test runners",
+                group: .window
+            ) { model.toggleTests() },
             LitheAction(
                 id: "toggle-debug",
                 title: "Toggle Debug",
@@ -161,17 +167,17 @@ enum LitheActionRegistry {
             LitheAction(
                 id: "go-to-usage",
                 title: "Go to Usage",
-                subtitle: "Navigate to a call site of the selected Java symbol",
+                subtitle: "Navigate to a call site of the selected symbol",
                 group: .navigation,
                 keyEquivalent: "⌘B"
             ) { model.goToUsages() },
             LitheAction(
                 id: "find-usages",
                 title: "Find Usages",
-                subtitle: "Find references to the selected Java symbol",
+                subtitle: "Find references to the selected symbol",
                 group: .navigation,
                 keyEquivalent: "⌥⌘U"
-            ) { model.findJavaReferences() },
+            ) { model.findReferences() },
             LitheAction(
                 id: "local-history",
                 title: "Local History",

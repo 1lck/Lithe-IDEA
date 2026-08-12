@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 core_pattern='import (SwiftUI|AppKit|CoreServices)|\b(FileManager|UserDefaults|NSWorkspace|NSApp)\b|(^|[^A-Za-z])Process\(|(^|[^A-Za-z])Pipe\(|FileHandle'
 service_pattern='import (SwiftUI|AppKit)|\b(FileManager|UserDefaults|NSWorkspace|NSApp)\b|(^|[^A-Za-z])Process\(|(^|[^A-Za-z])Pipe\(|FileHandle|String\(contentsOf:|Data\(contentsOf:|write\(to:.*encoding:|\bMac[A-Z][A-Za-z]+\b|/opt/homebrew|/usr/local|/usr/bin'
-ui_service_pattern='\b(MavenService|JavaRunService|JavaDebugService|ProjectRuntimeService|JavaLanguageService|JavaImplementationMarkerService|GitService|WorkspaceSearchIndex)\b'
+ui_service_pattern='\b(MavenService|JavaRunService|JavaDebugService|ProjectRuntimeService|GitService|WorkspaceSearchIndex)\b'
 composition_pattern='\bMac[A-Z][A-Za-z]+\b'
 application_ui_pattern='import AppKit|\b(NSOpenPanel|NSWorkspace|NSPasteboard|NSEvent)\b'
 appmodel_business_pattern='Task\.detached|LocalHistoryService|WorkspaceTextFilePolicy|DirectoryChangeSource|fileOperations\.(fileExists|isDirectory|createFile|createDirectory|copyItem|moveItem|removeItem|trashItem|writeText)|mavenFeature\.loadProject|runFeature\.loadProject|configuration\.kind|debugFeature\.(startMaven|toggleBreakpoint|attachRemote)'

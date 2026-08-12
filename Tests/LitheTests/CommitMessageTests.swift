@@ -383,17 +383,17 @@ struct CommitMessageSettingsTests {
     }
 
     @Test
-    func editorTabLayoutModePersistsAndDefaultsToSingleLine() {
+    func javaLanguageServerJDKPersistsGloballyAndRestoresToUnconfigured() {
         let store = InMemoryKeyValueStore()
         let initialSettings = AppSettings(store: store)
-        #expect(initialSettings.editorTabLayoutMode == .singleLine)
+        #expect(initialSettings.javaLanguageServerJDKPath.isEmpty)
 
-        initialSettings.editorTabLayoutMode = .multipleRows
+        initialSettings.javaLanguageServerJDKPath = "/test/jdks/lsp-21"
         let reloadedSettings = AppSettings(store: store)
-        #expect(reloadedSettings.editorTabLayoutMode == .multipleRows)
+        #expect(reloadedSettings.javaLanguageServerJDKPath == "/test/jdks/lsp-21")
 
         reloadedSettings.restoreDefaults()
-        #expect(reloadedSettings.editorTabLayoutMode == .singleLine)
+        #expect(AppSettings(store: store).javaLanguageServerJDKPath.isEmpty)
     }
 
     @Test

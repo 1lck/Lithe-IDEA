@@ -1,8 +1,8 @@
 import SwiftUI
 
-struct JavaProblemsView: View {
+struct ProblemsView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var severityFilter = Set(JavaDiagnosticSeverity.allCases)
+    @State private var severityFilter = Set(DiagnosticSeverity.allCases)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,14 +48,14 @@ struct JavaProblemsView: View {
 
             Menu {
                 Button {
-                    severityFilter = Set(JavaDiagnosticSeverity.allCases)
+                    severityFilter = Set(DiagnosticSeverity.allCases)
                 } label: {
-                    Label("All severities", systemImage: severityFilter.count == JavaDiagnosticSeverity.allCases.count ? "checkmark" : "circle")
+                    Label("All severities", systemImage: severityFilter.count == DiagnosticSeverity.allCases.count ? "checkmark" : "circle")
                 }
 
                 Divider()
 
-                ForEach(JavaDiagnosticSeverity.allCases, id: \.self) { severity in
+                ForEach(DiagnosticSeverity.allCases, id: \.self) { severity in
                     Button {
                         if severityFilter.contains(severity) {
                             severityFilter.remove(severity)
@@ -79,8 +79,8 @@ struct JavaProblemsView: View {
         }
     }
 
-    private var allDiagnostics: [JavaDiagnostic] {
-        model.javaDiagnostics.values
+    private var allDiagnostics: [EditorDiagnostic] {
+        model.editorDiagnostics.values
             .flatMap { $0 }
             .sorted {
                 let left = model.relativePath(for: $0.fileURL)
@@ -91,7 +91,7 @@ struct JavaProblemsView: View {
             }
     }
 
-    private var diagnostics: [JavaDiagnostic] {
+    private var diagnostics: [EditorDiagnostic] {
         allDiagnostics.filter { severityFilter.contains($0.severity) }
     }
 
@@ -103,9 +103,9 @@ struct JavaProblemsView: View {
         diagnostics.filter { $0.severity == .warning }.count
     }
 
-    private func diagnosticRow(_ diagnostic: JavaDiagnostic) -> some View {
+    private func diagnosticRow(_ diagnostic: EditorDiagnostic) -> some View {
         Button {
-            model.openJavaDiagnostic(diagnostic)
+            model.openDiagnostic(diagnostic)
         } label: {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: diagnostic.severity.systemImage)
@@ -155,9 +155,9 @@ struct JavaProblemsView: View {
             Image(systemName: "checkmark.circle")
                 .font(.system(size: 28, weight: .light))
                 .foregroundStyle(LitheTheme.success)
-            Text("No Java problems")
+            Text("No problems")
                 .font(.system(size: 13.5, weight: .semibold))
-            Text("Diagnostics from JDT LS will appear here.")
+            Text("Diagnostics from active language servers will appear here.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
         }
@@ -178,8 +178,9 @@ struct JavaProblemsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func color(for severity: JavaDiagnosticSeverity) -> Color {
+    private func color(for severity: DiagnosticSeverity) -> Color {
         switch severity {
+        case .unknown: LitheTheme.secondaryText
         case .error: LitheTheme.error
         case .warning: LitheTheme.warning
         case .information: LitheTheme.accent

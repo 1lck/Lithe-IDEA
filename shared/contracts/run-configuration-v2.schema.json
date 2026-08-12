@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/run-configuration-v2.schema.json",
+  "title": "Lithe Run Configuration Document v2",
+  "type": "object",
+  "required": ["version", "configurations"],
+  "properties": {
+    "version": { "const": 2 },
+    "generator": {
+      "type": "object",
+      "required": ["fingerprint"],
+      "properties": {
+        "fingerprint": { "type": "string", "pattern": "^sha256:" },
+        "inputs": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "string", "pattern": "^sha256:" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "configurations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/configuration" }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).*$"
+    },
+    "configuration": {
+      "type": "object",
+      "required": ["id", "provider"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"
+        },
+        "execution": { "enum": ["application", "service", "task", "group"] },
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "$ref": "#/$defs/relativePath" },
+        "env": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "string" }
+        },
+        "confidence": { "enum": ["native", "declared", "heuristic"] },
+        "toolchains": { "type": "object", "additionalProperties": { "type": "string" } },
+        "debug": {
+          "type": "object",
+          "required": ["adapter"],
+          "properties": {
+            "adapter": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "extensions": {
+          "type": "object",
+          "propertyNames": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "additionalProperties": { "type": "object" }
+        },
+        "disabled": { "type": "boolean" },
+        "source": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

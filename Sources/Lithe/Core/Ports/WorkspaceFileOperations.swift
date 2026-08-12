@@ -10,4 +10,5 @@ protocol WorkspaceFileOperations: Sendable {
     func removeItem(at url: URL) throws
     func trashItem(at url: URL) throws
     func writeText(_ text: String, to url: URL) throws
+    func readText(from url: URL) throws -> String
 }

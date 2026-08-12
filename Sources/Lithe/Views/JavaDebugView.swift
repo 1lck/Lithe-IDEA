@@ -57,8 +57,12 @@ struct JavaDebugView: View {
                 }
             case .runConfiguration:
                 HStack(spacing: 7) {
-                    Image(systemName: selectedDebugConfiguration?.systemImage ?? "shippingbox")
-                        .foregroundStyle(LitheTheme.secondaryText)
+                    if let selectedDebugConfiguration {
+                        RunConfigurationIcon(kind: selectedDebugConfiguration.kind, size: 16)
+                    } else {
+                        LitheSystemIcon(systemImage: "shippingbox")
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
                     Menu {
                         if debugConfigurations.isEmpty {
                             Text("No Spring Boot or Maven Module configurations")
@@ -67,7 +71,10 @@ struct JavaDebugView: View {
                                 Button {
                                     model.selectRunConfiguration(configuration)
                                 } label: {
-                                    Label(configuration.name, systemImage: configuration.systemImage)
+                                    HStack {
+                                        RunConfigurationIcon(kind: configuration.kind, size: 16)
+                                        Text(configuration.name)
+                                    }
                                 }
                             }
                         }
@@ -446,20 +453,25 @@ struct JavaDebugView: View {
             .lithePointer()
             .tint(LitheTheme.accent)
             .controlSize(.small)
-            .disabled(service.targetKind == .runConfiguration && selectedDebugConfiguration == nil)
+            .disabled(
+                runService.isLoadingProject ||
+                    (service.targetKind == .runConfiguration &&
+                        runService.configurationStatus == .ready &&
+                        selectedDebugConfiguration == nil)
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var debugConfigurations: [JavaRunConfiguration] {
         runService.configurations.filter {
-            $0.kind == .springBoot || $0.kind == .mavenModule
+            $0.kind.isMavenBacked
         }
     }
 
     private var selectedDebugConfiguration: JavaRunConfiguration? {
         guard let configuration = runService.selectedConfiguration,
-              configuration.kind == .springBoot || configuration.kind == .mavenModule else {
+              configuration.kind.isMavenBacked else {
             return nil
         }
         return configuration

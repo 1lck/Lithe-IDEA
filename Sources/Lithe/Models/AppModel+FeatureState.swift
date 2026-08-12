@@ -3,11 +3,33 @@ import Foundation
 extension AppModel {
     var rootNode: FileNode? { workspaceFeature.rootNode }
     var projectFiles: [URL] { workspaceFeature.projectFiles }
+    var javaEnvironmentReport: JavaEnvironmentReport? {
+        runtimeFeature.javaEnvironmentReport
+    }
+
+    var shouldShowJavaEnvironmentBanner: Bool {
+        guard javaEnvironmentReport?.status.requiresAttention == true else { return false }
+        return projectFiles.contains { $0.pathExtension.lowercased() == "java" }
+            || hasMavenProject
+            || activeDocument?.url.pathExtension.lowercased() == "java"
+    }
+
+    /// Maven is an optional build-system feature. Keeping this capability in
+    /// the generic workspace projection lets the UI hide the Java-only tool
+    /// window for Go, Python, Node, Rust, Gradle-only, and plain projects.
+    var hasMavenProject: Bool {
+        projectFiles.contains { $0.lastPathComponent.lowercased() == "pom.xml" }
+    }
 
     var openDocuments: [EditorDocument] { documentFeature.openDocuments }
     var activeDocumentID: UUID? {
         get { documentFeature.activeDocumentID }
-        set { documentFeature.activeDocumentID = newValue }
+        set {
+            let previousDocumentID = documentFeature.activeDocumentID
+            documentFeature.activeDocumentID = newValue
+            guard previousDocumentID != newValue else { return }
+            activateCurrentDocumentLanguageServerIfAvailable()
+        }
     }
 
     func moveOpenDocument(_ documentID: UUID, before targetDocumentID: UUID) {
@@ -113,11 +135,15 @@ extension AppModel {
     var isLoadingBranchComparison: Bool { gitFeature.isLoadingBranchComparison }
     var isPerformingBranchOperation: Bool { gitFeature.isPerformingBranchOperation }
     var isCloningRepository: Bool { gitFeature.isCloningRepository }
-    var javaNavigationLocations: [JavaNavigationLocation] { javaFeature.javaNavigationLocations }
-    var javaNavigationResultKind: JavaNavigationResultKind { javaFeature.javaNavigationResultKind }
-    var isLoadingJavaNavigation: Bool { javaFeature.isLoadingJavaNavigation }
-    var javaDiagnostics: [URL: [JavaDiagnostic]] { javaFeature.javaDiagnostics }
-
+    var languageNavigationResults: [LanguageNavigationLocation] {
+        languageNavigationLocations
+    }
+    var languageNavigationKind: LanguageNavigationResultKind {
+        languageNavigationResultKind
+    }
+    var isLoadingNavigation: Bool {
+        isLoadingLanguageNavigation
+    }
     var isLoadingWorkspace: Bool { workspaceFeature.isLoadingWorkspace }
     var isRefreshingWorkspace: Bool { workspaceFeature.isRefreshingWorkspace }
     var workspaceLoadErrorMessage: String? { workspaceFeature.loadErrorMessage }

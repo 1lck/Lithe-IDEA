@@ -14,16 +14,23 @@ final class MacPlatformUI: PlatformUI {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    func startAccessingProject(_ url: URL) -> Bool {
-        url.startAccessingSecurityScopedResource()
-    }
-
-    func stopAccessingProject(_ url: URL) {
-        url.stopAccessingSecurityScopedResource()
+    func chooseFile(title: String, prompt: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.prompt = prompt
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.resolvesAliases = true
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     func revealInFileBrowser(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func open(_ url: URL) {
+        NSWorkspace.shared.open(url)
     }
 
     func copyToClipboard(_ value: String) {

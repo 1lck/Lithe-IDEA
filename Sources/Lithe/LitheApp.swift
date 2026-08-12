@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 
+private let litheProcessLaunchDate = Date()
+
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     weak var projectSessions: ProjectSessionManager?
@@ -56,13 +58,18 @@ struct LitheApp: App {
     init() {
         let store = MacUserDefaultsStore()
         let settings = AppSettings(store: store)
+        let processRegistry = ManagedProcessRegistry()
         _settings = StateObject(wrappedValue: settings)
         let projectSessions = ProjectSessionManager(
             settings: settings,
             modelFactory: {
                 AppModel(
                     settings: settings,
-                    services: MacServiceContainer(store: store).services
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        processRegistry: processRegistry
+                    ).services
                 )
             },
             newWindowOpener: Self.openProjectInNewWindow
@@ -71,7 +78,15 @@ struct LitheApp: App {
             projectSessions.openStartupProject(startupProjectURL)
         }
         _projectSessions = StateObject(wrappedValue: projectSessions)
-        _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor())
+        _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor(
+            startedAt: litheProcessLaunchDate,
+            baselineReporter: { marker in
+                guard let data = (marker + "\n").data(using: .utf8) else { return }
+                FileHandle.standardError.write(data)
+            },
+            processRegistry: processRegistry,
+            memorySampler: MacProcessMemorySampler()
+        ))
         appDelegate.projectSessions = projectSessions
     }
 
@@ -174,19 +189,19 @@ struct LitheApp: App {
                     model.goToUsages()
                 }
                 .keyboardShortcut("b", modifiers: .command)
-                .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
+                .disabled(!model.supportsLanguageServerFeature(.references))
 
                 Button("Go to Implementation") {
                     model.goToImplementation()
                 }
                 .keyboardShortcut("b", modifiers: [.command, .option])
-                .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
+                .disabled(!model.supportsLanguageServerFeature(.implementation))
 
                 Button("Find Usages") {
-                    model.findJavaReferences()
+                    model.findReferences()
                 }
                 .keyboardShortcut("u", modifiers: [.command, .option])
-                .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
+                .disabled(!model.supportsLanguageServerFeature(.references))
 
                 Divider()
 

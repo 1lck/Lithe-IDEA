@@ -22,47 +22,154 @@ private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
 @MainActor
 final class MacServiceContainer {
     let services: AppServices
+    let runConfigurationStore: MacRunConfigurationStore
 
-    init(store: any KeyValueStore) {
+    init(
+        store: any KeyValueStore,
+        settings: AppSettings,
+        processRegistry: ManagedProcessRegistry = ManagedProcessRegistry()
+    ) {
         let rustCore = RustCoreBridge()
         let javaMavenOperations = RustJavaMavenOperations(core: rustCore)
         let fileStorage = MacFileStorage()
+        runConfigurationStore = MacRunConfigurationStore(
+            core: rustCore,
+            storage: fileStorage,
+            preferences: store
+        )
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
         let databaseOperations = DatabaseSidecarService(processRunner: processRunner)
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
+            store: store,
+            toolDiscovery: MacRuntimeToolDiscovery()
+        )
+        let languageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
+        let languageProviderCatalogSnapshot = languageProviderCatalogSource.load()
+        let languageProviderCatalog = languageProviderCatalogSnapshot.catalog
+        let languageServerTools = LanguageServerToolService(
+            runtimeService: runtimeService,
+            processRunner: processRunner,
             store: store
         )
-        let languageService = JavaLanguageService(
+        // Build the catalog once so every standard runtime consumes the
+        // language-pack launch metadata instead of maintaining a second map.
+        let languagePackDefinitions = LanguagePackRegistry.standard(
+            catalog: languageProviderCatalog
+        )
+        Task {
+            for descriptor in languageProviderCatalog.descriptors where
+                descriptor.capabilities.contains(.languageServer) {
+                await languageServerTools.refreshCandidates(for: descriptor)
+            }
+        }
+        let debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [
+            "go": {
+                guard let dlv = runtimeService.executableOnPath("dlv") else { return nil }
+                return DebugAdapterProtocolSession(
+                    adapterID: "go",
+                    transport: MacDlvDebugAdapterTransport(
+                        executableURL: dlv,
+                        environment: runtimeService.processEnvironment(),
+                        process: MacRawProcessSession()
+                    )
+                )
+            },
+            "node": {
+                guard let node = runtimeService.executableOnPath("node") else { return nil }
+                let environment = runtimeService.processEnvironment()
+                let locator = MacJavaScriptDebugAdapterLocator(
+                    environment: environment,
+                    executableOnPath: { runtimeService.executableOnPath($0) }
+                )
+                return DebugAdapterProtocolSession(
+                    adapterID: "pwa-node",
+                    transport: MacNodeDebugAdapterTransport(
+                        nodeExecutableURL: node,
+                        locator: locator,
+                        process: MacRawProcessSession()
+                    )
+                )
+            }
+        ]
+        let debugLaunches = Dictionary(
+            uniqueKeysWithValues: languagePackDefinitions.packs.compactMap { pack in
+                pack.debugAdapterLaunch.map { (pack.descriptor.id, $0) }
+            }
+        )
+        let languageToolingRuntimeFactory = StdioLanguageProviderRuntimeFactory(
             runtimeService: runtimeService,
-            process: MacRawProcessSession(),
-            archiveReader: MacArchiveEntryReader(processRunner: processRunner),
-            fileStorage: fileStorage,
-            javaMavenOperations: javaMavenOperations
+            processFactory: { MacRawProcessSession() },
+            languageServerCore: rustCore,
+            languageServerExecutableResolver: { descriptor in
+                languageServerTools.executableURL(for: descriptor)
+            },
+            // JDT LS runs on a JDK the Rust runtime cannot discover for itself.
+            languageServerRuntimeResolver: { descriptor in
+                descriptor.id == "java"
+                    ? runtimeService.configuredJavaExecutableURL(
+                        overridePath: settings.javaLanguageServerJDKPath
+                    )
+                    : nil
+            },
+            languageServerCacheDirectory: fileStorage
+                .cacheDirectory()
+                .appendingPathComponent("Lithe/language-servers", isDirectory: true),
+            processRegistry: processRegistry,
+            debugLaunches: debugLaunches,
+            debugSessionFactories: debugSessionFactories
+        )
+        let languageToolingRuntimes: [any LanguageProviderRuntime] = languagePackDefinitions.packs
+            .compactMap { languageToolingRuntimeFactory.makeRuntime(for: $0.descriptor) }
+        let languagePackRegistry = LanguagePackRegistry.standard(
+            catalog: languageProviderCatalog,
+            runtimes: languageToolingRuntimes
+        )
+        let runToolchainRegistry = languagePackRegistry.toolchainRegistry
+        let languageToolingSessions = LanguageToolingSessionManager(
+            catalog: languagePackRegistry.catalog,
+            runtimes: languagePackRegistry.toolingRuntimes,
+            runtimeFactory: languageToolingRuntimeFactory,
+            core: rustCore
+        )
+        let testExecutableResolver = RunExecutableResolver(
+            runtimeService: runtimeService,
+            toolchainRegistry: runToolchainRegistry,
+            metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+        )
+        let languageTestService = LanguageTestService(
+            registry: languagePackRegistry,
+            executableResolver: testExecutableResolver,
+            processFactory: { MacStreamingProcess(processRegistry: processRegistry) }
         )
 
         let mavenService = MavenService(
             runtimeService: runtimeService,
-            process: MacStreamingProcess(),
+            process: MacStreamingProcess(processRegistry: processRegistry),
             javaMavenOperations: javaMavenOperations
         )
-        let javaRunService = JavaRunService(
+        let runService = RunService(
             runtimeService: runtimeService,
-            process: MacStreamingProcess(),
-            processFactory: { MacStreamingProcess() },
+            process: MacStreamingProcess(processRegistry: processRegistry),
+            processFactory: { MacStreamingProcess(processRegistry: processRegistry) },
             fileStorage: fileStorage,
             preferences: store,
-            javaMavenOperations: javaMavenOperations
+            javaMavenOperations: javaMavenOperations,
+            runConfigurationOperations: runConfigurationStore,
+            executableResolver: RunExecutableResolver(
+                runtimeService: runtimeService,
+                toolchainRegistry: runToolchainRegistry,
+                metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+            ),
+            languagePackRegistry: languagePackRegistry
         )
         let javaDebugService = JavaDebugService(
             runtimeService: runtimeService,
-            processFactory: { MacStreamingProcess() },
+            processFactory: { MacStreamingProcess(processRegistry: processRegistry) },
             fileStorage: fileStorage,
-            javaMavenOperations: javaMavenOperations
-        )
-        let javaImplementationMarkerService = JavaImplementationMarkerService(
-            languageService: languageService
+            javaMavenOperations: javaMavenOperations,
+            runConfigurationOperations: runConfigurationStore
         )
         let gitOperations = RustGitOperations(core: rustCore)
         let workspaceOperations = RustWorkspaceOperations(core: rustCore)
@@ -94,6 +201,13 @@ final class MacServiceContainer {
         // registered explicitly at this composition boundary.
         let binaryFileViewerRegistry = BinaryFileViewerRegistry()
         services = AppServices(
+            languageProviderCatalogSource: languageProviderCatalogSource,
+            languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
+            languagePacks: languagePackRegistry,
+            runToolchainRegistry: runToolchainRegistry,
+            languageToolingSessions: languageToolingSessions,
+            languageServerTools: languageServerTools,
+            languageTestService: languageTestService,
             workspaceOperations: workspaceOperations,
             localHistoryOperations: localHistoryOperations,
             javaMavenOperations: javaMavenOperations,
@@ -104,10 +218,8 @@ final class MacServiceContainer {
             fileOperations: fileOperations,
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
-            javaLanguageService: languageService,
-            javaImplementationMarkerService: javaImplementationMarkerService,
             mavenService: mavenService,
-            javaRunService: javaRunService,
+            runService: runService,
             javaDebugService: javaDebugService,
             gitService: gitService,
             databaseOperations: databaseOperations,

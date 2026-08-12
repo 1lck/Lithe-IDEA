@@ -54,3 +54,77 @@ struct RuntimeDiscoveryResult: Sendable {
     let javaRuntimes: [JavaRuntimeCandidate]
     let mavenRuntimes: [MavenRuntimeCandidate]
 }
+
+enum JavaEnvironmentStatus: Equatable, Sendable {
+    case checking
+    case ready
+    case jdkMissing
+    case configuredJDKInvalid(path: String)
+    case jdbMissing
+
+    var requiresAttention: Bool {
+        self != .checking && self != .ready
+    }
+
+    var blocksJavaRun: Bool {
+        switch self {
+        case .jdkMissing, .configuredJDKInvalid, .jdbMissing: true
+        case .checking, .ready: false
+        }
+    }
+}
+
+struct JavaEnvironmentReport: Equatable, Sendable {
+    let status: JavaEnvironmentStatus
+    let projectURL: URL
+    let javaHomePath: String?
+    let javaExecutablePath: String?
+    let jdbExecutablePath: String?
+
+    static func checking(for projectURL: URL) -> Self {
+        Self(
+            status: .checking,
+            projectURL: projectURL.standardizedFileURL,
+            javaHomePath: nil,
+            javaExecutablePath: nil,
+            jdbExecutablePath: nil
+        )
+    }
+
+    var title: String {
+        switch status {
+        case .checking: "Checking Java environment…"
+        case .ready: "Java environment ready"
+        case .jdkMissing: "JDK not found"
+        case .configuredJDKInvalid: "Configured JDK is invalid"
+        case .jdbMissing: "Java debugger is incomplete"
+        }
+    }
+
+    var message: String {
+        switch status {
+        case .checking:
+            "Lithe is checking the JDK and Java debugger."
+        case .ready:
+            "JDK and JDB are available for this project."
+        case .jdkMissing:
+            "This project contains Java sources, but no usable JDK was detected."
+        case .configuredJDKInvalid(let path):
+            "The configured JDK path is not a valid JDK: \(path)"
+        case .jdbMissing:
+            "A JDK was found, but its bin/jdb debugger is unavailable."
+        }
+    }
+
+    var recovery: String {
+        switch status {
+        case .checking, .ready: ""
+        case .jdkMissing:
+            "Choose a JDK in the Java service settings or install a full JDK and set JAVA_HOME."
+        case .configuredJDKInvalid:
+            "Choose another JDK in the Java service settings or clear the invalid path."
+        case .jdbMissing:
+            "Use a full JDK distribution instead of a JRE or minimal runtime."
+        }
+    }
+}

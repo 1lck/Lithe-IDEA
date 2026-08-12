@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
-cargo fmt --manifest-path rust/Cargo.toml --all --check
+scripts/verify-rust-core-layout.sh
+cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo test --manifest-path rust/Cargo.toml
 
 case "$(uname -m)" in
@@ -43,6 +44,10 @@ swiftc scripts/RustCoreBridgeVerification.swift \
 BINARY=".build/$TRIPLE/debug/Lithe"
 if ! nm -gU "$BINARY" | grep -F "_lithe_core_execute_json" > /dev/null; then
     print -u2 -- "Rust Core symbols are missing from the macOS binary"
+    exit 1
+fi
+if ! nm -gU "$BINARY" | grep -F "_lithe_core_lsp_provider_catalog_json" > /dev/null; then
+    print -u2 -- "Rust Core LSP provider catalog symbol is missing from the macOS binary"
     exit 1
 fi
 

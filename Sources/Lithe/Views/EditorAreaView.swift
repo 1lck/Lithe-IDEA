@@ -59,7 +59,7 @@ struct EditorAreaView: View {
             }
 
             if model.isImplementationChooserVisible {
-                JavaImplementationChooserView()
+                LanguageImplementationChooserView()
                     .padding(.top, 48)
                     .padding(.horizontal, 24)
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))

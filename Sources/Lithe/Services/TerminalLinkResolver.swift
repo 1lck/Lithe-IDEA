@@ -15,7 +15,11 @@ enum TerminalLinkResolver {
     /// Resolves SwiftTerm's implicit links without interpreting terminal output
     /// as commands. Trailing line and column numbers are treated as editor
     /// coordinates when present, for example `Sources/App.swift:42:7`.
-    static func resolve(_ rawLink: String, relativeTo directory: URL) -> TerminalLinkTarget? {
+    static func resolve(
+        _ rawLink: String,
+        relativeTo directory: URL,
+        fileExists: (URL) -> Bool
+    ) -> TerminalLinkTarget? {
         let rawLink = rawLink.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawLink.isEmpty else { return nil }
 
@@ -43,7 +47,7 @@ enum TerminalLinkResolver {
         } else {
             fileURL = directory.appendingPathComponent(path).standardizedFileURL
         }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        guard fileExists(fileURL) else { return nil }
         return .file(
             TerminalLinkLocation(
                 url: fileURL,

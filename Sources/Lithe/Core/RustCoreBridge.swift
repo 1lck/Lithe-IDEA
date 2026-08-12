@@ -193,6 +193,10 @@ struct RustCoreBridge: Sendable {
             let isActiveByDefault: Bool
         }
 
+        /// The core serializes Maven coordinates as `groupId` / `artifactId`,
+        /// matching Maven itself. Swift spells the same properties with a
+        /// capital D, so the mapping has to be explicit -- without it decoding
+        /// fails and the whole scan silently returns nil.
         struct Module: Decodable, Sendable {
             let relativePath: String
             let groupID: String?
@@ -290,6 +294,100 @@ struct RustCoreBridge: Sendable {
         let configurations: [Configuration]
     }
 
+    struct RunConfigurationPayload: Codable, Sendable {
+        struct Generator: Codable, Sendable {
+            let fingerprint: String
+            let inputs: [String: String]?
+        }
+        struct Configuration: Codable, Sendable {
+            struct Maven: Codable, Sendable {
+                let module: String?
+                let mainClass: String?
+                let jvmArguments: [String]?
+                let programArguments: [String]?
+                let profiles: [String]?
+            }
+            struct Java: Codable, Sendable {
+                let homePath: String?
+                let mavenExecutablePath: String?
+                let mavenJavaHomePath: String?
+            }
+            struct Debug: Codable, Sendable {
+                let adapter: String
+            }
+            struct Extensions: Codable, Sendable {
+                let maven: Maven?
+                let java: Java?
+            }
+            let id: String
+            let name: String
+            let provider: String
+            let execution: String?
+            let command: String?
+            let args: [String]?
+            let cwd: String?
+            let env: [String: String]?
+            let confidence: String?
+            let toolchains: [String: String]
+            let debug: Debug?
+            let members: [String]?
+            let extensions: Extensions?
+            let disabled: Bool
+            let source: String?
+
+            var maven: Maven? { extensions?.maven }
+        }
+
+        let version: Int
+        let generator: Generator?
+        let configurations: [Configuration]
+        let diagnostics: [[String: String]]?
+        let defaultRunConfiguration: String?
+    }
+
+    struct RunConfigurationGeneratePayload: Codable, Sendable {
+        let generated: RunConfigurationPayload
+        let toolchainRequirements: ToolchainRequirementsPayload
+        let entryCount: Int
+    }
+
+    struct ToolchainRequirementsPayload: Codable, Sendable {
+        struct Requirement: Codable, Sendable {
+            let type: String
+            let minimumVersion: String?
+            let preferredVendor: String?
+            let wrapper: String?
+            let version: String?
+            let java: String?
+        }
+        let version: Int
+        let toolchains: [String: Requirement]
+    }
+
+    struct RunConfigurationInspectPayload: Codable, Sendable {
+        let status: String
+        let generated: RunConfigurationPayload?
+        let toolchainRequirements: ToolchainRequirementsPayload?
+        let diagnostics: [[String: String]]?
+    }
+
+    struct LaunchPlanPayload: Codable, Sendable {
+        struct Executable: Codable, Sendable {
+            let toolchain: String?
+            let command: String?
+        }
+        let executable: Executable
+        let arguments: [String]
+        let workingDirectory: String
+        let environment: [String: [String: String]]
+        let env: [String: String]?
+    }
+
+    struct RunConfigurationMutationPayload: Codable, Sendable {
+        let id: String?
+        let document: String
+    }
+
     struct JavaCodeVisionPayload: Decodable, Sendable {
         struct Hint: Decodable, Sendable {
             let line: Int
@@ -312,6 +410,211 @@ struct RustCoreBridge: Sendable {
 
     struct JavaServerPortPayload: Decodable, Sendable {
         let port: Int?
+    }
+
+    struct TextPayload: Decodable, Sendable {
+        let text: String
+    }
+
+    struct LspPositionPayload: Decodable, Sendable {
+        let line: Int
+        let utf16Column: Int
+
+        func makeModel() -> LanguageServerPosition {
+            LanguageServerPosition(line: line, utf16Column: utf16Column)
+        }
+    }
+
+    struct LspRangePayload: Decodable, Sendable {
+        let start: LspPositionPayload
+        let end: LspPositionPayload
+
+        func makeModel() -> LanguageServerRange {
+            LanguageServerRange(start: start.makeModel(), end: end.makeModel())
+        }
+    }
+
+    struct LspTextEditPayload: Decodable, Sendable {
+        let range: LspRangePayload
+        let newText: String
+
+        func makeModel() -> LanguageServerTextEdit {
+            LanguageServerTextEdit(range: range.makeModel(), newText: newText)
+        }
+    }
+
+    struct BuiltinCompletionPayload: Decodable, Sendable {
+        struct Item: Decodable, Sendable {
+            let label: String
+            let insertText: String
+            let kind: Int?
+            let detail: String?
+            let documentation: String?
+            let sortText: String?
+            let filterText: String?
+            let textEdit: LspTextEditPayload?
+            let additionalTextEdits: [LspTextEditPayload]?
+            let data: ToolingJSONValue?
+
+            func makeModel() -> LanguageServerCompletionItem {
+                LanguageServerCompletionItem(
+                    label: label,
+                    detail: detail,
+                    documentation: documentation,
+                    insertText: insertText,
+                    sortText: sortText,
+                    filterText: filterText,
+                    kind: kind,
+                    textEdit: textEdit?.makeModel(),
+                    additionalTextEdits: additionalTextEdits?.map { $0.makeModel() } ?? [],
+                    data: data
+                )
+            }
+        }
+
+        let items: [Item]
+
+        func makeModels() -> [LanguageServerCompletionItem] {
+            items.map { $0.makeModel() }
+        }
+    }
+
+    struct LspCompletionResolvePayload: Decodable, Sendable {
+        let item: BuiltinCompletionPayload.Item
+
+        func makeModel() -> LanguageServerCompletionItem {
+            item.makeModel()
+        }
+    }
+
+    struct BuiltinHoverPayload: Decodable, Sendable {
+        struct Hover: Decodable, Sendable {
+            let contents: String
+            let isMarkdown: Bool
+            let range: LspRangePayload?
+
+            func makeModel() -> LanguageServerHover {
+                LanguageServerHover(
+                    contents: contents,
+                    isMarkdown: isMarkdown,
+                    range: range?.makeModel()
+                )
+            }
+        }
+
+        let hover: Hover?
+    }
+
+    struct BuiltinNavigationPayload: Decodable, Sendable {
+        struct Location: Decodable, Sendable {
+            let uri: String?
+            let filePath: String?
+            let range: LspRangePayload
+            let isReadOnly: Bool
+            let displayPath: String?
+
+            func makeModel() -> LanguageServerLocation? {
+                let url: URL
+                if let filePath {
+                    url = URL(fileURLWithPath: filePath)
+                } else if let uri, let virtualURL = URL(string: uri) {
+                    url = virtualURL
+                } else {
+                    return nil
+                }
+                return LanguageServerLocation(
+                    url: url,
+                    range: range.makeModel(),
+                    isReadOnly: isReadOnly,
+                    displayPath: displayPath
+                )
+            }
+        }
+
+        let locations: [Location]
+
+        func makeModels() -> [LanguageServerLocation] {
+            locations.compactMap { $0.makeModel() }
+        }
+    }
+
+    struct LspVirtualDocumentPayload: Decodable, Sendable {
+        let text: String
+    }
+
+    struct LspWorkspaceEditPayload: Decodable, Sendable {
+        let changes: [String: [LspTextEditPayload]]
+
+        func makeModel() -> LanguageServerWorkspaceEdit {
+            LanguageServerWorkspaceEdit(
+                changes: Dictionary(
+                    uniqueKeysWithValues: changes.map { path, edits in
+                        (
+                            URL(fileURLWithPath: path).standardizedFileURL,
+                            edits.map { $0.makeModel() }
+                        )
+                    }
+                )
+            )
+        }
+    }
+
+    struct LspFormattingPayload: Decodable, Sendable {
+        let edits: [LspTextEditPayload]
+
+        func makeModels() -> [LanguageServerTextEdit] {
+            edits.map { $0.makeModel() }
+        }
+    }
+
+    struct LspCommandPayload: Decodable, Sendable {
+        let title: String
+        let command: String
+        let arguments: [ToolingJSONValue]?
+
+        func makeModel() -> LanguageServerCommand {
+            LanguageServerCommand(
+                title: title,
+                command: command,
+                arguments: arguments ?? []
+            )
+        }
+    }
+
+    struct LspCodeActionsPayload: Decodable, Sendable {
+        struct Action: Decodable, Sendable {
+            let title: String
+            let kind: String?
+            let isPreferred: Bool
+            let edit: LspWorkspaceEditPayload?
+            let command: LspCommandPayload?
+            let data: ToolingJSONValue?
+
+            func makeModel() -> LanguageServerCodeAction {
+                LanguageServerCodeAction(
+                    title: title,
+                    kind: kind,
+                    isPreferred: isPreferred,
+                    edit: edit?.makeModel(),
+                    command: command?.makeModel(),
+                    data: data
+                )
+            }
+        }
+
+        let actions: [Action]
+
+        func makeModels() -> [LanguageServerCodeAction] {
+            actions.map { $0.makeModel() }
+        }
+    }
+
+    struct LspCodeActionResolvePayload: Decodable, Sendable {
+        let action: LspCodeActionsPayload.Action
+
+        func makeModel() -> LanguageServerCodeAction {
+            action.makeModel()
+        }
     }
 
     struct JavaStructurePayload: Decodable, Sendable {
@@ -390,6 +693,15 @@ struct RustCoreBridge: Sendable {
             let right: String?
             let kind: String
             let hunkID: String?
+
+            enum CodingKeys: String, CodingKey {
+                case oldLine
+                case newLine
+                case left
+                case right
+                case kind
+                case hunkID = "hunkId"
+            }
 
             func makeModel(sequence: Int) -> DiffRow {
                 DiffRow(
@@ -735,6 +1047,297 @@ struct RustCoreBridge: Sendable {
         let source: String
     }
 
+    private struct LspTextEditsRequest: Encodable {
+        struct TextEdit: Encodable {
+            struct Range: Encodable {
+                struct Position: Encodable {
+                    let line: Int
+                    let utf16Column: Int
+                }
+
+                let start: Position
+                let end: Position
+            }
+
+            let range: Range
+            let newText: String
+        }
+
+        let text: String
+        let edits: [TextEdit]
+    }
+
+    private struct LspPlainSnippetRequest: Encodable {
+        let value: String
+    }
+
+    private struct LspBuiltinRequest: Encodable {
+        let filePath: String
+        let text: String
+        let position: LspTextEditsRequest.TextEdit.Range.Position
+    }
+
+    private struct LspBuiltinNavigationRequest: Encodable {
+        let filePath: String
+        let text: String
+        let position: LspTextEditsRequest.TextEdit.Range.Position
+        let method: String
+    }
+
+    struct LspClientDiagnosticPayload: Decodable, Sendable {
+        let range: LspRangePayload
+        let severity: Int?
+        let message: String
+        let source: String?
+        let code: String?
+        let tags: [Int]?
+        let relatedInformation: [LspClientDiagnosticRelatedInformationPayload]?
+
+        init(
+            range: LspRangePayload,
+            severity: Int?,
+            message: String,
+            source: String?,
+            code: String?,
+            tags: [Int]? = nil,
+            relatedInformation: [LspClientDiagnosticRelatedInformationPayload]? = nil
+        ) {
+            self.range = range
+            self.severity = severity
+            self.message = message
+            self.source = source
+            self.code = code
+            self.tags = tags
+            self.relatedInformation = relatedInformation
+        }
+
+        func makeModel() -> LanguageServerDiagnostic {
+            LanguageServerDiagnostic(
+                range: range.makeModel(),
+                severity: severity,
+                message: message,
+                source: source,
+                code: code,
+                tags: tags ?? [],
+                relatedInformation: (relatedInformation ?? []).compactMap { $0.makeModel() }
+            )
+        }
+    }
+
+    struct LspClientDiagnosticRelatedInformationPayload: Decodable, Sendable {
+        let location: LspClientDiagnosticLocationPayload
+        let message: String
+
+        func makeModel() -> LanguageServerDiagnosticRelatedInformation? {
+            guard let fileURL = URL(string: location.uri) else { return nil }
+            return LanguageServerDiagnosticRelatedInformation(
+                fileURL: fileURL.standardizedFileURL,
+                range: location.range.makeModel(),
+                message: message
+            )
+        }
+    }
+
+    struct LspClientDiagnosticLocationPayload: Decodable, Sendable {
+        let uri: String
+        let range: LspRangePayload
+    }
+
+    private struct LspClientDiagnosticRequest: Encodable {
+        let range: LspTextEditsRequest.TextEdit.Range
+        let severity: Int?
+        let message: String
+        let source: String?
+        let code: String?
+        let tags: [Int]
+        let relatedInformation: [LspClientDiagnosticRelatedInformationRequest]
+    }
+
+    private struct LspClientDiagnosticRelatedInformationRequest: Encodable {
+        let location: LspClientDiagnosticLocationRequest
+        let message: String
+    }
+
+    private struct LspClientDiagnosticLocationRequest: Encodable {
+        let uri: String
+        let range: LspTextEditsRequest.TextEdit.Range
+    }
+
+    private struct LspClientCompletionItemRequest: Encodable {
+        let label: String
+        let detail: String?
+        let documentation: String?
+        let insertText: String
+        let sortText: String?
+        let filterText: String?
+        let kind: Int?
+        let textEdit: LspClientTextEditRequest?
+        let additionalTextEdits: [LspClientTextEditRequest]
+        let data: ToolingJSONValue?
+    }
+
+    private struct LspClientTextEditRequest: Encodable {
+        let range: LspTextEditsRequest.TextEdit.Range
+        let newText: String
+    }
+
+    private struct LspClientWorkspaceEditRequest: Encodable {
+        let changes: [String: [LspClientTextEditRequest]]
+    }
+
+    private struct LspClientCommandRequest: Encodable {
+        let title: String
+        let command: String
+        let arguments: [ToolingJSONValue]
+    }
+
+    private struct LspClientCodeActionRequest: Encodable {
+        let title: String
+        let kind: String?
+        let isPreferred: Bool
+        let edit: LspClientWorkspaceEditRequest?
+        let command: LspClientCommandRequest?
+        let data: ToolingJSONValue?
+    }
+
+    // MARK: - Language-server runtime
+    //
+    // Rust owns the language-server process, wire protocol, and document
+    // versions. These types carry only what the UI needs: an opaque
+    // session ID, opaque operation IDs, and the events Rust chooses to publish.
+
+    struct LspStartServerPayload: Decodable, Sendable {
+        let sessionId: String
+        let state: String
+        let processId: Int32?
+    }
+
+    private struct LspStartServerRequest: Encodable {
+        let providerId: String
+        let executablePath: String
+        let arguments: [String]
+        let environment: [String: String]
+        let rootUri: String
+        let workingDirectory: String
+        let initializationOptions: ToolingJSONValue?
+        let runtimeExecutablePath: String?
+        let cacheDirectory: String?
+        let initializeTimeoutMilliseconds: Int
+        let requestTimeoutMilliseconds: Int
+        let shutdownTimeoutMilliseconds: Int
+    }
+
+    private struct LspSessionIdentifierRequest: Encodable {
+        let sessionId: String
+    }
+
+    private struct LspSyncDocumentRequest: Encodable {
+        let sessionId: String
+        let uri: String
+        let languageId: String
+        let text: String
+    }
+
+    private struct LspCloseDocumentRequest: Encodable {
+        let sessionId: String
+        let uri: String
+    }
+
+    /// A semantic request names the operation it wants, not the LSP method that
+    /// implements it, so the wire protocol stays Rust's concern.
+    private struct LspSemanticRequest: Encodable {
+        let sessionId: String
+        let operationId: String?
+        let operation: String
+        let uri: String?
+        let virtualUri: String?
+        let position: LspTextEditsRequest.TextEdit.Range.Position?
+        let newName: String?
+        let range: LspTextEditsRequest.TextEdit.Range?
+        let diagnostics: [LspClientDiagnosticRequest]
+        let completionItem: LspClientCompletionItemRequest?
+        let codeAction: LspClientCodeActionRequest?
+        let command: LspClientCommandRequest?
+
+        init(
+            sessionId: String,
+            operationId: String? = nil,
+            operation: String,
+            uri: String? = nil,
+            virtualUri: String? = nil,
+            position: LspTextEditsRequest.TextEdit.Range.Position? = nil,
+            newName: String? = nil,
+            range: LspTextEditsRequest.TextEdit.Range? = nil,
+            diagnostics: [LspClientDiagnosticRequest] = [],
+            completionItem: LspClientCompletionItemRequest? = nil,
+            codeAction: LspClientCodeActionRequest? = nil,
+            command: LspClientCommandRequest? = nil
+        ) {
+            self.sessionId = sessionId
+            self.operationId = operationId
+            self.operation = operation
+            self.uri = uri
+            self.virtualUri = virtualUri
+            self.position = position
+            self.newName = newName
+            self.range = range
+            self.diagnostics = diagnostics
+            self.completionItem = completionItem
+            self.codeAction = codeAction
+            self.command = command
+        }
+    }
+
+    private struct LspCancelOperationRequest: Encodable {
+        let sessionId: String
+        let operationId: String
+    }
+
+    struct LspOperationPayload: Decodable, Sendable {
+        let operationId: String
+    }
+
+    struct LspPollEventsPayload: Decodable, Sendable {
+        let events: [LspRuntimeEventPayload]
+    }
+
+    struct LspRuntimeEventPayload: Decodable, Sendable {
+        let type: String
+        let sequence: UInt64
+        let providerId: String
+        let sessionId: String
+        let state: String?
+        let operationId: String?
+        let method: String?
+        let uri: String?
+        let version: Int?
+        let diagnostics: [LspClientDiagnosticPayload]?
+        let result: ToolingJSONValue?
+        let error: LspRuntimeErrorPayload?
+        let capabilities: [String]?
+        let serverInfo: LspServerInfoPayload?
+        let level: String?
+        let message: String?
+        let detail: String?
+    }
+
+    struct LspRuntimeErrorPayload: Decodable, Sendable {
+        let code: String
+        let providerId: String
+        let sessionId: String
+        let stage: String
+        let method: String?
+        let documentUri: String?
+        let message: String
+        let underlyingMessage: String?
+        let processExitCode: Int?
+    }
+
+    struct LspServerInfoPayload: Decodable, Sendable {
+        let name: String
+        let version: String?
+    }
+
     private struct MavenDiagnosticsRequest: Encodable {
         let root: String
         let output: String
@@ -744,6 +1347,45 @@ struct RustCoreBridge: Sendable {
         let root: String
         let paths: [String]
         let modulePaths: [String]
+    }
+
+    private struct RunConfigurationInspectRequest: Encodable { let root: String }
+    private struct RunConfigurationGenerateRequest: Encodable {
+        let root: String
+        let paths: [String]
+        let modulePaths: [String]
+    }
+    private struct RunConfigurationResolveRequest: Encodable {
+        let root: String
+        let toolchainCandidates: [ProjectToolchainCandidate]
+    }
+    private struct RunConfigurationUpdateOptionsRequest: Encodable {
+        let root: String
+        let scope: String
+        let configurationId: String
+        let workingDirectory: String
+        let jvmArguments: String
+        let arguments: String
+        let environment: [String: String]
+        let mavenProfiles: [String]
+        let javaHomePath: String
+        let mavenExecutablePath: String
+        let mavenJavaHomePath: String
+    }
+    private struct RunConfigurationCreateUserRequest: Encodable {
+        let root: String
+        let scope: String
+        let name: String
+        let type: String
+        let module: String
+        let mainClass: String
+    }
+    private struct LaunchPlanRequest: Encodable {
+        let root: String
+        let configurationId: String
+        let currentFile: String?
+        let classPath: String?
+        let debugPort: Int?
     }
 
     private struct JavaStructureRequest: Encodable {
@@ -1163,6 +1805,101 @@ struct RustCoreBridge: Sendable {
         )
     }
 
+    func inspectRunConfiguration(at rootURL: URL) -> Result<RunConfigurationInspectPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.inspect",
+            payload: RunConfigurationInspectRequest(root: rootURL.standardizedFileURL.path)
+        )
+    }
+
+    func generateRunConfiguration(
+        at rootURL: URL,
+        paths: [String],
+        modulePaths: [String]
+    ) -> Result<RunConfigurationGeneratePayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.generate",
+            payload: RunConfigurationGenerateRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: paths,
+                modulePaths: modulePaths
+            )
+        )
+    }
+
+    func resolveRunConfiguration(
+        at rootURL: URL,
+        toolchainCandidates: [ProjectToolchainCandidate]
+    ) -> Result<RunConfigurationPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.resolve",
+            payload: RunConfigurationResolveRequest(
+                root: rootURL.standardizedFileURL.path,
+                toolchainCandidates: toolchainCandidates
+            )
+        )
+    }
+
+    func createLaunchPlan(
+        at rootURL: URL,
+        configurationID: String,
+        currentFile: String? = nil,
+        classPath: String? = nil,
+        debugPort: Int? = nil
+    ) -> Result<LaunchPlanPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.createLaunchPlan",
+            payload: LaunchPlanRequest(
+                root: rootURL.standardizedFileURL.path,
+                configurationId: configurationID,
+                currentFile: currentFile,
+                classPath: classPath,
+                debugPort: debugPort
+            )
+        )
+    }
+
+    func updateRunConfigurationOptions(
+        at rootURL: URL,
+        configurationID: String,
+        scope: RunConfigurationSaveScope,
+        options: RunOptions
+    ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.updateOptions",
+            payload: RunConfigurationUpdateOptionsRequest(
+                root: rootURL.standardizedFileURL.path,
+                scope: scope.rawValue,
+                configurationId: configurationID,
+                workingDirectory: options.workingDirectoryPath,
+                jvmArguments: options.vmArguments,
+                arguments: options.arguments,
+                environment: options.environment,
+                mavenProfiles: options.activeProfiles.sorted(),
+                javaHomePath: scope == .local ? options.javaHomePath : "",
+                mavenExecutablePath: scope == .local ? options.mavenExecutablePath : "",
+                mavenJavaHomePath: scope == .local ? options.mavenJavaHomePath : ""
+            )
+        )
+    }
+
+    func createUserRunConfiguration(
+        at rootURL: URL,
+        draft: RunConfigurationDraft
+    ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
+        executeResult(
+            command: "runConfig.createUserConfiguration",
+            payload: RunConfigurationCreateUserRequest(
+                root: rootURL.standardizedFileURL.path,
+                scope: draft.scope.rawValue,
+                name: draft.name,
+                type: draft.kind.id,
+                module: draft.modulePath,
+                mainClass: draft.mainClass
+            )
+        )
+    }
+
     func javaCodeVision(
         at rootURL: URL,
         targetPath: String,
@@ -1515,6 +2252,338 @@ struct RustCoreBridge: Sendable {
         )
     }
 
+    func applyLanguageServerTextEdits(
+        _ edits: [LanguageServerTextEdit],
+        to text: String
+    ) -> Result<TextPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.applyTextEdits",
+            payload: LspTextEditsRequest(
+                text: text,
+                edits: edits.map { edit in
+                    LspTextEditsRequest.TextEdit(
+                        range: LspTextEditsRequest.TextEdit.Range(
+                            start: LspTextEditsRequest.TextEdit.Range.Position(
+                                line: edit.range.start.line,
+                                utf16Column: edit.range.start.utf16Column
+                            ),
+                            end: LspTextEditsRequest.TextEdit.Range.Position(
+                                line: edit.range.end.line,
+                                utf16Column: edit.range.end.utf16Column
+                            )
+                        ),
+                        newText: edit.newText
+                    )
+                }
+            )
+        )
+    }
+
+    func plainLanguageServerSnippet(_ value: String) -> String? {
+        let response: TextPayload? = execute(
+            command: "lsp.plainSnippet",
+            payload: LspPlainSnippetRequest(value: value)
+        )
+        return response?.text
+    }
+
+    func builtinLanguageCompletions(
+        fileURL: URL,
+        text: String,
+        position: LanguageServerPosition
+    ) -> [LanguageServerCompletionItem]? {
+        let response: BuiltinCompletionPayload? = execute(
+            command: "lsp.builtinCompletions",
+            payload: LspBuiltinRequest(
+                filePath: fileURL.standardizedFileURL.path,
+                text: text,
+                position: .init(line: position.line, utf16Column: position.utf16Column)
+            )
+        )
+        return response?.makeModels()
+    }
+
+    func builtinLanguageHover(
+        fileURL: URL,
+        text: String,
+        position: LanguageServerPosition
+    ) -> LanguageServerHover? {
+        let response: BuiltinHoverPayload? = execute(
+            command: "lsp.builtinHover",
+            payload: LspBuiltinRequest(
+                filePath: fileURL.standardizedFileURL.path,
+                text: text,
+                position: .init(line: position.line, utf16Column: position.utf16Column)
+            )
+        )
+        return response?.hover?.makeModel()
+    }
+
+    func builtinLanguageNavigation(
+        method: String,
+        fileURL: URL,
+        text: String,
+        position: LanguageServerPosition
+    ) -> [LanguageServerLocation]? {
+        let response: BuiltinNavigationPayload? = execute(
+            command: "lsp.builtinNavigation",
+            payload: LspBuiltinNavigationRequest(
+                filePath: fileURL.standardizedFileURL.path,
+                text: text,
+                position: .init(line: position.line, utf16Column: position.utf16Column),
+                method: method
+            )
+        )
+        return response?.makeModels()
+    }
+
+    // MARK: - Language-server runtime
+
+    /// Starts a language server and returns its opaque session ID. Rust spawns
+    /// and owns the process; nothing about it crosses back except this ID.
+    func lspStartServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue? = nil,
+        runtimeExecutableURL: URL? = nil,
+        cacheDirectoryURL: URL? = nil,
+        initializeTimeout: TimeInterval = 60,
+        requestTimeout: TimeInterval = 30,
+        shutdownTimeout: TimeInterval = 2
+    ) -> Result<LspStartServerPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.startServer",
+            payload: LspStartServerRequest(
+                providerId: providerID,
+                executablePath: executableURL.standardizedFileURL.path,
+                arguments: arguments,
+                environment: environment,
+                rootUri: rootURL.standardizedFileURL.absoluteString,
+                workingDirectory: workingDirectoryURL.standardizedFileURL.path,
+                initializationOptions: initializationOptions,
+                runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
+                cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
+                initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
+                requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),
+                shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)
+            )
+        )
+    }
+
+    /// Asks the server to shut down. The session stays addressable until
+    /// `lspDestroyServer`, so its terminal events can still be polled.
+    func lspStopServer(sessionID: String) {
+        executeVoid(
+            command: "lsp.stopServer",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
+    /// Publishes the current text of a document. Rust decides whether that means
+    /// an open or a change, and assigns the version.
+    func lspSyncDocument(
+        sessionID: String,
+        fileURL: URL,
+        languageID: String,
+        text: String
+    ) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.syncDocument",
+            payload: LspSyncDocumentRequest(
+                sessionId: sessionID,
+                uri: fileURL.standardizedFileURL.absoluteString,
+                languageId: languageID,
+                text: text
+            )
+        )
+    }
+
+    func lspCloseDocument(sessionID: String, fileURL: URL) {
+        executeVoid(
+            command: "lsp.closeDocument",
+            payload: LspCloseDocumentRequest(
+                sessionId: sessionID,
+                uri: fileURL.standardizedFileURL.absoluteString
+            )
+        )
+    }
+
+    /// Issues a semantic request and returns the operation ID its completion
+    /// event will carry. The result arrives through `lspPollEvents`, not here.
+    func lspRequest(
+        sessionID: String,
+        operation: LanguageServerOperation,
+        fileURL: URL? = nil,
+        virtualURI: String? = nil,
+        position: LanguageServerPosition? = nil,
+        newName: String? = nil,
+        range: LanguageServerRange? = nil,
+        diagnostics: [LanguageServerDiagnostic] = [],
+        completionItem: LanguageServerCompletionItem? = nil,
+        codeAction: LanguageServerCodeAction? = nil,
+        command: LanguageServerCommand? = nil
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.request",
+            payload: LspSemanticRequest(
+                sessionId: sessionID,
+                operation: operation.rawValue,
+                uri: fileURL?.standardizedFileURL.absoluteString,
+                virtualUri: virtualURI,
+                position: position.map {
+                    .init(line: $0.line, utf16Column: $0.utf16Column)
+                },
+                newName: newName,
+                range: range.map(Self.makeRangeRequest),
+                diagnostics: diagnostics.map(Self.makeDiagnosticRequest),
+                completionItem: completionItem.map(Self.makeCompletionItemRequest),
+                codeAction: codeAction.map(Self.makeCodeActionRequest),
+                command: command.map(Self.makeCommandRequest)
+            )
+        )
+    }
+
+    /// Cancels a pending operation. Its completion event still arrives, carrying
+    /// a cancellation error, so callers never leak a continuation.
+    func lspCancelOperation(sessionID: String, operationID: String) {
+        executeVoid(
+            command: "lsp.cancelOperation",
+            payload: LspCancelOperationRequest(
+                sessionId: sessionID,
+                operationId: operationID
+            )
+        )
+    }
+
+    /// Drains everything the runtime has published since the last poll.
+    func lspPollEvents(sessionID: String) -> [LspRuntimeEventPayload] {
+        let payload: LspPollEventsPayload? = execute(
+            command: "lsp.pollEvents",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+        return payload?.events ?? []
+    }
+
+    /// Releases a stopped or failed session. A running session is refused, so
+    /// callers stop first and destroy once the terminal event arrives.
+    func lspDestroyServer(sessionID: String) {
+        executeVoid(
+            command: "lsp.destroyServer",
+            payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
+    private static func milliseconds(_ interval: TimeInterval) -> Int {
+        Int((interval * 1000).rounded())
+    }
+
+    private static func makeCompletionItemRequest(
+        _ item: LanguageServerCompletionItem
+    ) -> LspClientCompletionItemRequest {
+        LspClientCompletionItemRequest(
+            label: item.label,
+            detail: item.detail,
+            documentation: item.documentation,
+            insertText: item.insertText,
+            sortText: item.sortText,
+            filterText: item.filterText,
+            kind: item.kind,
+            textEdit: item.textEdit.map(makeTextEditRequest),
+            additionalTextEdits: item.additionalTextEdits.map(makeTextEditRequest),
+            data: item.data
+        )
+    }
+
+    private static func makeRangeRequest(
+        _ range: LanguageServerRange
+    ) -> LspTextEditsRequest.TextEdit.Range {
+        .init(
+            start: .init(
+                line: range.start.line,
+                utf16Column: range.start.utf16Column
+            ),
+            end: .init(
+                line: range.end.line,
+                utf16Column: range.end.utf16Column
+            )
+        )
+    }
+
+    private static func makeDiagnosticRequest(
+        _ diagnostic: LanguageServerDiagnostic
+    ) -> LspClientDiagnosticRequest {
+        LspClientDiagnosticRequest(
+            range: makeRangeRequest(diagnostic.range),
+            severity: diagnostic.severity,
+            message: diagnostic.message,
+            source: diagnostic.source,
+            code: diagnostic.code,
+            tags: diagnostic.tags,
+            relatedInformation: diagnostic.relatedInformation.map {
+                LspClientDiagnosticRelatedInformationRequest(
+                    location: LspClientDiagnosticLocationRequest(
+                        uri: $0.fileURL.standardizedFileURL.absoluteString,
+                        range: makeRangeRequest($0.range)
+                    ),
+                    message: $0.message
+                )
+            }
+        )
+    }
+
+    private static func makeTextEditRequest(
+        _ edit: LanguageServerTextEdit
+    ) -> LspClientTextEditRequest {
+        LspClientTextEditRequest(
+            range: .init(
+                start: .init(line: edit.range.start.line, utf16Column: edit.range.start.utf16Column),
+                end: .init(line: edit.range.end.line, utf16Column: edit.range.end.utf16Column)
+            ),
+            newText: edit.newText
+        )
+    }
+
+    private static func makeCodeActionRequest(
+        _ action: LanguageServerCodeAction
+    ) -> LspClientCodeActionRequest {
+        LspClientCodeActionRequest(
+            title: action.title,
+            kind: action.kind,
+            isPreferred: action.isPreferred,
+            edit: action.edit.map(makeWorkspaceEditRequest),
+            command: action.command.map {
+                makeCommandRequest($0)
+            },
+            data: action.data
+        )
+    }
+
+    private static func makeCommandRequest(
+        _ command: LanguageServerCommand
+    ) -> LspClientCommandRequest {
+        LspClientCommandRequest(
+            title: command.title,
+            command: command.command,
+            arguments: command.arguments
+        )
+    }
+
+    private static func makeWorkspaceEditRequest(
+        _ edit: LanguageServerWorkspaceEdit
+    ) -> LspClientWorkspaceEditRequest {
+        LspClientWorkspaceEditRequest(
+            changes: Dictionary(
+                uniqueKeysWithValues: edit.changes.map { url, edits in
+                    (url.standardizedFileURL.path, edits.map(makeTextEditRequest))
+                }
+            )
+        )
+    }
+
     private func execute<Payload: Encodable, Data: Decodable>(
         command: String,
         payload: Payload
@@ -1522,10 +2591,47 @@ struct RustCoreBridge: Sendable {
         try? executeResult(command: command, payload: payload).get()
     }
 
+    /// Runs a command whose success carries no data. The core encodes those as a
+    /// null payload, so success is the absence of an error rather than a decoded
+    /// value, and `executeResult`'s missing-data check does not apply.
+    @discardableResult
+    private func executeVoid<Payload: Encodable>(
+        command: String,
+        payload: Payload
+    ) -> Result<Void, CoreCallError> {
+        let outcome: Result<Envelope<ToolingJSONValue>, CoreCallError> = decodeEnvelope(
+            command: command,
+            payload: payload
+        )
+        return outcome.map { _ in () }
+    }
+
     private func executeResult<Payload: Encodable, Data: Decodable>(
         command: String,
         payload: Payload
     ) -> Result<Data, CoreCallError> {
+        let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(
+            command: command,
+            payload: payload
+        )
+        return outcome.flatMap { envelope in
+            guard let value = envelope.data else {
+                return .failure(CoreCallError(
+                    code: "unknown",
+                    message: "Rust Core response did not contain data",
+                    details: nil
+                ))
+            }
+            return .success(value)
+        }
+    }
+
+    /// Performs the call and reports the envelope's own verdict. Whether a
+    /// payload is required is the caller's business.
+    private func decodeEnvelope<Payload: Encodable, Data: Decodable>(
+        command: String,
+        payload: Payload
+    ) -> Result<Envelope<Data>, CoreCallError> {
         guard isAvailable else {
             return .failure(CoreCallError(
                 code: "unknown",
@@ -1574,14 +2680,7 @@ struct RustCoreBridge: Sendable {
                 details: error.details
             ))
         }
-        guard let value = envelope.data else {
-            return .failure(CoreCallError(
-                code: "unknown",
-                message: "Rust Core response did not contain data",
-                details: nil
-            ))
-        }
-        return .success(value)
+        return .success(envelope)
     }
 
     @discardableResult
