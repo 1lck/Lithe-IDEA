@@ -989,21 +989,36 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func languageToolingSessionsKeepSwiftLSPAtTheRustHostBoundary() throws {
-        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
-            for: URL(fileURLWithPath: "/tmp/main.go")
-        ))
+    func languageToolingSessionsKeepSwiftLSPAtTheRustHostBoundary() async throws {
+        let descriptor = LanguageProviderDescriptor(
+            id: "go",
+            displayName: "Go",
+            fileExtensions: ["go"],
+            capabilities: [.languageServer, .formatting],
+            activationPolicy: .onDemand,
+            languageIdentifier: "go",
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["gopls"],
+                arguments: []
+            )
+        )
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: RunTestRuntimeLocator(),
             store: RunTestKeyValueStore()
         )
         let process = RecordingRawProcessSession()
+        let core = TestLanguageServerRuntimeCore(providerID: "go")
         let runtime = StdioLanguageProviderRuntime(
             descriptor: descriptor,
             runtimeService: runtimeService,
-            processFactory: { process }
+            processFactory: { process },
+            languageServerLaunch: descriptor.languageServerLaunch,
+            languageServerCore: core
         )
-        let manager = LanguageToolingSessionManager(runtimes: [runtime])
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            runtimes: [runtime]
+        )
         let root = URL(fileURLWithPath: "/tmp/go-project", isDirectory: true)
         let source = root.appendingPathComponent("main.go")
 
@@ -1017,6 +1032,11 @@ struct RunConfigurationIntegrationTests {
         )
         #expect(process.requests.isEmpty)
         #expect(process.sentData.isEmpty)
+        #expect(await Self.waitForMainActorCondition {
+            core.startCalls.count == 1 && core.syncCalls.last?.fileURL == source.standardizedFileURL
+        })
+        #expect(core.startCalls.count == 1)
+        #expect(core.syncCalls.last?.fileURL == source.standardizedFileURL)
 
         var completionResult: Result<[LanguageServerCompletionItem], Error>?
         try manager.completions(
@@ -1060,14 +1080,14 @@ struct RunConfigurationIntegrationTests {
             runtimeLocator: RunTestRuntimeLocator(),
             store: RunTestKeyValueStore()
         )
-        let process = RecordingRawProcessSession()
+        let core = TestLanguageServerRuntimeCore()
         let source = URL(fileURLWithPath: "/tmp/swift-project/App.swift")
         let runtime = StdioLanguageProviderRuntime(
             descriptor: descriptor,
             runtimeService: runtimeService,
-            processFactory: { process },
+            processFactory: { RecordingRawProcessSession() },
             languageServerLaunch: descriptor.languageServerLaunch,
-            languageServerCore: TestLspClientCore(diagnosticURL: source)
+            languageServerCore: core
         )
         let manager = LanguageToolingSessionManager(
             catalog: LanguageProviderCatalog(descriptors: [descriptor]),
@@ -1082,18 +1102,23 @@ struct RunConfigurationIntegrationTests {
         #expect(manager.activeLanguageServerIDs.isEmpty)
         #expect(manager.languageServerStates["swift"] == .initializing)
 
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "1",
-            "result": ["capabilities": [:]]
-        ])
-        await Self.drainMainActorTasks()
+        core.enqueueReady(capabilities: [])
+        #expect(await Self.waitForMainActorCondition {
+            manager.languageServerStates["swift"] == .ready
+        })
 
         #expect(manager.activeLanguageServerIDs == ["swift"])
         #expect(manager.languageServerStates["swift"] == .ready)
 
-        process.terminate(exitCode: 1)
-        await Self.drainMainActorTasks()
+        core.enqueueFailure(
+            code: "serverExited",
+            message: "Language server exited",
+            underlyingMessage: "exit code 1",
+            processExitCode: 1
+        )
+        #expect(await Self.waitForMainActorCondition {
+            manager.activeLanguageServerIDs.isEmpty
+        })
 
         #expect(manager.activeLanguageServerIDs.isEmpty)
         #expect(manager.languageServerFeatures["swift"] == nil)
@@ -1117,23 +1142,23 @@ struct RunConfigurationIntegrationTests {
         #expect(harness.manager.languageServerStates["swift"] == .initializing)
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
 
-        harness.process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "1",
-            "error": ["code": -32603, "message": "initialize rejected"]
-        ])
-        await Self.drainMainActorTasks()
+        harness.core.enqueueFailure(
+            code: "initializeFailed",
+            message: "initialize failed",
+            underlyingMessage: "initialize rejected"
+        )
+        #expect(await Self.waitForMainActorCondition {
+            if case .failed = harness.manager.languageServerStates["swift"] { return true }
+            return false
+        })
 
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
-        #expect(!harness.process.isRunning)
         guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
             Issue.record("Expected initialize error to fail the language server")
             return
         }
         #expect(message?.contains("initialize failed") == true)
-        #expect(!Self.framedMessages(harness.process.sentData).contains {
-            $0.contains("textDocument/didOpen")
-        })
+        #expect(harness.core.destroyedSessionIDs.count == 1)
     }
 
     @Test
@@ -1145,15 +1170,16 @@ struct RunConfigurationIntegrationTests {
             text: "struct App {}\n",
             rootURL: harness.root
         )
-        harness.process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "1",
-            "result": NSNull()
-        ])
-        await Self.drainMainActorTasks()
+        harness.core.enqueueFailure(
+            code: "invalidInitializeResult",
+            message: "initialize returned an invalid result"
+        )
+        #expect(await Self.waitForMainActorCondition {
+            if case .failed = harness.manager.languageServerStates["swift"] { return true }
+            return false
+        })
 
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
-        #expect(!harness.process.isRunning)
         guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
             Issue.record("Expected invalid initialize result to fail the language server")
             return
@@ -1172,6 +1198,12 @@ struct RunConfigurationIntegrationTests {
         )
         #expect(harness.manager.languageServerStates["swift"] == .initializing)
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
+        #expect(harness.core.startCalls.first?.initializeTimeout == 0.002)
+
+        harness.core.enqueueFailure(
+            code: "initializeTimedOut",
+            message: "initialize timed out"
+        )
 
         let didFail = await Self.waitForMainActorCondition {
             if case .failed = harness.manager.languageServerStates["swift"] {
@@ -1182,7 +1214,6 @@ struct RunConfigurationIntegrationTests {
 
         #expect(didFail)
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
-        #expect(!harness.process.isRunning)
         guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
             Issue.record("Expected initialize timeout to fail the language server")
             return
@@ -1198,8 +1229,10 @@ struct RunConfigurationIntegrationTests {
             text: "struct App { let title = 1 }\n",
             rootURL: harness.root
         )
-        Self.emitSuccessfulInitialize(on: harness.process)
-        await Self.drainMainActorTasks()
+        harness.core.enqueueReady()
+        #expect(await Self.waitForMainActorCondition {
+            harness.manager.languageServerStates["swift"] == .ready
+        })
 
         var completionResult: Result<[LanguageServerCompletionItem], Error>?
         var completionCount = 0
@@ -1213,8 +1246,20 @@ struct RunConfigurationIntegrationTests {
             completionResult = result
         }
 
-        harness.process.terminate(exitCode: 9)
-        await Self.drainMainActorTasks()
+        harness.core.enqueueRequestFailure(
+            operation: .completion,
+            code: "serverExited",
+            message: "Language server exited",
+            underlyingMessage: "exit code 9",
+            processExitCode: 9
+        )
+        harness.core.enqueueFailure(
+            code: "serverExited",
+            message: "Language server exited",
+            underlyingMessage: "exit code 9",
+            processExitCode: 9
+        )
+        #expect(await Self.waitForMainActorCondition { completionResult != nil })
 
         #expect(completionCount == 1)
         guard case .failure(let error)? = completionResult else {
@@ -1233,8 +1278,11 @@ struct RunConfigurationIntegrationTests {
             text: "struct App { let title = 1 }\n",
             rootURL: harness.root
         )
-        Self.emitSuccessfulInitialize(on: harness.process)
-        await Self.drainMainActorTasks()
+        harness.core.enqueueReady()
+        #expect(await Self.waitForMainActorCondition {
+            harness.manager.languageServerStates["swift"] == .ready
+        })
+        #expect(harness.core.startCalls.first?.requestTimeout == 0.002)
 
         var completionResult: Result<[LanguageServerCompletionItem], Error>?
         try harness.manager.completions(
@@ -1243,6 +1291,12 @@ struct RunConfigurationIntegrationTests {
             position: LanguageServerPosition(line: 0, utf16Column: 19),
             rootURL: harness.root
         ) { completionResult = $0 }
+
+        harness.core.enqueueRequestFailure(
+            operation: .completion,
+            code: "requestTimedOut",
+            message: "Language-server request timed out"
+        )
 
         let didComplete = await Self.waitForMainActorCondition {
             completionResult != nil
@@ -1254,54 +1308,49 @@ struct RunConfigurationIntegrationTests {
             return
         }
         #expect(error.localizedDescription.contains("timed out"))
-        #expect(harness.process.sentData.compactMap(Self.framedJSON).contains { message in
-            message["method"] as? String == "$/cancelRequest"
-                && (message["params"] as? [String: Any])?["id"] as? String == "2"
-        })
+        #expect(harness.core.cancelCalls.isEmpty)
         #expect(harness.manager.languageServerStates["swift"] == .ready)
     }
 
     @Test
     func didOpenWriteFailureFailsSessionAndRetriesWithFullOpen() async throws {
         let harness = makeLanguageServerHarness()
-        harness.process.sendFailurePredicate = { data in
-            String(decoding: data, as: UTF8.self).contains("textDocument/didOpen")
-        }
 
         try harness.manager.synchronizeLanguageServer(
             for: harness.source,
             text: "struct App {}\n",
             rootURL: harness.root
         )
-        Self.emitSuccessfulInitialize(on: harness.process)
-        await Self.drainMainActorTasks()
+        harness.core.enqueueFailure(
+            code: "transportFailed",
+            message: "language-server transport failed",
+            underlyingMessage: "didOpen write failed"
+        )
+        #expect(await Self.waitForMainActorCondition {
+            if case .failed = harness.manager.languageServerStates["swift"] { return true }
+            return false
+        })
 
         #expect(harness.manager.activeLanguageServerIDs.isEmpty)
-        #expect(!harness.process.isRunning)
         guard case .failed(_, let message)? = harness.manager.languageServerStates["swift"] else {
             Issue.record("Expected didOpen transport failure to fail the session")
             return
         }
         #expect(message?.contains("transport failed") == true)
-        #expect(!Self.framedMessages(harness.process.sentData).contains {
-            $0.contains("textDocument/didOpen")
-        })
 
-        harness.process.sendFailurePredicate = nil
         try harness.manager.synchronizeLanguageServer(
             for: harness.source,
             text: "struct App { let retried = true }\n",
             rootURL: harness.root
         )
-        Self.emitSuccessfulInitialize(on: harness.process)
-        await Self.drainMainActorTasks()
+        harness.core.enqueueReady()
+        #expect(await Self.waitForMainActorCondition {
+            harness.manager.languageServerStates["swift"] == .ready
+        })
 
-        let openMessages = Self.framedMessages(harness.process.sentData).filter {
-            $0.contains("textDocument/didOpen")
-        }
-        #expect(openMessages.count == 1)
-        #expect(openMessages[0].contains(#""version":1"#))
-        #expect(openMessages[0].contains("retried"))
+        #expect(harness.core.startCalls.count == 2)
+        #expect(harness.core.syncCalls.count == 2)
+        #expect(harness.core.syncCalls.last?.text == "struct App { let retried = true }\n")
         #expect(harness.manager.languageServerStates["swift"] == .ready)
     }
 
@@ -1326,21 +1375,21 @@ struct RunConfigurationIntegrationTests {
             activationPolicy: .onDemand,
             languageIdentifier: "go"
         )
-        let swiftProcess = RecordingRawProcessSession()
-        let goProcess = RecordingRawProcessSession()
+        let swiftCore = TestLanguageServerRuntimeCore(providerID: "swift")
+        let goCore = TestLanguageServerRuntimeCore(providerID: "go")
         let swiftSession = StdioLanguageServerSession(
+            providerID: "swift",
             executableURL: URL(fileURLWithPath: "/usr/bin/sourcekit-lsp"),
             arguments: [],
             environment: [:],
-            process: swiftProcess,
-            core: TestLspClientCore(diagnosticURL: swiftSource)
+            core: swiftCore
         )
         let goSession = StdioLanguageServerSession(
+            providerID: "go",
             executableURL: URL(fileURLWithPath: "/usr/bin/gopls"),
             arguments: [],
             environment: [:],
-            process: goProcess,
-            core: TestLspClientCore(diagnosticURL: goSource)
+            core: goCore
         )
         let manager = LanguageToolingSessionManager(
             catalog: LanguageProviderCatalog(descriptors: [swiftDescriptor, goDescriptor]),
@@ -1351,13 +1400,15 @@ struct RunConfigurationIntegrationTests {
         )
 
         try manager.synchronizeLanguageServer(for: swiftSource, text: "struct App {}\n", rootURL: root)
-        Self.emitSuccessfulInitialize(on: swiftProcess)
+        swiftCore.enqueueReady()
         try manager.synchronizeLanguageServer(for: goSource, text: "package main\n", rootURL: root)
-        Self.emitSuccessfulInitialize(on: goProcess)
-        await Self.drainMainActorTasks()
-        Self.emitPublishDiagnostics(on: swiftProcess)
-        Self.emitPublishDiagnostics(on: goProcess)
-        await Self.drainMainActorTasks()
+        goCore.enqueueReady()
+        #expect(await Self.waitForMainActorCondition {
+            manager.activeLanguageServerIDs == ["swift", "go"]
+        })
+        swiftCore.enqueueDiagnostics(for: swiftSource, message: "Swift warning")
+        goCore.enqueueDiagnostics(for: goSource, message: "Go warning")
+        #expect(await Self.waitForMainActorCondition { manager.diagnostics.count == 2 })
 
         #expect(manager.diagnostics(for: "swift")[swiftSource]?.count == 1)
         #expect(manager.diagnostics(for: "go")[goSource]?.count == 1)
@@ -1368,16 +1419,26 @@ struct RunConfigurationIntegrationTests {
         #expect(manager.diagnostics(for: "go")[goSource]?.count == 1)
         #expect(manager.diagnostics.count == 1)
 
-        goProcess.terminate(exitCode: 7)
-        await Self.drainMainActorTasks()
+        goCore.enqueueFailure(
+            code: "serverExited",
+            message: "Language server exited",
+            processExitCode: 7
+        )
+        #expect(await Self.waitForMainActorCondition {
+            manager.diagnostics(for: "go").isEmpty
+        })
         #expect(manager.diagnostics(for: "go").isEmpty)
         #expect(manager.diagnostics.isEmpty)
 
         try manager.synchronizeLanguageServer(for: goSource, text: "package main\n", rootURL: root)
-        Self.emitSuccessfulInitialize(on: goProcess)
-        await Self.drainMainActorTasks()
-        Self.emitPublishDiagnostics(on: goProcess)
-        await Self.drainMainActorTasks()
+        goCore.enqueueReady()
+        #expect(await Self.waitForMainActorCondition {
+            manager.languageServerStates["go"] == .ready
+        })
+        goCore.enqueueDiagnostics(for: goSource, message: "Go warning")
+        #expect(await Self.waitForMainActorCondition {
+            manager.diagnostics(for: "go")[goSource]?.count == 1
+        })
         #expect(manager.diagnostics(for: "go")[goSource]?.count == 1)
 
         let reconfiguredGo = LanguageProviderDescriptor(
@@ -1421,7 +1482,7 @@ struct RunConfigurationIntegrationTests {
             store: RunTestKeyValueStore()
         )
         let process = RecordingRawProcessSession()
-        let initializationRecorder = TestLspInitializationRecorder()
+        let core = TestLanguageServerRuntimeCore(providerID: "swift")
         let root = URL(fileURLWithPath: "/tmp/swift-project", isDirectory: true)
         let source = root.appendingPathComponent("App.swift")
         let runtime = StdioLanguageProviderRuntime(
@@ -1429,10 +1490,7 @@ struct RunConfigurationIntegrationTests {
             runtimeService: runtimeService,
             processFactory: { process },
             languageServerLaunch: descriptor.languageServerLaunch,
-            languageServerCore: TestLspClientCore(
-                diagnosticURL: source,
-                initializationRecorder: initializationRecorder
-            )
+            languageServerCore: core
         )
         let manager = LanguageToolingSessionManager(
             catalog: LanguageProviderCatalog(descriptors: [descriptor]),
@@ -1444,35 +1502,28 @@ struct RunConfigurationIntegrationTests {
             text: "struct App {}\n",
             rootURL: root
         )
-        let startRequest = try #require(process.requests.first)
-        #expect(startRequest.executablePath == "/usr/bin/sourcekit-lsp")
-        #expect(startRequest.arguments.isEmpty)
-        #expect(startRequest.environment?["SOURCEKIT_TOOLCHAIN"] == "custom")
-        #expect(initializationRecorder.options == .object(["indexing": .bool(true)]))
-        #expect(initializationRecorder.actions == ["create"])
+        let startCall = try #require(core.startCalls.first)
+        #expect(startCall.providerID == "swift")
+        #expect(startCall.executableURL.path == "/usr/bin/sourcekit-lsp")
+        #expect(startCall.arguments.isEmpty)
+        #expect(startCall.environment["SOURCEKIT_TOOLCHAIN"] == "custom")
+        #expect(startCall.rootURL == root.standardizedFileURL)
+        #expect(startCall.initializationOptions == .object(["indexing": .bool(true)]))
+        #expect(process.requests.isEmpty)
+        #expect(process.sentData.isEmpty)
         #expect(manager.activeLanguageServerIDs.isEmpty)
         #expect(manager.languageServerStates["swift"] == .initializing)
-        let firstFrameData = try #require(process.sentData.first)
-        let firstFrame = try #require(String(data: firstFrameData, encoding: .utf8))
-        #expect(firstFrame.hasPrefix("Content-Length: "))
-        #expect(firstFrame.contains("\r\n\r\n{\"jsonrpc\""))
-        #expect(firstFrame.contains("\"method\":\"initialize\""))
 
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "1",
-            "result": [
-                "capabilities": [
-                    "hoverProvider": true,
-                    "completionProvider": [:]
-                ],
-                "serverInfo": [
-                    "name": "sourcekit-lsp",
-                    "version": "6.2"
-                ]
-            ]
-        ])
-        await Self.drainMainActorTasks()
+        core.enqueueReady(
+            capabilities: [
+                "hover", "completion", "completionResolve", "rename", "formatting",
+                "codeActions", "codeActionResolve", "executeCommand"
+            ],
+            serverInfo: (name: "sourcekit-lsp", version: "6.2")
+        )
+        #expect(await Self.waitForMainActorCondition {
+            manager.languageServerStates["swift"] == .ready
+        })
         #expect(manager.activeLanguageServerIDs == ["swift"])
         #expect(manager.languageServerStates["swift"] == .ready)
         #expect(manager.languageServerInfos["swift"] == LanguageServerInfo(
@@ -1481,30 +1532,12 @@ struct RunConfigurationIntegrationTests {
         ))
         #expect(manager.languageServerFeatures["swift"]?.contains(.completion) == true)
         #expect(manager.languageServerFeatures["swift"]?.contains(.hover) == true)
-        #expect(initializationRecorder.actions.contains("applyServerMessage"))
-        #expect(initializationRecorder.actions.contains("openDocument"))
+        #expect(core.syncCalls.last?.text == "struct App {}\n")
 
-        let framedOutput = process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
-        #expect(framedOutput.contains("\"method\":\"initialized\""))
-        #expect(framedOutput.contains("\"method\":\"textDocument/didOpen\""))
-
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "method": "textDocument/publishDiagnostics",
-            "params": [
-                "uri": source.standardizedFileURL.absoluteString,
-                "diagnostics": [[
-                    "range": [
-                        "start": ["line": 0, "character": 7],
-                        "end": ["line": 0, "character": 10]
-                    ],
-                    "severity": 2,
-                    "source": "sourcekit-lsp",
-                    "message": "example warning"
-                ]]
-            ]
-        ])
-        await Self.drainMainActorTasks()
+        core.enqueueDiagnostics(for: source, message: "example warning")
+        #expect(await Self.waitForMainActorCondition {
+            manager.diagnostics[source.standardizedFileURL]?.first?.message == "example warning"
+        })
         #expect(manager.diagnostics[source.standardizedFileURL]?.first?.message == "example warning")
 
         var completionsResult: Result<[LanguageServerCompletionItem], Error>?
@@ -1516,21 +1549,15 @@ struct RunConfigurationIntegrationTests {
         ) { result in
             completionsResult = result
         }
-        #expect(process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
-            .contains("\"method\":\"textDocument/completion\""))
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "2",
-            "result": [
-                "items": [[
-                    "label": "title",
-                    "insertText": "title",
-                    "kind": 6,
-                    "detail": "String"
-                ]]
-            ]
+        core.enqueueRequestSuccess(operation: .completion, result: [
+            "items": [[
+                "label": "title",
+                "insertText": "title",
+                "kind": 6,
+                "detail": "String"
+            ]]
         ])
-        await Self.drainMainActorTasks()
+        #expect(await Self.waitForMainActorCondition { completionsResult != nil })
         #expect(try completionsResult?.get().first?.label == "title")
 
         var completionResolveResult: Result<LanguageServerCompletionItem, Error>?
@@ -1553,10 +1580,8 @@ struct RunConfigurationIntegrationTests {
         ) { result in
             completionResolveResult = result
         }
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "6",
-            "result": [
+        core.enqueueRequestSuccess(operation: .resolveCompletion, result: [
+            "item": [
                 "label": "title",
                 "insertText": "title",
                 "kind": 6,
@@ -1564,7 +1589,7 @@ struct RunConfigurationIntegrationTests {
                 "documentation": "Resolved docs"
             ]
         ])
-        await Self.drainMainActorTasks()
+        #expect(await Self.waitForMainActorCondition { completionResolveResult != nil })
         #expect(try completionResolveResult?.get().documentation == "Resolved docs")
 
         var renameResult: Result<LanguageServerWorkspaceEdit, Error>?
@@ -1577,22 +1602,18 @@ struct RunConfigurationIntegrationTests {
         ) { result in
             renameResult = result
         }
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "3",
-            "result": [
-                "changes": [
-                    source.standardizedFileURL.absoluteString: [[
-                        "range": [
-                            "start": ["line": 0, "character": 17],
-                            "end": ["line": 0, "character": 22]
-                        ],
-                        "newText": "headline"
-                    ]]
-                ]
+        core.enqueueRequestSuccess(operation: .rename, result: [
+            "changes": [
+                source.standardizedFileURL.path: [[
+                    "range": [
+                        "start": ["line": 0, "utf16Column": 17],
+                        "end": ["line": 0, "utf16Column": 22]
+                    ],
+                    "newText": "headline"
+                ]]
             ]
         ])
-        await Self.drainMainActorTasks()
+        #expect(await Self.waitForMainActorCondition { renameResult != nil })
         #expect(try renameResult?.get().changes[source.standardizedFileURL]?.first?.newText == "headline")
 
         var formatResult: Result<[LanguageServerTextEdit], Error>?
@@ -1603,18 +1624,16 @@ struct RunConfigurationIntegrationTests {
         ) { result in
             formatResult = result
         }
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "4",
-            "result": [[
+        core.enqueueRequestSuccess(operation: .formatting, result: [
+            "edits": [[
                 "range": [
-                    "start": ["line": 0, "character": 10],
-                    "end": ["line": 0, "character": 10]
+                    "start": ["line": 0, "utf16Column": 10],
+                    "end": ["line": 0, "utf16Column": 10]
                 ],
                 "newText": " "
             ]]
         ])
-        await Self.drainMainActorTasks()
+        #expect(await Self.waitForMainActorCondition { formatResult != nil })
         #expect(try formatResult?.get().first?.newText == " ")
 
         var actionsResult: Result<[LanguageServerCodeAction], Error>?
@@ -1641,10 +1660,8 @@ struct RunConfigurationIntegrationTests {
         ) { result in
             actionsResult = result
         }
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "5",
-            "result": [[
+        core.enqueueRequestSuccess(operation: .codeActions, result: [
+            "actions": [[
                 "title": "Fix warning",
                 "kind": "quickfix",
                 "isPreferred": true,
@@ -1656,7 +1673,7 @@ struct RunConfigurationIntegrationTests {
                 "data": ["token": "fix-1"]
             ]]
         ])
-        await Self.drainMainActorTasks()
+        #expect(await Self.waitForMainActorCondition { actionsResult != nil })
         let actions = try actionsResult?.get()
         #expect(actions?.first?.title == "Fix warning")
         #expect(actions?.first?.command?.command == "source.fix")
@@ -1677,18 +1694,17 @@ struct RunConfigurationIntegrationTests {
         ) { result in
             actionResolveResult = result
         }
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "7",
-            "result": [
+        core.enqueueRequestSuccess(operation: .resolveCodeAction, result: [
+            "action": [
                 "title": "Fix warning",
                 "kind": "quickfix",
+                "isPreferred": true,
                 "edit": [
                     "changes": [
-                        source.standardizedFileURL.absoluteString: [[
+                        source.standardizedFileURL.path: [[
                             "range": [
-                                "start": ["line": 0, "character": 10],
-                                "end": ["line": 0, "character": 10]
+                                "start": ["line": 0, "utf16Column": 10],
+                                "end": ["line": 0, "utf16Column": 10]
                             ],
                             "newText": " "
                         ]]
@@ -1697,7 +1713,7 @@ struct RunConfigurationIntegrationTests {
                 "data": ["token": "fix-1"]
             ]
         ])
-        await Self.drainMainActorTasks()
+        #expect(await Self.waitForMainActorCondition { actionResolveResult != nil })
         #expect(try actionResolveResult?.get().edit?.changes[source.standardizedFileURL]?.first?.newText == " ")
 
         var executeResult: Result<Void, Error>?
@@ -1713,33 +1729,53 @@ struct RunConfigurationIntegrationTests {
         ) { result in
             executeResult = result
         }
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "8",
-            "result": NSNull()
-        ])
-        await Self.drainMainActorTasks()
+        let executeCall = try #require(core.requestCalls.last)
+        #expect(executeCall.operation == .executeCommand)
+        #expect(executeCall.fileURL == nil)
+        #expect(executeCall.command?.command == "source.fix")
+        core.enqueueRequestSuccess(operation: .executeCommand, result: ["ok": true])
+        #expect(await Self.waitForMainActorCondition { executeResult != nil })
         #expect(executeResult != nil)
         try executeResult?.get()
 
         manager.closeDocument(source)
-        #expect(process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
-            .contains("\"method\":\"textDocument/didClose\""))
+        #expect(core.closeCalls.last?.fileURL == source.standardizedFileURL)
         manager.stopLanguageServer(providerID: "swift")
-        #expect(process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
-            .contains("\"method\":\"shutdown\""))
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "9",
-            "result": NSNull()
-        ])
-        await Self.drainMainActorTasks()
-        let shutdownOutput = process.sentData.compactMap { String(data: $0, encoding: .utf8) }.joined()
-        #expect(shutdownOutput.contains("\"method\":\"exit\""))
-        #expect(!process.isRunning)
-        #expect(initializationRecorder.actions.contains("closeDocument"))
-        #expect(initializationRecorder.actions.contains("shutdown"))
-        #expect(initializationRecorder.actions.filter { $0 == "destroy" }.count == 1)
+        #expect(core.stopCalls.count == 1)
+        #expect(await Self.waitForMainActorCondition { core.destroyedSessionIDs.count == 1 })
+    }
+
+    @Test
+    func virtualDocumentContentProjectsFromRustEvents() async throws {
+        let core = TestLanguageServerRuntimeCore(providerID: "java")
+        let session = StdioLanguageServerSession(
+            providerID: "java",
+            executableURL: URL(fileURLWithPath: "/test-tools/jdtls"),
+            arguments: [],
+            environment: [:],
+            core: core
+        )
+        try session.start(rootURL: URL(fileURLWithPath: "/test-workspace", isDirectory: true))
+        core.enqueueReady(capabilities: ["executeCommand"])
+        #expect(await Self.waitForMainActorCondition {
+            session.features.contains(.executeCommand)
+        })
+
+        let uri = "jdt://contents/java.base/java/lang/String.class"
+        var result: Result<String, Error>?
+        try session.resolveVirtualDocument(uri: uri) { result = $0 }
+        let call = try #require(core.requestCalls.last)
+        #expect(call.operation == .virtualDocument)
+        #expect(call.fileURL == nil)
+        #expect(call.virtualURI == uri)
+
+        core.enqueueRequestSuccess(
+            operation: .virtualDocument,
+            result: ["text": "public final class String {}"]
+        )
+        #expect(await Self.waitForMainActorCondition { result != nil })
+        #expect(try result?.get() == "public final class String {}")
+        session.stop()
     }
 
     @Test
@@ -3160,19 +3196,15 @@ struct RunConfigurationIntegrationTests {
         )
         let root = URL(fileURLWithPath: "/tmp/lithe-lsp-reliability", isDirectory: true)
         let source = root.appendingPathComponent("App.swift")
-        let process = RecordingRawProcessSession()
-        let initializationRecorder = TestLspInitializationRecorder()
+        let core = TestLanguageServerRuntimeCore(providerID: "swift")
         let session = StdioLanguageServerSession(
+            providerID: "swift",
             executableURL: URL(fileURLWithPath: "/usr/bin/sourcekit-lsp"),
             arguments: [],
             environment: [:],
-            initializeTimeoutNanoseconds: initializeTimeoutNanoseconds,
-            requestTimeoutNanoseconds: requestTimeoutNanoseconds,
-            process: process,
-            core: TestLspClientCore(
-                diagnosticURL: source,
-                initializationRecorder: initializationRecorder
-            )
+            initializeTimeout: TimeInterval(initializeTimeoutNanoseconds) / 1_000_000_000,
+            requestTimeout: TimeInterval(requestTimeoutNanoseconds) / 1_000_000_000,
+            core: core
         )
         let runtime = TestLanguageServerRuntime(descriptor: descriptor, session: session)
         let manager = LanguageToolingSessionManager(
@@ -3182,45 +3214,10 @@ struct RunConfigurationIntegrationTests {
         return LanguageServerReliabilityHarness(
             root: root,
             source: source,
-            process: process,
+            core: core,
             session: session,
             manager: manager
         )
-    }
-
-    private static func emitSuccessfulInitialize(on process: RecordingRawProcessSession) {
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "id": "1",
-            "result": [
-                "capabilities": [
-                    "hoverProvider": true,
-                    "completionProvider": [:]
-                ],
-                "serverInfo": [
-                    "name": "sourcekit-lsp",
-                    "version": "6.2"
-                ]
-            ]
-        ])
-    }
-
-    private static func emitPublishDiagnostics(on process: RecordingRawProcessSession) {
-        process.emitJSON([
-            "jsonrpc": "2.0",
-            "method": "textDocument/publishDiagnostics",
-            "params": [
-                "uri": "file:///ignored-by-test-core",
-                "diagnostics": []
-            ]
-        ])
-    }
-
-    private static func framedMessages(_ frames: [Data]) -> [String] {
-        frames.compactMap { data in
-            guard let separator = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
-            return String(decoding: data[separator.upperBound...], as: UTF8.self)
-        }
     }
 
     private static func debugRequest(named command: String, in frames: [Data]) -> [String: Any]? {
@@ -3253,7 +3250,7 @@ struct RunConfigurationIntegrationTests {
 private struct LanguageServerReliabilityHarness {
     let root: URL
     let source: URL
-    let process: RecordingRawProcessSession
+    let core: TestLanguageServerRuntimeCore
     let session: StdioLanguageServerSession
     let manager: LanguageToolingSessionManager
 }
@@ -3457,466 +3454,136 @@ private final class RecordingRunExecutableResolver: RunExecutableResolving {
     }
 }
 
-private struct TestLspClientCore: LspClientCore, LspSessionCore {
-    let diagnosticURL: URL
-    var initializationRecorder: TestLspInitializationRecorder?
-
-    init(
-        diagnosticURL: URL,
-        initializationRecorder: TestLspInitializationRecorder? = nil
-    ) {
-        self.diagnosticURL = diagnosticURL
-        self.initializationRecorder = initializationRecorder
+private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @unchecked Sendable {
+    struct StartCall {
+        let providerID: String
+        let executableURL: URL
+        let arguments: [String]
+        let environment: [String: String]
+        let rootURL: URL
+        let workingDirectoryURL: URL
+        let initializationOptions: ToolingJSONValue?
+        let runtimeExecutableURL: URL?
+        let cacheDirectoryURL: URL?
+        let initializeTimeout: TimeInterval
+        let requestTimeout: TimeInterval
+        let shutdownTimeout: TimeInterval
     }
 
-    func lspClientInitialize(rootURL _: URL) -> RustCoreBridge.LspClientResponsePayload? {
-        response(
-            messages: [#"{"jsonrpc":"2.0","id":"1","method":"initialize","params":{}}"#]
-        )
+    struct SyncCall {
+        let sessionID: String
+        let fileURL: URL
+        let languageID: String
+        let text: String
     }
 
-    func lspClientInitialize(
+    struct FileCall {
+        let sessionID: String
+        let fileURL: URL
+    }
+
+    struct RequestCall {
+        let sessionID: String
+        let operationID: String
+        let operation: LanguageServerOperation
+        let fileURL: URL?
+        let virtualURI: String?
+        let position: LanguageServerPosition?
+        let newName: String?
+        let range: LanguageServerRange?
+        let diagnostics: [LanguageServerDiagnostic]
+        let completionItem: LanguageServerCompletionItem?
+        let codeAction: LanguageServerCodeAction?
+        let command: LanguageServerCommand?
+    }
+
+    struct CancelCall {
+        let sessionID: String
+        let operationID: String
+    }
+
+    private let providerID: String
+    private let sessionID: String
+    private var nextOperationNumber = 1
+    private var nextSequence: UInt64 = 1
+    private var events: [RustCoreBridge.LspRuntimeEventPayload] = []
+
+    private(set) var startCalls: [StartCall] = []
+    private(set) var stopCalls: [String] = []
+    private(set) var syncCalls: [SyncCall] = []
+    private(set) var closeCalls: [FileCall] = []
+    private(set) var requestCalls: [RequestCall] = []
+    private(set) var cancelCalls: [CancelCall] = []
+    private(set) var destroyedSessionIDs: [String] = []
+
+    init(providerID: String = "swift", sessionID: String? = nil) {
+        self.providerID = providerID
+        self.sessionID = sessionID ?? "test-\(providerID)-session"
+    }
+
+    func lspStartServer(
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
         rootURL: URL,
-        initializationOptions: ToolingJSONValue?
-    ) -> RustCoreBridge.LspClientResponsePayload? {
-        initializationRecorder?.options = initializationOptions
-        return lspClientInitialize(rootURL: rootURL)
+        workingDirectoryURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        runtimeExecutableURL: URL?,
+        cacheDirectoryURL: URL?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<RustCoreBridge.LspStartServerPayload, RustCoreBridge.CoreCallError> {
+        startCalls.append(StartCall(
+            providerID: providerID,
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            rootURL: rootURL,
+            workingDirectoryURL: workingDirectoryURL,
+            initializationOptions: initializationOptions,
+            runtimeExecutableURL: runtimeExecutableURL,
+            cacheDirectoryURL: cacheDirectoryURL,
+            initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout
+        ))
+        return .success(Self.decode([
+            "sessionId": sessionID,
+            "state": "initializing"
+        ]))
     }
 
-    func lspClientOpenDocument(
-        state _: ToolingJSONValue,
+    func lspStopServer(sessionID: String) {
+        stopCalls.append(sessionID)
+        enqueueEvent(type: "stateChanged", fields: ["state": "stopped"])
+    }
+
+    func lspSyncDocument(
+        sessionID: String,
         fileURL: URL,
         languageID: String,
         text: String
-    ) -> RustCoreBridge.LspClientResponsePayload? {
-        response(messages: [
-            #"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"\#(fileURL.standardizedFileURL.absoluteString)","languageId":"\#(languageID)","version":1,"text":"\#(text)"}}}"#
-        ])
-    }
-
-    func lspClientChangeDocument(
-        state _: ToolingJSONValue,
-        fileURL _: URL,
-        text _: String
-    ) -> RustCoreBridge.LspClientResponsePayload? {
-        response()
-    }
-
-    func lspClientCloseDocument(
-        state: ToolingJSONValue,
-        fileURL: URL
-    ) -> RustCoreBridge.LspClientResponsePayload? {
-        response(
-            state: state,
-            messages: [
-                #"{"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":"\#(fileURL.standardizedFileURL.absoluteString)"}}}"#
-            ]
-        )
-    }
-
-    func lspClientShutdown(
-        state: ToolingJSONValue
-    ) -> RustCoreBridge.LspClientResponsePayload? {
-        response(
-            state: state,
-            messages: [#"{"jsonrpc":"2.0","id":"9","method":"shutdown"}"#]
-        )
-    }
-
-    func lspClientRequest(
-        state _: ToolingJSONValue,
-        fileURL _: URL,
-        method: String,
-        position _: LanguageServerPosition?,
-        newName _: String?,
-        range _: LanguageServerRange?,
-        diagnostics _: [LanguageServerDiagnostic],
-        completionItem _: LanguageServerCompletionItem?,
-        codeAction _: LanguageServerCodeAction?,
-        command _: LanguageServerCommand?
-    ) -> RustCoreBridge.LspClientResponsePayload? {
-        let id: String
-        switch method {
-        case "textDocument/rename":
-            id = "3"
-        case "textDocument/formatting":
-            id = "4"
-        case "textDocument/codeAction":
-            id = "5"
-        case "completionItem/resolve":
-            id = "6"
-        case "codeAction/resolve":
-            id = "7"
-        case "workspace/executeCommand":
-            id = "8"
-        default:
-            id = "2"
-        }
-        return response(messages: [
-            #"{"jsonrpc":"2.0","id":"\#(id)","method":"\#(method)","params":{}}"#
-        ])
-    }
-
-    func lspClientApplyServerMessage(
-        state _: ToolingJSONValue,
-        message: String
-    ) -> RustCoreBridge.LspClientResponsePayload? {
-        if let data = message.data(using: .utf8),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           object["id"] as? String == "1" {
-            let result = object["result"].flatMap(ToolingJSONValue.fromFoundation)
-            let error = object["error"].map { String(describing: $0) }
-            return initializeResponse(result: result, error: error)
-        }
-        if message.contains("publishDiagnostics") {
-            return response(events: [
-                RustCoreBridge.LspClientEventPayload(
-                    kind: "diagnostics",
-                    requestId: nil,
-                    method: nil,
-                    uri: diagnosticURL.standardizedFileURL.absoluteString,
-                    diagnostics: [
-                        RustCoreBridge.LspClientDiagnosticPayload(
-                            range: RustCoreBridge.LspRangePayload(
-                                start: RustCoreBridge.LspPositionPayload(line: 0, utf16Column: 7),
-                                end: RustCoreBridge.LspPositionPayload(line: 0, utf16Column: 10)
-                            ),
-                            severity: 2,
-                            message: "example warning",
-                            source: "sourcekit-lsp",
-                            code: nil
-                        )
-                    ],
-                    result: nil,
-                    error: nil
-                )
-            ])
-        }
-        if message.contains(#""id":"2""#) {
-            return response(events: [
-                RustCoreBridge.LspClientEventPayload(
-                    kind: "response",
-                    requestId: "2",
-                    method: "textDocument/completion",
-                    uri: nil,
-                    diagnostics: nil,
-                    result: .object([
-                        "items": .array([
-                            .object([
-                                "label": .string("title"),
-                                "insertText": .string("title"),
-                                "kind": .integer(6),
-                                "detail": .string("String"),
-                                "additionalTextEdits": .array([]),
-                                "data": .null
-                            ])
-                        ])
-                    ]),
-                    error: nil
-                )
-            ])
-        }
-        if message.contains(#""id":"3""#) {
-            return response(events: [
-                RustCoreBridge.LspClientEventPayload(
-                    kind: "response",
-                    requestId: "3",
-                    method: "textDocument/rename",
-                    uri: nil,
-                    diagnostics: nil,
-                    result: .object([
-                        "changes": .object([
-                            diagnosticURL.standardizedFileURL.path: .array([
-                                .object([
-                                    "range": .object([
-                                        "start": .object(["line": .integer(0), "utf16Column": .integer(17)]),
-                                        "end": .object(["line": .integer(0), "utf16Column": .integer(22)])
-                                    ]),
-                                    "newText": .string("headline")
-                                ])
-                            ])
-                        ])
-                    ]),
-                    error: nil
-                )
-            ])
-        }
-        if message.contains(#""id":"4""#) {
-            return response(events: [
-                RustCoreBridge.LspClientEventPayload(
-                    kind: "response",
-                    requestId: "4",
-                    method: "textDocument/formatting",
-                    uri: nil,
-                    diagnostics: nil,
-                    result: .object([
-                        "edits": .array([
-                            .object([
-                                "range": .object([
-                                    "start": .object(["line": .integer(0), "utf16Column": .integer(10)]),
-                                    "end": .object(["line": .integer(0), "utf16Column": .integer(10)])
-                                ]),
-                                "newText": .string(" ")
-                            ])
-                        ])
-                    ]),
-                    error: nil
-                )
-            ])
-        }
-        if message.contains(#""id":"5""#) {
-            return response(events: [
-                RustCoreBridge.LspClientEventPayload(
-                    kind: "response",
-                    requestId: "5",
-                    method: "textDocument/codeAction",
-                    uri: nil,
-                    diagnostics: nil,
-                    result: .object([
-                        "actions": .array([
-                            .object([
-                                "title": .string("Fix warning"),
-                                "kind": .string("quickfix"),
-                                "isPreferred": .bool(true),
-                                "command": .object([
-                                    "title": .string("Apply fix"),
-                                    "command": .string("source.fix"),
-                                    "arguments": .array([
-                                        .object(["uri": .string(diagnosticURL.standardizedFileURL.absoluteString)])
-                                    ])
-                                ]),
-                                "data": .object(["token": .string("fix-1")])
-                            ])
-                        ])
-                    ]),
-                    error: nil
-                )
-            ])
-        }
-        if message.contains(#""id":"6""#) {
-            return response(events: [
-                RustCoreBridge.LspClientEventPayload(
-                    kind: "response",
-                    requestId: "6",
-                    method: "completionItem/resolve",
-                    uri: nil,
-                    diagnostics: nil,
-                    result: .object([
-                        "item": .object([
-                            "label": .string("title"),
-                            "insertText": .string("title"),
-                            "kind": .integer(6),
-                            "detail": .string("String"),
-                            "documentation": .string("Resolved docs"),
-                            "additionalTextEdits": .array([]),
-                            "data": .object(["id": .string("completion-1")])
-                        ])
-                    ]),
-                    error: nil
-                )
-            ])
-        }
-        if message.contains(#""id":"7""#) {
-            return response(events: [
-                RustCoreBridge.LspClientEventPayload(
-                    kind: "response",
-                    requestId: "7",
-                    method: "codeAction/resolve",
-                    uri: nil,
-                    diagnostics: nil,
-                    result: .object([
-                        "action": .object([
-                            "title": .string("Fix warning"),
-                            "kind": .string("quickfix"),
-                            "isPreferred": .bool(false),
-                            "edit": .object([
-                                "changes": .object([
-                                    diagnosticURL.standardizedFileURL.path: .array([
-                                        .object([
-                                            "range": .object([
-                                                "start": .object(["line": .integer(0), "utf16Column": .integer(10)]),
-                                                "end": .object(["line": .integer(0), "utf16Column": .integer(10)])
-                                            ]),
-                                            "newText": .string(" ")
-                                        ])
-                                    ])
-                                ])
-                            ]),
-                            "data": .object(["token": .string("fix-1")])
-                        ])
-                    ]),
-                    error: nil
-                )
-            ])
-        }
-        if message.contains(#""id":"8""#) {
-            return response(events: [
-                RustCoreBridge.LspClientEventPayload(
-                    kind: "response",
-                    requestId: "8",
-                    method: "workspace/executeCommand",
-                    uri: nil,
-                    diagnostics: nil,
-                    result: .object(["ok": .bool(true)]),
-                    error: nil
-                )
-            ])
-        }
-        if message.contains(#""id":"9""#) {
-            return response(
-                state: .object([:]),
-                messages: [#"{"jsonrpc":"2.0","method":"exit"}"#],
-                events: [
-                    RustCoreBridge.LspClientEventPayload(
-                        kind: "response",
-                        requestId: "9",
-                        method: "shutdown",
-                        uri: nil,
-                        diagnostics: nil,
-                        result: .object(["ok": .bool(true)]),
-                        error: nil
-                    )
-                ]
-            )
-        }
-        return initializeResponse(
-            result: .object([
-                "capabilities": .object([:]),
-                "serverInfo": .object([
-                    "name": .string("sourcekit-lsp"),
-                    "version": .string("6.2")
-                ])
-            ]),
-            error: nil
-        )
-    }
-
-    private func initializeResponse(
-        result: ToolingJSONValue?,
-        error: String?
-    ) -> RustCoreBridge.LspClientResponsePayload {
-        response(
-            state: .object([
-                "serverCapabilities": .array([
-                    .string("hover"),
-                    .string("completion"),
-                    .string("completionResolve"),
-                    .string("rename"),
-                    .string("formatting"),
-                    .string("codeActions"),
-                    .string("codeActionResolve"),
-                    .string("executeCommand")
-                ])
-            ]),
-            messages: error == nil && result != nil
-                ? [#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#]
-                : [],
-            events: [
-                RustCoreBridge.LspClientEventPayload(
-                    kind: error == nil ? "response" : "error",
-                    requestId: "1",
-                    method: "initialize",
-                    uri: nil,
-                    diagnostics: nil,
-                    result: result,
-                    error: error
-                )
-            ]
-        )
-    }
-
-    func lspFrameMessage(_ message: String) -> RustCoreBridge.LspFramePayload? {
-        RustCoreBridge.LspFramePayload(
-            frame: "Content-Length: \(message.utf8.count)\r\n\r\n\(message)"
-        )
-    }
-
-    func lspParseServerMessages(
-        buffer: [UInt8],
-        chunk: [UInt8]
-    ) -> RustCoreBridge.LspParsedMessagesPayload? {
-        var data = Data(buffer + chunk)
-        var messages: [String] = []
-        while let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) {
-            let headerData = data[..<headerEnd.lowerBound]
-            guard let header = String(data: headerData, encoding: .utf8),
-                  let contentLength = header
-                    .split(separator: "\r\n")
-                    .first(where: { $0.lowercased().hasPrefix("content-length:") })?
-                    .split(separator: ":", maxSplits: 1)
-                    .last
-                    .flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }) else {
-                data.removeSubrange(...headerEnd.upperBound)
-                continue
-            }
-            let bodyStart = headerEnd.upperBound
-            guard data.count >= bodyStart + contentLength else { break }
-            let body = data.subdata(in: bodyStart..<(bodyStart + contentLength))
-            data.removeSubrange(0..<(bodyStart + contentLength))
-            if let message = String(data: body, encoding: .utf8) {
-                messages.append(message)
-            }
-        }
-        return RustCoreBridge.LspParsedMessagesPayload(buffer: Array(data), messages: messages)
-    }
-
-    func lspSessionCreate(
-        rootURL: URL,
-        initializationOptions: ToolingJSONValue?
-    ) -> RustCoreBridge.LspSessionResponsePayload? {
-        initializationRecorder?.options = initializationOptions
-        initializationRecorder?.actions.append("create")
-        return lspClientInitialize(rootURL: rootURL).map(sessionResponse)
-    }
-
-    func lspSessionOpenDocument(
-        sessionID _: String,
-        fileURL: URL,
-        languageID: String,
-        text: String
-    ) -> RustCoreBridge.LspSessionResponsePayload? {
-        initializationRecorder?.actions.append("openDocument")
-        return lspClientOpenDocument(
-            state: .object([:]),
+    ) -> Result<Void, RustCoreBridge.CoreCallError> {
+        syncCalls.append(SyncCall(
+            sessionID: sessionID,
             fileURL: fileURL,
             languageID: languageID,
             text: text
-        ).map(sessionResponse)
+        ))
+        return .success(())
     }
 
-    func lspSessionChangeDocument(
-        sessionID _: String,
-        fileURL: URL,
-        text: String
-    ) -> RustCoreBridge.LspSessionResponsePayload? {
-        initializationRecorder?.actions.append("changeDocument")
-        return lspClientChangeDocument(
-            state: .object([:]),
-            fileURL: fileURL,
-            text: text
-        ).map(sessionResponse)
+    func lspCloseDocument(sessionID: String, fileURL: URL) {
+        closeCalls.append(FileCall(sessionID: sessionID, fileURL: fileURL))
     }
 
-    func lspSessionCloseDocument(
-        sessionID _: String,
-        fileURL: URL
-    ) -> RustCoreBridge.LspSessionResponsePayload? {
-        initializationRecorder?.actions.append("closeDocument")
-        return lspClientCloseDocument(state: .object([:]), fileURL: fileURL)
-            .map(sessionResponse)
-    }
-
-    func lspSessionShutdown(
-        sessionID _: String
-    ) -> RustCoreBridge.LspSessionResponsePayload? {
-        initializationRecorder?.actions.append("shutdown")
-        return lspClientShutdown(state: .object([:])).map(sessionResponse)
-    }
-
-    func lspSessionRequest(
-        sessionID _: String,
-        fileURL: URL,
-        method: String,
+    func lspRequest(
+        sessionID: String,
+        operation: LanguageServerOperation,
+        fileURL: URL?,
+        virtualURI: String?,
         position: LanguageServerPosition?,
         newName: String?,
         range: LanguageServerRange?,
@@ -3924,12 +3591,15 @@ private struct TestLspClientCore: LspClientCore, LspSessionCore {
         completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
-    ) -> RustCoreBridge.LspSessionResponsePayload? {
-        initializationRecorder?.actions.append("request")
-        return lspClientRequest(
-            state: .object([:]),
+    ) -> Result<RustCoreBridge.LspOperationPayload, RustCoreBridge.CoreCallError> {
+        let operationID = "operation-\(nextOperationNumber)"
+        nextOperationNumber += 1
+        requestCalls.append(RequestCall(
+            sessionID: sessionID,
+            operationID: operationID,
+            operation: operation,
             fileURL: fileURL,
-            method: method,
+            virtualURI: virtualURI,
             position: position,
             newName: newName,
             range: range,
@@ -3937,63 +3607,145 @@ private struct TestLspClientCore: LspClientCore, LspSessionCore {
             completionItem: completionItem,
             codeAction: codeAction,
             command: command
-        ).map(sessionResponse)
+        ))
+        return .success(Self.decode(["operationId": operationID]))
     }
 
-    func lspSessionApplyServerMessage(
-        sessionID _: String,
-        message: String
-    ) -> RustCoreBridge.LspSessionResponsePayload? {
-        initializationRecorder?.actions.append("applyServerMessage")
-        return lspClientApplyServerMessage(state: .object([:]), message: message)
-            .map(sessionResponse)
+    func lspCancelOperation(sessionID: String, operationID: String) {
+        cancelCalls.append(CancelCall(sessionID: sessionID, operationID: operationID))
     }
 
-    func lspSessionDestroy(sessionID _: String) {
-        initializationRecorder?.actions.append("destroy")
+    func lspPollEvents(sessionID _: String) -> [RustCoreBridge.LspRuntimeEventPayload] {
+        defer { events.removeAll() }
+        return events
     }
 
-    private func response(
-        state: ToolingJSONValue = .object([:]),
-        messages: [String] = [],
-        events: [RustCoreBridge.LspClientEventPayload] = []
-    ) -> RustCoreBridge.LspClientResponsePayload {
-        RustCoreBridge.LspClientResponsePayload(
-            state: state,
-            messages: messages,
-            events: events
-        )
+    func lspDestroyServer(sessionID: String) {
+        destroyedSessionIDs.append(sessionID)
     }
 
-    private func sessionResponse(
-        _ response: RustCoreBridge.LspClientResponsePayload
-    ) -> RustCoreBridge.LspSessionResponsePayload {
-        let capabilities: [String]
-        if case .object(let state) = response.state,
-           case .array(let values)? = state["serverCapabilities"] {
-            capabilities = values.compactMap {
-                guard case .string(let value) = $0 else { return nil }
-                return value
-            }
-        } else {
-            capabilities = []
-        }
+    func enqueueReady(
+        capabilities: [String] = ["completion", "hover"],
+        serverInfo: (name: String, version: String?)? = nil
+    ) {
         if !capabilities.isEmpty {
-            initializationRecorder?.serverCapabilities = capabilities
+            enqueueEvent(type: "featuresChanged", fields: ["capabilities": capabilities])
         }
-        return RustCoreBridge.LspSessionResponsePayload(
-            sessionId: "test-session",
-            serverCapabilities: initializationRecorder?.serverCapabilities ?? capabilities,
-            messages: response.messages,
-            events: response.events
-        )
+        if let serverInfo {
+            enqueueEvent(type: "serverInfoChanged", fields: [
+                "serverInfo": [
+                    "name": serverInfo.name,
+                    "version": serverInfo.version as Any
+                ]
+            ])
+        }
+        enqueueEvent(type: "stateChanged", fields: ["state": "ready"])
     }
-}
 
-private final class TestLspInitializationRecorder: @unchecked Sendable {
-    var options: ToolingJSONValue?
-    var actions: [String] = []
-    var serverCapabilities: [String] = []
+    func enqueueFailure(
+        code: String,
+        message: String,
+        underlyingMessage: String? = nil,
+        processExitCode: Int? = nil
+    ) {
+        enqueueEvent(type: "stateChanged", fields: [
+            "state": "failed",
+            "error": runtimeError(
+                code: code,
+                message: message,
+                underlyingMessage: underlyingMessage,
+                processExitCode: processExitCode
+            )
+        ])
+    }
+
+    func enqueueRequestSuccess(operation: LanguageServerOperation, result: Any) {
+        guard let call = requestCalls.last(where: { $0.operation == operation }) else {
+            preconditionFailure("No recorded request for \(operation.rawValue)")
+        }
+        enqueueEvent(type: "requestCompleted", fields: [
+            "operationId": call.operationID,
+            "method": operation.rawValue,
+            "result": result
+        ])
+    }
+
+    func enqueueRequestFailure(
+        operation: LanguageServerOperation,
+        code: String,
+        message: String,
+        underlyingMessage: String? = nil,
+        processExitCode: Int? = nil
+    ) {
+        guard let call = requestCalls.last(where: { $0.operation == operation }) else {
+            preconditionFailure("No recorded request for \(operation.rawValue)")
+        }
+        enqueueEvent(type: "requestCompleted", fields: [
+            "operationId": call.operationID,
+            "method": operation.rawValue,
+            "error": runtimeError(
+                code: code,
+                message: message,
+                underlyingMessage: underlyingMessage,
+                processExitCode: processExitCode
+            )
+        ])
+    }
+
+    func enqueueDiagnostics(for fileURL: URL, message: String) {
+        enqueueEvent(type: "diagnostics", fields: [
+            "uri": fileURL.standardizedFileURL.absoluteString,
+            "version": 1,
+            "diagnostics": [[
+                "range": [
+                    "start": ["line": 0, "utf16Column": 7],
+                    "end": ["line": 0, "utf16Column": 10]
+                ],
+                "severity": 2,
+                "message": message,
+                "source": "test-language-server"
+            ]]
+        ])
+    }
+
+    private func enqueueEvent(type: String, fields: [String: Any]) {
+        var object: [String: Any] = [
+            "type": type,
+            "sequence": nextSequence,
+            "providerId": providerID,
+            "sessionId": sessionID
+        ]
+        nextSequence += 1
+        object.merge(fields) { _, updated in updated }
+        events.append(Self.decode(object))
+    }
+
+    private func runtimeError(
+        code: String,
+        message: String,
+        underlyingMessage: String?,
+        processExitCode: Int?
+    ) -> [String: Any] {
+        var error: [String: Any] = [
+            "code": code,
+            "providerId": providerID,
+            "sessionId": sessionID,
+            "stage": "test",
+            "message": message
+        ]
+        if let underlyingMessage { error["underlyingMessage"] = underlyingMessage }
+        if let processExitCode { error["processExitCode"] = processExitCode }
+        return error
+    }
+
+    private static func decode<Payload: Decodable>(_ object: Any) -> Payload {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: object)
+            return try JSONDecoder().decode(Payload.self, from: data)
+        } catch {
+            preconditionFailure("Invalid language-server test payload: \(error)")
+        }
+    }
 }
 
 private final class RecordingRawProcessSession: RawProcessSession, @unchecked Sendable {

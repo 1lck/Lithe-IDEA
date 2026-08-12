@@ -170,6 +170,29 @@ final class DocumentFeatureModel: ObservableObject {
         onDocumentOpened?(document)
     }
 
+    func openVirtualDocument(
+        _ url: URL,
+        text: String,
+        displayPath: String?
+    ) {
+        guard !url.isFileURL else { return }
+        if let existing = openDocuments.first(where: { $0.url == url }) {
+            activeDocumentID = existing.id
+            return
+        }
+        let document = EditorDocument(
+            url: url,
+            text: text,
+            modificationDate: nil,
+            isReadOnly: true,
+            displayPath: displayPath
+        )
+        openDocuments.append(document)
+        activeDocumentID = document.id
+        onDocumentCollectionChanged?()
+        onDocumentOpened?(document)
+    }
+
     func requestCloseDocument(_ document: EditorDocument) {
         isPendingProjectClose = false
         pendingCloseQueue = []

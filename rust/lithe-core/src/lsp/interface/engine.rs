@@ -8,8 +8,8 @@ use super::{
     ParseServerMessagesRequest,
 };
 use crate::lsp::languages::jdt::{
-    adapt_start, initialized_notification, virtual_source_resolve_params, workspace_configuration,
-    JdtStartContext, WorkspaceConfigurationItem,
+    adapt_start, initialized_notification, virtual_source_content, virtual_source_resolve_params,
+    workspace_configuration, JdtStartContext, WorkspaceConfigurationItem,
 };
 use super::process::{
     LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher,
@@ -221,8 +221,6 @@ pub struct LspRuntimeError {
     pub method: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_uri: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<String>,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub underlying_message: Option<String>,
@@ -230,6 +228,7 @@ pub struct LspRuntimeError {
     pub process_exit_code: Option<i32>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineSnapshot {
@@ -250,6 +249,7 @@ pub struct EngineSnapshot {
 enum PendingKind {
     Initialize,
     Feature,
+    VirtualDocument,
     Shutdown,
 }
 
@@ -280,6 +280,7 @@ struct SessionState {
 struct RuntimeSession {
     id: String,
     provider_id: String,
+    #[cfg(test)]
     root_uri: String,
     state: Mutex<SessionState>,
     process: Arc<dyn LspProcessHandle>,
@@ -349,14 +350,6 @@ pub fn poll_events(request: SessionRequest) -> Result<PollEventsResponse, CoreEr
     Ok(PollEventsResponse {
         events: engine().session(&request.session_id)?.poll_events()?,
     })
-}
-
-pub fn clear_diagnostics(request: SessionRequest) -> Result<(), CoreError> {
-    engine().session(&request.session_id)?.clear_diagnostics()
-}
-
-pub fn snapshot(request: SessionRequest) -> Result<EngineSnapshot, CoreError> {
-    engine().session(&request.session_id)?.snapshot()
 }
 
 pub fn destroy_server(request: SessionRequest) -> Result<(), CoreError> {
@@ -443,6 +436,7 @@ impl LspEngine {
         let session = Arc::new(RuntimeSession {
             id: session_id.clone(),
             provider_id: request.provider_id,
+            #[cfg(test)]
             root_uri: request.root_uri,
             state: Mutex::new(SessionState {
                 lifecycle: LspLifecycleState::Created,
@@ -645,63 +639,80 @@ impl RuntimeSession {
                 }
             }
 
-            let response = if request.operation == LspSemanticOperation::VirtualDocument {
-                let virtual_uri = request.virtual_uri.as_deref().ok_or_else(|| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Virtual-document resolution requires virtualUri.",
-                    )
-                })?;
-                let params = virtual_source_resolve_params(&self.provider_id, virtual_uri)
-                    .ok_or_else(|| {
+            let pending_kind = if request.operation == LspSemanticOperation::VirtualDocument {
+                PendingKind::VirtualDocument
+            } else {
+                PendingKind::Feature
+            };
+            let response = match request.operation {
+                LspSemanticOperation::ExecuteCommand => {
+                    let command = request.command.ok_or_else(|| {
                         CoreError::new(
-                            ErrorCode::NotSupported,
-                            "The provider cannot resolve this virtual document URI.",
+                            ErrorCode::InvalidRequest,
+                            "This language-server request requires a command.",
                         )
                     })?;
-                allocate_raw_request(
-                    state.client.clone(),
-                    method,
-                    json!({
-                        "command": params.command,
-                        "arguments": params.arguments
-                    }),
-                )?
-            } else {
-                let uri = uri.clone().ok_or_else(|| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "This language-server operation requires a document URI.",
-                    )
-                })?;
-                if !state
-                    .client
-                    .open_documents
-                    .get(&uri)
-                    .is_some_and(|document| document.version > 0)
-                {
-                    return Err(CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "The document is not open in the language server.",
-                    ));
+                    allocate_raw_request(state.client.clone(), method, command)?
                 }
-                client_feature_request_canonical(ClientFeatureRequest {
-                    state: state.client.clone(),
-                    uri,
-                    method: method.to_string(),
-                    position: request.position,
-                    new_name: request.new_name,
-                    range: request.range,
-                    diagnostics: request.diagnostics,
-                    completion_item: request.completion_item,
-                    code_action: request.code_action,
-                    command: request.command,
-                })?
+                LspSemanticOperation::VirtualDocument => {
+                    let virtual_uri = request.virtual_uri.as_deref().ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Virtual-document resolution requires virtualUri.",
+                        )
+                    })?;
+                    let params = virtual_source_resolve_params(&self.provider_id, virtual_uri)
+                        .ok_or_else(|| {
+                            CoreError::new(
+                                ErrorCode::NotSupported,
+                                "The provider cannot resolve this virtual document URI.",
+                            )
+                        })?;
+                    allocate_raw_request(
+                        state.client.clone(),
+                        method,
+                        json!({
+                            "command": params.command,
+                            "arguments": params.arguments
+                        }),
+                    )?
+                }
+                _ => {
+                    let uri = uri.clone().ok_or_else(|| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "This language-server operation requires a document URI.",
+                        )
+                    })?;
+                    if !state
+                        .client
+                        .open_documents
+                        .get(&uri)
+                        .is_some_and(|document| document.version > 0)
+                    {
+                        return Err(CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "The document is not open in the language server.",
+                        ));
+                    }
+                    client_feature_request_canonical(ClientFeatureRequest {
+                        state: state.client.clone(),
+                        uri,
+                        method: method.to_string(),
+                        position: request.position,
+                        new_name: request.new_name,
+                        range: request.range,
+                        diagnostics: request.diagnostics,
+                        completion_item: request.completion_item,
+                        code_action: request.code_action,
+                        command: request.command,
+                    })?
+                }
             };
             let request_id = (response.state.next_request_id - 1).to_string();
             let now = Instant::now();
             let pending = PendingRequest {
-                kind: PendingKind::Feature,
+                kind: pending_kind,
                 operation_id: Some(operation_id.clone()),
                 method: method.to_string(),
                 document_uri: uri,
@@ -762,7 +773,6 @@ impl RuntimeSession {
                 "request",
                 Some(&pending.method),
                 pending.document_uri.as_deref(),
-                Some(&request_id),
                 "Language-server request was cancelled.",
                 None,
                 None,
@@ -843,17 +853,12 @@ impl RuntimeSession {
         Ok(())
     }
 
-    fn clear_diagnostics(&self) -> Result<(), CoreError> {
-        let mut state = self.lock_state()?;
-        clear_runtime_diagnostics(self, &mut state);
-        Ok(())
-    }
-
     fn poll_events(&self) -> Result<Vec<LspRuntimeEvent>, CoreError> {
         let mut state = self.lock_state()?;
         Ok(state.events.drain(..).collect())
     }
 
+    #[cfg(test)]
     fn snapshot(&self) -> Result<EngineSnapshot, CoreError> {
         let state = self.lock_state()?;
         Ok(EngineSnapshot {
@@ -1070,7 +1075,6 @@ impl RuntimeSession {
                                         "request",
                                         Some(&pending.method),
                                         pending.document_uri.as_deref(),
-                                        response_id.as_deref(),
                                         "Language server returned an error.",
                                         Some(detail),
                                         None,
@@ -1083,6 +1087,55 @@ impl RuntimeSession {
                                 &pending.method,
                                 event.and_then(|event| event.result.clone()),
                                 error,
+                            );
+                        }
+                    }
+                }
+                Some(PendingKind::VirtualDocument) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let reduced_event = reduced
+                                .events
+                                .iter()
+                                .find(|event| event.request_id.as_ref() == response_id.as_ref());
+                            let server_error = reduced_event
+                                .and_then(|event| event.error.as_ref())
+                                .map(|detail| {
+                                    runtime_error(
+                                        self,
+                                        "serverError",
+                                        "request",
+                                        Some(&pending.method),
+                                        None,
+                                        "Language server returned an error.",
+                                        Some(detail),
+                                        None,
+                                    )
+                                });
+                            let content = value
+                                .get("result")
+                                .and_then(|result| virtual_source_content(&self.provider_id, result));
+                            let invalid_result = if server_error.is_none() && content.is_none() {
+                                Some(runtime_error(
+                                    self,
+                                    "invalidServerResult",
+                                    "request",
+                                    Some(&pending.method),
+                                    None,
+                                    "Language server returned no virtual-document text.",
+                                    None,
+                                    None,
+                                ))
+                            } else {
+                                None
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                content.map(|text| json!({ "text": text })),
+                                server_error.or(invalid_result),
                             );
                         }
                     }
@@ -1238,7 +1291,10 @@ impl RuntimeSession {
                 .pending
                 .iter()
                 .filter(|(_, pending)| {
-                    pending.kind == PendingKind::Feature && now >= pending.deadline
+                    matches!(
+                        pending.kind,
+                        PendingKind::Feature | PendingKind::VirtualDocument
+                    ) && now >= pending.deadline
                 })
                 .map(|(id, _)| id.clone())
                 .collect();
@@ -1256,7 +1312,6 @@ impl RuntimeSession {
                         "request",
                         Some(&pending.method),
                         pending.document_uri.as_deref(),
-                        Some(&request_id),
                         "Language-server request timed out.",
                         Some(&format!("elapsedMilliseconds={}", elapsed.as_millis())),
                         None,
@@ -1329,7 +1384,6 @@ impl RuntimeSession {
                         "process",
                         None,
                         None,
-                        None,
                         "Language-server process exited.",
                         None,
                         exit_code,
@@ -1381,7 +1435,6 @@ impl RuntimeSession {
                     stage,
                     Some(&pending.method),
                     pending.document_uri.as_deref(),
-                    Some(request_id),
                     message,
                     underlying.as_deref(),
                     exit_code,
@@ -1416,7 +1469,6 @@ impl RuntimeSession {
                 self,
                 code,
                 stage,
-                None,
                 None,
                 None,
                 message,
@@ -1819,7 +1871,6 @@ fn runtime_error(
     stage: &str,
     method: Option<&str>,
     document_uri: Option<&str>,
-    request_id: Option<&str>,
     message: &str,
     underlying: Option<&str>,
     process_exit_code: Option<i32>,
@@ -1831,7 +1882,6 @@ fn runtime_error(
         stage: stage.to_string(),
         method: method.map(ToString::to_string),
         document_uri: document_uri.map(ToString::to_string),
-        request_id: request_id.map(ToString::to_string),
         message: message.to_string(),
         underlying_message: underlying.map(ToString::to_string),
         process_exit_code,
@@ -1849,7 +1899,12 @@ fn fail_feature_requests(
     let pending: Vec<_> = state
         .pending
         .iter()
-        .filter(|(_, pending)| pending.kind == PendingKind::Feature)
+        .filter(|(_, pending)| {
+            matches!(
+                pending.kind,
+                PendingKind::Feature | PendingKind::VirtualDocument
+            )
+        })
         .map(|(request_id, pending)| (request_id.clone(), pending.clone()))
         .collect();
     for (request_id, pending) in pending {
@@ -1863,7 +1918,6 @@ fn fail_feature_requests(
                 stage,
                 Some(&pending.method),
                 pending.document_uri.as_deref(),
-                Some(&request_id),
                 message,
                 None,
                 exit_code,
@@ -1990,6 +2044,9 @@ mod tests {
             while Instant::now() < deadline {
                 self.poll();
                 if self.snapshot().state == lifecycle {
+                    // The transition can happen between the poll and snapshot;
+                    // drain once more so its co-published events are retained.
+                    self.poll();
                     return;
                 }
                 thread::sleep(Duration::from_millis(2));
@@ -2826,6 +2883,111 @@ mod tests {
             semantic_capability(LspSemanticOperation::VirtualDocument),
             Some("executeCommand")
         );
+    }
+
+    #[test]
+    fn workspace_execute_command_does_not_require_an_open_document() {
+        let mut harness = Harness::start(|_| {});
+        harness.server.complete_initialize(json!({
+            "executeCommandProvider": { "commands": ["source.fix"] }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let operation_id = harness.engine.next_operation_id();
+
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::ExecuteCommand,
+                    uri: None,
+                    virtual_uri: None,
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: Some(json!({
+                        "title": "Apply fix",
+                        "command": "source.fix",
+                        "arguments": []
+                    })),
+                },
+                operation_id,
+            )
+            .expect("workspace commands should not be gated on an open document");
+
+        let request = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "workspace/executeCommand")
+            .expect("the command should reach the language server");
+        assert_eq!(request["params"]["command"], "source.fix");
+        assert!(request["params"].get("textDocument").is_none());
+    }
+
+    #[test]
+    fn java_virtual_document_returns_decompiled_text_without_an_open_document() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.cache_directory = Some("/tmp/lithe-lsp-engine-tests".to_string());
+        });
+        harness.server.complete_initialize(json!({
+            "executeCommandProvider": { "commands": ["java.decompile"] }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        let operation_id = harness.engine.next_operation_id();
+        let virtual_uri = "jdt://contents/java.base/java/lang/String.class";
+
+        harness
+            .session()
+            .request(
+                SemanticRequest {
+                    session_id: harness.session_id.clone(),
+                    operation_id: Some(operation_id.clone()),
+                    operation: LspSemanticOperation::VirtualDocument,
+                    uri: None,
+                    virtual_uri: Some(virtual_uri.to_string()),
+                    position: None,
+                    new_name: None,
+                    range: None,
+                    diagnostics: Vec::new(),
+                    completion_item: None,
+                    code_action: None,
+                    command: None,
+                },
+                operation_id.clone(),
+            )
+            .expect("virtual documents should not require an open file");
+
+        let request_id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .expect("the decompile command should reach JDT LS");
+        let request = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["id"] == request_id)
+            .expect("the decompile request should be recorded");
+        assert_eq!(request["params"]["command"], "java.decompile");
+        assert_eq!(request["params"]["arguments"], json!([virtual_uri]));
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": "public final class String {}"
+        }));
+        let event = harness
+            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
+            .clone();
+        assert_eq!(event.result, Some(json!({
+            "text": "public final class String {}"
+        })));
+        assert!(event.error.is_none());
     }
 
     #[test]

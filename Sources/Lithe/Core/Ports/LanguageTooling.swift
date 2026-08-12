@@ -513,6 +513,10 @@ protocol LanguageServerSession: AnyObject {
         fileURL: URL,
         completion: @escaping (Result<Void, Error>) -> Void
     ) throws
+    func resolveVirtualDocument(
+        uri: String,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) throws
     func stop()
 }
 

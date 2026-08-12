@@ -479,14 +479,23 @@ struct RustCoreBridge: Sendable {
 
     struct BuiltinNavigationPayload: Decodable, Sendable {
         struct Location: Decodable, Sendable {
-            let filePath: String
+            let uri: String?
+            let filePath: String?
             let range: LspRangePayload
             let isReadOnly: Bool
             let displayPath: String?
 
-            func makeModel() -> LanguageServerLocation {
-                LanguageServerLocation(
-                    url: URL(fileURLWithPath: filePath),
+            func makeModel() -> LanguageServerLocation? {
+                let url: URL
+                if let filePath {
+                    url = URL(fileURLWithPath: filePath)
+                } else if let uri, let virtualURL = URL(string: uri) {
+                    url = virtualURL
+                } else {
+                    return nil
+                }
+                return LanguageServerLocation(
+                    url: url,
                     range: range.makeModel(),
                     isReadOnly: isReadOnly,
                     displayPath: displayPath
@@ -497,8 +506,12 @@ struct RustCoreBridge: Sendable {
         let locations: [Location]
 
         func makeModels() -> [LanguageServerLocation] {
-            locations.map { $0.makeModel() }
+            locations.compactMap { $0.makeModel() }
         }
+    }
+
+    struct LspVirtualDocumentPayload: Decodable, Sendable {
+        let text: String
     }
 
     struct LspWorkspaceEditPayload: Decodable, Sendable {
@@ -1021,29 +1034,6 @@ struct RustCoreBridge: Sendable {
         let method: String
     }
 
-    struct LspClientResponsePayload: Decodable, Sendable {
-        let state: ToolingJSONValue
-        let messages: [String]
-        let events: [LspClientEventPayload]
-    }
-
-    struct LspSessionResponsePayload: Decodable, Sendable {
-        let sessionId: String
-        let serverCapabilities: [String]
-        let messages: [String]
-        let events: [LspClientEventPayload]
-    }
-
-    struct LspClientEventPayload: Decodable, Sendable {
-        let kind: String
-        let requestId: String?
-        let method: String?
-        let uri: String?
-        let diagnostics: [LspClientDiagnosticPayload]?
-        let result: ToolingJSONValue?
-        let error: String?
-    }
-
     struct LspClientDiagnosticPayload: Decodable, Sendable {
         let range: LspRangePayload
         let severity: Int?
@@ -1103,48 +1093,6 @@ struct RustCoreBridge: Sendable {
         let range: LspRangePayload
     }
 
-    private struct LspClientInitializeRequest: Encodable {
-        let state: ToolingJSONValue?
-        let rootUri: String
-        let processId: Int?
-        let initializationOptions: ToolingJSONValue?
-    }
-
-    private struct LspClientOpenDocumentRequest: Encodable {
-        let state: ToolingJSONValue
-        let uri: String
-        let languageId: String
-        let text: String
-    }
-
-    private struct LspClientChangeDocumentRequest: Encodable {
-        let state: ToolingJSONValue
-        let uri: String
-        let text: String
-    }
-
-    private struct LspClientCloseDocumentRequest: Encodable {
-        let state: ToolingJSONValue
-        let uri: String
-    }
-
-    private struct LspClientShutdownRequest: Encodable {
-        let state: ToolingJSONValue
-    }
-
-    private struct LspClientFeatureRequest: Encodable {
-        let state: ToolingJSONValue
-        let uri: String
-        let method: String
-        let position: LspTextEditsRequest.TextEdit.Range.Position?
-        let newName: String?
-        let range: LspTextEditsRequest.TextEdit.Range?
-        let diagnostics: [LspClientDiagnosticRequest]
-        let completionItem: LspClientCompletionItemRequest?
-        let codeAction: LspClientCodeActionRequest?
-        let command: LspClientCommandRequest?
-    }
-
     private struct LspClientDiagnosticRequest: Encodable {
         let range: LspTextEditsRequest.TextEdit.Range
         let severity: Int?
@@ -1202,73 +1150,10 @@ struct RustCoreBridge: Sendable {
         let data: ToolingJSONValue?
     }
 
-    private struct LspClientApplyServerMessageRequest: Encodable {
-        let state: ToolingJSONValue
-        let message: String
-    }
-
-    private struct LspSessionCommandRequest: Encodable {
-        let action: String
-        let sessionId: String?
-        let rootUri: String?
-        let processId: Int?
-        let initializationOptions: ToolingJSONValue?
-        let uri: String?
-        let languageId: String?
-        let text: String?
-        let method: String?
-        let position: LspTextEditsRequest.TextEdit.Range.Position?
-        let newName: String?
-        let range: LspTextEditsRequest.TextEdit.Range?
-        let diagnostics: [LspClientDiagnosticRequest]
-        let completionItem: LspClientCompletionItemRequest?
-        let codeAction: LspClientCodeActionRequest?
-        let command: LspClientCommandRequest?
-        let message: String?
-
-        init(
-            action: String,
-            sessionId: String? = nil,
-            rootUri: String? = nil,
-            processId: Int? = nil,
-            initializationOptions: ToolingJSONValue? = nil,
-            uri: String? = nil,
-            languageId: String? = nil,
-            text: String? = nil,
-            method: String? = nil,
-            position: LspTextEditsRequest.TextEdit.Range.Position? = nil,
-            newName: String? = nil,
-            range: LspTextEditsRequest.TextEdit.Range? = nil,
-            diagnostics: [LspClientDiagnosticRequest] = [],
-            completionItem: LspClientCompletionItemRequest? = nil,
-            codeAction: LspClientCodeActionRequest? = nil,
-            command: LspClientCommandRequest? = nil,
-            message: String? = nil
-        ) {
-            self.action = action
-            self.sessionId = sessionId
-            self.rootUri = rootUri
-            self.processId = processId
-            self.initializationOptions = initializationOptions
-            self.uri = uri
-            self.languageId = languageId
-            self.text = text
-            self.method = method
-            self.position = position
-            self.newName = newName
-            self.range = range
-            self.diagnostics = diagnostics
-            self.completionItem = completionItem
-            self.codeAction = codeAction
-            self.command = command
-            self.message = message
-        }
-    }
-
     // MARK: - Language-server runtime
     //
-    // Rust owns the language-server process, its framing, its request IDs, and
-    // its document versions. These types carry only what the UI needs: an opaque
+    // Rust owns the language-server process, wire protocol, and document
+    // versions. These types carry only what the UI needs: an opaque
     // session ID, opaque operation IDs, and the events Rust chooses to publish.
 
     struct LspStartServerPayload: Decodable, Sendable {
@@ -1392,7 +1277,6 @@ struct RustCoreBridge: Sendable {
         let stage: String
         let method: String?
         let documentUri: String?
-        let requestId: String?
         let message: String
         let underlyingMessage: String?
         let processExitCode: Int?
@@ -1401,42 +1285,6 @@ struct RustCoreBridge: Sendable {
     struct LspServerInfoPayload: Decodable, Sendable {
         let name: String
         let version: String?
-    }
-
-    struct LspSnapshotPayload: Decodable, Sendable {
-        let sessionId: String
-        let providerId: String
-        let rootUri: String
-        let state: String
-        let initialized: Bool
-        let openDocuments: [String: LspSnapshotDocumentPayload]
-        let pendingOperationIds: [String]
-        let diagnosticVersions: [String: Int]
-    }
-
-    struct LspSnapshotDocumentPayload: Decodable, Sendable {
-        let uri: String
-        let languageId: String
-        let version: Int
-        let text: String
-    }
-
-    struct LspFramePayload: Decodable, Sendable {
-        let frame: String
-    }
-
-    private struct LspFrameRequest: Encodable {
-        let message: String
-    }
-
-    struct LspParsedMessagesPayload: Decodable, Sendable {
-        let buffer: [UInt8]
-        let messages: [String]
-    }
-
-    private struct LspParseServerMessagesRequest: Encodable {
-        let buffer: [UInt8]
-        let chunk: [UInt8]
     }
 
     private struct MavenDiagnosticsRequest: Encodable {
@@ -2502,22 +2350,6 @@ struct RustCoreBridge: Sendable {
         return payload?.events ?? []
     }
 
-    func lspClearDiagnostics(sessionID: String) {
-        executeVoid(
-            command: "lsp.clearDiagnostics",
-            payload: LspSessionIdentifierRequest(sessionId: sessionID)
-        )
-    }
-
-    /// The runtime's own view of the session. Diagnostics for tests and support,
-    /// never a substitute for the event stream.
-    func lspSnapshot(sessionID: String) -> LspSnapshotPayload? {
-        execute(
-            command: "lsp.snapshot",
-            payload: LspSessionIdentifierRequest(sessionId: sessionID)
-        )
-    }
-
     /// Releases a stopped or failed session. A running session is refused, so
     /// callers stop first and destroy once the terminal event arrives.
     func lspDestroyServer(sessionID: String) {
@@ -2529,236 +2361,6 @@ struct RustCoreBridge: Sendable {
 
     private static func milliseconds(_ interval: TimeInterval) -> Int {
         Int((interval * 1000).rounded())
-    }
-
-    func lspClientInitialize(rootURL: URL) -> LspClientResponsePayload? {
-        lspClientInitialize(rootURL: rootURL, initializationOptions: nil)
-    }
-
-    func lspSessionCreate(
-        rootURL: URL,
-        initializationOptions: ToolingJSONValue?
-    ) -> LspSessionResponsePayload? {
-        execute(
-            command: "lsp.sessionExecute",
-            payload: LspSessionCommandRequest(
-                action: "create",
-                rootUri: rootURL.standardizedFileURL.absoluteString,
-                processId: Int(ProcessInfo.processInfo.processIdentifier),
-                initializationOptions: initializationOptions
-            )
-        )
-    }
-
-    func lspSessionOpenDocument(
-        sessionID: String,
-        fileURL: URL,
-        languageID: String,
-        text: String
-    ) -> LspSessionResponsePayload? {
-        execute(
-            command: "lsp.sessionExecute",
-            payload: LspSessionCommandRequest(
-                action: "openDocument",
-                sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString,
-                languageId: languageID,
-                text: text
-            )
-        )
-    }
-
-    func lspSessionChangeDocument(
-        sessionID: String,
-        fileURL: URL,
-        text: String
-    ) -> LspSessionResponsePayload? {
-        execute(
-            command: "lsp.sessionExecute",
-            payload: LspSessionCommandRequest(
-                action: "changeDocument",
-                sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString,
-                text: text
-            )
-        )
-    }
-
-    func lspSessionCloseDocument(
-        sessionID: String,
-        fileURL: URL
-    ) -> LspSessionResponsePayload? {
-        execute(
-            command: "lsp.sessionExecute",
-            payload: LspSessionCommandRequest(
-                action: "closeDocument",
-                sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString
-            )
-        )
-    }
-
-    func lspSessionShutdown(sessionID: String) -> LspSessionResponsePayload? {
-        execute(
-            command: "lsp.sessionExecute",
-            payload: LspSessionCommandRequest(action: "shutdown", sessionId: sessionID)
-        )
-    }
-
-    func lspSessionRequest(
-        sessionID: String,
-        fileURL: URL,
-        method: String,
-        position: LanguageServerPosition? = nil,
-        newName: String? = nil,
-        range: LanguageServerRange? = nil,
-        diagnostics: [LanguageServerDiagnostic] = [],
-        completionItem: LanguageServerCompletionItem? = nil,
-        codeAction: LanguageServerCodeAction? = nil,
-        command: LanguageServerCommand? = nil
-    ) -> LspSessionResponsePayload? {
-        execute(
-            command: "lsp.sessionExecute",
-            payload: LspSessionCommandRequest(
-                action: "request",
-                sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString,
-                method: method,
-                position: position.map {
-                    .init(line: $0.line, utf16Column: $0.utf16Column)
-                },
-                newName: newName,
-                range: range.map(Self.makeRangeRequest),
-                diagnostics: diagnostics.map(Self.makeDiagnosticRequest),
-                completionItem: completionItem.map(Self.makeCompletionItemRequest),
-                codeAction: codeAction.map(Self.makeCodeActionRequest),
-                command: command.map(Self.makeCommandRequest)
-            )
-        )
-    }
-
-    func lspSessionApplyServerMessage(
-        sessionID: String,
-        message: String
-    ) -> LspSessionResponsePayload? {
-        execute(
-            command: "lsp.sessionExecute",
-            payload: LspSessionCommandRequest(
-                action: "applyServerMessage",
-                sessionId: sessionID,
-                message: message
-            )
-        )
-    }
-
-    func lspSessionDestroy(sessionID: String) {
-        let _: LspSessionResponsePayload? = execute(
-            command: "lsp.sessionExecute",
-            payload: LspSessionCommandRequest(action: "destroy", sessionId: sessionID)
-        )
-    }
-
-    func lspClientInitialize(
-        rootURL: URL,
-        initializationOptions: ToolingJSONValue?
-    ) -> LspClientResponsePayload? {
-        execute(
-            command: "lsp.clientInitialize",
-            payload: LspClientInitializeRequest(
-                state: nil,
-                rootUri: rootURL.standardizedFileURL.absoluteString,
-                processId: Int(ProcessInfo.processInfo.processIdentifier),
-                initializationOptions: initializationOptions
-            )
-        )
-    }
-
-    func lspClientOpenDocument(
-        state: ToolingJSONValue,
-        fileURL: URL,
-        languageID: String,
-        text: String
-    ) -> LspClientResponsePayload? {
-        execute(
-            command: "lsp.clientOpenDocument",
-            payload: LspClientOpenDocumentRequest(
-                state: state,
-                uri: fileURL.standardizedFileURL.absoluteString,
-                languageId: languageID,
-                text: text
-            )
-        )
-    }
-
-    func lspClientChangeDocument(
-        state: ToolingJSONValue,
-        fileURL: URL,
-        text: String
-    ) -> LspClientResponsePayload? {
-        execute(
-            command: "lsp.clientChangeDocument",
-            payload: LspClientChangeDocumentRequest(
-                state: state,
-                uri: fileURL.standardizedFileURL.absoluteString,
-                text: text
-            )
-        )
-    }
-
-    func lspClientCloseDocument(
-        state: ToolingJSONValue,
-        fileURL: URL
-    ) -> LspClientResponsePayload? {
-        execute(
-            command: "lsp.clientCloseDocument",
-            payload: LspClientCloseDocumentRequest(
-                state: state,
-                uri: fileURL.standardizedFileURL.absoluteString
-            )
-        )
-    }
-
-    func lspClientShutdown(state: ToolingJSONValue) -> LspClientResponsePayload? {
-        execute(
-            command: "lsp.clientShutdown",
-            payload: LspClientShutdownRequest(state: state)
-        )
-    }
-
-    func lspClientRequest(
-        state: ToolingJSONValue,
-        fileURL: URL,
-        method: String,
-        position: LanguageServerPosition? = nil,
-        newName: String? = nil,
-        range: LanguageServerRange? = nil,
-        diagnostics: [LanguageServerDiagnostic] = [],
-        completionItem: LanguageServerCompletionItem? = nil,
-        codeAction: LanguageServerCodeAction? = nil,
-        command: LanguageServerCommand? = nil
-    ) -> LspClientResponsePayload? {
-        execute(
-            command: "lsp.clientRequest",
-            payload: LspClientFeatureRequest(
-                state: state,
-                uri: fileURL.standardizedFileURL.absoluteString,
-                method: method,
-                position: position.map {
-                    .init(line: $0.line, utf16Column: $0.utf16Column)
-                },
-                newName: newName,
-                range: range.map {
-                    .init(
-                        start: .init(line: $0.start.line, utf16Column: $0.start.utf16Column),
-                        end: .init(line: $0.end.line, utf16Column: $0.end.utf16Column)
-                    )
-                },
-                diagnostics: diagnostics.map(Self.makeDiagnosticRequest),
-                completionItem: completionItem.map(Self.makeCompletionItemRequest),
-                codeAction: codeAction.map(Self.makeCodeActionRequest),
-                command: command.map(Self.makeCommandRequest)
-            )
-        )
     }
 
     private static func makeCompletionItemRequest(
@@ -2861,33 +2463,6 @@ struct RustCoreBridge: Sendable {
                     (url.standardizedFileURL.path, edits.map(makeTextEditRequest))
                 }
             )
-        )
-    }
-
-    func lspClientApplyServerMessage(
-        state: ToolingJSONValue,
-        message: String
-    ) -> LspClientResponsePayload? {
-        execute(
-            command: "lsp.clientApplyServerMessage",
-            payload: LspClientApplyServerMessageRequest(state: state, message: message)
-        )
-    }
-
-    func lspFrameMessage(_ message: String) -> LspFramePayload? {
-        execute(
-            command: "lsp.frameMessage",
-            payload: LspFrameRequest(message: message)
-        )
-    }
-
-    func lspParseServerMessages(
-        buffer: [UInt8],
-        chunk: [UInt8]
-    ) -> LspParsedMessagesPayload? {
-        execute(
-            command: "lsp.parseServerMessages",
-            payload: LspParseServerMessagesRequest(buffer: buffer, chunk: chunk)
         )
     }
 

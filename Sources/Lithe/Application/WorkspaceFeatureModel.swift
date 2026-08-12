@@ -265,8 +265,12 @@ final class WorkspaceFeatureModel: ObservableObject {
               let selectedSidebarProvider else { return }
         workspaceSessionStore.save(
             WorkspaceSession(
-                openPaths: documentsProvider().map { $0.url.standardizedFileURL.path },
-                activePath: activeDocumentProvider()?.url.standardizedFileURL.path,
+                openPaths: documentsProvider()
+                    .filter { $0.url.isFileURL }
+                    .map { $0.url.standardizedFileURL.path },
+                activePath: activeDocumentProvider().flatMap {
+                    $0.url.isFileURL ? $0.url.standardizedFileURL.path : nil
+                },
                 selectedSidebar: selectedSidebarProvider()
             ),
             for: targetURL

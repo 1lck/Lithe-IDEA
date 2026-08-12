@@ -163,6 +163,20 @@ pub(crate) fn virtual_source_resolve_params(
     })
 }
 
+/// Extracts the text shape returned by JDT LS for `java.decompile`.
+/// Different JDT LS versions return either the string directly or wrap it in
+/// a `content` member.
+pub(crate) fn virtual_source_content(provider_id: &str, result: &Value) -> Option<String> {
+    if !is_java_provider(provider_id) {
+        return None;
+    }
+    result
+        .as_str()
+        .or_else(|| result.get("content").and_then(Value::as_str))
+        .filter(|content| !content.is_empty())
+        .map(str::to_string)
+}
+
 fn is_java_provider(provider_id: &str) -> bool {
     provider_id.trim().eq_ignore_ascii_case(JAVA_PROVIDER_ID)
 }
@@ -520,5 +534,19 @@ mod tests {
         assert_eq!(encoded["command"], "java.decompile");
         assert_eq!(encoded["arguments"], json!([uri]));
         assert!(virtual_source_resolve_params("java", "file:///tmp/String.java").is_none());
+    }
+
+    #[test]
+    fn virtual_source_content_accepts_supported_jdt_result_shapes() {
+        assert_eq!(
+            virtual_source_content("java", &json!("class String {}")),
+            Some("class String {}".to_string())
+        );
+        assert_eq!(
+            virtual_source_content("java", &json!({ "content": "class Object {}" })),
+            Some("class Object {}".to_string())
+        );
+        assert!(virtual_source_content("go", &json!("class String {}")).is_none());
+        assert!(virtual_source_content("java", &Value::Null).is_none());
     }
 }

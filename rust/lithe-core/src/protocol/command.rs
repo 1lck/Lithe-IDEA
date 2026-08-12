@@ -43,19 +43,7 @@ pub enum CoreCommand {
     LspRequest,
     LspCancelOperation,
     LspPollEvents,
-    LspClearDiagnostics,
-    LspSnapshot,
     LspDestroyServer,
-    LspClientInitialize,
-    LspClientOpenDocument,
-    LspClientChangeDocument,
-    LspClientCloseDocument,
-    LspClientShutdown,
-    LspClientRequest,
-    LspClientApplyServerMessage,
-    LspSessionExecute,
-    LspFrameMessage,
-    LspParseServerMessages,
     JavaRunConfigurations,
     RunConfigInspect,
     RunConfigGenerate,
@@ -115,19 +103,7 @@ impl CoreCommand {
             "lsp.request" => Some(Self::LspRequest),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
-            "lsp.clearDiagnostics" => Some(Self::LspClearDiagnostics),
-            "lsp.snapshot" => Some(Self::LspSnapshot),
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
-            "lsp.clientInitialize" => Some(Self::LspClientInitialize),
-            "lsp.clientOpenDocument" => Some(Self::LspClientOpenDocument),
-            "lsp.clientChangeDocument" => Some(Self::LspClientChangeDocument),
-            "lsp.clientCloseDocument" => Some(Self::LspClientCloseDocument),
-            "lsp.clientShutdown" => Some(Self::LspClientShutdown),
-            "lsp.clientRequest" => Some(Self::LspClientRequest),
-            "lsp.clientApplyServerMessage" => Some(Self::LspClientApplyServerMessage),
-            "lsp.sessionExecute" => Some(Self::LspSessionExecute),
-            "lsp.frameMessage" => Some(Self::LspFrameMessage),
-            "lsp.parseServerMessages" => Some(Self::LspParseServerMessages),
             "java.runConfigurations" => Some(Self::JavaRunConfigurations),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
@@ -166,22 +142,6 @@ mod tests {
     use super::CoreCommand;
 
     #[test]
-    fn parses_lsp_document_and_session_close_commands() {
-        assert!(matches!(
-            CoreCommand::parse("lsp.clientCloseDocument"),
-            Some(CoreCommand::LspClientCloseDocument)
-        ));
-        assert!(matches!(
-            CoreCommand::parse("lsp.clientShutdown"),
-            Some(CoreCommand::LspClientShutdown)
-        ));
-        assert!(matches!(
-            CoreCommand::parse("lsp.sessionExecute"),
-            Some(CoreCommand::LspSessionExecute)
-        ));
-    }
-
-    #[test]
     fn parses_semantic_lsp_runtime_commands() {
         for command in [
             "lsp.startServer",
@@ -191,8 +151,6 @@ mod tests {
             "lsp.request",
             "lsp.cancelOperation",
             "lsp.pollEvents",
-            "lsp.clearDiagnostics",
-            "lsp.snapshot",
             "lsp.destroyServer",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");

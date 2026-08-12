@@ -1059,6 +1059,27 @@ struct EditorDocumentTests {
     }
 
     @Test
+    func virtualDocumentOpensFromMemoryAsReadOnly() throws {
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(),
+            fileOperations: EmptyWorkspaceFileOperations()
+        )
+        let url = try #require(URL(string: "jdt://contents/java.base/java/lang/String.class"))
+
+        model.openVirtualDocument(
+            url,
+            text: "public final class String {}",
+            displayPath: "java.base/java/lang/String.class"
+        )
+
+        let document = try #require(model.activeDocument)
+        #expect(document.url == url)
+        #expect(document.text == "public final class String {}")
+        #expect(document.isReadOnly)
+        #expect(document.displayName == "String.class")
+    }
+
+    @Test
     func searchRelevanceRanksMatchFormsInOrder() {
         let root = "/tmp/project/src/"
         func result(_ name: String) -> FileSearchResult {

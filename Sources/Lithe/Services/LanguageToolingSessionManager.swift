@@ -490,6 +490,26 @@ final class LanguageToolingSessionManager: ObservableObject {
         throw unavailableLanguageServerError(for: fileURL)
     }
 
+    func resolveVirtualDocument(
+        providerID: String,
+        uri: URL,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) throws {
+        guard !uri.isFileURL,
+              let descriptor = catalog.descriptors.first(where: { $0.id == providerID }) else {
+            throw LanguageToolingSessionError.capabilityUnavailable(
+                provider: providerID,
+                capability: "virtual document"
+            )
+        }
+        guard languageServerStates[providerID] == .ready,
+              let session = languageServers[providerID],
+              session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable(descriptor.displayName)
+        }
+        try session.resolveVirtualDocument(uri: uri.absoluteString, completion: completion)
+    }
+
     func resolveCompletion(
         _ item: LanguageServerCompletionItem,
         fileURL: URL,

@@ -8,16 +8,11 @@ pub(crate) use interface::*;
 pub(crate) use languages::*;
 pub(crate) use lightweight::*;
 
+#[cfg(test)]
 pub(crate) fn client_feature_request(
     request: ClientFeatureRequest,
 ) -> Result<LspClientResponse, crate::protocol::CoreError> {
     interface::client_feature_request_canonical(languages::swift::adapt_feature_request(request))
-}
-
-pub(crate) fn session_execute(
-    request: LspSessionCommandRequest,
-) -> Result<LspSessionResponse, crate::protocol::CoreError> {
-    interface::session_execute_canonical(languages::swift::adapt_session_request(request))
 }
 
 #[cfg(test)]

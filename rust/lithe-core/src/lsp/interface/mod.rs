@@ -2,7 +2,6 @@
 
 mod client;
 mod engine;
-mod host;
 mod process;
 #[cfg(test)]
 mod scripted;
@@ -11,8 +10,5 @@ mod types;
 
 pub(crate) use client::*;
 pub(crate) use engine::*;
-pub(crate) use host::{
-    execute as session_execute_canonical, LspSessionCommandRequest, LspSessionResponse,
-};
 pub(crate) use transport::*;
 pub(crate) use types::*;

@@ -1,19 +1,7 @@
-use crate::lsp::interface::{ClientFeatureRequest, LspSessionCommandRequest};
+use crate::lsp::interface::ClientFeatureRequest;
 use serde_json::{json, Value};
 
 pub(crate) fn adapt_feature_request(mut request: ClientFeatureRequest) -> ClientFeatureRequest {
-    request.completion_item = request
-        .completion_item
-        .as_ref()
-        .map(swift_completion_item_to_lsp);
-    request.code_action = request.code_action.as_ref().map(swift_code_action_to_lsp);
-    request.command = request.command.as_ref().and_then(swift_command_to_lsp);
-    request
-}
-
-pub(crate) fn adapt_session_request(
-    mut request: LspSessionCommandRequest,
-) -> LspSessionCommandRequest {
     request.completion_item = request
         .completion_item
         .as_ref()

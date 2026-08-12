@@ -2,8 +2,8 @@ import Foundation
 
 /// The semantic language-server surface the application depends on.
 ///
-/// Rust owns the child process, the `Content-Length` framing, the JSON-RPC
-/// request IDs, the document versions, and the protocol deadlines. This protocol
+/// Rust owns the child process, wire framing, protocol correlation, document
+/// versions, and deadlines. This protocol
 /// exposes only opaque session and operation IDs, so the facade below can be
 /// driven by a test double without a real server behind it.
 protocol LanguageServerRuntimeCore: Sendable {
@@ -302,6 +302,17 @@ final class StdioLanguageServerSession: LanguageServerSession {
         }
     }
 
+    func resolveVirtualDocument(
+        uri: String,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) throws {
+        try request(.virtualDocument, fileURL: nil, virtualURI: uri) { result in
+            completion(result.flatMap {
+                Self.decodeEventResult($0, as: RustCoreBridge.LspVirtualDocumentPayload.self)
+            }.map(\.text))
+        }
+    }
+
     func stop() {
         guard let sessionID else {
             failPendingOperations(with: StdioLanguageServerSessionError.sessionStopped)
@@ -320,6 +331,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private func request(
         _ operation: LanguageServerOperation,
         fileURL: URL?,
+        virtualURI: String? = nil,
         position: LanguageServerPosition? = nil,
         newName: String? = nil,
         range: LanguageServerRange? = nil,
@@ -336,7 +348,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
             sessionID: sessionID,
             operation: operation,
             fileURL: fileURL?.standardizedFileURL,
-            virtualURI: nil,
+            virtualURI: virtualURI,
             position: position,
             newName: newName,
             range: range,

@@ -438,6 +438,41 @@ extension AppModel {
 
     func navigate(to location: LanguageNavigationLocation) {
         isImplementationChooserVisible = false
+        guard location.url.isFileURL else {
+            guard let providerID = languageNavigationProviderID else {
+                showNotification("The virtual source provider is no longer available")
+                return
+            }
+            isLoadingLanguageNavigation = true
+            do {
+                try languageToolingSessions.resolveVirtualDocument(
+                    providerID: providerID,
+                    uri: location.url
+                ) { [weak self] result in
+                    guard let self else { return }
+                    self.isLoadingLanguageNavigation = false
+                    switch result {
+                    case .success(let text):
+                        self.documentFeature.openVirtualDocument(
+                            location.url,
+                            text: text,
+                            displayPath: location.displayPath
+                        )
+                        self.editorNavigationTarget = EditorNavigationTarget(
+                            url: location.url,
+                            line: location.line,
+                            utf16Column: location.utf16Column
+                        )
+                    case .failure(let error):
+                        self.showNotification(error.localizedDescription)
+                    }
+                }
+            } catch {
+                isLoadingLanguageNavigation = false
+                showNotification(error.localizedDescription)
+            }
+            return
+        }
         openFile(
             location.url,
             isReadOnly: location.isReadOnly,
