@@ -170,6 +170,58 @@ final class AppModel: ObservableObject, Identifiable {
         disabledLanguageServerProviderIDs.contains(providerID)
     }
 
+    func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
+        if enabled {
+            disabledLanguageServerProviderIDs.remove(providerID)
+            guard let document = openDocuments.first(where: {
+                languageProviderCatalog.provider(for: $0.url)?.id == providerID
+            }) else { return }
+            activateLanguageServerIfAvailable(for: document)
+        } else {
+            disableLanguageServerForCurrentWorkspace(providerID: providerID)
+        }
+    }
+
+    var javaLanguageServerConfiguration: RunConfiguration? {
+        let javaConfigurations = runFeature.configurations.filter {
+            $0.kind.capabilities.contains(.javaRuntime)
+        }
+        return javaConfigurations.first { $0.id == runFeature.selectedConfigurationID }
+            ?? javaConfigurations.first { $0.execution == .service }
+            ?? javaConfigurations.first
+    }
+
+    var javaLanguageServerJDKPath: String {
+        guard let configuration = javaLanguageServerConfiguration else { return "" }
+        return runFeature.options(for: configuration).javaHomePath
+    }
+
+    func chooseJavaLanguageServerJDK() {
+        guard let configuration = javaLanguageServerConfiguration else {
+            showNotification(settings.language == .simplifiedChinese
+                ? "请先识别项目中的 Java 服务"
+                : "Identify the Java service in this project first")
+            return
+        }
+        guard let url = platformUI.chooseDirectory(
+            title: settings.language == .simplifiedChinese ? "选择项目 JDK 目录" : "Choose Project JDK Home",
+            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
+        ) else { return }
+        var options = runFeature.options(for: configuration)
+        options.javaHomePath = url.path
+        guard runFeature.updateOptions(options, for: configuration, scope: .local) else {
+            showNotification(runFeature.configurationSaveError ?? "Could not save JDK Home")
+            return
+        }
+        languageToolingSessions.stopLanguageServer(providerID: "java")
+        disabledLanguageServerProviderIDs.remove("java")
+        if let document = openDocuments.first(where: {
+            languageProviderCatalog.provider(for: $0.url)?.id == "java"
+        }) {
+            activateLanguageServerIfAvailable(for: document)
+        }
+    }
+
     func disableLanguageServerForCurrentWorkspace(providerID: String) {
         disabledLanguageServerProviderIDs.insert(providerID)
         languageToolingSessions.recordLanguageServerLog(
