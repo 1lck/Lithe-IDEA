@@ -22,7 +22,6 @@ struct RootView: View {
         .sheet(isPresented: $model.isSettingsPresented) {
             SettingsView(
                 settings: model.settings,
-                runtimeFeature: model.runtimeFeature,
                 initialCategory: model.requestedSettingsCategory
             )
                 .environmentObject(model)

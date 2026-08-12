@@ -2,7 +2,6 @@ import Combine
 import Foundation
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case project = "Project"
     case general = "General"
     case editor = "Editor"
     case terminal = "Terminal"
@@ -13,7 +12,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .project: "folder.badge.gearshape"
         case .general: "gearshape"
         case .editor: "textformat"
         case .terminal: "terminal"
@@ -429,9 +427,6 @@ final class AppModel: ObservableObject, Identifiable {
                   let configuration = detectedAIConfigurations.first {
             let provider = settings.importAIConfiguration(configuration)
             try? services.secureStore.delete(key: provider.apiKeyIdentifier)
-        }
-        runtimeFeature.setOnRuntimeChanged { [weak self] in
-            self?.reloadJavaRuntimeServices()
         }
         languageServerTools.onCandidatesChanged = { [weak self] providerID in
             guard let self,

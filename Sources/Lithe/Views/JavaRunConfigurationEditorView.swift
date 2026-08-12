@@ -163,6 +163,22 @@ struct RunConfigurationEditorView: View {
                 )
                 .disabled(saveScope == .project)
             }
+            if configuration.kind.isMavenBacked {
+                pathRow(
+                    title: "Maven executable",
+                    placeholder: "Use mvnw or detected Maven",
+                    text: stringBinding(\.mavenExecutablePath),
+                    chooseDirectory: { chooseFileOrDirectory(for: \.mavenExecutablePath) }
+                )
+                .disabled(saveScope == .project)
+                pathRow(
+                    title: "Maven JDK Home",
+                    placeholder: "Use service JDK",
+                    text: stringBinding(\.mavenJavaHomePath),
+                    chooseDirectory: { chooseDirectory(for: \.mavenJavaHomePath) }
+                )
+                .disabled(saveScope == .project)
+            }
             pathRow(
                 title: "Working directory",
                 placeholder: "Use project or file directory",
@@ -315,6 +331,18 @@ struct RunConfigurationEditorView: View {
         panel.title = "Choose Directory"
         panel.prompt = "Choose"
         panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            options[keyPath: keyPath] = url.path
+        }
+    }
+
+    private func chooseFileOrDirectory(for keyPath: WritableKeyPath<RunOptions, String>) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Maven Executable or Home"
+        panel.prompt = "Choose"
+        panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {

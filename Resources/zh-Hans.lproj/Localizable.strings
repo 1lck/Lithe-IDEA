@@ -799,3 +799,8 @@
 "Save scope" = "保存范围";
 "This Mac only" = "仅本机";
 "Shared with project" = "项目共享";
+"Edit Service" = "编辑服务";
+"Maven executable" = "Maven 可执行文件";
+"Maven JDK Home" = "Maven JDK 主目录";
+"Use mvnw or detected Maven" = "使用 mvnw 或检测到的 Maven";
+"Use service JDK" = "使用服务 JDK";

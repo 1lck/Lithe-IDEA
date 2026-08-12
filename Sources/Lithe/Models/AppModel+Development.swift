@@ -118,7 +118,6 @@ extension AppModel {
             return
         }
         guard let configuration = runFeature.selectedConfiguration else { return }
-        guard ensureJavaEnvironment(for: configuration.kind.providerID) else { return }
         if configuration.usesCurrentEditorFile,
            let activeDocument,
            activeDocument.isDirty {
@@ -191,11 +190,6 @@ extension AppModel {
             isMavenVisible = false
             return
         }
-        if let document = activeDocument,
-           document.url.pathExtension.lowercased() == "java",
-           !ensureJavaEnvironment(for: "java") {
-            return
-        }
         guard javaFeature.startDebugging(
             currentDocument: activeDocument,
             workspaceURL: workspaceURL,
@@ -212,21 +206,6 @@ extension AppModel {
         isProblemsVisible = false
         isMavenVisible = false
         isRunVisible = false
-    }
-
-    @discardableResult
-    private func ensureJavaEnvironment(for providerID: String) -> Bool {
-        guard providerID == "java" || providerID == "maven",
-              let report = javaEnvironmentReport else { return true }
-        if report.status == .checking {
-            showNotification("Checking the Java environment. Try again when the check finishes.")
-            showSettings(category: .project)
-            return false
-        }
-        guard report.status.blocksJavaRun else { return true }
-        showNotification(report.message + " " + report.recovery)
-        showSettings(category: .project)
-        return false
     }
 
     func toggleTests() {

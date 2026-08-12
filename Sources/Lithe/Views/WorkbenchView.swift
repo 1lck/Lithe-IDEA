@@ -33,14 +33,6 @@ struct WorkbenchView: View {
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
 
-            if model.shouldShowJavaEnvironmentBanner,
-               let report = model.javaEnvironmentReport {
-                JavaEnvironmentBanner(report: report) {
-                    model.showSettings(category: .project)
-                }
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            }
-
             HStack(spacing: 0) {
                 activityBar
                 workspaceArea
@@ -1183,36 +1175,6 @@ struct WorkbenchView: View {
             ),
             for: workspaceURL
         )
-    }
-}
-
-private struct JavaEnvironmentBanner: View {
-    let report: JavaEnvironmentReport
-    let openSettings: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(report.title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
-                Text(report.message)
-                    .font(.system(size: 11))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 12)
-            Button("Open Project Settings", action: openSettings)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .lithePointer()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10))
     }
 }
 

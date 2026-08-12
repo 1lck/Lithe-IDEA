@@ -315,7 +315,6 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
     private let service: ProjectRuntimeService
     private var observation: AnyCancellable?
 
-    @Published private(set) var settings: ProjectRuntimeSettings
     @Published private(set) var javaRuntimes: [JavaRuntimeCandidate]
     @Published private(set) var mavenRuntimes: [MavenRuntimeCandidate]
     @Published private(set) var javaEnvironmentReport: JavaEnvironmentReport?
@@ -323,14 +322,12 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
 
     init(service: ProjectRuntimeService) {
         self.service = service
-        _settings = Published(initialValue: service.settings)
         _javaRuntimes = Published(initialValue: service.javaRuntimes)
         _mavenRuntimes = Published(initialValue: service.mavenRuntimes)
         _javaEnvironmentReport = Published(initialValue: service.javaEnvironmentReport)
         _isDiscovering = Published(initialValue: service.isDiscovering)
         observation = service.objectWillChange.sink { [weak self] _ in
             guard let self else { return }
-            self.settings = self.service.settings
             self.javaRuntimes = self.service.javaRuntimes
             self.mavenRuntimes = self.service.mavenRuntimes
             self.javaEnvironmentReport = self.service.javaEnvironmentReport
@@ -340,12 +337,6 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
 
     func openProject(at url: URL) { service.openProject(at: url) }
     func closeProject() { service.closeProject() }
-    func setOnRuntimeChanged(_ handler: @escaping () -> Void) { service.onRuntimeChanged = handler }
-
-    func updateJavaHomePath(_ path: String) { service.updateJavaHomePath(path) }
-    func updateMavenHomeSelection(_ selection: MavenHomeSelection) { service.updateMavenHomeSelection(selection) }
-    func updateMavenHomePath(_ path: String) { service.updateMavenHomePath(path) }
-    func updateMavenJavaHomePath(_ path: String) { service.updateMavenJavaHomePath(path) }
     func refreshAvailableRuntimes() async { await service.refreshAvailableRuntimes() }
     func activeJavaRuntime() -> JavaRuntimeCandidate? { service.activeJavaRuntime() }
     func activeMavenRuntime(for project: MavenProject) -> MavenRuntimeCandidate? {

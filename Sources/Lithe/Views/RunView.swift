@@ -216,8 +216,8 @@ struct RunView: View {
                 }
                 .controlSize(.small)
             } else if feature.blockingToolchainDiagnostic != nil {
-                Button("Open Settings") {
-                    model.showSettings()
+                Button("Edit Service") {
+                    openJavaServiceEditor()
                 }
                 .controlSize(.small)
             }
@@ -686,13 +686,14 @@ struct RunView: View {
                     Text("Configuration details")
                         .font(.system(size: 11.5, weight: .semibold))
                     Spacer(minLength: 8)
-                    Text("Read-only")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .padding(.horizontal, 7)
-                        .frame(height: 20)
-                        .background(LitheTheme.sidebar.opacity(0.8))
-                        .clipShape(Capsule())
+                    Button {
+                        editingConfigurationID = configuration.id
+                    } label: {
+                        Label("Edit Service", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .lithePointer()
                 }
 
                 VStack(spacing: 8) {
@@ -713,6 +714,14 @@ struct RunView: View {
                     if capabilities.contains(.javaRuntime),
                        let javaHome = nonEmpty(options.javaHomePath) {
                         configurationDetailRow("JDK home", value: javaHome, monospaced: true)
+                    }
+                    if configuration.kind.isMavenBacked,
+                       let mavenExecutable = nonEmpty(options.mavenExecutablePath) {
+                        configurationDetailRow("Maven", value: mavenExecutable, monospaced: true)
+                    }
+                    if configuration.kind.isMavenBacked,
+                       let mavenJavaHome = nonEmpty(options.mavenJavaHomePath) {
+                        configurationDetailRow("Maven JDK", value: mavenJavaHome, monospaced: true)
                     }
                     if capabilities.contains(.javaVMArguments),
                        let vmArguments = nonEmpty(options.vmArguments) {
@@ -742,6 +751,23 @@ struct RunView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func openJavaServiceEditor() {
+        let selected = feature.configurations.first { configuration in
+            configuration.id == selectedSessionID
+                && configuration.kind.capabilities.contains(.javaRuntime)
+        }
+        let javaService = selected ?? feature.configurations.first { configuration in
+            configuration.kind.capabilities.contains(.javaRuntime)
+                && configuration.execution == .service
+        } ?? feature.configurations.first { configuration in
+            configuration.kind.capabilities.contains(.javaRuntime)
+        }
+        if let javaService {
+            selectedSessionID = javaService.id
+            editingConfigurationID = javaService.id
         }
     }
 
