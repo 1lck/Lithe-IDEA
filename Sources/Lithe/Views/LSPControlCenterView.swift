@@ -91,28 +91,67 @@ struct LSPControlCenterView: View {
             if descriptor.id == "java" {
                 Divider().overlay(LitheTheme.divider)
                 VStack(alignment: .leading, spacing: 7) {
-                    Text(usesChinese ? "项目 JDK" : "Project JDK")
+                    Text(usesChinese ? "LSP 运行 JDK" : "LSP Runtime JDK")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
-                    HStack(spacing: 8) {
-                        Text(javaJDKDisplayPath)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(model.javaLanguageServerJDKPath.isEmpty
-                                ? LitheTheme.secondaryText
-                                : LitheTheme.primaryText)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Button(usesChinese ? "选择…" : "Choose…") {
+                    Menu {
+                        if model.detectedJavaLanguageServerJDKs.isEmpty {
+                            Text(usesChinese ? "未检测到 JDK" : "No JDKs detected")
+                        } else {
+                            ForEach(model.detectedJavaLanguageServerJDKs) { runtime in
+                                Button {
+                                    model.selectJavaLanguageServerJDK(runtime)
+                                } label: {
+                                    if isSelectedJavaRuntime(runtime) {
+                                        Label(javaRuntimeTitle(runtime), systemImage: "checkmark")
+                                    } else {
+                                        Text(javaRuntimeTitle(runtime))
+                                    }
+                                }
+                            }
+                        }
+                        Divider()
+                        Button(usesChinese ? "重新检测" : "Detect Again") {
+                            Task { await model.refreshJavaLanguageServerJDKs() }
+                        }
+                        Button(usesChinese ? "选择其他目录…" : "Choose Other Directory…") {
                             model.chooseJavaLanguageServerJDK()
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .lithePointer()
+                    } label: {
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(selectedJavaRuntime.map(javaRuntimeTitle) ?? javaJDKDisplayPath)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(model.javaLanguageServerJDKPath.isEmpty
+                                        ? LitheTheme.secondaryText
+                                        : LitheTheme.primaryText)
+                                if !model.javaLanguageServerJDKPath.isEmpty {
+                                    Text(model.javaLanguageServerJDKPath)
+                                        .font(.system(size: 9.5, design: .monospaced))
+                                        .foregroundStyle(LitheTheme.secondaryText)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        }
+                        .padding(.horizontal, 9)
+                        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(LitheTheme.editor))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                        }
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .lithePointer()
                     Text(usesChinese
-                        ? "与 Java 服务的运行、测试和调试共用同一配置。"
-                        : "Shared with this Java service for running, testing, and debugging.")
+                        ? "仅用于启动 Java 语言服务器，不影响项目使用的 JDK。"
+                        : "Used only to start the Java language server; it does not affect the project JDK.")
                         .font(.system(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
@@ -163,7 +202,22 @@ struct LSPControlCenterView: View {
     private var javaJDKDisplayPath: String {
         let path = model.javaLanguageServerJDKPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !path.isEmpty { return path }
-        return usesChinese ? "使用系统默认 JDK" : "Use system default JDK"
+        return usesChinese ? "未配置" : "Not configured"
+    }
+
+    private var selectedJavaRuntime: JavaRuntimeCandidate? {
+        model.detectedJavaLanguageServerJDKs.first(where: isSelectedJavaRuntime)
+    }
+
+    private func isSelectedJavaRuntime(_ runtime: JavaRuntimeCandidate) -> Bool {
+        let selectedPath = model.javaLanguageServerJDKPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selectedPath.isEmpty else { return false }
+        return URL(fileURLWithPath: runtime.homePath).standardizedFileURL.path
+            == URL(fileURLWithPath: selectedPath).standardizedFileURL.path
+    }
+
+    private func javaRuntimeTitle(_ runtime: JavaRuntimeCandidate) -> String {
+        runtime.displayName
     }
 
     private func serverStatus(for descriptor: LanguageProviderDescriptor) -> LSPServerStatus {
@@ -188,8 +242,8 @@ struct LSPControlCenterView: View {
         case .error:
             if descriptor.id == "java" {
                 return usesChinese
-                    ? "启动失败，请检查项目 JDK"
-                    : "Failed to start; check the project JDK"
+                    ? "启动失败，请检查 LSP 运行 JDK"
+                    : "Failed to start; check the LSP runtime JDK"
             }
             return usesChinese
                 ? "启动失败，请检查语言服务器配置"

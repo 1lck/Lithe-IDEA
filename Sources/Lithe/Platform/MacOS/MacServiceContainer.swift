@@ -24,7 +24,7 @@ final class MacServiceContainer {
     let services: AppServices
     let runConfigurationStore: MacRunConfigurationStore
 
-    init(store: any KeyValueStore) {
+    init(store: any KeyValueStore, settings: AppSettings) {
         let rustCore = RustCoreBridge()
         let javaMavenOperations = RustJavaMavenOperations(core: rustCore)
         let fileStorage = MacFileStorage()
@@ -102,7 +102,11 @@ final class MacServiceContainer {
             },
             // JDT LS runs on a JDK the Rust runtime cannot discover for itself.
             languageServerRuntimeResolver: { descriptor in
-                descriptor.id == "java" ? runtimeService.activeServiceJavaExecutableURL() : nil
+                descriptor.id == "java"
+                    ? runtimeService.configuredJavaExecutableURL(
+                        overridePath: settings.javaLanguageServerJDKPath
+                    )
+                    : nil
             },
             languageServerCacheDirectory: fileStorage
                 .cacheDirectory()

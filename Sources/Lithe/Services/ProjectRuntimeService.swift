@@ -58,10 +58,6 @@ final class ProjectRuntimeService: ObservableObject {
         activeServiceJavaHomePath = path.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func activeServiceJavaExecutableURL() -> URL? {
-        javaExecutableURL(overridePath: activeServiceJavaHomePath)
-    }
-
     func refreshAvailableRuntimes() async {
         let targetProjectURL = projectURL
         isDiscovering = true

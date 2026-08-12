@@ -319,6 +319,20 @@ struct CommitMessageSettingsTests {
     }
 
     @Test
+    func javaLanguageServerJDKPersistsGloballyAndRestoresToUnconfigured() {
+        let store = InMemoryKeyValueStore()
+        let initialSettings = AppSettings(store: store)
+        #expect(initialSettings.javaLanguageServerJDKPath.isEmpty)
+
+        initialSettings.javaLanguageServerJDKPath = "/test/jdks/lsp-21"
+        let reloadedSettings = AppSettings(store: store)
+        #expect(reloadedSettings.javaLanguageServerJDKPath == "/test/jdks/lsp-21")
+
+        reloadedSettings.restoreDefaults()
+        #expect(AppSettings(store: store).javaLanguageServerJDKPath.isEmpty)
+    }
+
+    @Test
     func importingCodexStoresOnlyTheCodexSourceReferenceInSettings() throws {
         let store = InMemoryKeyValueStore()
         let settings = AppSettings(store: store)

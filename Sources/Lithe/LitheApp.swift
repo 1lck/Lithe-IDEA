@@ -55,7 +55,7 @@ struct LitheApp: App {
             modelFactory: {
                 AppModel(
                     settings: settings,
-                    services: MacServiceContainer(store: store).services
+                    services: MacServiceContainer(store: store, settings: settings).services
                 )
             },
             newWindowOpener: Self.openProjectInNewWindow

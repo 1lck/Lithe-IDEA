@@ -182,37 +182,38 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
-    var javaLanguageServerConfiguration: RunConfiguration? {
-        let javaConfigurations = runFeature.configurations.filter {
-            $0.kind.capabilities.contains(.javaRuntime)
-        }
-        return javaConfigurations.first { $0.id == runFeature.selectedConfigurationID }
-            ?? javaConfigurations.first { $0.execution == .service }
-            ?? javaConfigurations.first
+    var javaLanguageServerJDKPath: String {
+        settings.javaLanguageServerJDKPath
     }
 
-    var javaLanguageServerJDKPath: String {
-        guard let configuration = javaLanguageServerConfiguration else { return "" }
-        return runFeature.options(for: configuration).javaHomePath
+    var detectedJavaLanguageServerJDKs: [JavaRuntimeCandidate] {
+        runtimeFeature.javaRuntimes
+    }
+
+    func selectJavaLanguageServerJDK(_ runtime: JavaRuntimeCandidate) {
+        applyJavaLanguageServerJDKPath(runtime.homePath)
+    }
+
+    func refreshJavaLanguageServerJDKs() async {
+        await runtimeFeature.refreshAvailableRuntimes()
     }
 
     func chooseJavaLanguageServerJDK() {
-        guard let configuration = javaLanguageServerConfiguration else {
-            showNotification(settings.language == .simplifiedChinese
-                ? "请先识别项目中的 Java 服务"
-                : "Identify the Java service in this project first")
-            return
-        }
         guard let url = platformUI.chooseDirectory(
-            title: settings.language == .simplifiedChinese ? "选择项目 JDK 目录" : "Choose Project JDK Home",
+            title: settings.language == .simplifiedChinese ? "选择 LSP 运行 JDK" : "Choose LSP Runtime JDK",
             prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
         ) else { return }
-        var options = runFeature.options(for: configuration)
-        options.javaHomePath = url.path
-        guard runFeature.updateOptions(options, for: configuration, scope: .local) else {
-            showNotification(runFeature.configurationSaveError ?? "Could not save JDK Home")
+        guard services.projectRuntimeService.configuredJavaExecutableURL(overridePath: url.path) != nil else {
+            showNotification(settings.language == .simplifiedChinese
+                ? "所选目录不是有效的 JDK Home"
+                : "The selected directory is not a valid JDK Home")
             return
         }
+        applyJavaLanguageServerJDKPath(url.standardizedFileURL.path)
+    }
+
+    private func applyJavaLanguageServerJDKPath(_ path: String) {
+        settings.javaLanguageServerJDKPath = path
         languageToolingSessions.stopLanguageServer(providerID: "java")
         disabledLanguageServerProviderIDs.remove("java")
         if let document = openDocuments.first(where: {
