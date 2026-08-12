@@ -4,11 +4,18 @@
 //! directory, and hands each directory to every detector. Detectors never walk
 //! the tree themselves: a shared walk is the only way the cost stays bounded as
 //! ecosystems are added.
+//!
+//! An ecosystem whose layout is *declared* rather than discovered reads its own
+//! manifest graph instead, from the root directory only -- see `maven`. That is
+//! not a shortcut around the shared walk: a declared graph names directories the
+//! walk prunes, and omits ones it would visit.
 
 mod cargo;
 mod compose;
 mod go;
+mod gradle;
 mod make;
+mod maven;
 mod npm;
 mod procfile;
 mod python;
@@ -25,8 +32,8 @@ pub use scan::{scan, DirectoryContext};
 /// One runnable thing a detector found.
 ///
 /// Deliberately not `RunConfiguration`: detectors describe what they saw without
-/// deciding ids, toolchain bindings, or serialization shape. The caller owns
-/// that translation so every ecosystem gets identical treatment.
+/// deciding ids or serialization shape. The caller owns that translation so
+/// every ecosystem gets identical treatment.
 #[derive(Debug, Clone)]
 pub struct Detected {
     /// Namespaced provider, e.g. `npm.script`. Must pass `valid_provider`.
@@ -35,11 +42,18 @@ pub struct Detected {
     pub name: String,
     pub execution: Execution,
     pub confidence: Confidence,
-    pub command: String,
+    /// The program to spawn, or `None` when `toolchains` names the executable.
+    pub command: Option<String>,
     pub args: Vec<String>,
     /// Project-relative directory the command runs in.
     pub cwd: String,
     pub env: BTreeMap<String, String>,
+    /// Toolchain bindings by role, e.g. `{java: project-jdk}`. Empty for a
+    /// detection that spawns `command` directly.
+    pub toolchains: BTreeMap<String, String>,
+    /// The debug adapter this service supports, when launching it under a
+    /// debugger is something the launch layer already knows how to assemble.
+    pub debug: Option<String>,
     pub extensions: BTreeMap<String, serde_json::Value>,
     /// Which manifest produced this, for the "why is this here" affordance.
     pub source: String,
@@ -109,10 +123,12 @@ impl Detected {
             name: name.to_string(),
             execution,
             confidence: Confidence::Declared,
-            command: command.to_string(),
+            command: Some(command.to_string()),
             args: args.into_iter().map(str::to_string).collect(),
             cwd: ctx.relative.clone(),
             env: BTreeMap::new(),
+            toolchains: BTreeMap::new(),
+            debug: None,
             extensions: BTreeMap::new(),
             source: ctx.join_relative(source),
         }
@@ -120,6 +136,37 @@ impl Detected {
 
     pub fn with_confidence(mut self, confidence: Confidence) -> Self {
         self.confidence = confidence;
+        self
+    }
+
+    /// Hands the executable to a toolchain instead of spawning `command`.
+    ///
+    /// Most detections name a program that is on `PATH`, which is what keeps a
+    /// new ecosystem from needing changes in the launch layer. An ecosystem
+    /// whose launch is assembled from a toolchain rather than a command line --
+    /// Maven's `spring-boot:run`, addressed through the project JDK and Maven
+    /// binding -- takes this instead, and the launch layer must already know
+    /// that provider.
+    pub fn with_toolchains(mut self, toolchains: &[(&str, &str)]) -> Self {
+        self.command = None;
+        self.toolchains = toolchains
+            .iter()
+            .map(|(role, name)| (role.to_string(), name.to_string()))
+            .collect();
+        self
+    }
+
+    pub fn with_debug(mut self, adapter: &str) -> Self {
+        self.debug = Some(adapter.to_string());
+        self
+    }
+
+    /// Overrides the directory the command runs in. Defaults to the directory
+    /// the detection was made in, which is wrong when a build must be invoked
+    /// from its root -- a Gradle subproject, or a Maven module addressed by
+    /// `-pl` from the reactor root.
+    pub fn with_cwd(mut self, cwd: &str) -> Self {
+        self.cwd = cwd.to_string();
         self
     }
 
@@ -159,6 +206,8 @@ const DETECTORS: &[DetectFn] = &[
     python::detect,
     cargo::detect,
     go::detect,
+    gradle::detect,
+    maven::detect,
     make::detect,
     shell::detect_just,
 ];

@@ -32,6 +32,93 @@ struct Descriptor {
     packaging: String,
     module_paths: Vec<String>,
     profiles: Vec<MavenProfileResponse>,
+    plugins: Vec<String>,
+}
+
+/// One module of the declared build graph, flattened with the root first.
+///
+/// Callers inside the core read this instead of walking directories: Maven
+/// modules are declared in `<modules>`, so a module may sit in a directory the
+/// shared detector walk prunes -- one named `build` or `out` is invisible to a
+/// directory-driven scan -- while a stray `pom.xml` outside the graph is not a
+/// module at all.
+#[derive(Debug, Clone)]
+pub struct DeclaredModule {
+    /// Project-relative, forward-slashed, `.` for the root module.
+    pub relative_path: String,
+    pub artifact_id: String,
+    pub packaging: String,
+    /// `artifactId` of every plugin the module applies in `<build><plugins>`.
+    pub plugins: Vec<String>,
+}
+
+impl DeclaredModule {
+    pub fn applies_plugin(&self, artifact_id: &str) -> bool {
+        self.plugins.iter().any(|value| value == artifact_id)
+    }
+
+    /// `pom` packaging is an aggregator: it produces no artifact to run, so a
+    /// plugin declared there configures its children rather than a service.
+    pub fn is_aggregator(&self) -> bool {
+        self.packaging == "pom"
+    }
+}
+
+/// Reads the declared module graph, or an empty list when the root is not a
+/// Maven project.
+pub fn declared_modules(root: &Path) -> Result<Vec<DeclaredModule>, CoreError> {
+    let Some(root_descriptor) = descriptor(&root.join("pom.xml"))? else {
+        return Ok(Vec::new());
+    };
+    let mut modules = Vec::new();
+    let mut visited = vec![root.to_path_buf()];
+    collect_modules(root, root, root_descriptor, &mut modules, &mut visited);
+    Ok(modules)
+}
+
+/// Flattens the graph depth-first. Unlike `module`, which builds the nested
+/// response, a visited path is never released: a module reachable through two
+/// parents is one module, and emitting it twice would produce two run
+/// configurations for one service.
+fn collect_modules(
+    root: &Path,
+    directory: &Path,
+    current: Descriptor,
+    modules: &mut Vec<DeclaredModule>,
+    visited: &mut Vec<PathBuf>,
+) {
+    let relative_path = directory
+        .strip_prefix(root)
+        .ok()
+        .map(|value| value.to_string_lossy().replace('\\', "/"))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| ".".to_string());
+    modules.push(DeclaredModule {
+        relative_path,
+        artifact_id: current.artifact_id.unwrap_or_else(|| {
+            directory
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("module")
+                .to_string()
+        }),
+        packaging: current.packaging,
+        plugins: current.plugins,
+    });
+    for raw_path in &current.module_paths {
+        let Some(relative) = normalize_relative_path(raw_path) else {
+            continue;
+        };
+        let child = directory.join(&relative).clean();
+        if visited.iter().any(|path| path == &child) || !child.starts_with(root) {
+            continue;
+        }
+        let Ok(Some(child_descriptor)) = descriptor(&child.join("pom.xml")) else {
+            continue;
+        };
+        visited.push(child.clone());
+        collect_modules(root, &child, child_descriptor, modules, visited);
+    }
 }
 
 pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, CoreError> {
@@ -224,6 +311,14 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                     "project/modules/module" => {
                         if let Some(module) = non_empty(text.clone()) {
                             value.module_paths.push(module);
+                        }
+                    }
+                    // Only `<build><plugins>` counts. A plugin under
+                    // `<pluginManagement>` pins a version for children without
+                    // applying it, and one under `<reporting>` never runs.
+                    "project/build/plugins/plugin/artifactId" => {
+                        if let Some(artifact) = non_empty(text.clone()) {
+                            value.plugins.push(artifact);
                         }
                     }
                     "project/profiles/profile/id" => profile_id = non_empty(text.clone()),

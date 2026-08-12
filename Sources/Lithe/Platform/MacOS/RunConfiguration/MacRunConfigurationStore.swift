@@ -268,7 +268,11 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             let ignore = "run/local.json\ntoolchains/local.json\n**/*.tmp\n"
             if !storage.fileExists(at: ignoreURL) { try atomicWrite(Data(ignore.utf8), to: ignoreURL, root: root) }
             if !storage.fileExists(at: manifestURL) {
-                let defaultID = result.generated.configurations.first(where: { $0.provider == "spring-boot.maven" })?.id
+                // A framework service is what the user most likely wants to
+                // start first, whichever framework the project uses.
+                let frameworkProviders = Set(MavenFrameworkKind.allCases.map(\.provider))
+                let defaultID = result.generated.configurations
+                    .first(where: { frameworkProviders.contains($0.provider) })?.id
                     ?? result.generated.configurations.first?.id
                 var manifest: [String: Any] = ["version": 1]
                 if let defaultID { manifest["defaultRunConfiguration"] = defaultID }
@@ -409,10 +413,14 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     private func configurationKind(_ value: String) -> RunConfigurationKind {
         switch value {
         case "java.current-file": .currentFile
-        case "spring-boot.maven": .springBoot
         case "java.main": .javaMain
         case "maven.module": .mavenModule
-        default: .process(provider: value)
+        default:
+            if let framework = MavenFrameworkKind.allCases.first(where: { $0.provider == value }) {
+                .mavenFramework(framework)
+            } else {
+                .process(provider: value)
+            }
         }
     }
 }

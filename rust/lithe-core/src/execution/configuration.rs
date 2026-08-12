@@ -168,8 +168,10 @@ fn migrate_configuration_value(item: &mut Value) {
     }
 
     let execution = match legacy_type.as_str() {
-        "spring-boot.maven" => "service",
         "java.current-file" => "application",
+        // A framework goal starts something long-running; a bare Maven goal
+        // runs to completion.
+        provider if framework_goal(provider).is_some() => "service",
         _ => "task",
     };
     object.insert("provider".to_string(), json!(legacy_type));
@@ -346,24 +348,35 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .iter()
         .any(|path| path.to_lowercase().ends_with(".java"));
     let has_maven_project = root.join("pom.xml").is_file() || root.join("mvnw").is_file();
-    let has_java_ecosystem = has_java_sources || has_maven_project;
+    // A Gradle build needs the same JDK requirement as Maven, and its sources may
+    // be Kotlin or Groovy rather than Java, so the build files count on their own.
+    let has_gradle_project = ["build.gradle", "build.gradle.kts", "gradlew"]
+        .iter()
+        .any(|name| root.join(name).is_file());
+    let has_java_ecosystem = has_java_sources || has_maven_project || has_gradle_project;
     let module_paths = inferred_maven_module_paths(&root, &request.paths, request.module_paths);
     let scanned = crate::languages::run_configurations(JavaRunConfigurationsRequest {
         root: request.root.clone(),
         paths: request.paths,
         module_paths,
     })?;
+    let annotated_main_classes = scanned
+        .main_classes
+        .iter()
+        .filter(|value| value.is_spring_boot)
+        .map(|value| (value.path.clone(), value.qualified_name.clone()))
+        .collect::<Vec<_>>();
     let java_entry_count = scanned.configurations.len();
     let mut configurations = scanned
         .configurations
         .into_iter()
         .map(|value| {
             let provider = match value.kind.as_str() {
-                "springBoot" => "spring-boot.maven",
-                "javaMain" => "java.main",
+                "javaMain" | "springBoot" => "java.main",
                 "mavenModule" => "maven.module",
                 _ => "java.current-file",
             };
+            let id = java_configuration_id(&value);
             let mut maven = serde_json::Map::new();
             maven.insert(
                 "module".to_string(),
@@ -373,11 +386,10 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 maven.insert("mainClass".to_string(), json!(main_class));
             }
             RunConfiguration {
-                id: value.id,
+                id,
                 name: value.name,
                 provider: provider.to_string(),
                 execution: match provider {
-                    "spring-boot.maven" => Execution::Service,
                     "java.main" | "java.current-file" => Execution::Application,
                     _ => Execution::Task,
                 },
@@ -443,7 +455,8 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .iter()
         .map(|item| item.id.clone())
         .collect::<BTreeSet<_>>();
-    let detected = detected_configurations(&root, &claimed)?;
+    let mut detected = detected_configurations(&root, &claimed)?;
+    adopt_annotated_main_classes(&mut detected, &annotated_main_classes);
     // Counts real entry points, not documents: the always-present "Current File"
     // fallback is excluded so an empty project still reports zero and the UI can
     // say so, while a detected npm service correctly reports one.
@@ -463,11 +476,74 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     )
 }
 
+/// Whether a service is a Spring Boot service is decided by the build, not by an
+/// annotation: `spring-boot-maven-plugin` is what makes `spring-boot:run` work at
+/// all, and the Maven detector reads it from the declared module graph. The scan
+/// keeps finding main classes -- that is genuinely per-file work -- it just no
+/// longer decides what is a service.
+///
+/// The annotation is still the only place a *main class* is named, so a scanned
+/// `spring:<qualified-name>` becomes `java-main:<qualified-name>`: the same class
+/// is still directly runnable, and the id says which judge produced it.
+fn java_configuration_id(value: &crate::protocol::JavaRunConfigurationResponse) -> String {
+    match (value.kind.as_str(), value.main_class.as_deref()) {
+        ("springBoot", Some(main_class)) => format!("java-main:{main_class}"),
+        _ => value.id.clone(),
+    }
+}
+
+/// Copies a scanned `@SpringBootApplication` class onto the module that declares
+/// the Maven plugin.
+///
+/// The detector knows a module is a service but not which class boots it, and
+/// `spring-boot:run` resolves the main class itself when none is given. Naming it
+/// explicitly is still worth doing: a module with two candidate classes otherwise
+/// fails at launch time with a Maven error rather than starting the one the editor
+/// already found.
+fn adopt_annotated_main_classes(
+    configurations: &mut [RunConfiguration],
+    annotated: &[(String, String)],
+) {
+    for configuration in configurations
+        .iter_mut()
+        .filter(|item| item.provider == "spring-boot.maven")
+    {
+        let Some(module) = configuration.module() else {
+            continue;
+        };
+        // Exactly one candidate under the module, or none: two classes in one
+        // module is ambiguous, and guessing would start the wrong service.
+        let mut matches = annotated
+            .iter()
+            .filter(|(path, _)| within_module(path, &module))
+            .map(|(_, qualified_name)| qualified_name);
+        let Some(main_class) = matches.next() else {
+            continue;
+        };
+        if matches.next().is_some() {
+            continue;
+        }
+        let maven = configuration
+            .extensions
+            .entry("maven".to_string())
+            .or_insert_with(|| json!({}));
+        if let Some(object) = maven.as_object_mut() {
+            object.insert("mainClass".to_string(), json!(main_class));
+        }
+    }
+}
+
+fn within_module(path: &str, module: &str) -> bool {
+    module == "." || path.starts_with(&format!("{module}/"))
+}
+
 /// Translates detector output into the run-configuration contract.
 ///
-/// Detected entries are always process-based: the detector resolved the command,
-/// so there is no toolchain binding and no ecosystem-specific launch assembly.
-/// That is what keeps a new ecosystem from needing changes in `create_launch_plan`.
+/// Nearly every detection is process-based: the detector resolved the command,
+/// so there is no toolchain binding and no ecosystem-specific launch assembly,
+/// which is what keeps a new ecosystem from needing changes in
+/// `create_launch_plan`. A detection that names toolchains instead carries a
+/// provider `create_launch_plan` already handles.
 fn detected_configurations(
     root: &Path,
     claimed: &BTreeSet<String>,
@@ -479,13 +555,13 @@ fn detected_configurations(
             name: item.name,
             provider: item.provider,
             execution: item.execution,
-            command: Some(item.command),
+            command: item.command,
             args: item.args,
             cwd: item.cwd,
             env: item.env,
             confidence: item.confidence,
-            toolchains: BTreeMap::new(),
-            debug: None,
+            toolchains: item.toolchains,
+            debug: item.debug.map(|adapter| DebugCapability { adapter }),
             members: Vec::new(),
             extensions: item.extensions,
             disabled: false,
@@ -660,10 +736,7 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
         .ok_or_else(|| {
             CoreError::new(ErrorCode::InvalidRequest, "Run configuration was not found")
         })?;
-    let uses_maven_capability = matches!(
-        provider,
-        "java.current-file" | "java.main" | "spring-boot.maven" | "maven.module"
-    );
+    let uses_maven_capability = is_maven_backed(provider);
     let working_directory = normalize_project_directory(
         &root,
         if request.working_directory.trim().is_empty() {
@@ -740,11 +813,13 @@ pub fn create_user_configuration(
     }
     let configuration_kind = match request.kind.as_str() {
         "springBoot" => "spring-boot.maven",
+        "quarkus" => "quarkus.maven",
+        "micronaut" => "micronaut.maven",
         "mavenModule" => "maven.module",
         _ => {
             return Err(CoreError::new(
                 ErrorCode::NotSupported,
-                "Only Spring Boot and Maven Module configurations can be created",
+                "Only Maven framework and Maven Module configurations can be created",
             ));
         }
     };
@@ -804,7 +879,9 @@ pub fn create_user_configuration(
         "id": id,
         "name": name,
         "provider": configuration_kind,
-        "execution": if configuration_kind == "spring-boot.maven" { "service" } else { "task" },
+        // A framework goal starts something long-running; a bare Maven goal runs to
+        // completion.
+        "execution": if framework_goal(configuration_kind).is_some() { "service" } else { "task" },
         "confidence": "native",
         "toolchains": {"java": "project-jdk", "maven": "project-maven"},
         "cwd": ".",
@@ -855,10 +932,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     {
         return toolchain_process_launch_plan(config, toolchain);
     }
-    if !matches!(
-        provider,
-        "java.current-file" | "java.main" | "spring-boot.maven" | "maven.module"
-    ) {
+    if !is_maven_backed(provider) {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Run provider must declare a command or runtime toolchain",
@@ -878,7 +952,14 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     let mut arguments = Vec::new();
     let is_current = provider == "java.current-file";
     let is_java_main = provider == "java.main";
-    if let Some(port) = request.debug_port {
+    let goal = framework_goal(provider);
+    // A framework that owns its own debug agent takes a port instead of raw JVM
+    // flags, so JDWP must not also be forced into `jvmArguments`: two agents on
+    // one port fail to bind and the service never starts.
+    let jvm_agent_debug = goal.map_or(true, |goal| {
+        matches!(goal.debug, FrameworkDebug::JvmAgent)
+    });
+    if let Some(port) = request.debug_port.filter(|_| jvm_agent_debug) {
         jvm_arguments.insert(
             0,
             json!(format!(
@@ -927,6 +1008,8 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         }
         arguments.push(json!("org.codehaus.mojo:exec-maven-plugin:3.5.0:java"));
     } else {
+        // `maven.module` has no framework goal: it runs whatever goals the
+        // configuration names, so only the reactor selection applies.
         arguments.extend([json!("-B"), json!("-ntp")]);
         if let Some(module) = maven["module"].as_str().filter(|m| *m != ".") {
             arguments.extend([json!("-pl"), json!(module)]);
@@ -941,22 +1024,16 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                     .join(",")),
             ]);
         }
-        if let Some(main) = maven["mainClass"].as_str() {
-            arguments.push(json!(format!("-Dspring-boot.run.main-class={main}")));
+        if let Some(goal) = goal {
+            arguments.extend(framework_arguments(
+                goal,
+                maven,
+                &jvm_arguments,
+                &program_arguments,
+                request.debug_port,
+            ));
+            arguments.push(json!(goal.goal));
         }
-        if !jvm_arguments.is_empty() {
-            arguments.push(json!(format!(
-                "-Dspring-boot.run.jvmArguments={}",
-                string_arguments(&jvm_arguments)
-            )));
-        }
-        if !program_arguments.is_empty() {
-            arguments.push(json!(format!(
-                "-Dspring-boot.run.arguments={}",
-                string_arguments(&program_arguments)
-            )));
-        }
-        arguments.push(json!("spring-boot:run"));
     }
     let executable_kind = if is_current { "java" } else { "maven" };
     let executable_toolchain = config["toolchains"][executable_kind]
@@ -979,6 +1056,125 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
             "JAVA_HOME": { "toolchain": java_toolchain, "property": "home" }
         }
     }))
+}
+
+/// Providers the launch layer assembles a JVM command line for, rather than
+/// spawning a process the detector described.
+///
+/// These are the providers whose `Detected` names toolchains instead of a
+/// command, so `create_launch_plan` has to know each one. Every other ecosystem
+/// is dispatched from the configuration itself and needs no entry here.
+fn is_maven_backed(provider: &str) -> bool {
+    matches!(provider, "java.current-file" | "java.main" | "maven.module")
+        || framework_goal(provider).is_some()
+}
+
+/// How a framework's Maven goal expects a debugger to be attached.
+#[derive(Clone, Copy, PartialEq)]
+enum FrameworkDebug {
+    /// The goal forwards JVM arguments verbatim, so JDWP goes in among them.
+    JvmAgent,
+    /// The goal starts the agent itself, given a port. `properties` are appended
+    /// in order with the port substituted for `{port}`.
+    Managed(&'static [&'static str]),
+}
+
+/// A framework's `mvn` goal and the property names its arguments travel under.
+///
+/// Each plugin invented its own names for the same three things, so the goal name
+/// alone is not enough to launch one: passing Spring's `-Dspring-boot.run.*` to
+/// `quarkus:dev` is silently ignored and the service starts with none of the
+/// user's arguments. Grouping the names with the goal keeps that mapping in one
+/// place per framework.
+struct FrameworkGoal {
+    goal: &'static str,
+    /// Property carrying JVM arguments as one space-joined string.
+    jvm_arguments: &'static str,
+    /// Property carrying application arguments as one space-joined string.
+    program_arguments: &'static str,
+    /// Property naming the main class, where the goal accepts one. Quarkus and
+    /// Micronaut resolve it from the build instead, so only Spring Boot has one.
+    main_class: Option<&'static str>,
+    debug: FrameworkDebug,
+}
+
+/// Verified against each plugin's own goal documentation: Spring Boot's
+/// `spring-boot:run`, Quarkus' `DevMojo` (`${jvm.args}`, `${quarkus.args}`,
+/// `${debug}`, `${suspend}`), and the Micronaut plugin's `run` mojo (`mn.jvmArgs`,
+/// `mn.appArgs`, `mn.debug*`).
+fn framework_goal(provider: &str) -> Option<&'static FrameworkGoal> {
+    const SPRING_BOOT: FrameworkGoal = FrameworkGoal {
+        goal: "spring-boot:run",
+        jvm_arguments: "spring-boot.run.jvmArguments",
+        program_arguments: "spring-boot.run.arguments",
+        main_class: Some("spring-boot.run.main-class"),
+        debug: FrameworkDebug::JvmAgent,
+    };
+    // Quarkus dev mode already listens on 5005 without suspending. An explicit
+    // port plus `suspend=y` matches what the IDE needs: the debugger must be
+    // attached before the service gets past startup, or breakpoints in
+    // initialisation never hit.
+    const QUARKUS: FrameworkGoal = FrameworkGoal {
+        goal: "quarkus:dev",
+        jvm_arguments: "jvm.args",
+        program_arguments: "quarkus.args",
+        main_class: None,
+        debug: FrameworkDebug::Managed(&["-Ddebug={port}", "-Dsuspend=y"]),
+    };
+    const MICRONAUT: FrameworkGoal = FrameworkGoal {
+        goal: "mn:run",
+        jvm_arguments: "mn.jvmArgs",
+        program_arguments: "mn.appArgs",
+        main_class: None,
+        debug: FrameworkDebug::Managed(&[
+            "-Dmn.debug=true",
+            "-Dmn.debug.port={port}",
+            "-Dmn.debug.suspend=true",
+        ]),
+    };
+    match provider {
+        "spring-boot.maven" => Some(&SPRING_BOOT),
+        "quarkus.maven" => Some(&QUARKUS),
+        "micronaut.maven" => Some(&MICRONAUT),
+        _ => None,
+    }
+}
+
+/// The `-D` properties that carry a configuration's options into a framework
+/// goal. Order is fixed so a plan is reproducible across calls.
+fn framework_arguments(
+    goal: &FrameworkGoal,
+    maven: &Value,
+    jvm_arguments: &[Value],
+    program_arguments: &[Value],
+    debug_port: Option<u16>,
+) -> Vec<Value> {
+    let mut arguments = Vec::new();
+    if let (Some(property), Some(main)) = (goal.main_class, maven["mainClass"].as_str()) {
+        arguments.push(json!(format!("-D{property}={main}")));
+    }
+    if !jvm_arguments.is_empty() {
+        arguments.push(json!(format!(
+            "-D{}={}",
+            goal.jvm_arguments,
+            string_arguments(jvm_arguments)
+        )));
+    }
+    if !program_arguments.is_empty() {
+        arguments.push(json!(format!(
+            "-D{}={}",
+            goal.program_arguments,
+            string_arguments(program_arguments)
+        )));
+    }
+    if let (Some(port), FrameworkDebug::Managed(properties)) = (debug_port, goal.debug) {
+        arguments.extend(
+            properties
+                .iter()
+                .map(|property| json!(property.replace("{port}", &port.to_string()))),
+        );
+    }
+    arguments
 }
 
 /// Launch plan for configurations that name their own executable.
@@ -1573,6 +1769,19 @@ fn detect_requirements(
             "project-cargo".to_string(),
             generic_requirement("rust", declared_rust_version(root)),
         );
+    }
+    if providers
+        .iter()
+        .any(|provider| provider.starts_with("gradle."))
+    {
+        let mut gradle = generic_requirement("gradle", None);
+        // A Gradle build runs on the JVM, so the requirement carries the same
+        // JDK binding Maven uses rather than resolving a runtime of its own.
+        gradle.java = Some("project-jdk".to_string());
+        if root.join("gradlew").exists() {
+            gradle.wrapper = Some("./gradlew".to_string());
+        }
+        toolchains.insert("project-gradle".to_string(), gradle);
     }
     Ok(ToolchainRequirementsDocument {
         version: SIDECAR_VERSION,

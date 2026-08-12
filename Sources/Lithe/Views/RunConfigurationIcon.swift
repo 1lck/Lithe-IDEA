@@ -26,7 +26,7 @@ struct RunConfigurationIcon: View {
         switch kind {
         case .currentFile:
             return .plainText
-        case .springBoot, .javaMain:
+        case .mavenFramework, .javaMain:
             return .javaGeneric
         case .mavenModule:
             return .maven

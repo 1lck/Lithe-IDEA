@@ -129,15 +129,50 @@ struct RunConfigurationCapabilities: OptionSet, Hashable, Sendable {
     static let process: Self = [.workingDirectory, .arguments, .environment]
 }
 
+/// A JVM framework launched by a Maven goal rather than by spawning a process.
+///
+/// These share Spring Boot's capabilities exactly -- the core assembles the goal
+/// and the property names its arguments travel under -- so they are one case
+/// carrying the framework rather than three parallel cases.
+enum MavenFrameworkKind: String, Hashable, Sendable, CaseIterable {
+    case springBoot
+    case quarkus
+    case micronaut
+
+    /// The core provider this framework is reported as.
+    var provider: String {
+        switch self {
+        case .springBoot: "spring-boot.maven"
+        case .quarkus: "quarkus.maven"
+        case .micronaut: "micronaut.maven"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .springBoot: "Spring Boot"
+        case .quarkus: "Quarkus"
+        case .micronaut: "Micronaut"
+        }
+    }
+
+    /// Only Spring Boot's goal accepts a main class; Quarkus and Micronaut
+    /// resolve it from the build, so naming one would be ignored.
+    var namesMainClass: Bool { self == .springBoot }
+}
+
 enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     case currentFile
-    case springBoot
     case javaMain
     case mavenModule
+    /// A JVM framework whose service is started by a Maven goal.
+    case mavenFramework(MavenFrameworkKind)
     /// Any provider this build has no first-class handling for. Carrying the
     /// raw provider keeps unknown ecosystems visible and runnable instead of
     /// silently dropping them at the decode boundary.
     case process(provider: String)
+
+    static let springBoot: Self = .mavenFramework(.springBoot)
 
     init?(rawValue: String) {
         switch rawValue {
@@ -145,6 +180,8 @@ enum RunConfigurationKind: Hashable, Identifiable, Sendable {
         case "springBoot": self = .springBoot
         case "javaMain": self = .javaMain
         case "mavenModule": self = .mavenModule
+        case "quarkus": self = .mavenFramework(.quarkus)
+        case "micronaut": self = .mavenFramework(.micronaut)
         default: return nil
         }
     }
@@ -152,9 +189,9 @@ enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     var id: String {
         switch self {
         case .currentFile: "currentFile"
-        case .springBoot: "springBoot"
         case .javaMain: "javaMain"
         case .mavenModule: "mavenModule"
+        case .mavenFramework(let framework): framework.rawValue
         case .process(let provider): provider
         }
     }
@@ -162,22 +199,28 @@ enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     var providerID: String {
         switch self {
         case .currentFile, .javaMain: "java"
-        case .springBoot, .mavenModule: "maven"
+        case .mavenModule, .mavenFramework: "maven"
         case .process(let provider): provider.split(separator: ".").first.map(String.init) ?? provider
         }
+    }
+
+    /// The framework whose Maven goal starts this configuration, if any.
+    var mavenFramework: MavenFrameworkKind? {
+        if case .mavenFramework(let framework) = self { return framework }
+        return nil
     }
 
     /// True for the Maven-backed kinds that support JDWP debugging and Maven
     /// profiles. Callers should branch on this rather than enumerating cases.
     var isMavenBacked: Bool {
-        self == .springBoot || self == .mavenModule
+        self == .mavenModule || mavenFramework != nil
     }
 
     var capabilities: RunConfigurationCapabilities {
         switch self {
         case .currentFile, .javaMain:
             return [.workingDirectory, .arguments, .environment, .javaRuntime, .javaVMArguments, .jdwpDebug]
-        case .springBoot, .mavenModule:
+        case .mavenModule, .mavenFramework:
             return [.workingDirectory, .arguments, .environment, .javaRuntime, .javaVMArguments, .mavenProfiles, .jdwpDebug]
         case .process:
             return .process
@@ -187,9 +230,9 @@ enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .currentFile: "Current File"
-        case .springBoot: "Spring Boot"
         case .javaMain: "Java Application"
         case .mavenModule: "Maven Module"
+        case .mavenFramework(let framework): framework.title
         case .process(let provider): Self.displayTitle(for: provider)
         }
     }
@@ -197,9 +240,11 @@ enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     var systemImage: String {
         switch self {
         case .currentFile: "doc.text"
-        case .springBoot: "leaf"
         case .javaMain: "cup.and.heat.waves"
         case .mavenModule: "shippingbox"
+        // All three are long-running JVM services started the same way, so they
+        // share one symbol rather than implying a difference that is not there.
+        case .mavenFramework: "leaf"
         case .process(let provider): Self.symbol(for: provider)
         }
     }
@@ -316,7 +361,7 @@ struct RunConfiguration: Identifiable, Hashable, Sendable {
         for kind: RunConfigurationKind
     ) -> RunConfigurationExecution {
         switch kind {
-        case .springBoot: .service
+        case .mavenFramework: .service
         case .currentFile, .javaMain, .process: .application
         case .mavenModule: .task
         }

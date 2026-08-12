@@ -1308,11 +1308,15 @@ private struct NewRunConfigurationView: View {
             Form {
                 TextField("Name", text: $name)
                 Picker("Type", selection: $kind) {
-                    Text("Spring Boot").tag(RunConfigurationKind.springBoot)
+                    ForEach(MavenFrameworkKind.allCases, id: \.self) { framework in
+                        Text(framework.title).tag(RunConfigurationKind.mavenFramework(framework))
+                    }
                     Text("Maven Module").tag(RunConfigurationKind.mavenModule)
                 }
                 TextField("Module path", text: $modulePath)
-                if kind == .springBoot {
+                // Quarkus and Micronaut resolve the main class from the build, so
+                // their goals would ignore one named here.
+                if kind.mavenFramework?.namesMainClass == true {
                     TextField("Main class", text: $mainClass)
                 }
                 Picker("Save scope", selection: $scope) {

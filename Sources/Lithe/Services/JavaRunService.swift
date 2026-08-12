@@ -539,7 +539,7 @@ final class RunService: ObservableObject {
            configurations.contains(where: { $0.id == preferredConfigurationID }) {
             selectedConfigurationID = preferredConfigurationID
         } else if !configurations.contains(where: { $0.id == selectedConfigurationID }) {
-            selectedConfigurationID = configurations.first(where: { $0.kind == .springBoot })?.id
+            selectedConfigurationID = configurations.first(where: { $0.kind.mavenFramework != nil })?.id
                 ?? configurations.first?.id
                 ?? RunConfiguration.currentFileID
         }

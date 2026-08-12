@@ -10,7 +10,7 @@ fn run_configuration_commands_generate_merge_and_plan() {
     fs::create_dir_all(root.join("src/main/java/com/example"))
         .expect("source directory should be creatable");
     fs::write(root.join("src/main/java/com/example/App.java"), "package com.example; @SpringBootApplication class App { public static void main(String[] args) {} }").expect("source should be writable");
-    fs::write(root.join("pom.xml"), "<project><properties><maven.compiler.release>21</maven.compiler.release></properties></project>").expect("pom should be writable");
+    fs::write(root.join("pom.xml"), "<project><artifactId>demo</artifactId><properties><maven.compiler.release>21</maven.compiler.release></properties><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>").expect("pom should be writable");
 
     let request = serde_json::json!({"id":"generate","command":"runConfig.generate","payload":{"root":root,"paths":["src/main/java/com/example/App.java"],"modulePaths":[]}});
     let generated: Value = serde_json::from_str(&execute_json(&request.to_string()))
@@ -53,7 +53,7 @@ fn run_configuration_commands_generate_merge_and_plan() {
             "command":"runConfig.createLaunchPlan",
             "payload":{
                 "root":root,
-                "configurationId":"spring:com.example.App",
+                "configurationId":"spring-boot.maven:demo",
                 "debugPort":5005
             }
         })
@@ -108,8 +108,11 @@ fn run_configuration_generation_infers_maven_modules_from_nearest_pom() {
     let configurations = response["data"]["generated"]["configurations"]
         .as_array()
         .unwrap();
+    // No pom declares `spring-boot-maven-plugin`, so neither module is a service.
+    // The annotated class is still a runnable main class, and module inference --
+    // what this test is about -- has to place it in its own module either way.
     assert!(configurations.iter().any(|value| {
-        value["id"] == "spring:com.example.BackendApplication"
+        value["id"] == "java-main:com.example.BackendApplication"
             && value["extensions"]["maven"]["module"] == "backend-api"
     }));
     assert!(configurations.iter().any(|value| {
