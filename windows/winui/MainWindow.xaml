@@ -6,6 +6,7 @@
 
     <Grid x:Name="RootGrid"
           Background="{ThemeResource LitheWindowBrush}"
+          Loaded="RootLoaded"
           KeyDown="RootKeyDown"
           SizeChanged="RootSizeChanged">
         <Grid.RowDefinitions>

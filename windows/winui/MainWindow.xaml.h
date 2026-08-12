@@ -195,6 +195,7 @@ struct MainWindow : MainWindowT<MainWindow> {
     void DebugExpressionKeyDown(
         IInspectable const&, Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
     void RootKeyDown(IInspectable const&, Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
+    void RootLoaded(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
     void EditorTextChanged(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
     void EditorSelectionChanged(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
     void EditorLoaded(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
@@ -403,6 +404,7 @@ private:
     bool restoringWorkbench_ = false;
     bool externalConflictVisible_ = false;
     bool terminalUiUpdating_ = false;
+    bool showWelcomeOnLoad_ = false;
     std::uint64_t terminalRevision_ = 0;
     double bottomPanelHeight_ = 290.0;
 };

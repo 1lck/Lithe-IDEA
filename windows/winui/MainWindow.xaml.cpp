@@ -781,14 +781,7 @@ MainWindow::MainWindow() {
             return std::filesystem::is_directory(pathFromUtf8(value), error);
         });
     session_->openMostRecentWorkspace();
-    if (!hasAvailableRecent) {
-        const auto weak = get_weak();
-        dispatcher_.TryEnqueue([weak] {
-            if (const auto self = weak.get()) {
-                self->ShowWelcomeClick(nullptr, RoutedEventArgs{});
-            }
-        });
-    }
+    showWelcomeOnLoad_ = !hasAvailableRecent;
 }
 
 MainWindow::~MainWindow() {
@@ -4001,6 +3994,12 @@ void MainWindow::RootSizeChanged(IInspectable const&, SizeChangedEventArgs const
     if (!restoringWorkbench_ && !session_->workspaceRoot().empty()) {
         scheduleWorkbenchStateSave();
     }
+}
+
+void MainWindow::RootLoaded(IInspectable const&, RoutedEventArgs const&) {
+    if (!showWelcomeOnLoad_) return;
+    showWelcomeOnLoad_ = false;
+    ShowWelcomeClick(nullptr, RoutedEventArgs{});
 }
 
 void MainWindow::setStatus(std::string message) {
