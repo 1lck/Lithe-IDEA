@@ -15,6 +15,7 @@
     <!-- PackageReference restore for native C++ emits the native/v0.0 asset
          target even though the application consumes the UAP Windows SDK. -->
     <NuGetTargetMoniker>native,Version=v0.0</NuGetTargetMoniker>
+    <RuntimeIdentifiers>win10-x64;win10-arm64</RuntimeIdentifiers>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <WindowsTargetPlatformMinVersion>10.0.17763.0</WindowsTargetPlatformMinVersion>
     <ApplicationType>Windows Store</ApplicationType>
