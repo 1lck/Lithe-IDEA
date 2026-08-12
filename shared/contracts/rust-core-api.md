@@ -76,6 +76,7 @@ stable error code and a user-facing message:
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
 | `java.structure` | Parse Java editor structure, implementation candidates, and inlay hints |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
@@ -96,6 +97,11 @@ Java processes, and runtime discovery remain platform adapters.
 
 The protocol version is currently `1`. Add a fixture under `shared/fixtures/`
 before changing a response shape or search rule.
+
+`git.watchContext` accepts `{ "root": string }`. When `root` is not inside a
+Git repository, it returns `null`. Otherwise it returns
+`{ "repositoryRoot": string, "gitDirectory": string, "gitCommonDirectory": string }`;
+all three fields are absolute filesystem paths.
 
 `git.command` accepts `{ "root": string, "arguments": string[], "input": string? }`.
 Arguments are passed directly to the Git executable without a shell. A
