@@ -24,7 +24,11 @@ final class MacServiceContainer {
     let services: AppServices
     let runConfigurationStore: MacRunConfigurationStore
 
-    init(store: any KeyValueStore, settings: AppSettings) {
+    init(
+        store: any KeyValueStore,
+        settings: AppSettings,
+        processRegistry: ManagedProcessRegistry = ManagedProcessRegistry()
+    ) {
         let rustCore = RustCoreBridge()
         let javaMavenOperations = RustJavaMavenOperations(core: rustCore)
         let fileStorage = MacFileStorage()
@@ -111,6 +115,7 @@ final class MacServiceContainer {
             languageServerCacheDirectory: fileStorage
                 .cacheDirectory()
                 .appendingPathComponent("Lithe/language-servers", isDirectory: true),
+            processRegistry: processRegistry,
             debugLaunches: debugLaunches,
             debugSessionFactories: debugSessionFactories
         )
@@ -135,18 +140,18 @@ final class MacServiceContainer {
         let languageTestService = LanguageTestService(
             registry: languagePackRegistry,
             executableResolver: testExecutableResolver,
-            processFactory: { MacStreamingProcess() }
+            processFactory: { MacStreamingProcess(processRegistry: processRegistry) }
         )
 
         let mavenService = MavenService(
             runtimeService: runtimeService,
-            process: MacStreamingProcess(),
+            process: MacStreamingProcess(processRegistry: processRegistry),
             javaMavenOperations: javaMavenOperations
         )
         let runService = RunService(
             runtimeService: runtimeService,
-            process: MacStreamingProcess(),
-            processFactory: { MacStreamingProcess() },
+            process: MacStreamingProcess(processRegistry: processRegistry),
+            processFactory: { MacStreamingProcess(processRegistry: processRegistry) },
             fileStorage: fileStorage,
             preferences: store,
             javaMavenOperations: javaMavenOperations,
@@ -160,7 +165,7 @@ final class MacServiceContainer {
         )
         let javaDebugService = JavaDebugService(
             runtimeService: runtimeService,
-            processFactory: { MacStreamingProcess() },
+            processFactory: { MacStreamingProcess(processRegistry: processRegistry) },
             fileStorage: fileStorage,
             javaMavenOperations: javaMavenOperations,
             runConfigurationOperations: runConfigurationStore

@@ -112,6 +112,11 @@ final class RunService: ObservableObject {
         let loadID = UUID()
         projectLoadID = loadID
         isLoadingProject = true
+        defer {
+            if projectLoadID == loadID {
+                isLoadingProject = false
+            }
+        }
         let operations = runConfigurationOperations
         let inspection = await Task.detached(priority: .utility) {
             operations.inspect(at: projectURL)
@@ -160,13 +165,17 @@ final class RunService: ObservableObject {
             reconcileModuleSessions(validConfigurationIDs: [])
             refreshPortConflicts()
         }
-        isLoadingProject = false
     }
 
     func generateRunConfigurations() async {
         guard let projectURL else { return }
         let loadID = projectLoadID
         isLoadingProject = true
+        defer {
+            if projectLoadID == loadID {
+                isLoadingProject = false
+            }
+        }
         let operations = runConfigurationOperations
         let files = projectFiles
         let modulePaths = mavenProject?.allModules.map(\.relativePath) ?? []
@@ -226,7 +235,6 @@ final class RunService: ObservableObject {
             generationState = .failed(error.localizedDescription)
             fail(error.localizedDescription)
         }
-        isLoadingProject = false
     }
 
     func select(_ configuration: RunConfiguration) {
@@ -247,6 +255,15 @@ final class RunService: ObservableObject {
 
     func source(for configuration: RunConfiguration) -> RunConfigurationSource {
         effectiveSourcesByConfigurationID[configuration.id] ?? .generated
+    }
+
+    func serviceURL(for configuration: RunConfiguration) -> URL? {
+        guard configuration.execution == .service,
+              let port = configuredPort(for: configuration),
+              (1...65_535).contains(port) else {
+            return nil
+        }
+        return URL(string: "http://127.0.0.1:\(port)")
     }
 
     @discardableResult
@@ -886,6 +903,11 @@ final class RunService: ObservableObject {
         if let port = Self.port(in: options.programArguments) ?? Self.port(in: options.vmArguments) {
             return port
         }
+        for key in ["PORT", "SERVER_PORT", "QUARKUS_HTTP_PORT", "MICRONAUT_SERVER_PORT"] {
+            if let value = options.environment[key], let port = Int(value), port > 0 {
+                return port
+            }
+        }
 
         let moduleRoot = configuration.modulePath.flatMap { modulePath in
             mavenProject?.modules.first(where: { $0.relativePath == modulePath })?.url
@@ -915,7 +937,10 @@ final class RunService: ObservableObject {
     private static func port(in input: String) -> Int? {
         let tokens = RunArgumentParser.parse(input)
         for (index, token) in tokens.enumerated() {
-            let keys = ["--server.port=", "-Dserver.port=", "--server.port", "-Dserver.port"]
+            let keys = [
+                "--server.port=", "-Dserver.port=", "--server.port", "-Dserver.port",
+                "--port=", "--port", "-p=", "-p"
+            ]
             for key in keys where token.hasPrefix(key) {
                 let value: String
                 if token == key {

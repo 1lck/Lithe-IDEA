@@ -233,6 +233,103 @@ fn detected_services_produce_runnable_launch_plans() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn every_builtin_detector_produces_a_launch_plan() {
+    let root = temporary_root("detect-all-launch-plans");
+    for directory in ["node", "python", "rust/src", "go", "gradle", "maven"] {
+        fs::create_dir_all(root.join(directory)).unwrap();
+    }
+    fs::write(
+        root.join("node/package.json"),
+        r#"{"scripts":{"dev":"node server.js"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("python/pyproject.toml"),
+        "[project]\nname = \"python-app\"\n[project.scripts]\npython-app = \"app:main\"\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("rust/Cargo.toml"),
+        "[package]\nname = \"rust-app\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("rust/src/main.rs"), "fn main() {}\n").unwrap();
+    fs::write(root.join("go/go.mod"), "module example.com/go-app\ngo 1.22\n").unwrap();
+    fs::write(root.join("go/main.go"), "package main\nfunc main() {}\n").unwrap();
+    fs::write(
+        root.join("gradle/build.gradle"),
+        "plugins { id 'org.springframework.boot' version '3.2.0' }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>root</artifactId><packaging>pom</packaging><modules><module>maven</module></modules></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("maven/pom.xml"),
+        "<project><artifactId>maven-app</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("compose.yml"),
+        "services:\n  database:\n    image: postgres\n",
+    )
+    .unwrap();
+    fs::write(root.join("Procfile"), "worker: python worker.py\n").unwrap();
+    fs::write(root.join("Makefile"), "serve:\n\t@echo serve\n").unwrap();
+    fs::write(root.join("justfile"), "watch:\n    echo watch\n").unwrap();
+
+    let configurations = generated_configurations(&root);
+    let generated = serde_json::json!({
+        "version": 2,
+        "configurations": configurations
+    });
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&generated).unwrap(),
+    )
+    .unwrap();
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    fs::write(
+        root.join(".lithe/toolchains/requirements.json"),
+        r#"{"version":1,"toolchains":{"project-jdk":{"type":"java"},"project-maven":{"type":"maven","java":"project-jdk"},"project-gradle":{"type":"gradle","java":"project-jdk"}}}"#,
+    )
+    .unwrap();
+
+    for (provider, id) in [
+        ("npm.script", "npm.script:node/dev"),
+        ("compose.service", "compose.service:database"),
+        ("procfile.process", "procfile.process:worker"),
+        ("python.script", "python.script:python/python-app"),
+        ("cargo.binary", "cargo.binary:rust/rust-app"),
+        ("go.main", "go.main:go/go"),
+        ("gradle.service", "gradle.service:gradle/bootRun"),
+        ("spring-boot.maven", "spring-boot.maven:maven-app"),
+        ("make.target", "make.target:serve"),
+        ("just.recipe", "just.recipe:watch"),
+    ] {
+        assert!(
+            configurations.iter().any(|item| item["provider"] == provider),
+            "missing provider {provider} in {configurations:?}"
+        );
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": format!("plan-{provider}"),
+                "command": "runConfig.createLaunchPlan",
+                "payload": {"root": root, "configurationId": id}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{provider} launch plan failed: {response}");
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// Ids are the join key for the team and local override layers. A detector
 /// that renamed a Java configuration would silently detach every override
 /// written against it, with no error anywhere.

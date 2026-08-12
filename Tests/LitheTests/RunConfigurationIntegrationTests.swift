@@ -2408,6 +2408,92 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func serviceAddressUsesExplicitArgumentsAndEnvironmentPorts() async throws {
+        let argumentService = JavaRunConfiguration(
+            id: "npm.script:web/dev",
+            name: "dev",
+            kind: .process(provider: "npm.script"),
+            execution: .service,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let environmentService = JavaRunConfiguration(
+            id: "python.uvicorn:api",
+            name: "api",
+            kind: .process(provider: "python.uvicorn"),
+            execution: .service,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [
+                EffectiveRunConfiguration(
+                    configuration: argumentService,
+                    options: RunOptions(programArguments: "--host 0.0.0.0 --port 5173")
+                ),
+                EffectiveRunConfiguration(
+                    configuration: environmentService,
+                    options: RunOptions(environment: ["PORT": "8000"])
+                )
+            ]
+        )
+
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: fixture.mavenProject)
+
+        #expect(fixture.service.serviceURL(for: argumentService)?.absoluteString == "http://127.0.0.1:5173")
+        #expect(fixture.service.serviceURL(for: environmentService)?.absoluteString == "http://127.0.0.1:8000")
+    }
+
+    @Test
+    func serviceAddressRejectsUnknownInvalidAndNonServicePorts() async throws {
+        let unknown = JavaRunConfiguration(
+            id: "npm.script:web/dev",
+            name: "dev",
+            kind: .process(provider: "npm.script"),
+            execution: .service,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let invalid = JavaRunConfiguration(
+            id: "python.uvicorn:api",
+            name: "api",
+            kind: .process(provider: "python.uvicorn"),
+            execution: .service,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let application = JavaRunConfiguration(
+            id: "go.main:cli",
+            name: "cli",
+            kind: .process(provider: "go.main"),
+            execution: .application,
+            modulePath: nil,
+            mainClass: nil
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [
+                EffectiveRunConfiguration(configuration: unknown, options: RunOptions()),
+                EffectiveRunConfiguration(
+                    configuration: invalid,
+                    options: RunOptions(programArguments: "--port 70000")
+                ),
+                EffectiveRunConfiguration(
+                    configuration: application,
+                    options: RunOptions(environment: ["PORT": "4321"])
+                )
+            ]
+        )
+
+        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: fixture.mavenProject)
+
+        #expect(fixture.service.serviceURL(for: unknown) == nil)
+        #expect(fixture.service.serviceURL(for: invalid) == nil)
+        #expect(fixture.service.serviceURL(for: application) == nil)
+    }
+
+    @Test
     func runAllServicesExcludesApplicationsAndTasks() async throws {
         let service = JavaRunConfiguration(
             id: "npm.script:web/dev",
@@ -2630,6 +2716,7 @@ struct RunConfigurationIntegrationTests {
         await fixture.service.generateRunConfigurations()
 
         #expect(fixture.service.configurationStatus == .ready)
+        #expect(!fixture.service.isLoadingProject)
         #expect(fixture.service.generationState == .noEntries)
         #expect(fixture.service.configurations == [current])
     }
@@ -3107,6 +3194,35 @@ struct RunConfigurationIntegrationTests {
 
         #expect(service.configurationStatus == .missing)
         #expect(service.configurations.isEmpty)
+        #expect(!service.isLoadingProject)
+    }
+
+    @Test
+    func projectReloadDuringGenerationDoesNotLeaveRunServiceLoading() async {
+        let root = URL(fileURLWithPath: "/tmp/lithe-generation-reload", isDirectory: true)
+        let operations = BlockingGenerationOperations()
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: RunTestRuntimeLocator(),
+            store: RunTestKeyValueStore()
+        )
+        let service = JavaRunService(
+            runtimeService: runtime,
+            process: RecordingStreamingProcess(),
+            processFactory: { RecordingStreamingProcess() },
+            fileStorage: RunTestFileStorage(),
+            preferences: RunTestKeyValueStore(),
+            javaMavenOperations: RunTestJavaMavenOperations(),
+            runConfigurationOperations: operations
+        )
+
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+        let generation = Task { await service.generateRunConfigurations() }
+        await Task.detached { operations.waitUntilBlocked() }.value
+        await service.loadProject(at: root, files: [], mavenProject: nil)
+        operations.releaseGeneration()
+        await generation.value
+
+        #expect(!service.isLoadingProject)
     }
 
     @Test
@@ -3433,6 +3549,59 @@ private final class BlockingInspectionOperations: RunConfigurationOperations, @u
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
         throw RunConfigurationOperationFailure(message: "Creation is unavailable in this test double")
     }
+    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
+}
+
+private final class BlockingGenerationOperations: RunConfigurationOperations, @unchecked Sendable {
+    private let didBlock = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+
+    func waitUntilBlocked() {
+        didBlock.wait()
+    }
+
+    func releaseGeneration() {
+        release.signal()
+    }
+
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
+    }
+
+    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+        didBlock.signal()
+        release.wait()
+        return RunConfigurationGenerationResult(entryCount: 0)
+    }
+
+    func resolve(
+        at projectURL: URL,
+        toolchainCandidates: [ProjectToolchainCandidate]
+    ) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil)
+    }
+
+    func launchPlan(
+        at projectURL: URL,
+        configurationID: String,
+        currentFile: String?,
+        classPath: String?,
+        debugPort: Int?
+    ) throws -> SharedLaunchPlan {
+        throw RunConfigurationOperationFailure(message: "No launch plan")
+    }
+
+    func saveOptions(
+        _ options: JavaRunOptions,
+        configurationID: String,
+        scope: RunConfigurationSaveScope,
+        at projectURL: URL
+    ) throws {}
+
+    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
+        throw RunConfigurationOperationFailure(message: "Creation is unavailable in this test double")
+    }
+
     func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
 

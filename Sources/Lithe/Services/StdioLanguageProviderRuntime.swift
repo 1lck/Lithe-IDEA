@@ -11,6 +11,7 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     private let languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)?
     private let languageServerRuntimeResolver: ((LanguageProviderDescriptor) -> URL?)?
     private let languageServerCacheDirectory: URL?
+    private let processRegistry: ManagedProcessRegistry?
     private let debugLaunch: StdioDebugAdapterLaunch?
     private let debugSessionFactory: (() -> (any DebugAdapterSession)?)?
 
@@ -37,6 +38,7 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
         languageServerRuntimeResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
         languageServerCacheDirectory: URL? = nil,
+        processRegistry: ManagedProcessRegistry? = nil,
         debugLaunch: StdioDebugAdapterLaunch? = nil,
         debugSessionFactory: (() -> (any DebugAdapterSession)?)? = nil
     ) {
@@ -48,6 +50,7 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         self.languageServerExecutableResolver = languageServerExecutableResolver
         self.languageServerRuntimeResolver = languageServerRuntimeResolver
         self.languageServerCacheDirectory = languageServerCacheDirectory
+        self.processRegistry = processRegistry
         self.debugLaunch = debugLaunch
         self.debugSessionFactory = debugSessionFactory
     }
@@ -72,7 +75,8 @@ final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
             initializationOptions: languageServerLaunch.initializationOptions,
             runtimeExecutableURL: languageServerRuntimeResolver?(descriptor),
             cacheDirectoryURL: languageServerCacheDirectory,
-            core: languageServerCore
+            core: languageServerCore,
+            processRegistry: processRegistry
         )
     }
 
@@ -155,6 +159,7 @@ final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntimeFactory 
     private let languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)?
     private let languageServerRuntimeResolver: ((LanguageProviderDescriptor) -> URL?)?
     private let languageServerCacheDirectory: URL?
+    private let processRegistry: ManagedProcessRegistry?
     private let debugLaunches: [String: StdioDebugAdapterLaunch]
     private let debugSessionFactories: [String: () -> (any DebugAdapterSession)?]
 
@@ -165,6 +170,7 @@ final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntimeFactory 
         languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
         languageServerRuntimeResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
         languageServerCacheDirectory: URL? = nil,
+        processRegistry: ManagedProcessRegistry? = nil,
         debugLaunches: [String: StdioDebugAdapterLaunch] = [:],
         debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [:]
     ) {
@@ -174,6 +180,7 @@ final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntimeFactory 
         self.languageServerExecutableResolver = languageServerExecutableResolver
         self.languageServerRuntimeResolver = languageServerRuntimeResolver
         self.languageServerCacheDirectory = languageServerCacheDirectory
+        self.processRegistry = processRegistry
         self.debugLaunches = debugLaunches
         self.debugSessionFactories = debugSessionFactories
     }
@@ -202,6 +209,7 @@ final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntimeFactory 
             languageServerExecutableResolver: languageServerExecutableResolver,
             languageServerRuntimeResolver: languageServerRuntimeResolver,
             languageServerCacheDirectory: languageServerCacheDirectory,
+            processRegistry: processRegistry,
             debugLaunch: debugLaunch,
             debugSessionFactory: debugSessionFactory
         )

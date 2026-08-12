@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RunView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.openURL) private var openURL
     @ObservedObject var feature: RunFeatureModel
     @State private var selectedSessionID: String?
     @AppStorage("lithe.run.collapsedExecutions") private var collapsedExecutionIDs = ""
@@ -557,10 +558,12 @@ struct RunView: View {
 
     private func configurationRow(_ configuration: RunConfiguration) -> some View {
         let session = feature.moduleSessions.first { $0.id == configuration.id }
+        let serviceURL = session?.isRunning == true ? feature.serviceURL(for: configuration) : nil
 
         return sessionRow(
             title: configuration.name,
             subtitle: String(localized: String.LocalizationValue(configuration.kind.title)),
+            serviceURL: serviceURL,
             configurationKind: configuration.kind,
             isRunning: session?.isRunning ?? false,
             exitCode: session?.exitCode,
@@ -705,6 +708,11 @@ struct RunView: View {
                     configurationDetailRow("Provider", value: configuration.kind.id, monospaced: true)
                     configurationDetailRow("Working directory", value: workingDirectory, monospaced: true)
 
+                    if session?.isRunning == true,
+                       let serviceURL = feature.serviceURL(for: configuration) {
+                        configurationLinkRow("Address", url: serviceURL)
+                    }
+
                     if let modulePath = nonEmpty(configuration.modulePath) {
                         configurationDetailRow("Module", value: modulePath, monospaced: true)
                     }
@@ -787,6 +795,23 @@ struct RunView: View {
                 .foregroundStyle(LitheTheme.primaryText)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func configurationLinkRow(_ label: LocalizedStringKey, url: URL) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(label)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(width: 118, alignment: .trailing)
+
+            Link(destination: url) {
+                Label(url.absoluteString, systemImage: "arrow.up.right.square")
+                    .font(.system(size: 11.5, design: .monospaced))
+            }
+            .foregroundStyle(LitheTheme.accent)
+            .help("Open service in browser")
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -880,6 +905,7 @@ struct RunView: View {
     private func sessionRow(
         title: String,
         subtitle: String,
+        serviceURL: URL? = nil,
         configurationKind: RunConfigurationKind? = nil,
         isRunning: Bool,
         exitCode: Int32?,
@@ -920,10 +946,26 @@ struct RunView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .lineLimit(1)
-                    Text(subtitle)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(subtitle)
+                            .lineLimit(1)
+                        if let serviceURL, let port = serviceURL.port {
+                            let portText = String(port)
+                            Button {
+                                openURL(serviceURL)
+                            } label: {
+                                Text("localhost:" + portText)
+                                    .underline()
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(LitheTheme.accent)
+                            .help("Open \(serviceURL.absoluteString) in browser")
+                            .accessibilityLabel("Open service on port " + portText)
+                        }
+                    }
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if let onPin {

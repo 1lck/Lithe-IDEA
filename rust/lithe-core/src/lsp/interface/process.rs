@@ -28,6 +28,12 @@ pub struct LspProcessSpec {
 /// already exited is a normal state the engine reports through its own events,
 /// not an error to propagate from the handle.
 pub trait LspProcessHandle: Send + Sync {
+    /// OS process identifier when the platform exposes one. Scripted test
+    /// handles intentionally return no identifier.
+    fn process_id(&self) -> Option<u32> {
+        None
+    }
+
     /// Writes one already-framed message and flushes it. Fails once the input
     /// stream is gone, which the engine turns into a transport failure.
     fn write_input(&self, frame: &[u8]) -> Result<(), CoreError>;
@@ -94,6 +100,10 @@ struct SystemProcess {
 }
 
 impl LspProcessHandle for SystemProcess {
+    fn process_id(&self) -> Option<u32> {
+        self.child.lock().ok().map(|child| child.id())
+    }
+
     fn write_input(&self, frame: &[u8]) -> Result<(), CoreError> {
         let mut input = self.input.lock().map_err(|_| {
             CoreError::new(

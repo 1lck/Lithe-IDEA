@@ -49,13 +49,18 @@ struct LitheApp: App {
     init() {
         let store = MacUserDefaultsStore()
         let settings = AppSettings(store: store)
+        let processRegistry = ManagedProcessRegistry()
         _settings = StateObject(wrappedValue: settings)
         let projectSessions = ProjectSessionManager(
             settings: settings,
             modelFactory: {
                 AppModel(
                     settings: settings,
-                    services: MacServiceContainer(store: store, settings: settings).services
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        processRegistry: processRegistry
+                    ).services
                 )
             },
             newWindowOpener: Self.openProjectInNewWindow
@@ -69,7 +74,8 @@ struct LitheApp: App {
             baselineReporter: { marker in
                 guard let data = (marker + "\n").data(using: .utf8) else { return }
                 FileHandle.standardError.write(data)
-            }
+            },
+            processRegistry: processRegistry
         ))
         appDelegate.projectSessions = projectSessions
     }

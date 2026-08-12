@@ -74,6 +74,7 @@ pub struct StartServerRequest {
 pub struct StartServerResponse {
     pub session_id: String,
     pub state: LspLifecycleState,
+    pub process_id: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -433,6 +434,7 @@ impl LspEngine {
         })?;
         let request_id = (initialize.state.next_request_id - 1).to_string();
         let now = Instant::now();
+        let process_id = process.handle.process_id();
         let session = Arc::new(RuntimeSession {
             id: session_id.clone(),
             provider_id: request.provider_id,
@@ -487,6 +489,7 @@ impl LspEngine {
         Ok(StartServerResponse {
             session_id,
             state: LspLifecycleState::Initializing,
+            process_id,
         })
     }
 

@@ -1019,10 +1019,9 @@ struct WorkbenchView: View {
         } label: {
             Label {
                 HStack(spacing: 4) {
-                    Text(memoryUsageMonitor.currentText)
+                    Text("Total \(memoryUsageMonitor.totalText)")
                     Text("·")
-                    Text("avg")
-                    Text(memoryUsageMonitor.averageText)
+                    Text("Lithe \(memoryUsageMonitor.litheText)")
                 }
                 .monospacedDigit()
             } icon: {
@@ -1033,8 +1032,8 @@ struct WorkbenchView: View {
         .lithePointer()
         .help(
             Text(
-                "Current application memory: \(memoryUsageMonitor.currentText)\n" +
-                "Average since launch: \(memoryUsageMonitor.averageText)"
+                "Total managed memory: \(memoryUsageMonitor.totalText)\n" +
+                "Lithe: \(memoryUsageMonitor.litheText) · LSP: \(memoryUsageMonitor.lspText) · Services: \(memoryUsageMonitor.serviceText)"
             )
         )
         .popover(isPresented: $isMemoryUsagePopoverPresented, arrowEdge: .top) {
@@ -1047,7 +1046,7 @@ struct WorkbenchView: View {
             HStack(spacing: 8) {
                 Image(systemName: "memorychip")
                     .foregroundStyle(LitheTheme.accent)
-                Text("Application Memory")
+                Text("Managed Memory")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer(minLength: 8)
@@ -1068,9 +1067,12 @@ struct WorkbenchView: View {
                 .frame(height: 1)
 
             VStack(spacing: 0) {
-                memoryMetric("Current", value: memoryUsageMonitor.currentText)
-                memoryMetric("Average since launch", value: memoryUsageMonitor.averageText)
-                memoryMetric("Peak this run", value: memoryUsageMonitor.peakText)
+                memoryMetric("Lithe", value: memoryUsageMonitor.litheText)
+                memoryMetric("Language servers", value: memoryUsageMonitor.lspText)
+                memoryMetric("Running services", value: memoryUsageMonitor.serviceText)
+                memoryMetric("Total", value: memoryUsageMonitor.totalText)
+                memoryMetric("Average total", value: memoryUsageMonitor.averageText)
+                memoryMetric("Peak total", value: memoryUsageMonitor.peakText)
                 memoryMetric("Runtime", value: memoryUsageMonitor.runtimeText)
                 memoryMetric("Sample interval", value: memoryUsageMonitor.samplingIntervalText)
             }
@@ -1083,7 +1085,7 @@ struct WorkbenchView: View {
 
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "info.circle")
-                Text("Resident memory of the Lithe process")
+                Text("Resident memory of Lithe and its managed process trees")
                     .fixedSize(horizontal: false, vertical: true)
             }
             .font(LitheTheme.smallFont)

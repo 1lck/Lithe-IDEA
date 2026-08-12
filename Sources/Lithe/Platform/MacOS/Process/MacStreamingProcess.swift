@@ -11,6 +11,17 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     private var outputPipe: Pipe?
     private var timeoutTask: Task<Void, Never>?
     private var activeOperationID: String?
+    private let processRegistry: ManagedProcessRegistry?
+    private let category: ManagedProcessCategory
+    private var registeredPID: Int32?
+
+    init(
+        processRegistry: ManagedProcessRegistry? = nil,
+        category: ManagedProcessCategory = .service
+    ) {
+        self.processRegistry = processRegistry
+        self.category = category
+    }
 
     func start(_ request: ProcessRequest) throws {
         stop()
@@ -54,6 +65,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             self.timeoutTask?.cancel()
             self.timeoutTask = nil
             self.activeOperationID = nil
+            self.unregisterProcess()
             self.onStateChange?(ProcessLifecycleEvent(
                 operationID: request.operationID,
                 state: .finished,
@@ -76,6 +88,8 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             throw error
         }
         self.process = process
+        registeredPID = process.processIdentifier
+        processRegistry?.register(pid: process.processIdentifier, category: category)
         self.inputPipe = inputPipe
         self.outputPipe = outputPipe
         if let input = request.standardInput, let inputPipe {
@@ -112,10 +126,17 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         }
         try? inputPipe?.fileHandleForWriting.close()
         try? outputPipe?.fileHandleForReading.close()
+        unregisterProcess()
         process = nil
         inputPipe = nil
         outputPipe = nil
         activeOperationID = nil
+    }
+
+    private func unregisterProcess() {
+        guard let registeredPID else { return }
+        processRegistry?.unregister(pid: registeredPID, category: category)
+        self.registeredPID = nil
     }
 
     private func scheduleTimeout(_ milliseconds: Int?, for process: Process, operationID: String?) {

@@ -100,6 +100,10 @@ final class RunFeatureModel: ObservableObject {
         service.source(for: configuration)
     }
 
+    func serviceURL(for configuration: RunConfiguration) -> URL? {
+        service.serviceURL(for: configuration)
+    }
+
     @discardableResult
     func updateOptions(
         _ options: RunOptions,

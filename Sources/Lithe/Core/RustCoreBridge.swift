@@ -1165,6 +1165,7 @@ struct RustCoreBridge: Sendable {
     struct LspStartServerPayload: Decodable, Sendable {
         let sessionId: String
         let state: String
+        let processId: Int32?
     }
 
     private struct LspStartServerRequest: Encodable {

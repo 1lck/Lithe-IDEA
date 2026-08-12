@@ -74,11 +74,13 @@ final class StdioLanguageServerSession: LanguageServerSession {
     private let requestTimeout: TimeInterval
     private let shutdownTimeout: TimeInterval
     private let core: any LanguageServerRuntimeCore
+    private let processRegistry: ManagedProcessRegistry?
 
     private var sessionID: String?
     private var pendingOperations: [String: PendingOperation] = [:]
     private var pollTask: Task<Void, Never>?
     private var state: LanguageServerSessionState = .stopped
+    private var processID: Int32?
 
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     var onLog: ((LanguageServerLogLevel, String, String?) -> Void)?
@@ -99,7 +101,8 @@ final class StdioLanguageServerSession: LanguageServerSession {
         initializeTimeout: TimeInterval = 60,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2,
-        core: any LanguageServerRuntimeCore = RustCoreBridge()
+        core: any LanguageServerRuntimeCore = RustCoreBridge(),
+        processRegistry: ManagedProcessRegistry? = nil
     ) {
         self.providerID = providerID
         self.executableURL = executableURL
@@ -112,6 +115,7 @@ final class StdioLanguageServerSession: LanguageServerSession {
         self.requestTimeout = requestTimeout
         self.shutdownTimeout = shutdownTimeout
         self.core = core
+        self.processRegistry = processRegistry
     }
 
     /// Derived from the last lifecycle state Rust published: there is no local
@@ -151,6 +155,10 @@ final class StdioLanguageServerSession: LanguageServerSession {
         ) {
         case .success(let payload):
             sessionID = payload.sessionId
+            processID = payload.processId
+            if let processID {
+                processRegistry?.register(pid: processID, category: .languageServer)
+            }
             transition(to: Self.sessionState(payload.state) ?? .initializing)
             startPolling()
         case .failure(let error):
@@ -472,6 +480,10 @@ final class StdioLanguageServerSession: LanguageServerSession {
             core.lspDestroyServer(sessionID: sessionID)
         }
         sessionID = nil
+        if let processID {
+            processRegistry?.unregister(pid: processID, category: .languageServer)
+            self.processID = nil
+        }
         if !features.isEmpty {
             features = []
             onFeaturesChange?([])
