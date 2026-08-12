@@ -122,9 +122,11 @@ Media::SolidColorBrush applicationBrush(wchar_t const* key) {
         .Lookup(box_value(hstring(key))).try_as<Media::SolidColorBrush>();
 }
 
-Windows::UI::Color applicationColor(wchar_t const* key) {
-    return unbox_value<Windows::UI::Color>(
-        Application::Current().Resources().Lookup(box_value(hstring(key))));
+Windows::UI::Color applicationColor(wchar_t const* key, ElementTheme theme) {
+    const auto themeKey = theme == ElementTheme::Dark ? L"Dark" : L"Default";
+    const auto dictionary = Application::Current().Resources().ThemeDictionaries()
+        .Lookup(box_value(themeKey)).as<ResourceDictionary>();
+    return unbox_value<Windows::UI::Color>(dictionary.Lookup(box_value(hstring(key))));
 }
 
 TextBlock diffCell(std::string value, int column, bool muted = false) {
@@ -1179,15 +1181,21 @@ void MainWindow::configureTimers() {
     debugPollTimer_.Interval(std::chrono::milliseconds(100));
     debugPollTimer_.IsRepeating(true);
     debugPollToken_ = debugPollTimer_.Tick([weak](auto&&, auto&&) {
-        if (const auto self = weak.get()) self->session_->pollDebugger();
+        if (const auto self = weak.get(); self &&
+            self->debugSnapshot_.state != lithe::windows::app::JavaDebugSessionState::Idle &&
+            self->debugSnapshot_.state != lithe::windows::app::JavaDebugSessionState::Finished &&
+            self->debugSnapshot_.state != lithe::windows::app::JavaDebugSessionState::Failed) {
+            self->session_->pollDebugger();
+        }
     });
-    debugPollTimer_.Start();
-
     workbenchSaveTimer_ = dispatcher_.CreateTimer();
     workbenchSaveTimer_.Interval(std::chrono::milliseconds(350));
     workbenchSaveTimer_.IsRepeating(false);
     workbenchSaveToken_ = workbenchSaveTimer_.Tick([weak](auto&&, auto&&) {
-        if (const auto self = weak.get()) self->saveWorkbenchState();
+        if (const auto self = weak.get()) {
+            self->workbenchSaveTimer_.Stop();
+            self->saveWorkbenchState();
+        }
     });
 
     markdownPreviewTimer_ = dispatcher_.CreateTimer();
@@ -3317,16 +3325,34 @@ void MainWindow::CheckForUpdatesClick(IInspectable const&, RoutedEventArgs const
 }
 
 void MainWindow::ProjectItemInvoked(
-    TreeView const&, TreeViewItemInvokedEventArgs const& event) {
-    const auto node = event.InvokedItem().try_as<TreeViewNode>();
+    TreeView const& tree, TreeViewItemInvokedEventArgs const& event) {
+    auto node = event.InvokedItem().try_as<TreeViewNode>();
+    if (!node) {
+        const auto container = tree.ContainerFromItem(event.InvokedItem());
+        if (container) node = tree.NodeFromContainer(container);
+    }
+    if (!node) node = tree.SelectedNode();
     if (!node) return;
     const auto found = treePaths_.find(objectKey(node));
     if (found == treePaths_.end()) return;
-    if (directoryPaths_.contains(found->second)) {
-        node.IsExpanded(!node.IsExpanded());
-        return;
-    }
-    openDocument(found->second);
+    if (directoryPaths_.contains(found->second)) return;
+    const auto path = found->second;
+    event.Handled(true);
+    const auto weak = get_weak();
+    dispatcher_.TryEnqueue([weak, path] {
+        if (const auto self = weak.get()) self->openDocument(path);
+    });
+}
+
+void MainWindow::ProjectTreeExpanding(
+    TreeView const&, TreeViewExpandingEventArgs const& event) {
+    populateWorkspaceChildren(event.Node());
+    scheduleWorkbenchStateSave();
+}
+
+void MainWindow::ProjectTreeCollapsed(
+    TreeView const&, TreeViewCollapsedEventArgs const&) {
+    scheduleWorkbenchStateSave();
 }
 
 void MainWindow::ProjectTreeRightTapped(
@@ -3514,8 +3540,13 @@ void MainWindow::RevealSelectedItemClick(IInspectable const&, RoutedEventArgs co
 void MainWindow::ChangeItemClick(IInspectable const&, ItemClickEventArgs const& event) {
     const auto path = itemTag(event.ClickedItem());
     if (path.empty()) return;
-    openDocument(path);
-    session_->loadDiff({path});
+    const auto weak = get_weak();
+    dispatcher_.TryEnqueue([weak, path] {
+        if (const auto self = weak.get()) {
+            self->openDocument(path);
+            self->session_->loadDiff({path});
+        }
+    });
 }
 
 void MainWindow::SearchResultClick(IInspectable const&, ItemClickEventArgs const& event) {
@@ -3550,7 +3581,13 @@ void MainWindow::GitHistoryItemClick(IInspectable const&, ItemClickEventArgs con
 void MainWindow::CommitFileClick(IInspectable const&, ItemClickEventArgs const& event) {
     const auto path = itemTag(event.ClickedItem());
     if (!path.empty() && !selectedGitCommit_.empty()) {
-        session_->loadGitCommitDiff(selectedGitCommit_, path);
+        const auto weak = get_weak();
+        const auto commit = selectedGitCommit_;
+        dispatcher_.TryEnqueue([weak, commit, path] {
+            if (const auto self = weak.get()) {
+                self->session_->loadGitCommitDiff(commit, path);
+            }
+        });
     }
 }
 
@@ -3700,7 +3737,12 @@ void MainWindow::RootKeyDown(IInspectable const&, Input::KeyRoutedEventArgs cons
 void MainWindow::EditorTextChanged(IInspectable const&, RoutedEventArgs const&) {
     if (editorUpdating_ || editorFormatting_ || activePath_.empty() ||
         isExternalDocument(activePath_)) return;
-    openDocuments_[activePath_] = editorText();
+    auto source = editorText();
+    if (const auto current = openDocuments_.find(activePath_);
+        current != openDocuments_.end() && current->second == source) {
+        return;
+    }
+    openDocuments_[activePath_] = std::move(source);
     dirtyPaths_.insert(activePath_);
     session_->setDocumentText(openDocuments_[activePath_]);
     if (isJavaPath(activePath_)) {
@@ -4486,7 +4528,10 @@ void MainWindow::restoreWorkbenchState() {
     std::unordered_set<std::string> expanded(state.expandedPaths.begin(), state.expandedPaths.end());
     std::function<void(TreeViewNode const&)> expand = [&](TreeViewNode const& node) {
         const auto found = treePaths_.find(objectKey(node));
-        if (found != treePaths_.end() && expanded.contains(found->second)) node.IsExpanded(true);
+        if (found != treePaths_.end() && expanded.contains(found->second)) {
+            populateWorkspaceChildren(node);
+            node.IsExpanded(true);
+        }
         for (const auto& child : node.Children()) expand(child);
     };
     for (const auto& root : ProjectTree().RootNodes()) expand(root);
@@ -4718,7 +4763,8 @@ void MainWindow::applySyntaxHighlighting() {
     const auto selectionEnd = selection.EndPosition();
     const auto offsets = utf16Offsets(source);
     const auto entire = EditorTextBox().Document().GetRange(0, offsets.back());
-    entire.CharacterFormat().ForegroundColor(applicationColor(L"LitheCodeTextColor"));
+    const auto theme = EditorTextBox().ActualTheme();
+    entire.CharacterFormat().ForegroundColor(applicationColor(L"LitheCodeTextColor", theme));
     for (const auto& span : lithe::windows::algorithms::highlightSyntax(source)) {
         if (span.start >= offsets.size() || span.end >= offsets.size()) continue;
         const auto start = offsets[span.start];
@@ -4739,7 +4785,7 @@ void MainWindow::applySyntaxHighlighting() {
         case lithe::windows::algorithms::SyntaxHighlightKind::Comment:
             color = L"LitheCodeCommentColor"; break;
         }
-        range.CharacterFormat().ForegroundColor(applicationColor(color));
+        range.CharacterFormat().ForegroundColor(applicationColor(color, theme));
     }
     selection.SetRange(selectionStart, selectionEnd);
     editorFormatting_ = false;
@@ -4873,11 +4919,31 @@ void MainWindow::renderWorkspace(lithe::windows::app::WorkspaceFeatureState stat
         return;
     }
     if (state.error || !state.snapshot) return;
+    std::unordered_set<std::string> expandedPaths;
+    std::function<void(TreeViewNode const&)> collectExpanded = [&](TreeViewNode const& node) {
+        const auto found = treePaths_.find(objectKey(node));
+        if (node.IsExpanded() && found != treePaths_.end()) expandedPaths.insert(found->second);
+        for (const auto& child : node.Children()) collectExpanded(child);
+    };
+    for (const auto& root : ProjectTree().RootNodes()) collectExpanded(root);
+
     showWorkbenchSurface();
     treePaths_.clear();
     directoryPaths_.clear();
+    workspaceNodes_.clear();
     ProjectTree().RootNodes().Clear();
-    appendWorkspaceNode(nullptr, state.snapshot->root, true);
+    workspaceSnapshot_ = *state.snapshot;
+    indexWorkspaceNode(workspaceSnapshot_->root);
+    appendWorkspaceNode(nullptr, workspaceSnapshot_->root, true);
+    std::function<void(TreeViewNode const&)> restoreExpanded = [&](TreeViewNode const& node) {
+        const auto found = treePaths_.find(objectKey(node));
+        if (found != treePaths_.end() && expandedPaths.contains(found->second)) {
+            populateWorkspaceChildren(node);
+            node.IsExpanded(true);
+        }
+        for (const auto& child : node.Children()) restoreExpanded(child);
+    };
+    for (const auto& root : ProjectTree().RootNodes()) restoreExpanded(root);
     const auto root = state.root.value_or(std::filesystem::path{});
     const auto rootName = root.empty() ? std::string{} : fileName(pathUtf8(root));
     WorkspaceTitleText().Text(rootName.empty() ? L"" : text("- " + rootName));
@@ -4887,28 +4953,32 @@ void MainWindow::renderWorkspace(lithe::windows::app::WorkspaceFeatureState stat
               countLabel(state.snapshot->files.size(), "files", "文件", simplifiedChinese_));
 }
 
+void MainWindow::indexWorkspaceNode(const lithe::windows::WorkspaceNodeDto& item) {
+    workspaceNodes_[item.path] = &item;
+    for (const auto& child : item.children) indexWorkspaceNode(child);
+}
+
+void MainWindow::populateWorkspaceChildren(TreeViewNode const& node) {
+    if (!node || node.Children().Size() != 0) return;
+    const auto path = treePaths_.find(objectKey(node));
+    if (path == treePaths_.end()) return;
+    const auto item = workspaceNodes_.find(path->second);
+    if (item == workspaceNodes_.end()) return;
+    node.HasUnrealizedChildren(false);
+    for (const auto& child : item->second->children) appendWorkspaceNode(node, child);
+}
+
 void MainWindow::appendWorkspaceNode(
     TreeViewNode const& parent, const lithe::windows::WorkspaceNodeDto& item, bool isRoot) {
     TreeViewNode node;
-    StackPanel label;
-    label.Orientation(Orientation::Horizontal);
-    label.Spacing(7);
-    FontIcon icon;
-    icon.Glyph(item.isDirectory ? L"\xE8B7" : L"\xE8A5");
-    icon.FontSize(12);
-    icon.Foreground(applicationBrush(L"LitheMutedTextBrush"));
-    label.Children().Append(icon);
-    TextBlock name;
-    name.Text(text(item.name.empty() ? item.path : item.name));
-    name.TextTrimming(TextTrimming::CharacterEllipsis);
-    label.Children().Append(name);
-    node.Content(label);
+    node.Content(box_value(text(item.name.empty() ? item.path : item.name)));
     node.IsExpanded(isRoot);
+    node.HasUnrealizedChildren(item.isDirectory && !item.children.empty());
     treePaths_[objectKey(node)] = item.path;
     if (item.isDirectory) directoryPaths_.insert(item.path);
     if (parent) parent.Children().Append(node);
     else ProjectTree().RootNodes().Append(node);
-    for (const auto& child : item.children) appendWorkspaceNode(node, child);
+    if (isRoot) populateWorkspaceChildren(node);
 }
 
 void MainWindow::renderDocument(lithe::windows::app::DocumentFeatureState state) {
@@ -5348,6 +5418,12 @@ void MainWindow::appendDebugVariable(
 
 void MainWindow::renderJavaDebug(lithe::windows::app::JavaDebugSnapshot snapshot) {
     debugSnapshot_ = snapshot;
+    const bool debugActive =
+        snapshot.state != lithe::windows::app::JavaDebugSessionState::Idle &&
+        snapshot.state != lithe::windows::app::JavaDebugSessionState::Finished &&
+        snapshot.state != lithe::windows::app::JavaDebugSessionState::Failed;
+    if (debugActive) debugPollTimer_.Start();
+    else debugPollTimer_.Stop();
     debugVariableIDs_.clear();
     DebugVariablesList().Items().Clear();
     DebugThreadsList().Items().Clear();
