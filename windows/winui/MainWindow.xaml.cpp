@@ -600,6 +600,11 @@ constexpr std::pair<std::string_view, std::string_view> kSimplifiedChineseText[]
     {"Verify", "验证"},
     {"Welcome / Switch Workspace", "欢迎页 / 切换工作区"},
     {"Welcome to Lithe", "欢迎使用 Lithe"},
+    {"Search projects", "搜索项目"},
+    {"Projects", "项目"},
+    {"Check for Updates", "重试更新检查"},
+    {"Windows", "Windows"},
+    {"Open a local folder to start working.", "打开本地文件夹以开始工作。"},
     {"Windows releases are downloaded only after SHA-256 and Authenticode verification.",
      "Windows 版本仅在 SHA-256 与 Authenticode 验证通过后下载。"},
     {"Windows installer", "Windows 安装程序"},
@@ -818,7 +823,7 @@ void MainWindow::configureWindow() {
     const auto dpi = GetDpiForWindow(hwnd);
     const auto scale = static_cast<double>(dpi) / 96.0;
     SetWindowPos(hwnd, nullptr, 0, 0,
-                 static_cast<int>(1320 * scale), static_cast<int>(840 * scale),
+                 static_cast<int>(1440 * scale), static_cast<int>(900 * scale),
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
     const auto iconPath = std::filesystem::current_path() / L"Assets" / L"lithe.ico";
@@ -1198,6 +1203,11 @@ void MainWindow::configureTimers() {
 
 fire_and_forget MainWindow::ShowWelcomeClick(IInspectable const&, RoutedEventArgs const&) {
     const auto lifetime = get_strong();
+    showWelcomeSurface();
+    co_return;
+
+    // Kept temporarily below while the remaining dialog-only actions are moved
+    // to the full-window welcome surface.
     enum class WelcomeAction { None, Clone, Settings };
     WelcomeAction action = WelcomeAction::None;
     ContentDialog dialog;
@@ -3997,9 +4007,121 @@ void MainWindow::RootSizeChanged(IInspectable const&, SizeChangedEventArgs const
 }
 
 void MainWindow::RootLoaded(IInspectable const&, RoutedEventArgs const&) {
-    if (!showWelcomeOnLoad_) return;
-    showWelcomeOnLoad_ = false;
-    ShowWelcomeClick(nullptr, RoutedEventArgs{});
+    if (showWelcomeOnLoad_) {
+        showWelcomeOnLoad_ = false;
+        showWelcomeSurface();
+    } else {
+        showWorkbenchSurface();
+    }
+}
+
+void MainWindow::showWelcomeSurface() {
+    renderWelcomeProjects(WelcomeSearchBox() ? utf8(WelcomeSearchBox().Text()) : std::string{});
+    TopBar().Visibility(Visibility::Collapsed);
+    WorkbenchSurface().Visibility(Visibility::Collapsed);
+    StatusBar().Visibility(Visibility::Collapsed);
+    WelcomeSurface().Visibility(Visibility::Visible);
+}
+
+void MainWindow::showWorkbenchSurface() {
+    WelcomeSurface().Visibility(Visibility::Collapsed);
+    TopBar().Visibility(Visibility::Visible);
+    WorkbenchSurface().Visibility(Visibility::Visible);
+    StatusBar().Visibility(Visibility::Visible);
+}
+
+void MainWindow::renderWelcomeProjects(std::string query) {
+    WelcomeProjectsList().Items().Clear();
+    std::size_t visibleCount = 0;
+    for (const auto& path : session_->recentProjects()) {
+        auto name = fileName(path);
+        if (name.empty()) name = path;
+        if (!query.empty() && !containsIgnoreCase(name + " " + path, query)) continue;
+
+        std::error_code error;
+        const bool available = std::filesystem::is_directory(pathFromUtf8(path), error);
+        ListViewItem item;
+        item.Tag(box_value(text(path)));
+        item.Height(58);
+        item.Opacity(available ? 1.0 : 0.34);
+        item.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+        item.Padding(Thickness{12, 0, 12, 0});
+
+        Grid row;
+        row.ColumnDefinitions().Append(ColumnDefinition{});
+        row.ColumnDefinitions().Append(ColumnDefinition{});
+        row.ColumnDefinitions().GetAt(0).Width(GridLength{38, GridUnitType::Pixel});
+        row.ColumnDefinitions().GetAt(1).Width(GridLength{1, GridUnitType::Star});
+        row.ColumnSpacing(12);
+
+        Border badge;
+        badge.Width(38);
+        badge.Height(38);
+        badge.CornerRadius(CornerRadius{8});
+        static constexpr std::array<wchar_t const*, 5> palette{
+            L"LitheProjectOrangeBrush", L"LitheProjectTealBrush",
+            L"LitheProjectBlueBrush", L"LitheProjectGreenBrush",
+            L"LitheProjectGoldBrush"};
+        std::uint64_t hash = 1469598103934665603ULL;
+        for (const auto byte : name) {
+            hash ^= static_cast<unsigned char>(byte);
+            hash *= 1099511628211ULL;
+        }
+        badge.Background(available ? applicationBrush(palette[hash % palette.size()])
+                                   : applicationBrush(L"LitheRaisedBrush"));
+        TextBlock initial;
+        initial.Text(text(name.empty() ? "LI" : std::string(1, static_cast<char>(std::toupper(
+            static_cast<unsigned char>(name.front()))))));
+        initial.FontSize(12);
+        initial.FontWeight(Windows::UI::Text::FontWeights::Bold());
+        initial.Foreground(applicationBrush(L"LitheTextBrush"));
+        initial.HorizontalAlignment(HorizontalAlignment::Center);
+        initial.VerticalAlignment(VerticalAlignment::Center);
+        badge.Child(initial);
+        row.Children().Append(badge);
+
+        StackPanel labels;
+        labels.Spacing(3);
+        labels.VerticalAlignment(VerticalAlignment::Center);
+        TextBlock title;
+        title.Text(text(name));
+        title.FontSize(13.5);
+        title.FontWeight(Windows::UI::Text::FontWeights::Medium());
+        TextBlock location;
+        location.Text(text(path));
+        location.FontSize(11.5);
+        location.Foreground(applicationBrush(L"LitheMutedTextBrush"));
+        location.TextTrimming(TextTrimming::CharacterEllipsis);
+        labels.Children().Append(title);
+        labels.Children().Append(location);
+        Grid::SetColumn(labels, 1);
+        row.Children().Append(labels);
+        item.Content(row);
+        WelcomeProjectsList().Items().Append(item);
+        ++visibleCount;
+    }
+    WelcomeProjectsList().Visibility(visibleCount == 0 ? Visibility::Collapsed : Visibility::Visible);
+    WelcomeEmptyState().Visibility(visibleCount == 0 ? Visibility::Visible : Visibility::Collapsed);
+    WelcomeEmptyTitle().Text(ui(query.empty() ? "No recent projects" : "No matching projects"));
+}
+
+void MainWindow::WelcomeSearchTextChanged(IInspectable const&, TextChangedEventArgs const&) {
+    if (session_) renderWelcomeProjects(utf8(WelcomeSearchBox().Text()));
+}
+
+void MainWindow::WelcomeProjectClick(IInspectable const&, ItemClickEventArgs const& event) {
+    const auto path = itemTag(event.ClickedItem());
+    if (path.empty()) return;
+    std::error_code error;
+    if (!std::filesystem::is_directory(pathFromUtf8(path), error)) return;
+    const auto weak = get_weak();
+    continueAfterDirtyDocuments("Switch Project", [weak, path] {
+        if (const auto self = weak.get()) {
+            self->saveWorkbenchState();
+            self->resetWorkspaceUI();
+            self->session_->openWorkspace(pathFromUtf8(path));
+        }
+    });
 }
 
 void MainWindow::setStatus(std::string message) {
@@ -4751,6 +4873,7 @@ void MainWindow::renderWorkspace(lithe::windows::app::WorkspaceFeatureState stat
         return;
     }
     if (state.error || !state.snapshot) return;
+    showWorkbenchSurface();
     treePaths_.clear();
     directoryPaths_.clear();
     ProjectTree().RootNodes().Clear();

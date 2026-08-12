@@ -196,6 +196,10 @@ struct MainWindow : MainWindowT<MainWindow> {
         IInspectable const&, Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
     void RootKeyDown(IInspectable const&, Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
     void RootLoaded(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void WelcomeSearchTextChanged(
+        IInspectable const&, Microsoft::UI::Xaml::Controls::TextChangedEventArgs const&);
+    void WelcomeProjectClick(
+        IInspectable const&, Microsoft::UI::Xaml::Controls::ItemClickEventArgs const&);
     void EditorTextChanged(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
     void EditorSelectionChanged(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
     void EditorLoaded(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
@@ -221,6 +225,9 @@ struct MainWindow : MainWindowT<MainWindow> {
     void RootSizeChanged(IInspectable const&, Microsoft::UI::Xaml::SizeChangedEventArgs const&);
 
 private:
+    void showWelcomeSurface();
+    void showWorkbenchSurface();
+    void renderWelcomeProjects(std::string query = {});
     struct NavigationTarget {
         std::string relativePath;
         std::optional<std::filesystem::path> absolutePath;

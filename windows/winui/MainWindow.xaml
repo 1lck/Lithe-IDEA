@@ -5,6 +5,7 @@
     xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives">
 
     <Grid x:Name="RootGrid"
+          RequestedTheme="Dark"
           Background="{ThemeResource LitheWindowBrush}"
           Loaded="RootLoaded"
           KeyDown="RootKeyDown"
@@ -15,7 +16,7 @@
             <RowDefinition Height="{StaticResource LitheStatusBarHeight}" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0"
+        <Grid x:Name="TopBar" Grid.Row="0"
               Background="{ThemeResource LitheTitlebarBrush}"
               BorderBrush="{ThemeResource LitheBorderBrush}"
               BorderThickness="0,0,0,1">
@@ -216,7 +217,7 @@
             </StackPanel>
         </Grid>
 
-        <Grid Grid.Row="1" MinWidth="760" MinHeight="440">
+        <Grid x:Name="WorkbenchSurface" Grid.Row="1" MinWidth="760" MinHeight="440">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColumn"
                                   Width="{StaticResource LitheSidebarPreferredWidth}"
@@ -1003,22 +1004,144 @@
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="2" Background="{ThemeResource LitheAccentBrush}" Padding="10,0">
+        <Grid x:Name="StatusBar" Grid.Row="2"
+              Background="{ThemeResource LitheTitlebarBrush}"
+              BorderBrush="{ThemeResource LitheBorderBrush}"
+              BorderThickness="0,1,0,0" Padding="10,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="StatusText" Foreground="White" FontSize="11"
+            <TextBlock x:Name="StatusText" Foreground="{ThemeResource LitheMutedTextBrush}" FontSize="11"
                        Text="Ready" TextTrimming="CharacterEllipsis"
                        VerticalAlignment="Center" />
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
-                <TextBlock x:Name="GitStatusText" Foreground="White" FontSize="11"
+                <TextBlock x:Name="GitStatusText" Foreground="{ThemeResource LitheMutedTextBrush}" FontSize="11"
                            VerticalAlignment="Center" />
                 <TextBlock x:Name="CursorPositionText" Text="Ln 1, Col 1"
-                           Foreground="White" FontSize="11" VerticalAlignment="Center" />
-                <TextBlock x:Name="AnalysisStatusText" Foreground="White" FontSize="11"
+                           Foreground="{ThemeResource LitheMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                <TextBlock x:Name="AnalysisStatusText" Foreground="{ThemeResource LitheMutedTextBrush}" FontSize="11"
                            VerticalAlignment="Center" />
             </StackPanel>
+        </Grid>
+
+        <!-- Welcome is a full window surface, matching macOS RootView. It is not a
+             modal: opening a workspace swaps this surface for the workbench. -->
+        <Grid x:Name="WelcomeSurface" Grid.RowSpan="3"
+              Visibility="Collapsed"
+              Background="{ThemeResource LitheWindowBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="58" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="Welcome to Lithe" FontSize="16" FontWeight="SemiBold"
+                       HorizontalAlignment="Stretch" TextAlignment="Center"
+                       VerticalAlignment="Center" />
+
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="280" />
+                    <ColumnDefinition Width="1" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Grid Background="{ThemeResource LitheSidebarBrush}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal" Spacing="11" Margin="24,38,24,38">
+                        <Image Width="42" Height="42" Source="Assets/AppIcon.png"
+                               Stretch="Uniform" />
+                        <StackPanel VerticalAlignment="Center" Spacing="3">
+                            <TextBlock Text="Lithe" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock Text="0.1.11 · Windows" FontSize="11"
+                                       Foreground="{ThemeResource LitheMutedTextBrush}" />
+                            <Button Height="22" Padding="0" HorizontalAlignment="Left"
+                                    Background="Transparent" BorderThickness="0"
+                                    Click="CheckForUpdatesClick">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE72C;" FontSize="11" />
+                                    <TextBlock Text="Check for Updates" FontSize="10.5" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+                    <Border Grid.Row="1" Height="36" Margin="14,0" CornerRadius="5"
+                            Background="{ThemeResource LitheSelectionBrush}">
+                        <StackPanel Orientation="Horizontal" Spacing="9" Margin="14,0">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="15" VerticalAlignment="Center" />
+                            <TextBlock Text="Projects" FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    <Button Grid.Row="3" Margin="14,0,14,14" Height="34"
+                            HorizontalContentAlignment="Stretch" Background="Transparent"
+                            BorderThickness="0" Click="ShowSettingsClick">
+                        <StackPanel Orientation="Horizontal" Spacing="9">
+                            <FontIcon Glyph="&#xE713;" FontSize="14" />
+                            <TextBlock Text="Settings" FontSize="12.5" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <Border Grid.Column="1" Background="{ThemeResource LitheBorderBrush}" />
+
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="76" />
+                        <RowDefinition Height="1" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid Margin="30,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MaxWidth="360" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid VerticalAlignment="Center">
+                            <TextBox x:Name="WelcomeSearchBox" Height="30" Padding="32,3,8,3"
+                                     Background="{ThemeResource LitheInputBrush}"
+                                     BorderBrush="{ThemeResource LitheAccentBrush}"
+                                     BorderThickness="1" PlaceholderText="Search projects"
+                                     TextChanged="WelcomeSearchTextChanged" />
+                            <FontIcon Glyph="&#xE721;" FontSize="12"
+                                      Foreground="{ThemeResource LitheMutedTextBrush}"
+                                      Margin="11,0,0,0" HorizontalAlignment="Left"
+                                      VerticalAlignment="Center" IsHitTestVisible="False" />
+                        </Grid>
+                        <Button Grid.Column="2" Content="Clone" Margin="10,0,0,0"
+                                VerticalAlignment="Center" Click="CloneRepositoryClick" />
+                        <Button Grid.Column="3" Content="Open" Margin="10,0,0,0"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource LithePrimaryButtonStyle}"
+                                Click="OpenWorkspaceClick" />
+                    </Grid>
+                    <Border Grid.Row="1" Margin="24,0"
+                            Background="{ThemeResource LitheBorderBrush}" />
+                    <Grid Grid.Row="2">
+                        <ListView x:Name="WelcomeProjectsList" Margin="18,14"
+                                  Background="Transparent" BorderThickness="0"
+                                  SelectionMode="Single" IsItemClickEnabled="True"
+                                  ItemClick="WelcomeProjectClick" />
+                        <StackPanel x:Name="WelcomeEmptyState" Spacing="10"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE8B7;" FontSize="32"
+                                      Foreground="{ThemeResource LitheMutedTextBrush}"
+                                      HorizontalAlignment="Center" />
+                            <TextBlock x:Name="WelcomeEmptyTitle" Text="No recent projects"
+                                       FontSize="14" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="Open a local folder to start working."
+                                       FontSize="13" Foreground="{ThemeResource LitheMutedTextBrush}" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Grid>
         </Grid>
     </Grid>
 </Window>

@@ -30,6 +30,12 @@
                     <SolidColorBrush x:Key="LitheSidebarBrush" Color="#F5F6F7" />
                     <SolidColorBrush x:Key="LitheEditorBrush" Color="#FFFFFF" />
                     <SolidColorBrush x:Key="LitheRaisedBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="LitheInputBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="LitheProjectOrangeBrush" Color="#E66D47" />
+                    <SolidColorBrush x:Key="LitheProjectTealBrush" Color="#1FA1AD" />
+                    <SolidColorBrush x:Key="LitheProjectBlueBrush" Color="#4787E0" />
+                    <SolidColorBrush x:Key="LitheProjectGreenBrush" Color="#4DA97A" />
+                    <SolidColorBrush x:Key="LitheProjectGoldBrush" Color="#B88616" />
                     <SolidColorBrush x:Key="LitheSelectionBrush" Color="#CFE5EA" />
                     <SolidColorBrush x:Key="LitheSubtleSelectionBrush" Color="#E4ECEE" />
                     <SolidColorBrush x:Key="LitheHoverBrush" Color="#0D000000" />
@@ -46,25 +52,31 @@
                     <Color x:Key="LitheCodeCommentColor">#557A46</Color>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="LitheWorkspaceBrush" Color="#1D1F22" />
-                    <SolidColorBrush x:Key="LithePanelBrush" Color="#25282C" />
-                    <SolidColorBrush x:Key="LitheGutterBrush" Color="#222529" />
-                    <SolidColorBrush x:Key="LitheSubtleBrush" Color="#2D3136" />
-                    <SolidColorBrush x:Key="LitheBorderBrush" Color="#3C4249" />
-                    <SolidColorBrush x:Key="LitheTextBrush" Color="#F1F3F5" />
-                    <SolidColorBrush x:Key="LitheMutedTextBrush" Color="#A8B0B8" />
-                    <SolidColorBrush x:Key="LitheAccentBrush" Color="#62A9B8" />
-                    <SolidColorBrush x:Key="LitheAccentSubtleBrush" Color="#283E43" />
+                    <SolidColorBrush x:Key="LitheWorkspaceBrush" Color="#1B1D20" />
+                    <SolidColorBrush x:Key="LithePanelBrush" Color="#2A2D30" />
+                    <SolidColorBrush x:Key="LitheGutterBrush" Color="#1F2124" />
+                    <SolidColorBrush x:Key="LitheSubtleBrush" Color="#34373D" />
+                    <SolidColorBrush x:Key="LitheBorderBrush" Color="#2D3033" />
+                    <SolidColorBrush x:Key="LitheTextBrush" Color="#DADADC" />
+                    <SolidColorBrush x:Key="LitheMutedTextBrush" Color="#8D8E90" />
+                    <SolidColorBrush x:Key="LitheAccentBrush" Color="#4F94FA" />
+                    <SolidColorBrush x:Key="LitheAccentSubtleBrush" Color="#2B4A7D" />
                     <SolidColorBrush x:Key="LitheAddedBrush" Color="#213B2A" />
                     <SolidColorBrush x:Key="LitheRemovedBrush" Color="#422A2D" />
                     <SolidColorBrush x:Key="LitheChangedBrush" Color="#403A25" />
                     <SolidColorBrush x:Key="LitheWarningBrush" Color="#594A1F" />
                     <SolidColorBrush x:Key="LitheWindowBrush" Color="#1B1D20" />
-                    <SolidColorBrush x:Key="LitheTitlebarBrush" Color="#25282C" />
-                    <SolidColorBrush x:Key="LitheToolHeaderBrush" Color="#1F2226" />
-                    <SolidColorBrush x:Key="LitheSidebarBrush" Color="#17191B" />
-                    <SolidColorBrush x:Key="LitheEditorBrush" Color="#131519" />
-                    <SolidColorBrush x:Key="LitheRaisedBrush" Color="#2A2D32" />
+                    <SolidColorBrush x:Key="LitheTitlebarBrush" Color="#25282B" />
+                    <SolidColorBrush x:Key="LitheToolHeaderBrush" Color="#1F2124" />
+                    <SolidColorBrush x:Key="LitheSidebarBrush" Color="#17181B" />
+                    <SolidColorBrush x:Key="LitheEditorBrush" Color="#131416" />
+                    <SolidColorBrush x:Key="LitheRaisedBrush" Color="#2A2D30" />
+                    <SolidColorBrush x:Key="LitheInputBrush" Color="#111214" />
+                    <SolidColorBrush x:Key="LitheProjectOrangeBrush" Color="#E66D47" />
+                    <SolidColorBrush x:Key="LitheProjectTealBrush" Color="#1FA1AD" />
+                    <SolidColorBrush x:Key="LitheProjectBlueBrush" Color="#4787E0" />
+                    <SolidColorBrush x:Key="LitheProjectGreenBrush" Color="#4DA97A" />
+                    <SolidColorBrush x:Key="LitheProjectGoldBrush" Color="#B88616" />
                     <SolidColorBrush x:Key="LitheSelectionBrush" Color="#2B4A7D" />
                     <SolidColorBrush x:Key="LitheSubtleSelectionBrush" Color="#343940" />
                     <SolidColorBrush x:Key="LitheHoverBrush" Color="#0DFFFFFF" />
