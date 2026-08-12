@@ -243,8 +243,16 @@ std::optional<GitStashRestoreDto> decodeGitStashRestoreValue(const JsonValue& va
     if (!value.isObject()) return std::nullopt;
     const auto stashReference = requiredString(value, "stashReference");
     const auto conflictedPaths = stringArray(value, "conflictedPaths");
-    if (!stashReference || !conflictedPaths) return std::nullopt;
-    return GitStashRestoreDto{*stashReference, *conflictedPaths};
+    const auto* deferredValue = objectValue(value, "deferred");
+    if (!stashReference || !conflictedPaths ||
+        (deferredValue != nullptr && deferredValue->asBool() == nullptr)) {
+        return std::nullopt;
+    }
+    return GitStashRestoreDto{
+        *stashReference,
+        *conflictedPaths,
+        deferredValue != nullptr && *deferredValue->asBool(),
+    };
 }
 
 const JsonValue* responseObjectData(const CoreEnvelope& envelope) {
@@ -371,9 +379,10 @@ std::optional<ReplacementPreviewDto> decodeReplacementPreview(const CoreEnvelope
     for (const auto* file : *files) {
         const auto path = requiredString(*file, "path");
         const auto matches = objectArray(*file, "matches");
+        const auto originalText = requiredString(*file, "originalText");
         const auto replacementText = requiredString(*file, "replacementText");
-        if (!path || !matches || !replacementText) return std::nullopt;
-        ReplacementFileDto decodedFile{*path, {}, *replacementText};
+        if (!path || !matches || !originalText || !replacementText) return std::nullopt;
+        ReplacementFileDto decodedFile{*path, {}, *originalText, *replacementText};
         decodedFile.matches.reserve(matches->size());
         for (const auto* match : *matches) {
             const auto line = requiredUInt(*match, "line");
@@ -386,6 +395,13 @@ std::optional<ReplacementPreviewDto> decodeReplacementPreview(const CoreEnvelope
         result.files.push_back(std::move(decodedFile));
     }
     return result;
+}
+
+std::optional<MarkdownRenderDto> decodeMarkdownRender(const CoreEnvelope& envelope) {
+    const auto* data = responseObjectData(envelope);
+    if (data == nullptr) return std::nullopt;
+    const auto html = requiredString(*data, "html");
+    return html ? std::optional<MarkdownRenderDto>(MarkdownRenderDto{*html}) : std::nullopt;
 }
 
 std::optional<FileReadDto> decodeFileRead(const CoreEnvelope& envelope) {
@@ -788,6 +804,7 @@ std::optional<GitOperationStateDto> decodeGitOperationState(const CoreEnvelope& 
     const auto* reference = objectValue(*data, "reference");
     const auto* step = objectValue(*data, "step");
     const auto* total = objectValue(*data, "total");
+    const auto* autoStashReference = objectValue(*data, "autoStashReference");
     const auto conflictedPaths = stringArray(*data, "conflictedPaths");
     if (!kind || reference == nullptr || step == nullptr || total == nullptr ||
         !conflictedPaths) return std::nullopt;
@@ -798,10 +815,17 @@ std::optional<GitOperationStateDto> decodeGitOperationState(const CoreEnvelope& 
         ? std::optional<std::uint64_t>{} : step->asUInt();
     const auto decodedTotal = total->isNull()
         ? std::optional<std::uint64_t>{} : total->asUInt();
+    const auto decodedAutoStashReference =
+        autoStashReference == nullptr || autoStashReference->isNull()
+        ? std::optional<std::string>{}
+        : optionalString(*data, "autoStashReference");
     if ((!reference->isNull() && !decodedReference) || (!step->isNull() && !decodedStep) ||
-        (!total->isNull() && !decodedTotal)) return std::nullopt;
+        (!total->isNull() && !decodedTotal) ||
+        (autoStashReference != nullptr && !autoStashReference->isNull() &&
+         !decodedAutoStashReference)) return std::nullopt;
     return GitOperationStateDto{
         *kind, decodedReference, decodedStep, decodedTotal, *conflictedPaths,
+        decodedAutoStashReference,
     };
 }
 

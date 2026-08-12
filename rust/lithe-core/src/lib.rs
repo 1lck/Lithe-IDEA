@@ -227,6 +227,10 @@ mod tests {
             replacement_response["data"]["files"][0]["replacementText"],
             "class UserService {\n    void fetchUser() {}\n}\n"
         );
+        assert_eq!(
+            replacement_response["data"]["files"][0]["originalText"],
+            "class UserService {\n    void loadUser() {}\n}\n"
+        );
 
         let mut override_request = serde_json::json!({
             "id": "override",
@@ -641,6 +645,26 @@ mod tests {
             serde_json::json!({"message": "initial", "amend": false}),
         );
         assert_eq!(commit["ok"], true);
+
+        fs::write(
+            root.join("example.txt"),
+            "<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> feature\n",
+        )
+        .expect("conflict marker fixture should be writable");
+        assert_eq!(
+            request("stage", serde_json::json!({"paths": ["example.txt"]}))["ok"],
+            true
+        );
+        let blocked_commit = request(
+            "commit",
+            serde_json::json!({"message": "must not commit markers"}),
+        );
+        assert_eq!(blocked_commit["ok"], false, "{blocked_commit:?}");
+        assert_eq!(blocked_commit["error"]["code"], "invalid_request");
+        assert!(blocked_commit["error"]["details"]
+            .as_str()
+            .is_some_and(|details| details.contains("example.txt")));
+        assert!(run(&["reset", "--hard", "HEAD"]).status.success());
 
         fs::write(root.join("example.txt"), "staged change\n").expect("file should be writable");
         assert_eq!(
@@ -1383,6 +1407,93 @@ mod tests {
     }
 
     #[test]
+    fn git_shelf_clean_refuses_changes_after_patch_capture() {
+        let root = temporary_root("shelf-clean");
+        fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+        let run = |arguments: &[&str]| {
+            Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .output()
+                .expect("git should be available")
+        };
+        assert!(run(&["init", "-q"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"])
+            .status
+            .success());
+        assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+        fs::write(root.join("tracked.txt"), "base\n").expect("file should be writable");
+        assert!(run(&["add", "tracked.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+        fs::write(root.join("tracked.txt"), "staged\n").expect("file should be writable");
+        assert!(run(&["add", "tracked.txt"]).status.success());
+        fs::write(root.join("tracked.txt"), "working\n").expect("file should be writable");
+        fs::write(root.join("new.txt"), "untracked\n").expect("file should be writable");
+
+        let patches: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "shelf-patches",
+                "command": "git.shelfPatches",
+                "payload": {"root": root}
+            }))
+            .expect("Shelf patch request should encode"),
+        ))
+        .expect("Shelf patch response should be JSON");
+        assert_eq!(patches["ok"], true, "{patches:?}");
+        let staged_patch = patches["data"]["stagedPatch"].as_str().unwrap();
+        let working_tree_patch = patches["data"]["workingTreePatch"].as_str().unwrap();
+
+        fs::write(root.join("tracked.txt"), "changed after capture\n")
+            .expect("file should be writable");
+        let stale_clean: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "stale-clean",
+                "command": "git.shelfClean",
+                "payload": {
+                    "root": root,
+                    "stagedPatch": staged_patch,
+                    "workingTreePatch": working_tree_patch
+                }
+            }))
+            .expect("Shelf clean request should encode"),
+        ))
+        .expect("Shelf clean response should be JSON");
+        assert_eq!(stale_clean["ok"], false, "{stale_clean:?}");
+        assert_eq!(
+            fs::read_to_string(root.join("tracked.txt")).expect("file should be readable"),
+            "changed after capture\n"
+        );
+        assert!(root.join("new.txt").exists());
+
+        fs::write(root.join("tracked.txt"), "working\n").expect("file should be writable");
+        let clean: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&serde_json::json!({
+                "id": "clean",
+                "command": "git.shelfClean",
+                "payload": {
+                    "root": root,
+                    "stagedPatch": staged_patch,
+                    "workingTreePatch": working_tree_patch
+                }
+            }))
+            .expect("Shelf clean request should encode"),
+        ))
+        .expect("Shelf clean response should be JSON");
+        assert_eq!(clean["ok"], true, "{clean:?}");
+        assert_eq!(clean["data"]["exitCode"], 0, "{clean:?}");
+        assert_eq!(
+            fs::read_to_string(root.join("tracked.txt")).expect("file should be readable"),
+            "base\n"
+        );
+        assert!(!root.join("new.txt").exists());
+        assert!(run(&["status", "--porcelain"]).stdout.is_empty());
+
+        fs::remove_dir_all(root).expect("temporary workspace should be removable");
+    }
+
+    #[test]
     fn git_history_returns_references_and_commit_graph_fields() {
         let root = temporary_root("git-history");
         fs::create_dir_all(&root).expect("temporary workspace should be creatable");
@@ -1877,6 +1988,121 @@ mod tests {
         assert_eq!(invalid["ok"], false);
 
         fs::remove_dir_all(root).expect("Git fixture should be removable");
+    }
+
+    #[test]
+    fn git_integration_auto_stash_restores_only_after_operation_finishes() {
+        let root = temporary_root("git-integration-auto-stash");
+        fs::create_dir_all(&root).expect("temporary repository should be creatable");
+        let run = |arguments: &[&str]| {
+            Command::new("git")
+                .args(arguments)
+                .current_dir(&root)
+                .output()
+                .expect("git should be available")
+        };
+        assert!(run(&["init", "-q", "-b", "main"]).status.success());
+        assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+        assert!(run(&["config", "user.email", "test@example.com"])
+            .status
+            .success());
+        assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+        fs::write(root.join("shared.txt"), "base\n").expect("file should be writable");
+        fs::write(root.join("local.txt"), "base\n").expect("file should be writable");
+        assert!(run(&["add", "."]).status.success());
+        assert!(run(&["commit", "-qm", "base"]).status.success());
+        assert!(run(&["switch", "-qc", "feature/auto-stash"])
+            .status
+            .success());
+        fs::write(root.join("shared.txt"), "feature\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "feature edit"]).status.success());
+        assert!(run(&["switch", "-q", "main"]).status.success());
+        fs::write(root.join("shared.txt"), "main\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "main edit"]).status.success());
+        fs::write(root.join("local.txt"), "local draft\n").expect("file should be writable");
+        fs::write(root.join("untracked.txt"), "keep me\n").expect("file should be writable");
+
+        let write = |operation: &str, reference: Option<&str>, auto_stash: bool| -> Value {
+            let request = serde_json::json!({
+                "id": operation,
+                "command": "git.write",
+                "payload": {
+                    "root": root,
+                    "operation": operation,
+                    "reference": reference,
+                    "autoStash": auto_stash
+                }
+            });
+            serde_json::from_str(&execute_json(
+                &serde_json::to_string(&request).expect("Git write request should encode"),
+            ))
+            .expect("Git write response should be JSON")
+        };
+
+        let merged = write("merge", Some("feature/auto-stash"), true);
+        assert_eq!(merged["ok"], true, "{merged:?}");
+        assert_ne!(merged["data"]["exitCode"], 0, "{merged:?}");
+        assert_eq!(merged["data"]["stashRestore"]["deferred"], true);
+        let stash_reference = merged["data"]["stashRestore"]["stashReference"]
+            .as_str()
+            .expect("deferred stash reference should be present")
+            .to_string();
+        assert_eq!(
+            fs::read_to_string(root.join("local.txt")).expect("tracked file should be readable"),
+            "base\n"
+        );
+        assert!(!root.join("untracked.txt").exists());
+
+        fs::write(root.join("shared.txt"), "resolved\n").expect("file should be writable");
+        assert!(run(&["add", "shared.txt"]).status.success());
+        let continued = write("operationContinue", Some(&stash_reference), true);
+        assert_eq!(continued["ok"], true, "{continued:?}");
+        assert_eq!(continued["data"]["exitCode"], 0, "{continued:?}");
+        assert!(continued["data"]["stashRestore"].is_null());
+        assert_eq!(
+            fs::read_to_string(root.join("local.txt")).expect("tracked file should be readable"),
+            "local draft\n"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("untracked.txt"))
+                .expect("untracked file should be restored"),
+            "keep me\n"
+        );
+
+        assert!(run(&["add", "local.txt", "untracked.txt"]).status.success());
+        assert!(run(&["commit", "-qm", "restored local work"])
+            .status
+            .success());
+        assert!(run(&["switch", "-qc", "feature/abort"]).status.success());
+        fs::write(root.join("shared.txt"), "abort feature\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "abort feature edit"])
+            .status
+            .success());
+        assert!(run(&["switch", "-q", "main"]).status.success());
+        fs::write(root.join("shared.txt"), "abort main\n").expect("file should be writable");
+        assert!(run(&["commit", "-qam", "abort main edit"]).status.success());
+        fs::write(root.join("local.txt"), "draft restored after abort\n")
+            .expect("file should be writable");
+
+        let aborted_merge = write("merge", Some("feature/abort"), true);
+        assert_eq!(aborted_merge["data"]["stashRestore"]["deferred"], true);
+        let abort_stash = aborted_merge["data"]["stashRestore"]["stashReference"]
+            .as_str()
+            .expect("abort stash reference should be present")
+            .to_string();
+        let aborted = write("operationAbort", Some(&abort_stash), true);
+        assert_eq!(aborted["ok"], true, "{aborted:?}");
+        assert_eq!(aborted["data"]["exitCode"], 0, "{aborted:?}");
+        assert!(aborted["data"]["stashRestore"].is_null());
+        assert_eq!(
+            fs::read_to_string(root.join("local.txt")).expect("tracked file should be readable"),
+            "draft restored after abort\n"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("shared.txt")).expect("tracked file should be readable"),
+            "abort main\n"
+        );
+        fs::remove_dir_all(root).expect("temporary repository should be removable");
     }
 
     #[test]

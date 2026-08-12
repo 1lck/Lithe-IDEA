@@ -22,6 +22,8 @@ if ($sourceFiles.Count -gt 0) {
 
 $publicHeaders = Get-ChildItem -Path windows/adapters, windows/core, windows/qt `
     -Filter *.h -File -ErrorAction SilentlyContinue
+$publicHeaders += Get-Item -LiteralPath windows/winui/workbench_session.h `
+    -ErrorAction SilentlyContinue
 if ($publicHeaders.Count -gt 0) {
     $nativeLeak = Select-String -Path $publicHeaders.FullName `
         -Pattern "\b(HANDLE|HPCON)\b|#include\s+<windows\.h>|#include\s+<winconpty\.h>"
@@ -49,7 +51,12 @@ $required = @(
     "windows/app/services/windows_update_service.cpp",
     "windows/packaging/update_helper.cpp",
     "windows/qt/workbench_code_editor.cpp",
-    "windows/qt/workbench_window.cpp"
+    "windows/qt/workbench_window.cpp",
+    "windows/winui/App.xaml",
+    "windows/winui/MainWindow.xaml",
+    "windows/winui/MainWindow.xaml.cpp",
+    "windows/winui/workbench_session.cpp",
+    "windows/winui/Lithe.WinUI.vcxproj"
 )
 foreach ($file in $required) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
@@ -57,23 +64,14 @@ foreach ($file in $required) {
     }
 }
 
-$algorithmFiles = Get-ChildItem -Path windows/app/algorithms -Recurse -File `
-    -ErrorAction SilentlyContinue
-if ($algorithmFiles.Count -gt 0) {
-    $forbiddenAlgorithmDependency = Select-String -Path $algorithmFiles.FullName `
-        -Pattern '#include\s*[<"](windows\.h|Qt[A-Za-z0-9_/.-]*)'
-    if ($null -ne $forbiddenAlgorithmDependency) {
-        throw "windows/app/algorithms must not depend on Win32 or Qt"
-    }
-}
-
-$serviceFiles = Get-ChildItem -Path windows/app/services -Recurse -File `
-    -ErrorAction SilentlyContinue
-if ($serviceFiles.Count -gt 0) {
-    $forbiddenServiceDependency = Select-String -Path $serviceFiles.FullName `
-        -Pattern '#include\s*[<"](windows\.h|Qt[A-Za-z0-9_/.-]*)'
-    if ($null -ne $forbiddenServiceDependency) {
-        throw "windows/app/services must not depend on Win32 or Qt"
+$appFiles = Get-ChildItem -Path windows/app/algorithms, windows/app/features, `
+    windows/app/persistence, windows/app/presentation, windows/app/services `
+    -Recurse -File -ErrorAction SilentlyContinue
+if ($appFiles.Count -gt 0) {
+    $forbiddenAppDependency = Select-String -Path $appFiles.FullName `
+        -Pattern '#include\s*[<"](windows\.h|winrt/|Microsoft\.UI|Qt[A-Za-z0-9_/.-]*)'
+    if ($null -ne $forbiddenAppDependency) {
+        throw "Windows app layers must not depend on Win32, WinUI, or Qt"
     }
 }
 
@@ -85,6 +83,17 @@ if ($qtFiles.Count -gt 0) {
     if ($null -ne $directCoreClientIncludes) {
         $directCoreClientIncludes | Format-Table -AutoSize | Out-String | Write-Error
         throw "Qt code must not include core_client.h directly"
+    }
+}
+
+$winUIFiles = Get-ChildItem -Path windows/winui -Recurse -File |
+    Where-Object { $_.Extension -in @(".h", ".cpp", ".hpp") }
+if ($winUIFiles.Count -gt 0) {
+    $directCoreClientIncludes = Select-String -Path $winUIFiles.FullName `
+        -Pattern '#include\s*[<"]core_client\.h[>"]'
+    if ($null -ne $directCoreClientIncludes) {
+        $directCoreClientIncludes | Format-Table -AutoSize | Out-String | Write-Error
+        throw "WinUI code must not include core_client.h directly"
     }
 }
 

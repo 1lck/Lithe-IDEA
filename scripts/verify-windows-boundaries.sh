@@ -10,20 +10,26 @@ if rg -n 'SwiftUI|AppKit|\.swift(?:$|[^A-Za-z0-9_])|MacOS|Mac[A-Z]' $SOURCE_FILE
     exit 1
 fi
 
-PUBLIC_HEADERS=(windows/adapters/*.h windows/core/*.h windows/qt/*.h)
+PUBLIC_HEADERS=(windows/adapters/*.h windows/core/*.h windows/qt/*.h windows/winui/workbench_session.h)
 if rg -n '\b(HANDLE|HPCON)\b|#include <windows\.h>|#include <winconpty\.h>' $PUBLIC_HEADERS; then
     print -u2 "Windows public ports must not expose Win32 handle types"
     exit 1
 fi
 
-if rg -n '#include\s*[<"](windows\.h|Qt[A-Za-z0-9_/.-]*)' \
-    windows/app/algorithms windows/app/services; then
-    print -u2 "Windows algorithms and services must not depend on Win32 or Qt"
+if rg -n '#include\s*[<"](windows\.h|winrt/|Microsoft\.UI|Qt[A-Za-z0-9_/.-]*)' \
+    windows/app/algorithms windows/app/features windows/app/persistence \
+    windows/app/presentation windows/app/services; then
+    print -u2 "Windows app layers must not depend on Win32, WinUI, or Qt"
     exit 1
 fi
 
 if rg -n '#include\s*[<"]core_client\.h[>"]' windows/qt; then
     print -u2 "Qt code must not include core_client.h directly"
+    exit 1
+fi
+
+if rg -n '#include\s*[<"]core_client\.h[>"]' windows/winui; then
+    print -u2 "WinUI code must not include core_client.h directly"
     exit 1
 fi
 
@@ -46,9 +52,14 @@ required=(
     windows/packaging/update_helper.cpp
     windows/qt/workbench_code_editor.cpp
     windows/qt/workbench_window.cpp
+    windows/winui/App.xaml
+    windows/winui/MainWindow.xaml
+    windows/winui/MainWindow.xaml.cpp
+    windows/winui/workbench_session.cpp
+    windows/winui/Lithe.WinUI.vcxproj
 )
 for file in $required; do
     [[ -f "$file" ]] || { print -u2 "Missing Windows implementation: $file"; exit 1; }
 done
 
-print "Windows boundary verification passed: Qt/Core/adapters are isolated"
+print "Windows boundary verification passed: UI/Core/adapters are isolated"

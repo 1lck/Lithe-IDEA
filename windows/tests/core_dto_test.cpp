@@ -56,12 +56,20 @@ int main() {
     const auto replacementEnvelope = decodeCoreEnvelope(R"({
         "id":"replace","ok":true,"data":{"files":[
           {"path":"a.txt","matches":[{"line":1,"before":"foo","after":"bar","occurrenceCount":2}],
-           "replacementText":"bar"}
+           "originalText":"foo","replacementText":"bar"}
         ]}
     })");
     const auto replacement = decodeReplacementPreview(*replacementEnvelope);
     assert(replacement && replacement->files.size() == 1 &&
-           replacement->files[0].matches[0].occurrenceCount == 2);
+           replacement->files[0].matches[0].occurrenceCount == 2 &&
+           replacement->files[0].originalText == "foo");
+
+    const auto markdownEnvelope = decodeCoreEnvelope(R"({
+        "id":"markdown","ok":true,"data":{"html":"<h1>Preview</h1>"}
+    })");
+    assert(markdownEnvelope);
+    const auto markdown = decodeMarkdownRender(*markdownEnvelope);
+    assert(markdown && markdown->html == "<h1>Preview</h1>");
 
     const auto diffEnvelope = decodeCoreEnvelope(R"({
         "id":"req-4","ok":true,"data":{"patch":"@@","rows":[
@@ -149,13 +157,14 @@ int main() {
     const auto gitStashRestoreEnvelope = decodeCoreEnvelope(R"({
         "id":"req-stash-restore","ok":true,"data":{
           "output":"conflicts","exitCode":1,
-          "stashRestore":{"stashReference":"stash@{0}","conflictedPaths":["src/App.java"]}
+          "stashRestore":{"stashReference":"stash@{0}","conflictedPaths":["src/App.java"],"deferred":true}
         }
     })");
     const auto gitStashRestore = decodeGitCommand(*gitStashRestoreEnvelope);
     assert(gitStashRestore && gitStashRestore->stashRestore &&
            gitStashRestore->stashRestore->stashReference == "stash@{0}" &&
-           gitStashRestore->stashRestore->conflictedPaths.size() == 1);
+           gitStashRestore->stashRestore->conflictedPaths.size() == 1 &&
+           gitStashRestore->stashRestore->deferred);
 
     const auto gitCheckoutPreflightEnvelope = decodeCoreEnvelope(
         R"({"id":"git-checkout","ok":true,"data":{"blockingPaths":["README.md"]}})");
@@ -188,12 +197,14 @@ int main() {
 
     const auto gitOperationStateEnvelope = decodeCoreEnvelope(R"({
         "id":"git-operation","ok":true,"data":{"kind":"rebase","reference":"main",
-          "step":2,"total":5,"conflictedPaths":["src/App.java"]}
+          "step":2,"total":5,"conflictedPaths":["src/App.java"],
+          "autoStashReference":"stash@{2}"}
     })");
     const auto gitOperationState = decodeGitOperationState(*gitOperationStateEnvelope);
     assert(gitOperationState && gitOperationState->kind == "rebase" &&
            gitOperationState->reference == "main" && gitOperationState->step == 2 &&
-           gitOperationState->total == 5 && gitOperationState->conflictedPaths.size() == 1);
+           gitOperationState->total == 5 && gitOperationState->conflictedPaths.size() == 1 &&
+           gitOperationState->autoStashReference == "stash@{2}");
 
     const auto idleGitOperationStateEnvelope = decodeCoreEnvelope(R"({
         "id":"git-operation-idle","ok":true,"data":{"kind":"","reference":null,
@@ -351,6 +362,11 @@ int main() {
     assert(*objectValue(*searchRequest.value, "maxContentResults")->asUInt() == 4);
     assert(objectValue(*searchRequest.value, "maxFileResults") == nullptr);
 
+    const auto markdownRequest = parseJson(encodeMarkdownRenderRequest(
+        MarkdownRenderRequestDto{"# Preview"}));
+    assert(markdownRequest.succeeded());
+    assert(*objectValue(*markdownRequest.value, "source")->asString() == "# Preview");
+
     const auto historyRequest = parseJson(encodeHistoryRecordRequest(HistoryRecordRequestDto{
         "/workspace", "/state", "src/Main.java", "saved", std::nullopt, true, {}, {}
     }));
@@ -417,6 +433,11 @@ int main() {
         GitShelfPatchesRequestDto{"/workspace"}));
     assert(gitShelfPatchesRequest.succeeded());
     assert(*objectValue(*gitShelfPatchesRequest.value, "root")->asString() == "/workspace");
+    const auto gitShelfCleanRequest = parseJson(encodeGitShelfCleanRequest(
+        GitShelfCleanRequestDto{"/workspace", "staged", "working"}));
+    assert(gitShelfCleanRequest.succeeded());
+    assert(*objectValue(*gitShelfCleanRequest.value, "stagedPatch")->asString() == "staged");
+    assert(*objectValue(*gitShelfCleanRequest.value, "workingTreePatch")->asString() == "working");
 
     const auto shelfRequest = parseJson(encodeShelfCreateRequest(ShelfCreateRequestDto{
         "/workspace", "/state", "before checkout", "staged", "working"}));

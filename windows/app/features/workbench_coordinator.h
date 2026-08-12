@@ -40,6 +40,7 @@ public:
     WorkbenchCoordinator& operator=(const WorkbenchCoordinator&) = delete;
 
     void openWorkspace(std::filesystem::path root, ResponseHandler handler);
+    void closeWorkspace();
     void refreshWorkspace(ResponseHandler handler);
     void setWorkspaceVisibility(std::vector<std::string> hiddenDirectoryNames,
                                 std::vector<std::string> hiddenFilePatterns);
@@ -47,6 +48,7 @@ public:
     void search(std::string query, ResponseHandler handler);
     void searchEverywhere(std::string query, ResponseHandler handler);
     void replacementPreview(ReplacementPreviewRequestDto request, ResponseHandler handler);
+    void markdownRender(std::string source, ResponseHandler handler);
     void writeFile(std::string relativePath, std::string text, ResponseHandler handler);
     void gitStatus(ResponseHandler handler);
     void gitDiff(std::vector<std::string> pathspecs,
@@ -54,6 +56,9 @@ public:
                  bool untracked,
                  ResponseHandler handler);
     void gitShelfPatches(ResponseHandler handler);
+    void gitShelfClean(std::string stagedPatch,
+                       std::string workingTreePatch,
+                       ResponseHandler handler);
     void gitCommitDiff(std::string commit,
                        std::vector<std::string> pathspecs,
                        ResponseHandler handler);
@@ -139,9 +144,11 @@ private:
         Search,
         SearchEverywhere,
         Replacement,
+        MarkdownRender,
         GitStatus,
         GitDiff,
         GitShelfPatches,
+        GitShelfClean,
         GitApply,
         GitWrite,
         GitCommand,
@@ -186,9 +193,11 @@ private:
     std::uint64_t searchGeneration_ = 0;
     std::uint64_t searchEverywhereGeneration_ = 0;
     std::uint64_t replacementGeneration_ = 0;
+    std::uint64_t markdownRenderGeneration_ = 0;
     std::uint64_t gitStatusGeneration_ = 0;
     std::uint64_t gitDiffGeneration_ = 0;
     std::uint64_t gitShelfPatchesGeneration_ = 0;
+    std::uint64_t gitShelfCleanGeneration_ = 0;
     std::uint64_t gitApplyGeneration_ = 0;
     std::uint64_t gitWriteGeneration_ = 0;
     std::uint64_t gitCommandGeneration_ = 0;

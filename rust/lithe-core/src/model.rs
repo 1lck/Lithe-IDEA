@@ -91,6 +91,9 @@ pub struct ReplacementMatch {
 pub struct ReplacementFile {
     pub path: String,
     pub matches: Vec<ReplacementMatch>,
+    /// Exact source used to build the preview. Clients compare it before writing
+    /// so a file changed after Preview is never overwritten silently.
+    pub original_text: String,
     pub replacement_text: String,
 }
 
@@ -424,6 +427,8 @@ pub struct GitOperationStateResponse {
     pub step: Option<usize>,
     pub total: Option<usize>,
     pub conflicted_paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_stash_reference: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

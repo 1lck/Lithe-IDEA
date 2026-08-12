@@ -1,5 +1,10 @@
 #pragma once
 
+#include "core_dto.h"
+
+#include <string>
+#include <vector>
+
 namespace lithe::windows {
 
 enum class SidebarDestination : int {
@@ -38,4 +43,15 @@ WorkbenchLayoutState normalizeWorkbenchLayout(WorkbenchLayoutState state,
                                                int availableWidth,
                                                int availableHeight);
 
-}
+struct GitChangeRow {
+    std::string path;
+    std::string label;
+    bool blocking = false;
+};
+
+std::vector<GitChangeRow> buildGitChangeRows(
+    const GitStatusDto& status,
+    const std::vector<std::string>& blockingPaths,
+    bool blockingOnly);
+
+} // namespace lithe::windows

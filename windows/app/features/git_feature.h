@@ -15,6 +15,11 @@ struct GitPendingCheckout {
     std::string referenceKind;
 };
 
+struct GitPendingIntegration {
+    std::string reference;
+    std::string operation;
+};
+
 struct GitFeatureState {
     std::optional<GitStatusDto> status;
     std::optional<GitDiffDto> diff;
@@ -32,6 +37,7 @@ struct GitFeatureState {
     std::optional<GitOperationStateDto> operationState;
     std::optional<GitStashRestoreDto> stashRestoreConflict;
     std::optional<GitPendingCheckout> pendingCheckout;
+    std::optional<GitPendingIntegration> pendingIntegration;
     std::vector<std::string> conflictFilterPaths;
     std::optional<CoreError> error;
     bool isLoadingStatus = false;
@@ -61,6 +67,16 @@ struct GitShelfPatches {
     std::string workingTreePatch;
 };
 
+struct GitCommitSafety {
+    std::vector<std::string> unmergedPaths;
+    std::vector<std::string> conflictMarkerPaths;
+    std::vector<std::string> blockingPaths;
+};
+
+GitCommitSafety evaluateGitCommitSafety(
+    const GitStatusDto& status,
+    const GitConflictMarkersDto& conflictMarkers);
+
 class GitFeatureModel final {
 public:
     using StateHandler = std::function<void(GitFeatureState)>;
@@ -82,6 +98,9 @@ public:
     void loadStagedDiffs(std::vector<std::string> paths,
                          StagedDiffsHandler handler);
     void loadShelfPatches(ShelfPatchesHandler handler);
+    void cleanShelf(std::string stagedPatch,
+                    std::string workingTreePatch,
+                    StateHandler handler = {});
     void refreshHistory(std::optional<std::string> reference = std::nullopt,
                         std::uint64_t limit = 300,
                         StateHandler handler = {});
@@ -95,11 +114,15 @@ public:
     void preflightIntegration(std::string reference,
                               std::string operation,
                               StateHandler handler = {});
+    void cancelIntegrationConflict();
     void checkout(std::string reference,
                   std::string referenceKind,
                   StateHandler handler = {});
+    void resolveCheckoutConflict(std::string strategy, StateHandler handler = {});
+    void cancelCheckoutConflict();
     void refreshConflictMarkers(StateHandler handler = {});
     void refreshOperationState(StateHandler handler = {});
+    void preflightCommit(StateHandler handler = {});
     void clearStashRestoreConflict();
     void write(GitWriteRequestDto request, StateHandler handler = {});
     void runCommand(std::vector<std::string> arguments,

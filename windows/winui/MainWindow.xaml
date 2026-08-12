@@ -1,0 +1,1023 @@
+<Window
+    x:Class="Lithe.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives">
+
+    <Grid x:Name="RootGrid"
+          Background="{ThemeResource LitheWindowBrush}"
+          KeyDown="RootKeyDown"
+          SizeChanged="RootSizeChanged">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="{StaticResource LitheToolbarHeight}" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="{StaticResource LitheStatusBarHeight}" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0"
+              Background="{ThemeResource LitheTitlebarBrush}"
+              BorderBrush="{ThemeResource LitheBorderBrush}"
+              BorderThickness="0,0,0,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <MenuBar Grid.Column="0" Margin="4,0,8,0" VerticalAlignment="Center">
+                <MenuBarItem Title="File">
+                    <MenuFlyoutItem Text="Welcome / Switch Workspace" Click="ShowWelcomeClick" />
+                    <MenuFlyoutItem Text="Open Project..." Click="OpenWorkspaceClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="O" Modifiers="Control" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Clone Repository..." Click="CloneRepositoryClick" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Save" Click="SaveDocumentClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="S" Modifiers="Control" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Preview Markdown" Click="PreviewMarkdownClick" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Refresh Project" Click="RefreshWorkspaceClick" />
+                    <MenuFlyoutItem Text="Show Workspace in Explorer" Click="RevealWorkspaceClick" />
+                </MenuBarItem>
+
+                <MenuBarItem Title="Navigate">
+                    <MenuFlyoutItem Text="Search Everywhere" Click="OpenSearchEverywhereClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="E" Modifiers="Control,Shift" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Find in File" Click="FocusFindClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="F" Modifiers="Control" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Find Next" Click="FindNextClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="F3" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Find Previous" Click="FindPreviousClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="F3" Modifiers="Shift" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Replace in Project..." Click="OpenProjectReplaceClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="H" Modifiers="Control,Shift" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Go to Java Definition" Click="GoToDefinitionClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="B" Modifiers="Control" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Find Java Usages" Click="FindUsagesClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="F7" Modifiers="Menu" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                </MenuBarItem>
+
+                <MenuBarItem Title="Git">
+                    <MenuFlyoutItem Text="Refresh Changes" Click="RefreshGitClick" />
+                    <MenuFlyoutItem Text="Fetch" Click="FetchGitClick" />
+                    <MenuFlyoutItem Text="Pull..." Click="PullGitClick" />
+                    <MenuFlyoutItem Text="Push..." Click="PushGitClick" />
+                    <MenuFlyoutItem Text="Stage All" Click="StageAllClick" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="History" Click="LoadGitHistoryClick" />
+                    <MenuFlyoutItem Text="Stashes" Click="LoadGitStashesClick" />
+                    <MenuFlyoutItem Text="Shelves" Click="LoadShelvesClick" />
+                    <MenuFlyoutItem Text="Toggle Blame" Click="ToggleBlameClick" />
+                    <MenuFlyoutItem Text="Compare Reference..." Click="CompareReferenceClick" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Switch Branch..." Click="SwitchReferenceClick" />
+                    <MenuFlyoutItem Text="New Branch..." Click="CreateBranchClick" />
+                    <MenuFlyoutItem Text="Rename Branch..." Click="RenameBranchClick" />
+                    <MenuFlyoutItem Text="Delete Branch..." Click="DeleteBranchClick" />
+                    <MenuFlyoutItem Text="Merge..." Tag="merge" Click="IntegrateGitClick" />
+                    <MenuFlyoutItem Text="Rebase..." Tag="rebase" Click="IntegrateGitClick" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Cherry-pick Selected Commit..."
+                                        Click="CherryPickSelectedCommitClick" />
+                    <MenuFlyoutItem Text="Revert Selected Commit..."
+                                        Click="RevertSelectedCommitClick" />
+                    <MenuFlyoutItem Text="Reset to Revision..." Click="ResetToRevisionClick" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Create Stash..." Click="CreateStashClick" />
+                </MenuBarItem>
+
+                <MenuBarItem Title="Run">
+                    <MenuFlyoutItem Text="Run Current Java File" Click="RunCurrentJavaClick" />
+                    <MenuFlyoutItem Text="Run Spring Boot" Click="RunSpringBootClick" />
+                    <MenuFlyoutItem Text="Stop Java" Click="StopJavaClick" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Maven Clean" Click="RunMavenCleanClick" />
+                    <MenuFlyoutItem Text="Maven Test" Click="RunMavenTestClick" />
+                    <MenuFlyoutItem Text="Maven Package" Click="RunMavenPackageClick" />
+                    <MenuFlyoutItem Text="Maven Verify" Click="RunMavenVerifyClick" />
+                    <MenuFlyoutItem Text="Maven Install" Click="RunMavenInstallClick" />
+                    <MenuFlyoutItem Text="Stop Build" Click="StopProcessClick" />
+                </MenuBarItem>
+
+                <MenuBarItem Title="Debug">
+                    <MenuFlyoutItem Text="Debug Current Java File" Click="DebugCurrentJavaClick" />
+                    <MenuFlyoutItem Text="Debug Spring Boot" Click="DebugSpringBootClick" />
+                    <MenuFlyoutItem Text="Attach to JDWP..." Click="AttachDebuggerClick" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Toggle Breakpoint" Click="ToggleBreakpointClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="F9" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Continue" Click="ContinueDebuggerClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="F5" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Pause" Click="PauseDebuggerClick" />
+                    <MenuFlyoutItem Text="Step Into" Click="StepIntoDebuggerClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="F7" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Step Over" Click="StepOverDebuggerClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="F8" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Step Out" Click="StepOutDebuggerClick" />
+                    <MenuFlyoutItem Text="Stop Debugger" Click="StopDebuggerClick" />
+                </MenuBarItem>
+
+                <MenuBarItem Title="Tools">
+                    <MenuFlyoutItem Text="Command Palette..." Click="ShowCommandPaletteClick">
+                        <MenuFlyoutItem.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="P" Modifiers="Control,Shift" />
+                        </MenuFlyoutItem.KeyboardAccelerators>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem Text="Open Terminal" Click="StartTerminalClick" />
+                    <MenuFlyoutItem Text="Stop Terminal" Click="StopTerminalClick" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem Text="Generate AI Commit Message" Click="GenerateAICommitClick" />
+                    <MenuFlyoutItem Text="AI Commit Settings..." Click="ConfigureAICommitClick" />
+                    <MenuFlyoutItem Text="Check for Updates" Click="CheckForUpdatesClick" />
+                    <MenuFlyoutItem Text="Settings..." Click="ShowSettingsClick" />
+                </MenuBarItem>
+            </MenuBar>
+
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="8">
+                <Border Width="22" Height="22" CornerRadius="4"
+                        Background="{ThemeResource LitheAccentBrush}">
+                    <TextBlock Text="L" Foreground="White" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <TextBlock Text="Lithe" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock x:Name="WorkspaceTitleText"
+                           Foreground="{ThemeResource LitheMutedTextBrush}"
+                           TextTrimming="CharacterEllipsis"
+                           MaxWidth="420"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2"
+                        Margin="4,0,8,0" VerticalAlignment="Center">
+                <Button Style="{StaticResource LitheIconButtonStyle}" Click="SaveDocumentClick">
+                    <FontIcon Glyph="&#xE74E;" FontSize="14" />
+                    <ToolTipService.ToolTip>Save</ToolTipService.ToolTip>
+                </Button>
+                <Button Style="{StaticResource LitheIconButtonStyle}" Click="RefreshWorkspaceClick">
+                    <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                    <ToolTipService.ToolTip>Refresh project</ToolTipService.ToolTip>
+                </Button>
+                <Button Style="{StaticResource LitheIconButtonStyle}" Click="RunCurrentJavaClick">
+                    <FontIcon Glyph="&#xE768;" FontSize="14" />
+                    <ToolTipService.ToolTip>Run current Java file</ToolTipService.ToolTip>
+                </Button>
+                <Button Style="{StaticResource LitheIconButtonStyle}" Click="StartTerminalClick">
+                    <FontIcon Glyph="&#xE756;" FontSize="14" />
+                    <ToolTipService.ToolTip>Open terminal</ToolTipService.ToolTip>
+                </Button>
+                <Button Style="{StaticResource LitheIconButtonStyle}" Click="ToggleBottomPanelClick">
+                    <FontIcon Glyph="&#xE70D;" FontSize="14" />
+                    <ToolTipService.ToolTip>Toggle tool window</ToolTipService.ToolTip>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" MinWidth="760" MinHeight="440">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="SidebarColumn"
+                                  Width="{StaticResource LitheSidebarPreferredWidth}"
+                                  MinWidth="{StaticResource LitheSidebarMinWidth}"
+                                  MaxWidth="520" />
+                <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="*" MinWidth="420" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0" Background="{ThemeResource LitheSidebarBrush}">
+                <TabView x:Name="SidebarTabs"
+                         IsAddTabButtonVisible="False"
+                         TabWidthMode="Equal"
+                         CanDragTabs="False"
+                         SelectionChanged="SidebarTabSelectionChanged">
+                    <TabViewItem Header="Project" IsClosable="False">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="{StaticResource LitheToolWindowHeaderHeight}" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Padding="10,4,6,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="WORKSPACE"
+                                           Style="{StaticResource LithePaneHeaderStyle}"
+                                           VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Style="{StaticResource LitheIconButtonStyle}"
+                                        Click="RefreshWorkspaceClick">
+                                    <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                                    <ToolTipService.ToolTip>Refresh project</ToolTipService.ToolTip>
+                                </Button>
+                                <Button Grid.Column="2" Style="{StaticResource LitheIconButtonStyle}"
+                                        Click="OpenWorkspaceClick">
+                                    <FontIcon Glyph="&#xE8E5;" FontSize="14" />
+                                    <ToolTipService.ToolTip>Open project</ToolTipService.ToolTip>
+                                </Button>
+                            </Grid>
+                            <TreeView x:Name="ProjectTree"
+                                      Grid.Row="1"
+                                      SelectionMode="Single"
+                                      ItemInvoked="ProjectItemInvoked"
+                                      RightTapped="ProjectTreeRightTapped"
+                                      Padding="4,0,4,8">
+                                <TreeView.ContextFlyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem Text="New File..." Click="NewFileClick" />
+                                        <MenuFlyoutItem Text="New Directory..." Click="NewDirectoryClick" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Rename..." Click="RenameWorkspaceItemClick" />
+                                        <MenuFlyoutItem Text="Duplicate..." Click="DuplicateWorkspaceItemClick" />
+                                        <MenuFlyoutItem Text="Delete" Click="DeleteWorkspaceItemClick" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Copy Relative Path" Click="CopyRelativePathClick" />
+                                        <MenuFlyoutItem Text="Copy Absolute Path" Click="CopyAbsolutePathClick" />
+                                        <MenuFlyoutItem Text="Show in Explorer" Click="RevealSelectedItemClick" />
+                                    </MenuFlyout>
+                                </TreeView.ContextFlyout>
+                            </TreeView>
+                        </Grid>
+                    </TabViewItem>
+
+                    <TabViewItem Header="Changes" IsClosable="False">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="{StaticResource LitheToolWindowHeaderHeight}" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Padding="10,4,6,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="GitBranchText" Text="CHANGES"
+                                           Style="{StaticResource LithePaneHeaderStyle}"
+                                           VerticalAlignment="Center" />
+                                <ToggleButton x:Name="BlockedChangesFilterButton" Grid.Column="1"
+                                              Width="30" Height="28" Margin="0,1,2,1"
+                                              Checked="BlockedChangesFilterChanged"
+                                              Unchecked="BlockedChangesFilterChanged">
+                                    <FontIcon Glyph="&#xE71C;" FontSize="13" />
+                                    <ToolTipService.ToolTip>Show blocked paths only</ToolTipService.ToolTip>
+                                </ToggleButton>
+                                <Button Grid.Column="2" Style="{StaticResource LitheIconButtonStyle}"
+                                        Click="RefreshGitClick">
+                                    <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                                    <ToolTipService.ToolTip>Refresh changes</ToolTipService.ToolTip>
+                                </Button>
+                            </Grid>
+                            <ListView x:Name="ChangesList"
+                                      Grid.Row="1"
+                                      SelectionMode="Multiple"
+                                      IsItemClickEnabled="True"
+                                      ItemClick="ChangeItemClick" />
+                            <CommandBar Grid.Row="2" DefaultLabelPosition="Collapsed"
+                                        Background="Transparent" IsOpen="False">
+                                <AppBarButton Label="Stage" Click="StageSelectedClick">
+                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74A;" /></AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton Label="Unstage" Click="UnstageSelectedClick">
+                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74B;" /></AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton Label="Discard" Click="DiscardSelectedClick">
+                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton Label="Roll back blocked file"
+                                              Click="RollbackBlockedPathClick">
+                                    <AppBarButton.Icon><FontIcon Glyph="&#xE7A7;" /></AppBarButton.Icon>
+                                </AppBarButton>
+                            </CommandBar>
+                        </Grid>
+                    </TabViewItem>
+
+                    <TabViewItem Header="Search" IsClosable="False">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBox x:Name="WorkspaceSearchBox"
+                                     Margin="8,8,8,4"
+                                     PlaceholderText="Search workspace"
+                                     KeyDown="WorkspaceSearchKeyDown" />
+                            <TextBlock x:Name="SearchSummaryText" Grid.Row="1"
+                                       Margin="10,2,10,6"
+                                       Style="{StaticResource LithePaneHeaderStyle}"
+                                       Text="RESULTS" />
+                            <ListView x:Name="SearchResultsList"
+                                      Grid.Row="2"
+                                      IsItemClickEnabled="True"
+                                      ItemClick="SearchResultClick" />
+                        </Grid>
+                    </TabViewItem>
+                </TabView>
+            </Grid>
+
+            <primitives:Thumb Grid.Column="1" DragDelta="SidebarSplitterDragDelta"
+                              Background="Transparent" />
+
+            <Grid Grid.Column="2" Background="{ThemeResource LitheWindowBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" MinHeight="220" />
+                    <RowDefinition Height="5" />
+                    <RowDefinition x:Name="BottomPanelRow" Height="290" MinHeight="0" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Background="{ThemeResource LitheEditorBrush}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="28" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TabView x:Name="EditorTabs"
+                             Grid.Row="0"
+                             Height="{StaticResource LitheTabHeight}"
+                             IsAddTabButtonVisible="False"
+                             TabWidthMode="SizeToContent"
+                             CanDragTabs="True"
+                             SelectionChanged="EditorTabSelectionChanged"
+                             TabCloseRequested="EditorTabCloseRequested">
+                        <TabView.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="W" Modifiers="Control"
+                                                  Invoked="CloseActiveEditorClick" />
+                        </TabView.KeyboardAccelerators>
+                    </TabView>
+
+                    <Grid Grid.Row="1"
+                          Background="{ThemeResource LitheSubtleBrush}"
+                          Padding="10,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="BreadcrumbText"
+                                   Foreground="{ThemeResource LitheMutedTextBrush}"
+                                   FontSize="11"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <StackPanel x:Name="MarkdownModePanel" Grid.Column="1"
+                                    Orientation="Horizontal" Spacing="2" Margin="8,2"
+                                    Visibility="Collapsed">
+                            <Button x:Name="MarkdownEditorModeButton" Content="Editor" Padding="8,2"
+                                    Click="MarkdownEditorModeClick" />
+                            <Button x:Name="MarkdownPreviewModeButton" Content="Preview" Padding="8,2"
+                                    Click="MarkdownPreviewModeClick" />
+                        </StackPanel>
+                        <TextBlock x:Name="DocumentStateText" Grid.Column="2"
+                                   Foreground="{ThemeResource LitheMutedTextBrush}"
+                                   FontSize="11" VerticalAlignment="Center" />
+                    </Grid>
+
+                    <Grid x:Name="FindBar" Grid.Row="2" Height="0" Visibility="Collapsed"
+                          Background="{ThemeResource LitheSubtleBrush}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="320" MinWidth="180" MaxWidth="420" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="FindTextBox" Margin="8,5" PlaceholderText="Find in file"
+                                 TextChanged="FindTextChanged" KeyDown="FindBoxKeyDown" />
+                        <ToggleButton x:Name="FindMatchCaseButton" Grid.Column="1"
+                                      Width="30" Height="28" Margin="0,4,2,4"
+                                      Content="Aa" Checked="FindOptionChanged" Unchecked="FindOptionChanged">
+                            <ToolTipService.ToolTip>Match case</ToolTipService.ToolTip>
+                        </ToggleButton>
+                        <Button Grid.Column="2" Style="{StaticResource LitheIconButtonStyle}"
+                                Click="FindPreviousClick">
+                            <FontIcon Glyph="&#xE74A;" FontSize="12" />
+                            <ToolTipService.ToolTip>Previous match</ToolTipService.ToolTip>
+                        </Button>
+                        <Button Grid.Column="3" Style="{StaticResource LitheIconButtonStyle}"
+                                Click="FindNextClick">
+                            <FontIcon Glyph="&#xE74B;" FontSize="12" />
+                            <ToolTipService.ToolTip>Next match</ToolTipService.ToolTip>
+                        </Button>
+                        <TextBlock x:Name="FindStatusText" Grid.Column="4" Margin="8,0"
+                                   MinWidth="72"
+                                   Foreground="{ThemeResource LitheMutedTextBrush}"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="5" Margin="0,4,6,4"
+                                Style="{StaticResource LitheIconButtonStyle}"
+                                Click="CloseFindClick">
+                            <FontIcon Glyph="&#xE711;" FontSize="12" />
+                            <ToolTipService.ToolTip>Close find</ToolTipService.ToolTip>
+                        </Button>
+                    </Grid>
+
+                    <Grid x:Name="EditorSplitGrid" Grid.Row="3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="EditorSurfaceColumn" Width="*" />
+                            <ColumnDefinition x:Name="MarkdownPreviewColumn" Width="0" />
+                        </Grid.ColumnDefinitions>
+                        <Grid x:Name="EditorSurface" Grid.Column="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition x:Name="EditorGutterColumn" Width="50" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="EditorGutter"
+                                    Background="{ThemeResource LitheGutterBrush}"
+                                    BorderBrush="{ThemeResource LitheBorderBrush}"
+                                    BorderThickness="0,0,1,0"
+                                    PointerPressed="EditorGutterPointerPressed"
+                                    ToolTipService.ToolTip="Breakpoints and code navigation">
+                                <Canvas>
+                                    <Canvas.Clip>
+                                        <RectangleGeometry x:Name="EditorGutterClip" Rect="0,0,50,10000" />
+                                    </Canvas.Clip>
+                                    <TextBlock x:Name="GutterAnnotationsText"
+                                               Canvas.Top="8"
+                                               Width="0"
+                                               Margin="6,0,0,0"
+                                               TextTrimming="CharacterEllipsis"
+                                               FontFamily="Cascadia Mono, Consolas"
+                                               FontSize="13"
+                                               FontStyle="Italic"
+                                               LineHeight="20"
+                                               Foreground="{ThemeResource LitheMutedTextBrush}">
+                                        <TextBlock.RenderTransform>
+                                            <TranslateTransform x:Name="GutterAnnotationsTransform" />
+                                        </TextBlock.RenderTransform>
+                                    </TextBlock>
+                                    <TextBlock x:Name="LineNumbersText"
+                                               Canvas.Top="8"
+                                               Width="42"
+                                               TextAlignment="Right"
+                                               FontFamily="Cascadia Mono, Consolas"
+                                               FontSize="13"
+                                               LineHeight="20"
+                                               Foreground="{ThemeResource LitheMutedTextBrush}">
+                                        <TextBlock.RenderTransform>
+                                            <TranslateTransform x:Name="LineNumbersTransform" />
+                                        </TextBlock.RenderTransform>
+                                    </TextBlock>
+                                </Canvas>
+                            </Border>
+                            <RichEditBox x:Name="EditorTextBox"
+                                         Grid.Column="1"
+                                         TextWrapping="NoWrap"
+                                         FontFamily="Cascadia Code, Consolas"
+                                         FontSize="13"
+                                         IsSpellCheckEnabled="False"
+                                         IsTextPredictionEnabled="False"
+                                         BorderThickness="0"
+                                         CornerRadius="0"
+                                         Padding="12,8,20,20"
+                                         HorizontalAlignment="Stretch"
+                                         VerticalAlignment="Stretch"
+                                         HorizontalContentAlignment="Stretch"
+                                         VerticalContentAlignment="Stretch"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         TextChanged="EditorTextChanged"
+                                         SelectionChanged="EditorSelectionChanged"
+                                         Loaded="EditorLoaded" />
+                        </Grid>
+
+                        <Border x:Name="MarkdownPreviewPane" Grid.Column="1"
+                                Visibility="Collapsed"
+                                BorderBrush="{ThemeResource LitheBorderBrush}"
+                                BorderThickness="1,0,0,0"
+                                Background="{ThemeResource LithePanelBrush}">
+                            <Grid>
+                                <WebView2 x:Name="MarkdownPreviewWebView"
+                                          Visibility="Collapsed" />
+                                <ScrollViewer x:Name="MarkdownPreviewFallback"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollBarVisibility="Auto"
+                                              Padding="18,12">
+                                    <StackPanel x:Name="MarkdownPreviewContent" Spacing="6" />
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+
+                        <Grid x:Name="EditorEmptyState"
+                              Grid.ColumnSpan="2"
+                              Background="{ThemeResource LithePanelBrush}"
+                              IsHitTestVisible="False">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                <FontIcon Glyph="&#xE8A5;" FontSize="28"
+                                          Foreground="{ThemeResource LitheMutedTextBrush}" />
+                                <TextBlock Text="Open a file to start editing"
+                                           Foreground="{ThemeResource LitheMutedTextBrush}" />
+                              </StackPanel>
+                        </Grid>
+                        <Border x:Name="ExternalConflictBanner"
+                                Grid.ColumnSpan="2"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Top"
+                                Margin="8"
+                                Padding="10,7"
+                                Background="{ThemeResource LitheWarningBrush}"
+                                BorderBrush="{ThemeResource LitheBorderBrush}"
+                                BorderThickness="1"
+                                Visibility="Collapsed">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="ExternalConflictText"
+                                           Text="This file changed outside Lithe while you have unsaved edits."
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="ExternalConflictKeepButton" Grid.Column="1" Content="Keep Editor"
+                                        Click="KeepExternalEditorVersionClick" Margin="8,0,0,0" />
+                                <Button x:Name="ExternalConflictLoadButton" Grid.Column="2" Content="Load Disk Version"
+                                        Click="LoadExternalDiskVersionClick" Margin="8,0,0,0" />
+                            </Grid>
+                        </Border>
+                        <ProgressRing x:Name="EditorProgress" Width="30" Height="30"
+                                      Grid.ColumnSpan="2"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                      IsActive="False" Visibility="Collapsed" />
+                    </Grid>
+                </Grid>
+
+                <primitives:Thumb Grid.Row="1" DragDelta="BottomSplitterDragDelta"
+                                  Background="Transparent" />
+
+                <Grid Grid.Row="2" x:Name="BottomToolPanel"
+                      Background="{ThemeResource LithePanelBrush}"
+                      BorderBrush="{ThemeResource LitheBorderBrush}"
+                      BorderThickness="0,1,0,0">
+                    <TabView x:Name="BottomToolTabs"
+                             IsAddTabButtonVisible="False"
+                             TabWidthMode="SizeToContent"
+                             CanDragTabs="False"
+                             SelectionChanged="BottomToolSelectionChanged">
+                        <TabViewItem Header="Terminal" IsClosable="False">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <CommandBar Background="Transparent" DefaultLabelPosition="Collapsed">
+                                    <AppBarElementContainer>
+                                        <ComboBox x:Name="TerminalSessionsBox" Width="150"
+                                                  SelectionChanged="TerminalSessionSelectionChanged" />
+                                    </AppBarElementContainer>
+                                    <AppBarElementContainer>
+                                        <ComboBox x:Name="TerminalShellBox" Width="210"
+                                                  IsEditable="True"
+                                                  PlaceholderText="Shell executable"
+                                                  SelectionChanged="TerminalShellSelectionChanged"
+                                                  LostFocus="TerminalShellLostFocus">
+                                            <ComboBoxItem Content="cmd.exe" />
+                                            <ComboBoxItem Content="powershell.exe" />
+                                            <ComboBoxItem Content="pwsh.exe" />
+                                        </ComboBox>
+                                    </AppBarElementContainer>
+                                    <AppBarButton Label="New Terminal" Click="NewTerminalClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE710;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Start" Click="StartTerminalClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE768;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Interrupt" Click="InterruptTerminalClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE71A;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Restart" Click="RestartTerminalClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE72C;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Clear" Click="ClearTerminalClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Stop" Click="StopTerminalClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE71A;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Close Terminal" Click="CloseTerminalClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE711;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                </CommandBar>
+                                <TextBox x:Name="TerminalOutputBox" Grid.Row="1"
+                                         IsReadOnly="True" AcceptsReturn="True"
+                                         TextWrapping="NoWrap" FontFamily="Cascadia Mono, Consolas"
+                                         FontSize="12" BorderThickness="0" CornerRadius="0"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                                <TextBox x:Name="TerminalInputBox" Grid.Row="2"
+                                         Margin="8,4,8,8"
+                                         PlaceholderText="Enter terminal command"
+                                         KeyDown="TerminalInputKeyDown" />
+                            </Grid>
+                        </TabViewItem>
+
+                        <TabViewItem Header="Build" IsClosable="False">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <CommandBar Background="Transparent" DefaultLabelPosition="Right">
+                                    <AppBarButton Label="Clean" Click="RunMavenCleanClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Test" Click="RunMavenTestClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE768;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Package" Click="RunMavenPackageClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE7B8;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Verify" Click="RunMavenVerifyClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE73E;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Install" Click="RunMavenInstallClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE896;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Stop" Click="StopProcessClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE71A;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                </CommandBar>
+                                <Grid Grid.Row="1" Padding="8,0,8,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="320" MinWidth="220" MaxWidth="420" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Run configuration" Margin="0,0,8,0"
+                                               VerticalAlignment="Center" />
+                                    <ComboBox x:Name="RunConfigurationBox" Grid.Column="1"
+                                              HorizontalAlignment="Stretch" />
+                                    <Button Grid.Column="2" Margin="8,0,0,0" Content="Run"
+                                            Click="RunSelectedConfigurationClick" />
+                                    <Button Grid.Column="3" Margin="6,0,0,0" Content="Debug"
+                                            Click="DebugSelectedConfigurationClick" />
+                                </Grid>
+                                <TextBox x:Name="BuildOutputBox" Grid.Row="2"
+                                         IsReadOnly="True" AcceptsReturn="True"
+                                         TextWrapping="NoWrap" FontFamily="Cascadia Mono, Consolas"
+                                         FontSize="12" BorderThickness="0" CornerRadius="0"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                            </Grid>
+                        </TabViewItem>
+
+                        <TabViewItem Header="Problems" IsClosable="False">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <CommandBar Background="Transparent" DefaultLabelPosition="Collapsed">
+                                    <AppBarButton Label="Refresh" Click="RefreshAnalysisClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE72C;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Clear" Click="ClearProblemsClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                </CommandBar>
+                                <ListView x:Name="ProblemsList" Grid.Row="1"
+                                          IsItemClickEnabled="True" ItemClick="NavigationItemClick" />
+                            </Grid>
+                        </TabViewItem>
+
+                        <TabViewItem Header="Debug" IsClosable="False">
+                            <Grid Padding="8,0,8,8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="110" />
+                                </Grid.RowDefinitions>
+                                <CommandBar Background="Transparent" DefaultLabelPosition="Collapsed">
+                                    <AppBarButton Label="Continue" Click="ContinueDebuggerClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE768;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Pause" Click="PauseDebuggerClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE769;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Step Into" Click="StepIntoDebuggerClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE7A5;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Step Over" Click="StepOverDebuggerClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE7A6;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Step Out" Click="StepOutDebuggerClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE7A7;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Stop" Click="StopDebuggerClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE71A;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarSeparator />
+                                    <AppBarButton Label="Variables" Click="InspectDebuggerVariablesClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE8B7;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Threads" Click="InspectDebuggerThreadsClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE8EF;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Call Stack" Click="InspectDebuggerStackClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE8FD;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                </CommandBar>
+                                <Grid Grid.Row="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="2*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ListView x:Name="DebugVariablesList"
+                                              IsItemClickEnabled="True"
+                                              ItemClick="DebugVariableClick" />
+                                    <ListView x:Name="DebugThreadsList" Grid.Column="1"
+                                              BorderBrush="{ThemeResource LitheBorderBrush}"
+                                              BorderThickness="1,0" />
+                                    <ListView x:Name="DebugStackList" Grid.Column="2" />
+                                </Grid>
+                                <TextBox x:Name="DebugExpressionBox" Grid.Row="2"
+                                         Margin="0,6" PlaceholderText="Evaluate expression"
+                                         KeyDown="DebugExpressionKeyDown" />
+                                <TextBox x:Name="DebugOutputBox" Grid.Row="3"
+                                         IsReadOnly="True" AcceptsReturn="True"
+                                         TextWrapping="NoWrap" FontFamily="Cascadia Mono, Consolas"
+                                         FontSize="12" />
+                            </Grid>
+                        </TabViewItem>
+
+                                <TabViewItem Header="Git" IsClosable="False">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" MinWidth="360" />
+                                            <ColumnDefinition Width="*" MinWidth="280" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid Grid.Row="0" Grid.ColumnSpan="2" Padding="8,4"
+                                              Background="{ThemeResource LitheSubtleBrush}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="GitOperationText"
+                                                       Foreground="{ThemeResource LitheMutedTextBrush}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center" />
+                                            <Button Grid.Column="1" Content="Continue"
+                                                    Click="ContinueGitOperationClick" Visibility="Collapsed"
+                                                    x:Name="ContinueGitOperationButton" Margin="4,0" />
+                                            <Button Grid.Column="2" Content="Abort"
+                                                    Click="AbortGitOperationClick" Visibility="Collapsed"
+                                                    x:Name="AbortGitOperationButton" Margin="4,0" />
+                                            <Button Grid.Column="3" Content="Skip"
+                                                    Click="SkipGitOperationClick" Visibility="Collapsed"
+                                                    x:Name="SkipGitOperationButton" Margin="4,0" />
+                                        </Grid>
+                                        <TabView x:Name="GitModeTabs"
+                                         Grid.Row="1" Grid.Column="0"
+                                         IsAddTabButtonVisible="False"
+                                         CanDragTabs="False"
+                                         TabWidthMode="Equal">
+                                    <TabViewItem Header="History" IsClosable="False">
+                                        <ListView x:Name="GitHistoryList"
+                                                  IsItemClickEnabled="True"
+                                                  ItemClick="GitHistoryItemClick" />
+                                    </TabViewItem>
+                                    <TabViewItem Header="Stashes" IsClosable="False">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <ListView x:Name="GitStashesList"
+                                                      SelectionChanged="GitStashSelectionChanged" />
+                                            <CommandBar Grid.Row="1" Background="Transparent"
+                                                        DefaultLabelPosition="Right">
+                                                <AppBarButton Label="Apply" Click="ApplyStashClick">
+                                                    <AppBarButton.Icon><FontIcon Glyph="&#xE8FB;" /></AppBarButton.Icon>
+                                                </AppBarButton>
+                                                <AppBarButton Label="Pop" Click="PopStashClick">
+                                                    <AppBarButton.Icon><FontIcon Glyph="&#xE8E5;" /></AppBarButton.Icon>
+                                                </AppBarButton>
+                                                <AppBarButton Label="Drop" Click="DropStashClick">
+                                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
+                                                </AppBarButton>
+                                                <AppBarButton Label="Create" Click="CreateStashClick">
+                                                    <AppBarButton.Icon><FontIcon Glyph="&#xE710;" /></AppBarButton.Icon>
+                                                </AppBarButton>
+                                            </CommandBar>
+                                        </Grid>
+                                    </TabViewItem>
+                                    <TabViewItem Header="Shelves" IsClosable="False">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <ListView x:Name="GitShelvesList"
+                                                      SelectionChanged="ShelfSelectionChanged" />
+                                            <CommandBar Grid.Row="1" Background="Transparent"
+                                                        DefaultLabelPosition="Right">
+                                                <AppBarButton Label="Create" Click="CreateShelfClick">
+                                                    <AppBarButton.Icon><FontIcon Glyph="&#xE710;" /></AppBarButton.Icon>
+                                                </AppBarButton>
+                                                <AppBarButton Label="Restore" Click="RestoreShelfClick">
+                                                    <AppBarButton.Icon><FontIcon Glyph="&#xE777;" /></AppBarButton.Icon>
+                                                </AppBarButton>
+                                                <AppBarButton Label="Delete" Click="DeleteShelfClick">
+                                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
+                                                </AppBarButton>
+                                            </CommandBar>
+                                        </Grid>
+                                    </TabViewItem>
+                                    <TabViewItem Header="Local History" IsClosable="False">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <ListView x:Name="LocalHistoryList"
+                                                      IsItemClickEnabled="True"
+                                                      ItemClick="HistoryItemClick" />
+                                            <CommandBar Grid.Row="1" Background="Transparent"
+                                                        DefaultLabelPosition="Right">
+                                                <AppBarButton Label="Restore Snapshot" Click="RestoreHistoryClick">
+                                                    <AppBarButton.Icon><FontIcon Glyph="&#xE777;" /></AppBarButton.Icon>
+                                                </AppBarButton>
+                                            </CommandBar>
+                                        </Grid>
+                                    </TabViewItem>
+                                </TabView>
+
+                                <Grid Grid.Row="1" Grid.Column="1"
+                                      BorderBrush="{ThemeResource LitheBorderBrush}"
+                                      BorderThickness="1,0,0,0"
+                                      Padding="10">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="COMMIT" Style="{StaticResource LithePaneHeaderStyle}" />
+                                        <Button Grid.Column="1" Style="{StaticResource LitheIconButtonStyle}"
+                                                Click="GenerateAICommitClick">
+                                            <FontIcon Glyph="&#xE945;" FontSize="14" />
+                                            <ToolTipService.ToolTip>Generate AI commit message</ToolTipService.ToolTip>
+                                        </Button>
+                                    </Grid>
+                                    <TextBlock x:Name="GitDetailsText" Grid.Row="1"
+                                               Margin="0,6" MaxHeight="72"
+                                               TextWrapping="Wrap"
+                                               Foreground="{ThemeResource LitheMutedTextBrush}" />
+                                    <ListView x:Name="GitCommitFilesList" Grid.Row="2"
+                                              IsItemClickEnabled="True"
+                                              ItemClick="CommitFileClick" />
+                                    <TextBox x:Name="CommitMessageBox" Grid.Row="3"
+                                             Margin="0,8" MinHeight="66" MaxHeight="110"
+                                             AcceptsReturn="True" TextWrapping="Wrap"
+                                             PlaceholderText="Commit message" />
+                                    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8">
+                                        <CheckBox x:Name="AmendCommitCheckBox" Content="Amend" />
+                                        <Button Content="Stage all" Click="StageAllClick" />
+                                        <Button Content="Commit"
+                                                Style="{StaticResource LithePrimaryButtonStyle}"
+                                                Click="CommitClick" />
+                                        <Button Content="Commit and Push"
+                                                Click="CommitAndPushClick" />
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+                        </TabViewItem>
+
+                        <TabViewItem Header="Diff" IsClosable="False">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <CommandBar Background="Transparent" DefaultLabelPosition="Right">
+                                    <AppBarButton Label="Stage hunk" Click="StageHunkClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE74A;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Unstage hunk" Click="UnstageHunkClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE74B;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                    <AppBarButton Label="Discard hunk" Click="DiscardHunkClick">
+                                        <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
+                                    </AppBarButton>
+                                </CommandBar>
+                                <Grid Grid.Row="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="112" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ListView x:Name="DiffOverviewList"
+                                              SelectionChanged="DiffOverviewSelectionChanged"
+                                              BorderBrush="{ThemeResource LitheBorderBrush}"
+                                              BorderThickness="0,0,1,0" />
+                                    <Grid Grid.Column="1">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="34" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <Grid Background="{ThemeResource LitheSubtleBrush}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="54" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="54" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="OLD" Margin="8,0" VerticalAlignment="Center"
+                                                       Style="{StaticResource LithePaneHeaderStyle}" />
+                                            <TextBlock Grid.Column="1" Text="Original" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Text="NEW" Margin="8,0" VerticalAlignment="Center"
+                                                       Style="{StaticResource LithePaneHeaderStyle}" />
+                                            <TextBlock Grid.Column="3" Text="Modified" VerticalAlignment="Center" />
+                                        </Grid>
+                                        <ScrollViewer x:Name="DiffScrollViewer" Grid.Row="1"
+                                                      HorizontalScrollBarVisibility="Auto"
+                                                      VerticalScrollBarVisibility="Auto">
+                                            <StackPanel x:Name="DiffRowsPanel" />
+                                        </ScrollViewer>
+                                    </Grid>
+                                </Grid>
+                            </Grid>
+                        </TabViewItem>
+                    </TabView>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <Grid Grid.Row="2" Background="{ThemeResource LitheAccentBrush}" Padding="10,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="StatusText" Foreground="White" FontSize="11"
+                       Text="Ready" TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                <TextBlock x:Name="GitStatusText" Foreground="White" FontSize="11"
+                           VerticalAlignment="Center" />
+                <TextBlock x:Name="CursorPositionText" Text="Ln 1, Col 1"
+                           Foreground="White" FontSize="11" VerticalAlignment="Center" />
+                <TextBlock x:Name="AnalysisStatusText" Foreground="White" FontSize="11"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

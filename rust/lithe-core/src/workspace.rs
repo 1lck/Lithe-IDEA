@@ -339,6 +339,7 @@ pub fn replace_preview(
             files.push(crate::model::ReplacementFile {
                 path: relative,
                 matches,
+                original_text: text,
                 replacement_text: replaced_lines.join("\n"),
             });
         }

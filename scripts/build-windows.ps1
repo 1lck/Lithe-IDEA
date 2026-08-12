@@ -2,9 +2,10 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
+    [string]$Version = "0.1.11",
     [string]$RustTarget = "x86_64-pc-windows-msvc",
     [string]$BuildDirectory = "windows/build-windows",
-    [switch]$BuildQt
+    [switch]$BuildWinUI
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,14 +46,38 @@ if ($null -eq $rustLibrary) {
 }
 
 $cmakeBuild = Join-Path $root $BuildDirectory
-$qtOption = if ($BuildQt) { "ON" } else { "OFF" }
 & cmake -S windows -B $cmakeBuild `
     "-DCMAKE_BUILD_TYPE=$Configuration" `
-    "-DLITHE_BUILD_QT_UI=$qtOption" `
+    "-DLITHE_VERSION=$Version" `
+    "-DLITHE_BUILD_QT_UI=OFF" `
     "-DLITHE_RUST_CORE_LIBRARY=$($rustLibrary.FullName)"
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
 
 & cmake --build $cmakeBuild --config $Configuration --parallel -- /nr:false
 if ($LASTEXITCODE -ne 0) { throw "CMake build failed" }
+
+if ($BuildWinUI) {
+    $msbuild = Get-Command msbuild.exe -ErrorAction SilentlyContinue
+    if ($null -eq $msbuild) {
+        throw "MSBuild was not found. Run from a Visual Studio 2022 developer environment."
+    }
+    $winUIPlatform = switch -Wildcard ($RustTarget) {
+        "aarch64-*" { "ARM64"; break }
+        "x86_64-*" { "x64"; break }
+        default { throw "WinUI build does not support Rust target $RustTarget" }
+    }
+    $winUIProject = Join-Path $root "windows/winui/Lithe.WinUI.vcxproj"
+    $msbuildArgs = @(
+        $winUIProject,
+        "/restore",
+        "/m",
+        "/nr:false",
+        "/p:Configuration=$Configuration",
+        "/p:Platform=$winUIPlatform",
+        "/p:LitheRustCoreLibrary=$($rustLibrary.FullName)"
+    )
+    & $msbuild.Source @msbuildArgs
+    if ($LASTEXITCODE -ne 0) { throw "WinUI 3 build failed" }
+}
 
 Write-Output "Windows build completed: $cmakeBuild"

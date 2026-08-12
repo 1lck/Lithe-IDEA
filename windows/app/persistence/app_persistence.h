@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -54,7 +55,12 @@ struct WorkspaceSession {
     std::vector<std::string> openPaths;
     std::vector<std::string> expandedPaths;
     std::string activePath;
+    std::string deferredShelfId;
 };
+
+WorkspaceSession sanitizeWorkspaceSession(
+    const std::filesystem::path& workspaceRoot,
+    WorkspaceSession session);
 
 class WorkspaceSessionStore final {
 public:

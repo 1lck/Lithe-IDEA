@@ -5,6 +5,32 @@
 
 namespace lithe::windows::app {
 
+GitCommitSafety evaluateGitCommitSafety(
+    const GitStatusDto& status,
+    const GitConflictMarkersDto& conflictMarkers) {
+    GitCommitSafety result;
+    for (const auto& change : status.changes) {
+        if (change.status == "UU" || change.status == "AA" || change.status == "DD" ||
+            change.status == "DU" || change.status == "UD" || change.status == "AU" ||
+            change.status == "UA") {
+            result.unmergedPaths.push_back(change.path);
+        }
+    }
+    result.conflictMarkerPaths = conflictMarkers.paths;
+    result.blockingPaths = result.unmergedPaths;
+    result.blockingPaths.insert(result.blockingPaths.end(),
+                                result.conflictMarkerPaths.begin(),
+                                result.conflictMarkerPaths.end());
+    const auto normalize = [](std::vector<std::string>& paths) {
+        std::sort(paths.begin(), paths.end());
+        paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+    };
+    normalize(result.unmergedPaths);
+    normalize(result.conflictMarkerPaths);
+    normalize(result.blockingPaths);
+    return result;
+}
+
 GitFeatureModel::GitFeatureModel(WorkbenchCoordinator& coordinator)
     : coordinator_(coordinator) {}
 
@@ -138,6 +164,25 @@ void GitFeatureModel::loadShelfPatches(ShelfPatchesHandler handler) {
     });
 }
 
+void GitFeatureModel::cleanShelf(std::string stagedPatch,
+                                 std::string workingTreePatch,
+                                 StateHandler handler) {
+    std::uint64_t requestSerial = 0;
+    {
+        std::lock_guard lock(mutex_);
+        state_.isApplying = true;
+        state_.command.reset();
+        state_.error.reset();
+        requestSerial = ++applyRequestSerial_;
+    }
+    coordinator_.gitShelfClean(
+        std::move(stagedPatch), std::move(workingTreePatch),
+        [this, handler = std::move(handler), requestSerial](
+            WorkspaceOperationResult result) mutable {
+            applyPatch(std::move(result), std::move(handler), requestSerial);
+        });
+}
+
 void GitFeatureModel::refreshHistory(std::optional<std::string> reference,
                                      std::uint64_t limit,
                                      StateHandler handler) {
@@ -252,6 +297,7 @@ void GitFeatureModel::preflightIntegration(std::string reference,
                                            StateHandler handler) {
     {
         std::lock_guard lock(mutex_);
+        state_.pendingIntegration = GitPendingIntegration{reference, operation};
         state_.isLoadingIntegrationPreflight = true;
         state_.integrationPreflight.reset();
         state_.error.reset();
@@ -260,6 +306,12 @@ void GitFeatureModel::preflightIntegration(std::string reference,
         [this, handler = std::move(handler)](WorkspaceOperationResult result) mutable {
         applyIntegrationPreflight(std::move(result), std::move(handler));
     });
+}
+
+void GitFeatureModel::cancelIntegrationConflict() {
+    std::lock_guard lock(mutex_);
+    state_.pendingIntegration.reset();
+    state_.integrationPreflight.reset();
 }
 
 void GitFeatureModel::checkout(std::string reference,
@@ -274,13 +326,18 @@ void GitFeatureModel::checkout(std::string reference,
                                   reference = std::move(reference),
                                   referenceKind = std::move(referenceKind),
                                   handler = std::move(handler)](GitFeatureState state) mutable {
-        if (state.error || state.isLoadingCheckoutPreflight ||
-            !state.checkoutPreflight || !state.checkoutPreflight->blockingPaths.empty()) {
+        if (state.error || state.isLoadingCheckoutPreflight || !state.checkoutPreflight) {
             {
                 std::lock_guard lock(mutex_);
                 state_.pendingCheckout.reset();
             }
             state.pendingCheckout.reset();
+            if (handler) handler(std::move(state));
+            return;
+        }
+        if (!state.checkoutPreflight->blockingPaths.empty()) {
+            // Keep the target around so the UI can offer Smart or Force Checkout
+            // without asking the user to select the branch again.
             if (handler) handler(std::move(state));
             return;
         }
@@ -298,6 +355,39 @@ void GitFeatureModel::checkout(std::string reference,
                   if (handler) handler(std::move(result));
               });
     });
+}
+
+void GitFeatureModel::resolveCheckoutConflict(std::string strategy,
+                                              StateHandler handler) {
+    std::optional<GitPendingCheckout> pending;
+    {
+        std::lock_guard lock(mutex_);
+        pending = state_.pendingCheckout;
+    }
+    if (!pending || (strategy != "smart" && strategy != "force")) {
+        if (handler) handler(state());
+        return;
+    }
+    GitWriteRequestDto request;
+    request.operation = "checkout";
+    request.reference = pending->reference;
+    request.referenceKind = pending->referenceKind;
+    request.autoStash = strategy == "smart";
+    request.force = strategy == "force";
+    write(std::move(request), [this, handler = std::move(handler)](
+                                  GitFeatureState result) mutable {
+        {
+            std::lock_guard lock(mutex_);
+            state_.pendingCheckout.reset();
+        }
+        result.pendingCheckout.reset();
+        if (handler) handler(std::move(result));
+    });
+}
+
+void GitFeatureModel::cancelCheckoutConflict() {
+    std::lock_guard lock(mutex_);
+    state_.pendingCheckout.reset();
 }
 
 void GitFeatureModel::refreshConflictMarkers(StateHandler handler) {
@@ -325,6 +415,16 @@ void GitFeatureModel::refreshOperationState(StateHandler handler) {
     });
 }
 
+void GitFeatureModel::preflightCommit(StateHandler handler) {
+    refreshStatus([this, handler = std::move(handler)](GitFeatureState state) mutable {
+        if (state.error || state.isLoadingStatus || !state.status) {
+            if (handler) handler(std::move(state));
+            return;
+        }
+        refreshConflictMarkers(std::move(handler));
+    });
+}
+
 void GitFeatureModel::clearStashRestoreConflict() {
     std::lock_guard lock(mutex_);
     state_.stashRestoreConflict.reset();
@@ -335,6 +435,7 @@ void GitFeatureModel::write(GitWriteRequestDto request, StateHandler handler) {
     {
         std::lock_guard lock(mutex_);
         state_.isWriting = true;
+        state_.command.reset();
         state_.error.reset();
     }
     coordinator_.gitWrite(std::move(request),
@@ -349,6 +450,7 @@ void GitFeatureModel::runCommand(std::vector<std::string> arguments,
     {
         std::lock_guard lock(mutex_);
         state_.isWriting = true;
+        state_.command.reset();
         state_.error.reset();
     }
     coordinator_.gitCommand(GitCommandRequestDto{{}, std::move(arguments), std::move(input)},
@@ -436,10 +538,12 @@ void GitFeatureModel::cloneRepository(std::string remote,
 }
 
 void GitFeatureModel::apply(std::string patch, std::string mode, StateHandler handler) {
-    const auto requestSerial = ++applyRequestSerial_;
+    std::uint64_t requestSerial = 0;
     {
         std::lock_guard lock(mutex_);
+        requestSerial = ++applyRequestSerial_;
         state_.isApplying = true;
+        state_.command.reset();
         state_.error.reset();
     }
     coordinator_.gitApply(std::move(patch), std::move(mode),
@@ -698,8 +802,13 @@ void GitFeatureModel::applyIntegrationPreflight(WorkspaceOperationResult result,
         if (result.envelope && result.envelope->ok) {
             if (auto preflight = decodeGitIntegrationPreflight(*result.envelope)) {
                 state_.integrationPreflight = std::move(*preflight);
+                if (!state_.integrationPreflight->blocksEntirely &&
+                    state_.integrationPreflight->blockingPaths.empty()) {
+                    state_.pendingIntegration.reset();
+                }
                 state_.error.reset();
             } else {
+                state_.pendingIntegration.reset();
                 state_.error = CoreError{
                     CoreErrorCode::ParseFailed,
                     "Invalid Git integration preflight response",
@@ -707,8 +816,10 @@ void GitFeatureModel::applyIntegrationPreflight(WorkspaceOperationResult result,
                 };
             }
         } else if (const auto error = result.coreError()) {
+            state_.pendingIntegration.reset();
             state_.error = *error;
         } else {
+            state_.pendingIntegration.reset();
             state_.error = CoreError{
                 CoreErrorCode::Unknown, "Git integration preflight failed", std::nullopt};
         }
@@ -756,6 +867,10 @@ void GitFeatureModel::applyOperationState(WorkspaceOperationResult result,
                     state_.operationState.reset();
                 } else {
                     state_.operationState = std::move(*operationState);
+                    if (state_.operationState->autoStashReference) {
+                        state_.stashRestoreConflict = GitStashRestoreDto{
+                            *state_.operationState->autoStashReference, {}, true};
+                    }
                 }
                 rebuildConflictFilterPaths();
                 state_.error.reset();

@@ -51,6 +51,10 @@ struct FileReadRequestDto {
     std::string path;
 };
 
+struct MarkdownRenderRequestDto {
+    std::string source;
+};
+
 struct FileWriteRequestDto {
     std::string root;
     std::string path;
@@ -173,6 +177,12 @@ struct GitShelfPatchesRequestDto {
     std::string root;
 };
 
+struct GitShelfCleanRequestDto {
+    std::string root;
+    std::string stagedPatch;
+    std::string workingTreePatch;
+};
+
 struct GitApplyRequestDto {
     std::string root;
     std::string patch;
@@ -260,6 +270,7 @@ struct GitBlameRequestDto {
 std::string encodeWorkspaceSnapshotRequest(const WorkspaceSnapshotRequestDto& request);
 std::string encodeSearchRequest(const SearchRequestDto& request);
 std::string encodeReplacementPreviewRequest(const ReplacementPreviewRequestDto& request);
+std::string encodeMarkdownRenderRequest(const MarkdownRenderRequestDto& request);
 std::string encodeFileReadRequest(const FileReadRequestDto& request);
 std::string encodeFileWriteRequest(const FileWriteRequestDto& request);
 std::string encodeHistoryRecordRequest(const HistoryRecordRequestDto& request);
@@ -281,6 +292,7 @@ std::string encodeJavaStructureRequest(const JavaStructureRequestDto& request);
 std::string encodeGitStatusRequest(const GitStatusRequestDto& request);
 std::string encodeGitDiffRequest(const GitDiffRequestDto& request);
 std::string encodeGitShelfPatchesRequest(const GitShelfPatchesRequestDto& request);
+std::string encodeGitShelfCleanRequest(const GitShelfCleanRequestDto& request);
 std::string encodeGitApplyRequest(const GitApplyRequestDto& request);
 std::string encodeGitCommandRequest(const GitCommandRequestDto& request);
 std::string encodeGitWriteRequest(const GitWriteRequestDto& request);

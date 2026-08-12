@@ -34,7 +34,7 @@ bool writeValue(KeyValueStore& store,
     return store.writeValue(key, value, error);
 }
 
-}
+} // namespace
 
 WorkbenchLayoutPersistence::WorkbenchLayoutPersistence(KeyValueStore& store)
     : store_(store) {}
@@ -103,4 +103,4 @@ bool WorkbenchLayoutPersistence::save(const std::string& workspaceRoot,
                       state.bottomVisible, error);
 }
 
-}
+} // namespace lithe::windows

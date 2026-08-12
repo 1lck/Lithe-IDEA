@@ -141,17 +141,17 @@ After opening a project, use **Settings → Project** to configure the project J
 
 ### Windows
 
-The Windows version is still in development. Building the Qt workbench requires
-Windows 10/11, Visual Studio 2022/MSVC, CMake, stable Rust, and Qt 6 for MSVC
-2022 64-bit. Java features and installer packaging require the corresponding
-JDK, Maven, or NSIS tools.
+The Windows version is still in development. Building the WinUI 3 workbench
+requires Windows 10/11, Visual Studio 2022/MSVC with the WinUI/C++ workloads,
+CMake, and stable Rust. Java features and installer packaging require the
+corresponding JDK, Maven, or NSIS tools.
 
 From a **PowerShell**, run these commands from the
 repository root:
 
 ```powershell
-.\scripts\build-windows.ps1 -Configuration Release -BuildQt
-.\windows\build-windows\Release\lithe_windows_qt.exe
+.\scripts\build-windows.ps1 -Configuration Release -BuildWinUI
+.\windows\build-winui\x64\Release\Lithe.exe
 ```
 
 For toolchain ranges and Windows-specific validation, see the
@@ -172,20 +172,20 @@ flowchart TB
     MAPP --> CORE
 
     subgraph WINDOWS["Windows · In development"]
-        WUI["Qt Widgets Workbench<br/>Foundation available"] --> WAPP["C++ application workflows<br/>To be completed"]
-        WAPP --> WCLIENT["C++ CoreClient<br/>Foundation available"]
-        WAPP --> WADAPTERS["Win32 adapters<br/>Foundation available"]
+        WUI["WinUI 3 / C++/WinRT Workbench<br/>Migration implemented"] --> WAPP["C++ application workflows"]
+        WAPP --> WCLIENT["C++ CoreClient"]
+        WAPP --> WADAPTERS["Win32 adapters"]
         WADAPTERS --> WNATIVE["Win32 · ConPTY · File watching"]
         WAPP -.-> WPARITY["Full feature parity<br/>Planned"]
-        WCLIENT -.-> WPACKAGE["Rust library integration and packaging<br/>Planned"]
-        WNATIVE -.-> WBUILD["Native Windows build and validation<br/>To be completed"]
-        WUI -.-> WSHIP["Installer · Updates<br/>Planned"]
+        WCLIENT --> WPACKAGE["Rust library integration and packaging"]
+        WNATIVE -.-> WBUILD["Native Windows interaction validation<br/>Pending"]
+        WUI --> WSHIP["NSIS installer · In-app updates"]
     end
 
     WCLIENT --> CORE
 
     classDef planned fill:#fff3cd,stroke:#d97706,stroke-width:2px,stroke-dasharray:6 4,color:#111827
-    class WAPP,WPARITY,WPACKAGE,WBUILD,WSHIP planned
+    class WPARITY,WBUILD planned
 ```
 
 ## Develop Lithe

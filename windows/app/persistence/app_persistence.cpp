@@ -131,6 +131,71 @@ bool RecentProjectsStore::replace(std::vector<std::string> paths, std::string& e
 
 WorkspaceSessionStore::WorkspaceSessionStore(KeyValueStore& store) : store_(store) {}
 
+WorkspaceSession sanitizeWorkspaceSession(
+    const std::filesystem::path& workspaceRoot,
+    WorkspaceSession session) {
+    std::error_code error;
+    const auto canonicalRoot = std::filesystem::canonical(workspaceRoot, error);
+    if (error || canonicalRoot.empty()) return WorkspaceSession{
+        .deferredShelfId = std::move(session.deferredShelfId)};
+
+    const auto resolve = [&canonicalRoot](std::string value,
+                                          bool expectDirectory)
+        -> std::optional<std::string> {
+        std::replace(value.begin(), value.end(), '\\', '/');
+        while (value.size() > 1 && value.back() == '/') value.pop_back();
+        if ((!expectDirectory && value.empty()) || value.starts_with('/') ||
+            value.find(':') != std::string::npos) {
+            return std::nullopt;
+        }
+        const std::filesystem::path relative(value);
+        for (const auto& component : relative) {
+            if (component == "." || component == "..") return std::nullopt;
+        }
+        std::error_code candidateError;
+        const auto candidate = std::filesystem::canonical(
+            canonicalRoot / relative, candidateError);
+        if (candidateError) return std::nullopt;
+        if (expectDirectory ? !std::filesystem::is_directory(candidate, candidateError)
+                            : !std::filesystem::is_regular_file(candidate, candidateError)) {
+            return std::nullopt;
+        }
+        auto rootPart = canonicalRoot.begin();
+        auto candidatePart = candidate.begin();
+        while (rootPart != canonicalRoot.end() && candidatePart != candidate.end() &&
+               *rootPart == *candidatePart) {
+            ++rootPart;
+            ++candidatePart;
+        }
+        if (rootPart != canonicalRoot.end()) return std::nullopt;
+        return relative.generic_string();
+    };
+
+    const auto sanitize = [&resolve](std::vector<std::string> values,
+                                     bool directories) {
+        std::vector<std::string> result;
+        result.reserve(values.size());
+        for (auto& value : values) {
+            const auto normalized = resolve(std::move(value), directories);
+            if (!normalized ||
+                std::find(result.begin(), result.end(), *normalized) != result.end()) {
+                continue;
+            }
+            result.push_back(*normalized);
+        }
+        return result;
+    };
+
+    session.openPaths = sanitize(std::move(session.openPaths), false);
+    session.expandedPaths = sanitize(std::move(session.expandedPaths), true);
+    const auto active = resolve(std::move(session.activePath), false);
+    session.activePath = active &&
+        std::find(session.openPaths.begin(), session.openPaths.end(), *active) !=
+            session.openPaths.end()
+        ? *active : std::string{};
+    return session;
+}
+
 std::string WorkspaceSessionStore::key(const std::string& root, const char* field) {
     return "lithe.session." + root + "." + field;
 }
@@ -144,6 +209,10 @@ WorkspaceSession WorkspaceSessionStore::load(const std::string& workspaceRoot) c
     if (const auto value = read<std::string>(store_, key(workspaceRoot, "activePath").c_str())) {
         result.activePath = *value;
     }
+    if (const auto value = read<std::string>(
+            store_, key(workspaceRoot, "deferredShelfId").c_str())) {
+        result.deferredShelfId = *value;
+    }
     return result;
 }
 
@@ -152,11 +221,15 @@ bool WorkspaceSessionStore::save(const std::string& workspaceRoot,
                                  std::string& error) {
     if (!write(store_, key(workspaceRoot, "openPaths").c_str(), session.openPaths, error)) return false;
     if (!write(store_, key(workspaceRoot, "expandedPaths").c_str(), session.expandedPaths, error)) return false;
-    return write(store_, key(workspaceRoot, "activePath").c_str(), session.activePath, error);
+    if (!write(store_, key(workspaceRoot, "activePath").c_str(), session.activePath, error)) {
+        return false;
+    }
+    return write(store_, key(workspaceRoot, "deferredShelfId").c_str(),
+                 session.deferredShelfId, error);
 }
 
 bool WorkspaceSessionStore::clear(const std::string& workspaceRoot, std::string& error) {
-    const auto fields = {"openPaths", "expandedPaths", "activePath"};
+    const auto fields = {"openPaths", "expandedPaths", "activePath", "deferredShelfId"};
     for (const auto* field : fields) {
         const auto value = store_.readValue(key(workspaceRoot, field));
         if (!value) continue;

@@ -83,9 +83,11 @@ void WorkbenchCoordinator::openWorkspace(std::filesystem::path root,
         ++searchGeneration_;
         ++searchEverywhereGeneration_;
         ++replacementGeneration_;
+        ++markdownRenderGeneration_;
         ++gitStatusGeneration_;
         ++gitDiffGeneration_;
         ++gitShelfPatchesGeneration_;
+        ++gitShelfCleanGeneration_;
         ++gitApplyGeneration_;
         ++gitWriteGeneration_;
         ++gitCommandGeneration_;
@@ -124,6 +126,19 @@ void WorkbenchCoordinator::openWorkspace(std::filesystem::path root,
             encodeWorkspaceSnapshotRequest(WorkspaceSnapshotRequestDto{
                 rootValue, std::move(hiddenDirectoryNames), std::move(hiddenFilePatterns)}),
             OperationDomain::Workspace, workspaceEpoch, generation, call, std::move(handler));
+}
+
+void WorkbenchCoordinator::closeWorkspace() {
+    std::optional<CoreCall> call;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspacePaths_.reset();
+        ++workspaceEpoch_;
+        loading_ = false;
+        call = currentCall_;
+        currentCall_.reset();
+    }
+    if (call) workers_.cancel(*call);
 }
 
 void WorkbenchCoordinator::refreshWorkspace(ResponseHandler handler) {
@@ -304,6 +319,28 @@ void WorkbenchCoordinator::replacementPreview(ReplacementPreviewRequestDto reque
             OperationDomain::Replacement, workspaceEpoch, generation, call, std::move(handler));
 }
 
+void WorkbenchCoordinator::markdownRender(std::string source, ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++markdownRenderGeneration_;
+        call = workers_.makeCall(InteractiveTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("markdown.render", encodeMarkdownRenderRequest({std::move(source)}),
+            OperationDomain::MarkdownRender, workspaceEpoch, generation, call,
+            std::move(handler));
+}
+
 void WorkbenchCoordinator::writeFile(std::string relativePath,
                                      std::string text,
                                      ResponseHandler handler) {
@@ -416,6 +453,31 @@ void WorkbenchCoordinator::gitShelfPatches(ResponseHandler handler) {
     execute("git.shelfPatches", encodeGitShelfPatchesRequest(
                 GitShelfPatchesRequestDto{*root}),
             OperationDomain::GitShelfPatches, workspaceEpoch, generation, call,
+            std::move(handler));
+}
+
+void WorkbenchCoordinator::gitShelfClean(std::string stagedPatch,
+                                         std::string workingTreePatch,
+                                         ResponseHandler handler) {
+    const auto root = workspaceRootUtf8();
+    if (!root) {
+        if (handler) handler(coordinatorFailure(makeCoreError(
+            CoreErrorCode::WorkspaceNotFound, "No workspace is open")));
+        return;
+    }
+    CoreCall call;
+    std::uint64_t workspaceEpoch;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(stateMutex_);
+        workspaceEpoch = workspaceEpoch_;
+        generation = ++gitShelfCleanGeneration_;
+        call = workers_.makeCall(WorkspaceTimeoutMilliseconds);
+        currentCall_ = call;
+    }
+    execute("git.shelfClean", encodeGitShelfCleanRequest(GitShelfCleanRequestDto{
+                *root, std::move(stagedPatch), std::move(workingTreePatch)}),
+            OperationDomain::GitShelfClean, workspaceEpoch, generation, call,
             std::move(handler));
 }
 
@@ -1165,9 +1227,11 @@ void WorkbenchCoordinator::complete(OperationDomain domain,
             case OperationDomain::Search: return searchGeneration_;
             case OperationDomain::SearchEverywhere: return searchEverywhereGeneration_;
             case OperationDomain::Replacement: return replacementGeneration_;
+            case OperationDomain::MarkdownRender: return markdownRenderGeneration_;
             case OperationDomain::GitStatus: return gitStatusGeneration_;
             case OperationDomain::GitDiff: return gitDiffGeneration_;
             case OperationDomain::GitShelfPatches: return gitShelfPatchesGeneration_;
+            case OperationDomain::GitShelfClean: return gitShelfCleanGeneration_;
             case OperationDomain::GitApply: return gitApplyGeneration_;
             case OperationDomain::GitWrite: return gitWriteGeneration_;
             case OperationDomain::GitCommand: return gitCommandGeneration_;

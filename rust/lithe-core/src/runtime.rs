@@ -4,8 +4,8 @@ use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitShelfPatchesRequest, GitStashesRequest, GitStatusRequest,
-    GitWriteRequest,
+    GitPullPreflightRequest, GitShelfCleanRequest, GitShelfPatchesRequest, GitStashesRequest,
+    GitStatusRequest, GitWriteRequest,
 };
 use crate::history::{
     HistoryContentRequest, HistoryEntriesRequest, HistoryRecordRequest, HistoryRelocateRequest,
@@ -497,6 +497,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git Shelf patches response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitShelfClean => {
+            match serde_json::from_value::<GitShelfCleanRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Shelf clean request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::shelf_clean)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Shelf clean response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

@@ -31,14 +31,6 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Set up Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.8.2"
-          arch: win64_msvc2022_64
-          modules: qtbase
-          cache: true
-
       - name: Install NSIS
         shell: pwsh
         run: choco install nsis --no-progress --yes
@@ -61,9 +53,9 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
 
-      - name: Build Rust core and Qt workbench
+      - name: Build Rust core and WinUI workbench
         shell: pwsh
-        run: ./scripts/build-windows.ps1 -Configuration Release -BuildQt
+        run: ./scripts/build-windows.ps1 -Configuration Release -Version "${{ steps.version.outputs.version }}" -BuildWinUI
 
       - name: Import Authenticode certificate
         shell: pwsh

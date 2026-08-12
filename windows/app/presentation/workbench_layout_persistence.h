@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../adapters/ports.h"
+#include "../../adapters/ports.h"
 #include "workbench_ui_state.h"
 
 #include <string>
@@ -11,7 +11,6 @@ class WorkbenchLayoutPersistence final {
 public:
     explicit WorkbenchLayoutPersistence(KeyValueStore& store);
 
-    // The caller supplies the actual window dimensions to normalizeWorkbenchLayout after loading.
     WorkbenchLayoutState load(const std::string& workspaceRoot) const;
     bool save(const std::string& workspaceRoot,
               const WorkbenchLayoutState& state,
@@ -24,4 +23,4 @@ private:
                            const char* field);
 };
 
-}
+} // namespace lithe::windows

@@ -76,6 +76,10 @@ std::string encodeReplacementPreviewRequest(const ReplacementPreviewRequestDto& 
     });
 }
 
+std::string encodeMarkdownRenderRequest(const MarkdownRenderRequestDto& request) {
+    return encode({{"source", request.source}});
+}
+
 std::string encodeFileReadRequest(const FileReadRequestDto& request) {
     return encode({{"root", request.root}, {"path", request.path}});
 }
@@ -203,6 +207,14 @@ std::string encodeGitDiffRequest(const GitDiffRequestDto& request) {
 
 std::string encodeGitShelfPatchesRequest(const GitShelfPatchesRequestDto& request) {
     return encode({{"root", request.root}});
+}
+
+std::string encodeGitShelfCleanRequest(const GitShelfCleanRequestDto& request) {
+    return encode({
+        {"root", request.root},
+        {"stagedPatch", request.stagedPatch},
+        {"workingTreePatch", request.workingTreePatch},
+    });
 }
 
 std::string encodeGitApplyRequest(const GitApplyRequestDto& request) {

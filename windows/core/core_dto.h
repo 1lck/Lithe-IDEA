@@ -64,6 +64,7 @@ struct ReplacementMatchDto {
 struct ReplacementFileDto {
     std::string path;
     std::vector<ReplacementMatchDto> matches;
+    std::string originalText;
     std::string replacementText;
 };
 
@@ -74,6 +75,10 @@ struct ReplacementPreviewDto {
 struct FileReadDto {
     std::string path;
     std::string text;
+};
+
+struct MarkdownRenderDto {
+    std::string html;
 };
 
 struct FileWriteDto {
@@ -295,6 +300,7 @@ struct GitStatusDto {
 struct GitStashRestoreDto {
     std::string stashReference;
     std::vector<std::string> conflictedPaths;
+    bool deferred = false;
 };
 
 struct GitCommandDto {
@@ -330,6 +336,7 @@ struct GitOperationStateDto {
     std::optional<std::uint64_t> step;
     std::optional<std::uint64_t> total;
     std::vector<std::string> conflictedPaths;
+    std::optional<std::string> autoStashReference;
 };
 
 struct GitReferenceDto {
@@ -401,6 +408,7 @@ std::optional<WorkspaceSnapshotDto> decodeWorkspaceSnapshot(const CoreEnvelope& 
 std::optional<SearchResponseDto> decodeSearchResponse(const CoreEnvelope& envelope);
 std::optional<ReplacementPreviewDto> decodeReplacementPreview(const CoreEnvelope& envelope);
 std::optional<FileReadDto> decodeFileRead(const CoreEnvelope& envelope);
+std::optional<MarkdownRenderDto> decodeMarkdownRender(const CoreEnvelope& envelope);
 std::optional<FileWriteDto> decodeFileWrite(const CoreEnvelope& envelope);
 std::optional<HistoryRecordDto> decodeHistoryRecord(const CoreEnvelope& envelope);
 std::optional<HistoryEntriesDto> decodeHistoryEntries(const CoreEnvelope& envelope);

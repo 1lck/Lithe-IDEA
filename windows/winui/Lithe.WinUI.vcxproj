@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{D1E94F2A-3B16-4D83-AB42-5E94914D3C29}</ProjectGuid>
+    <ProjectName>Lithe.WinUI</ProjectName>
+    <RootNamespace>Lithe</RootNamespace>
+    <TargetName>Lithe</TargetName>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <MinimumVisualStudioVersion>17.0</MinimumVisualStudioVersion>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.17763.0</WindowsTargetPlatformMinVersion>
+    <ApplicationType>Windows Store</ApplicationType>
+    <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
+    <AppContainerApplication>false</AppContainerApplication>
+    <AppxPackage>false</AppxPackage>
+    <WindowsPackageType>None</WindowsPackageType>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <CppWinRTOptimized>true</CppWinRTOptimized>
+    <CppWinRTRootNamespaceAutoMerge>true</CppWinRTRootNamespaceAutoMerge>
+    <MinimalCoreWin>true</MinimalCoreWin>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <DesktopCompatible>true</DesktopCompatible>
+    <OutDir>$(MSBuildThisFileDirectory)..\build-winui\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\build-winui\obj\$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+            Label="LocalAppDataPlatform" />
+  </ImportGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>
+        $(MSBuildThisFileDirectory)..\core;
+        $(MSBuildThisFileDirectory)..\adapters;
+        $(MSBuildThisFileDirectory)..\app\features;
+        $(MSBuildThisFileDirectory)..\app\algorithms;
+        $(MSBuildThisFileDirectory)..\app\persistence;
+        $(MSBuildThisFileDirectory)..\app\presentation;
+        $(MSBuildThisFileDirectory)..\app\services;
+        %(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalLibraryDirectories>
+        $(MSBuildThisFileDirectory)..\build-windows\$(Configuration);
+        %(AdditionalLibraryDirectories)
+      </AdditionalLibraryDirectories>
+      <AdditionalDependencies>
+        lithe_windows_app.lib;
+        lithe_windows_adapters.lib;
+        lithe_windows_algorithms.lib;
+        lithe_windows_core.lib;
+        lithe_windows_workbench.lib;
+        $(LitheRustCoreLibrary);
+        advapi32.lib;bcrypt.lib;crypt32.lib;kernel32.lib;ntdll.lib;ole32.lib;
+        shell32.lib;userenv.lib;winhttp.lib;wintrust.lib;ws2_32.lib;
+        %(AdditionalDependencies)
+      </AdditionalDependencies>
+      <EnableCOMDATFolding Condition="'$(Configuration)'=='Release'">true</EnableCOMDATFolding>
+      <OptimizeReferences Condition="'$(Configuration)'=='Release'">true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Windows.CppWinRT" Version="3.0.260715.1" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1721" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="app.manifest" />
+    <Midl Include="Project.idl" />
+    <ApplicationDefinition Include="App.xaml" />
+    <Page Include="MainWindow.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="pch.h" />
+    <ClInclude Include="App.xaml.h">
+      <DependentUpon>App.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="MainWindow.xaml.h">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="ui_dialogs.h" />
+    <ClInclude Include="workbench_session.h" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClCompile Include="pch.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="App.xaml.cpp">
+      <DependentUpon>App.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="MainWindow.xaml.cpp">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="ui_dialogs.cpp" />
+    <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\packaging\lithe.ico">
+      <Link>Assets\lithe.ico</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

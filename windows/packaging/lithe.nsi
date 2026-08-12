@@ -19,7 +19,7 @@ Icon "${__FILEDIR__}\lithe.ico"
 
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
-!define MUI_FINISHPAGE_RUN "$INSTDIR\lithe_windows_qt.exe"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\Lithe.exe"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -32,8 +32,8 @@ Section "Lithe"
   WriteRegStr HKLM "Software\Lithe" "InstallDir" "$INSTDIR"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   CreateDirectory "$SMPROGRAMS\Lithe"
-  CreateShortCut "$SMPROGRAMS\Lithe\Lithe.lnk" "$INSTDIR\lithe_windows_qt.exe"
-  CreateShortCut "$DESKTOP\Lithe.lnk" "$INSTDIR\lithe_windows_qt.exe"
+  CreateShortCut "$SMPROGRAMS\Lithe\Lithe.lnk" "$INSTDIR\Lithe.exe"
+  CreateShortCut "$DESKTOP\Lithe.lnk" "$INSTDIR\Lithe.exe"
 SectionEnd
 
 Section "Uninstall"

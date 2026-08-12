@@ -2,7 +2,7 @@
 
 Lithe contains two independent platform applications connected by a small set
 of shared contracts. macOS is the current reference product. Windows is a
-Qt/C++ implementation in progress; it must not import Swift source or depend
+WinUI 3/C++ implementation in progress; it must not import Swift source or depend
 on macOS types.
 
 ## Top-level layout
@@ -19,7 +19,7 @@ Lithe-IDEA/
 ├── Sources/LitheRustCore/  # Swift Package C bridge declarations
 ├── Tests/LitheTests/       # Swift Testing unit tests
 ├── rust/lithe-core/        # shared Rust commands, models, and C ABI
-├── windows/                # C++ CoreClient, Win32 adapters, and Qt UI
+├── windows/                # C++ CoreClient, Win32 adapters, and WinUI 3 UI
 ├── shared/                 # contracts and cross-platform fixtures
 ├── Fixtures/               # reusable Java, Maven, Spring Boot, and Git data
 ├── scripts/                # build, packaging, fixture, and verification tools
@@ -42,9 +42,11 @@ SwiftUI/AppKit → AppModel → Application Feature Models → AppServices
 The Windows implementation has the corresponding native layers:
 
 ```text
-windows/qt/       Qt Widgets workbench and UI state
-windows/core/     C++ client for the Rust JSON C ABI
-windows/adapters/ Win32 file, watcher, process, terminal, runtime, and storage adapters
+windows/winui/             WinUI 3/C++/WinRT workbench and composition root
+windows/app/presentation/  UI-independent workbench state and layout persistence
+windows/core/              C++ client for the Rust JSON C ABI
+windows/adapters/          Win32 file, watcher, process, terminal, runtime, and storage adapters
+windows/qt/                Temporary behavior reference; not the release UI
 ```
 
 Both platforms consume `rust/lithe-core` through the same JSON envelope and
@@ -63,7 +65,7 @@ a fixture under `shared/fixtures/` before the second platform relies on it.
 | Error codes, cancellation, deadlines, and JSON envelope | PTY/ConPTY, signals, handles, and native UI |
 
 The UI must depend on feature models and shared models, not on a concrete
-adapter. Core and Services must remain free of AppKit, SwiftUI, Win32, Qt,
+adapter. Core and Services must remain free of AppKit, SwiftUI, Win32, WinUI, Qt,
 `Process`, and direct platform file APIs.
 
 ## Repository hygiene

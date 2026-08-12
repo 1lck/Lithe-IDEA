@@ -11,6 +11,17 @@
 
 namespace lithe::windows::app {
 
+namespace HistoryReason {
+inline constexpr const char* ProjectBaseline = "projectBaseline";
+inline constexpr const char* Saved = "saved";
+inline constexpr const char* ExternalChange = "externalChange";
+inline constexpr const char* BeforeRename = "beforeRename";
+inline constexpr const char* BeforeDelete = "beforeDelete";
+inline constexpr const char* BeforeBatchReplace = "beforeBatchReplace";
+inline constexpr const char* UnsavedDiscard = "unsavedDiscard";
+inline constexpr const char* Restored = "restored";
+} // namespace HistoryReason
+
 struct HistoryFeatureState {
     std::optional<HistoryEntriesDto> entries;
     std::optional<HistoryContentDto> content;

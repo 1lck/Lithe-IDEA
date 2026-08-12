@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.24)
 
 project(LitheWindows LANGUAGES CXX)
 
+set(LITHE_VERSION "0.1.11" CACHE STRING "Lithe application version")
+
 include(CTest)
 enable_testing()
 
@@ -68,12 +70,15 @@ add_library(lithe_windows_algorithms STATIC
     app/algorithms/diff_split_layout.cpp
     app/algorithms/diff_tokenizer.cpp
     app/algorithms/file_visibility_rules.cpp
+    app/algorithms/fuzzy_match.cpp
     app/algorithms/git_graph_layout.cpp
     app/algorithms/git_reference_tree.cpp
+    app/algorithms/gutter_hit_test.cpp
     app/algorithms/inline_diff.cpp
     app/algorithms/semver.cpp
     app/algorithms/syntax_highlighter.cpp
     app/algorithms/terminal_buffer.cpp
+    app/algorithms/text_diff.cpp
 )
 target_include_directories(lithe_windows_algorithms PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
@@ -89,10 +94,14 @@ add_library(lithe_windows_app STATIC
     app/features/replacement_feature.cpp
     app/features/editor_position.cpp
     app/features/search_feature.cpp
+    app/features/terminal_feature.cpp
     app/features/workspace_feature.cpp
+    app/features/workspace_write_lifecycle.cpp
     app/features/workbench_coordinator.cpp
     app/features/workspace_paths.cpp
     app/persistence/app_persistence.cpp
+    app/presentation/workbench_layout_persistence.cpp
+    app/presentation/workbench_ui_state.cpp
     app/services/maven_build_service.cpp
     app/services/java_run_service.cpp
     app/services/java_debug_service.cpp
@@ -106,9 +115,32 @@ target_include_directories(lithe_windows_app PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
     "${CMAKE_CURRENT_SOURCE_DIR}/core"
     "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/presentation"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
 )
 target_compile_features(lithe_windows_app PUBLIC cxx_std_23)
-target_link_libraries(lithe_windows_app PUBLIC lithe_windows_core)
+target_link_libraries(lithe_windows_app PUBLIC lithe_windows_core lithe_windows_algorithms)
+
+add_library(lithe_windows_workbench STATIC
+    winui/workbench_session.cpp
+)
+target_include_directories(lithe_windows_workbench PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/winui"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core"
+    "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
+)
+target_compile_features(lithe_windows_workbench PUBLIC cxx_std_23)
+target_compile_definitions(lithe_windows_workbench PRIVATE
+    LITHE_VERSION="${LITHE_VERSION}"
+)
+target_link_libraries(lithe_windows_workbench PUBLIC
+    lithe_windows_app
+    lithe_windows_adapters
+)
 
 set(LITHE_RUST_CORE_LIBRARY "" CACHE FILEPATH "Path to the Rust lithe-core static library")
 
@@ -149,29 +181,47 @@ target_include_directories(lithe_windows_app_tests PRIVATE
 target_link_libraries(lithe_windows_app_tests PRIVATE lithe_windows_app)
 add_test(NAME lithe_windows_app COMMAND lithe_windows_app_tests)
 
+add_executable(lithe_windows_terminal_feature_tests
+    tests/terminal_feature_test.cpp
+)
+target_compile_features(lithe_windows_terminal_feature_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_terminal_feature_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+)
+target_link_libraries(lithe_windows_terminal_feature_tests PRIVATE lithe_windows_app)
+add_test(NAME lithe_windows_terminal_feature COMMAND lithe_windows_terminal_feature_tests)
+
+add_executable(lithe_windows_workspace_write_lifecycle_tests
+    tests/workspace_write_lifecycle_test.cpp
+)
+target_compile_features(lithe_windows_workspace_write_lifecycle_tests PRIVATE cxx_std_23)
+target_include_directories(lithe_windows_workspace_write_lifecycle_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/features"
+    "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
+)
+target_link_libraries(lithe_windows_workspace_write_lifecycle_tests PRIVATE lithe_windows_app)
+add_test(NAME lithe_windows_workspace_write_lifecycle
+         COMMAND lithe_windows_workspace_write_lifecycle_tests)
+
 add_executable(lithe_windows_workbench_ui_state_tests
     tests/workbench_ui_state_test.cpp
-    qt/workbench_ui_state.cpp
-    qt/workbench_ui_state.h
 )
 target_compile_features(lithe_windows_workbench_ui_state_tests PRIVATE cxx_std_23)
 target_include_directories(lithe_windows_workbench_ui_state_tests PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/presentation"
 )
+target_link_libraries(lithe_windows_workbench_ui_state_tests PRIVATE lithe_windows_app)
 add_test(NAME lithe_windows_workbench_ui_state COMMAND lithe_windows_workbench_ui_state_tests)
 
 add_executable(lithe_windows_workbench_layout_persistence_tests
     tests/workbench_layout_persistence_test.cpp
-    qt/workbench_layout_persistence.cpp
-    qt/workbench_layout_persistence.h
-    qt/workbench_ui_state.cpp
-    qt/workbench_ui_state.h
 )
 target_compile_features(lithe_windows_workbench_layout_persistence_tests PRIVATE cxx_std_23)
 target_include_directories(lithe_windows_workbench_layout_persistence_tests PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/qt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/app/presentation"
     "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
 )
+target_link_libraries(lithe_windows_workbench_layout_persistence_tests PRIVATE lithe_windows_app)
 add_test(NAME lithe_windows_workbench_layout_persistence
     COMMAND lithe_windows_workbench_layout_persistence_tests)
 
@@ -318,14 +368,10 @@ if(LITHE_BUILD_QT_UI)
         qt/workbench_code_editor.h
         qt/workbench_editor_area.cpp
         qt/workbench_editor_area.h
-        qt/workbench_layout_persistence.cpp
-        qt/workbench_layout_persistence.h
         qt/workbench_sidebar.cpp
         qt/workbench_sidebar.h
         qt/workbench_tool_window.cpp
         qt/workbench_tool_window.h
-        qt/workbench_ui_state.cpp
-        qt/workbench_ui_state.h
         qt/workbench_window.cpp
         qt/workbench_window.h
         packaging/lithe.rc
@@ -342,6 +388,7 @@ if(LITHE_BUILD_QT_UI)
         "${CMAKE_CURRENT_SOURCE_DIR}/adapters"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/algorithms"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/persistence"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/presentation"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/services"
     )
     add_executable(lithe_windows_ui_translation_tests
@@ -513,6 +560,8 @@ set(LITHE_WINDOWS_TEST_TARGETS
     lithe_windows_phase0_tests
     lithe_windows_algorithms_tests
     lithe_windows_app_tests
+    lithe_windows_terminal_feature_tests
+    lithe_windows_workspace_write_lifecycle_tests
     lithe_windows_workbench_ui_state_tests
     lithe_windows_workbench_layout_persistence_tests
     lithe_windows_coordinator_tests

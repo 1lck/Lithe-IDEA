@@ -13,7 +13,7 @@
 #include "ai_commit_service.h"
 #include "app_persistence.h"
 #include "workbench_editor_area.h"
-#include "workbench_layout_persistence.h"
+#include "../app/presentation/workbench_layout_persistence.h"
 #include "workbench_sidebar.h"
 #include "workbench_tool_window.h"
 #include "project_runtime_service.h"

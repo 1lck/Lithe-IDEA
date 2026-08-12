@@ -8,10 +8,11 @@
 
 ## 使用唯一的 Windows 技术路线
 
-Windows 端以 `windows/` 下的 Qt Widgets、C++23、Win32 adapters 和 Rust core
-C ABI 实现为唯一开发基线。后续任务必须在这套分层上继续，不再并行维护 Electron、
-Node.js 或其他桌面运行时实现。共享行为继续进入 `rust/lithe-core` 和
-`shared/contracts`，Windows UI 与平台能力继续留在 `windows/`。
+Windows 端以 `windows/winui/` 下的 WinUI 3、C++/WinRT、C++23、Win32 adapters
+和 Rust core C ABI 实现为唯一开发基线。后续任务必须在这套分层上继续，不再并行
+维护 Qt、Electron、Node.js 或其他桌面运行时实现。共享行为继续进入
+`rust/lithe-core` 和 `shared/contracts`，Windows UI 与平台能力继续留在
+`windows/`。`windows/qt/` 只在迁移验证期间作为行为参考保留，不是发布入口。
 
 ## 当前集成状态（2026-08-10）
 
@@ -21,12 +22,13 @@ Node.js 或其他桌面运行时实现。共享行为继续进入 `rust/lithe-co
 - 合入 `origin/main` 的 `2d5bbf8`，消除开始并行开发前的主线落后。
 - 修复 Shelf 测试的泛型结果断言和 macOS 系统临时目录符号链接误判。
 - 确保 Project Detection 和 UI Translation 测试在 Release 构建中保留断言。
-- 将 Qt Widgets、C++23、Win32 adapters 和 Rust core ABI 冻结为唯一 Windows 路线。
+- 当时将 Qt Widgets、C++23、Win32 adapters 和 Rust core ABI 冻结为 Windows 路线；
+  2026-08-11 起表现层迁移到 WinUI 3，应用层和平台边界保持不变。
 - 通过 38 个 Rust 测试、Debug 和 Release 各 15 个跨平台 C++ 测试、58 个 Swift
   测试，以及 Windows 边界、共享契约和 Rust/Swift bridge 检查。
 
 这些结果仍不等同于真实 Windows 验证。分支改动推送后，必须通过 Windows CI 的
-MSVC、Qt、Win32 和 Rust 测试，才能把 W0 标记为远端完成。
+MSVC、WinUI 3、Win32 和 Rust 测试，才能把 W0 标记为远端完成。
 
 ### 已完成并提交
 
@@ -50,7 +52,12 @@ MSVC、Qt、Win32 和 Rust 测试，才能把 W0 标记为远端完成。
 
 本机已通过 `lithe_windows_core_dto`、`lithe_windows_coordinator` 和
 `scripts/verify-windows-boundaries.sh`。这些结果只证明平台无关的 C++ 逻辑和边界，
-不代表真实 Windows Qt 交互已经验收。
+不代表真实 Windows WinUI 3 交互已经验收。
+
+源码收口审计（2026-08-11）确认：Git revision checkout、Cherry-pick、Revert、
+Reset、分支创建/重命名/删除，以及 checkout/integration 的 pending 冲突状态都已
+接入 `WorkbenchSession`、`GitFeatureModel`、Rust core 和 WinUI 菜单。旧版清单中
+这些项目的未勾选状态属于文档滞后；最终 Windows CI 和实机验收仍按本文末尾执行。
 
 ### 接手者优先完成
 
@@ -63,23 +70,26 @@ MSVC、Qt、Win32 和 Rust 测试，才能把 W0 标记为远端完成。
    的 feature model 测试，覆盖阻塞路径、stash 恢复冲突、非零退出码和陈旧结果。
 4. 提交前同时检查 unmerged 状态和 `git.conflictMarkers`，不能只依赖 Git 的自然
    语言错误输出。
-5. 再接 Qt 入口：checkout/integration 冲突对话框、进行中操作栏、冲突筛选、
+5. 再接 WinUI 入口：checkout/integration 冲突对话框、进行中操作栏、冲突筛选、
    fetch/push/merge/rebase/cherry-pick/revert/reset 和破坏性操作确认。
 6. 完成版本化 Lithe Shelf service 与测试，再接 Changes 面板；恢复失败时必须保留
    Shelf，staged patch 和 working-tree patch 必须分开存储。
 
-阶段 2 到阶段 5 尚未开始，仍按本文顺序执行。当前已有的基础 Git checkout Qt
-入口仍直接调用 `git.write`，尚未改成安全 preflight 流程；不要把 DTO 和查询接入
-误认为用户工作流已经完成。
+阶段 1 到阶段 4 的第一阶段范围已经完成源码接入。Git checkout 已接入机器可读
+preflight 和统一 watcher 写入生命周期；WinUI 资源、对话框和静态契约检查也已
+收口。真实 Windows 构建和交互验收完成前，不把这些开发侧结果视为最终验收通过。
+
+当前明确排除：Java/Maven/JDT LS 完整体验、项目真实编译与运行、Run/Debug 和断点。
+这些能力保留在实验性服务和 UI 入口中，但不属于本轮交付标准。
 
 ## 先按开发完成标准交付
 
 一个功能只有同时满足以下条件，才能从计划中勾选：
 
-- Windows 应用层和 Qt 界面已有可到达的完整操作路径。
+- Windows 应用层和 WinUI 界面已有可到达的完整操作路径。
 - 错误、取消、工作区切换和陈旧结果都有明确处理。
 - 纯逻辑、DTO 和状态机有自动化测试；不能自动化的交互已写入测试交接说明。
-- `Windows CI` 可以构建 Rust core、C++、Qt，并通过 CTest、Rust 测试和边界检查。
+- `Windows CI` 可以构建 Rust core、C++、WinUI，并通过 CTest、Rust 测试和边界检查。
 - 没有通过修改 macOS 专属实现来绕过 Windows 缺口。
 
 开发完成不代表测试通过。以下工作由测试人员在开发交接后执行：
@@ -91,7 +101,7 @@ MSVC、Qt、Win32 和 Rust 测试，才能把 W0 标记为远端完成。
 
 ## 以当前 macOS 功能面为基线
 
-Windows 已具备独立的 C++23、Qt Widgets 和 Win32 实现，并通过 Rust C ABI 复用
+Windows 已具备独立的 C++23、WinUI 3 和 Win32 实现，并通过 Rust C ABI 复用
 共享核心。现有基础包括工作区、编辑保存、搜索、基础 Git/Diff、Local History
 读取、Java 运行与调试、JDT LS、AI 提交信息、更新服务和 Windows CI。
 
@@ -99,12 +109,12 @@ Windows 已具备独立的 C++23、Qt Widgets 和 Win32 实现，并通过 Rust 
 
 | 范围          | 当前 Windows 状态                          | 追平目标                                     |
 | ------------- | ------------------------------------------ | -------------------------------------------- |
-| Git 工作流    | 基础状态、Diff、提交、stash 和分支切换可用 | 补齐冲突、Shelve、集成操作和安全恢复状态机   |
-| 文件安全      | 干净文件可随 watcher 重读                  | 脏文件外部冲突可见、可选择并可恢复           |
-| 项目替换      | 有预览 DTO 和 feature 骨架                 | 完整预览、选择、应用、历史留档和失败汇总     |
+| Git 工作流    | 集成操作、冲突状态、stash/Shelf 和安全确认可用 | 补齐 Shelve 策略与统一 watcher 生命周期   |
+| 文件安全      | 干净重读、脏文件冲突选择和外部删除保护可用 | 补齐项目关闭与重命名场景的统一保护           |
+| 项目替换      | 预览、选择、安全应用、历史留档和失败汇总可用 | Windows 交互验收与大项目性能验证           |
 | Local History | 可读取历史内容                             | 并排比较、文件与项目级恢复、恢复前留档       |
 | Java/Maven    | 服务层和基础操作可用                       | 配置选择编辑、Profiles、模块树和统一运行入口 |
-| 终端          | 单个 ConPTY 会话                           | 多会话、Shell 选择和完整会话操作             |
+| 终端          | 多个隔离 ConPTY 会话及完整基础操作可用     | 独立 feature model、逐会话 Shell 与测试覆盖  |
 | 工作台        | 主流程可操作                               | 补齐命令、关闭保护、导航和 gutter 行为       |
 
 如果 macOS 在开发期间新增功能，先把它登记到上表或对应工作流，再决定是否进入
@@ -130,17 +140,17 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 ### 对齐共享契约
 
-- [ ] 以当前 `Sources/Lithe/`、`rust/lithe-core/src/` 和
+- [x] 以当前 `Sources/Lithe/`、`rust/lithe-core/src/` 和
       `shared/contracts/rust-core-api.md` 为准，核对 Windows 已消费的命令和字段。
 - [ ] 为 Windows 尚未消费的 Git 冲突、操作状态和 stash 恢复字段补 DTO fixture。
-- [ ] 明确哪些能力由 Rust 提供，哪些必须留在 Windows app/service 层。
-- [ ] 给每个剩余功能指定 Qt 入口、feature model、service/adapter 和测试文件。
+- [x] 明确哪些能力由 Rust 提供，哪些必须留在 Windows app/service 层。
+- [x] 给每个剩余功能指定 WinUI 入口、feature model、service/adapter 和测试文件。
 
 ### 保持计划可维护
 
 - [ ] 每个开发 PR 更新本文的对应复选框。
 - [ ] 新增共享行为时先增加 fixture 或契约测试，再修改两个平台。
-- [ ] 不记录容易过期的代码行数和完成百分比；以可执行路径和测试为准。
+- [x] 不记录容易过期的代码行数和完成百分比；以可执行路径和测试为准。
 
 完成本阶段后，开发者不需要再从旧的审计、handoff 或 DTO 快照中推断现状。
 
@@ -152,45 +162,45 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 - [x] 核对 Windows DTO 对当前 Rust Git 响应的覆盖，包括冲突路径、操作状态和
       stash 恢复冲突。
-- [ ] 在 `GitFeatureState` 中加入 pending checkout、pending integration、
+- [x] 在 `GitFeatureState` 中加入 pending checkout、pending integration、
       operation in progress、stash restore conflict、shelf 和冲突筛选状态。
-- [ ] 所有写操作通过统一的 begin/end 生命周期冻结 watcher；最外层操作结束后
+- [x] 所有写操作通过统一的 begin/end 生命周期冻结 watcher；最外层操作结束后
       只刷新一次工作区和 Git 状态。
-- [ ] 提交前阻止仍含 unmerged 状态或冲突标记的文件进入提交。
+- [x] 提交前阻止仍含 unmerged 状态或冲突标记的文件进入提交。
 
 ### 实现安全的分支和集成操作
 
-- [ ] Fetch 和 Push。
-- [ ] Merge 和 Rebase。
-- [ ] Continue、Abort 和 Skip。
-- [ ] Checkout revision、Cherry-pick、Revert 和 Reset。
-- [ ] 分支重命名、删除和更新当前分支。
-- [ ] Commit and Push。
-- [ ] 在 checkout、merge、rebase、cherry-pick 和 revert 前执行机器可读的 preflight。
-- [ ] 不通过匹配本地化 Git 文案决定控制流；使用退出码、porcelain 输出和集合运算。
+- [x] Fetch 和 Push。
+- [x] Merge 和 Rebase。
+- [x] Continue、Abort 和 Skip。
+- [x] Checkout revision、Cherry-pick、Revert 和 Reset。
+- [x] 分支重命名、删除；当前分支更新通过 Pull（ff-only/Merge/Rebase）入口完成。
+- [x] Commit and Push。
+- [x] 在 checkout、merge、rebase、cherry-pick 和 revert 前执行机器可读的 preflight。
+- [x] 不通过匹配本地化 Git 文案决定控制流；使用退出码、porcelain 输出和集合运算。
 
 ### 接入 stash 冲突和 Lithe Shelve
 
-- [ ] stash apply/pop 冲突后保留 stash 引用和冲突路径，并持续展示恢复提示。
-- [ ] 为 Windows 增加版本化 Shelf 存储，分开保存 staged patch 和 working-tree patch。
-- [ ] 支持创建、恢复和删除 Shelf；失败时保留原 Shelf。
-- [ ] 让 checkout 和集成操作可以按设置选择 Git stash 或 Lithe Shelve 保存本地改动。
-- [ ] 中途进入 merge/rebase 状态时，延迟恢复本地改动，直到 continue 或 abort 完成。
+- [x] stash apply/pop 冲突后保留 stash 引用和冲突路径，并持续展示恢复提示。
+- [x] 为 Windows 增加版本化 Shelf 存储，分开保存 staged patch 和 working-tree patch。
+- [x] 支持创建、恢复和删除 Shelf；失败时保留原 Shelf。
+- [x] 让集成操作可以选择 Git stash 或 Lithe Shelf 保存本地改动，并持久化延迟恢复状态。
+- [x] 中途进入 merge/rebase 状态时，延迟恢复本地改动，直到 continue 或 abort 完成。
 
-### 完成 Qt 入口
+### 完成 WinUI 入口
 
-- [ ] 增加 checkout 和 integration 冲突对话框。
-- [ ] 支持打开冲突文件 Diff、筛选冲突文件、单文件回滚和安全重试。
-- [ ] 在 Changes 面板展示 Git stashes 和 Lithe shelves，并提供对应操作。
-- [ ] 在分支和提交入口补齐 merge、rebase、push、cherry-pick、revert 和 reset 命令。
-- [ ] 对破坏性操作提供确认，并在结果不确定时保留用户数据。
+- [x] 增加 checkout 和 integration 冲突对话框。
+- [x] 支持打开冲突文件 Diff、筛选阻塞文件、单文件回滚和经过 preflight 的安全重试。
+- [x] 在 Changes 面板展示 Git stashes 和 Lithe shelves，并提供对应操作。
+- [x] 在分支和提交入口补齐 merge、rebase、push、cherry-pick、revert 和 reset 命令。
+- [x] 对破坏性操作提供确认，并在结果不确定时保留用户数据。
 
 ### 覆盖开发侧测试
 
 - [ ] DTO 测试覆盖新增和缺失字段、`null` 与键缺失的差异。
 - [ ] feature model 测试覆盖 preflight、冲突、恢复、continue/abort 和陈旧结果。
 - [ ] Shelf 测试覆盖 staged/unstaged 分离、恢复失败保留和仓库隔离。
-- [ ] watcher 冻结测试覆盖嵌套 Git 操作和一次性刷新。
+- [x] watcher 冻结测试覆盖嵌套 Git 操作和一次性刷新。
 
 ## 阶段 2：补齐文件安全、项目替换和 Local History
 
@@ -198,28 +208,28 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 ### 处理外部文件冲突
 
-- [ ] 为文档状态记录已保存内容或磁盘版本标识，以及 `hasExternalConflict`。
-- [ ] watcher 检测到干净文件变化时自动重读。
-- [ ] watcher 检测到脏文件变化时保留编辑器内容，并显示冲突状态。
-- [ ] 提供 **保留编辑器版本** 和 **加载磁盘版本** 两条明确操作。
-- [ ] 删除、重命名和项目关闭不能绕过未保存内容保护。
+- [x] 为文档状态记录已保存内容或磁盘版本标识，以及 `hasExternalConflict`。
+- [x] watcher 检测到干净文件变化时自动重读。
+- [x] watcher 检测到脏文件变化时保留编辑器内容，并显示冲突状态。
+- [x] 提供 **保留编辑器版本** 和 **加载磁盘版本** 两条明确操作。
+- [x] 删除、重命名和项目关闭不能绕过未保存内容保护。
 
 ### 完成项目级替换
 
-- [ ] 在 Qt 中增加 Replace in Project 入口和对话框。
-- [ ] 支持大小写、整词、正则、Preserve Case 和文件掩码。
-- [ ] 展示按文件分组的预览，并允许选择全部、部分或取消文件。
-- [ ] 应用前为每个目标文件写 Local History。
-- [ ] 逐文件应用并汇总成功、失败和跳过结果；部分失败不能回报为全部成功。
-- [ ] 应用后刷新打开文档、工作区索引和 Git 状态。
+- [x] 在 WinUI 中增加 Replace in Project 入口和对话框。
+- [x] 支持大小写、整词、正则、Preserve Case 和文件掩码。
+- [x] 展示按文件分组的预览，并允许选择全部、部分或取消文件。
+- [x] 应用前为每个目标文件写 Local History。
+- [x] 逐文件应用并汇总成功、失败和跳过结果；部分失败不能回报为全部成功。
+- [x] 应用后刷新打开文档、工作区索引和 Git 状态。
 
 ### 完成 Local History 恢复
 
-- [ ] 文件级历史显示当前内容与历史内容的并排 Diff。
-- [ ] 项目级历史支持按文件浏览、选择版本和打开 Diff。
-- [ ] 恢复前自动记录当前版本，再写入选中的历史内容。
-- [ ] 恢复成功后同步编辑器、文档状态、watcher 和 Git 状态。
-- [ ] 重命名和删除前记录历史，并保持 history relocate 行为一致。
+- [x] 文件级历史显示当前内容与历史内容的并排 Diff。
+- [x] 项目级历史支持按文件浏览、选择版本和打开 Diff。
+- [x] 恢复前自动记录当前版本，再写入选中的历史内容。
+- [x] 恢复成功后同步编辑器、文档状态、watcher 和 Git 状态。
+- [x] 重命名和删除前记录历史，并保持 history relocate 行为一致。
 
 ### 覆盖开发侧测试
 
@@ -269,26 +279,28 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 ### 将终端改成多会话
 
-- [ ] 用 terminal feature model 管理会话集合和当前会话 ID。
-- [ ] 每个会话独立持有 ConPTY transport、缓冲区、标题、Shell 和退出状态。
-- [ ] 增加新建、选择、关闭和切换终端标签。
-- [ ] 支持选择 Shell、Clear、Interrupt 和 Restart。
-- [ ] 关闭项目和退出应用时停止全部终端进程树。
-- [ ] 会话销毁后不能再向已释放的 Qt 控件发送回调。
+- [x] 用 terminal feature model 管理会话集合和当前会话 ID。
+- [x] 每个会话独立持有 ConPTY transport、缓冲区、标题、Shell 和退出状态。
+- [x] 增加新建、选择、关闭和切换终端标签。
+- [x] 支持选择 Shell、Clear、Interrupt 和 Restart。
+- [x] 关闭项目和退出应用时停止全部终端进程树。
+- [x] 会话销毁后不能再向已释放的 WinUI 控件发送回调。
 
 ### 补齐工作台入口
 
-- [ ] 关闭脏编辑器标签时提供保存、放弃和取消。
-- [ ] 命令面板补齐关闭项目、项目替换、Local History、工具窗口切换和文件管理器定位。
-- [ ] 命令搜索使用与 Search Everywhere 一致的模糊子序列规则。
-- [ ] 完成行号、断点、blame、code vision、inlay 和导航 gutter 的点击行为。
-- [ ] 保存并恢复编辑器标签、活动文件、展开目录、工具窗口和分隔条布局。
-- [ ] 将新增对话框和复杂控件拆出独立 Qt 类型，避免继续扩大 `workbench_window.cpp`。
+- [x] 关闭脏编辑器标签时提供保存、放弃和取消。
+- [x] 命令面板补齐关闭项目、项目替换、Local History、工具窗口切换和文件管理器定位。
+- [x] 命令搜索使用与 Search Everywhere 一致的模糊子序列规则。
+- [x] 完成行号、断点、blame、code vision、inlay 和导航 gutter 的点击行为。
+- [x] 保存并恢复编辑器标签、活动文件、展开目录、工具窗口和分隔条布局。
+- [x] 将通用确认/输入对话框拆出 `windows/winui/ui_dialogs.*`，并由 Git
+      操作复用统一尺寸、换行、默认按钮和破坏性操作策略；后续大型工具窗口
+      仍以最终 Windows 视觉检查结果决定是否继续拆分。
 
 ### 覆盖开发侧测试
 
-- [ ] terminal feature 测试覆盖创建、切换、关闭、重启和工作区关闭。
-- [ ] workspace session 测试覆盖无效路径过滤和布局恢复。
+- [x] terminal feature 测试覆盖创建、切换、关闭、重启和工作区关闭。
+- [x] workspace session 测试覆盖无效路径过滤、项目隔离和布局恢复。
 - [ ] 命令注册表测试保证 macOS 基线动作在 Windows 有对应入口或明确的平台例外。
 
 ## 阶段 5：完成开发收口并交给测试人员
@@ -297,24 +309,26 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 ### 清理实现
 
-- [ ] 删除不再使用的旧状态、重复请求拼装和临时 UI 路径。
-- [ ] 确认依赖方向仍为 `qt -> app -> adapters/core`。
-- [ ] 确认 `app/algorithms` 和 `app/services` 不包含 Qt 或 Win32 头文件。
-- [ ] 更新 `windows/README.md` 和本文中的最终开发状态。
+- [x] 删除不再使用的旧状态、重复请求拼装和临时 UI 路径；旧 Qt 状态已移到
+      `app/presentation`，Qt 工作台仅保留为迁移期行为参考。
+- [x] 确认依赖方向仍为 `winui -> app -> adapters/core`。
+- [x] 确认 `app/algorithms` 和 `app/services` 不包含 WinUI、Qt 或 Win32 头文件。
+- [x] 更新 `windows/README.md`、本文和 UI parity contract 中的最终开发状态。
 
 ### 固化自动化检查
 
-- [ ] Windows CI 构建 Rust core、C++ 和 Qt。
+- [ ] Windows CI 构建 Rust core、C++ 和 WinUI。
 - [ ] CTest、Rust 测试和 Windows 边界脚本全部通过。
 - [ ] 新增 DTO 和共享行为有 fixture 或契约测试。
-- [ ] Git diff 没有格式错误，生成目录和安装包没有进入仓库。
+- [x] Git diff 没有格式错误，生成目录和安装包没有进入仓库。
 
 ### 准备测试交接
 
-- [ ] 为每个功能列出入口、准备条件、预期状态和错误路径。
-- [ ] 标出需要真实 Git 仓库、JDK、Maven、JDT LS、ConPTY 或网络的场景。
-- [ ] 列出开发阶段未能自动验证的 Win32 和 Qt 行为。
-- [ ] 记录已知限制，但不把未测试行为标记为通过。
+- [x] 为每个功能列出入口、准备条件、预期状态和错误路径，见
+      `docs/architecture/windows-testing-handoff.md`。
+- [x] 标出需要真实 Git 仓库、JDK、Maven、JDT LS、ConPTY 或网络的场景。
+- [x] 列出开发阶段未能自动验证的 Win32 和 WinUI 行为。
+- [x] 记录已知限制，但不把未测试行为标记为通过。
 
 ## 保持这些架构约束
 
@@ -325,7 +339,7 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 - `operationId` 在调用点生成；交互请求、扫描和历史请求使用明确超时。
 - coordinator 同时使用 workspace epoch 和操作域 generation 丢弃陈旧结果，并清理
   loading 状态。
-- Qt 不直接 include `core_client.h`，也不拼 Core JSON。请求编码和响应解码留在
+- WinUI 不直接 include `core_client.h`，也不拼 Core JSON。请求编码和响应解码留在
   core/app 边界。
 - 文件系统路径使用 `std::filesystem::path`；核心相对路径和 Git ref 使用不同类型，
   即使两者都采用 `/` 也不能混用。
@@ -345,7 +359,7 @@ Git 与文件安全可以由两名开发者并行。Java/Maven 会复用设置�
 
 1. 契约 fixture、Windows DTO 和基础状态类型。
 2. Git preflight、操作状态机和 watcher freeze。
-3. stash 冲突、Shelf service 和 Git Qt 入口。
+3. stash 冲突、Shelf service 和 Git WinUI 入口。
 4. 外部文件冲突和关闭保护。
 5. 项目替换和 Local History 恢复。
 6. 运行配置、Maven 树和统一 Run/Debug。

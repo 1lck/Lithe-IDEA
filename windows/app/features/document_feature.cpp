@@ -13,6 +13,8 @@ void DocumentFeatureModel::open(std::string relativePath, StateHandler handler) 
         state_.isLoading = true;
         state_.isSaving = false;
         state_.isDirty = false;
+        state_.hasExternalConflict = false;
+        state_.diskFingerprint.reset();
         state_.error.reset();
     }
     coordinator_.readFile(std::move(relativePath), [this, handler = std::move(handler)](
@@ -24,7 +26,8 @@ void DocumentFeatureModel::open(std::string relativePath, StateHandler handler) 
 void DocumentFeatureModel::setText(std::string text) {
     std::lock_guard lock(mutex_);
     state_.text = std::move(text);
-    state_.isDirty = true;
+    state_.isDirty = !state_.diskFingerprint ||
+        fingerprint(state_.text) != *state_.diskFingerprint;
     state_.error.reset();
 }
 
@@ -38,10 +41,32 @@ void DocumentFeatureModel::save(StateHandler handler) {
         state_.isSaving = true;
         state_.error.reset();
     }
-    coordinator_.writeFile(std::move(path), std::move(text), [this, handler = std::move(handler)](
-        WorkspaceOperationResult result) mutable {
-        applyWrite(std::move(result), std::move(handler));
+    coordinator_.writeFile(std::move(path), text,
+        [this, savedText = std::move(text), handler = std::move(handler)](
+            WorkspaceOperationResult result) mutable {
+        applyWrite(std::move(result), std::move(savedText), std::move(handler));
     });
+}
+
+void DocumentFeatureModel::markExternalConflict(
+    std::string relativePath, StateHandler handler) {
+    bool changed = false;
+    {
+        std::lock_guard lock(mutex_);
+        if (state_.relativePath == relativePath && state_.isDirty) {
+            state_.hasExternalConflict = true;
+            changed = true;
+        }
+    }
+    if (changed && handler) handler(state());
+}
+
+void DocumentFeatureModel::keepEditorVersion(StateHandler handler) {
+    {
+        std::lock_guard lock(mutex_);
+        state_.hasExternalConflict = false;
+    }
+    if (handler) handler(state());
 }
 
 void DocumentFeatureModel::resetForWorkspace() {
@@ -65,9 +90,11 @@ void DocumentFeatureModel::applyRead(WorkspaceOperationResult result, StateHandl
                 // buffer. Preserve those local changes instead of replacing
                 // them with the older disk snapshot.
                 if (!state_.isDirty && !state_.isSaving) {
-                    state_.text = std::move(file->text);
-                    state_.isDirty = false;
+                    state_.text = file->text;
                 }
+                state_.diskFingerprint = fingerprint(file->text);
+                state_.isDirty = fingerprint(state_.text) != *state_.diskFingerprint;
+                state_.hasExternalConflict = false;
                 state_.error.reset();
             } else {
                 state_.error = CoreError{
@@ -82,13 +109,17 @@ void DocumentFeatureModel::applyRead(WorkspaceOperationResult result, StateHandl
     if (handler) handler(state());
 }
 
-void DocumentFeatureModel::applyWrite(WorkspaceOperationResult result, StateHandler handler) {
+void DocumentFeatureModel::applyWrite(WorkspaceOperationResult result,
+                                      std::string savedText,
+                                      StateHandler handler) {
     if (result.stale) return;
     {
         std::lock_guard lock(mutex_);
         state_.isSaving = false;
         if (result.envelope && result.envelope->ok && decodeFileWrite(*result.envelope)) {
-            state_.isDirty = false;
+            state_.diskFingerprint = fingerprint(savedText);
+            state_.isDirty = fingerprint(state_.text) != *state_.diskFingerprint;
+            state_.hasExternalConflict = false;
             state_.error.reset();
         } else if (const auto error = result.coreError()) {
             state_.error = *error;
@@ -97,6 +128,15 @@ void DocumentFeatureModel::applyWrite(WorkspaceOperationResult result, StateHand
         }
     }
     if (handler) handler(state());
+}
+
+std::uint64_t DocumentFeatureModel::fingerprint(std::string_view text) {
+    std::uint64_t value = 14695981039346656037ULL;
+    for (const unsigned char byte : text) {
+        value ^= byte;
+        value *= 1099511628211ULL;
+    }
+    return value;
 }
 
 } // namespace lithe::windows::app

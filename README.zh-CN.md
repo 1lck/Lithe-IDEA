@@ -141,13 +141,13 @@ brew install jdtls
 
 ### Windows
 
-Windows 版仍在开发中。构建 Qt 工作台需要 Windows 10/11、Visual Studio 2022/MSVC、CMake、Rust stable，以及适用于 MSVC 2022 64-bit 的 Qt 6。Java 功能和安装包打包需要相应的 JDK、Maven 或 NSIS 工具。
+Windows 版仍在开发中。构建 WinUI 3 工作台需要 Windows 10/11、安装了 WinUI/C++ 工作负载的 Visual Studio 2022/MSVC、CMake 和 Rust stable。Java 功能和安装包打包需要相应的 JDK、Maven 或 NSIS 工具。
 
 在 **PowerShell** 中，从仓库根目录执行：
 
 ```powershell
-.\scripts\build-windows.ps1 -Configuration Release -BuildQt
-.\windows\build-windows\Release\lithe_windows_qt.exe
+.\scripts\build-windows.ps1 -Configuration Release -BuildWinUI
+.\windows\build-winui\x64\Release\Lithe.exe
 ```
 
 工具链范围和 Windows 专属验证见
@@ -168,20 +168,20 @@ flowchart TB
     MAPP --> CORE
 
     subgraph WINDOWS["Windows · 开发中"]
-        WUI["Qt Widgets Workbench<br/>已有基础骨架"] --> WAPP["C++ 应用工作流<br/>待补齐"]
-        WAPP --> WCLIENT["C++ CoreClient<br/>已有基础实现"]
-        WAPP --> WADAPTERS["Win32 Adapters<br/>已有基础实现"]
+        WUI["WinUI 3 / C++/WinRT 工作台<br/>迁移实现完成"] --> WAPP["C++ 应用工作流"]
+        WAPP --> WCLIENT["C++ CoreClient"]
+        WAPP --> WADAPTERS["Win32 Adapters"]
         WADAPTERS --> WNATIVE["Win32 · ConPTY · 文件监听"]
         WAPP -.-> WPARITY["完整功能对齐<br/>待开发"]
-        WCLIENT -.-> WPACKAGE["Rust 库集成与打包<br/>待开发"]
-        WNATIVE -.-> WBUILD["Windows 实机编译与验证<br/>待完成"]
-        WUI -.-> WSHIP["安装器 · 更新能力<br/>待开发"]
+        WCLIENT --> WPACKAGE["Rust 库集成与打包"]
+        WNATIVE -.-> WBUILD["Windows 实机交互验证<br/>待完成"]
+        WUI --> WSHIP["NSIS 安装器 · 应用内更新"]
     end
 
     WCLIENT --> CORE
 
     classDef planned fill:#fff3cd,stroke:#d97706,stroke-width:2px,stroke-dasharray:6 4,color:#111827
-    class WAPP,WPARITY,WPACKAGE,WBUILD,WSHIP planned
+    class WPARITY,WBUILD planned
 ```
 
 ## 如何开发

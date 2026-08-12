@@ -84,6 +84,7 @@ stable error code and a user-facing message:
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
 | `git.shelfPatches` | Collect deterministic staged and working-tree patches for Shelf creation |
+| `git.shelfClean` | Clean only changes that still exactly match saved Shelf patches |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return deterministic refs, commits, parent hashes, decorations, and pagination state |
 | `git.commit` | Return one structured commit by revision |
@@ -131,10 +132,13 @@ even when Git exits non-zero. Invalid arguments use the standard
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and
 `destination` as its target path. `force` permits a checkout that would
 overwrite local edits, while `autoStash` preserves and restores local changes
-around checkout. Operation actions resolve the operation currently reported by
-Git instead of trusting a client-supplied operation kind. The command response
-may contain a structured `stashRestore` object with `stashReference` and
-`conflictedPaths` when a stash restore keeps its entry because conflicts remain.
+around checkout or an integration operation. If merge, rebase, cherry-pick, or
+revert pauses, the command returns `stashRestore.deferred: true`; callers pass
+that `stashReference` back with `autoStash` on continue, abort, or skip, and the
+core restores it only after Git reports that the operation has ended. A restore
+conflict returns `deferred: false` and structured `conflictedPaths` while keeping
+the stash entry. Operation actions resolve the operation currently reported by
+Git instead of trusting a client-supplied operation kind.
 
 The Git safety commands expose structured state so clients do not parse
 localized process output:
@@ -147,8 +151,10 @@ localized process output:
   `merge` or `rebase`, returning `blockingPaths` and `blocksEntirely`.
 - `git.conflictMarkers` accepts `root`, returning `paths`.
 - `git.operationState` accepts `root`, returning `kind`, nullable `reference`,
-  nullable `step`/`total`, and `conflictedPaths`. An empty `kind` means no
-  sequential Git operation is in progress.
+  nullable `step`/`total`, `conflictedPaths`, and optional
+  `autoStashReference`. The latter lets clients reconstruct deferred restore
+  state after restart. An empty `kind` means no sequential Git operation is in
+  progress.
 
 `git.diff` accepts `root`, `pathspecs`, optional `reference` or `commit`,
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],
@@ -164,6 +170,11 @@ clients group `rows` by `hunkId` instead.
 each staged, tracked worktree, and untracked path with the appropriate diff mode;
 clients do not concatenate pathspecs or invoke Git directly. Patch ordering follows
 the stable status path ordering, and an empty patch means that side has no changes.
+`git.shelfClean` accepts `root`, `stagedPatch`, and `workingTreePatch`. It recomputes
+both patches and refuses to modify the repository if either differs, preventing
+changes made after Shelf creation from being discarded. On a match it clears the
+captured staged, tracked worktree, and untracked paths and returns a Git command
+response.
 `git.apply` accepts `root`, `patch`, and `mode`; supported modes are `stage`,
 `unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
 `worktreeCheck`. The two `*Check` modes only test whether the reverse patch

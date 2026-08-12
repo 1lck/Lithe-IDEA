@@ -54,6 +54,7 @@ pub struct GitCommandResponse {
 pub struct GitStashRestoreResponse {
     pub stash_reference: String,
     pub conflicted_paths: Vec<String>,
+    pub deferred: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +115,14 @@ pub struct GitDiffRequest {
 #[serde(rename_all = "camelCase")]
 pub struct GitShelfPatchesRequest {
     pub root: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitShelfCleanRequest {
+    pub root: String,
+    pub staged_patch: String,
+    pub working_tree_patch: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -218,6 +227,8 @@ pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreErr
 pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
     let mut arguments: Vec<String>;
+    let operation = request.operation.clone();
+    let auto_stash = request.auto_stash;
 
     match request.operation.as_str() {
         "stage" => {
@@ -284,6 +295,14 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
         "stageAll" => arguments = vec!["add".into(), "--all".into()],
         "commit" => {
             let message = required_text(request.message.as_deref(), "commit message")?;
+            let blocking_paths = commit_blocking_paths(&root)?;
+            if !blocking_paths.is_empty() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Commit blocked by unresolved conflicts",
+                )
+                .with_details(blocking_paths.join("\n")));
+            }
             arguments = vec!["commit".into()];
             if request.amend {
                 arguments.push("--amend".into());
@@ -417,7 +436,7 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
             }
         }
         "operationContinue" | "operationAbort" | "operationSkip" => {
-            return resolve_operation(&root, &request.operation)
+            return resolve_operation(&root, &request)
         }
         "stashApply" | "stashDrop" => {
             let reference = validated_stash_reference(request.reference.as_deref())?;
@@ -441,6 +460,14 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
         }
     }
 
+    if auto_stash
+        && matches!(
+            operation.as_str(),
+            "merge" | "rebase" | "cherryPick" | "revert"
+        )
+    {
+        return integrate_with_auto_stash(&root, &operation, &arguments);
+    }
     execute_git(&root, &arguments, None)
 }
 
@@ -645,6 +672,32 @@ pub fn shelf_patches(
         staged_patch,
         working_tree_patch,
     })
+}
+
+pub fn shelf_clean(request: GitShelfCleanRequest) -> Result<GitCommandResponse, CoreError> {
+    let current = shelf_patches(GitShelfPatchesRequest {
+        root: request.root.clone(),
+    })?;
+    if current.staged_patch != request.staged_patch
+        || current.working_tree_patch != request.working_tree_patch
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Working tree changed after the Shelf was created",
+        ));
+    }
+
+    let current_status = status(GitStatusRequest {
+        root: request.root.clone(),
+    })?;
+    let mut paths = current_status
+        .changes
+        .into_iter()
+        .map(|change| change.path)
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    discard_all(&validate_root(&request.root)?, &paths)
 }
 
 fn collect_shelf_patch<I>(root: &str, paths: I) -> Result<String, CoreError>
@@ -1341,7 +1394,7 @@ pub fn operation_state(
     }
 
     let status = command(GitCommandRequest {
-        root,
+        root: root.clone(),
         arguments: vec!["status".to_string(), "--porcelain".to_string()],
         input: None,
     })?;
@@ -1362,12 +1415,18 @@ pub fn operation_state(
     conflicted_paths.sort();
     conflicted_paths.dedup();
 
+    let auto_stash_reference = if kind.is_empty() {
+        None
+    } else {
+        find_stash_reference(&root, AUTO_INTEGRATION_STASH_MESSAGE)?
+    };
     Ok(GitOperationStateResponse {
         kind,
         reference,
         step,
         total,
         conflicted_paths,
+        auto_stash_reference,
     })
 }
 
@@ -1376,7 +1435,10 @@ pub fn operation_state(
 /// The subcommand depends on what Git left behind, so the state is read first
 /// rather than trusted from the caller: the UI's view of it may be a refresh
 /// behind, and issuing `rebase --continue` during a merge would just fail.
-fn resolve_operation(root: &str, operation: &str) -> Result<GitCommandResponse, CoreError> {
+fn resolve_operation(
+    root: &str,
+    request: &GitWriteRequest,
+) -> Result<GitCommandResponse, CoreError> {
     let state = operation_state(GitOperationStateRequest {
         root: root.to_string(),
     })?;
@@ -1400,7 +1462,7 @@ fn resolve_operation(root: &str, operation: &str) -> Result<GitCommandResponse, 
         }
     };
 
-    let action = match operation {
+    let action = match request.operation.as_str() {
         "operationContinue" => "--continue",
         "operationAbort" => "--abort",
         _ => "--skip",
@@ -1434,12 +1496,53 @@ fn resolve_operation(root: &str, operation: &str) -> Result<GitCommandResponse, 
         action.to_string(),
     ];
 
-    execute_git(root, &arguments, None)
+    let mut result = execute_git(root, &arguments, None)?;
+    if !request.auto_stash {
+        return Ok(result);
+    }
+    let stash_reference = validated_stash_reference(request.reference.as_deref())?;
+    let next_state = operation_state(GitOperationStateRequest {
+        root: root.to_string(),
+    })?;
+    if !next_state.kind.is_empty() {
+        result.stash_restore = Some(GitStashRestoreResponse {
+            stash_reference,
+            conflicted_paths: next_state.conflicted_paths,
+            deferred: true,
+        });
+        return Ok(result);
+    }
+    let restored = pop_stash(root, &stash_reference)?;
+    if result.exit_code != 0 && restored.exit_code == 0 {
+        return Ok(result);
+    }
+    Ok(restored)
 }
 
 /// The porcelain status pairs Git uses for an unresolved merge conflict.
 fn is_conflicted_status(code: &str) -> bool {
     matches!(code, "UU" | "AA" | "DD" | "DU" | "UD" | "AU" | "UA")
+}
+
+fn commit_blocking_paths(root: &str) -> Result<Vec<String>, CoreError> {
+    let current = status(GitStatusRequest {
+        root: root.to_string(),
+    })?;
+    let mut paths = current
+        .changes
+        .into_iter()
+        .filter(|change| is_conflicted_status(&change.status))
+        .map(|change| change.path)
+        .collect::<Vec<_>>();
+    paths.extend(
+        conflict_marker_paths(GitConflictMarkerRequest {
+            root: root.to_string(),
+        })?
+        .paths,
+    );
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
 }
 
 pub fn stashes(request: GitStashesRequest) -> Result<GitStashesResponse, CoreError> {
@@ -1707,10 +1810,11 @@ fn pop_stash(root: &str, reference: &str) -> Result<GitCommandResponse, CoreErro
     )?;
     let conflicted_paths = conflicted_paths(root)?;
     let entry_was_kept = stash_reference_exists(root, reference)?;
-    if entry_was_kept && (!conflicted_paths.is_empty() || result.exit_code == 0) {
+    if entry_was_kept {
         result.stash_restore = Some(GitStashRestoreResponse {
             stash_reference: reference.to_string(),
             conflicted_paths,
+            deferred: false,
         });
     }
     Ok(result)
@@ -1728,6 +1832,7 @@ fn apply_stash(root: &str, reference: &str) -> Result<GitCommandResponse, CoreEr
         result.stash_restore = Some(GitStashRestoreResponse {
             stash_reference: reference.to_string(),
             conflicted_paths,
+            deferred: false,
         });
     }
     Ok(result)
@@ -1852,6 +1957,56 @@ fn push(root: &str, reference: Option<&str>) -> Result<GitCommandResponse, CoreE
     }
 }
 
+fn integrate_with_auto_stash(
+    root: &str,
+    operation: &str,
+    arguments: &[String],
+) -> Result<GitCommandResponse, CoreError> {
+    let stash = execute_git(
+        root,
+        &[
+            "stash".into(),
+            "push".into(),
+            "--include-untracked".into(),
+            "--message".into(),
+            AUTO_INTEGRATION_STASH_MESSAGE.into(),
+        ],
+        None,
+    )?;
+    if stash.exit_code != 0 {
+        return Ok(stash);
+    }
+    let Some(stash_reference) = find_stash_reference(root, AUTO_INTEGRATION_STASH_MESSAGE)? else {
+        return Ok(failed_git_result(
+            "Git integration created a stash but could not locate it for restore.",
+        ));
+    };
+
+    let mut integrated = execute_git(root, arguments, None)?;
+    let state = operation_state(GitOperationStateRequest {
+        root: root.to_string(),
+    })?;
+    if !state.kind.is_empty() {
+        integrated.stash_restore = Some(GitStashRestoreResponse {
+            stash_reference,
+            conflicted_paths: state.conflicted_paths,
+            deferred: true,
+        });
+        if !integrated.output.contains("remains safely stashed") {
+            integrated.output.push_str(&format!(
+                "\nLocal changes remain safely stashed while Git {operation} is in progress."
+            ));
+        }
+        return Ok(integrated);
+    }
+
+    let restored = pop_stash(root, &stash_reference)?;
+    if integrated.exit_code != 0 && restored.exit_code == 0 {
+        return Ok(integrated);
+    }
+    Ok(restored)
+}
+
 /// Checks out `request.reference`, honouring the conflict-resolution strategy the user
 /// picked in the checkout dialog.
 ///
@@ -1906,11 +2061,12 @@ fn checkout_with_auto_stash(
     )?;
     let conflicted_paths = conflicted_paths(root)?;
     let entry_was_kept = stash_reference_exists(root, &stash_reference)?;
-    if entry_was_kept && (restored.exit_code == 0 || !conflicted_paths.is_empty()) {
+    if entry_was_kept {
         restored.exit_code = 1;
         restored.stash_restore = Some(GitStashRestoreResponse {
             stash_reference,
             conflicted_paths,
+            deferred: false,
         });
         if !restored.output.contains("kept in the stash") {
             restored.output.push_str(
@@ -2118,6 +2274,7 @@ struct DiffHunkRecord {
 /// Marker on stashes created by smart checkout, so the restore step can tell whether
 /// `git stash pop` consumed its entry or kept it after a conflict.
 const AUTO_STASH_MESSAGE: &str = "lithe: auto-stash before checkout";
+const AUTO_INTEGRATION_STASH_MESSAGE: &str = "lithe: auto-stash before integration";
 
 /// Largest `removed.len() * added.len()` product we will align. Beyond this the
 /// quadratic table costs more than the pairing is worth, so we fall back to

@@ -121,5 +121,28 @@ int main() {
     assert(narrow.editorTopHeight <= 100);
     assert(!narrow.bottomVisible);
 
+    GitStatusDto gitStatus;
+    gitStatus.changes = {
+        {"src/Working.java", std::nullopt, " M", false, true, false},
+        {"src/Staged.java", std::nullopt, "M ", true, false, false},
+        {"src/New.java", std::nullopt, "??", false, true, true},
+    };
+    const auto allChanges = buildGitChangeRows(
+        gitStatus, {"src/Working.java", "src/OnlyMarker.java"}, false);
+    assert(allChanges.size() == 4);
+    assert(allChanges[0].path == "src/Working.java" && allChanges[0].blocking &&
+           allChanges[0].label == "!  BLOCKED  src/Working.java");
+    assert(allChanges[1].label == "S  M   src/Staged.java");
+    assert(allChanges[2].label == "U  ??  src/New.java");
+    assert(allChanges[3].path == "src/OnlyMarker.java" && allChanges[3].blocking);
+
+    const auto blockedChanges = buildGitChangeRows(
+        gitStatus,
+        {"src/OnlyMarker.java", "src/Working.java", "src/Working.java"},
+        true);
+    assert(blockedChanges.size() == 2);
+    assert(blockedChanges[0].path == "src/Working.java");
+    assert(blockedChanges[1].path == "src/OnlyMarker.java");
+
     return 0;
 }

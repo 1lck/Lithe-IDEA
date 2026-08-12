@@ -4,13 +4,17 @@
 #include "diff_split_layout.h"
 #include "diff_tokenizer.h"
 #include "file_visibility_rules.h"
+#include "fuzzy_match.h"
 #include "git_graph_layout.h"
 #include "git_reference_tree.h"
+#include "gutter_hit_test.h"
 #include "inline_diff.h"
 #include "semver.h"
 #include "syntax_highlighter.h"
 #include "terminal_buffer.h"
+#include "text_diff.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <optional>
@@ -61,6 +65,51 @@ void testDiffPairing() {
     const auto fallback = DiffPairing::pairs(largeRemoved, largeAdded);
     assert(fallback.size() == 65);
     assert(fallback.front().first == 0 && fallback.front().second == 0);
+}
+
+void testTextDiff() {
+    const auto inserted = diffTextLines({"one", "two", "three"},
+                                        {"one", "inserted", "two", "three"});
+    assert(inserted.size() == 4);
+    assert(inserted[0].kind == DiffRowKind::Context);
+    assert(inserted[1].kind == DiffRowKind::Addition && !inserted[1].oldLine &&
+           inserted[1].newLine == 2 && inserted[1].right == "inserted");
+    assert(inserted[2].kind == DiffRowKind::Context && inserted[2].oldLine == 2 &&
+           inserted[2].newLine == 3);
+    assert(inserted[3].kind == DiffRowKind::Context);
+
+    const auto removed = diffTextLines({"one", "removed", "two"}, {"one", "two"});
+    assert(removed.size() == 3);
+    assert(removed[1].kind == DiffRowKind::Removal && removed[1].oldLine == 2 &&
+           !removed[1].newLine);
+    assert(removed[2].kind == DiffRowKind::Context && removed[2].oldLine == 3 &&
+           removed[2].newLine == 2);
+
+    const auto changed = diffTextLines({"return oldValue;"}, {"return newValue;"});
+    assert(changed.size() == 1 && changed[0].kind == DiffRowKind::Changed);
+    assert(changed[0].left == "return oldValue;" && changed[0].right == "return newValue;");
+    assert(changed[0].hunkId == "history-snapshot");
+
+    const auto different = diffTextLines({"alpha", "beta"}, {"gamma", "delta"});
+    assert(different.size() == 4);
+    assert(std::count_if(different.begin(), different.end(), [](const auto& item) {
+        return item.kind == DiffRowKind::Removal;
+    }) == 2);
+    assert(std::count_if(different.begin(), different.end(), [](const auto& item) {
+        return item.kind == DiffRowKind::Addition;
+    }) == 2);
+
+    const auto unicode = diffTextLines({"你好，旧世界"}, {"你好，新世界"});
+    assert(unicode.size() == 1 && unicode[0].kind == DiffRowKind::Changed);
+
+    std::vector<std::string> largeOld(1'200, "same");
+    std::vector<std::string> largeNew = largeOld;
+    largeNew.insert(largeNew.begin() + 600, "middle");
+    const auto large = diffTextLines(largeOld, largeNew);
+    assert(large.size() == 1'201);
+    assert(large[600].kind == DiffRowKind::Addition);
+    assert(large[601].kind == DiffRowKind::Context && large[601].oldLine == 601 &&
+           large[601].newLine == 602);
 }
 
 void testDiffCollapseAndSplitLayout() {
@@ -128,6 +177,16 @@ void testVisibilityRules() {
     assert(rules.isHidden("C:/project/generated", "C:/project", true, true));
     assert(!rules.isHidden("C:/project/src/Main.java", "C:/project", true, false));
     assert(rules.isHiddenDirectoryName("TaRgEt"));
+}
+
+void testFuzzyMatch() {
+    assert(fuzzySubsequenceMatch("Git History", "gthst"));
+    assert(fuzzySubsequenceMatch("Replace in Project...", "RIP"));
+    assert(fuzzySubsequenceMatch("本地历史", "本历"));
+    assert(fuzzySubsequenceMatch("你好，新世界", "你世"));
+    assert(!fuzzySubsequenceMatch("Git History", "history git"));
+    assert(!fuzzySubsequenceMatch("本地历史", "历史本"));
+    assert(fuzzySubsequenceMatch("anything", ""));
 }
 
 void testTerminalBuffer() {
@@ -213,16 +272,35 @@ void testSmallUtilities() {
     assert(hasSpan(spans, SyntaxHighlightKind::Comment, source, "// return"));
 }
 
+void testGutterHitTest() {
+    const auto firstLine = hitTestGutter(275.0, 8.0, 0.0, 280.0, 20);
+    assert(firstLine && firstLine->line == 0 &&
+           firstLine->zone == GutterHitZone::LineNumber);
+    const auto annotation = hitTestGutter(40.0, 28.0, 0.0, 280.0, 20);
+    assert(annotation && annotation->line == 1 &&
+           annotation->zone == GutterHitZone::Annotation);
+    const auto scrolled = hitTestGutter(49.0, 8.0, 60.0, 50.0, 20);
+    assert(scrolled && scrolled->line == 3 &&
+           scrolled->zone == GutterHitZone::LineNumber);
+    assert(!hitTestGutter(10.0, 7.0, 0.0, 50.0, 20));
+    assert(!hitTestGutter(10.0, 408.0, 0.0, 50.0, 20));
+    assert(!hitTestGutter(50.0, 8.0, 0.0, 50.0, 20));
+    assert(!hitTestGutter(NAN, 8.0, 0.0, 50.0, 20));
+}
+
 } // namespace
 
 int main() {
     testDiffPairing();
+    testTextDiff();
     testDiffCollapseAndSplitLayout();
     testInlineDiff();
     testVisibilityRules();
+    testFuzzyMatch();
     testTerminalBuffer();
     testGitGraph();
     testGitReferenceTree();
+    testGutterHitTest();
     testSmallUtilities();
     return 0;
 }

@@ -8,6 +8,7 @@ on:
       - "shared/**"
       - "scripts/build-windows.ps1"
       - "scripts/verify-windows-boundaries.ps1"
+      - "scripts/verify-winui-static.ps1"
       - ".github/workflows/ci-windows.yml"
   push:
     branches:
@@ -18,6 +19,7 @@ on:
       - "shared/**"
       - "scripts/build-windows.ps1"
       - "scripts/verify-windows-boundaries.ps1"
+      - "scripts/verify-winui-static.ps1"
       - ".github/workflows/ci-windows.yml"
   workflow_dispatch:
 
@@ -38,21 +40,17 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Set up Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.8.2"
-          arch: win64_msvc2022_64
-          archives: qtbase
-          cache: true
-
-      - name: Build Rust core and C++ targets
+      - name: Build Rust core, C++ targets, and WinUI workbench
         shell: pwsh
-        run: ./scripts/build-windows.ps1 -Configuration Release -BuildQt
+        run: ./scripts/build-windows.ps1 -Configuration Release -BuildWinUI
 
       - name: Verify Windows boundaries
         shell: pwsh
         run: ./scripts/verify-windows-boundaries.ps1
+
+      - name: Verify WinUI source contract
+        shell: pwsh
+        run: ./scripts/verify-winui-static.ps1
 
       - name: Run C++ tests
         shell: pwsh
