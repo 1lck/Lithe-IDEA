@@ -62,7 +62,10 @@ if ($BuildWinUI) {
         $vswhere = Join-Path ${env:ProgramFiles(x86)} `
             "Microsoft Visual Studio/Installer/vswhere.exe"
         if (Test-Path -LiteralPath $vswhere) {
-            $installationPath = & $vswhere -latest -products * `
+            # The WinUI project intentionally targets the VS 2022 v143
+            # toolset. Hosted runners can also contain VS 18 previews, whose
+            # MSBuild cannot supply the v143 UWP/WinUI targets.
+            $installationPath = & $vswhere -latest -version "[17.0,18.0)" -products * `
                 -requires Microsoft.Component.MSBuild -property installationPath
             if ($LASTEXITCODE -eq 0 -and $installationPath) {
                 $candidate = Join-Path $installationPath "MSBuild/Current/Bin/MSBuild.exe"
