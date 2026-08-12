@@ -12,7 +12,6 @@ struct RootView: View {
         ZStack {
             ForEach(projectSessions.sessions) { session in
                 projectContent(for: session)
-                    .id("\(session.id):\(settings.colorTheme.rawValue)")
                     .opacity(session.id == projectSessions.activeSessionID ? 1 : 0)
                     .allowsHitTesting(session.id == projectSessions.activeSessionID)
                     .accessibilityHidden(session.id != projectSessions.activeSessionID)

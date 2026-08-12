@@ -707,6 +707,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var unusedCodeColor = CodeEditorPalette.dark.unusedCode
     private var linkColor = CodeEditorPalette.dark.link
     private var appliedDarkAppearance: Bool?
+    private var appliedColorTheme: AppColorTheme?
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
@@ -719,8 +720,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
 
     fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
-        guard appliedDarkAppearance != palette.isDark else { return }
+        guard appliedDarkAppearance != palette.isDark
+            || appliedColorTheme != palette.theme else { return }
         appliedDarkAppearance = palette.isDark
+        appliedColorTheme = palette.theme
         backgroundColor = palette.background
         textColor = palette.text
         insertionPointColor = palette.caret
@@ -1803,7 +1806,7 @@ final class LineNumberGutterView: NSView {
     }
 
     fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
-        guard self.palette.isDark != palette.isDark else { return }
+        guard self.palette.isDark != palette.isDark || self.palette.theme != palette.theme else { return }
         self.palette = palette
         layer?.backgroundColor = palette.gutterBackground.cgColor
         needsDisplay = true
