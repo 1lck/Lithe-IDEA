@@ -318,10 +318,12 @@ final class ProjectRuntimeService: ObservableObject {
 
     func runConfigurationToolchainCandidates(
         for project: MavenProject?,
-        projectRoot: URL? = nil
+        projectRoot: URL? = nil,
+        javaHomeOverride: String? = nil,
+        mavenExecutableOverride: String? = nil
     ) -> [ProjectToolchainCandidate] {
         var result: [ProjectToolchainCandidate] = []
-        let java = activeJavaRuntime() ?? javaHomeURL().flatMap(runtimeLocator.javaRuntime(at:))
+        let java = javaHomeURL(overridePath: javaHomeOverride).flatMap(runtimeLocator.javaRuntime(at:))
         if let java {
             result.append(ProjectToolchainCandidate(
                 id: "project-jdk",
@@ -330,7 +332,10 @@ final class ProjectRuntimeService: ObservableObject {
                 vendor: java.vendor
             ))
         }
-        let maven = project.flatMap(activeMavenRuntime)
+        let maven = projectRoot.flatMap { root in
+            mavenExecutable(at: root, overridePath: mavenExecutableOverride)
+                .flatMap(runtimeLocator.mavenRuntime(at:))
+        } ?? project.flatMap(activeMavenRuntime)
             ?? projectRoot.flatMap { root in
                 mavenExecutable(at: root).flatMap(runtimeLocator.mavenRuntime(at:))
             }

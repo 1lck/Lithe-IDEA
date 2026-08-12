@@ -133,14 +133,18 @@ final class RunService: ObservableObject {
             do {
                 await executableResolver.refreshCandidates(projectURL: projectURL)
                 guard !Task.isCancelled, projectLoadID == loadID else { return }
-                let candidates = toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
-                let resolution = try operations.resolve(at: projectURL, toolchainCandidates: candidates)
+                let preferredID = selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
+                    ?? preferences.string(forKey: selectionPreferenceKey(for: projectURL.standardizedFileURL))
+                let resolution = try resolveWithServiceToolchains(
+                    operations: operations,
+                    projectURL: projectURL,
+                    mavenProject: mavenProject,
+                    preferredConfigurationID: preferredID
+                )
                 configurationDiagnostics += resolution.diagnostics
                 apply(
                     resolution.configurations,
-                    preferredConfigurationID: selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
-                        ?? preferences.string(forKey: selectionPreferenceKey(for: projectURL.standardizedFileURL))
-                        ?? resolution.defaultConfigurationID
+                    preferredConfigurationID: preferredID ?? resolution.defaultConfigurationID
                 )
             } catch {
                 configurationStatus = .invalid(error.localizedDescription)
@@ -181,13 +185,23 @@ final class RunService: ObservableObject {
             do {
                 await executableResolver.refreshCandidates(projectURL: projectURL)
                 guard !Task.isCancelled, projectLoadID == loadID else { return }
-                let candidates = toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
-                var resolution = try operations.resolve(at: projectURL, toolchainCandidates: candidates)
+                var resolution = try resolveWithServiceToolchains(
+                    operations: operations,
+                    projectURL: projectURL,
+                    mavenProject: mavenProject,
+                    preferredConfigurationID: nil
+                )
                 try operations.migrateLegacySettings(
                     at: projectURL,
                     configurationIDs: resolution.configurations.map { $0.configuration.id }
                 )
-                resolution = try operations.resolve(at: projectURL, toolchainCandidates: candidates)
+                resolution = try resolveWithServiceToolchains(
+                    operations: operations,
+                    projectURL: projectURL,
+                    mavenProject: mavenProject,
+                    preferredConfigurationID: selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
+                        ?? resolution.defaultConfigurationID
+                )
                 configurationStatus = .ready
                 recoveryAction = .none
                 recoveryPath = nil
@@ -266,6 +280,17 @@ final class RunService: ObservableObject {
             runtimeService.setActiveServiceJavaHomePath(options.javaHomePath)
         }
         effectiveSourcesByConfigurationID[configuration.id] = scope == .local ? .local : .project
+        if let projectURL,
+           let resolution = try? resolveWithServiceToolchains(
+               operations: runConfigurationOperations,
+               projectURL: projectURL,
+               mavenProject: mavenProject,
+               preferredConfigurationID: configuration.id
+           ) {
+            configurationDiagnostics = runConfigurationOperations.inspect(at: projectURL).diagnostics
+                + resolution.diagnostics
+            apply(resolution.configurations, preferredConfigurationID: configuration.id)
+        }
         persist(options, for: configuration.id)
         refreshPortConflicts()
         return true
@@ -285,10 +310,11 @@ final class RunService: ObservableObject {
         }
         do {
             let id = try runConfigurationOperations.createConfiguration(draft, at: projectURL)
-            let candidates = toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
-            let resolution = try runConfigurationOperations.resolve(
-                at: projectURL,
-                toolchainCandidates: candidates
+            let resolution = try resolveWithServiceToolchains(
+                operations: runConfigurationOperations,
+                projectURL: projectURL,
+                mavenProject: mavenProject,
+                preferredConfigurationID: id
             )
             guard resolution.configurations.contains(where: { $0.configuration.id == id }) else {
                 throw RunConfigurationOperationFailure(
@@ -505,11 +531,14 @@ final class RunService: ObservableObject {
 
     private func toolchainCandidates(
         projectURL: URL,
-        mavenProject: MavenProject?
+        mavenProject: MavenProject?,
+        options: RunOptions? = nil
     ) -> [ProjectToolchainCandidate] {
         let runtimeCandidates = runtimeService.runConfigurationToolchainCandidates(
             for: mavenProject,
-            projectRoot: projectURL
+            projectRoot: projectURL,
+            javaHomeOverride: options?.javaHomePath,
+            mavenExecutableOverride: options?.mavenExecutablePath
         )
         var candidatesByID = Dictionary(uniqueKeysWithValues: runtimeCandidates.map { ($0.id, $0) })
         for candidate in executableResolver.candidates(projectURL: projectURL)
@@ -517,6 +546,30 @@ final class RunService: ObservableObject {
             candidatesByID[candidate.id] = candidate
         }
         return candidatesByID.values.sorted { $0.id < $1.id }
+    }
+
+    private func resolveWithServiceToolchains(
+        operations: any RunConfigurationOperations,
+        projectURL: URL,
+        mavenProject: MavenProject?,
+        preferredConfigurationID: String?
+    ) throws -> RunConfigurationResolution {
+        let initial = try operations.resolve(
+            at: projectURL,
+            toolchainCandidates: toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
+        )
+        let preferred = initial.configurations.first { $0.configuration.id == preferredConfigurationID }
+        let javaService = preferred ?? initial.configurations.first {
+            $0.configuration.kind.capabilities.contains(.javaRuntime)
+                && !$0.options.javaHomePath.isEmpty
+        }
+        guard let javaService else { return initial }
+        let candidates = toolchainCandidates(
+            projectURL: projectURL,
+            mavenProject: mavenProject,
+            options: javaService.options
+        )
+        return try operations.resolve(at: projectURL, toolchainCandidates: candidates)
     }
 
     private func apply(

@@ -892,8 +892,7 @@ struct RunView: View {
         onToggle: (() -> Void)?,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
+        HStack(spacing: 8) {
                 ZStack(alignment: .bottomTrailing) {
                     if let configurationKind {
                         RunConfigurationIcon(kind: configurationKind, size: 16)
@@ -963,17 +962,18 @@ struct RunView: View {
                     .help(isRunning ? "Stop" : "Run")
                     .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
                 }
-            }
-            .font(.system(size: 12))
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(minHeight: 34)
-            .background(isSelected ? LitheTheme.subtleSelection : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .font(.system(size: 12))
+        .foregroundStyle(LitheTheme.primaryText)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: 34)
+        .background(isSelected ? LitheTheme.subtleSelection : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
         .lithePointer()
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "Select configuration", action)
     }
 }
