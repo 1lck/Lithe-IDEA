@@ -29,7 +29,7 @@ using namespace Microsoft::UI::Xaml::Controls;
 using namespace Microsoft::UI::Xaml::Controls::Primitives;
 namespace Input = Microsoft::UI::Xaml::Input;
 namespace Media = Microsoft::UI::Xaml::Media;
-namespace Text = Windows::UI::Text;
+namespace Text = Microsoft::UI::Text;
 
 std::string utf8(hstring const& value) {
     return to_string(value);
@@ -813,8 +813,8 @@ MainWindow::~MainWindow() {
 
 HWND MainWindow::windowHandle() {
     if (hwnd_ == nullptr) {
-        auto window = *this;
-        check_hresult(window.as<IWindowNative>()->get_WindowHandle(&hwnd_));
+        const auto window = get_strong().as<IWindowNative>();
+        check_hresult(window->get_WindowHandle(&hwnd_));
     }
     return hwnd_;
 }
@@ -1564,7 +1564,6 @@ void MainWindow::renderMarkdownPreview(std::string_view source) {
         if (inCodeBlock) {
             block.Text(text(line));
             block.FontFamily(Media::FontFamily(L"Cascadia Mono, Consolas"));
-            block.Background(applicationBrush(L"LitheSubtleBrush"));
             block.Padding(Thickness{8, 4, 8, 4});
         } else if (line.starts_with("### ")) {
             block.Text(text(line.substr(4)));
@@ -1833,7 +1832,7 @@ fire_and_forget MainWindow::ResetToRevisionClick(
     session_->resetToRevision(target, resetMode);
 }
 
-std::vector<std::string> MainWindow::selectedChangePaths() const {
+std::vector<std::string> MainWindow::selectedChangePaths() {
     std::vector<std::string> paths;
     for (const auto& selected : ChangesList().SelectedItems()) {
         auto path = itemTag(selected);
@@ -3334,14 +3333,14 @@ void MainWindow::ProjectTreeRightTapped(
     }
 }
 
-std::string MainWindow::selectedTreePath() const {
+std::string MainWindow::selectedTreePath() {
     const auto node = ProjectTree().SelectedNode();
     if (!node) return {};
     const auto found = treePaths_.find(objectKey(node));
     return found == treePaths_.end() ? std::string{} : found->second;
 }
 
-std::string MainWindow::selectedTreeParentPath() const {
+std::string MainWindow::selectedTreeParentPath() {
     const auto selected = selectedTreePath();
     if (selected.empty() || directoryPaths_.contains(selected)) return selected;
     return parentPath(selected);
@@ -4394,7 +4393,7 @@ void MainWindow::applyLayout(const lithe::windows::WorkbenchLayoutState& state) 
     restoringWorkbench_ = false;
 }
 
-lithe::windows::WorkbenchLayoutState MainWindow::currentLayout() const {
+lithe::windows::WorkbenchLayoutState MainWindow::currentLayout() {
     lithe::windows::WorkbenchLayoutState state;
     state.sidebarWidth = static_cast<int>(std::round(SidebarColumn().ActualWidth()));
     state.editorTopHeight = static_cast<int>(std::round(
@@ -4411,7 +4410,7 @@ lithe::windows::WorkbenchLayoutState MainWindow::currentLayout() const {
     return state;
 }
 
-std::string MainWindow::editorText() const {
+std::string MainWindow::editorText() {
     hstring value;
     EditorTextBox().Document().GetText(Text::TextGetOptions::None, value);
     auto result = utf8(value);
@@ -4636,7 +4635,7 @@ void MainWindow::updateCursorPosition() {
     }
 }
 
-std::pair<std::uint64_t, std::uint64_t> MainWindow::editorPosition() const {
+std::pair<std::uint64_t, std::uint64_t> MainWindow::editorPosition() {
     const auto position = std::max(0, EditorTextBox().Document().Selection().StartPosition());
     hstring prefix;
     EditorTextBox().Document().GetRange(0, position).GetText(Text::TextGetOptions::None, prefix);

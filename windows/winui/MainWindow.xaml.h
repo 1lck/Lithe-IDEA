@@ -273,9 +273,9 @@ private:
     Microsoft::UI::Xaml::Controls::TabViewItem ensureEditorTab(const std::string& path);
     void updateTabHeader(const std::string& path);
     void remapEditorPaths(std::string_view oldPath, std::string_view newPath);
-    std::vector<std::string> selectedChangePaths() const;
-    std::string selectedTreePath() const;
-    std::string selectedTreeParentPath() const;
+    std::vector<std::string> selectedChangePaths();
+    std::string selectedTreePath();
+    std::string selectedTreeParentPath();
     void removeEditorTab(Microsoft::UI::Xaml::Controls::TabViewItem const& tab);
     winrt::fire_and_forget closeEditorTab(
         Microsoft::UI::Xaml::Controls::TabViewItem const& tab);
@@ -286,9 +286,9 @@ private:
     void scheduleWorkbenchStateSave();
     void restoreWorkbenchState();
     void applyLayout(const lithe::windows::WorkbenchLayoutState& state);
-    lithe::windows::WorkbenchLayoutState currentLayout() const;
+    lithe::windows::WorkbenchLayoutState currentLayout();
 
-    std::string editorText() const;
+    std::string editorText();
     void setEditorText(std::string_view value);
     void updateEditorPresentation();
     void renderMarkdownPreview(std::string_view source);
@@ -298,7 +298,7 @@ private:
     void applySyntaxHighlighting();
     void updateCursorPosition();
     void navigateEditor(std::uint64_t line, std::uint64_t utf16Column);
-    std::pair<std::uint64_t, std::uint64_t> editorPosition() const;
+    std::pair<std::uint64_t, std::uint64_t> editorPosition();
     void rebuildFindMatches();
     void selectFindMatch(bool forward);
     void copyText(std::string_view value);
