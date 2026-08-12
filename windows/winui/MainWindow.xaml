@@ -263,6 +263,8 @@
                                       Grid.Row="1"
                                       SelectionMode="Single"
                                       ItemInvoked="ProjectItemInvoked"
+                                      Expanding="ProjectTreeExpanding"
+                                      Collapsed="ProjectTreeCollapsed"
                                       RightTapped="ProjectTreeRightTapped"
                                       Padding="4,0,4,8">
                                 <TreeView.ContextFlyout>
@@ -505,10 +507,11 @@
                                     </TextBlock>
                                 </Canvas>
                             </Border>
-                            <RichEditBox x:Name="EditorTextBox"
-                                         Grid.Column="1"
-                                         TextWrapping="NoWrap"
-                                         FontFamily="Cascadia Code, Consolas"
+                             <RichEditBox x:Name="EditorTextBox"
+                                          Grid.Column="1"
+                                          TextWrapping="NoWrap"
+                                          Foreground="{ThemeResource LitheTextBrush}"
+                                          FontFamily="Cascadia Code, Consolas"
                                          FontSize="13"
                                          IsSpellCheckEnabled="False"
                                          IsTextPredictionEnabled="False"

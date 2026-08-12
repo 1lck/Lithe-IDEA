@@ -306,7 +306,15 @@ void WorkbenchSession::openWorkspace(std::filesystem::path root) {
         watchedRoot,
         [this, watchedRoot](const std::vector<DirectoryChangeSource::Change>& changes) {
             if (pathUtf8(workspaceRoot_) != watchedRoot) return;
-            auto visibleChanges = writeLifecycle_->observeChanges(changes);
+            std::vector<DirectoryChangeSource::Change> workspaceChanges;
+            workspaceChanges.reserve(changes.size());
+            std::copy_if(changes.begin(), changes.end(),
+                         std::back_inserter(workspaceChanges), [](const auto& change) {
+                const auto normalized = normalizedSlashes(change.path);
+                return normalized != ".git" && !normalized.starts_with(".git/");
+            });
+            if (workspaceChanges.empty()) return;
+            auto visibleChanges = writeLifecycle_->observeChanges(std::move(workspaceChanges));
             if (!visibleChanges) return;
             if (callbacks_.filesChanged) callbacks_.filesChanged(std::move(*visibleChanges));
             refreshAfterWrite();

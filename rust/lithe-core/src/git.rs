@@ -10,6 +10,8 @@ use crate::model::{
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::io::Write;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
@@ -477,7 +479,7 @@ fn execute_git(
     input: Option<String>,
 ) -> Result<GitCommandResponse, CoreError> {
     crate::cancellation::check()?;
-    let mut process = Command::new("git");
+    let mut process = git_command();
     process.args(arguments).current_dir(root);
     process.stdin(if input.is_some() {
         std::process::Stdio::piped()
@@ -2624,7 +2626,7 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
-    Command::new("git")
+    git_command()
         .args(arguments)
         .current_dir(directory)
         .output()
@@ -2632,6 +2634,13 @@ fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output,
             CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git")
                 .with_details(error.to_string())
         })
+}
+
+fn git_command() -> Command {
+    let mut command = Command::new("git");
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    command
 }
 
 fn parse_status(output: &[u8]) -> Vec<GitChange> {

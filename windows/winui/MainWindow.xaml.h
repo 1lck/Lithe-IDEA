@@ -144,6 +144,12 @@ struct MainWindow : MainWindowT<MainWindow> {
     void ProjectItemInvoked(
         Microsoft::UI::Xaml::Controls::TreeView const&,
         Microsoft::UI::Xaml::Controls::TreeViewItemInvokedEventArgs const&);
+    void ProjectTreeExpanding(
+        Microsoft::UI::Xaml::Controls::TreeView const&,
+        Microsoft::UI::Xaml::Controls::TreeViewExpandingEventArgs const&);
+    void ProjectTreeCollapsed(
+        Microsoft::UI::Xaml::Controls::TreeView const&,
+        Microsoft::UI::Xaml::Controls::TreeViewCollapsedEventArgs const&);
     void ProjectTreeRightTapped(
         IInspectable const&, Microsoft::UI::Xaml::Input::RightTappedRoutedEventArgs const&);
     winrt::fire_and_forget NewFileClick(
@@ -322,6 +328,9 @@ private:
         Microsoft::UI::Xaml::Controls::TreeViewNode const& parent,
         const lithe::windows::WorkspaceNodeDto& node,
         bool isRoot = false);
+    void indexWorkspaceNode(const lithe::windows::WorkspaceNodeDto& node);
+    void populateWorkspaceChildren(
+        Microsoft::UI::Xaml::Controls::TreeViewNode const& node);
     void renderDocument(lithe::windows::app::DocumentFeatureState state);
     void renderSearch(lithe::windows::app::SearchFeatureState state);
     void renderSearchEverywhere(lithe::windows::app::SearchEverywhereFeatureState state);
@@ -361,6 +370,8 @@ private:
     HWND hwnd_{nullptr};
     Microsoft::UI::Dispatching::DispatcherQueue dispatcher_{nullptr};
     std::unique_ptr<lithe::windows::winui::WorkbenchSession> session_;
+    std::optional<lithe::windows::WorkspaceSnapshotDto> workspaceSnapshot_;
+    std::unordered_map<std::string, const lithe::windows::WorkspaceNodeDto*> workspaceNodes_;
     std::unordered_map<std::uintptr_t, std::string> treePaths_;
     std::unordered_set<std::string> directoryPaths_;
     std::unordered_map<std::uintptr_t, NavigationTarget> navigationTargets_;
