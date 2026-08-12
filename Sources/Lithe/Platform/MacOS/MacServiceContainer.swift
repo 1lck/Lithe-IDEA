@@ -2,12 +2,12 @@ import Foundation
 
 private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
     func make(
-        root: URL,
+        configuration: DirectoryWatchConfiguration,
         visibilityRules: FileVisibilityRules,
-        onChange: @escaping @Sendable ([String]) -> Void
+        onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void
     ) -> any DirectoryChangeSource {
         MacDirectoryWatcher(
-            root: root,
+            configuration: configuration,
             visibilityRules: visibilityRules,
             onChange: onChange
         )

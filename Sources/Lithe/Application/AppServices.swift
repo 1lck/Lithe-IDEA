@@ -2,9 +2,9 @@ import Foundation
 
 protocol DirectoryWatcherFactory {
     func make(
-        root: URL,
+        configuration: DirectoryWatchConfiguration,
         visibilityRules: FileVisibilityRules,
-        onChange: @escaping @Sendable ([String]) -> Void
+        onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void
     ) -> any DirectoryChangeSource
 }
 

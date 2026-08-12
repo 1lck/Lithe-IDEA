@@ -19,6 +19,19 @@ struct RustCoreBridge: Sendable {
         let ok: Bool
         let data: Data?
         let error: ErrorPayload?
+
+        private enum CodingKeys: String, CodingKey {
+            case ok
+            case data
+            case error
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            ok = try container.decode(Bool.self, forKey: .ok)
+            data = container.contains(.data) ? try container.decode(Data.self, forKey: .data) : nil
+            error = try container.decodeIfPresent(ErrorPayload.self, forKey: .error)
+        }
     }
 
     private struct ErrorPayload: Decodable {
@@ -611,6 +624,21 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct GitWatchContextPayload: Decodable, Sendable {
+        let repositoryRoot: String
+        let gitDirectory: String
+        let gitCommonDirectory: String
+
+        func makeContext() -> GitWatchContext {
+            GitWatchContext(
+                repositoryRoot: URL(fileURLWithPath: repositoryRoot).standardizedFileURL,
+                gitDirectory: URL(fileURLWithPath: gitDirectory).standardizedFileURL,
+                gitCommonDirectory: URL(fileURLWithPath: gitCommonDirectory).standardizedFileURL
+            )
+        }
+    }
+
+
     private struct EmptyPayload: Encodable {
         let value = 0
     }
@@ -748,6 +776,11 @@ struct RustCoreBridge: Sendable {
     private struct GitStatusRequest: Encodable {
         let root: String
     }
+
+    private struct GitWatchContextRequest: Encodable {
+        let root: String
+    }
+
 
     private struct GitCommandRequest: Encodable {
         let root: String
@@ -1187,6 +1220,15 @@ struct RustCoreBridge: Sendable {
             payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
         )
     }
+
+    func gitWatchContext(at rootURL: URL) -> GitWatchContextPayload? {
+        let result: Result<GitWatchContextPayload?, CoreCallError> = executeResult(
+            command: "git.watchContext",
+            payload: GitWatchContextRequest(root: rootURL.standardizedFileURL.path)
+        )
+        return try? result.get()
+    }
+
 
     func gitCommand(
         at rootURL: URL,

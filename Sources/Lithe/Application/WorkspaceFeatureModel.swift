@@ -22,16 +22,25 @@ final class WorkspaceFeatureModel: ObservableObject {
 
     private let operations: any WorkspaceOperations
     private let fileOperations: any WorkspaceFileOperations
+    private let gitWatchContextProvider: any GitWatchContextProviding
     private let directoryWatcherFactory: any DirectoryWatcherFactory
     private let workspaceSessionStore: WorkspaceSessionStore
     private var workspaceURL: URL?
     private var visibilityRules = FileVisibilityRules.default
+    private var watchConfiguration: DirectoryWatchConfiguration?
     private var directoryWatcher: (any DirectoryChangeSource)?
     private var refreshTask: Task<Void, Never>?
+    private var gitRefreshTask: Task<Void, Never>?
+    private var recoveryTask: Task<Void, Never>?
     private var visibilityRulesRefreshTask: Task<Void, Never>?
     private var searchIndexTask: Task<Void, Never>?
     private var pendingExternalPaths: Set<String> = []
+    private var pendingGitRefresh = false
+    private var pendingFullRescan = false
+    private var pendingWatchRootsChanged = false
+    private var isGitRefreshRunning = false
     private var externalRefreshGeneration = 0
+    private var gitRefreshGeneration = 0
     private var workspaceSessionPersistenceTask: Task<Void, Never>?
     private var hasRestoredWorkspaceSession = false
 
@@ -55,11 +64,13 @@ final class WorkspaceFeatureModel: ObservableObject {
     init(
         operations: any WorkspaceOperations,
         fileOperations: any WorkspaceFileOperations,
+        gitWatchContextProvider: any GitWatchContextProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
         workspaceSessionStore: WorkspaceSessionStore
     ) {
         self.operations = operations
         self.fileOperations = fileOperations
+        self.gitWatchContextProvider = gitWatchContextProvider
         self.directoryWatcherFactory = directoryWatcherFactory
         self.workspaceSessionStore = workspaceSessionStore
     }
@@ -110,11 +121,19 @@ final class WorkspaceFeatureModel: ObservableObject {
         }
         directoryWatcher?.stop()
         directoryWatcher = nil
+        watchConfiguration = nil
         refreshTask?.cancel()
+        gitRefreshTask?.cancel()
+        recoveryTask?.cancel()
         visibilityRulesRefreshTask?.cancel()
         workspaceSessionPersistenceTask?.cancel()
         pendingExternalPaths.removeAll()
+        pendingGitRefresh = false
+        pendingFullRescan = false
+        pendingWatchRootsChanged = false
+        isGitRefreshRunning = false
         externalRefreshGeneration += 1
+        gitRefreshGeneration += 1
         gitOperationFreezeDepth = 0
         workspaceURL = nil
         hasRestoredWorkspaceSession = false
@@ -131,6 +150,8 @@ final class WorkspaceFeatureModel: ObservableObject {
     deinit {
         directoryWatcher?.stop()
         refreshTask?.cancel()
+        gitRefreshTask?.cancel()
+        recoveryTask?.cancel()
         visibilityRulesRefreshTask?.cancel()
         workspaceSessionPersistenceTask?.cancel()
         searchIndexTask?.cancel()
@@ -141,7 +162,15 @@ final class WorkspaceFeatureModel: ObservableObject {
         self.visibilityRules = visibilityRules
         hasRestoredWorkspaceSession = false
         pendingExternalPaths.removeAll()
+        pendingGitRefresh = false
+        pendingFullRescan = false
+        pendingWatchRootsChanged = false
         externalRefreshGeneration += 1
+        gitRefreshGeneration += 1
+        startWatching(
+            DirectoryWatchConfiguration(workspaceRoot: url, gitContext: nil),
+            visibilityRules: visibilityRules
+        )
     }
 
     /// Temporarily prevents FSEvents callbacks from making the workspace observe
@@ -151,23 +180,34 @@ final class WorkspaceFeatureModel: ObservableObject {
         gitOperationFreezeDepth += 1
         refreshTask?.cancel()
         refreshTask = nil
+        gitRefreshTask?.cancel()
+        gitRefreshTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
         externalRefreshGeneration += 1
+        gitRefreshGeneration += 1
     }
 
-    /// Flushes all watcher paths once the outermost Git operation completes.
-    /// The flush is intentionally immediate: GitFeatureModel has already
-    /// refreshed its own status, so this is the one place where the editor,
-    /// workspace tree, history, and project services catch up together.
+    /// Flushes accumulated workspace and Git events after the outermost Git operation.
     func endGitOperationFreeze() async {
         guard gitOperationFreezeDepth > 0 else { return }
         gitOperationFreezeDepth -= 1
-        guard gitOperationFreezeDepth == 0,
-              let workspaceURL,
-              !pendingExternalPaths.isEmpty else { return }
-        let changedPaths = Array(pendingExternalPaths)
-        pendingExternalPaths.removeAll()
-        externalRefreshGeneration += 1
-        await applyExternalRefresh(changedPaths, at: workspaceURL)
+        guard gitOperationFreezeDepth == 0, let workspaceURL else { return }
+
+        if pendingWatchRootsChanged || pendingFullRescan {
+            await applyPendingRecovery(at: workspaceURL)
+            return
+        }
+        if !pendingExternalPaths.isEmpty {
+            let changedPaths = Array(pendingExternalPaths)
+            pendingExternalPaths.removeAll()
+            externalRefreshGeneration += 1
+            await applyExternalRefresh(changedPaths, at: workspaceURL)
+            return
+        }
+        if pendingGitRefresh {
+            await drainGitRefreshes()
+        }
     }
 
     func rebuild(
@@ -226,9 +266,11 @@ final class WorkspaceFeatureModel: ObservableObject {
             }
             hasRestoredWorkspaceSession = true
         }
+        await updateWatchConfiguration()
         await onSnapshotLoaded?(snapshot, isInitialLoad)
-        if self.visibilityRules == rules {
-            startWatching(workspaceURL, visibilityRules: rules)
+        await requestGitRefreshNow()
+        if pendingFullRescan || pendingWatchRootsChanged {
+            scheduleRecovery()
         }
         return .loaded(snapshot)
     }
@@ -247,7 +289,16 @@ final class WorkspaceFeatureModel: ObservableObject {
 
     func startWatchingCurrent() {
         guard let workspaceURL else { return }
-        startWatching(workspaceURL, visibilityRules: visibilityRules)
+        startWatching(
+            watchConfiguration ?? DirectoryWatchConfiguration(workspaceRoot: workspaceURL, gitContext: nil),
+            visibilityRules: visibilityRules
+        )
+    }
+
+    func resumeObservationAfterActivation() async {
+        guard workspaceURL != nil else { return }
+        await updateWatchConfiguration(forceRebuild: true)
+        await requestGitRefreshNow()
     }
 
     func contains(_ url: URL) -> Bool {
@@ -463,23 +514,116 @@ final class WorkspaceFeatureModel: ObservableObject {
         }.value
     }
 
-    private func startWatching(_ url: URL, visibilityRules: FileVisibilityRules) {
+    private func startWatching(
+        _ configuration: DirectoryWatchConfiguration,
+        visibilityRules: FileVisibilityRules
+    ) {
         directoryWatcher?.stop()
+        watchConfiguration = configuration
         directoryWatcher = directoryWatcherFactory.make(
-            root: url,
+            configuration: configuration,
             visibilityRules: visibilityRules
-        ) { [weak self] paths in
+        ) { [weak self] batch in
             Task { @MainActor [weak self] in
-                self?.scheduleExternalRefresh(paths: paths)
+                self?.scheduleDirectoryChange(batch)
             }
         }
         directoryWatcher?.start()
+    }
+
+    private func updateWatchConfiguration(forceRebuild: Bool = false) async {
+        guard let workspaceURL else { return }
+        let context = await gitWatchContextProvider.watchContext(for: workspaceURL)
+        guard self.workspaceURL == workspaceURL else { return }
+        let configuration = DirectoryWatchConfiguration(
+            workspaceRoot: workspaceURL,
+            gitContext: context
+        )
+        guard forceRebuild || configuration != watchConfiguration || directoryWatcher == nil else {
+            return
+        }
+        startWatching(configuration, visibilityRules: visibilityRules)
+    }
+
+    private func scheduleDirectoryChange(_ batch: DirectoryChangeBatch) {
+        guard !batch.isEmpty else { return }
+        if !batch.workspacePaths.isEmpty {
+            pendingExternalPaths.formUnion(batch.workspacePaths)
+            externalRefreshGeneration += 1
+        }
+        if batch.watchRootsChanged || batch.requiresFullRescan {
+            pendingWatchRootsChanged = pendingWatchRootsChanged || batch.watchRootsChanged
+            pendingFullRescan = pendingFullRescan || batch.requiresFullRescan
+            pendingGitRefresh = true
+            refreshTask?.cancel()
+            refreshTask = nil
+            gitRefreshTask?.cancel()
+            gitRefreshTask = nil
+            scheduleRecovery()
+            return
+        }
+
+        if !batch.workspacePaths.isEmpty {
+            if batch.gitStateMayHaveChanged { pendingGitRefresh = true }
+            schedulePendingExternalRefresh()
+        } else if batch.gitStateMayHaveChanged {
+            scheduleGitRefresh()
+        }
+    }
+
+    private func scheduleRecovery() {
+        guard gitOperationFreezeDepth == 0 else {
+            recoveryTask?.cancel()
+            recoveryTask = nil
+            return
+        }
+        recoveryTask?.cancel()
+        recoveryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let self, let workspaceURL = self.workspaceURL else { return }
+            await self.applyPendingRecovery(at: workspaceURL)
+        }
+    }
+
+    private func applyPendingRecovery(at workspaceURL: URL) async {
+        guard self.workspaceURL == workspaceURL else { return }
+        guard gitOperationFreezeDepth == 0 else { return }
+        if isLoadingWorkspace || isRefreshingWorkspace {
+            scheduleRecovery()
+            return
+        }
+
+        let rootsChanged = pendingWatchRootsChanged
+        let fullRescan = pendingFullRescan
+        pendingWatchRootsChanged = false
+        pendingFullRescan = false
+        if rootsChanged {
+            await updateWatchConfiguration(forceRebuild: true)
+        }
+        if fullRescan {
+            await refreshCurrent()
+        } else if !pendingExternalPaths.isEmpty {
+            let changedPaths = Array(pendingExternalPaths)
+            pendingExternalPaths.removeAll()
+            externalRefreshGeneration += 1
+            refreshTask?.cancel()
+            refreshTask = nil
+            await applyExternalRefresh(changedPaths, at: workspaceURL)
+        }
+        if pendingGitRefresh {
+            await drainGitRefreshes()
+        }
     }
 
     private func scheduleExternalRefresh(paths: [String]) {
         guard !paths.isEmpty else { return }
         pendingExternalPaths.formUnion(paths)
         externalRefreshGeneration += 1
+        schedulePendingExternalRefresh()
+    }
+
+    private func schedulePendingExternalRefresh() {
+        guard !pendingExternalPaths.isEmpty else { return }
         guard gitOperationFreezeDepth == 0 else {
             refreshTask?.cancel()
             refreshTask = nil
@@ -499,10 +643,44 @@ final class WorkspaceFeatureModel: ObservableObject {
         }
     }
 
+    private func scheduleGitRefresh() {
+        pendingGitRefresh = true
+        gitRefreshGeneration += 1
+        guard gitOperationFreezeDepth == 0, !isGitRefreshRunning else { return }
+        let generation = gitRefreshGeneration
+        gitRefreshTask?.cancel()
+        gitRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled,
+                  let self,
+                  self.gitRefreshGeneration == generation else { return }
+            await self.drainGitRefreshes()
+        }
+    }
+
+    private func requestGitRefreshNow() async {
+        pendingGitRefresh = true
+        gitRefreshGeneration += 1
+        gitRefreshTask?.cancel()
+        gitRefreshTask = nil
+        await drainGitRefreshes()
+    }
+
+    private func drainGitRefreshes() async {
+        guard gitOperationFreezeDepth == 0, !isGitRefreshRunning else { return }
+        isGitRefreshRunning = true
+        while pendingGitRefresh, gitOperationFreezeDepth == 0 {
+            pendingGitRefresh = false
+            await refreshGit?()
+        }
+        isGitRefreshRunning = false
+    }
+
     private func applyExternalRefresh(_ paths: [String], at workspaceURL: URL) async {
         guard self.workspaceURL == workspaceURL else { return }
         guard gitOperationFreezeDepth == 0 else {
             pendingExternalPaths.formUnion(paths)
+            pendingGitRefresh = true
             return
         }
         if isLoadingWorkspace || isRefreshingWorkspace {
@@ -535,7 +713,7 @@ final class WorkspaceFeatureModel: ObservableObject {
                 || url.pathExtension.lowercased() == "java"
         }
         if requiresProjectServiceReload { await reloadProjectServices?() }
-        await refreshGit?()
+        await requestGitRefreshNow()
     }
 
     private func scheduleSearchIndexWarm(at workspaceURL: URL, rules: FileVisibilityRules) {

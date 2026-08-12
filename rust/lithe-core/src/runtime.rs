@@ -4,7 +4,8 @@ use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitStashesRequest, GitStatusRequest, GitWriteRequest,
+    GitPullPreflightRequest, GitStashesRequest, GitStatusRequest, GitWatchContextRequest,
+    GitWriteRequest,
 };
 use crate::history::{
     HistoryContentRequest, HistoryEntriesRequest, HistoryRecordRequest, HistoryRelocateRequest,
@@ -422,6 +423,25 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitWatchContext => {
+            match serde_json::from_value::<GitWatchContextRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git watch context request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::watch_context)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git watch context should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+
         CoreCommand::GitCommand => {
             match serde_json::from_value::<GitCommandRequest>(parsed.payload)
                 .map_err(|error| {

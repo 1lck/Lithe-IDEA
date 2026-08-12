@@ -137,6 +137,7 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeature = WorkspaceFeatureModel(
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
+            gitWatchContextProvider: services.gitService,
             directoryWatcherFactory: services.directoryWatcherFactory,
             workspaceSessionStore: services.workspaceSessionStore
         )
@@ -260,7 +261,6 @@ final class AppModel: ObservableObject, Identifiable {
             onSnapshotLoaded: { [weak self] snapshot, isInitialLoad in
                 guard let self, let workspaceURL = self.workspaceURL else { return }
                 self.javaFeature.prepareProject(at: workspaceURL, files: snapshot.files)
-                await self.refreshGit()
                 await self.javaFeature.loadProject(at: workspaceURL, files: snapshot.files)
                 if isInitialLoad {
                     self.projectHistoryFeature.seed(files: snapshot.files)
@@ -551,6 +551,10 @@ final class AppModel: ObservableObject, Identifiable {
                 isCurrent: { [weak self] in self?.workspaceURL == normalizedURL }
             )
         }
+    }
+
+    func resumeGitObservationAfterActivation() async {
+        await workspaceFeature.resumeObservationAfterActivation()
     }
 
     func closeProject() {
