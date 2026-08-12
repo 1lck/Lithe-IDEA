@@ -8,8 +8,6 @@ struct WorkbenchView: View {
     @EnvironmentObject private var runFeature: RunFeatureModel
     @State private var sidebarWidth: CGFloat = 320
     @State private var sidebarDragStart: CGFloat = 320
-    @State private var lspPanelWidth: CGFloat = 420
-    @State private var lspPanelDragStart: CGFloat = 420
     @State private var topPaneHeight: CGFloat?
     @State private var topPaneDragStart: CGFloat = 0
     @State private var isBranchSwitcherPresented = false
@@ -590,14 +588,6 @@ struct WorkbenchView: View {
                     }
 
                     activityToolButton(
-                        systemImage: "server.rack",
-                        help: lspControlCenterTitle,
-                        isSelected: model.isLSPControlCenterVisible
-                    ) {
-                        model.isLSPControlCenterVisible.toggle()
-                    }
-
-                    activityToolButton(
                         systemImage: "ladybug",
                         ideaAssetPath: "toolwindows/toolWindowDebugger.svg",
                         help: "Debug",
@@ -694,10 +684,6 @@ struct WorkbenchView: View {
         }
     }
 
-    private var lspControlCenterTitle: String {
-        settings.language == .simplifiedChinese ? "LSP 控制中心" : "LSP Control Center"
-    }
-
     private var runConfigurationSetupTitle: String {
         switch runFeature.configurationStatus {
         case .missing:
@@ -780,18 +766,9 @@ struct WorkbenchView: View {
             let availableTopWidth = max(0, geometry.size.width - (horizontalPadding * 2))
             let minimumSidebarWidth: CGFloat = 220
             let minimumEditorWidth: CGFloat = 400
-            let minimumLSPPanelWidth: CGFloat = 320
-            let lspPanelHandleWidth = model.isLSPControlCenterVisible ? SplitHandleView.thickness : 0
-            let resolvedLSPPanelWidth = model.isLSPControlCenterVisible
-                ? constrained(
-                    lspPanelWidth,
-                    minimum: minimumLSPPanelWidth,
-                    maximum: max(minimumLSPPanelWidth, min(540, availableTopWidth - SplitHandleView.thickness - minimumSidebarWidth - SplitHandleView.thickness - minimumEditorWidth))
-                )
-                : 0
             let maximumSidebarWidth = max(
                 minimumSidebarWidth,
-                min(520, availableTopWidth - SplitHandleView.thickness - minimumEditorWidth - lspPanelHandleWidth - resolvedLSPPanelWidth)
+                min(520, availableTopWidth - SplitHandleView.thickness - minimumEditorWidth)
             )
             let resolvedSidebarWidth = constrained(
                 sidebarWidth,
@@ -833,27 +810,6 @@ struct WorkbenchView: View {
 
                     EditorAreaView()
                         .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                    if model.isLSPControlCenterVisible {
-                        SplitHandleView(
-                            axis: .horizontal,
-                            onDragStarted: {
-                                lspPanelDragStart = resolvedLSPPanelWidth
-                            },
-                            onDragChanged: { translation in
-                                lspPanelWidth = constrained(
-                                    lspPanelDragStart - translation,
-                                    minimum: minimumLSPPanelWidth,
-                                    maximum: max(minimumLSPPanelWidth, min(540, availableTopWidth - SplitHandleView.thickness - minimumSidebarWidth - SplitHandleView.thickness - minimumEditorWidth))
-                                )
-                            },
-                            onDragEnded: {}
-                        )
-
-                        LSPControlCenterView()
-                            .frame(width: resolvedLSPPanelWidth)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
                 }
                 .padding(.top, 6)
                 .padding(.horizontal, 6)

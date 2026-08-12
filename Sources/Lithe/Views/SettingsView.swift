@@ -96,23 +96,30 @@ struct SettingsView: View {
         .background(LitheTheme.sidebar)
     }
 
+    @ViewBuilder
     private var content: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text(LocalizedStringKey(selection.rawValue))
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
+        if selection == .lsp {
+            LSPControlCenterView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text(LocalizedStringKey(selection.rawValue))
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(LitheTheme.primaryText)
 
-                switch selection {
-                case .general: generalSettings
-                case .editor: editorSettings
-                case .terminal: terminalSettings
-                case .ai: aiSettings
-                case .updates: updatesSettings
+                    switch selection {
+                    case .general: generalSettings
+                    case .editor: editorSettings
+                    case .terminal: terminalSettings
+                    case .lsp: EmptyView()
+                    case .ai: aiSettings
+                    case .updates: updatesSettings
+                    }
                 }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

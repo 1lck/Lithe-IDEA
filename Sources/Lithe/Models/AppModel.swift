@@ -5,6 +5,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case general = "General"
     case editor = "Editor"
     case terminal = "Terminal"
+    case lsp = "LSP"
     case ai = "AI & Commit"
     case updates = "Updates"
 
@@ -15,6 +16,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .editor: "textformat"
         case .terminal: "terminal"
+        case .lsp: "server.rack"
         case .ai: "wand.and.stars"
         case .updates: "arrow.down.circle"
         }
@@ -72,7 +74,6 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isProblemsVisible = false
     @Published var isMavenVisible = false
     @Published var isDebugVisible = false
-    @Published var isLSPControlCenterVisible = true
     @Published var isImplementationChooserVisible = false
     @Published private(set) var languageProviderCatalog: LanguageProviderCatalog
     @Published private(set) var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot

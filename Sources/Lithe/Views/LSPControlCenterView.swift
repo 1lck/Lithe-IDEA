@@ -63,13 +63,6 @@ struct LSPControlCenterView: View {
             }
             .litheIconButton()
             .help(copy.configureLanguageServers)
-            Button {
-                model.isLSPControlCenterVisible = false
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .litheIconButton()
-            .help(copy.hideControlCenter)
         }
         .padding(.leading, 12)
         .padding(.trailing, 5)
