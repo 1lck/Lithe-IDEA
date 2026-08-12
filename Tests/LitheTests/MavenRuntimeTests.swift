@@ -88,9 +88,11 @@ private final class BlockingRuntimeLocator: RuntimeLocator, @unchecked Sendable 
     }
 
     func validJavaHome(path: String) -> URL? { nil }
+    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
     func isExecutable(at url: URL) -> Bool { false }
     func systemMavenExecutable() -> URL? { nil }
     func mavenExecutable(forHomePath path: String) -> URL? { nil }
+    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
     func systemJDBExecutable() -> URL? { nil }
     func javaLanguageServerExecutable() -> URL? { nil }
 }

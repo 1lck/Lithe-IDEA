@@ -4210,6 +4210,7 @@ private struct RunTestFileStorage: FileStorage {
     func fileExists(at url: URL) -> Bool { false }
     func isExecutable(at url: URL) -> Bool { false }
     func listDirectory(at url: URL) -> [URL] { [] }
+    func readPrefix(from url: URL, byteCount: Int) throws -> Data { throw CocoaError(.fileNoSuchFile) }
     func readData(from url: URL, options: Data.ReadingOptions) throws -> Data { throw CocoaError(.fileNoSuchFile) }
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws {}
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
@@ -4244,6 +4245,9 @@ private final class CountingFileStorage: FileStorage, @unchecked Sendable {
     func fileExists(at url: URL) -> Bool { files[url.standardizedFileURL.path] != nil }
     func isExecutable(at url: URL) -> Bool { false }
     func listDirectory(at url: URL) -> [URL] { [] }
+    func readPrefix(from url: URL, byteCount: Int) throws -> Data {
+        try readData(from: url, options: []).prefix(byteCount)
+    }
     func readData(from url: URL, options: Data.ReadingOptions) throws -> Data {
         guard let data = files[url.standardizedFileURL.path] else { throw CocoaError(.fileNoSuchFile) }
         return data

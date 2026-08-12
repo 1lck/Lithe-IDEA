@@ -2447,7 +2447,9 @@ struct EditorDocumentTests {
     func virtualDocumentOpensFromMemoryAsReadOnly() throws {
         let model = DocumentFeatureModel(
             operations: EmptyWorkspaceOperations(),
-            fileOperations: EmptyWorkspaceFileOperations()
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
         )
         let url = try #require(URL(string: "jdt://contents/java.base/java/lang/String.class"))
 
@@ -3361,6 +3363,31 @@ private final class MutableKeyValueStore: KeyValueStore {
     func set(_ value: Any?, forKey key: String) { values[key] = value }
 }
 
+private let dbxPlainConnectionExport = #"""
+{
+  "connections": [
+    {
+      "id": "mysql-1", "name": "Production MySQL", "db_type": "mysql",
+      "host": "db.example.com", "port": 3306, "username": "root",
+      "password": "db-secret", "database": "app", "color": "#ff5500",
+      "read_only": true, "is_production": true, "ssl": true,
+      "ca_cert_path": "/tmp/ca.pem",
+      "transport_layers": [{"type":"ssh","enabled":true,"host":"jump.example.com","port":22,"user":"deploy","key_path":"/tmp/id_ed25519"}]
+    },
+    { "id": "sqlite-1", "name": "Local SQLite", "db_type": "sqlite", "host": "/tmp/local.sqlite", "port": 0, "username": "", "password": "", "database": "" },
+    { "id": "oracle-1", "name": "Oracle", "db_type": "oracle", "host": "oracle.example.com", "port": 1521, "username": "scott", "password": "tiger" }
+  ],
+  "layout": {
+    "groups": [{"id":"g1","name":"Production","collapsed":false},{"id":"g2","name":"Local","collapsed":false}],
+    "order": [{"type":"group","id":"g1","connectionIds":["mysql-1"],"children":[{"type":"group","id":"g2","connectionIds":["sqlite-1"]}]}]
+  }
+}
+"""#
+
+private let dbxEncryptedConnectionExport = #"""
+{"format":"dbx-encrypted","version":1,"salt":"AAECAwQFBgcICQoLDA0ODw==","iv":"EBESExQVFhcYGRob","data":"fdwV5NDM/8LXPJqMyQgoQVkuOwMe+0VDPFR8HsEWD1AMIhPz1sHRRkmzd6ZLcBqnfcA57xCJz3Jtnbf+djnYI83EiNkr6iukZq1Ahd8aGy/r61/JdThx/NTaUgzn0mwAIcpxDl9uyBDwI0PO8WAaXbZyWbFumsLn3SJSEb8d"}
+"""#
+
 private struct EmptyWorkspaceOperations: WorkspaceOperations {
     let readFileValue: String?
 
@@ -3516,6 +3543,7 @@ private struct ExistingWorkspaceFileOperations: WorkspaceFileOperations {
     func removeItem(at url: URL) throws {}
     func trashItem(at url: URL) throws {}
     func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { throw CocoaError(.fileReadNoSuchFile) }
 }
 
 private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {

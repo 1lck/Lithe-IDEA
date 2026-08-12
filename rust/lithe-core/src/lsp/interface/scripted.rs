@@ -138,7 +138,12 @@ impl ScriptedServer {
     fn request_id(&self, method: &str) -> Option<String> {
         self.messages().into_iter().find_map(|message| {
             (message.get("method").and_then(Value::as_str) == Some(method))
-                .then(|| message.get("id").and_then(Value::as_str).map(str::to_string))
+                .then(|| {
+                    message
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
                 .flatten()
         })
     }
@@ -230,11 +235,7 @@ impl LspProcessHandle for ScriptedProcess {
                 "Language-server stdin is closed.",
             ));
         }
-        self.shared
-            .written
-            .lock()
-            .unwrap()
-            .extend_from_slice(frame);
+        self.shared.written.lock().unwrap().extend_from_slice(frame);
         Ok(())
     }
 

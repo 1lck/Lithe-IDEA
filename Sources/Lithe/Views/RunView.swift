@@ -87,7 +87,7 @@ struct RunView: View {
             }
         }
         .background(LitheTheme.editor)
-        .onChange(of: feature.configurations) {
+        .onChange(of: feature.configurations) { _ in
             if let selectedSessionID,
                !feature.configurations.contains(where: { $0.id == selectedSessionID }) {
                 self.selectedSessionID = nil

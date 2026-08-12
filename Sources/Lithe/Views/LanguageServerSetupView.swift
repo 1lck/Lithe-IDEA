@@ -86,7 +86,7 @@ struct LanguageServerSetupView: View {
         .frame(width: isEmbedded ? nil : 430, height: isEmbedded ? nil : 510)
         .frame(maxWidth: isEmbedded ? .infinity : nil, minHeight: isEmbedded ? 430 : nil)
         .background(LitheTheme.sidebar)
-        .onChange(of: selectedProviderID) { _, providerID in
+        .onChange(of: selectedProviderID) { providerID in
             executablePathDraft = tools.customExecutablePath(for: providerID) ?? ""
             validationMessage = nil
         }

@@ -49,16 +49,15 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
             let callbackContext = Unmanaged<CallbackContext>.fromOpaque(info).takeUnretainedValue()
             guard let watcher = callbackContext.watcher else { return }
             let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] ?? []
-            let visiblePaths = paths.filter { path in
-                let url = URL(fileURLWithPath: path)
-                return !MacFileWriteEventSuppression.consume(url) &&
-                    !watcher.visibilityRules.isHiddenPath(
-                    url,
-                    relativeTo: watcher.root
-                )
-            }
-            guard !visiblePaths.isEmpty else { return }
-            watcher.onChange(visiblePaths)
+            let count = min(Int(eventCount), paths.count)
+            guard count > 0 else { return }
+            let flags = Array(UnsafeBufferPointer(start: eventFlags, count: count))
+            let batch = watcher.classify(
+                paths: Array(paths.prefix(count)),
+                eventFlags: flags
+            )
+            guard !batch.isEmpty else { return }
+            watcher.onChange(batch)
         }
 
         let flags = UInt32(

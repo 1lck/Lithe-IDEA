@@ -10,8 +10,8 @@ use crate::languages::{
     JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest,
 };
 use crate::project::{
-    self, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest, SearchRequest,
-    WorkspaceSnapshotRequest,
+    self, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest, SearchIndexRequest,
+    SearchIndexUpdateRequest, SearchRequest, WorkspaceSnapshotRequest,
 };
 use crate::project::{
     HistoryContentRequest, HistoryEntriesRequest, HistoryRecordRequest, HistoryRelocateRequest,
@@ -92,7 +92,7 @@ fn execute(request: &str) -> CoreResponse {
                     CoreError::new(ErrorCode::InvalidRequest, "Invalid search index request")
                         .with_details(error.to_string())
                 })
-                .and_then(workspace::warm_search_index)
+                .and_then(project::warm_search_index)
             {
                 Ok(data) => CoreResponse::success(
                     id,
@@ -107,7 +107,7 @@ fn execute(request: &str) -> CoreResponse {
                     CoreError::new(ErrorCode::InvalidRequest, "Invalid search index update")
                         .with_details(error.to_string())
                 })
-                .and_then(workspace::update_search_index)
+                .and_then(project::update_search_index)
             {
                 Ok(data) => CoreResponse::success(
                     id,
@@ -122,7 +122,7 @@ fn execute(request: &str) -> CoreResponse {
                     CoreError::new(ErrorCode::InvalidRequest, "Invalid search index request")
                         .with_details(error.to_string())
                 })
-                .and_then(workspace::invalidate_search_index)
+                .and_then(project::invalidate_search_index)
             {
                 Ok(()) => CoreResponse::success(id, json!({})),
                 Err(error) => CoreResponse::failure(id, error),

@@ -17,6 +17,8 @@ final class ProjectRuntimeService: ObservableObject {
     private let runtimeLocator: any RuntimeLocator
     private let toolDiscovery: any RuntimeToolDiscovery
     private var discoveryTask: Task<Void, Never>?
+    private var activeDiscoveryID: UUID?
+
     init(
         runtimeLocator: any RuntimeLocator,
         store: any KeyValueStore,
@@ -39,9 +41,7 @@ final class ProjectRuntimeService: ObservableObject {
         javaRuntimes = []
         mavenRuntimes = []
         javaEnvironmentReport = .checking(for: normalizedURL)
-        discoveryTask = Task { [weak self] in
-            await self?.refreshAvailableRuntimes()
-        }
+        discoveryTask = nil
     }
 
     func closeProject() {
@@ -61,6 +61,12 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func refreshAvailableRuntimes() async {
+        discoveryTask?.cancel()
+        discoveryTask = nil
+        await performRuntimeRefresh()
+    }
+
+    private func performRuntimeRefresh() async {
         let targetProjectURL = projectURL
         let discoveryID = UUID()
         activeDiscoveryID = discoveryID

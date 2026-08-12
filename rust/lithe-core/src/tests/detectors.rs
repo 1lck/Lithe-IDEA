@@ -255,7 +255,11 @@ fn every_builtin_detector_produces_a_launch_plan() {
     )
     .unwrap();
     fs::write(root.join("rust/src/main.rs"), "fn main() {}\n").unwrap();
-    fs::write(root.join("go/go.mod"), "module example.com/go-app\ngo 1.22\n").unwrap();
+    fs::write(
+        root.join("go/go.mod"),
+        "module example.com/go-app\ngo 1.22\n",
+    )
+    .unwrap();
     fs::write(root.join("go/main.go"), "package main\nfunc main() {}\n").unwrap();
     fs::write(
         root.join("gradle/build.gradle"),
@@ -312,7 +316,9 @@ fn every_builtin_detector_produces_a_launch_plan() {
         ("just.recipe", "just.recipe:watch"),
     ] {
         assert!(
-            configurations.iter().any(|item| item["provider"] == provider),
+            configurations
+                .iter()
+                .any(|item| item["provider"] == provider),
             "missing provider {provider} in {configurations:?}"
         );
         let response: Value = serde_json::from_str(&execute_json(
@@ -324,7 +330,10 @@ fn every_builtin_detector_produces_a_launch_plan() {
             .to_string(),
         ))
         .unwrap();
-        assert_eq!(response["ok"], true, "{provider} launch plan failed: {response}");
+        assert_eq!(
+            response["ok"], true,
+            "{provider} launch plan failed: {response}"
+        );
     }
 
     fs::remove_dir_all(root).unwrap();
@@ -1204,7 +1213,11 @@ fn maven_detector_separates_the_frameworks_by_the_plugin_each_module_applies() {
 
     let configurations = generated_configurations(&root);
     for (id, provider, module) in [
-        ("spring-boot.maven:boot-api", "spring-boot.maven", "boot-api"),
+        (
+            "spring-boot.maven:boot-api",
+            "spring-boot.maven",
+            "boot-api",
+        ),
         ("quarkus.maven:quarkus-api", "quarkus.maven", "quarkus-api"),
         (
             "micronaut.maven:micronaut-api",

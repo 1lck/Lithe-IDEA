@@ -1,3 +1,4 @@
+use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
     client_apply_server_message, client_change_document, client_close_document,
     client_feature_request_canonical, client_initialize, client_open_document, client_shutdown,
@@ -10,9 +11,6 @@ use super::{
 use crate::lsp::languages::jdt::{
     adapt_start, initialized_notification, virtual_source_content, virtual_source_resolve_params,
     workspace_configuration, JdtStartContext, WorkspaceConfigurationItem,
-};
-use super::process::{
-    LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher,
 };
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
@@ -1115,9 +1113,9 @@ impl RuntimeSession {
                                         None,
                                     )
                                 });
-                            let content = value
-                                .get("result")
-                                .and_then(|result| virtual_source_content(&self.provider_id, result));
+                            let content = value.get("result").and_then(|result| {
+                                virtual_source_content(&self.provider_id, result)
+                            });
                             let invalid_result = if server_error.is_none() && content.is_none() {
                                 Some(runtime_error(
                                     self,
@@ -2012,7 +2010,9 @@ mod tests {
             let engine = LspEngine::with_launcher(server.launcher());
             let mut request = start_request(&server);
             configure(&mut request);
-            let started = engine.start_server(request).expect("the server should start");
+            let started = engine
+                .start_server(request)
+                .expect("the server should start");
             Self {
                 engine,
                 server,
@@ -2035,7 +2035,10 @@ mod tests {
         }
 
         fn poll(&mut self) -> &[LspRuntimeEvent] {
-            let events = self.session().poll_events().expect("polling should succeed");
+            let events = self
+                .session()
+                .poll_events()
+                .expect("polling should succeed");
             self.events.extend(events);
             &self.events
         }
@@ -2062,10 +2065,7 @@ mod tests {
         }
 
         /// Waits until an event matching `matches` has been observed.
-        fn await_event(
-            &mut self,
-            matches: impl Fn(&LspRuntimeEvent) -> bool,
-        ) -> &LspRuntimeEvent {
+        fn await_event(&mut self, matches: impl Fn(&LspRuntimeEvent) -> bool) -> &LspRuntimeEvent {
             let deadline = Instant::now() + Duration::from_secs(5);
             while Instant::now() < deadline {
                 self.poll();
@@ -2106,7 +2106,10 @@ mod tests {
                         operation,
                         uri: Some(uri.to_string()),
                         virtual_uri: None,
-                        position: Some(LspPosition { line: 0, utf16_column: 0 }),
+                        position: Some(LspPosition {
+                            line: 0,
+                            utf16_column: 0,
+                        }),
                         new_name: None,
                         range: None,
                         diagnostics: Vec::new(),
@@ -2122,9 +2125,10 @@ mod tests {
 
         /// The notification the server received for `method`, if any.
         fn notification(&self, method: &str) -> Option<Value> {
-            self.server.messages().into_iter().find(|message| {
-                message.get("method").and_then(Value::as_str) == Some(method)
-            })
+            self.server
+                .messages()
+                .into_iter()
+                .find(|message| message.get("method").and_then(Value::as_str) == Some(method))
         }
     }
 
@@ -2242,7 +2246,10 @@ mod tests {
                     .map(ToString::to_string)
             })
             .collect();
-        assert_eq!(opened_uris, vec![first_uri.to_string(), second_uri.to_string()]);
+        assert_eq!(
+            opened_uris,
+            vec![first_uri.to_string(), second_uri.to_string()]
+        );
         let snapshot = harness.snapshot();
         assert_eq!(snapshot.open_documents[first_uri].version, 1);
         assert_eq!(snapshot.open_documents[second_uri].version, 1);
@@ -2303,7 +2310,10 @@ mod tests {
 
         let timeout = harness
             .await_event(|event| {
-                event.error.as_ref().is_some_and(|error| error.code == "requestTimeout")
+                event
+                    .error
+                    .as_ref()
+                    .is_some_and(|error| error.code == "requestTimeout")
             })
             .clone();
         assert_eq!(timeout.operation_id.as_deref(), Some(operation.as_str()));
@@ -2425,7 +2435,9 @@ mod tests {
         request.arguments = vec!["-data".to_string(), "/stale/data".to_string()];
         request.runtime_executable_path = Some("/opt/jdk/bin/java".to_string());
         request.cache_directory = Some(cache.to_string_lossy().into_owned());
-        engine.start_server(request).expect("the server should start");
+        engine
+            .start_server(request)
+            .expect("the server should start");
 
         let spec = server
             .launched_spec()
@@ -2433,7 +2445,10 @@ mod tests {
         assert_eq!(spec.executable, "/usr/bin/scripted-server");
         assert_eq!(spec.working_directory, "/workspace");
         assert!(
-            !spec.arguments.iter().any(|argument| argument == "/stale/data"),
+            !spec
+                .arguments
+                .iter()
+                .any(|argument| argument == "/stale/data"),
             "a caller-supplied -data must be replaced, not appended: {:?}",
             spec.arguments
         );
@@ -2557,7 +2572,10 @@ mod tests {
         }));
         harness.await_event(|event| {
             event.kind == "diagnostics"
-                && event.diagnostics.as_ref().is_some_and(|list| list.len() == 1)
+                && event
+                    .diagnostics
+                    .as_ref()
+                    .is_some_and(|list| list.len() == 1)
         });
         assert_eq!(harness.snapshot().diagnostic_versions[uri], 2);
 
@@ -2570,7 +2588,8 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
         harness.poll();
         assert_eq!(
-            harness.snapshot().diagnostic_versions[uri], 2,
+            harness.snapshot().diagnostic_versions[uri],
+            2,
             "a stale version must not clear current diagnostics"
         );
 
@@ -2584,11 +2603,15 @@ mod tests {
         );
         // Clearing is published so the editor drops its markers, rather than
         // leaving them until the next unrelated publish.
-        let cleared = harness.poll().iter().rev().find(|event| {
-            event.kind == "diagnostics" && event.uri.as_deref() == Some(uri)
-        });
+        let cleared = harness
+            .poll()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "diagnostics" && event.uri.as_deref() == Some(uri));
         assert_eq!(
-            cleared.and_then(|event| event.diagnostics.as_ref()).map(Vec::len),
+            cleared
+                .and_then(|event| event.diagnostics.as_ref())
+                .map(Vec::len),
             Some(0)
         );
     }
@@ -2646,9 +2669,7 @@ mod tests {
     #[test]
     fn a_malformed_content_length_header_fails_the_session_in_transport() {
         let mut harness = Harness::ready();
-        harness
-            .server
-            .send_raw(b"Content-Length: banana\r\n\r\n{}");
+        harness.server.send_raw(b"Content-Length: banana\r\n\r\n{}");
         harness.await_state(LspLifecycleState::Failed);
 
         let failure = harness
@@ -2695,7 +2716,10 @@ mod tests {
         thread::sleep(Duration::from_millis(40));
         harness.poll();
         assert!(
-            !harness.events.iter().any(|event| event.kind == "diagnostics"),
+            !harness
+                .events
+                .iter()
+                .any(|event| event.kind == "diagnostics"),
             "an incomplete frame must not be delivered"
         );
 
@@ -2729,7 +2753,9 @@ mod tests {
         let mut harness = Harness::start(|_| {});
         // Formatting is absent from the static capabilities, so it can only
         // become available through dynamic registration.
-        harness.server.complete_initialize(json!({ "hoverProvider": true }));
+        harness
+            .server
+            .complete_initialize(json!({ "hoverProvider": true }));
         harness.await_state(LspLifecycleState::Ready);
         let uri = "file:///workspace/main.go";
         harness.sync(uri, "package main");
@@ -3020,9 +3046,12 @@ mod tests {
         let event = harness
             .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
             .clone();
-        assert_eq!(event.result, Some(json!({
-            "text": "public final class String {}"
-        })));
+        assert_eq!(
+            event.result,
+            Some(json!({
+                "text": "public final class String {}"
+            }))
+        );
         assert!(event.error.is_none());
     }
 

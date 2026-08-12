@@ -1,9 +1,9 @@
+use super::search_index::{self, UpdateOutcome, WorkspaceSearchIndex};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{
     FileReadResponse, FileWriteResponse, ReplacementPreviewResponse, SearchMatch, SearchResponse,
     WorkspaceNode, WorkspaceSnapshotResponse,
 };
-use crate::search_index::{self, UpdateOutcome, WorkspaceSearchIndex};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -191,7 +191,7 @@ fn search_with_index(
     let mut matches = Vec::new();
     let mut file_matches = 0;
 
-    for path in &snapshot.files {
+    for id in index.all_file_ids() {
         crate::protocol::cancellation::check()?;
         if matches.len() >= limit || file_matches >= file_limit {
             break;
@@ -216,7 +216,7 @@ fn search_with_index(
     }
 
     let mut content_matches = 0;
-    for path in &snapshot.files {
+    for id in index.candidate_ids(query, request.regular_expression) {
         crate::protocol::cancellation::check()?;
         if matches.len() >= limit || content_matches >= content_limit {
             break;
@@ -279,7 +279,7 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
     let symbol_limit = request.max_symbol_results.unwrap_or(50).min(50);
     let mut types = Vec::new();
     let mut symbols = Vec::new();
-    for path in snapshot.files {
+    for id in index.all_file_ids() {
         crate::protocol::cancellation::check()?;
         if types.len() >= symbol_limit && symbols.len() >= symbol_limit {
             break;
@@ -287,7 +287,7 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
         let Some(indexed_file) = index.file(id) else {
             continue;
         };
-        for symbol in java_symbols(&path, &text) {
+        for symbol in index.symbols(id) {
             crate::protocol::cancellation::check()?;
             if !matcher.matches(&symbol.name) {
                 continue;

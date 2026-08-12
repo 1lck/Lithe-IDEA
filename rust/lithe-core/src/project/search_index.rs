@@ -1,6 +1,5 @@
-use crate::error::{CoreError, ErrorCode};
-use crate::model::SearchMatch;
-use crate::workspace::{java_symbols, read_searchable_text, relative_path, VisibilityRules};
+use crate::project::files::{java_symbols, read_searchable_text, relative_path, VisibilityRules};
+use crate::protocol::{CoreError, ErrorCode, SearchMatch};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
@@ -171,7 +170,7 @@ impl WorkspaceSearchIndex {
             postings: HashMap::new(),
         };
         for path in paths {
-            crate::cancellation::check()?;
+            crate::protocol::cancellation::check()?;
             let relative = relative_path(&path, root);
             index.add_file(&path, relative);
         }
@@ -356,7 +355,7 @@ fn collect_files(
     rules: &VisibilityRules,
     files: &mut Vec<PathBuf>,
 ) -> Result<(), CoreError> {
-    crate::cancellation::check()?;
+    crate::protocol::cancellation::check()?;
     let mut children = fs::read_dir(path)
         .map_err(CoreError::from)?
         .filter_map(Result::ok)

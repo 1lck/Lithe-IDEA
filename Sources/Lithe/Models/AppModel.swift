@@ -114,6 +114,7 @@ final class AppModel: ObservableObject, Identifiable {
     let gitFeature: GitFeatureModel
     let documentFeature: DocumentFeatureModel
     let javaFeature: JavaFeatureModel
+    let databaseFeature: DatabaseFeatureModel
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
     var languageToolingSessions: LanguageToolingSessionManager { services.languageToolingSessions }
     var languageServerTools: LanguageServerToolService { services.languageServerTools }
@@ -129,6 +130,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var searchFeatureObservation: AnyCancellable?
     private var terminalFeatureObservation: AnyCancellable?
     private var projectHistoryFeatureObservation: AnyCancellable?
+    private var databaseFeatureObservation: AnyCancellable?
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .codex }

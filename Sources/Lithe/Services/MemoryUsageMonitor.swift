@@ -55,7 +55,7 @@ final class MemoryUsageMonitor: ObservableObject {
         startedAt: Date = Date(),
         baselineReporter: @escaping (String) -> Void = { _ in },
         processRegistry: ManagedProcessRegistry = ManagedProcessRegistry(),
-        memorySampler: any ManagedProcessMemorySampling = MacProcessMemorySampler()
+        memorySampler: any ManagedProcessMemorySampling
     ) {
         self.sampleInterval = sampleInterval
         self.startedAt = startedAt

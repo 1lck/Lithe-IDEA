@@ -81,8 +81,14 @@ impl LspProcessLauncher for SystemProcessLauncher {
             .with_details(error.to_string())
         })?;
         let stdin = child.stdin.take().ok_or_else(|| missing_stream("stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| missing_stream("stdout"))?;
-        let stderr = child.stderr.take().ok_or_else(|| missing_stream("stderr"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| missing_stream("stdout"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| missing_stream("stderr"))?;
         Ok(LspProcessStreams {
             handle: Arc::new(SystemProcess {
                 input: Mutex::new(Some(stdin)),

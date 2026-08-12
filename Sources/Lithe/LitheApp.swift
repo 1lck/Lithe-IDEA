@@ -84,7 +84,8 @@ struct LitheApp: App {
                 guard let data = (marker + "\n").data(using: .utf8) else { return }
                 FileHandle.standardError.write(data)
             },
-            processRegistry: processRegistry
+            processRegistry: processRegistry,
+            memorySampler: MacProcessMemorySampler()
         ))
         appDelegate.projectSessions = projectSessions
     }

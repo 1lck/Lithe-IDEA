@@ -109,7 +109,7 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
     let Ok(text) = std::str::from_utf8(&content) else {
         return Ok(None);
     };
-    if !crate::workspace::is_plain_text(text) {
+    if !crate::project::is_plain_text(text) {
         return Ok(None);
     }
     let storage = storage_root(&request.storage_root)?;

@@ -40,9 +40,9 @@ struct SettingsView: View {
             model.refreshAIConfigurations()
             syncAIProviderDraft()
         }
-        .onChange(of: settings.hiddenDirectoryNames) { syncVisibilityDrafts() }
-        .onChange(of: settings.hiddenFilePatterns) { syncVisibilityDrafts() }
-        .onChange(of: settings.commitMessageAI.activeProviderID) { syncAIProviderDraft() }
+        .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
+        .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
+        .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
     }
 
     private var header: some View {

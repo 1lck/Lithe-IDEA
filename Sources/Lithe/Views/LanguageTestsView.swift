@@ -65,7 +65,7 @@ struct LanguageTestsView: View {
         }
         .background(LitheTheme.editor)
         .onAppear(perform: selectDefaultItemIfNeeded)
-        .onChange(of: service.itemsByProviderID) { selectDefaultItemIfNeeded() }
+        .onChange(of: service.itemsByProviderID) { _ in selectDefaultItemIfNeeded() }
     }
 
     private var toolWindowHeader: some View {

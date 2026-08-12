@@ -971,9 +971,7 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     // A framework that owns its own debug agent takes a port instead of raw JVM
     // flags, so JDWP must not also be forced into `jvmArguments`: two agents on
     // one port fail to bind and the service never starts.
-    let jvm_agent_debug = goal.map_or(true, |goal| {
-        matches!(goal.debug, FrameworkDebug::JvmAgent)
-    });
+    let jvm_agent_debug = goal.map_or(true, |goal| matches!(goal.debug, FrameworkDebug::JvmAgent));
     if let Some(port) = request.debug_port.filter(|_| jvm_agent_debug) {
         jvm_arguments.insert(
             0,
