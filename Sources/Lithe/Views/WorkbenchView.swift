@@ -543,7 +543,8 @@ struct WorkbenchView: View {
 
                 Spacer(minLength: 0)
 
-                VStack(spacing: ActivityBarMetrics.spacing) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: ActivityBarMetrics.spacing) {
                     activityToolButton(
                         systemImage: "terminal",
                         help: "Terminal",
@@ -618,7 +619,9 @@ struct WorkbenchView: View {
                     ) {
                         model.showSettings()
                     }
+                    }
                 }
+                .frame(height: 292)
                 .padding(.bottom, ActivityBarMetrics.edgeInset)
             }
             .frame(width: ActivityBarMetrics.width, height: geometry.size.height, alignment: .top)
@@ -1051,6 +1054,9 @@ struct WorkbenchView: View {
         .popover(isPresented: $isMemoryUsagePopoverPresented, arrowEdge: .top) {
             memoryUsagePopover
         }
+        .onChange(of: isMemoryUsagePopoverPresented) { isPresented in
+            memoryUsageMonitor.setDetailedUsageVisible(isPresented)
+        }
     }
 
     private var memoryUsagePopover: some View {
@@ -1080,8 +1086,18 @@ struct WorkbenchView: View {
 
             VStack(spacing: 0) {
                 memoryMetric("Lithe", value: memoryUsageMonitor.litheText)
-                memoryMetric("Language servers", value: memoryUsageMonitor.lspText)
-                memoryMetric("Running services", value: memoryUsageMonitor.serviceText)
+                memoryMetric(
+                    "Language servers",
+                    value: memoryUsageMonitor.languageServerProcessCount == 0
+                        ? String(localized: "Not running")
+                        : memoryUsageMonitor.lspText
+                )
+                memoryMetric(
+                    "Running services",
+                    value: memoryUsageMonitor.serviceProcessCount == 0
+                        ? String(localized: "Not running")
+                        : memoryUsageMonitor.serviceText
+                )
                 memoryMetric("Total", value: memoryUsageMonitor.totalText)
                 memoryMetric("Average total", value: memoryUsageMonitor.averageText)
                 memoryMetric("Peak total", value: memoryUsageMonitor.peakText)

@@ -11,6 +11,7 @@ import SwiftUI
 struct OutputTextView: View {
     let output: String
     let searchRoots: [URL]
+    let fileExists: (URL) -> Bool
     let emptyMessage: String
     let onOpenLocation: (URL, Int, Int?) -> Void
 
@@ -72,16 +73,16 @@ struct OutputTextView: View {
 
     private var renderedOutput: AttributedString {
         guard !output.isEmpty else { return AttributedString() }
-        return Self.renderOutput(output, searchRoots: searchRoots)
+        return Self.renderOutput(output, searchRoots: searchRoots, fileExists: fileExists)
     }
 
-    private static func renderOutput(_ source: String, searchRoots: [URL]) -> AttributedString {
+    private static func renderOutput(_ source: String, searchRoots: [URL], fileExists: @escaping (URL) -> Bool) -> AttributedString {
         let parsed = ANSIOutputRenderer.parse(source)
         guard !parsed.cleanText.isEmpty else { return AttributedString() }
         var result = ANSIOutputRenderer.render(parsed, fontSize: 11.5)
         applySeverityColors(to: &result, text: parsed.cleanText, ansiStyled: parsed.hasStyling)
         dimTimestamps(in: &result, text: parsed.cleanText)
-        for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots) {
+        for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots, fileExists: fileExists) {
             guard let range = Range(location.range, in: result) else { continue }
             result[range].link = locationURL(path: location.url.path, line: location.line, column: location.column)
             result[range].foregroundColor = location.kind == .warning ? LitheTheme.warning : LitheTheme.error
@@ -183,7 +184,7 @@ struct OutputTextView: View {
         pattern: #"\bat\s+([\w.$]+(?:\$[\w$]+)?)\.([\w$<>]+)\(([\w$]+\.java):(\d+)\)"#
     )
 
-    private static func matchLocations(in text: String, searchRoots: [URL]) -> [OutputLocation] {
+    private static func matchLocations(in text: String, searchRoots: [URL], fileExists: @escaping (URL) -> Bool) -> [OutputLocation] {
         guard !searchRoots.isEmpty else { return [] }
         var locations: [OutputLocation] = []
 
@@ -195,7 +196,7 @@ struct OutputTextView: View {
                let path = capture(match, at: 2, in: line),
                let lineNumber = capture(match, at: 3, in: line).flatMap(Int.init) {
                 let column = capture(match, at: 4, in: line).flatMap(Int.init)
-                guard let url = resolvePath(path, searchRoots: searchRoots) else { return }
+                guard let url = resolvePath(path, searchRoots: searchRoots, fileExists: fileExists) else { return }
                 let kind: OutputLocation.Kind = capture(match, at: 1, in: line) == "ERROR" ? .error : .warning
                 locations.append(OutputLocation(
                     range: lineRange,
@@ -210,7 +211,7 @@ struct OutputTextView: View {
             if let match = stackExpression.firstMatch(in: line, range: lineNSRange),
                let className = capture(match, at: 1, in: line),
                let lineNumber = capture(match, at: 4, in: line).flatMap(Int.init),
-               let url = resolveClassFile(className, searchRoots: searchRoots),
+               let url = resolveClassFile(className, searchRoots: searchRoots, fileExists: fileExists),
                let fileRange = Range(match.range(at: 3), in: line),
                let lineNumberRange = Range(match.range(at: 4), in: line) {
                 // 仅把 `Foo.java:42` 部分设为可点击链接(覆盖文件名与行号)
@@ -234,27 +235,27 @@ struct OutputTextView: View {
         return String(line[swiftRange])
     }
 
-    private static func resolvePath(_ path: String, searchRoots: [URL]) -> URL? {
+    private static func resolvePath(_ path: String, searchRoots: [URL], fileExists: (URL) -> Bool) -> URL? {
         if path.hasPrefix("/") {
             let url = URL(fileURLWithPath: path).standardizedFileURL
-            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            return fileExists(url) ? url : nil
         }
         for root in searchRoots {
             let url = root.appendingPathComponent(path).standardizedFileURL
-            if FileManager.default.fileExists(atPath: url.path) { return url }
+            if fileExists(url) { return url }
         }
         return nil
     }
 
     /// 根据 Java 类全名(如 com.example.Foo)推断 Maven 源码路径并定位存在的文件。
-    private static func resolveClassFile(_ className: String, searchRoots: [URL]) -> URL? {
+    private static func resolveClassFile(_ className: String, searchRoots: [URL], fileExists: (URL) -> Bool) -> URL? {
         let outerClassName = className.split(separator: "$", maxSplits: 1).first.map(String.init) ?? className
         let relativePath = outerClassName.replacingOccurrences(of: ".", with: "/") + ".java"
         let candidates = ["src/main/java/", "src/test/java/"].map { $0 + relativePath }
         for root in searchRoots {
             for candidate in candidates {
                 let url = root.appendingPathComponent(candidate).standardizedFileURL
-                if FileManager.default.fileExists(atPath: url.path) { return url }
+                if fileExists(url) { return url }
             }
         }
         return nil

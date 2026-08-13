@@ -1734,7 +1734,10 @@ fn read_document_value(root: &Path, relative: &str) -> Result<Option<Value>, Cor
 }
 
 fn read_requirements(root: &Path) -> Result<Option<ToolchainRequirementsDocument>, CoreError> {
-    let path = root.join(".lithe/toolchains/requirements.json");
+    let path = root
+        .join(".lithe")
+        .join("toolchains")
+        .join("requirements.json");
     if !path.exists() {
         return Ok(None);
     }
@@ -2235,7 +2238,12 @@ fn vendor_from_version(value: &str) -> Option<String> {
 }
 
 fn maven_wrapper_version(root: &Path) -> Option<String> {
-    let text = fs::read_to_string(root.join(".mvn/wrapper/maven-wrapper.properties")).ok()?;
+    let text = fs::read_to_string(
+        root.join(".mvn")
+            .join("wrapper")
+            .join("maven-wrapper.properties"),
+    )
+    .ok()?;
     regex::Regex::new(r"apache-maven-([0-9]+(?:\.[0-9]+)+)-bin\.(?:zip|tar\.gz)")
         .ok()?
         .captures(&text)

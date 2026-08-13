@@ -113,7 +113,7 @@ struct DatabaseTableView: View {
         }
         .fileExporter(isPresented: $showsExporter, document: exportDocument, contentType: exportFormat.contentType, defaultFilename: exportFilename) { result in
             if case let .failure(error) = result { model.databaseFeature.errorMessage = error.localizedDescription }
-            if let temporaryExportURL { try? FileManager.default.removeItem(at: temporaryExportURL) }
+            if let temporaryExportURL { model.databaseFeature.removeTemporaryFile(temporaryExportURL) }
             temporaryExportURL = nil
             exportDocument = nil
         }
@@ -914,12 +914,11 @@ struct DatabaseTableView: View {
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
             if importFormat == .sql {
-                let temporaryURL = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-import-\(UUID().uuidString).sql")
-                try FileManager.default.copyItem(at: url, to: temporaryURL)
+                let temporaryURL = try model.databaseFeature.prepareImportFile(from: url)
                 stageImport(fileURL: temporaryURL, format: .sql)
                 return
             }
-            stageImport(data: try Data(contentsOf: url), format: importFormat)
+            stageImport(data: try model.databaseFeature.readImportData(from: url), format: importFormat)
         } catch { model.databaseFeature.errorMessage = error.localizedDescription }
     }
 
@@ -943,7 +942,7 @@ struct DatabaseTableView: View {
         pendingImportFormat = nil
         Task {
             if let fileURL {
-                defer { try? FileManager.default.removeItem(at: fileURL) }
+                defer { model.databaseFeature.removeTemporaryFile(fileURL) }
                 _ = await model.databaseFeature.importDataFile(fileURL, format: format, confirmed: confirmed)
             } else if let data {
                 _ = await model.databaseFeature.importData(data, format: format, confirmed: confirmed)
@@ -952,7 +951,7 @@ struct DatabaseTableView: View {
     }
 
     private func discardPendingImport() {
-        if let pendingImportURL { try? FileManager.default.removeItem(at: pendingImportURL) }
+        if let pendingImportURL { model.databaseFeature.removeTemporaryFile(pendingImportURL) }
         pendingImportData = nil
         pendingImportURL = nil
         pendingImportFormat = nil

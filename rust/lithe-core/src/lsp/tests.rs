@@ -78,9 +78,11 @@ fn builtin_catalog_describes_market_lsp_providers() {
 #[test]
 fn project_config_extends_and_overrides_builtin_catalog() {
     let root = temporary_root("project-config");
-    fs::create_dir_all(root.join(".lithe/lsp")).unwrap();
+    fs::create_dir_all(root.join(".lithe").join("lsp")).unwrap();
     fs::write(
-        root.join(".lithe/lsp/language-providers.json"),
+        root.join(".lithe")
+            .join("lsp")
+            .join("language-providers.json"),
         r#"{
               "version": 1,
               "providers": [
@@ -180,9 +182,11 @@ fn ffi_json_is_a_standalone_catalog_document() {
 #[test]
 fn project_catalog_reports_unknown_configuration_fields() {
     let root = temporary_root("project-config-unknown-field");
-    fs::create_dir_all(root.join(".lithe/lsp")).unwrap();
+    fs::create_dir_all(root.join(".lithe").join("lsp")).unwrap();
     fs::write(
-        root.join(".lithe/lsp/language-providers.json"),
+        root.join(".lithe")
+            .join("lsp")
+            .join("language-providers.json"),
         r#"{
               "version": 2,
               "providers": [{ "id": "go", "languageServerLanch": {} }]
@@ -202,7 +206,10 @@ fn project_catalog_reports_unknown_configuration_fields() {
 #[test]
 fn malformed_project_catalog_is_rejected_with_a_visible_diagnostic() {
     let root = temporary_root("project-config-malformed");
-    let config_path = root.join(".lithe/lsp/language-providers.json");
+    let config_path = root
+        .join(".lithe")
+        .join("lsp")
+        .join("language-providers.json");
     fs::create_dir_all(config_path.parent().unwrap()).unwrap();
     fs::write(&config_path, r#"{"version":2,"providers":["#).unwrap();
 

@@ -26,7 +26,9 @@ struct GitGraphRow: Identifiable, Hashable, Sendable {
     let commit: GitCommit
     let lane: Int
     let laneCount: Int
-    let incomingLaneColors: [Int]
+    /// One entry per lane slot, ordered by lane index. `nil` marks a slot that no
+    /// branch occupies at this row, so lane indices stay stable between rows.
+    let incomingLaneColors: [Int?]
     let parentEdges: [GitGraphEdge]
     let labels: [GitGraphLabel]
 

@@ -54,5 +54,5 @@ pub fn detect(ctx: &DirectoryContext) -> Vec<Detected> {
 /// one directory below the manifest, which the scan records separately, so this
 /// is the one place a detector touches the filesystem directly.
 fn has_main(ctx: &DirectoryContext) -> bool {
-    ctx.path.join("src/main.rs").is_file()
+    ctx.path.join("src").join("main.rs").is_file()
 }

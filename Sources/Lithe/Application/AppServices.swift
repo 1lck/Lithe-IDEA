@@ -43,6 +43,7 @@ final class AppServices {
     let javaDebugService: JavaDebugService
     let gitService: GitService
     let databaseOperations: any DatabaseOperations
+    let databaseRecoveryStore: any DatabaseRecoveryStoring
     let shelveService: ShelveService
     let commitMessageGenerator: CommitMessageGenerationService
     let secureStore: any SecureStore
@@ -53,6 +54,7 @@ final class AppServices {
     let workspaceSessionStore: WorkspaceSessionStore
     let workbenchLayoutStore: WorkbenchLayoutStore
     let terminalFactory: () -> any TerminalTransport
+    let shellDiscovery: () -> [String]
     let directoryWatcherFactory: any DirectoryWatcherFactory
     let platformUI: any PlatformUI
     let shortcutDetectorFactory: any ShortcutDetectorFactory
@@ -81,6 +83,7 @@ final class AppServices {
         javaDebugService: JavaDebugService,
         gitService: GitService,
         databaseOperations: any DatabaseOperations,
+        databaseRecoveryStore: any DatabaseRecoveryStoring,
         shelveService: ShelveService,
         commitMessageGenerator: CommitMessageGenerationService,
         secureStore: any SecureStore,
@@ -91,6 +94,7 @@ final class AppServices {
         workspaceSessionStore: WorkspaceSessionStore,
         workbenchLayoutStore: WorkbenchLayoutStore,
         terminalFactory: @escaping () -> any TerminalTransport,
+        shellDiscovery: @escaping () -> [String],
         directoryWatcherFactory: any DirectoryWatcherFactory,
         platformUI: any PlatformUI,
         shortcutDetectorFactory: any ShortcutDetectorFactory
@@ -128,6 +132,7 @@ final class AppServices {
         self.javaDebugService = javaDebugService
         self.gitService = gitService
         self.databaseOperations = databaseOperations
+        self.databaseRecoveryStore = databaseRecoveryStore
         self.shelveService = shelveService
         self.commitMessageGenerator = commitMessageGenerator
         self.secureStore = secureStore
@@ -138,6 +143,7 @@ final class AppServices {
         self.workspaceSessionStore = workspaceSessionStore
         self.workbenchLayoutStore = workbenchLayoutStore
         self.terminalFactory = terminalFactory
+        self.shellDiscovery = shellDiscovery
         self.directoryWatcherFactory = directoryWatcherFactory
         self.platformUI = platformUI
         self.shortcutDetectorFactory = shortcutDetectorFactory

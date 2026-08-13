@@ -7,7 +7,63 @@ struct GitGraphVerification {
         verifyMergeHistory()
         verifyMissingParent()
         verifyDecorationLabels()
-        print("GitGraph verification passed: linear, merge, truncated parent, and labels")
+        verifyLaneContinuity()
+        print("GitGraph verification passed: linear, merge, truncated parent, labels, and lane continuity")
+    }
+
+    /// Lanes are drawn as vertical segments at a lane-derived x, so a branch that
+    /// continues past a row must reappear at the very same lane index in the next
+    /// row. Packing lanes positionally used to renumber unrelated branches around
+    /// every merge, which rendered as broken branch lines.
+    private static func verifyLaneContinuity() {
+        // Three concurrent branches, so a merge in one has neighbours on both
+        // sides whose lanes must not move.
+        let layout = GitGraphLayoutService.layout(commits: [
+            commit("H", parents: ["G", "E"]),
+            commit("G", parents: ["F"]),
+            commit("F", parents: ["D"]),
+            commit("E", parents: ["D"]),
+            commit("D", parents: ["C"]),
+            commit("C", parents: ["B"]),
+            commit("B", parents: ["A"]),
+            commit("A", parents: [])
+        ])
+
+        for index in 0..<(layout.rows.count - 1) {
+            let row = layout.rows[index]
+            let next = layout.rows[index + 1]
+
+            var passedDown = Set<Int>()
+            for (lane, colorIndex) in row.incomingLaneColors.enumerated()
+            where colorIndex != nil && lane != row.lane {
+                passedDown.insert(lane)
+            }
+            for edge in row.parentEdges {
+                if let targetLane = edge.targetLane { passedDown.insert(targetLane) }
+            }
+
+            for lane in passedDown.sorted() {
+                let isDrawn = lane < next.incomingLaneColors.count
+                    && next.incomingLaneColors[lane] != nil
+                expect(
+                    isDrawn,
+                    "lane \(lane) continues past row \(index) (\(row.commit.hash)) but row \(index + 1) leaves it empty"
+                )
+            }
+        }
+
+        // A first parent stays in its child's lane unless another lane already
+        // awaits that parent, in which case the branch converges into it.
+        expect(
+            layout.rows.first(where: { $0.commit.hash == "G" })?.parentEdges.first?.targetLane == 0,
+            "a first parent should continue in its child's lane"
+        )
+        let convergingRow = layout.rows.first { $0.commit.hash == "E" }
+        expect(convergingRow?.lane == 1, "E should occupy the lane opened by the merge")
+        expect(
+            convergingRow?.parentEdges.first?.targetLane == 0,
+            "a branch whose first parent is already awaited should converge into that lane"
+        )
     }
 
     private static func verifyLinearHistory() {
