@@ -2,7 +2,7 @@ use super::*;
 use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn temporary_root(label: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -395,6 +395,32 @@ fn builtin_navigation_prefers_declarations_and_finds_references() {
     })
     .unwrap();
     assert_eq!(references.locations.len(), 2);
+}
+
+#[test]
+fn builtin_navigation_scans_large_files_in_linear_time() {
+    let mut text = "let filler_value = 1;\n".repeat(4_000);
+    text.push_str("let target = 1;\nprint(target);\n");
+    let started_at = Instant::now();
+
+    let definitions = builtin_navigation(BuiltinNavigationRequest {
+        file_path: "/tmp/large.swift".to_string(),
+        text,
+        position: LspPosition {
+            line: 4_001,
+            utf16_column: 8,
+        },
+        method: "textDocument/definition".to_string(),
+    })
+    .unwrap();
+
+    assert_eq!(definitions.locations.len(), 1);
+    assert_eq!(definitions.locations[0].range.start.line, 4_000);
+    assert_eq!(definitions.locations[0].range.start.utf16_column, 4);
+    assert!(
+        started_at.elapsed() < Duration::from_secs(2),
+        "large-file navigation exceeded the interactive budget"
+    );
 }
 
 #[test]

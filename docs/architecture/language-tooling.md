@@ -66,14 +66,14 @@ lsp/
 
 - **Completion**：依次收集所有成功结果，保持高优先级顺序，并按 `label` 去重。因此 LSP 可提供精确候选，本地关键字和当前文件符号仍能补足结果。
 - **Hover**：返回第一个非空结果；LSP 无结果或失败时继续询问本地 provider。
-- **Definition/References/Implementation**：LSP 与 project-symbol provider 并发请求。项目索引候选先返回时只作为 provisional result 展示，不自动跳转；LSP 的非空语义结果随后替换候选并成为最终结果。LSP 空结果或失败时使用项目候选，再降级到当前文件文本级导航。
+- **Definition/References/Implementation**：LSP 与 project-symbol provider 并发请求。项目索引候选先返回时只作为 provisional result 展示；LSP 在 750ms 交互时限内返回非空结果时仍以语义结果为准。服务器冷启动、索引繁忙或无响应而超过交互时限时，立即使用项目候选，再降级到当前文件文本级导航，不能让编辑器等待协议层最长 30 秒的容错 deadline。迟到的服务器结果不会覆盖已经呈现的导航事务。
 - **Rename/Formatting/Code Action/Resolve/Execute Command**：目前仍是 LSP-only；未运行或未声明相应能力时应返回明确的 capability 错误。
 
 provider 抛错不会让路由提前结束。这个策略用于隔离第三方语言服务器故障，但也意味着新增 provider 时必须给出稳定优先级，并避免返回伪造的“成功但无意义”结果。
 
 project-symbol provider 不按扩展名或 provider ID 分支。它从光标提取通用标识符，使用 workspace search index 的 whole-word/case-sensitive 查询缩小候选文件，再在后台读取命中行并计算精确 UTF-16 范围。打开且未保存的当前文档直接扫描 editor buffer，避免磁盘索引覆盖用户的新输入。Definition/Implementation 只用语言无关的结构词提高候选排序；最终语义仍以 LSP 为准。
 
-成功的导航结果按 method、workspace、文件、位置和文本指纹保存 8 秒进程内缓存；相同的并发请求也只发送一次，再把结果扇出给所有调用方。任一文档同步、关闭、外部文件变更、catalog/root/session 变化都会使缓存失效，避免跨版本复用位置。每次 provisional/final/cache 命中都会把 `source`、`elapsedMs` 和结果数写入 LSP 控制中心的“运行日志”，便于区分索引耗时与服务器耗时。
+成功的导航结果按 method、workspace、文件、位置和文本指纹保存 8 秒进程内缓存；相同的并发请求也只发送一次，再把结果扇出给所有调用方。任一文档同步、关闭、外部文件变更、catalog/root/session 变化都会使缓存失效，避免跨版本复用位置。每次 provisional/final/cache/interactive-deadline 命中都会把 `source`、`elapsedMs` 和结果数写入 LSP 控制中心的“运行日志”，便于区分索引耗时、服务器耗时和交互超时降级。
 
 编辑器的 `⌘B` 是 declaration-or-usages 命令，而不是 references 的别名：先请求 definition；引用位置得到单个目标时直接跳转，已经位于声明 token 上时再请求 references 并打开轻量选择器。完整 Find Usages 使用相同的文件、行号和代码预览行，但保留在底部工具窗口中。导航前后位置由 `EditorNavigationFeatureModel` 维护，可以用 `⌘[`/`⌘]` 返回和前进。
 
@@ -81,6 +81,7 @@ project-symbol provider 不按扩展名或 provider ID 分支。它从光标提�
 
 Rust Core 的 `lsp.builtinCompletions`、`lsp.builtinHover` 和
 `lsp.builtinNavigation` 只读取当前文件文本。Swift 层另外为 Go、Swift、Rust、Python、JavaScript 和 TypeScript 提供关键字候选；即使 Rust Core 未链接，关键字补全仍可使用。
+内置标识符扫描在一次遍历中同时维护 byte offset、line 和 UTF-16 column；禁止为每个 token 从文件开头重复换算位置，否则大文件导航会退化为 O(n²) 并阻塞 UI 回退路径。
 
 这些结果是可用性降级，不是类型系统：
 

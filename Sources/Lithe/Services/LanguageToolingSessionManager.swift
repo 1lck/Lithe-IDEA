@@ -41,6 +41,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         var completions: [(Result<[LanguageServerLocation], Error>) -> Void]
         var provisionalObservers: [([LanguageServerLocation]) -> Void]
         var latestProvisional: [LanguageServerLocation]?
+        var interactiveDeadlineTask: Task<Void, Never>?
     }
 
     @Published private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
@@ -71,16 +72,19 @@ final class LanguageToolingSessionManager: ObservableObject {
     private var navigationCache: [NavigationCacheKey: CachedNavigationResult] = [:]
     private var pendingNavigationRequests: [NavigationCacheKey: PendingNavigationRequest] = [:]
     private let navigationCacheLifetime: TimeInterval = 8
+    private let navigationInteractiveDeadline: Duration
 
     init(
         catalog: LanguageProviderCatalog = .standard,
         runtimes: [any LanguageProviderRuntime] = [],
         runtimeFactory: (any LanguageProviderRuntimeFactory)? = nil,
         core: RustCoreBridge = RustCoreBridge(),
-        languageFeatureProviders: [any LanguageFeatureProvider] = []
+        languageFeatureProviders: [any LanguageFeatureProvider] = [],
+        navigationInteractiveDeadline: Duration = .milliseconds(750)
     ) {
         self.catalog = catalog
         self.runtimeFactory = runtimeFactory
+        self.navigationInteractiveDeadline = navigationInteractiveDeadline
         self.languageFeatureProviders = languageFeatureProviders + [
             BuiltinLanguageFeatureProvider(core: core)
         ]
@@ -419,7 +423,8 @@ final class LanguageToolingSessionManager: ObservableObject {
         pendingNavigationRequests[cacheKey] = PendingNavigationRequest(
             completions: [completion],
             provisionalObservers: provisional.map { [$0] } ?? [],
-            latestProvisional: nil
+            latestProvisional: nil,
+            interactiveDeadlineTask: nil
         )
 
         let languageServers = providers.filter { $0.priority == .languageServer }
@@ -441,33 +446,42 @@ final class LanguageToolingSessionManager: ObservableObject {
 
         let startedAt = Date()
         guard !projectSymbols.isEmpty else {
+            func finishWithFallback(source: String) {
+                guard pendingNavigationRequests[cacheKey] != nil else { return }
+                routeNavigation(
+                    providers: fallback,
+                    index: 0,
+                    method: method,
+                    context: context
+                ) { [self] fallbackResult in
+                    guard pendingNavigationRequests[cacheKey] != nil else { return }
+                    let fallbackLocations = (try? fallbackResult.get()) ?? []
+                    recordNavigationTiming(
+                        fileURL: fileURL,
+                        method: method,
+                        source: source,
+                        startedAt: startedAt,
+                        resultCount: fallbackLocations.count
+                    )
+                    if !fallbackLocations.isEmpty {
+                        storeNavigationResult(fallbackLocations, for: cacheKey)
+                    }
+                    completeNavigationRequest(cacheKey, with: .success(fallbackLocations))
+                }
+            }
+            scheduleNavigationInteractiveDeadline(for: cacheKey) {
+                finishWithFallback(source: "interactive-deadline")
+            }
             routeNavigation(
                 providers: languageServers,
                 index: 0,
                 method: method,
                 context: context
             ) { [self] result in
+                guard pendingNavigationRequests[cacheKey] != nil else { return }
                 let locations = (try? result.get()) ?? []
                 guard !locations.isEmpty else {
-                    routeNavigation(
-                        providers: fallback,
-                        index: 0,
-                        method: method,
-                        context: context
-                    ) { [self] fallbackResult in
-                        let fallbackLocations = (try? fallbackResult.get()) ?? []
-                        recordNavigationTiming(
-                            fileURL: fileURL,
-                            method: method,
-                            source: "builtin",
-                            startedAt: startedAt,
-                            resultCount: fallbackLocations.count
-                        )
-                        if !fallbackLocations.isEmpty {
-                            storeNavigationResult(fallbackLocations, for: cacheKey)
-                        }
-                        completeNavigationRequest(cacheKey, with: .success(fallbackLocations))
-                    }
+                    finishWithFallback(source: "builtin")
                     return
                 }
                 storeNavigationResult(locations, for: cacheKey)
@@ -504,7 +518,7 @@ final class LanguageToolingSessionManager: ObservableObject {
             completeNavigationRequest(cacheKey, with: .success(locations))
         }
 
-        func finishWithFallback() {
+        func finishWithFallback(source: String = "builtin") {
             guard !isFinished else { return }
             routeNavigation(
                 providers: fallback,
@@ -512,7 +526,15 @@ final class LanguageToolingSessionManager: ObservableObject {
                 method: method,
                 context: context
             ) { result in
-                finish((try? result.get()) ?? [], source: "builtin", cache: true)
+                finish((try? result.get()) ?? [], source: source, cache: true)
+            }
+        }
+
+        scheduleNavigationInteractiveDeadline(for: cacheKey) {
+            if projectLocations.isEmpty {
+                finishWithFallback(source: "interactive-deadline")
+            } else {
+                finish(projectLocations, source: "project-index-deadline", cache: true)
             }
         }
 
@@ -1176,7 +1198,26 @@ final class LanguageToolingSessionManager: ObservableObject {
         with result: Result<[LanguageServerLocation], Error>
     ) {
         guard let pending = pendingNavigationRequests.removeValue(forKey: key) else { return }
+        pending.interactiveDeadlineTask?.cancel()
         for completion in pending.completions { completion(result) }
+    }
+
+    private func scheduleNavigationInteractiveDeadline(
+        for key: NavigationCacheKey,
+        action: @escaping @MainActor () -> Void
+    ) {
+        guard var pending = pendingNavigationRequests[key] else { return }
+        let deadline = navigationInteractiveDeadline
+        pending.interactiveDeadlineTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: deadline)
+            } catch {
+                return
+            }
+            guard let self, self.pendingNavigationRequests[key] != nil else { return }
+            action()
+        }
+        pendingNavigationRequests[key] = pending
     }
 
     private func recordNavigationTiming(

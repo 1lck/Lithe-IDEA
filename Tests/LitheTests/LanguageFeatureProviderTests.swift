@@ -244,6 +244,80 @@ struct LanguageFeatureProviderTests {
         #expect(lsp.navigationRequestCount == 1)
     }
 
+    @Test
+    func managerUsesProjectIndexAtInteractiveDeadlineWhenLSPIsBusy() async throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/main.go")
+        let projectLocation = Self.location(fileURL, line: 4)
+        let semanticLocation = Self.location(fileURL, line: 9)
+        let project = NavigationFeatureProvider(
+            id: "project-symbols",
+            priority: .projectSymbols,
+            locations: [projectLocation]
+        )
+        let lsp = NavigationFeatureProvider(
+            id: "lsp:test",
+            priority: .languageServer,
+            locations: [semanticLocation],
+            delayMilliseconds: 150
+        )
+        let manager = LanguageToolingSessionManager(
+            languageFeatureProviders: [project, lsp],
+            navigationInteractiveDeadline: .milliseconds(20)
+        )
+
+        let first = try await navigate(with: manager, fileURL: fileURL)
+        try await Task.sleep(for: .milliseconds(180))
+        let second = try await navigate(with: manager, fileURL: fileURL)
+
+        #expect(first == [projectLocation])
+        #expect(second == [projectLocation])
+        #expect(project.navigationRequestCount == 1)
+        #expect(lsp.navigationRequestCount == 1)
+        #expect(manager.languageServerLogs.contains {
+            $0.detail?.contains("source=project-index-deadline") == true
+        })
+    }
+
+    @Test
+    func managerStopsWaitingAtInteractiveDeadlineWithoutProjectCandidates() async throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/main.go")
+        let fallbackLocation = Self.location(fileURL, line: 2)
+        let lsp = NavigationFeatureProvider(
+            id: "lsp:test",
+            priority: .languageServer,
+            locations: [Self.location(fileURL, line: 9)],
+            delayMilliseconds: 150
+        )
+        let fallback = NavigationFeatureProvider(
+            id: "fallback",
+            priority: .builtin,
+            locations: [fallbackLocation]
+        )
+        let manager = LanguageToolingSessionManager(
+            languageFeatureProviders: [lsp, fallback],
+            navigationInteractiveDeadline: .milliseconds(20)
+        )
+
+        let result = try await withCheckedThrowingContinuation { continuation in
+            do {
+                try manager.navigate(
+                    method: "textDocument/definition",
+                    fileURL: fileURL,
+                    text: " ",
+                    position: LanguageServerPosition(line: 0, utf16Column: 0),
+                    rootURL: fileURL.deletingLastPathComponent()
+                ) { continuation.resume(with: $0) }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+
+        #expect(result == [fallbackLocation])
+        #expect(manager.languageServerLogs.contains {
+            $0.detail?.contains("source=interactive-deadline") == true
+        })
+    }
+
     private static func item(label: String, detail: String) -> LanguageServerCompletionItem {
         LanguageServerCompletionItem(
             label: label,

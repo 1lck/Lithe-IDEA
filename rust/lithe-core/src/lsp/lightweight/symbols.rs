@@ -1,4 +1,4 @@
-use super::edits::{range_for_offsets, utf16_position_to_byte_offset};
+use super::edits::utf16_position_to_byte_offset;
 use crate::lsp::interface::{
     LspPosition, LspPositionResponse, LspRangeResponse, LspTextEditResponse,
 };
@@ -188,23 +188,47 @@ pub fn builtin_navigation(
 
 fn identifier_occurrences(text: &str) -> Vec<IdentifierOccurrence> {
     let mut values = Vec::new();
-    let mut current_start: Option<usize> = None;
+    let mut current_start: Option<(usize, LspPositionResponse)> = None;
+    let mut position = LspPositionResponse {
+        line: 0,
+        utf16_column: 0,
+    };
     for (index, character) in text.char_indices() {
         if is_identifier_character(character) {
             if current_start.is_none() {
-                current_start = Some(index);
+                current_start = Some((index, position));
             }
-        } else if let Some(start) = current_start.take() {
-            push_identifier(text, start, index, &mut values);
+        } else if let Some((start, start_position)) = current_start.take() {
+            push_identifier(text, start, index, start_position, position, &mut values);
+        }
+        if character == '\n' {
+            position.line += 1;
+            position.utf16_column = 0;
+        } else {
+            position.utf16_column += character.len_utf16() as i64;
         }
     }
-    if let Some(start) = current_start {
-        push_identifier(text, start, text.len(), &mut values);
+    if let Some((start, start_position)) = current_start {
+        push_identifier(
+            text,
+            start,
+            text.len(),
+            start_position,
+            position,
+            &mut values,
+        );
     }
     values
 }
 
-fn push_identifier(text: &str, start: usize, end: usize, values: &mut Vec<IdentifierOccurrence>) {
+fn push_identifier(
+    text: &str,
+    start: usize,
+    end: usize,
+    start_position: LspPositionResponse,
+    end_position: LspPositionResponse,
+    values: &mut Vec<IdentifierOccurrence>,
+) {
     let value = &text[start..end];
     if value.chars().next().is_some_and(is_identifier_start)
         && !is_language_keyword(value)
@@ -214,7 +238,10 @@ fn push_identifier(text: &str, start: usize, end: usize, values: &mut Vec<Identi
             value: value.to_string(),
             start,
             end,
-            range: range_for_offsets(text, start, end),
+            range: LspRangeResponse {
+                start: start_position,
+                end: end_position,
+            },
         });
     }
 }
