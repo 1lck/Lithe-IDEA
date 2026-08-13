@@ -350,6 +350,7 @@ extension View {
 
     /// Shows the macOS pointing-hand cursor while an interactive control is
     /// hovered. The push/pop pair is balanced even when a view disappears.
+    @MainActor
     func lithePointer() -> some View {
         modifier(LithePointerModifier())
     }
