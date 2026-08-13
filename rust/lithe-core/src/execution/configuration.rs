@@ -349,12 +349,18 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
 
 pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
-    let maven_root = crate::project::maven_root(&root, &request.paths)?;
+    let mut paths = request
+        .paths
+        .into_iter()
+        .filter(|path| !is_nested_checkout_path(path))
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    let maven_root = crate::project::maven_root(&root, &paths)?;
     let maven_relative_path = maven_root
         .as_ref()
         .map(|(_, relative_path)| relative_path.as_str());
-    let has_java_sources = request
-        .paths
+    let has_java_sources = paths
         .iter()
         .any(|path| path.to_lowercase().ends_with(".java"));
     let has_maven_project = maven_relative_path.is_some()
@@ -371,10 +377,10 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .into_iter()
         .map(|path| workspace_maven_path(maven_relative_path, &path))
         .collect();
-    let module_paths = inferred_maven_module_paths(&root, &request.paths, configured_module_paths);
+    let module_paths = inferred_maven_module_paths(&root, &paths, configured_module_paths);
     let scanned = crate::languages::run_configurations(JavaRunConfigurationsRequest {
         root: request.root.clone(),
-        paths: request.paths,
+        paths,
         module_paths,
     })?;
     let annotated_main_classes = scanned
@@ -383,8 +389,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .filter(|value| value.is_spring_boot)
         .map(|value| (value.path.clone(), value.qualified_name.clone()))
         .collect::<Vec<_>>();
-    let java_entry_count = scanned.configurations.len();
-    let mut configurations = scanned
+    let configurations = scanned
         .configurations
         .into_iter()
         .map(|value| {
@@ -445,6 +450,8 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             }
         })
         .collect::<Vec<_>>();
+    let mut configurations = deduplicate_java_configurations(configurations);
+    let java_entry_count = configurations.len();
     if has_java_sources {
         configurations.push(RunConfiguration {
             id: "current-file".to_string(),
@@ -542,6 +549,49 @@ fn java_configuration_id(value: &crate::protocol::JavaRunConfigurationResponse) 
     match (value.kind.as_str(), value.main_class.as_deref()) {
         ("springBoot", Some(main_class)) => format!("java-main:{main_class}"),
         _ => value.id.clone(),
+    }
+}
+
+/// Keeps stable ids for the usual one-module case while preserving same-named
+/// main classes that belong to different modules. Repeated source paths within
+/// one module are genuine duplicates and still collapse to one configuration.
+fn deduplicate_java_configurations(configurations: Vec<RunConfiguration>) -> Vec<RunConfiguration> {
+    let mut grouped = BTreeMap::<String, BTreeMap<String, RunConfiguration>>::new();
+    for configuration in configurations {
+        let module = java_module_identity(configuration.module().as_deref());
+        grouped
+            .entry(configuration.id.clone())
+            .or_default()
+            .entry(module)
+            .or_insert(configuration);
+    }
+
+    grouped
+        .into_iter()
+        .flat_map(|(base_id, modules)| {
+            let has_module_collision = modules.len() > 1;
+            modules.into_iter().map(move |(module, mut configuration)| {
+                if has_module_collision {
+                    configuration.id = format!("{base_id}:{module}");
+                }
+                configuration
+            })
+        })
+        .collect()
+}
+
+fn java_module_identity(module: Option<&str>) -> String {
+    let normalized = module
+        .unwrap_or(".")
+        .replace('\\', "/")
+        .split('/')
+        .filter(|component| !component.is_empty() && *component != ".")
+        .collect::<Vec<_>>()
+        .join("/");
+    if normalized.is_empty() {
+        ".".to_string()
+    } else {
+        normalized
     }
 }
 
@@ -671,6 +721,12 @@ fn normalize_project_relative(value: &str) -> Option<PathBuf> {
         return None;
     }
     Some(path.to_path_buf())
+}
+
+fn is_nested_checkout_path(value: &str) -> bool {
+    value.split(['/', '\\']).any(|component| {
+        component.eq_ignore_ascii_case(".worktree") || component.eq_ignore_ascii_case(".worktrees")
+    })
 }
 
 pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
@@ -2009,9 +2065,13 @@ fn input_change_summary(
 }
 
 fn ignored_directory(path: &Path) -> bool {
-    matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some(
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    name.eq_ignore_ascii_case(".worktree")
+        || name.eq_ignore_ascii_case(".worktrees")
+        || matches!(
+            name,
             ".git"
                 | ".lithe"
                 | ".idea"
@@ -2025,7 +2085,6 @@ fn ignored_directory(path: &Path) -> bool {
                 | "dist"
                 | "out"
         )
-    )
 }
 
 fn fingerprint_input(path: &Path) -> bool {

@@ -14,6 +14,8 @@ const MAX_DIRECTORIES: usize = 4000;
 /// are large enough that descending into them would dominate the walk.
 const PRUNED: &[&str] = &[
     ".git",
+    ".worktree",
+    ".worktrees",
     ".lithe",
     ".idea",
     ".vscode",

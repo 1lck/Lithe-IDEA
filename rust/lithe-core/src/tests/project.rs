@@ -4,6 +4,39 @@ use serde_json::Value;
 use std::fs;
 
 #[test]
+fn workspace_snapshot_hides_nested_worktree_checkouts() {
+    let root = temporary_root("snapshot-worktree");
+    fs::create_dir_all(root.join("src")).expect("source directory should be creatable");
+    fs::create_dir_all(root.join(".worktree/feature/src"))
+        .expect("worktree directory should be creatable");
+    fs::create_dir_all(root.join(".worktrees/bugfix/src"))
+        .expect("worktrees directory should be creatable");
+    fs::write(root.join("src/App.java"), "class App {}").expect("source should be writable");
+    fs::write(root.join(".worktree/feature/src/App.java"), "class App {}")
+        .expect("worktree source should be writable");
+    fs::write(root.join(".worktrees/bugfix/src/App.java"), "class App {}")
+        .expect("worktrees source should be writable");
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "snapshot-worktree",
+            "command": "workspace.snapshot",
+            "payload": {"root": root}
+        })
+        .to_string(),
+    ))
+    .expect("snapshot response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["files"],
+        serde_json::json!(["src/App.java"])
+    );
+
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
 fn markdown_render_command_returns_sanitized_html() {
     let request = serde_json::json!({
         "id": "markdown-1",

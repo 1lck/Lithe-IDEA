@@ -237,6 +237,124 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
 }
 
 #[test]
+fn run_configuration_generation_deduplicates_nested_checkout_sources() {
+    let root = temporary_root("run-config-worktree-duplicate");
+    let source = "src/main/java/com/example/App.java";
+    let duplicate_source = "copied/src/main/java/com/example/App.java";
+    let nested_source = ".worktree/feature/src/main/java/com/example/App.java";
+    fs::create_dir_all(root.join("src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join("copied/src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join(".worktree/feature/src/main/java/com/example")).unwrap();
+    fs::write(root.join("pom.xml"), "<project/>").unwrap();
+    let java = "package com.example; class App { public static void main(String[] args) {} }";
+    fs::write(root.join(source), java).unwrap();
+    fs::write(root.join(duplicate_source), java).unwrap();
+    fs::write(root.join(nested_source), java).unwrap();
+
+    let generate = |paths: Vec<&str>| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "generate-worktree-duplicate",
+                "command": "runConfig.generate",
+                "payload": {
+                    "root": root,
+                    "paths": paths,
+                    "modulePaths": []
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    let response = generate(vec![source, source, duplicate_source, nested_source]);
+    let reversed = generate(vec![nested_source, duplicate_source, source, source]);
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["generated"]["configurations"],
+        reversed["data"]["generated"]["configurations"]
+    );
+    let configurations = response["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        configurations
+            .iter()
+            .filter(|value| value["id"] == "java-main:com.example.App")
+            .count(),
+        1,
+        "{configurations:?}"
+    );
+    assert_eq!(response["data"]["entryCount"], 1);
+    assert_eq!(reversed["data"]["entryCount"], 1);
+    let inputs = response["data"]["generated"]["generator"]["inputs"]
+        .as_object()
+        .unwrap();
+    assert!(!inputs.keys().any(|path| path.starts_with(".worktree/")));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn run_configuration_generation_disambiguates_same_main_class_across_modules() {
+    let root = temporary_root("run-config-duplicate-main-classes");
+    let module_a = "module-a/src/main/java/com/example/App.java";
+    let module_b = "module-b/src/main/java/com/example/App.java";
+    fs::create_dir_all(root.join("module-a/src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join("module-b/src/main/java/com/example")).unwrap();
+    fs::write(root.join("pom.xml"), "<project/>").unwrap();
+    fs::write(root.join("module-a/pom.xml"), "<project/>").unwrap();
+    fs::write(root.join("module-b/pom.xml"), "<project/>").unwrap();
+    let java = "package com.example; class App { public static void main(String[] args) {} }";
+    fs::write(root.join(module_a), java).unwrap();
+    fs::write(root.join(module_b), java).unwrap();
+
+    let generate = |paths: Vec<&str>| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "generate-duplicate-main-classes",
+                "command": "runConfig.generate",
+                "payload": {
+                    "root": root,
+                    "paths": paths,
+                    "modulePaths": ["module-a", "module-b"]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    let response = generate(vec![module_a, module_b]);
+    let reversed = generate(vec![module_b, module_a]);
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["generated"]["configurations"],
+        reversed["data"]["generated"]["configurations"]
+    );
+    let configurations = response["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap();
+    let module_configurations = configurations
+        .iter()
+        .filter(|value| value["provider"] == "java.main")
+        .collect::<Vec<_>>();
+    assert_eq!(module_configurations.len(), 2, "{configurations:?}");
+    assert!(module_configurations.iter().any(|value| {
+        value["id"] == "java-main:com.example.App:module-a"
+            && value["extensions"]["maven"]["module"] == "module-a"
+    }));
+    assert!(module_configurations.iter().any(|value| {
+        value["id"] == "java-main:com.example.App:module-b"
+            && value["extensions"]["maven"]["module"] == "module-b"
+    }));
+    assert_eq!(response["data"]["entryCount"], 2);
+    assert_eq!(reversed["data"]["entryCount"], 2);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn ordinary_java_main_uses_an_application_launch_plan() {
     let root = temporary_root("run-config-java-main");
     let source = "batch-worker/src/main/java/com/example/WorkerMain.java";

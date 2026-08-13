@@ -1408,6 +1408,20 @@ struct LitheCoreLogicTests {
         )
         #expect(
             rules.isHidden(
+                root.appendingPathComponent(".worktree/feature/src/App.java"),
+                relativeTo: root,
+                isDirectory: false
+            )
+        )
+        #expect(
+            rules.isHidden(
+                root.appendingPathComponent(".worktrees/feature"),
+                relativeTo: root,
+                isDirectory: true
+            )
+        )
+        #expect(
+            rules.isHidden(
                 root.appendingPathComponent("Sources/generated"),
                 relativeTo: root,
                 isDirectory: true
@@ -2761,8 +2775,10 @@ struct EditorDocumentTests {
             .appendingPathComponent("lithe-workspace-fallback-\(UUID().uuidString)")
         let sources = workspace.appendingPathComponent("Sources")
         let hiddenGit = workspace.appendingPathComponent(".git")
+        let hiddenWorktree = workspace.appendingPathComponent(".worktree/feature/Sources")
         try fileManager.createDirectory(at: sources, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: hiddenGit, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: hiddenWorktree, withIntermediateDirectories: true)
         fileManager.createFile(
             atPath: sources.appendingPathComponent("App.swift").path,
             contents: Data("print(1)".utf8)
@@ -2774,6 +2790,10 @@ struct EditorDocumentTests {
         fileManager.createFile(
             atPath: hiddenGit.appendingPathComponent("config").path,
             contents: Data()
+        )
+        fileManager.createFile(
+            atPath: hiddenWorktree.appendingPathComponent("App.swift").path,
+            contents: Data("print(2)".utf8)
         )
         defer { try? fileManager.removeItem(at: workspace) }
 
@@ -2787,6 +2807,7 @@ struct EditorDocumentTests {
         #expect(snapshot.root.children?.map(\.name) == ["Sources", "README.md"])
         #expect(snapshot.files.map(\.lastPathComponent).sorted() == ["App.swift", "README.md"])
         #expect(!snapshot.files.contains { $0.path.contains("/.git/") })
+        #expect(!snapshot.files.contains { $0.path.contains("/.worktree/") })
     }
 
     @Test
