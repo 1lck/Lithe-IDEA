@@ -227,6 +227,7 @@ struct RustCoreBridge: Sendable {
             }
         }
 
+        let relativePath: String
         let groupID: String?
         let artifactID: String
         let version: String?
@@ -237,6 +238,7 @@ struct RustCoreBridge: Sendable {
 
         enum CodingKeys: String, CodingKey {
             case groupID = "groupId"
+            case relativePath
             case artifactID = "artifactId"
             case version
             case packaging
@@ -245,8 +247,11 @@ struct RustCoreBridge: Sendable {
             case hasWrapper
         }
 
-        func makeProject(rootURL: URL) -> MavenProject {
-            MavenProject(
+        func makeProject(workspaceRootURL: URL) -> MavenProject {
+            let rootURL = relativePath == "."
+                ? workspaceRootURL
+                : workspaceRootURL.appendingPathComponent(relativePath, isDirectory: true)
+            return MavenProject(
                 rootURL: rootURL,
                 pomURL: rootURL.appendingPathComponent("pom.xml"),
                 groupID: groupID,
@@ -1041,6 +1046,7 @@ struct RustCoreBridge: Sendable {
 
     private struct MavenScanRequest: Encodable {
         let root: String
+        let paths: [String]
     }
 
     private struct MarkdownRenderRequest: Encodable {
@@ -1773,10 +1779,13 @@ struct RustCoreBridge: Sendable {
         return response?.relocated == true
     }
 
-    func scanMaven(at rootURL: URL) -> MavenScanPayload? {
+    func scanMaven(at rootURL: URL, paths: [String] = []) -> MavenScanPayload? {
         execute(
             command: "maven.scan",
-            payload: MavenScanRequest(root: rootURL.standardizedFileURL.path)
+            payload: MavenScanRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: paths
+            )
         )
     }
 

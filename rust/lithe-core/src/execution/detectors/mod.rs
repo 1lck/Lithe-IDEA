@@ -6,9 +6,10 @@
 //! ecosystems are added.
 //!
 //! An ecosystem whose layout is *declared* rather than discovered reads its own
-//! manifest graph instead, from the root directory only -- see `maven`. That is
-//! not a shortcut around the shared walk: a declared graph names directories the
-//! walk prunes, and omits ones it would visit.
+//! manifest graph instead -- see `maven`. The caller selects the Maven root
+//! because it may sit below the opened workspace. That is not a shortcut around
+//! the shared walk: a declared graph names directories the walk prunes, and
+//! omits ones it would visit.
 
 mod cargo;
 mod compose;
@@ -207,7 +208,6 @@ const DETECTORS: &[DetectFn] = &[
     cargo::detect,
     go::detect,
     gradle::detect,
-    maven::detect,
     make::detect,
     shell::detect_just,
 ];
@@ -215,12 +215,17 @@ const DETECTORS: &[DetectFn] = &[
 /// Runs every detector over the project and returns deduplicated results
 /// ordered shallowest-directory-first, so the top-level service of a monorepo
 /// reads before its packages.
-pub fn detect_all(root: &Path) -> Result<Vec<Detected>, CoreError> {
+pub fn detect_all(root: &Path, maven_root: Option<&Path>) -> Result<Vec<Detected>, CoreError> {
     let directories = scan(root)?;
     let mut found = Vec::new();
     for context in &directories {
         for detector in DETECTORS {
             found.extend(detector(context));
+        }
+    }
+    if let Some(maven_root) = maven_root {
+        if let Some(context) = DirectoryContext::at(root, maven_root)? {
+            found.extend(maven::detect(&context));
         }
     }
     Ok(dedupe(found))

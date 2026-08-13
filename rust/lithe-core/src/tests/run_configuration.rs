@@ -128,6 +128,115 @@ fn run_configuration_generation_infers_maven_modules_from_nearest_pom() {
 }
 
 #[test]
+fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
+    let root = temporary_root("run-config-nested-maven-root");
+    let source = "projects/demo/service/src/main/java/com/example/App.java";
+    fs::create_dir_all(root.join("projects/demo/service/src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join("projects/demo/.mvn/wrapper")).unwrap();
+    fs::write(
+        root.join("projects/demo/pom.xml"),
+        r#"<project><artifactId>demo</artifactId><packaging>pom</packaging><modules><module>service</module></modules><properties><maven.compiler.release>21</maven.compiler.release></properties></project>"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("projects/demo/service/pom.xml"),
+        r#"<project><artifactId>service</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
+    )
+    .unwrap();
+    fs::write(root.join("projects/demo/mvnw"), "#!/bin/sh\n").unwrap();
+    fs::write(root.join("projects/demo/.sdkmanrc"), "java=21.0.5-tem\n").unwrap();
+    fs::write(
+        root.join("projects/demo/.mvn/wrapper/maven-wrapper.properties"),
+        "distributionUrl=https://example.invalid/apache-maven-3.9.9-bin.zip\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join(source),
+        "package com.example; @SpringBootApplication class App { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate-nested-maven-root",
+            "command": "runConfig.generate",
+            "payload": {
+                "root": root,
+                "paths": ["projects/demo/pom.xml", "projects/demo/service/pom.xml", source],
+                "modulePaths": ["service"]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    let configurations = response["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap();
+    let service = configurations
+        .iter()
+        .find(|value| value["provider"] == "spring-boot.maven")
+        .unwrap_or_else(|| panic!("missing nested Maven service in {configurations:?}"));
+    assert_eq!(service["cwd"], "projects/demo");
+    assert_eq!(service["source"], "projects/demo/service/pom.xml");
+    assert_eq!(service["extensions"]["maven"]["module"], "service");
+    assert_eq!(
+        service["extensions"]["maven"]["mainClass"],
+        "com.example.App"
+    );
+    let java_main = configurations
+        .iter()
+        .find(|value| value["provider"] == "java.main")
+        .unwrap();
+    assert_eq!(java_main["cwd"], "projects/demo");
+    assert_eq!(java_main["extensions"]["maven"]["module"], "service");
+    assert_eq!(
+        response["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["minimumVersion"],
+        "21"
+    );
+    assert_eq!(
+        response["data"]["toolchainRequirements"]["toolchains"]["project-jdk"]["preferredVendor"],
+        "temurin"
+    );
+    assert_eq!(
+        response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["wrapper"],
+        "./mvnw"
+    );
+    assert_eq!(
+        response["data"]["toolchainRequirements"]["toolchains"]["project-maven"]["version"],
+        "3.9.9"
+    );
+
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&response["data"]["generated"]).unwrap(),
+    )
+    .unwrap();
+    let plan: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "plan-nested-maven-root",
+            "command": "runConfig.createLaunchPlan",
+            "payload": {
+                "root": root,
+                "configurationId": service["id"]
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(plan["data"]["workingDirectory"], "projects/demo");
+    assert!(plan["data"]["arguments"]
+        .as_array()
+        .unwrap()
+        .windows(2)
+        .any(|arguments| arguments == ["-pl", "service"]));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn ordinary_java_main_uses_an_application_launch_plan() {
     let root = temporary_root("run-config-java-main");
     let source = "batch-worker/src/main/java/com/example/WorkerMain.java";

@@ -62,6 +62,25 @@ pub struct DirectoryContext {
 }
 
 impl DirectoryContext {
+    pub fn at(root: &Path, path: &Path) -> Result<Option<Self>, CoreError> {
+        let Ok(entries) = fs::read_dir(path) else {
+            return Ok(None);
+        };
+        let files = entries
+            .flatten()
+            .filter_map(|entry| {
+                let kind = entry.file_type().ok()?;
+                (!kind.is_dir()).then(|| entry.file_name().to_str().map(str::to_string))?
+            })
+            .collect();
+        Ok(Some(Self {
+            root: root.to_path_buf(),
+            path: path.to_path_buf(),
+            relative: relative_path(root, path)?,
+            files,
+        }))
+    }
+
     pub fn has(&self, name: &str) -> bool {
         self.files.contains(name)
     }

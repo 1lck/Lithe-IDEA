@@ -18,8 +18,8 @@ const SERVICE_PLUGINS: &[(&str, &str)] = &[
 ];
 
 /// Maven modules are *declared*, not discovered, so this detector reads the
-/// module graph from the root `pom.xml` instead of judging each directory the
-/// shared walk visits.
+/// module graph from the selected Maven root instead of judging each directory
+/// the shared walk visits.
 ///
 /// A directory-driven scan gets Maven wrong in both directions: `<modules>` may
 /// name a directory the walk prunes (one called `build` or `out` is invisible),
@@ -27,10 +27,10 @@ const SERVICE_PLUGINS: &[(&str, &str)] = &[
 /// Reading the graph once at the root is also cheaper than parsing every pom the
 /// walk happens to pass.
 pub fn detect(ctx: &DirectoryContext) -> Vec<Detected> {
-    if ctx.relative != "." || !ctx.has("pom.xml") {
+    if !ctx.has("pom.xml") {
         return Vec::new();
     }
-    let Ok(modules) = declared_modules(&ctx.root) else {
+    let Ok(modules) = declared_modules(&ctx.path) else {
         return Vec::new();
     };
     let names = service_names(&modules);

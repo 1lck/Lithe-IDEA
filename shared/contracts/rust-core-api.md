@@ -264,11 +264,14 @@ are ignored. `history.entries` returns Unix-second timestamps and relative
 `contentPath` values. `history.content` rejects traversal, and
 `history.relocate` updates metadata and storage paths at the command boundary.
 
-`maven.scan` accepts `{ "root": string }` and returns `null` when the root does
-not contain a readable `pom.xml`. A project response contains `groupId`,
-`artifactId`, `version`, `packaging`, recursive `modules`, `profiles`, and
-`hasWrapper`. Module paths are workspace-relative and use `/` separators.
-Malformed XML returns `parse_failed`.
+`maven.scan` accepts `{ "root": string, "paths"?: string[] }` and returns
+`null` when neither the root nor the supplied visible workspace-relative paths
+contain a readable `pom.xml`. The root descriptor wins when present; otherwise
+the shallowest descriptor is selected, with `/`-normalized lexical path order
+breaking ties. A project response contains its workspace `relativePath`,
+`groupId`, `artifactId`, `version`, `packaging`, recursive `modules`, `profiles`,
+and `hasWrapper`. Module paths are relative to the selected Maven root and use
+`/` separators. Malformed XML returns `parse_failed`.
 
 `maven.diagnostics` accepts `{ "root": string, "output": string }` and returns
 `{ "issues": [] }`. Diagnostic paths may be absolute or workspace-relative;

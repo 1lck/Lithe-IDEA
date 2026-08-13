@@ -8,6 +8,7 @@ struct MavenRuntimeTests {
     func mavenScanPayloadDecodesRustCamelCaseIdentifiers() throws {
         let json = #"""
         {
+            "relativePath": "services/api",
             "groupId": "com.example",
             "artifactId": "root",
             "version": "1.0",
@@ -29,12 +30,18 @@ struct MavenRuntimeTests {
             from: Data(json.utf8)
         )
 
-        let project = payload.makeProject(rootURL: URL(fileURLWithPath: "/tmp/maven"))
+        let workspaceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-maven-payload", isDirectory: true)
+        let project = payload.makeProject(workspaceRootURL: workspaceRoot)
+        let expectedRoot = workspaceRoot.appendingPathComponent("services/api", isDirectory: true)
+        #expect(project.rootURL == expectedRoot)
+        #expect(project.pomURL == expectedRoot.appendingPathComponent("pom.xml"))
         #expect(project.groupID == "com.example")
         #expect(project.artifactID == "root")
         #expect(project.modules.count == 1)
         #expect(project.modules[0].groupID == "com.example")
         #expect(project.modules[0].artifactID == "child")
+        #expect(project.modules[0].url == expectedRoot.appendingPathComponent("module-a"))
         #expect(project.profiles == [MavenProfile(id: "dev", isActiveByDefault: true)])
         #expect(project.hasWrapper)
     }

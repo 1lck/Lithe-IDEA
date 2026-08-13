@@ -1,7 +1,7 @@
 import Foundation
 
 protocol JavaMavenOperations: Sendable {
-    func scanMavenProject(at rootURL: URL) -> MavenProject?
+    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject?
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
     func codeVision(
         at rootURL: URL,
@@ -42,8 +42,18 @@ struct JavaCodeVisionValue: Sendable {
 struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
     let core: RustCoreBridge
 
-    func scanMavenProject(at rootURL: URL) -> MavenProject? {
-        core.scanMaven(at: rootURL)?.makeProject(rootURL: rootURL.standardizedFileURL)
+    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? {
+        let root = rootURL.standardizedFileURL
+        let rootComponents = root.pathComponents
+        let paths = files.compactMap { fileURL -> String? in
+            let file = fileURL.standardizedFileURL
+            guard file.lastPathComponent.lowercased() == "pom.xml",
+                  file.pathComponents.starts(with: rootComponents) else { return nil }
+            return file.pathComponents
+                .dropFirst(rootComponents.count)
+                .joined(separator: "/")
+        }
+        return core.scanMaven(at: root, paths: paths)?.makeProject(workspaceRootURL: root)
     }
 
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] {

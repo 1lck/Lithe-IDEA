@@ -23,8 +23,8 @@ final class MavenFeatureModel: ObservableObject {
     var issues: [MavenBuildIssue] { service.issues }
     var lastExitCode: Int32? { service.lastExitCode }
 
-    func loadProject(at workspaceURL: URL) async {
-        await service.loadProject(at: workspaceURL)
+    func loadProject(at workspaceURL: URL, files: [URL]) async {
+        await service.loadProject(at: workspaceURL, files: files)
     }
 
     func run(phase: MavenLifecyclePhase, module: MavenModule?, profiles: Set<String>) {
@@ -197,7 +197,7 @@ final class ProjectDevelopmentFeatureModel {
             file.lastPathComponent.lowercased() == "pom.xml"
         }
         if hasMavenDescriptor {
-            await mavenFeature.loadProject(at: workspaceURL)
+            await mavenFeature.loadProject(at: workspaceURL, files: files)
         } else {
             mavenFeature.reset()
         }
