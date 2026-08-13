@@ -1488,9 +1488,16 @@ final class AppModel: ObservableObject, Identifiable {
         pendingGeneratedCommitMessage = nil
     }
 
-    func toggleStaging(_ change: GitChange) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.toggleStaging(change)
+    func toggleStaging(_ change: GitChange) {
+        guard let gitFeature = gitFeatureIfActive else { return }
+        guard let staged = gitFeature.beginToggleStaging(change) else { return }
+        Task { await gitFeature.finishToggleStaging(change, staged: staged) }
+    }
+
+    func setStaging(_ changes: [GitChange], staged: Bool) {
+        guard let gitFeature = gitFeatureIfActive else { return }
+        let pendingChanges = gitFeature.beginSetStaging(changes, staged: staged)
+        Task { await gitFeature.finishSetStaging(pendingChanges, staged: staged) }
     }
 
     func stageAllChanges() async {
