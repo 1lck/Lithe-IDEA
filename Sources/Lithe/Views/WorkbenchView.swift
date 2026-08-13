@@ -543,7 +543,8 @@ struct WorkbenchView: View {
 
                 Spacer(minLength: 0)
 
-                VStack(spacing: ActivityBarMetrics.spacing) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: ActivityBarMetrics.spacing) {
                     activityToolButton(
                         systemImage: "terminal",
                         help: "Terminal",
@@ -618,7 +619,9 @@ struct WorkbenchView: View {
                     ) {
                         model.showSettings()
                     }
+                    }
                 }
+                .frame(height: 292)
                 .padding(.bottom, ActivityBarMetrics.edgeInset)
             }
             .frame(width: ActivityBarMetrics.width, height: geometry.size.height, alignment: .top)
