@@ -82,7 +82,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var languageNavigationResultKind: LanguageNavigationResultKind = .definitions
     @Published var isLoadingLanguageNavigation = false
     @Published var editorCaret: EditorCaret?
-    @Published var editorNavigationTarget: EditorNavigationTarget?
+    var editorNavigationTarget: EditorNavigationTarget? { editorNavigationFeature.target }
     var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] {
         javaFeature.javaCodeVisionHints
     }
@@ -114,6 +114,7 @@ final class AppModel: ObservableObject, Identifiable {
     let projectHistoryFeature: ProjectHistoryFeatureModel
     let gitFeature: GitFeatureModel
     let documentFeature: DocumentFeatureModel
+    let editorNavigationFeature: EditorNavigationFeatureModel
     let javaFeature: JavaFeatureModel
     let databaseFeature: DatabaseFeatureModel
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
@@ -133,6 +134,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var terminalFeatureObservation: AnyCancellable?
     private var projectHistoryFeatureObservation: AnyCancellable?
     private var databaseFeatureObservation: AnyCancellable?
+    private var editorNavigationFeatureObservation: AnyCancellable?
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .codex }
@@ -284,6 +286,7 @@ final class AppModel: ObservableObject, Identifiable {
             fileStorage: services.fileStorage,
             binaryFileViewerRegistry: services.binaryFileViewerRegistry
         )
+        editorNavigationFeature = EditorNavigationFeatureModel()
         javaFeature = JavaFeatureModel(
             operations: services.javaMavenOperations,
             workspaceOperations: services.workspaceOperations
@@ -465,6 +468,9 @@ final class AppModel: ObservableObject, Identifiable {
             }
         )
         documentFeatureObservation = documentFeature.objectWillChange.sink { [weak self] _ in
+            self?.scheduleObjectWillChangeRelay()
+        }
+        editorNavigationFeatureObservation = editorNavigationFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
         javaFeature.configure(
@@ -745,7 +751,7 @@ final class AppModel: ObservableObject, Identifiable {
         isTestsVisible = false
         isDebugVisible = false
         editorCaret = nil
-        editorNavigationTarget = nil
+        editorNavigationFeature.reset()
         blameVisibleURL = nil
         gitFeature.reset()
         documentFeature.reset()
@@ -824,7 +830,7 @@ final class AppModel: ObservableObject, Identifiable {
         genericDebugFeature.reset()
         javaFeature.stop()
         editorCaret = nil
-        editorNavigationTarget = nil
+        editorNavigationFeature.reset()
         blameVisibleURL = nil
         gitLogSearchQuery = ""
         projectItemEditRequest = nil
@@ -867,6 +873,29 @@ final class AppModel: ObservableObject, Identifiable {
         selectedChange = nil
         closeBranchComparison()
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
+    }
+
+    /// Opens and activates the destination before publishing its reveal range.
+    /// Newer requests supersede older file reads without letting stale results
+    /// pull focus back to an earlier destination.
+    func navigateEditor(
+        to target: EditorNavigationTarget,
+        isReadOnly: Bool = false,
+        displayPath: String? = nil
+    ) {
+        selectedChange = nil
+        closeBranchComparison()
+        let normalizedURL = target.url.standardizedFileURL
+        let normalizedTarget = EditorNavigationTarget(url: normalizedURL, range: target.range)
+        editorNavigationFeature.navigate(to: normalizedTarget) { [documentFeature] in
+            guard let document = await documentFeature.openFileAsync(
+                normalizedURL,
+                isReadOnly: isReadOnly,
+                displayPath: displayPath,
+                activateWhenReady: true
+            ) else { return false }
+            return documentFeature.activeDocumentID == document.id
+        }
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {
@@ -1223,13 +1252,14 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func openSearchResult(_ result: FileSearchResult) {
-        openFile(result.url)
         if let line = result.line {
-            editorNavigationTarget = EditorNavigationTarget(
+            navigateEditor(to: EditorNavigationTarget(
                 url: result.url,
                 line: line - 1,
                 utf16Column: 0
-            )
+            ))
+        } else {
+            openFile(result.url)
         }
     }
 
@@ -1272,8 +1302,12 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func updateFindState(currentIndex: Int, count: Int) {
-        findMatchCount = count
-        currentFindMatchIndex = currentIndex
+        if findMatchCount != count {
+            findMatchCount = count
+        }
+        if currentFindMatchIndex != currentIndex {
+            currentFindMatchIndex = currentIndex
+        }
     }
 
     func selectChange(_ change: GitChange) {

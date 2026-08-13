@@ -3231,8 +3231,66 @@ struct EditorDocumentTests {
         #expect(model.activeDocumentID == documentB.id)
 
         operations.releaseA()
-        await pendingA.value
+        _ = await pendingA.value
         #expect(model.activeDocumentID == documentB.id)
+    }
+
+    @Test
+    @MainActor
+    func concurrentNavigationToTheSameFileSharesOneRead() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-shared-open-tests")
+        let fileA = workspace.appendingPathComponent("A.swift")
+        let operations = BlockingWorkspaceOperations()
+        let model = DocumentFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        model.configure(
+            workspaceURLProvider: { workspace },
+            autoSaveEnabledProvider: { false },
+            autoSaveDelayProvider: { 0 },
+            notify: { _ in },
+            onDocumentOpened: { _ in },
+            onDocumentChanged: { _ in },
+            onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in },
+            onRecordDiscard: { _ in },
+            onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {},
+            onProjectCloseReady: {}
+        )
+
+        let first = Task { @MainActor in
+            await model.openFileAsync(
+                fileA,
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: true
+            )
+        }
+        for _ in 0..<100 where !operations.didStartReadingA {
+            await Task.yield()
+        }
+        let second = Task { @MainActor in
+            await model.openFileAsync(
+                fileA,
+                isReadOnly: false,
+                displayPath: nil,
+                activateWhenReady: true
+            )
+        }
+        for _ in 0..<10 { await Task.yield() }
+
+        #expect(operations.readACount == 1)
+        operations.releaseA()
+        let firstDocument = await first.value
+        let secondDocument = await second.value
+
+        #expect(firstDocument?.id == secondDocument?.id)
+        #expect(model.openDocuments.count == 1)
+        #expect(model.activeDocumentID == secondDocument?.id)
     }
 }
 
@@ -3507,11 +3565,18 @@ private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked
     private let lock = NSLock()
     private let releaseASemaphore = DispatchSemaphore(value: 0)
     private var startedA = false
+    private var aReadCount = 0
 
     var didStartReadingA: Bool {
         lock.lock()
         defer { lock.unlock() }
         return startedA
+    }
+
+    var readACount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return aReadCount
     }
 
     func releaseA() {
@@ -3548,6 +3613,7 @@ private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked
         if relativePath == "A.swift" {
             lock.lock()
             startedA = true
+            aReadCount += 1
             lock.unlock()
             releaseASemaphore.wait()
             return "A"

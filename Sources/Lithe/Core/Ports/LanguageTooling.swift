@@ -194,12 +194,12 @@ struct LanguageProviderCatalog: Sendable {
     }
 }
 
-struct LanguageServerPosition: Equatable, Sendable {
+struct LanguageServerPosition: Equatable, Hashable, Sendable {
     let line: Int
     let utf16Column: Int
 }
 
-struct LanguageServerRange: Equatable, Sendable {
+struct LanguageServerRange: Equatable, Hashable, Sendable {
     let start: LanguageServerPosition
     let end: LanguageServerPosition
 }

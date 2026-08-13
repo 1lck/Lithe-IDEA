@@ -27,7 +27,12 @@ final class DocumentFeatureModel: ObservableObject {
     private var onDocumentCollectionChanged: (@MainActor () -> Void)?
     private var onProjectCloseReady: (@MainActor () -> Void)?
     private var autoSaveTasks: [UUID: Task<Void, Never>] = [:]
-    private var pendingFileOpenRequests: [String: UUID] = [:]
+    private struct PendingFileRead {
+        let id: UUID
+        let task: Task<String?, Never>
+    }
+
+    private var pendingFileReads: [String: PendingFileRead] = [:]
     private var latestFileOpenRequestID: UUID?
     private var pendingCloseQueue: [EditorDocument] = []
     private var pendingClosePreferredDocumentID: UUID?
@@ -84,7 +89,8 @@ final class DocumentFeatureModel: ObservableObject {
     func reset() {
         autoSaveTasks.values.forEach { $0.cancel() }
         autoSaveTasks.removeAll()
-        pendingFileOpenRequests.removeAll()
+        pendingFileReads.values.forEach { $0.task.cancel() }
+        pendingFileReads.removeAll()
         latestFileOpenRequestID = nil
         pendingCloseDocument = nil
         pendingCloseQueue = []
@@ -120,12 +126,13 @@ final class DocumentFeatureModel: ObservableObject {
         ) }
     }
 
+    @discardableResult
     func openFileAsync(
         _ normalizedURL: URL,
         isReadOnly: Bool,
         displayPath: String?,
         activateWhenReady: Bool
-    ) async {
+    ) async -> EditorDocument? {
         if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
             if activateWhenReady {
                 let requestID = UUID()
@@ -135,32 +142,39 @@ final class DocumentFeatureModel: ObservableObject {
             if !isReadOnly {
                 onDocumentOpened?(existing)
             }
-            return
+            return existing
         }
 
         let requestID = UUID()
-        guard pendingFileOpenRequests[normalizedURL.path] == nil else { return }
-        pendingFileOpenRequests[normalizedURL.path] = requestID
         if activateWhenReady {
             latestFileOpenRequestID = requestID
-        }
-        defer {
-            if pendingFileOpenRequests[normalizedURL.path] == requestID {
-                pendingFileOpenRequests[normalizedURL.path] = nil
-            }
         }
 
         guard let workspaceURLProvider,
               let openingWorkspaceURL = workspaceURLProvider(),
               let relativePath = workspaceRelativePath(for: normalizedURL, root: openingWorkspaceURL) else {
             notify?("This file is outside the current workspace")
-            return
+            return nil
         }
 
-        let operations = self.operations
-        let text = await Task.detached(priority: .userInitiated) {
-            operations.readFile(at: openingWorkspaceURL, relativePath: relativePath)
-        }.value
+        let path = normalizedURL.path
+        let pendingRead: PendingFileRead
+        if let existingRead = pendingFileReads[path] {
+            pendingRead = existingRead
+        } else {
+            let operations = self.operations
+            pendingRead = PendingFileRead(
+                id: UUID(),
+                task: Task.detached(priority: .userInitiated) {
+                    operations.readFile(at: openingWorkspaceURL, relativePath: relativePath)
+                }
+            )
+            pendingFileReads[path] = pendingRead
+        }
+        let text = await pendingRead.task.value
+        if pendingFileReads[path]?.id == pendingRead.id {
+            pendingFileReads[path] = nil
+        }
         guard let text else {
             // `file.read` accepts plain text regardless of suffix and rejects
             // binary content. Only after that path fails do we probe a small
@@ -178,12 +192,19 @@ final class DocumentFeatureModel: ObservableObject {
                    url: normalizedURL,
                    header: header
                ) {
-                return
+                return nil
             }
             notify?("This file cannot be displayed as text")
-            return
+            return nil
         }
-        guard workspaceURLProvider() == openingWorkspaceURL else { return }
+        guard workspaceURLProvider() == openingWorkspaceURL else { return nil }
+
+        if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
+            if activateWhenReady, latestFileOpenRequestID == requestID {
+                activeDocumentID = existing.id
+            }
+            return existing
+        }
 
         let document = EditorDocument(
             url: normalizedURL,
@@ -192,13 +213,13 @@ final class DocumentFeatureModel: ObservableObject {
             isReadOnly: isReadOnly,
             displayPath: displayPath
         )
-        guard !openDocuments.contains(where: { $0.url == normalizedURL }) else { return }
         openDocuments.append(document)
         if activateWhenReady, latestFileOpenRequestID == requestID {
             activeDocumentID = document.id
         }
         onDocumentCollectionChanged?()
         onDocumentOpened?(document)
+        return document
     }
 
     func openVirtualDocument(

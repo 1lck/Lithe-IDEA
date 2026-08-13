@@ -16,6 +16,7 @@ fileprivate struct CodeEditorPalette {
     var currentLine: NSColor { color(light: (0, 0, 0, 0.035), dark: (1, 1, 1, 0.035)) }
     var bracket: NSColor { color(light: (0.18, 0.43, 0.79, 0.19), dark: (0.72, 0.72, 0.72, 0.22)) }
     var symbol: NSColor { color(light: (0.18, 0.43, 0.79, 0.11), dark: (0.68, 0.68, 0.68, 0.14)) }
+    var navigationHighlight: NSColor { themeColor(.accent).withAlphaComponent(isDark ? 0.24 : 0.16) }
     var guide: NSColor { themeColor(.guide) }
     var activeGuide: NSColor { themeColor(.activeGuide) }
     var unusedCode: NSColor { color(light: (0.48, 0.49, 0.52, 1), dark: (0.48, 0.48, 0.48, 1)) }
@@ -48,6 +49,32 @@ fileprivate struct CodeEditorPalette {
             blue: components.2,
             alpha: components.3
         )
+    }
+}
+
+/// Pure viewport policy used by source navigation. Targets already comfortably
+/// visible stay put; off-screen targets settle slightly above center so the
+/// declaration body remains visible below the caret.
+struct EditorNavigationViewport {
+    static func destinationY(
+        currentY: CGFloat,
+        viewportHeight: CGFloat,
+        contentHeight: CGFloat,
+        targetMinY: CGFloat,
+        targetHeight: CGFloat,
+        edgePadding: CGFloat = 36,
+        anchorRatio: CGFloat = 0.38
+    ) -> CGFloat {
+        guard viewportHeight > 0 else { return max(0, currentY) }
+        let targetMaxY = targetMinY + max(1, targetHeight)
+        let visibleMinY = currentY + edgePadding
+        let visibleMaxY = currentY + viewportHeight - edgePadding
+        if targetMinY >= visibleMinY, targetMaxY <= visibleMaxY {
+            return currentY
+        }
+
+        let desired = targetMinY + max(1, targetHeight) / 2 - viewportHeight * anchorRatio
+        return min(max(0, desired), max(0, contentHeight - viewportHeight))
     }
 }
 
@@ -140,8 +167,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
         textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
-        textView.onFindStateChange = { [weak model] index, count in
-            model?.updateFindState(currentIndex: index, count: count)
+        textView.onFindStateChange = { [weak coordinator = context.coordinator] index, count in
+            coordinator?.scheduleFindStateUpdate(currentIndex: index, count: count)
         }
         textView.isLanguageIntelligenceEnabled = !textView.languageServerFeatures.intersection([
             .hover, .completion, .rename, .formatting, .codeActions
@@ -193,7 +220,7 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.highlight()
         textView.updateEditorDecorations()
         context.coordinator.refreshFoldRegions(useDefaultImportFold: true)
-        context.coordinator.updateCaret()
+        context.coordinator.scheduleCaretUpdate()
         container.scrollView = scrollView
         container.gutter = gutter
         container.gutterWidthConstraint = gutterWidthConstraint
@@ -255,7 +282,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
         context.coordinator.updateCodeVisionAndBlame()
         context.coordinator.updateDiagnostics()
-        context.coordinator.applyNavigationTargetIfNeeded()
+        context.coordinator.scheduleNavigationTargetIfNeeded()
         if let codeTextView = textView as? CodeTextView {
             codeTextView.syncFindState(isVisible: model.isFindBarVisible, query: model.findBarQuery)
         }
@@ -286,6 +313,12 @@ struct CodeEditorView: NSViewRepresentable {
         private var markdownScrollObserver: NSObjectProtocol?
         private var isApplyingSynchronizedMarkdownScroll = false
         private var lastObservedMarkdownScrollRevision: UInt64?
+        private var navigationHighlightTask: Task<Void, Never>?
+        private var navigationApplicationTask: Task<Void, Never>?
+        private var scheduledNavigationTargetID: UUID?
+        private var caretUpdateTask: Task<Void, Never>?
+        private var findStateUpdateTask: Task<Void, Never>?
+        private var pendingFindState: (currentIndex: Int, count: Int)?
 
         init(
             document: EditorDocument,
@@ -301,6 +334,10 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         deinit {
+            navigationHighlightTask?.cancel()
+            navigationApplicationTask?.cancel()
+            caretUpdateTask?.cancel()
+            findStateUpdateTask?.cancel()
             if let markdownImagePasteMonitor {
                 NSEvent.removeMonitor(markdownImagePasteMonitor)
             }
@@ -478,14 +515,14 @@ struct CodeEditorView: NSViewRepresentable {
             refreshFoldRegions(useDefaultImportFold: false)
             gutter?.needsDisplay = true
             isApplyingEditorChange = false
-            updateCaret()
+            scheduleCaretUpdate()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             (textView as? CodeTextView)?.updateEditorDecorations()
             textView?.needsDisplay = true
             gutter?.needsDisplay = true
-            updateCaret()
+            scheduleCaretUpdate()
         }
 
         func highlight() {
@@ -598,60 +635,179 @@ struct CodeEditorView: NSViewRepresentable {
             )
         }
 
-        func applyNavigationTargetIfNeeded() {
-            guard let textView, let document, let target = model?.editorNavigationTarget,
+        func scheduleNavigationTargetIfNeeded() {
+            guard let document,
+                  let target = model?.editorNavigationTarget,
                   target.url.standardizedFileURL == document.url.standardizedFileURL,
-                  appliedNavigationTargetID != target.id else { return }
+                  appliedNavigationTargetID != target.id,
+                  scheduledNavigationTargetID != target.id else { return }
+
+            navigationApplicationTask?.cancel()
+            scheduledNavigationTargetID = target.id
+            navigationApplicationTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self, !Task.isCancelled else { return }
+                guard self.model?.editorNavigationTarget?.id == target.id,
+                      self.document?.url.standardizedFileURL == target.url.standardizedFileURL else {
+                    if self.scheduledNavigationTargetID == target.id {
+                        self.scheduledNavigationTargetID = nil
+                    }
+                    return
+                }
+                self.scheduledNavigationTargetID = nil
+                self.applyNavigationTarget(target)
+            }
+        }
+
+        private func applyNavigationTarget(_ target: EditorNavigationTarget) {
+            guard let textView = textView as? CodeTextView else { return }
             appliedNavigationTargetID = target.id
 
             let text = textView.string as NSString
-            var lineStart = 0
-            var currentLine = 0
-            while currentLine < target.line, lineStart < text.length {
-                let range = text.lineRange(for: NSRange(location: lineStart, length: 0))
-                lineStart = NSMaxRange(range)
-                currentLine += 1
-            }
-            let lineRange = text.lineRange(for: NSRange(location: min(lineStart, text.length), length: 0))
-            let location = min(NSMaxRange(lineRange), lineStart + target.utf16Column)
+            let targetRange = textView.navigationCharacterRange(for: target.range, in: text)
+            let location = min(targetRange.location, text.length)
+            let revealRange = navigationRevealRange(targetRange, in: text)
             textView.setSelectedRange(NSRange(location: location, length: 0))
-            textView.scrollRangeToVisible(NSRange(location: location, length: 0))
+            revealNavigationRange(revealRange, in: textView)
+            showNavigationHighlight(revealRange, in: textView)
             textView.window?.makeFirstResponder(textView)
-            updateCaret()
+            scheduleCaretUpdate()
         }
 
-        func updateCaret() {
+        private func navigationRevealRange(_ range: NSRange, in text: NSString) -> NSRange {
+            guard text.length > 0 else { return NSRange(location: 0, length: 0) }
+            if range.length > 0 { return range }
+            let location = min(range.location, text.length - 1)
+            let lineRange = text.lineRange(for: NSRange(location: location, length: 0))
+            var end = NSMaxRange(lineRange)
+            while end > lineRange.location, [10, 13].contains(text.character(at: end - 1)) {
+                end -= 1
+            }
+            return NSRange(
+                location: lineRange.location,
+                length: max(1, end - lineRange.location)
+            )
+        }
+
+        private func revealNavigationRange(_ range: NSRange, in textView: CodeTextView) {
+            guard let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer,
+                  let scrollView = textView.enclosingScrollView else {
+                textView.scrollRangeToVisible(range)
+                return
+            }
+
+            layoutManager.ensureLayout(forCharacterRange: range)
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: range,
+                actualCharacterRange: nil
+            )
+            var targetRect = layoutManager.boundingRect(
+                forGlyphRange: glyphRange,
+                in: textContainer
+            )
+            targetRect.origin.x += textView.textContainerOrigin.x
+            targetRect.origin.y += textView.textContainerOrigin.y
+
+            let clipView = scrollView.contentView
+            let destinationY = EditorNavigationViewport.destinationY(
+                currentY: clipView.bounds.origin.y,
+                viewportHeight: clipView.bounds.height,
+                contentHeight: textView.bounds.height,
+                targetMinY: targetRect.minY,
+                targetHeight: targetRect.height
+            )
+            guard abs(destinationY - clipView.bounds.origin.y) > 0.5 else { return }
+            let destination = NSPoint(x: clipView.bounds.origin.x, y: destinationY)
+            guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+                clipView.setBoundsOrigin(destination)
+                scrollView.reflectScrolledClipView(clipView)
+                return
+            }
+
+            let distance = abs(destinationY - clipView.bounds.origin.y)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = distance > clipView.bounds.height * 6 ? 0.12 : 0.18
+                context.allowsImplicitAnimation = true
+                clipView.animator().setBoundsOrigin(destination)
+            }
+        }
+
+        private func showNavigationHighlight(_ range: NSRange, in textView: CodeTextView) {
+            navigationHighlightTask?.cancel()
+            let palette = CodeEditorPalette(isDark: isDarkAppearance, theme: colorTheme)
+            textView.showNavigationHighlight(range, color: palette.navigationHighlight)
+            navigationHighlightTask = Task { @MainActor [weak textView] in
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                guard !Task.isCancelled else { return }
+                textView?.clearNavigationHighlight()
+            }
+        }
+
+        func scheduleCaretUpdate() {
+            caretUpdateTask?.cancel()
+            caretUpdateTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self, !Task.isCancelled else { return }
+                self.caretUpdateTask = nil
+                self.updateCaret()
+            }
+        }
+
+        func scheduleFindStateUpdate(currentIndex: Int, count: Int) {
+            pendingFindState = (currentIndex, count)
+            guard findStateUpdateTask == nil else { return }
+            findStateUpdateTask = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self, !Task.isCancelled else { return }
+                self.findStateUpdateTask = nil
+                guard let state = self.pendingFindState else { return }
+                self.pendingFindState = nil
+                self.model?.updateFindState(
+                    currentIndex: state.currentIndex,
+                    count: state.count
+                )
+            }
+        }
+
+        private func updateCaret() {
             guard let textView, let document else { return }
             let text = textView.string as NSString
             updateSelectedText(in: text, range: textView.selectedRange())
             let location = min(textView.selectedRange().location, text.length)
-            let prefix = text.substring(to: location) as NSString
-            var line = 0
-            var lineStart = 0
-            for index in 0..<prefix.length where prefix.character(at: index) == 10 {
-                line += 1
-                lineStart = index + 1
-            }
-            model?.editorCaret = EditorCaret(
+            let line = (textView as? CodeTextView)?.lineNumber(at: location, in: text) ?? 0
+            let lineStart = (textView as? CodeTextView)?.characterOffset(forLine: line, in: text) ?? 0
+            let updatedCaret = EditorCaret(
                 url: document.url.standardizedFileURL,
                 line: line,
                 utf16Column: location - lineStart
             )
+            if model?.editorCaret != updatedCaret {
+                model?.editorCaret = updatedCaret
+            }
         }
 
         /// 只取单行、非空白的选区作为预填词；跨行选择在 IDEA 里也不会填进查询框。
         private func updateSelectedText(in text: NSString, range: NSRange) {
+            let updatedText: String
             guard range.length > 0, NSMaxRange(range) <= text.length else {
-                model?.editorSelectedText = ""
+                if model?.editorSelectedText != "" {
+                    model?.editorSelectedText = ""
+                }
                 return
             }
             let selected = text.substring(with: range)
             guard !selected.contains("\n"),
                   !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                model?.editorSelectedText = ""
+                if model?.editorSelectedText != "" {
+                    model?.editorSelectedText = ""
+                }
                 return
             }
-            model?.editorSelectedText = selected
+            updatedText = selected
+            if model?.editorSelectedText != updatedText {
+                model?.editorSelectedText = updatedText
+            }
         }
     }
 }
@@ -754,6 +910,12 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     private var trackingArea: NSTrackingArea?
     private var hoveredFoldID: String?
     private var lineIndex = TextLineIndex(source: "" as NSString)
+    private var navigationHighlightRange: NSRange?
+    private var navigationHighlightColor = CodeEditorPalette.dark.navigationHighlight
+    private var contentRevision: UInt64 = 0
+    private var lastSyncedFindVisibility: Bool?
+    private var lastSyncedFindQuery: String?
+    private var lastSyncedFindContentRevision: UInt64?
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
 
     fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
@@ -807,6 +969,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     func rebuildLineIndex() {
         lineIndex = TextLineIndex(source: string as NSString)
+        contentRevision &+= 1
     }
 
     func characterOffset(forLine targetLine: Int, in _: NSString) -> Int {
@@ -819,6 +982,35 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     func lineRange(forLine line: Int, in _: NSString) -> NSRange {
         lineIndex.lineRange(forLine: line)
+    }
+
+    func navigationCharacterRange(
+        for range: LanguageServerRange,
+        in source: NSString
+    ) -> NSRange {
+        let start = characterOffset(
+            forLine: range.start.line,
+            column: range.start.utf16Column,
+            in: source
+        )
+        let end = characterOffset(
+            forLine: max(range.start.line, range.end.line),
+            column: range.end.utf16Column,
+            in: source
+        )
+        return NSRange(location: start, length: max(0, end - start))
+    }
+
+    func showNavigationHighlight(_ range: NSRange, color: NSColor) {
+        navigationHighlightRange = range
+        navigationHighlightColor = color
+        needsDisplay = true
+    }
+
+    func clearNavigationHighlight() {
+        guard navigationHighlightRange != nil else { return }
+        navigationHighlightRange = nil
+        needsDisplay = true
     }
 
     func updateDiagnostics(_ diagnostics: [EditorDiagnostic]) {
@@ -963,6 +1155,12 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     /// 文档或查询变化时同步 Find Bar 状态；Find Bar 关闭时仅清理已有高亮。
     func syncFindState(isVisible: Bool, query: String) {
+        guard lastSyncedFindVisibility != isVisible
+            || lastSyncedFindQuery != query
+            || lastSyncedFindContentRevision != contentRevision else { return }
+        lastSyncedFindVisibility = isVisible
+        lastSyncedFindQuery = query
+        lastSyncedFindContentRevision = contentRevision
         if isVisible {
             updateFindMatches(query: query)
         } else if !findMatchRanges.isEmpty {
@@ -1249,7 +1447,30 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        drawNavigationHighlight(in: rect)
         drawIndentGuides(in: rect)
+    }
+
+    private func drawNavigationHighlight(in dirtyRect: NSRect) {
+        guard let range = navigationHighlightRange,
+              range.length > 0,
+              let layoutManager,
+              let textContainer else { return }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: range,
+            actualCharacterRange: nil
+        )
+        var highlightRect = layoutManager.boundingRect(
+            forGlyphRange: glyphRange,
+            in: textContainer
+        )
+        highlightRect.origin.x += textContainerOrigin.x - 3
+        highlightRect.origin.y += textContainerOrigin.y - 1
+        highlightRect.size.width += 6
+        highlightRect.size.height += 2
+        guard highlightRect.intersects(dirtyRect) else { return }
+        navigationHighlightColor.setFill()
+        NSBezierPath(roundedRect: highlightRect, xRadius: 3, yRadius: 3).fill()
     }
 
     private func lineFragmentRect(

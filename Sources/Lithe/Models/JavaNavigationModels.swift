@@ -9,14 +9,31 @@ struct EditorCaret: Equatable {
 struct EditorNavigationTarget: Equatable, Identifiable {
     let id = UUID()
     let url: URL
-    let line: Int
-    let utf16Column: Int
+    let range: LanguageServerRange
+
+    init(url: URL, range: LanguageServerRange) {
+        self.url = url
+        self.range = range
+    }
+
+    init(url: URL, line: Int, utf16Column: Int) {
+        let position = LanguageServerPosition(
+            line: max(0, line),
+            utf16Column: max(0, utf16Column)
+        )
+        self.init(
+            url: url,
+            range: LanguageServerRange(start: position, end: position)
+        )
+    }
+
+    var line: Int { range.start.line }
+    var utf16Column: Int { range.start.utf16Column }
 }
 
 struct LanguageNavigationLocation: Identifiable, Hashable, Sendable {
     let url: URL
-    let line: Int
-    let utf16Column: Int
+    let range: LanguageServerRange
     let isReadOnly: Bool
     let displayPath: String?
 
@@ -27,14 +44,36 @@ struct LanguageNavigationLocation: Identifiable, Hashable, Sendable {
         isReadOnly: Bool = false,
         displayPath: String? = nil
     ) {
+        let position = LanguageServerPosition(
+            line: max(0, line),
+            utf16Column: max(0, utf16Column)
+        )
+        self.init(
+            url: url,
+            range: LanguageServerRange(start: position, end: position),
+            isReadOnly: isReadOnly,
+            displayPath: displayPath
+        )
+    }
+
+    init(
+        url: URL,
+        range: LanguageServerRange,
+        isReadOnly: Bool = false,
+        displayPath: String? = nil
+    ) {
         self.url = url
-        self.line = line
-        self.utf16Column = utf16Column
+        self.range = range
         self.isReadOnly = isReadOnly
         self.displayPath = displayPath
     }
 
-    var id: String { "\(url.path):\(line):\(utf16Column)" }
+    var line: Int { range.start.line }
+    var utf16Column: Int { range.start.utf16Column }
+
+    var id: String {
+        "\(url.path):\(range.start.line):\(range.start.utf16Column):\(range.end.line):\(range.end.utf16Column)"
+    }
 
     var displayName: String { displayPath?.split(separator: "/").last.map(String.init) ?? url.lastPathComponent }
 }

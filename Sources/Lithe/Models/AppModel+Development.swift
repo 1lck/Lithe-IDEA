@@ -60,23 +60,21 @@ extension AppModel {
     func openMavenIssue(_ issue: MavenBuildIssue) {
         guard let fileURL = issue.fileURL,
               workspaceFeature.fileExists(at: fileURL) else { return }
-        openFile(fileURL)
-        editorNavigationTarget = EditorNavigationTarget(
+        navigateEditor(to: EditorNavigationTarget(
             url: fileURL.standardizedFileURL,
             line: max(0, (issue.line ?? 1) - 1),
             utf16Column: max(0, (issue.column ?? 1) - 1)
-        )
+        ))
     }
 
     /// 打开源码文件并定位到指定行/列(供构建输出、运行堆栈等可点击文本跳转)。
     func openSourceLocation(url: URL, line: Int, column: Int?) {
         guard workspaceFeature.fileExists(at: url) else { return }
-        openFile(url)
-        editorNavigationTarget = EditorNavigationTarget(
+        navigateEditor(to: EditorNavigationTarget(
             url: url.standardizedFileURL,
             line: max(0, line - 1),
             utf16Column: max(0, (column ?? 1) - 1)
-        )
+        ))
     }
 
     func toggleProblems() {
@@ -93,12 +91,11 @@ extension AppModel {
 
     func openDiagnostic(_ diagnostic: EditorDiagnostic) {
         guard workspaceFeature.fileExists(at: diagnostic.fileURL) else { return }
-        openFile(diagnostic.fileURL)
-        editorNavigationTarget = EditorNavigationTarget(
+        navigateEditor(to: EditorNavigationTarget(
             url: diagnostic.fileURL.standardizedFileURL,
             line: diagnostic.line,
             utf16Column: diagnostic.utf16Column
-        )
+        ))
     }
 
     func selectRunConfiguration(_ configuration: RunConfiguration) {
@@ -437,11 +434,10 @@ extension AppModel {
                             text: text,
                             displayPath: location.displayPath
                         )
-                        self.editorNavigationTarget = EditorNavigationTarget(
+                        self.editorNavigationFeature.reveal(EditorNavigationTarget(
                             url: location.url,
-                            line: location.line,
-                            utf16Column: location.utf16Column
-                        )
+                            range: location.range
+                        ))
                     case .failure(let error):
                         self.showNotification(error.localizedDescription)
                     }
@@ -452,15 +448,13 @@ extension AppModel {
             }
             return
         }
-        openFile(
-            location.url,
+        navigateEditor(
+            to: EditorNavigationTarget(
+                url: location.url.standardizedFileURL,
+                range: location.range
+            ),
             isReadOnly: location.isReadOnly,
             displayPath: location.displayPath
-        )
-        editorNavigationTarget = EditorNavigationTarget(
-            url: location.url.standardizedFileURL,
-            line: location.line,
-            utf16Column: location.utf16Column
         )
     }
 
@@ -897,8 +891,7 @@ extension AppModel {
         let locations = values.map {
             LanguageNavigationLocation(
                 url: $0.url,
-                line: $0.range.start.line,
-                utf16Column: $0.range.start.utf16Column,
+                range: $0.range,
                 isReadOnly: $0.isReadOnly,
                 displayPath: $0.displayPath
             )
