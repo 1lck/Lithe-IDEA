@@ -3,16 +3,16 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>The IDEA-shaped core for AI-assisted development</strong></p>
-  <p>Native macOS IDE · familiar workflows · a lighter memory footprint</p>
-  <p><em>AI writes the code. Lithe helps you see it, run it, and review it.</em></p>
+  <p><strong>A cross-platform IDE for AI-assisted development</strong></p>
+  <p>Familiar development workflows · multi-language project support · a focused resource footprint</p>
+  <p><em>AI writes the code. Lithe helps you understand it, run it, and review it.</em></p>
 
   <p>
     <a href="./README.zh-CN.md"><strong>简体中文</strong></a> ·
     <a href="#core-features">Core features</a> ·
     <a href="#product-tour">Product tour</a> ·
     <a href="#use-lithe">Use Lithe</a> ·
-    <a href="#architecture">Architecture</a> ·
+    <a href="#architecture-overview">Architecture</a> ·
     <a href="#develop-lithe">Develop Lithe</a> ·
     <a href="#contact-us">Contact us</a>
   </p>
@@ -36,24 +36,20 @@
 
 <table align="center">
   <tr>
-    <td align="center">🧭<br><strong>Familiar IDE core</strong><br>Project · Editor · Search · Diff</td>
-    <td align="center">⚡<br><strong>Native and on demand</strong><br>SwiftUI/AppKit with services that start when needed</td>
+    <td align="center">🧭<br><strong>General-purpose IDE</strong><br>Project · Editor · Search · Diff</td>
+    <td align="center">⚡<br><strong>Performance focused</strong><br>Services start on demand to keep workflows responsive</td>
     <td align="center">🤖<br><strong>AI-ready review loop</strong><br>See, run, diff, undo, and commit external changes</td>
     <td align="center">🪶<br><strong>Lighter footprint</strong><br>Keep the resident app small and focused</td>
   </tr>
 </table>
 
-<p align="center">
-  <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="96%" alt="Lithe Java editor and project tree">
-</p>
-
 ## About Lithe
 
-Lithe is a native macOS IDE built for AI-assisted development. It preserves the project browsing, editing, search, code navigation, Git, run, and debug workflows familiar to IntelliJ IDEA users while starting language servers, terminals, Maven, and debug processes only when needed.
+Lithe is a high-performance, general-purpose IDE for AI-assisted development. It brings project browsing, editing, search, code navigation, Git, run, and debug workflows together for multi-language and multi-type projects, while starting language servers, terminals, build tools, and debug processes only when needed.
 
 When an external AI tool changes a project, Lithe helps you locate the affected code, run the project, review the diff, and decide which changes to stage, undo, or commit.
 
-> **A familiar IDE core with a lighter resource footprint.**
+> **A high-performance general-purpose IDE for modern development.**
 
 ## Core features
 
@@ -70,7 +66,11 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
 11. Local application memory usage monitoring.
 12. One-command installation and updates through Homebrew.
 13. One-click in-app updates and installation.
-14. Ongoing bug fixes and user experience improvements.
+14. Automatic project entry-point detection with one-click run support for Spring Boot, Java, Maven, Gradle, npm, Cargo, Go, Python, Make, Docker Compose, Procfile, and shell projects.
+15. Per-language service switches so language servers can be enabled or disabled independently to match the machine's resources.
+16. Multi-line editor tabs for keeping more files visible in the same workspace.
+17. Database connection workspace with multiple database types, connection management, SQL history, table browsing, and database operations.
+18. Ongoing bug fixes and user experience improvements.
 
 ## Product tour
 
@@ -100,6 +100,20 @@ When an external AI tool changes a project, Lithe helps you locate the affected 
 <p align="center">
   <img src="./docs/assets/screenshots/memory-monitor-annotated.png" width="49%" alt="Low memory footprint and in-app memory monitoring">
   <img src="./docs/assets/screenshots/memory-monitor.png" width="49%" alt="Application memory usage details">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="96%" alt="Automatic project detection and one-click run configuration">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="Per-language service settings">
+  <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="Multi-line editor tabs">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="Database connection workspace">
+  <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="Database SQL operation and table structure">
 </p>
 
 ## Use Lithe
@@ -162,36 +176,13 @@ The eight database brand marks used by the current workspace are copied into
 source, Apache-2.0 license, and trademark-use notice are recorded alongside
 the files, so the packaged application never resolves assets from `third_party`.
 
-## Architecture
+## Architecture Overview
 
-```mermaid
-flowchart TB
-    CORE["Shared Rust Core<br/>JSON C ABI and shared contracts"]
+The macOS and Windows implementations are feature-complete. The Windows build is currently in pre-release validation and has not been published yet.
 
-    subgraph MACOS["macOS · Available"]
-        MUI["SwiftUI / AppKit Views"] --> MAPP["AppModel · Feature models · AppServices"]
-        MAPP --> MADAPTERS["Native macOS adapters"]
-        MADAPTERS --> MNATIVE["FSEvents · Process · PTY · Native UI"]
-    end
-
-    MAPP --> CORE
-
-    subgraph WINDOWS["Windows · In development"]
-        WUI["Qt Widgets Workbench<br/>Foundation available"] --> WAPP["C++ application workflows<br/>To be completed"]
-        WAPP --> WCLIENT["C++ CoreClient<br/>Foundation available"]
-        WAPP --> WADAPTERS["Win32 adapters<br/>Foundation available"]
-        WADAPTERS --> WNATIVE["Win32 · ConPTY · File watching"]
-        WAPP -.-> WPARITY["Full feature parity<br/>Planned"]
-        WCLIENT -.-> WPACKAGE["Rust library integration and packaging<br/>Planned"]
-        WNATIVE -.-> WBUILD["Native Windows build and validation<br/>To be completed"]
-        WUI -.-> WSHIP["Installer · Updates<br/>Planned"]
-    end
-
-    WCLIENT --> CORE
-
-    classDef planned fill:#fff3cd,stroke:#d97706,stroke-width:2px,stroke-dasharray:6 4,color:#111827
-    class WAPP,WPARITY,WPACKAGE,WBUILD,WSHIP planned
-```
+<p align="center">
+  <img src="./docs/assets/architecture-diagram.png" width="100%" alt="Lithe cross-platform architecture">
+</p>
 
 ## Develop Lithe
 
@@ -237,12 +228,12 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
 <table>
   <tr>
     <td width="112" align="center">
-      <a href="https://shu26.cfd/">
-        <img src="./docs/assets/sponsors/code-go.png" width="64" alt="Code GO">
+      <a href="https://www.fastaitoken.com/">
+        <img src="./docs/assets/sponsors/fastai.png" width="64" alt="FastAI">
       </a>
     </td>
     <td>
-      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> provides relay access to Claude models and supports the development of Lithe. Thank you to Code GO for supporting this project!
+      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> provides access to large language models and supports the development of Lithe. Thank you to FastAI for supporting this project!
     </td>
   </tr>
   <tr>
@@ -257,12 +248,12 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://www.fastaitoken.com/">
-        <img src="./docs/assets/sponsors/fastai.png" width="64" alt="FastAI">
+      <a href="https://shu26.cfd/">
+        <img src="./docs/assets/sponsors/code-go.png" width="64" alt="Code GO">
       </a>
     </td>
     <td>
-      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> provides access to large language models and supports the development of Lithe. Thank you to FastAI for supporting this project!
+      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> provides relay access to Claude models and supports the development of Lithe. Thank you to Code GO for supporting this project!
     </td>
   </tr>
 </table>

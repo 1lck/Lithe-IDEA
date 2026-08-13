@@ -3,16 +3,16 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>为 AI 辅助开发保留 IDEA 核心习惯</strong></p>
-  <p>原生 macOS IDE · 熟悉的操作路径 · 更轻的内存占用</p>
-  <p><em>AI 负责大量编写，Lithe 负责让你看得清、跑得通、审得明白。</em></p>
+  <p><strong>一款面向 AI 辅助开发的跨平台 IDE</strong></p>
+  <p>熟悉的开发工作流 · 支持多语言与多类型项目 · 更专注的资源占用</p>
+  <p><em>AI 负责编写代码，Lithe 负责帮你看懂、跑通并审查修改。</em></p>
 
   <p>
     <a href="./README.md"><strong>English</strong></a> ·
     <a href="#核心功能">核心功能</a> ·
     <a href="#产品截图">产品截图</a> ·
     <a href="#如何使用">如何使用</a> ·
-    <a href="#架构图">架构图</a> ·
+    <a href="#架构概览">架构图</a> ·
     <a href="#如何开发">如何开发</a> ·
     <a href="#联系我们">联系我们</a>
   </p>
@@ -36,24 +36,20 @@
 
 <table align="center">
   <tr>
-    <td align="center">🧭<br><strong>熟悉的 IDE 核心</strong><br>Project · Editor · Search · Diff</td>
-    <td align="center">⚡<br><strong>原生、按需启动</strong><br>SwiftUI/AppKit，重量级服务需要时才启动</td>
+    <td align="center">🧭<br><strong>通用型 IDE</strong><br>Project · Editor · Search · Diff</td>
+    <td align="center">⚡<br><strong>极致性能</strong><br>服务按需启动，让开发流程保持流畅</td>
     <td align="center">🤖<br><strong>适配 AI 开发</strong><br>查看、运行、Diff、撤销和提交外部修改</td>
     <td align="center">🪶<br><strong>更轻的资源占用</strong><br>让常驻应用保持小而专注</td>
   </tr>
 </table>
 
-<p align="center">
-  <img src="./docs/visual-qa/01-java-editor-project-tree.png" width="96%" alt="Lithe Java 编辑器和项目树">
-</p>
-
 ## 项目简介
 
-Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ IDEA 用户熟悉的项目浏览、编辑、搜索、代码导航、Git、运行和调试工作流，同时让语言服务器、终端、Maven 和调试进程只在需要时启动。
+Lithe 是一款面向 AI 辅助开发、追求极致性能的通用型 IDE。它面向多语言和多类型项目，整合项目浏览、编辑、搜索、代码导航、Git、运行和调试工作流，并让语言服务器、终端、构建工具和调试进程只在需要时启动。
 
 当外部 AI 工具修改项目后，你可以用 Lithe 定位受影响的代码、运行项目、审查 Diff，并决定暂存、撤销或提交哪些修改。
 
-> **熟悉的 IDE 核心体验，更轻的资源占用。**
+> **一款面向现代开发的极致性能通用型 IDE。**
 
 ## 核心功能
 
@@ -70,7 +66,11 @@ Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ ID
 11. 支持查看应用的本地内存占用情况。
 12. 支持通过 Homebrew 一键安装和更新。
 13. 支持在应用内一键更新并安装。
-14. 持续修复问题并优化用户体验。
+14. 自动识别 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python、Make、Docker Compose、Procfile 和 Shell 项目的可运行入口，并支持一键运行。
+15. 支持按语言独立开关语言服务，可根据电脑配置自由启用或停用。
+16. 支持类似 IDEA 的多行编辑器标签，同时展示更多打开的文件。
+17. 新增数据库连接工作台，支持多种数据库类型、连接管理、SQL 历史、表浏览和数据库操作。
+18. 持续修复问题并优化用户体验。
 
 ## 产品截图
 
@@ -100,6 +100,20 @@ Lithe 是一款面向 AI 辅助开发的原生 macOS IDE。它保留 IntelliJ ID
 <p align="center">
   <img src="./docs/assets/screenshots/memory-monitor-annotated.png" width="49%" alt="低内存占用和应用内存监控">
   <img src="./docs/assets/screenshots/memory-monitor.png" width="49%" alt="应用内存占用详情">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="96%" alt="项目自动识别和一键运行配置">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="按语言配置语言服务">
+  <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="多行编辑器标签">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="数据库连接工作台">
+  <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="数据库 SQL 操作和表结构">
 </p>
 
 ## 如何使用
@@ -156,36 +170,13 @@ Redis 使用增量 `SCAN` 分页，不会默认全量加载键空间；第一版
 素材目录内保留了 DBX 来源、Apache-2.0 许可证及商标用途说明；应用打包和运行时
 不会从 `third_party` 目录读取这些素材。
 
-## 架构图
+## 架构概览
 
-```mermaid
-flowchart TB
-    CORE["共享 Rust Core<br/>JSON C ABI 与共享契约"]
+macOS 和 Windows 两端功能均已完成。Windows 版本目前处于上线前验证阶段，暂未正式发布。
 
-    subgraph MACOS["macOS · 已可用"]
-        MUI["SwiftUI / AppKit Views"] --> MAPP["AppModel · 功能模型 · AppServices"]
-        MAPP --> MADAPTERS["macOS 原生适配器"]
-        MADAPTERS --> MNATIVE["FSEvents · Process · PTY · 原生 UI"]
-    end
-
-    MAPP --> CORE
-
-    subgraph WINDOWS["Windows · 开发中"]
-        WUI["Qt Widgets Workbench<br/>已有基础骨架"] --> WAPP["C++ 应用工作流<br/>待补齐"]
-        WAPP --> WCLIENT["C++ CoreClient<br/>已有基础实现"]
-        WAPP --> WADAPTERS["Win32 Adapters<br/>已有基础实现"]
-        WADAPTERS --> WNATIVE["Win32 · ConPTY · 文件监听"]
-        WAPP -.-> WPARITY["完整功能对齐<br/>待开发"]
-        WCLIENT -.-> WPACKAGE["Rust 库集成与打包<br/>待开发"]
-        WNATIVE -.-> WBUILD["Windows 实机编译与验证<br/>待完成"]
-        WUI -.-> WSHIP["安装器 · 更新能力<br/>待开发"]
-    end
-
-    WCLIENT --> CORE
-
-    classDef planned fill:#fff3cd,stroke:#d97706,stroke-width:2px,stroke-dasharray:6 4,color:#111827
-    class WAPP,WPARITY,WPACKAGE,WBUILD,WSHIP planned
-```
+<p align="center">
+  <img src="./docs/assets/architecture-diagram.png" width="100%" alt="Lithe 跨平台架构图">
+</p>
 
 ## 如何开发
 
@@ -231,12 +222,12 @@ open dist/Lithe.app
 <table>
   <tr>
     <td width="112" align="center">
-      <a href="https://shu26.cfd/">
-        <img src="./docs/assets/sponsors/code-go.png" width="64" alt="Code GO">
+      <a href="https://www.fastaitoken.com/">
+        <img src="./docs/assets/sponsors/fastai.png" width="64" alt="FastAI">
       </a>
     </td>
     <td>
-      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> 提供 Claude 系列模型的中转支持，并支持 Lithe 的开发。感谢 Code GO 对本项目的支持！
+      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> 提供大模型服务支持，并助力 Lithe 的开发。感谢 FastAI 对本项目的支持！
     </td>
   </tr>
   <tr>
@@ -251,12 +242,12 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
-      <a href="https://www.fastaitoken.com/">
-        <img src="./docs/assets/sponsors/fastai.png" width="64" alt="FastAI">
+      <a href="https://shu26.cfd/">
+        <img src="./docs/assets/sponsors/code-go.png" width="64" alt="Code GO">
       </a>
     </td>
     <td>
-      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> 提供大模型服务支持，并助力 Lithe 的开发。感谢 FastAI 对本项目的支持！
+      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> 提供 Claude 系列模型的中转支持，并支持 Lithe 的开发。感谢 Code GO 对本项目的支持！
     </td>
   </tr>
 </table>
