@@ -2099,6 +2099,80 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func codeEditorCommandBNavigationPrefersTheSymbolUnderTheMouse() {
+        let caret = NSRange(location: 2, length: 0)
+        let hoveredSymbol = NSRange(location: 25, length: 7)
+
+        #expect(
+            CodeTextView.navigationLocation(
+                caretLocation: caret.location,
+                mouseSymbolRange: hoveredSymbol
+            ) == hoveredSymbol.location
+        )
+        #expect(
+            CodeTextView.navigationLocation(
+                caretLocation: caret.location,
+                mouseSymbolRange: nil
+            ) == caret.location
+        )
+    }
+
+    @Test
+    @MainActor
+    func codeEditorCommandClickNavigatesTheSymbolUnderTheMouse() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 120),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        let textView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 120))
+        window.contentView = textView
+        textView.string = "fn main() {}\nstruct Request {}\n"
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.rebuildLineIndex()
+        textView.languageServerFeatures = [.definition, .references]
+        textView.isLanguageNavigationEnabled = true
+        let requestRange = (textView.string as NSString).range(of: "Request")
+        let textContainer = try #require(textView.textContainer)
+        let layoutManager = try #require(textView.layoutManager)
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: requestRange,
+            actualCharacterRange: nil
+        )
+        let glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        let clickLocationInView = NSPoint(
+            x: textView.textContainerOrigin.x + glyphRect.midX,
+            y: textView.textContainerOrigin.y + glyphRect.midY
+        )
+        let clickLocationInWindow = textView.convert(clickLocationInView, to: nil)
+        var requestedPosition: (line: Int, column: Int)?
+        textView.onGoToDeclarationOrUsages = { line, column in
+            requestedPosition = (line, column)
+        }
+        let event = try #require(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: clickLocationInWindow,
+                modifierFlags: .command,
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+
+        textView.mouseDown(with: event)
+
+        #expect(requestedPosition?.line == 1)
+        #expect(requestedPosition?.column == 7)
+    }
+
+    @Test
+    @MainActor
     func codeEditorLanguageMenuTracksCurrentServerFeatures() {
         let textView = CodeTextView(frame: .zero)
 

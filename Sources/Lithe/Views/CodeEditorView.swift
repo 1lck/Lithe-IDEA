@@ -190,9 +190,6 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isLanguageNavigationEnabled = !textView.languageServerFeatures.intersection([
             .definition, .references, .implementation
         ]).isEmpty
-        textView.onNavigateToSymbol = { [weak model] line, utf16Column in
-            model?.navigateToSymbol(line: line, utf16Column: utf16Column, in: document.url)
-        }
         textView.onGoToDeclarationOrUsages = { [weak model] line, column in
             model?.goToDeclarationOrUsages(line: line, utf16Column: column)
         }
@@ -927,7 +924,6 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var isLanguageIntelligenceEnabled = false
     var languageServerFeatures: LanguageServerFeatureSet = []
     var onWindowAttached: (() -> Void)?
-    var onNavigateToSymbol: ((Int, Int) -> Void)?
     var onGoToDeclarationOrUsages: ((Int, Int) -> Void)?
     var onGoToDefinition: ((Int, Int) -> Void)?
     var onGoToImplementation: ((Int, Int) -> Void)?
@@ -1017,8 +1013,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         if modifiers == .command,
            character?.lowercased() == "b",
            !languageServerFeatures.intersection([.definition, .references]).isEmpty {
-            let position = languageServerPosition(at: selectedRange().location)
-            onGoToDeclarationOrUsages?(position.line, position.utf16Column)
+            requestDeclarationOrUsages(at: commandBNavigationLocation())
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -1620,11 +1615,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
         if hasNavigationModifier(event.modifierFlags) {
             updateLinkHighlight(at: point)
-            if let linkRange,
-               let characterIndex = characterIndex(at: point),
-               NSLocationInRange(characterIndex, linkRange) {
-                let (line, column) = lineAndColumn(for: linkRange.location)
-                onNavigateToSymbol?(line, column)
+            if let target = linkRange(at: point) {
+                requestDeclarationOrUsages(at: target.location)
                 return
             }
         }
@@ -1802,12 +1794,27 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         return mask.contains(.command) || mask.contains(.control)
     }
 
-    private func lineAndColumn(for location: Int) -> (line: Int, column: Int) {
-        let source = string as NSString
-        let safeLocation = min(max(0, location), source.length)
-        let line = lineIndex.lineNumber(at: safeLocation)
-        let lineStart = lineIndex.characterOffset(forLine: line)
-        return (line, safeLocation - lineStart)
+    private func commandBNavigationLocation() -> Int {
+        let mouseSymbolRange: NSRange?
+        if let window {
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            mouseSymbolRange = visibleRect.contains(point) ? linkRange(at: point) : nil
+        } else {
+            mouseSymbolRange = nil
+        }
+        return Self.navigationLocation(
+            caretLocation: selectedRange().location,
+            mouseSymbolRange: mouseSymbolRange
+        )
+    }
+
+    static func navigationLocation(caretLocation: Int, mouseSymbolRange: NSRange?) -> Int {
+        mouseSymbolRange?.location ?? caretLocation
+    }
+
+    private func requestDeclarationOrUsages(at location: Int) {
+        let position = languageServerPosition(at: location)
+        onGoToDeclarationOrUsages?(position.line, position.utf16Column)
     }
 
     private var centeredParagraphStyle: NSParagraphStyle {

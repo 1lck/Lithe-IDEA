@@ -463,24 +463,6 @@ extension AppModel {
         )
     }
 
-    func navigateToSymbol(line: Int, utf16Column: Int, in fileURL: URL) {
-        let normalizedURL = fileURL.standardizedFileURL
-        guard languageProviderCatalog.provider(for: normalizedURL)?.capabilities.contains(.languageServer) == true
-        else { return }
-        editorCaret = EditorCaret(
-            url: normalizedURL,
-            line: max(0, line),
-            utf16Column: max(0, utf16Column)
-        )
-        if languageToolingSessions.features(for: normalizedURL).contains(.definition) {
-            performGenericNavigation(
-                method: "textDocument/definition",
-                kind: .definitions,
-                fallbackToImplementationsIfSelf: true
-            )
-        }
-    }
-
     func findReferences(line: Int? = nil, utf16Column: Int? = nil) {
         guard supportsLanguageServerFeature(.references) else {
             showNotification("Reference navigation is not supported by this language server")
