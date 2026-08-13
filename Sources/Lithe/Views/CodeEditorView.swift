@@ -104,6 +104,12 @@ struct EditorNavigationPresentation {
     }
 }
 
+struct EditorLocalStructurePolicy {
+    static func supports(fileExtension: String) -> Bool {
+        fileExtension.lowercased() == "java"
+    }
+}
+
 struct CodeEditorView: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
@@ -333,6 +339,7 @@ struct CodeEditorView: NSViewRepresentable {
         var markdownScrollPosition: Binding<MarkdownScrollPosition>?
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
+        var implementationMarkers: [JavaImplementationMarker] = []
         var collapsedFoldIDs: Set<String> = []
         private var markdownImagePasteMonitor: Any?
         private weak var markdownScrollView: NSScrollView?
@@ -341,6 +348,8 @@ struct CodeEditorView: NSViewRepresentable {
         private var lastObservedMarkdownScrollRevision: UInt64?
         private var navigationHighlightTask: Task<Void, Never>?
         private var navigationApplicationTask: Task<Void, Never>?
+        private var foldRefreshTask: Task<Void, Never>?
+        private var foldRefreshGeneration: UInt64 = 0
         private var scheduledNavigationTargetID: UUID?
         private var caretUpdateTask: Task<Void, Never>?
         private var findStateUpdateTask: Task<Void, Never>?
@@ -362,6 +371,7 @@ struct CodeEditorView: NSViewRepresentable {
         deinit {
             navigationHighlightTask?.cancel()
             navigationApplicationTask?.cancel()
+            foldRefreshTask?.cancel()
             caretUpdateTask?.cancel()
             findStateUpdateTask?.cancel()
             if let markdownImagePasteMonitor {
@@ -561,20 +571,51 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func refreshFoldRegions(useDefaultImportFold: Bool) {
-            guard let textView = textView as? CodeTextView else {
+            foldRefreshTask?.cancel()
+            foldRefreshGeneration &+= 1
+            let generation = foldRefreshGeneration
+
+            guard EditorLocalStructurePolicy.supports(fileExtension: fileExtension),
+                  let textView = textView as? CodeTextView,
+                  let model else {
                 foldRegions = []
+                implementationMarkers = []
                 collapsedFoldIDs = []
+                applyFoldState()
                 return
             }
-            foldRegions = model?.javaStructure(source: textView.string)?.foldRegions ?? []
-            let availableIDs = Set(foldRegions.map(\.id))
-            collapsedFoldIDs.formIntersection(availableIDs)
-            if useDefaultImportFold,
-               fileExtension.lowercased() == "java",
-               let imports = foldRegions.first(where: { $0.kind == .imports }) {
-                collapsedFoldIDs.insert(imports.id)
-            }
+
+            let source = textView.string
+            foldRegions = []
+            implementationMarkers = []
             applyFoldState()
+
+            foldRefreshTask = Task { @MainActor [weak self, weak model] in
+                if !useDefaultImportFold {
+                    do {
+                        try await Task.sleep(for: .milliseconds(120))
+                    } catch {
+                        return
+                    }
+                }
+                guard !Task.isCancelled, let model else { return }
+                let result = await model.javaStructureAsync(source: source)
+                guard !Task.isCancelled,
+                      let self,
+                      self.foldRefreshGeneration == generation,
+                      self.textView?.string == source else { return }
+
+                self.foldRegions = result?.foldRegions ?? []
+                self.implementationMarkers = result?.implementationMarkers ?? []
+                let availableIDs = Set(self.foldRegions.map(\.id))
+                self.collapsedFoldIDs.formIntersection(availableIDs)
+                if useDefaultImportFold,
+                   let imports = self.foldRegions.first(where: { $0.kind == .imports }) {
+                    self.collapsedFoldIDs.insert(imports.id)
+                }
+                self.applyFoldState()
+                self.foldRefreshTask = nil
+            }
         }
 
         func toggleFold(_ region: JavaFoldRegion) {
@@ -597,17 +638,9 @@ struct CodeEditorView: NSViewRepresentable {
                 collapsedIDs: collapsedFoldIDs,
                 onToggle: { [weak self] region in self?.toggleFold(region) }
             )
-            // `java.structure` is an explicit local editor fallback. It does
-            // not validate markers or own any language-server lifecycle.
-            let markers: [JavaImplementationMarker]
-            if let document,
-               fileExtension.lowercased() == "java",
-               let model {
-                markers = model.javaStructure(source: document.text)?.implementationMarkers ?? []
-            } else {
-                markers = []
-            }
-            gutter?.updateImplementationMarkers(markers) { [weak model, weak document] marker in
+            // `java.structure` is an explicit local editor fallback. Fold
+            // regions and markers come from the same background parse.
+            gutter?.updateImplementationMarkers(implementationMarkers) { [weak model, weak document] marker in
                 guard let document else { return }
                 model?.findJavaImplementations(
                     line: marker.line,

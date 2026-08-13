@@ -10,6 +10,7 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,10 +118,11 @@ pub fn run_configurations(
 
 pub fn structure(request: JavaStructureRequest) -> Result<JavaStructureResponse, CoreError> {
     let source = request.source;
+    let positions = SourcePositionIndex::new(&source);
     Ok(JavaStructureResponse {
-        fold_regions: fold_regions(&source),
-        implementation_markers: implementation_markers(&source),
-        inlay_hints: parameter_hints(&source, &request.declaration_sources),
+        fold_regions: fold_regions(&source, &positions),
+        implementation_markers: implementation_markers(&source, &positions),
+        inlay_hints: parameter_hints(&source, &request.declaration_sources, &positions),
     })
 }
 
@@ -333,10 +335,12 @@ fn kind_order(kind: &str) -> usize {
     }
 }
 
-fn fold_regions(source: &str) -> Vec<JavaFoldRegionResponse> {
-    let mut regions = import_region(source).into_iter().collect::<Vec<_>>();
-    regions.extend(comment_regions(source));
-    regions.extend(brace_regions(source));
+fn fold_regions(source: &str, positions: &SourcePositionIndex) -> Vec<JavaFoldRegionResponse> {
+    let mut regions = import_region(source, positions)
+        .into_iter()
+        .collect::<Vec<_>>();
+    regions.extend(comment_regions(source, positions));
+    regions.extend(brace_regions(source, positions));
     regions.sort_by(|left, right| {
         left.start_line
             .cmp(&right.start_line)
@@ -345,7 +349,7 @@ fn fold_regions(source: &str) -> Vec<JavaFoldRegionResponse> {
     regions
 }
 
-fn import_region(source: &str) -> Option<JavaFoldRegionResponse> {
+fn import_region(source: &str, positions: &SourcePositionIndex) -> Option<JavaFoldRegionResponse> {
     let expression = Regex::new(r"(?m)^[ \t]*import[ \t]+[^;]+;[ \t]*$").ok()?;
     let matches = expression.find_iter(source).collect::<Vec<_>>();
     let first = matches.first()?;
@@ -355,36 +359,38 @@ fn import_region(source: &str) -> Option<JavaFoldRegionResponse> {
     }
     Some(JavaFoldRegionResponse {
         kind: "imports".to_string(),
-        start_line: line_number(source, first.start()),
-        end_line: line_number(source, last.start()),
-        hidden_start: utf16_offset(source, line_end(source, first.start())),
-        hidden_length: utf16_offset(source, line_end(source, last.start()))
-            .saturating_sub(utf16_offset(source, line_end(source, first.start()))),
+        start_line: positions.line_number(first.start()),
+        end_line: positions.line_number(last.start()),
+        hidden_start: positions.utf16_offset(positions.line_end(first.start())),
+        hidden_length: positions
+            .utf16_offset(positions.line_end(last.start()))
+            .saturating_sub(positions.utf16_offset(positions.line_end(first.start()))),
     })
 }
 
-fn comment_regions(source: &str) -> Vec<JavaFoldRegionResponse> {
+fn comment_regions(source: &str, positions: &SourcePositionIndex) -> Vec<JavaFoldRegionResponse> {
     let Ok(expression) = Regex::new(r"/\*[\s\S]*?\*/") else {
         return Vec::new();
     };
     expression
         .find_iter(source)
         .filter_map(|matched| {
-            let start_line = line_number(source, matched.start());
-            let end_line = line_number(source, matched.end());
+            let start_line = positions.line_number(matched.start());
+            let end_line = positions.line_number(matched.end());
             (end_line > start_line).then(|| JavaFoldRegionResponse {
                 kind: "comment".to_string(),
                 start_line,
                 end_line,
-                hidden_start: utf16_offset(source, line_end(source, matched.start())),
-                hidden_length: utf16_offset(source, matched.end())
-                    .saturating_sub(utf16_offset(source, line_end(source, matched.start()))),
+                hidden_start: positions.utf16_offset(positions.line_end(matched.start())),
+                hidden_length: positions
+                    .utf16_offset(matched.end())
+                    .saturating_sub(positions.utf16_offset(positions.line_end(matched.start()))),
             })
         })
         .collect()
 }
 
-fn brace_regions(source: &str) -> Vec<JavaFoldRegionResponse> {
+fn brace_regions(source: &str, positions: &SourcePositionIndex) -> Vec<JavaFoldRegionResponse> {
     let bytes = source.as_bytes();
     let mut stack: Vec<(usize, String)> = Vec::new();
     let mut regions = Vec::new();
@@ -406,23 +412,24 @@ fn brace_regions(source: &str) -> Vec<JavaFoldRegionResponse> {
                     index += 1;
                 }
                 b'{' => {
-                    let start = line_start(source, index);
+                    let start = positions.line_start(index);
                     stack.push((index, source[start..index].to_string()));
                 }
                 b'}' => {
                     if let Some((opening, prefix)) = stack.pop() {
-                        let start_line = line_number(source, opening);
-                        let end_line = line_number(source, index);
-                        let hidden_start = line_end(source, opening);
-                        let hidden_end = line_start(source, index);
+                        let start_line = positions.line_number(opening);
+                        let end_line = positions.line_number(index);
+                        let hidden_start = positions.line_end(opening);
+                        let hidden_end = positions.line_start(index);
                         if end_line > start_line && hidden_end > hidden_start {
                             regions.push(JavaFoldRegionResponse {
                                 kind: classify(&prefix),
                                 start_line,
                                 end_line,
-                                hidden_start: utf16_offset(source, hidden_start),
-                                hidden_length: utf16_offset(source, hidden_end)
-                                    .saturating_sub(utf16_offset(source, hidden_start)),
+                                hidden_start: positions.utf16_offset(hidden_start),
+                                hidden_length: positions
+                                    .utf16_offset(hidden_end)
+                                    .saturating_sub(positions.utf16_offset(hidden_start)),
                             });
                         }
                     }
@@ -461,8 +468,12 @@ fn brace_regions(source: &str) -> Vec<JavaFoldRegionResponse> {
 }
 
 fn classify(prefix: &str) -> String {
-    if Regex::new(r"\b(class|interface|enum|record|struct|protocol|extension|actor)\b")
-        .expect("static Java type expression is valid")
+    static TYPE_EXPRESSION: OnceLock<Regex> = OnceLock::new();
+    if TYPE_EXPRESSION
+        .get_or_init(|| {
+            Regex::new(r"\b(class|interface|enum|record|struct|protocol|extension|actor)\b")
+                .expect("static Java type expression is valid")
+        })
         .is_match(prefix)
     {
         "type".to_string()
@@ -473,7 +484,10 @@ fn classify(prefix: &str) -> String {
     }
 }
 
-fn implementation_markers(source: &str) -> Vec<JavaImplementationMarkerResponse> {
+fn implementation_markers(
+    source: &str,
+    positions: &SourcePositionIndex,
+) -> Vec<JavaImplementationMarkerResponse> {
     let mut markers = Vec::new();
     if let Ok(expression) = Regex::new(
         r"(?m)^[ \t]*(?:(?:public|protected|private|abstract|sealed|non-sealed)\s+)*interface\s+[A-Za-z_$][A-Za-z0-9_$]*",
@@ -484,9 +498,8 @@ fn implementation_markers(source: &str) -> Vec<JavaImplementationMarkerResponse>
                 .map(|value| matched.start() + value)
                 .unwrap_or(matched.start());
             markers.push(JavaImplementationMarkerResponse {
-                line: line_number(source, location),
-                utf16_column: utf16_offset(source, location)
-                    .saturating_sub(utf16_offset(source, line_start(source, location))),
+                line: positions.line_number(location),
+                utf16_column: positions.utf16_column(location),
                 implementation_count: 0,
                 direction: "down".to_string(),
             });
@@ -497,12 +510,12 @@ fn implementation_markers(source: &str) -> Vec<JavaImplementationMarkerResponse>
     ) {
         for matched in expression.find_iter(source) {
             let location = method_name_location(source, matched.start(), matched.end());
+            let line = positions.line_number(location);
             markers.push(JavaImplementationMarkerResponse {
-                line: line_number(source, location),
-                utf16_column: utf16_offset(source, location)
-                    .saturating_sub(utf16_offset(source, line_start(source, location))),
+                line,
+                utf16_column: positions.utf16_column(location),
                 implementation_count: 0,
-                direction: if has_override_annotation(source, line_number(source, location)) {
+                direction: if has_override_annotation(source, positions, line) {
                     "up"
                 } else {
                     "down"
@@ -526,10 +539,7 @@ fn implementation_markers(source: &str) -> Vec<JavaImplementationMarkerResponse>
                         }
                     }
                 }
-                let candidate_start = lines[..candidate_line]
-                    .iter()
-                    .map(|value| value.len() + 1)
-                    .sum::<usize>();
+                let candidate_start = positions.line_start_for_number(candidate_line);
                 if let Some(matched) = method_expression.find(lines[candidate_line]) {
                     let name_start = method_expression
                         .captures(lines[candidate_line])
@@ -538,8 +548,7 @@ fn implementation_markers(source: &str) -> Vec<JavaImplementationMarkerResponse>
                     let location = candidate_start + name_start;
                     markers.push(JavaImplementationMarkerResponse {
                         line: candidate_line,
-                        utf16_column: utf16_offset(source, location)
-                            .saturating_sub(utf16_offset(source, line_start(source, location))),
+                        utf16_column: positions.utf16_column(location),
                         implementation_count: 0,
                         direction: "up".to_string(),
                     });
@@ -566,7 +575,11 @@ fn deduplicate_markers(
     values
 }
 
-fn parameter_hints(source: &str, declaration_sources: &[String]) -> Vec<JavaInlayHintResponse> {
+fn parameter_hints(
+    source: &str,
+    declaration_sources: &[String],
+    positions: &SourcePositionIndex,
+) -> Vec<JavaInlayHintResponse> {
     let declaration_pattern =
         Regex::new(r"\b([A-Za-z_$][A-Za-z0-9_$]*)[ \t]*\(([^(){};]*)\)[ \t]*(?:throws[^{]+)?\{")
             .expect("static Java declaration expression is valid");
@@ -621,9 +634,8 @@ fn parameter_hints(source: &str, declaration_sources: &[String]) -> Vec<JavaInla
         }
         for (index, start) in starts.iter().enumerate() {
             hints.push(JavaInlayHintResponse {
-                line: line_number(source, *start),
-                utf16_column: utf16_offset(source, *start)
-                    .saturating_sub(utf16_offset(source, line_start(source, *start))),
+                line: positions.line_number(*start),
+                utf16_column: positions.utf16_column(*start),
                 label: parameters[index].clone(),
             });
         }
@@ -774,12 +786,10 @@ fn method_name_location(source: &str, start: usize, end: usize) -> usize {
         .unwrap_or(start)
 }
 
-fn has_override_annotation(source: &str, line: usize) -> bool {
-    let lines = source.split('\n').collect::<Vec<_>>();
-    let start = line.saturating_sub(3);
-    lines[start..line.min(lines.len())]
-        .iter()
-        .any(|value| value.contains("@Override"))
+fn has_override_annotation(source: &str, positions: &SourcePositionIndex, line: usize) -> bool {
+    let start = positions.line_start_for_number(line.saturating_sub(3));
+    let end = positions.line_start_for_number(line);
+    source[start..end].contains("@Override")
 }
 
 fn existing_root(value: &str) -> Result<PathBuf, CoreError> {
@@ -813,29 +823,70 @@ fn normalize_relative(value: &str) -> Option<String> {
     )
 }
 
-fn line_number(source: &str, byte: usize) -> usize {
-    source[..byte.min(source.len())]
-        .bytes()
-        .filter(|value| *value == b'\n')
-        .count()
+struct SourcePositionIndex {
+    source_length: usize,
+    line_starts: Vec<usize>,
+    utf16_offsets: Vec<usize>,
 }
 
-fn line_start(source: &str, byte: usize) -> usize {
-    source[..byte.min(source.len())]
-        .rfind('\n')
-        .map(|value| value + 1)
-        .unwrap_or(0)
-}
+impl SourcePositionIndex {
+    fn new(source: &str) -> Self {
+        let mut line_starts = vec![0];
+        for (index, value) in source.bytes().enumerate() {
+            if value == b'\n' {
+                line_starts.push(index + 1);
+            }
+        }
 
-fn line_end(source: &str, byte: usize) -> usize {
-    source[byte.min(source.len())..]
-        .find('\n')
-        .map(|value| byte.min(source.len()) + value + 1)
-        .unwrap_or(source.len())
-}
+        let mut utf16_offsets = vec![0; source.len() + 1];
+        let mut utf16_offset = 0;
+        for (byte, character) in source.char_indices() {
+            let next = byte + character.len_utf8();
+            utf16_offsets[byte..next].fill(utf16_offset);
+            utf16_offset += character.len_utf16();
+            utf16_offsets[next] = utf16_offset;
+        }
 
-fn utf16_offset(source: &str, byte: usize) -> usize {
-    source[..byte.min(source.len())].encode_utf16().count()
+        Self {
+            source_length: source.len(),
+            line_starts,
+            utf16_offsets,
+        }
+    }
+
+    fn line_number(&self, byte: usize) -> usize {
+        let byte = byte.min(self.source_length);
+        self.line_starts
+            .partition_point(|line_start| *line_start <= byte)
+            .saturating_sub(1)
+    }
+
+    fn line_start(&self, byte: usize) -> usize {
+        self.line_start_for_number(self.line_number(byte))
+    }
+
+    fn line_start_for_number(&self, line: usize) -> usize {
+        self.line_starts
+            .get(line)
+            .copied()
+            .unwrap_or(self.source_length)
+    }
+
+    fn line_end(&self, byte: usize) -> usize {
+        self.line_starts
+            .get(self.line_number(byte) + 1)
+            .copied()
+            .unwrap_or(self.source_length)
+    }
+
+    fn utf16_offset(&self, byte: usize) -> usize {
+        self.utf16_offsets[byte.min(self.source_length)]
+    }
+
+    fn utf16_column(&self, byte: usize) -> usize {
+        self.utf16_offset(byte)
+            .saturating_sub(self.utf16_offset(self.line_start(byte)))
+    }
 }
 
 enum ScanState {
@@ -844,4 +895,54 @@ enum ScanState {
     Character,
     LineComment,
     BlockComment,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_position_index_maps_lines_and_utf16_offsets() {
+        let source = "class 示例 {\n    String emoji = \"😀\";\n}\n";
+        let positions = SourcePositionIndex::new(source);
+        let emoji = source.find('😀').expect("emoji should exist");
+        let closing_brace = source.rfind('}').expect("closing brace should exist");
+
+        assert_eq!(positions.line_number(emoji), 1);
+        assert_eq!(positions.utf16_column(emoji), 20);
+        assert_eq!(positions.utf16_offset(emoji + '😀'.len_utf8()), 33);
+        assert_eq!(positions.line_number(closing_brace), 2);
+        assert_eq!(positions.line_start(closing_brace), closing_brace);
+        assert_eq!(positions.line_end(closing_brace), source.len());
+    }
+
+    #[test]
+    fn large_structure_source_uses_the_shared_position_index() {
+        let mut source = String::from("class Large {\n");
+        for index in 0..1_000 {
+            source.push_str(&format!(
+                "    void method{index}() {{\n        call();\n    }}\n"
+            ));
+        }
+        source.push_str("}\n");
+
+        let response = structure(JavaStructureRequest {
+            source,
+            declaration_sources: Vec::new(),
+        })
+        .expect("large Java structure should parse");
+
+        assert_eq!(response.fold_regions.len(), 1_001);
+        assert_eq!(
+            response
+                .fold_regions
+                .first()
+                .map(|region| region.start_line),
+            Some(0)
+        );
+        assert_eq!(
+            response.fold_regions.last().map(|region| region.end_line),
+            Some(3_000)
+        );
+    }
 }
