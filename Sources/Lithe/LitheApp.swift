@@ -84,6 +84,7 @@ struct LitheApp: App {
                 guard let data = (marker + "\n").data(using: .utf8) else { return }
                 FileHandle.standardError.write(data)
             },
+            logsPerformanceBaseline: ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1",
             processRegistry: processRegistry,
             memorySampler: MacProcessMemorySampler()
         ))

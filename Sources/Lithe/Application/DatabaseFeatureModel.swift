@@ -72,7 +72,8 @@ final class DatabaseFeatureModel: ObservableObject {
 
     private let operations: any DatabaseOperations
     private let connectionStore: DatabaseConnectionStore
-    private let recoveryStore: DatabaseRecoveryStore
+    private let recoveryStore: any DatabaseRecoveryStoring
+    private let fileStorage: any FileStorage
     private var backupTimer: Timer?
     private var profileGeneration: UInt64 = 0
     private var tableListRequestID: UUID?
@@ -93,10 +94,16 @@ final class DatabaseFeatureModel: ObservableObject {
     // accidentally persist the display placeholder.
     private var sourceRows: [DatabaseRow] = []
 
-    init(operations: any DatabaseOperations, connectionStore: DatabaseConnectionStore, recoveryStore: DatabaseRecoveryStore = DatabaseRecoveryStore()) {
+    init(
+        operations: any DatabaseOperations,
+        connectionStore: DatabaseConnectionStore,
+        recoveryStore: any DatabaseRecoveryStoring = UnavailableDatabaseRecoveryStore(),
+        fileStorage: any FileStorage = UnavailableFileStorage()
+    ) {
         self.operations = operations
         self.connectionStore = connectionStore
         self.recoveryStore = recoveryStore
+        self.fileStorage = fileStorage
         profiles = connectionStore.load()
         folders = connectionStore.loadFolders()
         let firstSQLTab = DatabaseSQLTab(title: "Query 1")
@@ -852,7 +859,7 @@ final class DatabaseFeatureModel: ObservableObject {
     func exportDataFile(format: DatabaseTransferFormat) async -> URL? {
         guard format == .sql, let profile = selectedProfile else { return nil }
         let generation = profileGeneration
-        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-database-\(UUID().uuidString).sql")
+        let outputURL = fileStorage.temporaryDirectory().appendingPathComponent("lithe-database-\(UUID().uuidString).sql")
         do {
             let connection = connection(profile)
             let result = try await Task.detached { [operations] in
@@ -862,17 +869,31 @@ final class DatabaseFeatureModel: ObservableObject {
                     outputURL: outputURL
                 )
             }.value
-            guard result.path == outputURL.path, FileManager.default.fileExists(atPath: outputURL.path) else {
+            guard result.path == outputURL.path, fileStorage.fileExists(at: outputURL) else {
                 throw DatabaseSidecarError.invalidResponse("Database backup file was not created")
             }
             return outputURL
         } catch {
-            try? FileManager.default.removeItem(at: outputURL)
+            try? fileStorage.removeItem(at: outputURL)
             if isCurrent(profileID: profile.id, generation: generation) {
                 errorMessage = executionError(error)
             }
             return nil
         }
+    }
+
+    func prepareImportFile(from url: URL) throws -> URL {
+        let destination = fileStorage.temporaryDirectory().appendingPathComponent("lithe-import-\(UUID().uuidString).sql")
+        try fileStorage.copyItem(at: url, to: destination)
+        return destination
+    }
+
+    func readImportData(from url: URL) throws -> Data {
+        try fileStorage.readData(from: url, options: [])
+    }
+
+    func removeTemporaryFile(_ url: URL) {
+        try? fileStorage.removeItem(at: url)
     }
 
     func importData(_ data: Data, format: DatabaseTransferFormat, confirmed: Bool = false) async -> Bool {
@@ -1652,10 +1673,10 @@ final class DatabaseFeatureModel: ObservableObject {
         let connection = connection(profile)
         let generation = profileGeneration
         let tracksUI = selectedProfileID == profile.id
-        let temporaryURL = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-recovery-\(UUID().uuidString).sql")
+        let temporaryURL = fileStorage.temporaryDirectory().appendingPathComponent("lithe-recovery-\(UUID().uuidString).sql")
         if tracksUI { backupProgress = 0 }
         defer {
-            try? FileManager.default.removeItem(at: temporaryURL)
+            try? fileStorage.removeItem(at: temporaryURL)
             if tracksUI && isCurrent(profileID: profile.id, generation: generation) { backupProgress = nil }
         }
         let export = try await Task.detached { [operations] in

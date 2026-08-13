@@ -39,7 +39,9 @@ final class MacServiceContainer {
         )
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
-        let databaseOperations = DatabaseSidecarService(processRunner: processRunner)
+        let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
+        let databaseOperations = DatabaseSidecarService(processRunner: processRunner, executableURL: databaseSidecarURL)
+        let databaseRecoveryStore = MacDatabaseRecoveryStore(fileStorage: fileStorage)
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store,
@@ -223,6 +225,7 @@ final class MacServiceContainer {
             javaDebugService: javaDebugService,
             gitService: gitService,
             databaseOperations: databaseOperations,
+            databaseRecoveryStore: databaseRecoveryStore,
             shelveService: shelveService,
             commitMessageGenerator: commitMessageGenerator,
             secureStore: secureStore,
@@ -233,6 +236,7 @@ final class MacServiceContainer {
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
             terminalFactory: { MacTerminalTransport() },
+            shellDiscovery: { MacTerminalTransport.availableShells() },
             directoryWatcherFactory: MacDirectoryWatcherFactory(),
             platformUI: MacPlatformUI(),
             shortcutDetectorFactory: MacShortcutDetectorFactory()

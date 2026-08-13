@@ -314,10 +314,7 @@ struct SettingsView: View {
                 .lithePointer()
                 .onChange(of: settings.terminalShell) { _ in
                     guard model.activeTerminalSession?.isRunning == true else { return }
-                    let path = settings.terminalShellPath
-                        ?? ProcessInfo.processInfo.environment["SHELL"]
-                        ?? "/bin/zsh"
-                    model.restartActiveTerminal(using: path)
+                    model.restartActiveTerminal(using: model.activeTerminalShellPath)
                 }
             }
             Text("Used for new terminal sessions.")

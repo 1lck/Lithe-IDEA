@@ -279,6 +279,7 @@ struct LanguageTestsView: View {
                 OutputTextView(
                     output: service.output,
                     searchRoots: [workspaceURL],
+                    fileExists: { model.fileExists(at: $0) },
                     emptyMessage: "Run a test to see its output."
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)

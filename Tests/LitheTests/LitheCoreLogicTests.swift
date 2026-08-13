@@ -1112,7 +1112,7 @@ struct LitheCoreLogicTests {
     func databaseRecoveryStoreRoundTripsCompressedSnapshotsAndAudit() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-recovery-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = DatabaseRecoveryStore(rootURL: root)
+        let store = MacDatabaseRecoveryStore(rootURL: root)
         let profileID = UUID()
         let snapshot = Data(repeating: 65, count: 128 * 1_024)
         let point = try store.createRecoveryPoint(profileID: profileID, reason: "test", data: snapshot)
@@ -1151,7 +1151,7 @@ struct LitheCoreLogicTests {
         let contents = Data("CREATE TABLE items (id INTEGER);\n".utf8)
         try contents.write(to: source)
 
-        let store = DatabaseRecoveryStore(rootURL: root.appendingPathComponent("store"))
+        let store = MacDatabaseRecoveryStore(rootURL: root.appendingPathComponent("store"))
         let point = try store.createRecoveryPoint(profileID: UUID(), reason: "file", fileURL: source)
         #expect(!point.isCompressed)
         #expect(point.originalByteCount == contents.count)
@@ -2704,6 +2704,7 @@ struct EditorDocumentTests {
         let model = WorkspaceFeatureModel(
             operations: operations,
             fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
             gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
             directoryWatcherFactory: TestDirectoryWatcherFactory(),
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
@@ -2790,6 +2791,7 @@ struct EditorDocumentTests {
         let model = WorkspaceFeatureModel(
             operations: EmptyWorkspaceOperations(),
             fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
             gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
             directoryWatcherFactory: watcherFactory,
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
@@ -3177,6 +3179,7 @@ private func makeWorkspaceObservationUnitModel(
     let model = WorkspaceFeatureModel(
         operations: operations,
         fileOperations: fileOperations,
+        fileStorage: InMemoryFileStorage(),
         gitWatchContextProvider: provider,
         directoryWatcherFactory: watcherFactory,
         workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
@@ -3279,6 +3282,7 @@ private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
     func homeDirectory() -> URL { support }
     func cacheDirectory() -> URL { support }
     func applicationSupportDirectory() -> URL { support }
+    func temporaryDirectory() -> URL { support }
     func metadata(for url: URL) -> FileMetadata? { nil }
 
     func fileExists(at url: URL) -> Bool {
@@ -3336,6 +3340,10 @@ private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
         guard let value = files.removeValue(forKey: sourceURL.path) else {
             throw CocoaError(.fileNoSuchFile)
         }
+        files[destinationURL.path] = value
+    }
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
+        guard let value = files[sourceURL.path] else { throw CocoaError(.fileNoSuchFile) }
         files[destinationURL.path] = value
     }
 

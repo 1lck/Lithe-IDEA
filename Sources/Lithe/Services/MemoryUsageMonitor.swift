@@ -76,6 +76,7 @@ final class MemoryUsageMonitor: ObservableObject {
         sampleInterval: TimeInterval = 5.0,
         startedAt: Date = Date(),
         baselineReporter: @escaping (String) -> Void = { _ in },
+        logsPerformanceBaseline: Bool = false,
         processRegistry: ManagedProcessRegistry = ManagedProcessRegistry(),
         memorySampler: any ManagedProcessMemorySampling
     ) {
@@ -84,7 +85,7 @@ final class MemoryUsageMonitor: ObservableObject {
         self.baselineReporter = baselineReporter
         self.processRegistry = processRegistry
         self.memorySampler = memorySampler
-        logsPerformanceBaseline = ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1"
+        self.logsPerformanceBaseline = logsPerformanceBaseline
     }
 
     deinit {

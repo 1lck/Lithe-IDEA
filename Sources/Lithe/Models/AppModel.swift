@@ -63,7 +63,7 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeature.isPerformingProjectItemOperation
     }
     @Published var notificationMessage: String?
-    @Published private(set) var detectedAIConfigurations: [AIConfigurationSnapshot] = []
+    @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
     @Published var commitMessage = ""
     @Published var amendCommit = false
     @Published private(set) var isGeneratingCommitMessage = false
@@ -75,8 +75,8 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isMavenVisible = false
     @Published var isDebugVisible = false
     @Published var isImplementationChooserVisible = false
-    @Published private(set) var languageProviderCatalog: LanguageProviderCatalog
-    @Published private(set) var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot
+    var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
+    var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot { languageToolingFeature.catalogSnapshot }
     @Published var languageNavigationProviderID: String?
     @Published var languageNavigationLocations: [LanguageNavigationLocation] = []
     @Published var languageNavigationResultKind: LanguageNavigationResultKind = .definitions
@@ -97,10 +97,11 @@ final class AppModel: ObservableObject, Identifiable {
     private var requestProjectOpen: ((URL) -> Void)?
     private var didCloseProject: (() -> Void)?
     private var securityScopedWorkspaceURL: URL?
-    private let services: AppServices
-    private let platformUI: any PlatformUI
+    let services: AppServices
+    let platformUI: any PlatformUI
     let settings: AppSettings
     let runtimeFeature: RuntimeSettingsFeatureModel
+    let languageToolingFeature: LanguageToolingFeatureModel
     let mavenFeature: MavenFeatureModel
     let runFeature: RunFeatureModel
     let projectDevelopmentFeature: ProjectDevelopmentFeatureModel
@@ -116,6 +117,7 @@ final class AppModel: ObservableObject, Identifiable {
     let javaFeature: JavaFeatureModel
     let databaseFeature: DatabaseFeatureModel
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
+    func fileExists(at url: URL) -> Bool { services.fileStorage.fileExists(at: url) }
     var languageToolingSessions: LanguageToolingSessionManager { services.languageToolingSessions }
     var languageServerTools: LanguageServerToolService { services.languageServerTools }
     var languageTestService: LanguageTestService { services.languageTestService }
@@ -159,26 +161,18 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func languageServerToolConfigurationDidChange(providerID: String) {
-        disabledLanguageServerProviderIDs.remove(providerID)
-        languageToolingSessions.stopLanguageServer(providerID: providerID)
-        languageToolingSessions.recordLanguageServerLog(
-            providerID: providerID,
-            level: .info,
-            message: "Language server tool configuration changed",
-            detail: "Workspace disable state cleared"
-        )
+        languageToolingFeature.toolConfigurationDidChange(providerID: providerID)
     }
 
     func isLanguageServerDisabledInCurrentWorkspace(providerID: String) -> Bool {
-        disabledLanguageServerProviderIDs.contains(providerID)
+        languageToolingFeature.isDisabled(providerID)
     }
 
     func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
         if enabled {
-            disabledLanguageServerProviderIDs.remove(providerID)
-            synchronizeOpenDocumentsWithLanguageServer(providerID: providerID)
+            languageToolingFeature.setEnabled(true, providerID: providerID)
         } else {
-            disableLanguageServerForCurrentWorkspace(providerID: providerID)
+            languageToolingFeature.setEnabled(false, providerID: providerID)
         }
     }
 
@@ -213,28 +207,11 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func applyJavaLanguageServerJDKPath(_ path: String) {
-        settings.javaLanguageServerJDKPath = path
-        languageToolingSessions.stopLanguageServer(providerID: "java")
-        disabledLanguageServerProviderIDs.remove("java")
-        synchronizeOpenDocumentsWithLanguageServer(providerID: "java")
-    }
-
-    private func synchronizeOpenDocumentsWithLanguageServer(providerID: String) {
-        for document in openDocuments where
-            languageProviderCatalog.provider(for: document.url)?.id == providerID {
-            activateLanguageServerIfAvailable(for: document)
-        }
+        languageToolingFeature.selectJavaJDK(path)
     }
 
     func disableLanguageServerForCurrentWorkspace(providerID: String) {
-        disabledLanguageServerProviderIDs.insert(providerID)
-        languageToolingSessions.recordLanguageServerLog(
-            providerID: providerID,
-            level: .warning,
-            message: "Language server disabled in this workspace",
-            detail: "Manual stop"
-        )
-        languageToolingSessions.stopLanguageServer(providerID: providerID)
+        languageToolingFeature.setEnabled(false, providerID: providerID)
     }
 
     private var gitFeatureObservation: AnyCancellable?
@@ -242,26 +219,31 @@ final class AppModel: ObservableObject, Identifiable {
     private var javaFeatureObservation: AnyCancellable?
     private var languageToolingObservation: AnyCancellable?
     private var languageTestObservation: AnyCancellable?
-    private var languageServerStartupFailures: [String: String] = [:]
-    private var disabledLanguageServerProviderIDs: Set<String> = []
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
     private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
 
     init(settings: AppSettings, services: AppServices) {
         self.settings = settings
         self.services = services
-        languageProviderCatalog = services.languageProviderCatalog
-        languageProviderCatalogSnapshot = services.languageProviderCatalogSnapshot
         platformUI = services.platformUI
         workspaceFeature = WorkspaceFeatureModel(
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
+            fileStorage: services.fileStorage,
             gitWatchContextProvider: services.gitService,
             directoryWatcherFactory: services.directoryWatcherFactory,
             workspaceSessionStore: services.workspaceSessionStore
         )
         searchFeature = SearchFeatureModel(operations: services.workspaceOperations)
         runtimeFeature = RuntimeSettingsFeatureModel(service: services.projectRuntimeService)
+        languageToolingFeature = LanguageToolingFeatureModel(
+            catalogSource: services.languageProviderCatalogSource,
+            catalogSnapshot: services.languageProviderCatalogSnapshot,
+            sessions: services.languageToolingSessions,
+            runtimeFeature: runtimeFeature,
+            settings: settings,
+            projectRuntimeService: services.projectRuntimeService
+        )
         mavenFeature = MavenFeatureModel(service: services.mavenService)
         runFeature = RunFeatureModel(service: services.runService)
         projectDevelopmentFeature = ProjectDevelopmentFeatureModel(
@@ -271,7 +253,10 @@ final class AppModel: ObservableObject, Identifiable {
         debugFeature = JavaDebugFeatureModel(service: services.javaDebugService)
         genericDebugFeature = GenericDebugFeatureModel(sessions: services.languageToolingSessions)
         debugLaunchConfigurationResolver = services.debugLaunchConfigurationResolver
-        terminalFeature = TerminalFeatureModel(terminalFactory: services.terminalFactory)
+        terminalFeature = TerminalFeatureModel(
+            terminalFactory: services.terminalFactory,
+            shellDiscovery: services.shellDiscovery
+        )
         projectHistoryFeature = ProjectHistoryFeatureModel(
             workspaceOperations: services.workspaceOperations,
             fileOperations: services.fileOperations,
@@ -294,7 +279,9 @@ final class AppModel: ObservableObject, Identifiable {
         )
         databaseFeature = DatabaseFeatureModel(
             operations: services.databaseOperations,
-            connectionStore: DatabaseConnectionStore(store: services.store, secureStore: services.databaseSecureStore)
+            connectionStore: DatabaseConnectionStore(store: services.store, secureStore: services.databaseSecureStore),
+            recoveryStore: services.databaseRecoveryStore,
+            fileStorage: services.fileStorage
         )
         javaFeature.configureRuntime(
             mavenFeature: mavenFeature,
@@ -398,6 +385,14 @@ final class AppModel: ObservableObject, Identifiable {
                 }
             }
         )
+        languageToolingFeature.configure(
+            documentsProvider: { [weak self] in self?.openDocuments ?? [] },
+            workspaceProvider: { [weak self] in self?.workspaceURL },
+            activateDocument: { [weak self] document in
+                self?.activateLanguageServerIfAvailable(for: document) ?? false
+            },
+            notify: { [weak self] message in self?.showNotification(message) }
+        )
         projectHistoryFeatureObservation = projectHistoryFeature.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -498,7 +493,7 @@ final class AppModel: ObservableObject, Identifiable {
         }
         languageServerTools.onCandidatesChanged = { [weak self] providerID in
             guard let self,
-                  self.languageServerStartupFailures[providerID] != nil,
+                  self.languageToolingFeature.shouldRetryCandidate(providerID: providerID),
                   let document = self.activeDocument,
                   self.languageProviderCatalog.provider(for: document.url)?.id == providerID else {
                 return
@@ -583,7 +578,7 @@ final class AppModel: ObservableObject, Identifiable {
         }
 
         let status = LSPControlCenterPresenter.serverStatus(
-            isDisabled: disabledLanguageServerProviderIDs.contains(descriptor.id),
+            isDisabled: languageToolingFeature.isDisabled(descriptor.id),
             sessionState: languageToolingSessions.languageServerStates[descriptor.id]
         )
         switch status {
@@ -620,7 +615,7 @@ final class AppModel: ObservableObject, Identifiable {
 
     func restartLanguageServers() {
         languageToolingSessions.stopAllLanguageServers()
-        disabledLanguageServerProviderIDs.removeAll()
+        languageToolingFeature.resetWorkspaceState()
         let didStart = activateCurrentDocumentLanguageServerIfAvailable()
         showNotification(
             didStart
@@ -721,8 +716,7 @@ final class AppModel: ObservableObject, Identifiable {
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
         languageTestService.reset()
-        disabledLanguageServerProviderIDs.removeAll()
-        languageServerStartupFailures.removeAll()
+        languageToolingFeature.resetWorkspaceState()
         runtimeFeature.openProject(at: normalizedURL)
         mavenFeature.reset()
         runFeature.reset()
@@ -851,10 +845,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func reloadLanguageProviderCatalog(for workspaceURL: URL?) {
-        let snapshot = services.languageProviderCatalogSource.load(workspaceURL: workspaceURL)
-        languageProviderCatalogSnapshot = snapshot
-        languageProviderCatalog = snapshot.catalog
-        languageToolingSessions.updateCatalog(snapshot.catalog)
+        languageToolingFeature.reloadCatalog(for: workspaceURL)
     }
 
     func openFile(
@@ -865,6 +856,10 @@ final class AppModel: ObservableObject, Identifiable {
         selectedChange = nil
         closeBranchComparison()
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
+    }
+
+    func javaIconKind(for url: URL) async -> LitheIconKind? {
+        await workspaceFeature.javaIconKind(for: url)
     }
 
     func refreshWorkspace() async {
@@ -1047,7 +1042,7 @@ final class AppModel: ObservableObject, Identifiable {
     private func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
         guard let workspaceURL,
               let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
-        guard !disabledLanguageServerProviderIDs.contains(descriptor.id) else {
+        guard !languageToolingFeature.isDisabled(descriptor.id) else {
             languageToolingSessions.recordLanguageServerLog(
                 providerID: descriptor.id,
                 level: .info,
@@ -1062,20 +1057,11 @@ final class AppModel: ObservableObject, Identifiable {
                 text: document.text,
                 rootURL: workspaceURL
             )
-            languageServerStartupFailures[descriptor.id] = nil
+            languageToolingFeature.markActivationSucceeded(providerID: descriptor.id)
             return languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
         } catch {
             let message = error.localizedDescription
-            if languageServerStartupFailures[descriptor.id] != message {
-                languageServerStartupFailures[descriptor.id] = message
-                languageToolingSessions.recordLanguageServerLog(
-                    providerID: descriptor.id,
-                    level: .error,
-                    message: "Language server activation failed",
-                    detail: message
-                )
-                showNotification("Could not start \(descriptor.displayName) language server: \(message)")
-            }
+            languageToolingFeature.markActivationFailed(providerID: descriptor.id, descriptor: descriptor, error: error)
             return false
         }
     }
@@ -1403,135 +1389,6 @@ final class AppModel: ObservableObject, Identifiable {
         pendingGeneratedCommitMessage = nil
     }
 
-    @discardableResult
-    func refreshAIConfigurations() -> Bool {
-        let configurations = loadAIConfigurations()
-        detectedAIConfigurations = configurations
-
-        guard let activeProvider = settings.activeCommitMessageProvider,
-              let source = configurationSource(for: activeProvider),
-              let configuration = configurations.first(where: { $0.source == source }) else {
-            return !configurations.isEmpty
-        }
-
-        updateImportedProvider(from: configuration)
-        return true
-    }
-
-    @discardableResult
-    func refreshCodexConfiguration() -> Bool {
-        refreshAIConfigurations()
-        return detectedCodexConfiguration != nil
-    }
-
-    @discardableResult
-    func importAIConfiguration(_ configuration: AIConfigurationSnapshot) -> Bool {
-        let provider = settings.importAIConfiguration(configuration)
-        try? services.secureStore.delete(key: provider.apiKeyIdentifier)
-        detectedAIConfigurations.removeAll { $0.source == configuration.source }
-        detectedAIConfigurations.append(configuration)
-        showNotification("\(configuration.source.title) configuration imported")
-        return true
-    }
-
-    @discardableResult
-    func importCodexConfiguration() -> Bool {
-        guard let codexConfiguration = loadAIConfigurations().first(where: { $0.source == .codex }) else {
-            detectedAIConfigurations.removeAll { $0.source == .codex }
-            showNotification("No Codex configuration was found")
-            return false
-        }
-        return importAIConfiguration(codexConfiguration)
-    }
-
-    var activeCommitMessageAPIKey: String {
-        guard let provider = settings.activeCommitMessageProvider else { return "" }
-        return services.credentialResolver.readAPIKey(for: provider) ?? ""
-    }
-
-    var activeCommitMessageCredentialIsConfigurationManaged: Bool {
-        guard let provider = settings.activeCommitMessageProvider else { return false }
-        return configurationSource(for: provider) != nil
-    }
-
-    var activeCommitMessageConfigurationSourceTitle: String? {
-        settings.activeCommitMessageProvider
-            .flatMap(configurationSource(for:))?
-            .title
-    }
-
-    var activeCommitMessageConfigurationSourceDescription: String? {
-        settings.activeCommitMessageProvider
-            .flatMap(configurationSource(for:))?
-            .settingsDescription
-    }
-
-    var activeCommitMessageCredentialIsCodexManaged: Bool {
-        activeCommitMessageCredentialIsConfigurationManaged
-    }
-
-    func saveActiveCommitMessageAPIKey(_ value: String) {
-        guard let provider = settings.activeCommitMessageProvider else { return }
-        if activeCommitMessageCredentialIsConfigurationManaged {
-            let source = activeCommitMessageConfigurationSourceTitle ?? "AI"
-            showNotification("API key is managed by \(source) configuration")
-            return
-        }
-        do {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                try services.secureStore.delete(key: provider.apiKeyIdentifier)
-            } else {
-                try services.secureStore.write(trimmed, key: provider.apiKeyIdentifier)
-            }
-            showNotification("API key saved locally")
-        } catch {
-            showNotification(error.localizedDescription)
-        }
-    }
-
-    private func loadAIConfigurations() -> [AIConfigurationSnapshot] {
-        services.aiConfigurationSources.compactMap { $0.load() }
-    }
-
-    private func configurationSource(
-        for provider: AIProviderProfile
-    ) -> AIConfigurationSourceKind? {
-        if let source = provider.credentialSource.configurationSource {
-            return source
-        }
-        if provider.apiKeyIdentifier == "lithe.codex.imported.apiKey" {
-            return .codex
-        }
-        if provider.apiKeyIdentifier == "lithe.claude.imported.apiKey" {
-            return .claude
-        }
-        return nil
-    }
-
-    private func updateImportedProvider(from configuration: AIConfigurationSnapshot) {
-        guard let activeProvider = settings.activeCommitMessageProvider,
-              configurationSource(for: activeProvider) == configuration.source else {
-            return
-        }
-
-        settings.updateActiveCommitMessageProvider { provider in
-            provider.name = configuration.providerName.isEmpty
-                ? "\(configuration.source.title) (imported)"
-                : "\(configuration.source.title) · \(configuration.providerName)"
-            provider.endpoint = configuration.endpoint
-            provider.model = configuration.model
-            provider.apiProtocol = configuration.apiProtocol
-            provider.authentication = configuration.authentication
-            provider.requiresAPIKey = configuration.requiresAPIKey
-            provider.apiKeyIdentifier = "lithe.\(configuration.source.rawValue).imported.apiKey"
-            provider.credentialSource = configuration.source.credentialSource
-        }
-        try? services.secureStore.delete(
-            key: "lithe.\(configuration.source.rawValue).imported.apiKey"
-        )
-    }
-
     func toggleStaging(_ change: GitChange) async {
         await gitFeature.toggleStaging(change)
     }
@@ -1554,131 +1411,6 @@ final class AppModel: ObservableObject, Identifiable {
         if isGitLogVisible && gitCommits.isEmpty {
             await refreshGitHistory()
         }
-    }
-
-    func toggleTerminal() {
-        isTerminalVisible.toggle()
-        guard isTerminalVisible else { return }
-        isTestsVisible = false
-        isGitLogVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isDebugVisible = false
-        if activeTerminalSession == nil {
-            createTerminalSession()
-        }
-    }
-
-    var terminalSessions: [TerminalSession] {
-        terminalFeature.terminalSessions
-    }
-
-    var activeTerminalSessionID: UUID? {
-        terminalFeature.activeTerminalSessionID
-    }
-
-    var activeTerminalSession: TerminalSession? {
-        terminalFeature.activeTerminalSession
-    }
-
-    func terminalTitle(for session: TerminalSession) -> String {
-        terminalFeature.terminalTitle(for: session)
-    }
-
-    @discardableResult
-    func createTerminalSession(shellPath: String? = nil) -> TerminalSession? {
-        guard let workspaceURL else { return nil }
-        let session = terminalFeature.createSession(
-            in: workspaceURL,
-            shellPath: shellPath ?? settings.terminalShellPath
-        )
-        configureTerminalSession(session)
-        isTerminalVisible = true
-        isTestsVisible = false
-        isGitLogVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isDebugVisible = false
-        return session
-    }
-
-    private func configureTerminalSession(_ session: TerminalSession) {
-        let sessionID = session.id
-        session.onLink = { [weak self] link, params in
-            self?.openTerminalLink(link, params: params, sessionID: sessionID)
-        }
-    }
-
-    private func openTerminalLink(
-        _ link: String,
-        params: [String: String],
-        sessionID: UUID
-    ) {
-        guard let session = terminalSessions.first(where: { $0.id == sessionID }),
-              let fallbackDirectory = session.currentDirectory ?? workspaceURL else {
-            return
-        }
-
-        switch TerminalLinkResolver.resolve(
-            link,
-            relativeTo: fallbackDirectory,
-            fileExists: { [services] in services.fileStorage.fileExists(at: $0) }
-        ) {
-        case .file(let location):
-            guard let workspaceURL else {
-                platformUI.open(location.url)
-                return
-            }
-            if isFile(location.url, inside: workspaceURL) {
-                openSourceLocation(
-                    url: location.url,
-                    line: location.line ?? 1,
-                    column: location.column
-                )
-            } else {
-                platformUI.open(location.url)
-            }
-        case .external(let url):
-            platformUI.open(url)
-        case nil:
-            return
-        }
-    }
-
-    private func isFile(_ fileURL: URL, inside directoryURL: URL) -> Bool {
-        let filePath = fileURL.standardizedFileURL.path
-        let directoryPath = directoryURL.standardizedFileURL.path
-        guard filePath != directoryPath else { return true }
-        return filePath.hasPrefix(directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/")
-    }
-
-    func selectTerminalSession(_ session: TerminalSession) {
-        guard terminalFeature.selectSession(session) else { return }
-        isTerminalVisible = true
-    }
-
-    func closeTerminalSession(_ session: TerminalSession) {
-        guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
-        terminalFeature.closeSession(session)
-        if terminalSessions.isEmpty {
-            isTerminalVisible = false
-        }
-    }
-
-    func restartActiveTerminal() {
-        terminalFeature.restartActiveSession()
-    }
-
-    func restartActiveTerminal(using shellPath: String) {
-        terminalFeature.restartActiveSession(using: shellPath)
-    }
-
-    func stopTerminalSessions() {
-        terminalFeature.stopAllSessions()
     }
 
     func closeGitLog() {

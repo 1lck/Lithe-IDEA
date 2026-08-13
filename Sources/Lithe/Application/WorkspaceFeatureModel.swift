@@ -22,6 +22,7 @@ final class WorkspaceFeatureModel: ObservableObject {
 
     private let operations: any WorkspaceOperations
     private let fileOperations: any WorkspaceFileOperations
+    private let fileStorage: any FileStorage
     private let gitWatchContextProvider: any GitWatchContextProviding
     private let directoryWatcherFactory: any DirectoryWatcherFactory
     private let workspaceSessionStore: WorkspaceSessionStore
@@ -64,12 +65,14 @@ final class WorkspaceFeatureModel: ObservableObject {
     init(
         operations: any WorkspaceOperations,
         fileOperations: any WorkspaceFileOperations,
+        fileStorage: any FileStorage,
         gitWatchContextProvider: any GitWatchContextProviding,
         directoryWatcherFactory: any DirectoryWatcherFactory,
         workspaceSessionStore: WorkspaceSessionStore
     ) {
         self.operations = operations
         self.fileOperations = fileOperations
+        self.fileStorage = fileStorage
         self.gitWatchContextProvider = gitWatchContextProvider
         self.directoryWatcherFactory = directoryWatcherFactory
         self.workspaceSessionStore = workspaceSessionStore
@@ -285,6 +288,16 @@ final class WorkspaceFeatureModel: ObservableObject {
             rules: visibilityRules,
             isCurrent: { [weak self] in self?.workspaceURL == workspaceURL }
         )
+    }
+
+    func javaIconKind(for url: URL) async -> LitheIconKind? {
+        guard url.pathExtension.lowercased() == "java" else { return nil }
+        let storage = fileStorage
+        let data = await Task.detached(priority: .utility) {
+            try? storage.readPrefix(from: url, byteCount: 4 * 1024)
+        }.value
+        guard let data, let prefix = String(data: data, encoding: .utf8) else { return nil }
+        return LitheIcons.javaSymbolKind(fromSourcePrefix: prefix)
     }
 
     func startWatchingCurrent() {
