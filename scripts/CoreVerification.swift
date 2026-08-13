@@ -71,7 +71,8 @@ struct CoreVerification {
             return
         }
 
-        let fixtureRoot = URL(fileURLWithPath: "/tmp/lithe-shared-search-fixture")
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-shared-search-fixture", isDirectory: true)
         let visibilityRules = FileVisibilityRules.default
         let files = searchFixture.files
             .filter { file in

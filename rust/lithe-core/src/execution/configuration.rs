@@ -378,7 +378,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .filter(|value| value.is_spring_boot)
         .map(|value| (value.path.clone(), value.qualified_name.clone()))
         .collect::<Vec<_>>();
-    let mut configurations = scanned
+    let configurations = scanned
         .configurations
         .into_iter()
         .map(|value| {
@@ -433,8 +433,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             }
         })
         .collect::<Vec<_>>();
-    let mut seen_configuration_ids = BTreeSet::new();
-    configurations.retain(|item| seen_configuration_ids.insert(item.id.clone()));
+    let mut configurations = deduplicate_java_configurations(configurations);
     let java_entry_count = configurations.len();
     if has_java_sources {
         configurations.push(RunConfiguration {
@@ -503,6 +502,49 @@ fn java_configuration_id(value: &crate::protocol::JavaRunConfigurationResponse) 
     match (value.kind.as_str(), value.main_class.as_deref()) {
         ("springBoot", Some(main_class)) => format!("java-main:{main_class}"),
         _ => value.id.clone(),
+    }
+}
+
+/// Keeps stable ids for the usual one-module case while preserving same-named
+/// main classes that belong to different modules. Repeated source paths within
+/// one module are genuine duplicates and still collapse to one configuration.
+fn deduplicate_java_configurations(configurations: Vec<RunConfiguration>) -> Vec<RunConfiguration> {
+    let mut grouped = BTreeMap::<String, BTreeMap<String, RunConfiguration>>::new();
+    for configuration in configurations {
+        let module = java_module_identity(configuration.module().as_deref());
+        grouped
+            .entry(configuration.id.clone())
+            .or_default()
+            .entry(module)
+            .or_insert(configuration);
+    }
+
+    grouped
+        .into_iter()
+        .flat_map(|(base_id, modules)| {
+            let has_module_collision = modules.len() > 1;
+            modules.into_iter().map(move |(module, mut configuration)| {
+                if has_module_collision {
+                    configuration.id = format!("{base_id}:{module}");
+                }
+                configuration
+            })
+        })
+        .collect()
+}
+
+fn java_module_identity(module: Option<&str>) -> String {
+    let normalized = module
+        .unwrap_or(".")
+        .replace('\\', "/")
+        .split('/')
+        .filter(|component| !component.is_empty() && *component != ".")
+        .collect::<Vec<_>>()
+        .join("/");
+    if normalized.is_empty() {
+        ".".to_string()
+    } else {
+        normalized
     }
 }
 
