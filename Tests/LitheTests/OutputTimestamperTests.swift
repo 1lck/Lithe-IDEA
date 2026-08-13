@@ -98,3 +98,46 @@ struct OutputSeverityTests {
         #expect(OutputTextView.severity(ofLine: "Tomcat started on port 8081") == nil)
     }
 }
+
+@Suite("Output text updates")
+struct OutputTextUpdateTests {
+    @Test
+    func appendsOnlyTheNewCompleteLines() {
+        #expect(
+            OutputTextUpdate.plan(
+                previous: "first\n",
+                next: "first\nsecond\n",
+                previousHadANSI: false
+            ) == .append("second\n")
+        )
+    }
+
+    @Test
+    func leavesUnchangedOutputAlone() {
+        #expect(
+            OutputTextUpdate.plan(previous: "same", next: "same", previousHadANSI: false) == .unchanged
+        )
+    }
+
+    @Test
+    func replacesTruncatedOrRewrittenOutput() {
+        #expect(OutputTextUpdate.plan(previous: "old\n", next: "new\n", previousHadANSI: false) == .replace)
+        #expect(OutputTextUpdate.plan(previous: "old\nline\n", next: "line\n", previousHadANSI: false) == .replace)
+    }
+
+    @Test
+    func redrawsOnlyTheIncompleteTrailingLine() {
+        #expect(
+            OutputTextUpdate.plan(
+                previous: "complete\npartial",
+                next: "complete\npartial line\n",
+                previousHadANSI: false
+            ) == .replaceTail(length: 7, with: "partial line\n")
+        )
+    }
+
+    @Test
+    func replacesWhenANSIStateCouldCrossTheBoundary() {
+        #expect(OutputTextUpdate.plan(previous: "\u{1B}[31mred\n", next: "\u{1B}[31mred\nmore\n", previousHadANSI: true) == .replace)
+    }
+}
