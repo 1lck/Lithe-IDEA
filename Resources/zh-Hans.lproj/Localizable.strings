@@ -552,6 +552,7 @@
 "No usages found" = "没有找到调用位置";
 "No implementations found" = "没有找到实现";
 "Definition not found" = "没有找到定义";
+"Language server is warming up or indexing. Navigation will continue when it is ready." = "LSP 正在预热或构建索引，准备就绪后会继续跳转。";
 "Java navigation is available for .java files" = "Java 导航仅适用于 .java 文件";
 "Starting Java navigation..." = "正在启动 Java 导航…";
 "Java navigation is idle" = "Java 导航空闲";

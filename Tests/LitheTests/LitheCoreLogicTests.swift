@@ -2066,6 +2066,39 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func codeEditorUsesLiveSelectionForCommandBNavigation() throws {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "fn main() {}\nstruct Request {}\n"
+        textView.rebuildLineIndex()
+        textView.languageServerFeatures = [.definition, .references]
+        let requestRange = (textView.string as NSString).range(of: "Request")
+        textView.setSelectedRange(NSRange(location: requestRange.location + 2, length: 0))
+        var requestedPosition: (line: Int, column: Int)?
+        textView.onGoToDeclarationOrUsages = { line, column in
+            requestedPosition = (line, column)
+        }
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: .command,
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "b",
+                charactersIgnoringModifiers: "b",
+                isARepeat: false,
+                keyCode: 11
+            )
+        )
+
+        #expect(textView.performKeyEquivalent(with: event))
+        #expect(requestedPosition?.line == 1)
+        #expect(requestedPosition?.column == 9)
+    }
+
+    @Test
+    @MainActor
     func codeEditorLanguageMenuTracksCurrentServerFeatures() {
         let textView = CodeTextView(frame: .zero)
 

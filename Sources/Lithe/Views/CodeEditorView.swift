@@ -193,6 +193,9 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onNavigateToSymbol = { [weak model] line, utf16Column in
             model?.navigateToSymbol(line: line, utf16Column: utf16Column, in: document.url)
         }
+        textView.onGoToDeclarationOrUsages = { [weak model] line, column in
+            model?.goToDeclarationOrUsages(line: line, utf16Column: column)
+        }
         textView.onGoToDefinition = { [weak model] line, column in
             model?.goToDefinition(line: line, utf16Column: column)
         }
@@ -925,6 +928,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var languageServerFeatures: LanguageServerFeatureSet = []
     var onWindowAttached: (() -> Void)?
     var onNavigateToSymbol: ((Int, Int) -> Void)?
+    var onGoToDeclarationOrUsages: ((Int, Int) -> Void)?
     var onGoToDefinition: ((Int, Int) -> Void)?
     var onGoToImplementation: ((Int, Int) -> Void)?
     var onFindUsages: ((Int, Int) -> Void)?
@@ -1008,6 +1012,13 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
            (modifiers == .control && character == " "
             || modifiers == .option && character == "\u{1B}") {
             requestLanguageCompletions()
+            return true
+        }
+        if modifiers == .command,
+           character?.lowercased() == "b",
+           !languageServerFeatures.intersection([.definition, .references]).isEmpty {
+            let position = languageServerPosition(at: selectedRange().location)
+            onGoToDeclarationOrUsages?(position.line, position.utf16Column)
             return true
         }
         return super.performKeyEquivalent(with: event)

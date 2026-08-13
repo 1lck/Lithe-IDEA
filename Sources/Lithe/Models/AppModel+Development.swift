@@ -377,7 +377,7 @@ extension AppModel {
         )
     }
 
-    func goToDeclarationOrUsages() {
+    func goToDeclarationOrUsages(line: Int? = nil, utf16Column: Int? = nil) {
         guard supportsLanguageServerFeature(.definition) else {
             if supportsLanguageServerFeature(.references) {
                 goToUsages()
@@ -387,7 +387,7 @@ extension AppModel {
             return
         }
         guard let document = activeDocument,
-              let caret = editorCaret,
+              let caret = navigationCaret(line: line, utf16Column: utf16Column) ?? editorCaret,
               caret.url.standardizedFileURL == document.url.standardizedFileURL,
               let workspaceURL,
               let provider = languageProviderCatalog.provider(for: document.url) else {
@@ -411,7 +411,11 @@ extension AppModel {
                     line: max(0, caret.line),
                     utf16Column: max(0, caret.utf16Column)
                 ),
-                rootURL: workspaceURL
+                rootURL: workspaceURL,
+                waitingForLanguageServer: { [weak self] in
+                    guard let self, self.languageNavigationRequestID == requestID else { return }
+                    self.showNotification("Language server is warming up or indexing. Navigation will continue when it is ready.")
+                }
             ) { [weak self] result in
                 guard let self, self.languageNavigationRequestID == requestID else { return }
                 switch result {
@@ -922,6 +926,10 @@ extension AppModel {
                         kind: kind,
                         presentation: presentation
                     )
+                },
+                waitingForLanguageServer: { [weak self] in
+                    guard let self, self.languageNavigationRequestID == requestID else { return }
+                    self.showNotification("Language server is warming up or indexing. Navigation will continue when it is ready.")
                 }
             ) { [weak self] result in
                 guard let self, self.languageNavigationRequestID == requestID else { return }
@@ -993,6 +1001,10 @@ extension AppModel {
                         kind: .references,
                         presentation: .chooser
                     )
+                },
+                waitingForLanguageServer: { [weak self] in
+                    guard let self, self.languageNavigationRequestID == requestID else { return }
+                    self.showNotification("Language server is warming up or indexing. Navigation will continue when it is ready.")
                 }
             ) { [weak self] result in
                 guard let self, self.languageNavigationRequestID == requestID else { return }
@@ -1056,7 +1068,11 @@ extension AppModel {
                     line: max(0, caret.line),
                     utf16Column: max(0, caret.utf16Column)
                 ),
-                rootURL: workspaceURL
+                rootURL: workspaceURL,
+                waitingForLanguageServer: { [weak self] in
+                    guard let self, self.languageNavigationRequestID == requestID else { return }
+                    self.showNotification("Language server is warming up or indexing. Navigation will continue when it is ready.")
+                }
             ) { [weak self] result in
                 guard let self, self.languageNavigationRequestID == requestID else { return }
                 self.isLoadingLanguageNavigation = false

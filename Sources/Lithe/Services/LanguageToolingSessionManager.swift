@@ -40,7 +40,9 @@ final class LanguageToolingSessionManager: ObservableObject {
     private struct PendingNavigationRequest {
         var completions: [(Result<[LanguageServerLocation], Error>) -> Void]
         var provisionalObservers: [([LanguageServerLocation]) -> Void]
+        var languageServerWaitingObservers: [() -> Void]
         var latestProvisional: [LanguageServerLocation]?
+        var didPublishLanguageServerWaiting: Bool
         var interactiveDeadlineTask: Task<Void, Never>?
     }
 
@@ -378,6 +380,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         position: LanguageServerPosition,
         rootURL: URL,
         provisional: (([LanguageServerLocation]) -> Void)? = nil,
+        waitingForLanguageServer: (() -> Void)? = nil,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws {
         let context = featureContext(
@@ -417,13 +420,19 @@ final class LanguageToolingSessionManager: ObservableObject {
                 pending.provisionalObservers.append(provisional)
                 if let latest = pending.latestProvisional { provisional(latest) }
             }
+            if let waitingForLanguageServer {
+                pending.languageServerWaitingObservers.append(waitingForLanguageServer)
+                if pending.didPublishLanguageServerWaiting { waitingForLanguageServer() }
+            }
             pendingNavigationRequests[cacheKey] = pending
             return
         }
         pendingNavigationRequests[cacheKey] = PendingNavigationRequest(
             completions: [completion],
             provisionalObservers: provisional.map { [$0] } ?? [],
+            languageServerWaitingObservers: waitingForLanguageServer.map { [$0] } ?? [],
             latestProvisional: nil,
+            didPublishLanguageServerWaiting: false,
             interactiveDeadlineTask: nil
         )
 
@@ -446,7 +455,10 @@ final class LanguageToolingSessionManager: ObservableObject {
 
         let startedAt = Date()
         guard !projectSymbols.isEmpty else {
-            func finishWithFallback(source: String) {
+            func finishWithFallback(
+                source: String,
+                completeWhenEmpty: Bool = true
+            ) {
                 guard pendingNavigationRequests[cacheKey] != nil else { return }
                 routeNavigation(
                     providers: fallback,
@@ -456,6 +468,16 @@ final class LanguageToolingSessionManager: ObservableObject {
                 ) { [self] fallbackResult in
                     guard pendingNavigationRequests[cacheKey] != nil else { return }
                     let fallbackLocations = (try? fallbackResult.get()) ?? []
+                    guard completeWhenEmpty || !fallbackLocations.isEmpty else {
+                        self.publishLanguageServerWaiting(for: cacheKey)
+                        self.recordNavigationFallbackMiss(
+                            fileURL: fileURL,
+                            method: method,
+                            source: source,
+                            startedAt: startedAt
+                        )
+                        return
+                    }
                     recordNavigationTiming(
                         fileURL: fileURL,
                         method: method,
@@ -470,7 +492,10 @@ final class LanguageToolingSessionManager: ObservableObject {
                 }
             }
             scheduleNavigationInteractiveDeadline(for: cacheKey) {
-                finishWithFallback(source: "interactive-deadline")
+                finishWithFallback(
+                    source: "interactive-deadline",
+                    completeWhenEmpty: false
+                )
             }
             routeNavigation(
                 providers: languageServers,
@@ -518,7 +543,10 @@ final class LanguageToolingSessionManager: ObservableObject {
             completeNavigationRequest(cacheKey, with: .success(locations))
         }
 
-        func finishWithFallback(source: String = "builtin") {
+        func finishWithFallback(
+            source: String = "builtin",
+            completeWhenEmpty: Bool = true
+        ) {
             guard !isFinished else { return }
             routeNavigation(
                 providers: fallback,
@@ -526,13 +554,27 @@ final class LanguageToolingSessionManager: ObservableObject {
                 method: method,
                 context: context
             ) { result in
-                finish((try? result.get()) ?? [], source: source, cache: true)
+                let locations = (try? result.get()) ?? []
+                guard completeWhenEmpty || !locations.isEmpty else {
+                    self.publishLanguageServerWaiting(for: cacheKey)
+                    self.recordNavigationFallbackMiss(
+                        fileURL: fileURL,
+                        method: method,
+                        source: source,
+                        startedAt: startedAt
+                    )
+                    return
+                }
+                finish(locations, source: source, cache: true)
             }
         }
 
         scheduleNavigationInteractiveDeadline(for: cacheKey) {
             if projectLocations.isEmpty {
-                finishWithFallback(source: "interactive-deadline")
+                finishWithFallback(
+                    source: "interactive-deadline",
+                    completeWhenEmpty: false
+                )
             } else {
                 finish(projectLocations, source: "project-index-deadline", cache: true)
             }
@@ -1193,6 +1235,14 @@ final class LanguageToolingSessionManager: ObservableObject {
         for observer in pending.provisionalObservers { observer(locations) }
     }
 
+    private func publishLanguageServerWaiting(for key: NavigationCacheKey) {
+        guard var pending = pendingNavigationRequests[key],
+              !pending.didPublishLanguageServerWaiting else { return }
+        pending.didPublishLanguageServerWaiting = true
+        pendingNavigationRequests[key] = pending
+        for observer in pending.languageServerWaitingObservers { observer() }
+    }
+
     private func completeNavigationRequest(
         _ key: NavigationCacheKey,
         with result: Result<[LanguageServerLocation], Error>
@@ -1234,6 +1284,22 @@ final class LanguageToolingSessionManager: ObservableObject {
             level: .info,
             message: "Navigation completed",
             detail: "method=\(method) source=\(source) elapsedMs=\(elapsedMilliseconds) results=\(resultCount)"
+        )
+    }
+
+    private func recordNavigationFallbackMiss(
+        fileURL: URL,
+        method: String,
+        source: String,
+        startedAt: Date
+    ) {
+        let providerID = catalog.provider(for: fileURL)?.id ?? "language-tooling"
+        let elapsedMilliseconds = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+        recordLanguageServerLog(
+            providerID: providerID,
+            level: .info,
+            message: "Navigation fallback missed; continuing language server request",
+            detail: "method=\(method) source=\(source) elapsedMs=\(elapsedMilliseconds) results=0"
         )
     }
 

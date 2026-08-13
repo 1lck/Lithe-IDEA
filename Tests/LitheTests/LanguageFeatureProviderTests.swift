@@ -318,6 +318,55 @@ struct LanguageFeatureProviderTests {
         })
     }
 
+    @Test
+    func managerKeepsWaitingForLateLSPWhenInteractiveFallbackMisses() async throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/main.go")
+        let semanticLocation = Self.location(fileURL, line: 9)
+        let lsp = NavigationFeatureProvider(
+            id: "lsp:test",
+            priority: .languageServer,
+            locations: [semanticLocation],
+            delayMilliseconds: 60
+        )
+        let fallback = NavigationFeatureProvider(
+            id: "fallback",
+            priority: .builtin,
+            locations: []
+        )
+        let manager = LanguageToolingSessionManager(
+            languageFeatureProviders: [lsp, fallback],
+            navigationInteractiveDeadline: .milliseconds(20)
+        )
+        var waitingNotificationCount = 0
+
+        let result = try await withCheckedThrowingContinuation { continuation in
+            do {
+                try manager.navigate(
+                    method: "textDocument/definition",
+                    fileURL: fileURL,
+                    text: "externalSymbol",
+                    position: LanguageServerPosition(line: 0, utf16Column: 2),
+                    rootURL: fileURL.deletingLastPathComponent(),
+                    waitingForLanguageServer: {
+                        waitingNotificationCount += 1
+                    }
+                ) { continuation.resume(with: $0) }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+
+        #expect(result == [semanticLocation])
+        #expect(waitingNotificationCount == 1)
+        #expect(manager.languageServerLogs.contains {
+            $0.message == "Navigation fallback missed; continuing language server request"
+        })
+        #expect(manager.languageServerLogs.contains {
+            $0.detail?.contains("source=language-server") == true
+                && $0.detail?.contains("results=1") == true
+        })
+    }
+
     private static func item(label: String, detail: String) -> LanguageServerCompletionItem {
         LanguageServerCompletionItem(
             label: label,

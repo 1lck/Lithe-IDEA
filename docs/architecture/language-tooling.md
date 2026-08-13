@@ -66,7 +66,7 @@ lsp/
 
 - **Completion**：依次收集所有成功结果，保持高优先级顺序，并按 `label` 去重。因此 LSP 可提供精确候选，本地关键字和当前文件符号仍能补足结果。
 - **Hover**：返回第一个非空结果；LSP 无结果或失败时继续询问本地 provider。
-- **Definition/References/Implementation**：LSP 与 project-symbol provider 并发请求。项目索引候选先返回时只作为 provisional result 展示；LSP 在 750ms 交互时限内返回非空结果时仍以语义结果为准。服务器冷启动、索引繁忙或无响应而超过交互时限时，立即使用项目候选，再降级到当前文件文本级导航，不能让编辑器等待协议层最长 30 秒的容错 deadline。迟到的服务器结果不会覆盖已经呈现的导航事务。
+- **Definition/References/Implementation**：LSP 与 project-symbol provider 并发请求。项目索引候选先返回时只作为 provisional result 展示；LSP 在 750ms 交互时限内返回非空结果时仍以语义结果为准。服务器冷启动、索引繁忙或无响应而超过交互时限时，立即使用非空的项目候选，再降级到当前文件文本级导航。若两层本地回退都没有候选，则保持原 LSP 请求存活并向界面发布“预热/索引中”状态，避免把跨文件、依赖库或宏生成符号错误地提前结束为空结果。迟到的服务器结果不会覆盖已经呈现的非空导航事务。
 - **Rename/Formatting/Code Action/Resolve/Execute Command**：目前仍是 LSP-only；未运行或未声明相应能力时应返回明确的 capability 错误。
 
 provider 抛错不会让路由提前结束。这个策略用于隔离第三方语言服务器故障，但也意味着新增 provider 时必须给出稳定优先级，并避免返回伪造的“成功但无意义”结果。
