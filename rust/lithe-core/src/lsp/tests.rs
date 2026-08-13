@@ -202,7 +202,10 @@ fn project_catalog_reports_unknown_configuration_fields() {
 #[test]
 fn malformed_project_catalog_is_rejected_with_a_visible_diagnostic() {
     let root = temporary_root("project-config-malformed");
-    let config_path = root.join(".lithe/lsp/language-providers.json");
+    let config_path = root
+        .join(".lithe")
+        .join("lsp")
+        .join("language-providers.json");
     fs::create_dir_all(config_path.parent().unwrap()).unwrap();
     fs::write(&config_path, r#"{"version":2,"providers":["#).unwrap();
 
