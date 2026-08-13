@@ -154,7 +154,7 @@ struct ProjectSwitcherPopover: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(pathExists(path) ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                    .foregroundStyle(model.fileExists(at: URL(fileURLWithPath: path)) ? LitheTheme.primaryText : LitheTheme.secondaryText)
                     .lineLimit(1)
                 Text(path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                     .font(.system(size: 11))
@@ -174,10 +174,6 @@ struct ProjectSwitcherPopover: View {
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
         .contentShape(Rectangle())
-    }
-
-    private func pathExists(_ path: String) -> Bool {
-        FileManager.default.fileExists(atPath: path)
     }
 
     private func initials(for name: String) -> String {

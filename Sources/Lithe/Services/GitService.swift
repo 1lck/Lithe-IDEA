@@ -2,6 +2,8 @@ import Foundation
 
 protocol GitOperations: Sendable {
     func snapshot(at rootURL: URL) -> GitSnapshot?
+    func watchContext(at rootURL: URL) -> GitWatchContext?
+
 
     func diffDocument(
         at rootURL: URL,
@@ -94,9 +96,13 @@ protocol GitOperations: Sendable {
     func stageAll(at rootURL: URL) -> ProcessResult?
 }
 
+protocol GitWatchContextProviding: Sendable {
+    func watchContext(for workspace: URL) async -> GitWatchContext?
+}
+
 /// UI-facing Git service. Git command construction, validation, parsing, and
 /// process execution live behind the shared Rust operations port.
-struct GitService: Sendable {
+struct GitService: GitWatchContextProviding, Sendable {
     private let operations: any GitOperations
 
     init(operations: any GitOperations) {
@@ -124,6 +130,11 @@ struct GitService: Sendable {
     func snapshot(for workspace: URL) async -> GitSnapshot? {
         await read(priority: .utility) { $0.snapshot(at: workspace) }
     }
+
+    func watchContext(for workspace: URL) async -> GitWatchContext? {
+        await read(priority: .utility) { $0.watchContext(at: workspace) }
+    }
+
 
     func diff(for change: GitChange) async -> [DiffRow] {
         (await diffDocument(for: change)).rows

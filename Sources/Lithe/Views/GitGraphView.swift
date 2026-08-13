@@ -1,40 +1,40 @@
 import AppKit
 import SwiftUI
 
+/// Commit-row callbacks are grouped so that a row receives one stable value
+/// instead of four freshly allocated closures per redraw. Rows are compared by
+/// their rendered data alone, which keeps SwiftUI from re-evaluating hundreds of
+/// canvases and context menus whenever an unrelated observable changes.
+struct GitGraphRowActions {
+    let onSelect: (GitCommit) -> Void
+    let onCherryPick: (GitCommit) -> Void
+    let onRevert: (GitCommit) -> Void
+    let onReset: (GitCommit) -> Void
+}
+
 struct GitGraphView: View {
     let layout: GitGraphLayout
     let visibleHashes: Set<String>?
     let selectedHash: String?
     let showCommitDecorations: Bool
-    let onSelect: (GitCommit) -> Void
-    let onCherryPick: (GitCommit) -> Void
-    let onRevert: (GitCommit) -> Void
-    let onReset: (GitCommit) -> Void
-
-    @State private var hoveredHash: String?
+    let actions: GitGraphRowActions
 
     private let rowHeight: CGFloat = 39
 
     var body: some View {
         LazyVStack(spacing: 0) {
-            ForEach(Array(visibleRows.enumerated()), id: \.element.id) { index, row in
+            ForEach(stripedRows, id: \.row.id) { stripedRow in
                 GitGraphRowView(
-                    row: row,
+                    row: stripedRow.row,
                     graphWidth: graphWidth,
                     rowHeight: rowHeight,
-                    isSelected: selectedHash == row.commit.hash,
-                    isHovered: hoveredHash == row.commit.hash,
+                    isSelected: selectedHash == stripedRow.row.commit.hash,
                     showCommitDecorations: showCommitDecorations,
-                    stripeIndex: index,
-                    onSelect: { onSelect(row.commit) },
-                    onCherryPick: { onCherryPick(row.commit) },
-                    onRevert: { onRevert(row.commit) },
-                    onReset: { onReset(row.commit) },
-                    onHover: { isHovering in
-                        hoveredHash = isHovering ? row.commit.hash : nil
-                    }
+                    isEvenStripe: stripedRow.isEvenStripe,
+                    actions: actions
                 )
-                .id(row.commit.hash)
+                .equatable()
+                .id(stripedRow.row.commit.hash)
             }
 
             if layout.hasMissingParents {
@@ -55,34 +55,49 @@ struct GitGraphView: View {
         max(54, CGFloat(max(layout.laneCount, 1)) * 18 + 20)
     }
 
-    private var visibleRows: [GitGraphRow] {
-        guard let visibleHashes else { return layout.rows }
-        return layout.rows.filter { visibleHashes.contains($0.commit.hash) }
+    private var stripedRows: [StripedRow] {
+        var stripedRows: [StripedRow] = []
+        stripedRows.reserveCapacity(layout.rows.count)
+        for row in layout.rows {
+            if let visibleHashes, !visibleHashes.contains(row.commit.hash) { continue }
+            stripedRows.append(StripedRow(row: row, isEvenStripe: stripedRows.count.isMultiple(of: 2)))
+        }
+        return stripedRows
+    }
+
+    private struct StripedRow {
+        let row: GitGraphRow
+        let isEvenStripe: Bool
     }
 }
 
-private struct GitGraphRowView: View {
+private struct GitGraphRowView: View, Equatable {
     let row: GitGraphRow
     let graphWidth: CGFloat
     let rowHeight: CGFloat
     let isSelected: Bool
-    let isHovered: Bool
     let showCommitDecorations: Bool
-    let stripeIndex: Int
-    let onSelect: () -> Void
-    let onCherryPick: () -> Void
-    let onRevert: () -> Void
-    let onReset: () -> Void
-    let onHover: (Bool) -> Void
+    let isEvenStripe: Bool
+    let actions: GitGraphRowActions
+
+    @State private var isHovered = false
+
+    static func == (lhs: GitGraphRowView, rhs: GitGraphRowView) -> Bool {
+        lhs.row == rhs.row
+            && lhs.graphWidth == rhs.graphWidth
+            && lhs.rowHeight == rhs.rowHeight
+            && lhs.isSelected == rhs.isSelected
+            && lhs.showCommitDecorations == rhs.showCommitDecorations
+            && lhs.isEvenStripe == rhs.isEvenStripe
+    }
 
     var body: some View {
-        Button(action: onSelect) {
+        Button { actions.onSelect(row.commit) } label: {
             HStack(spacing: 0) {
                 GitGraphCanvas(
                     row: row,
                     width: graphWidth,
-                    height: rowHeight,
-                    isHighlighted: isHovered
+                    height: rowHeight
                 )
 
                 HStack(spacing: 5) {
@@ -116,8 +131,7 @@ private struct GitGraphRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .lithePointer()
-        .onHover(perform: onHover)
+        .onHover { isHovered = $0 }
         .contextMenu {
             Button("Copy Commit Hash") {
                 NSPasteboard.general.clearContents()
@@ -128,16 +142,16 @@ private struct GitGraphRowView: View {
                 NSPasteboard.general.setString(row.commit.shortHash, forType: .string)
             }
             Divider()
-            Button("Cherry-pick Commit…", action: onCherryPick)
-            Button("Revert Commit…", action: onRevert)
-            Button("Reset Current Branch to Here…", action: onReset)
+            Button("Cherry-pick Commit…") { actions.onCherryPick(row.commit) }
+            Button("Revert Commit…") { actions.onRevert(row.commit) }
+            Button("Reset Current Branch to Here…") { actions.onReset(row.commit) }
         }
     }
 
     private var backgroundColor: Color {
         if isSelected { return LitheTheme.selection }
         if isHovered { return LitheTheme.hoverBackground }
-        return stripeIndex.isMultiple(of: 2) ? Color.white.opacity(0.012) : .clear
+        return isEvenStripe ? Color.white.opacity(0.012) : .clear
     }
 }
 
@@ -176,9 +190,9 @@ private struct GitGraphCanvas: View {
     let row: GitGraphRow
     let width: CGFloat
     let height: CGFloat
-    let isHighlighted: Bool
 
     private let laneSpacing: CGFloat = 18
+    private let laneLineWidth: CGFloat = 1.8
     private let leftPadding: CGFloat = 10
 
     var body: some View {
@@ -186,7 +200,8 @@ private struct GitGraphCanvas: View {
             let centerY = size.height / 2
             let currentX = x(for: row.lane)
 
-            for (lane, colorIndex) in row.incomingLaneColors.enumerated() {
+            for (lane, incomingColorIndex) in row.incomingLaneColors.enumerated() {
+                guard let colorIndex = incomingColorIndex else { continue }
                 let path = linePath(
                     from: CGPoint(x: x(for: lane), y: 0),
                     to: CGPoint(x: x(for: lane), y: lane == row.lane ? centerY : size.height)
@@ -194,7 +209,7 @@ private struct GitGraphCanvas: View {
                 context.stroke(
                     path,
                     with: .color(GitGraphPalette.color(for: colorIndex)),
-                    style: StrokeStyle(lineWidth: isHighlighted ? 2.3 : 1.8, lineCap: .round)
+                    style: StrokeStyle(lineWidth: laneLineWidth, lineCap: .round)
                 )
             }
 
@@ -218,7 +233,7 @@ private struct GitGraphCanvas: View {
                     context.stroke(
                         path,
                         with: .color(color),
-                        style: StrokeStyle(lineWidth: isHighlighted ? 2.3 : 1.8, lineCap: .round)
+                        style: StrokeStyle(lineWidth: laneLineWidth, lineCap: .round)
                     )
                 } else {
                     let path = linePath(
@@ -257,7 +272,9 @@ private struct GitGraphCanvas: View {
     }
 
     private var nodeColorIndex: Int {
-        row.incomingLaneColors[safe: row.lane] ?? 0
+        row.incomingLaneColors[safe: row.lane].flatMap { $0 }
+            ?? row.parentEdges.first?.colorIndex
+            ?? 0
     }
 
     private func x(for lane: Int) -> CGFloat {

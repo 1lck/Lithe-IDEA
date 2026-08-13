@@ -22,13 +22,12 @@ struct FindBarView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .focused($focused)
-                .onKeyPress(keys: [.return]) { press in
-                    if press.modifiers.contains(.shift) {
+                .macReturnKeyHandler(isEnabled: focused) { isShiftPressed in
+                    if isShiftPressed {
                         model.navigateFind(offset: -1)
                     } else {
                         model.navigateFind(offset: 1)
                     }
-                    return .handled
                 }
 
             Text(matchLabel)

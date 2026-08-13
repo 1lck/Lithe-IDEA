@@ -1,0 +1,500 @@
+{
+  "version": 2,
+  "providers": [
+    {
+      "id": "java",
+      "displayName": "Java",
+      "fileExtensions": ["java"],
+      "capabilities": ["run", "languageServer", "formatting", "testing"],
+      "activationPolicy": "onDemand",
+      "languageId": "java",
+      "languageServerLaunch": {
+        "executableNames": ["jdtls"],
+        "arguments": []
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "jdtls",
+        "officialDownloadURL": "https://download.eclipse.org/jdtls/milestones/"
+      }
+    },
+    {
+      "id": "go",
+      "displayName": "Go",
+      "fileExtensions": ["go"],
+      "capabilities": ["run", "languageServer", "debugAdapter", "formatting", "testing"],
+      "activationPolicy": "onDemand",
+      "languageId": "go",
+      "languageServerLaunch": {
+        "executableNames": ["gopls"],
+        "arguments": []
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "gopls",
+        "officialDownloadURL": "https://go.dev/gopls/"
+      }
+    },
+    {
+      "id": "python",
+      "displayName": "Python",
+      "fileExtensions": ["py", "pyw"],
+      "capabilities": ["run", "languageServer", "debugAdapter", "formatting", "testing"],
+      "activationPolicy": "onDemand",
+      "languageId": "python",
+      "languageServerLaunch": {
+        "executableNames": ["basedpyright-langserver", "pyright-langserver"],
+        "arguments": ["--stdio"]
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "pyright",
+        "officialDownloadURL": "https://github.com/microsoft/pyright"
+      }
+    },
+    {
+      "id": "node",
+      "displayName": "Node.js",
+      "fileExtensions": ["js", "jsx", "ts", "tsx", "mjs", "cjs"],
+      "capabilities": ["run", "languageServer", "debugAdapter", "formatting", "testing"],
+      "activationPolicy": "onDemand",
+      "languageId": "javascript",
+      "languageServerLaunch": {
+        "executableNames": ["typescript-language-server"],
+        "arguments": ["--stdio"]
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "typescript-language-server",
+        "officialDownloadURL": "https://github.com/typescript-language-server/typescript-language-server"
+      },
+      "languageIdsByExtension": {
+        "jsx": "javascriptreact",
+        "ts": "typescript",
+        "tsx": "typescriptreact"
+      }
+    },
+    {
+      "id": "rust",
+      "displayName": "Rust",
+      "fileExtensions": ["rs"],
+      "capabilities": ["run", "languageServer", "debugAdapter", "formatting", "testing"],
+      "activationPolicy": "onDemand",
+      "languageId": "rust",
+      "languageServerLaunch": {
+        "executableNames": ["rust-analyzer"],
+        "arguments": [],
+        "validationArguments": ["--version"]
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "rust-analyzer",
+        "officialDownloadURL": "https://rust-analyzer.github.io/manual.html#installation"
+      }
+    },
+    {
+      "id": "clangd",
+      "displayName": "C/C++/Objective-C",
+      "fileExtensions": ["c", "h", "hh", "hpp", "hxx", "cpp", "cc", "cxx", "m", "mm"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "cpp",
+      "languageServerLaunch": {
+        "executableNames": ["clangd"],
+        "arguments": []
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "llvm",
+        "officialDownloadURL": "https://clangd.llvm.org/installation"
+      },
+      "languageIdsByExtension": {
+        "c": "c",
+        "h": "c",
+        "m": "objective-c",
+        "mm": "objective-cpp"
+      }
+    },
+    {
+      "id": "csharp",
+      "displayName": "C#",
+      "fileExtensions": ["cs", "csx"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "csharp"
+    },
+    {
+      "id": "fsharp",
+      "displayName": "F#",
+      "fileExtensions": ["fs", "fsi", "fsx"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "fsharp"
+    },
+    {
+      "id": "swift",
+      "displayName": "Swift",
+      "fileExtensions": ["swift"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "swift",
+      "languageServerLaunch": {
+        "executableNames": ["sourcekit-lsp"],
+        "arguments": []
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://github.com/swiftlang/sourcekit-lsp"
+      }
+    },
+    {
+      "id": "kotlin",
+      "displayName": "Kotlin",
+      "fileExtensions": ["kt", "kts"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "kotlin",
+      "languageServerLaunch": {
+        "executableNames": ["kotlin-language-server"],
+        "arguments": []
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://github.com/Kotlin/kotlin-lsp"
+      }
+    },
+    {
+      "id": "scala",
+      "displayName": "Scala",
+      "fileExtensions": ["scala", "sc"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "scala",
+      "languageServerLaunch": {
+        "executableNames": ["metals"],
+        "arguments": []
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "metals",
+        "officialDownloadURL": "https://scalameta.org/metals/docs/editors/overview.html"
+      }
+    },
+    {
+      "id": "groovy",
+      "displayName": "Groovy",
+      "fileExtensions": ["groovy"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "groovy"
+    },
+    {
+      "id": "ruby",
+      "displayName": "Ruby",
+      "fileExtensions": ["rb", "rake", "gemspec"],
+      "fileNames": ["Rakefile", "Gemfile"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "ruby",
+      "languageServerLaunch": {
+        "executableNames": ["ruby-lsp"],
+        "arguments": []
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://shopify.github.io/ruby-lsp/"
+      }
+    },
+    {
+      "id": "php",
+      "displayName": "PHP",
+      "fileExtensions": ["php", "phtml"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "php",
+      "languageServerLaunch": {
+        "executableNames": ["intelephense", "phpactor"],
+        "arguments": []
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://intelephense.com/"
+      }
+    },
+    {
+      "id": "dart",
+      "displayName": "Dart",
+      "fileExtensions": ["dart"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "dart"
+    },
+    {
+      "id": "lua",
+      "displayName": "Lua",
+      "fileExtensions": ["lua"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "lua"
+    },
+    {
+      "id": "shell",
+      "displayName": "Shell",
+      "fileExtensions": ["sh", "bash", "zsh", "fish", "ksh"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "shellscript",
+      "languageServerLaunch": {
+        "executableNames": ["bash-language-server"],
+        "arguments": ["start"]
+      },
+      "languageServerInstallation": {
+        "officialDownloadURL": "https://github.com/bash-lsp/bash-language-server"
+      }
+    },
+    {
+      "id": "powershell",
+      "displayName": "PowerShell",
+      "fileExtensions": ["ps1", "psm1", "psd1"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "powershell"
+    },
+    {
+      "id": "html",
+      "displayName": "HTML",
+      "fileExtensions": ["html", "htm", "xhtml"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "html"
+    },
+    {
+      "id": "css",
+      "displayName": "CSS",
+      "fileExtensions": ["css", "scss", "sass", "less"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "css",
+      "languageIdsByExtension": {
+        "less": "less",
+        "sass": "sass",
+        "scss": "scss"
+      }
+    },
+    {
+      "id": "vue",
+      "displayName": "Vue",
+      "fileExtensions": ["vue"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "vue"
+    },
+    {
+      "id": "svelte",
+      "displayName": "Svelte",
+      "fileExtensions": ["svelte"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "svelte"
+    },
+    {
+      "id": "astro",
+      "displayName": "Astro",
+      "fileExtensions": ["astro"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "astro"
+    },
+    {
+      "id": "json",
+      "displayName": "JSON",
+      "fileExtensions": ["json", "jsonc", "json5"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "json",
+      "languageIdsByExtension": {
+        "jsonc": "jsonc"
+      }
+    },
+    {
+      "id": "yaml",
+      "displayName": "YAML",
+      "fileExtensions": ["yml", "yaml"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "yaml",
+      "languageServerLaunch": {
+        "executableNames": ["yaml-language-server"],
+        "arguments": ["--stdio"]
+      },
+      "languageServerInstallation": {
+        "homebrewFormula": "yaml-language-server",
+        "officialDownloadURL": "https://github.com/redhat-developer/yaml-language-server"
+      }
+    },
+    {
+      "id": "xml",
+      "displayName": "XML",
+      "fileExtensions": ["xml", "xsd", "wsdl", "pom"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "xml"
+    },
+    {
+      "id": "markdown",
+      "displayName": "Markdown",
+      "fileExtensions": ["md", "markdown", "mdx"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "markdown"
+    },
+    {
+      "id": "sql",
+      "displayName": "SQL",
+      "fileExtensions": ["sql"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "sql"
+    },
+    {
+      "id": "terraform",
+      "displayName": "Terraform",
+      "fileExtensions": ["tf", "tfvars"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "terraform"
+    },
+    {
+      "id": "dockerfile",
+      "displayName": "Dockerfile",
+      "fileExtensions": ["dockerfile"],
+      "fileNames": ["Dockerfile"],
+      "fileNamePrefixes": ["Dockerfile."],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "dockerfile",
+      "languageIdsByFileName": {
+        "Dockerfile": "dockerfile"
+      }
+    },
+    {
+      "id": "cmake",
+      "displayName": "CMake",
+      "fileExtensions": ["cmake"],
+      "fileNames": ["CMakeLists.txt"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "cmake"
+    },
+    {
+      "id": "make",
+      "displayName": "Make",
+      "fileExtensions": ["mk"],
+      "fileNames": ["Makefile", "GNUmakefile"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "makefile"
+    },
+    {
+      "id": "toml",
+      "displayName": "TOML",
+      "fileExtensions": ["toml"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "toml"
+    },
+    {
+      "id": "graphql",
+      "displayName": "GraphQL",
+      "fileExtensions": ["graphql", "gql"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "graphql"
+    },
+    {
+      "id": "protobuf",
+      "displayName": "Protocol Buffers",
+      "fileExtensions": ["proto"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "proto"
+    },
+    {
+      "id": "prisma",
+      "displayName": "Prisma",
+      "fileExtensions": ["prisma"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "prisma"
+    },
+    {
+      "id": "elixir",
+      "displayName": "Elixir",
+      "fileExtensions": ["ex", "exs"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "elixir"
+    },
+    {
+      "id": "erlang",
+      "displayName": "Erlang",
+      "fileExtensions": ["erl", "hrl"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "erlang"
+    },
+    {
+      "id": "haskell",
+      "displayName": "Haskell",
+      "fileExtensions": ["hs", "lhs"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "haskell"
+    },
+    {
+      "id": "ocaml",
+      "displayName": "OCaml",
+      "fileExtensions": ["ml", "mli"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "ocaml"
+    },
+    {
+      "id": "clojure",
+      "displayName": "Clojure",
+      "fileExtensions": ["clj", "cljs", "cljc", "edn"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "clojure"
+    },
+    {
+      "id": "julia",
+      "displayName": "Julia",
+      "fileExtensions": ["jl"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "julia"
+    },
+    {
+      "id": "r",
+      "displayName": "R",
+      "fileExtensions": ["r"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "r"
+    },
+    {
+      "id": "perl",
+      "displayName": "Perl",
+      "fileExtensions": ["pl", "pm", "t"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "perl"
+    },
+    {
+      "id": "zig",
+      "displayName": "Zig",
+      "fileExtensions": ["zig"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "zig"
+    },
+    {
+      "id": "solidity",
+      "displayName": "Solidity",
+      "fileExtensions": ["sol"],
+      "capabilities": ["languageServer", "formatting"],
+      "activationPolicy": "onDemand",
+      "languageId": "solidity"
+    }
+  ]
+}

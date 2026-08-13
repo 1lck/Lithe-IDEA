@@ -6,6 +6,7 @@ struct WelcomeView: View {
     @EnvironmentObject private var updateChecker: UpdateChecker
     @State private var projectFilter = ""
     @State private var hoveredProjectID: String?
+    @State private var hoveredProjectMenuID: String?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -14,7 +15,7 @@ struct WelcomeView: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
                 .frame(maxWidth: .infinity)
-                .frame(height: 58)
+                .frame(height: 48)
                 .background(LitheTheme.window)
 
             HStack(spacing: 0) {
@@ -24,6 +25,7 @@ struct WelcomeView: View {
             }
         }
         .background(LitheTheme.window)
+        .background(WelcomeInitialFocusReset())
     }
 
     private var welcomeSidebar: some View {
@@ -40,9 +42,9 @@ struct WelcomeView: View {
                     updatePrompt
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 38)
-            .padding(.bottom, 38)
+            .padding(.horizontal, 20)
+            .padding(.top, 28)
+            .padding(.bottom, 30)
 
             HStack(spacing: 9) {
                 LitheIcon(kind: .folder, size: 15)
@@ -81,7 +83,7 @@ struct WelcomeView: View {
             .padding(.horizontal, 14)
             .padding(.bottom, 14)
         }
-        .frame(width: 280)
+        .frame(width: 240)
         .background(LitheTheme.sidebar)
     }
 
@@ -177,26 +179,25 @@ struct WelcomeView: View {
                         .focused($searchFocused)
                 }
                 .litheSearchField(isFocused: searchFocused, height: 30)
-                .frame(maxWidth: 360)
+                .frame(maxWidth: 300)
 
                 Spacer()
 
                 Button("Clone") {
                     model.showCloneRepository()
                 }
-                .buttonStyle(.bordered)
-                .lithePointer()
+                .buttonStyle(LitheSecondaryButtonStyle())
 
                 Button("Open") {
                     model.chooseProject()
                 }
                 .buttonStyle(LithePrimaryButtonStyle())
             }
-            .padding(.horizontal, 30)
-            .frame(height: 76)
+            .padding(.horizontal, 20)
+            .frame(height: 66)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 18)
 
             if filteredProjects.isEmpty {
                 emptyProjectsState
@@ -207,8 +208,9 @@ struct WelcomeView: View {
                             projectRow(project)
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
                 }
             }
         }
@@ -239,7 +241,7 @@ struct WelcomeView: View {
                     Text(initials(for: project.name))
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
+                        .frame(width: 34, height: 34)
                         .background(project.exists ? color(for: project.name) : LitheTheme.raised)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
 
@@ -262,6 +264,8 @@ struct WelcomeView: View {
             .lithePointer()
             .disabled(!project.exists)
 
+            Spacer(minLength: 0)
+
             Menu {
                 if project.exists {
                     Button("Open") { model.openProject(project.url) }
@@ -273,20 +277,29 @@ struct WelcomeView: View {
                     model.removeRecentProject(project)
                 }
             } label: {
-                LitheSystemIcon(systemImage: "ellipsis")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+                ZStack {
+                    RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                        .fill(hoveredProjectMenuID == project.id ? LitheTheme.hoverBackground : .clear)
+                    LitheSystemIcon(systemImage: "ellipsis")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+                .onHover { isHovering in
+                    hoveredProjectMenuID = isHovering ? project.id : nil
+                }
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .lithePointer()
-            .foregroundStyle(LitheTheme.secondaryText)
+            .frame(width: 28, height: 28)
             .opacity(hoveredProjectID == project.id ? 1 : 0)
             .allowsHitTesting(hoveredProjectID == project.id)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
-        .frame(height: 58)
+        .frame(height: 52)
         .background(hoveredProjectID == project.id ? LitheTheme.hoverBackground : .clear)
         .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
         .onHover { isHovering in
@@ -333,5 +346,54 @@ struct WelcomeView: View {
             hash &*= 1_099_511_628_211
         }
         return palette[Int(hash % UInt64(palette.count))]
+    }
+}
+
+private struct WelcomeInitialFocusReset: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WelcomeInitialFocusResetView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class WelcomeInitialFocusResetView: NSView {
+    private var didClearFocus = false
+    private var eventMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+
+        guard !didClearFocus, let window else { return }
+
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, !self.didClearFocus, let window else { return }
+            window.makeFirstResponder(nil)
+            self.didClearFocus = true
+        }
+
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self, let window = self.window, event.window === window else { return event }
+            var hitView = window.contentView?.hitTest(event.locationInWindow)
+            var clickedInput = false
+            while let view = hitView {
+                if view is NSTextField {
+                    clickedInput = true
+                    break
+                }
+                hitView = view.superview
+            }
+            if !clickedInput {
+                window.makeFirstResponder(nil)
+            }
+            return event
+        }
+    }
+
+    deinit {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
     }
 }

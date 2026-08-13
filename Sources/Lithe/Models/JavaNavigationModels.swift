@@ -13,7 +13,7 @@ struct EditorNavigationTarget: Equatable, Identifiable {
     let utf16Column: Int
 }
 
-struct JavaNavigationLocation: Identifiable, Hashable, Sendable {
+struct LanguageNavigationLocation: Identifiable, Hashable, Sendable {
     let url: URL
     let line: Int
     let utf16Column: Int
@@ -132,7 +132,7 @@ struct JavaImplementationMarker: Identifiable, Hashable, Sendable {
     var id: String { "\(line):\(utf16Column):\(direction.rawValue)" }
 }
 
-enum JavaNavigationResultKind {
+enum LanguageNavigationResultKind {
     case definitions
     case references
     case implementations

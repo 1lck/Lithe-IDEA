@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "generated": {
+    "version": 1,
+    "configurations": [
+      {
+        "id": "module:backend",
+        "name": "backend",
+        "type": "maven.module",
+        "module": "backend",
+        "toolchains": { "java": "project-jdk", "maven": "project-maven" },
+        "workingDirectory": ".",
+        "jvmArguments": [],
+        "programArguments": [],
+        "mavenProfiles": []
+      },
+      {
+        "id": "module:worker",
+        "name": "worker",
+        "type": "maven.module",
+        "module": "worker",
+        "toolchains": { "java": "project-jdk", "maven": "project-maven" },
+        "workingDirectory": ".",
+        "jvmArguments": [],
+        "programArguments": [],
+        "mavenProfiles": []
+      }
+    ]
+  },
+  "team": {
+    "version": 1,
+    "configurations": [{ "id": "module:worker", "mavenProfiles": ["dev"] }]
+  },
+  "local": {
+    "version": 1,
+    "configurations": [{ "id": "module:backend", "jvmArguments": ["-Xmx2g"] }]
+  },
+  "expected": { "configurationCount": 2, "selectedId": "module:backend" }
+}

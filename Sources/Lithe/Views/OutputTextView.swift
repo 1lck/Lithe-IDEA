@@ -11,6 +11,7 @@ import SwiftUI
 struct OutputTextView: View {
     let output: String
     let searchRoots: [URL]
+    let fileExists: (URL) -> Bool
     let emptyMessage: String
     let onOpenLocation: (URL, Int, Int?) -> Void
 
@@ -33,7 +34,7 @@ struct OutputTextView: View {
                 } else {
                     Text(renderedOutput)
                         .font(.custom("Menlo", size: 11.5))
-                        .tint(Color(red: 0.35, green: 0.55, blue: 0.90))
+                        .tint(LitheTheme.accent)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .padding(12)
@@ -59,7 +60,7 @@ struct OutputTextView: View {
                 onOpenLocation(location.url, location.line, location.column)
                 return .handled
             })
-            .onChange(of: output) {
+            .onChange(of: output) { _ in
                 guard isAtBottom else { return }
                 withAnimation(.easeOut(duration: 0.15)) {
                     proxy.scrollTo(Self.contentID, anchor: .bottom)
@@ -72,19 +73,96 @@ struct OutputTextView: View {
 
     private var renderedOutput: AttributedString {
         guard !output.isEmpty else { return AttributedString() }
-        return Self.renderOutput(output, searchRoots: searchRoots)
+        return Self.renderOutput(output, searchRoots: searchRoots, fileExists: fileExists)
     }
 
-    private static func renderOutput(_ source: String, searchRoots: [URL]) -> AttributedString {
+    private static func renderOutput(_ source: String, searchRoots: [URL], fileExists: @escaping (URL) -> Bool) -> AttributedString {
         let parsed = ANSIOutputRenderer.parse(source)
         guard !parsed.cleanText.isEmpty else { return AttributedString() }
         var result = ANSIOutputRenderer.render(parsed, fontSize: 11.5)
-        for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots) {
+        applySeverityColors(to: &result, text: parsed.cleanText, ansiStyled: parsed.hasStyling)
+        dimTimestamps(in: &result, text: parsed.cleanText)
+        for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots, fileExists: fileExists) {
             guard let range = Range(location.range, in: result) else { continue }
             result[range].link = locationURL(path: location.url.path, line: location.line, column: location.column)
             result[range].foregroundColor = location.kind == .warning ? LitheTheme.warning : LitheTheme.error
         }
         return result
+    }
+
+    // MARK: - 日志级别着色
+
+    enum Severity {
+        case error, warning, info, debug
+
+        var color: Color {
+            switch self {
+            case .error: LitheTheme.error
+            case .warning: LitheTheme.warning
+            case .info: Color(red: 0.55, green: 0.72, blue: 0.95)
+            case .debug: LitheTheme.secondaryText
+            }
+        }
+    }
+
+    /// Matches the level as its own bracketed or spaced token so a path such as
+    /// `src/main/java/Error.java` is not mistaken for an error line.
+    private static let severityExpression = try! NSRegularExpression(
+        pattern: #"(?:^|\s|\[)(ERROR|SEVERE|FATAL|WARN(?:ING)?|INFO|DEBUG|TRACE)(?:\]|\s|:)"#
+    )
+
+    static func severity(ofLine line: String) -> Severity? {
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = severityExpression.firstMatch(in: line, range: range),
+              let token = capture(match, at: 1, in: line) else { return nil }
+        switch token.uppercased() {
+        case "ERROR", "SEVERE", "FATAL": return .error
+        case "WARN", "WARNING": return .warning
+        case "INFO": return .info
+        case "DEBUG", "TRACE": return .debug
+        default: return nil
+        }
+    }
+
+    /// Colors whole lines by log level so a wall of white output separates into
+    /// scannable bands. Skipped when the process emitted its own ANSI colors --
+    /// overriding those would fight the tool's intended formatting.
+    private static func applySeverityColors(
+        to result: inout AttributedString,
+        text: String,
+        ansiStyled: Bool
+    ) {
+        guard !ansiStyled else { return }
+        var colored: [(Range<String.Index>, Severity)] = []
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: [.byLines]) { substring, lineRange, _, _ in
+            guard let line = substring, let severity = severity(ofLine: line) else { return }
+            colored.append((lineRange, severity))
+        }
+        for (lineRange, severity) in colored {
+            guard let range = Range(lineRange, in: result) else { continue }
+            result[range].foregroundColor = severity.color
+        }
+    }
+
+    /// Recedes the leading clock on every line so the timestamps read as a
+    /// gutter rather than competing with the message for attention. Applied
+    /// after severity coloring, which paints whole lines including the stamp.
+    private static func dimTimestamps(in result: inout AttributedString, text: String) {
+        var stamps: [Range<String.Index>] = []
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: [.byLines]) { substring, lineRange, _, _ in
+            guard let line = substring,
+                  let length = OutputTimestamper.leadingTimeLength(of: line) else { return }
+            let end = text.index(
+                lineRange.lowerBound,
+                offsetBy: length,
+                limitedBy: lineRange.upperBound
+            ) ?? lineRange.upperBound
+            stamps.append(lineRange.lowerBound..<end)
+        }
+        for stamp in stamps {
+            guard let range = Range(stamp, in: result) else { continue }
+            result[range].foregroundColor = LitheTheme.secondaryText.opacity(0.7)
+        }
     }
 
     // MARK: - 错误位置匹配
@@ -106,7 +184,7 @@ struct OutputTextView: View {
         pattern: #"\bat\s+([\w.$]+(?:\$[\w$]+)?)\.([\w$<>]+)\(([\w$]+\.java):(\d+)\)"#
     )
 
-    private static func matchLocations(in text: String, searchRoots: [URL]) -> [OutputLocation] {
+    private static func matchLocations(in text: String, searchRoots: [URL], fileExists: @escaping (URL) -> Bool) -> [OutputLocation] {
         guard !searchRoots.isEmpty else { return [] }
         var locations: [OutputLocation] = []
 
@@ -118,7 +196,7 @@ struct OutputTextView: View {
                let path = capture(match, at: 2, in: line),
                let lineNumber = capture(match, at: 3, in: line).flatMap(Int.init) {
                 let column = capture(match, at: 4, in: line).flatMap(Int.init)
-                guard let url = resolvePath(path, searchRoots: searchRoots) else { return }
+                guard let url = resolvePath(path, searchRoots: searchRoots, fileExists: fileExists) else { return }
                 let kind: OutputLocation.Kind = capture(match, at: 1, in: line) == "ERROR" ? .error : .warning
                 locations.append(OutputLocation(
                     range: lineRange,
@@ -133,7 +211,7 @@ struct OutputTextView: View {
             if let match = stackExpression.firstMatch(in: line, range: lineNSRange),
                let className = capture(match, at: 1, in: line),
                let lineNumber = capture(match, at: 4, in: line).flatMap(Int.init),
-               let url = resolveClassFile(className, searchRoots: searchRoots),
+               let url = resolveClassFile(className, searchRoots: searchRoots, fileExists: fileExists),
                let fileRange = Range(match.range(at: 3), in: line),
                let lineNumberRange = Range(match.range(at: 4), in: line) {
                 // 仅把 `Foo.java:42` 部分设为可点击链接(覆盖文件名与行号)
@@ -157,27 +235,27 @@ struct OutputTextView: View {
         return String(line[swiftRange])
     }
 
-    private static func resolvePath(_ path: String, searchRoots: [URL]) -> URL? {
+    private static func resolvePath(_ path: String, searchRoots: [URL], fileExists: (URL) -> Bool) -> URL? {
         if path.hasPrefix("/") {
             let url = URL(fileURLWithPath: path).standardizedFileURL
-            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            return fileExists(url) ? url : nil
         }
         for root in searchRoots {
             let url = root.appendingPathComponent(path).standardizedFileURL
-            if FileManager.default.fileExists(atPath: url.path) { return url }
+            if fileExists(url) { return url }
         }
         return nil
     }
 
     /// 根据 Java 类全名(如 com.example.Foo)推断 Maven 源码路径并定位存在的文件。
-    private static func resolveClassFile(_ className: String, searchRoots: [URL]) -> URL? {
+    private static func resolveClassFile(_ className: String, searchRoots: [URL], fileExists: (URL) -> Bool) -> URL? {
         let outerClassName = className.split(separator: "$", maxSplits: 1).first.map(String.init) ?? className
         let relativePath = outerClassName.replacingOccurrences(of: ".", with: "/") + ".java"
         let candidates = ["src/main/java/", "src/test/java/"].map { $0 + relativePath }
         for root in searchRoots {
             for candidate in candidates {
                 let url = root.appendingPathComponent(candidate).standardizedFileURL
-                if FileManager.default.fileExists(atPath: url.path) { return url }
+                if fileExists(url) { return url }
             }
         }
         return nil
@@ -225,7 +303,7 @@ struct OutputTextView: View {
                 .padding(.vertical, 5)
                 .background(LitheTheme.raised.opacity(0.9))
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                .overlay(Capsule().stroke(LitheTheme.panelBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .lithePointer()
@@ -248,7 +326,7 @@ struct OutputTextView: View {
                 .padding(.vertical, 5)
                 .background(LitheTheme.raised.opacity(0.92))
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                .overlay(Capsule().stroke(LitheTheme.panelBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .lithePointer()
@@ -344,7 +422,7 @@ private struct ScrollPositionTracker: NSViewRepresentable {
 /// 终端、Maven 构建输出与运行输出共用。
 enum ANSIOutputRenderer {
     struct Style {
-        var foreground = Color(red: 0.82, green: 0.84, blue: 0.86)
+        var foreground = LitheTheme.primaryText
         var background: Color?
         var bold = false
     }
@@ -359,6 +437,9 @@ enum ANSIOutputRenderer {
     struct ParsedOutput {
         var cleanText: String
         var segments: [Segment]
+        /// True when the source carried SGR color codes, meaning the producing
+        /// tool already colored its output and callers should not recolor it.
+        var hasStyling = false
     }
 
     /// 便捷渲染:直接由源文本生成 AttributedString。
@@ -389,6 +470,7 @@ enum ANSIOutputRenderer {
         var segmentStart: String.Index?
         var style = Style()
         var index = 0
+        var sawColorCode = false
 
         func flush() {
             guard !buffer.isEmpty else { return }
@@ -422,6 +504,7 @@ enum ANSIOutputRenderer {
                         if scalars[end] == "m" {
                             let parameters = String(String.UnicodeScalarView(scalars[(index + 2)..<end]))
                             applySGR(parameters, to: &style)
+                            if parameters != "0" && !parameters.isEmpty { sawColorCode = true }
                         }
                         index = end + 1
                         continue
@@ -449,7 +532,7 @@ enum ANSIOutputRenderer {
             index += 1
         }
         flush()
-        return ParsedOutput(cleanText: cleanText, segments: segments)
+        return ParsedOutput(cleanText: cleanText, segments: segments, hasStyling: sawColorCode)
     }
 
     private static func applySGR(_ parameters: String, to style: inout Style) {

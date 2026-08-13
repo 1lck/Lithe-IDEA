@@ -124,6 +124,8 @@ void testVisibilityRules() {
     assert(rules.isHidden("C:/project/target/classes", "C:/project", true, true));
     assert(rules.isHidden("C:/project/src/../target/classes", "C:/project", true, false));
     assert(rules.isHidden("C:/project/src/.DS_Store", "C:/project", true, false));
+    assert(rules.isHidden("C:/project/.worktree/feature/src/App.java", "C:/project", true, false));
+    assert(rules.isHidden("C:/project/.worktrees/feature", "C:/project", true, true));
     assert(rules.isHidden("C:/project/src/Main.generated.java", "C:/project", true, false));
     assert(rules.isHidden("C:/project/generated", "C:/project", true, true));
     assert(!rules.isHidden("C:/project/src/Main.java", "C:/project", true, false));

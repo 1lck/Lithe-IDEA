@@ -39,14 +39,32 @@ if [[ "$CONFIGURATION" == "release" ]]; then
     )
 else
     RUST_BUILD_ARGS+=(--debug)
-    SWIFT_CONFIGURATION_ARGS=()
+    # Swift 6.2 can crash while emitting round-trip debug types for the
+    # existing DiffSplitLayout.plan function, even in a debug preview build.
+    # Keep preview builds aligned with the release workaround below so the
+    # app can be launched locally with ./scripts/preview.sh.
+    SWIFT_CONFIGURATION_ARGS=(
+        -Xswiftc -Xfrontend
+        -Xswiftc -disable-round-trip-debug-types
+    )
 fi
+
+if ! /usr/bin/xcrun ld -help 2>&1 | /usr/bin/grep -q -- '-no_warn_duplicate_libraries'; then
+    SWIFT_CONFIGURATION_ARGS+=(
+        -Xswiftc "-ld-path=$ROOT_DIR/scripts/ld-macos13-compat.sh"
+    )
+fi
+
 if [[ -n "$RUST_TARGET" ]]; then
     RUST_BUILD_ARGS+=(--target "$RUST_TARGET")
 fi
 RUST_LIBRARY="$(scripts/build-rust-core.sh "${RUST_BUILD_ARGS[@]}")"
 
 SWIFT_ARGS=(build --disable-sandbox "${SWIFT_CONFIGURATION_ARGS[@]}")
+SWIFT_ARGS+=(
+    -Xcc -include
+    -Xcc "$ROOT_DIR/scripts/MacOS13SDKCompatibility.h"
+)
 if [[ -n "$TRIPLE" ]]; then
     SWIFT_ARGS+=(--triple "$TRIPLE")
 fi

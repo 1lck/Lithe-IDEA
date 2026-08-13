@@ -6,14 +6,12 @@ struct TerminalView: View {
     @ObservedObject var session: TerminalSession
     @State private var focusRequestID = 0
 
-    private let availableShells = ["/bin/zsh", "/bin/bash", "/opt/homebrew/bin/bash", "/opt/homebrew/bin/pwsh"]
-
     var body: some View {
         VStack(spacing: 0) {
             terminalToolbar
             terminalCanvas
         }
-        .background(Color(red: 0.071, green: 0.075, blue: 0.081))
+        .background(LitheTheme.editor)
         .task(id: session.id) {
             requestInputFocus()
         }
@@ -50,7 +48,7 @@ struct TerminalView: View {
             .help("New terminal session")
 
             Menu {
-                ForEach(existingShells, id: \.self) { shell in
+                ForEach(model.terminalFeature.availableShells, id: \.self) { shell in
                     Button("New \(shellLabel(for: shell))") {
                         model.createTerminalSession(shellPath: shell)
                         requestInputFocus()
@@ -191,14 +189,10 @@ struct TerminalView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 8)
             } else {
-                Color(red: 0.071, green: 0.075, blue: 0.081)
+                LitheTheme.editor
             }
         }
-        .background(Color(red: 0.071, green: 0.075, blue: 0.081))
-    }
-
-    private var existingShells: [String] {
-        availableShells.filter { FileManager.default.isExecutableFile(atPath: $0) }
+        .background(LitheTheme.editor)
     }
 
     private func shellLabel(for path: String) -> String {

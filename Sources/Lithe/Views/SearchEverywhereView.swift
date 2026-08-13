@@ -93,7 +93,6 @@ struct SearchEverywhereView: View {
                 }
             }
             .frame(width: 860)
-            .fixedSize(horizontal: false, vertical: true)
             .frame(maxHeight: 560, alignment: .top)
             .lithePopupChrome()
             .padding(.top, 84)
@@ -105,8 +104,8 @@ struct SearchEverywhereView: View {
             installKeyMonitor()
         }
         .onDisappear { removeKeyMonitor() }
-        .onChange(of: model.searchEverywhereQuery) { selectedIndex = 0 }
-        .onChange(of: scope) { selectedIndex = 0 }
+        .onChange(of: model.searchEverywhereQuery) { _ in selectedIndex = 0 }
+        .onChange(of: scope) { _ in selectedIndex = 0 }
         .task(id: "\(model.searchEverywhereQuery)|\(searchOptions.cacheKey)") {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
@@ -218,16 +217,23 @@ struct SearchEverywhereView: View {
                 placeholder("No matches in \(scope.rawValue)")
             }
         } else {
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(visibleItems.enumerated()), id: \.offset) { index, item in
-                        itemRow(item, index: index)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(visibleItems.enumerated()), id: \.offset) { index, item in
+                            itemRow(item, index: index)
+                                .id(index)
+                        }
+                        if isTruncated {
+                            moreRow
+                        }
                     }
-                    if isTruncated {
-                        moreRow
-                    }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
+                .onChange(of: selectedIndex) { index in
+                    guard visibleItems.indices.contains(index) else { return }
+                    proxy.scrollTo(index, anchor: .center)
+                }
             }
         }
     }

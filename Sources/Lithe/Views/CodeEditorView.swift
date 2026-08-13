@@ -1,7 +1,58 @@
 import AppKit
 import SwiftUI
 
+fileprivate struct CodeEditorPalette {
+    let isDark: Bool
+    let theme: AppColorTheme
+
+    static let dark = CodeEditorPalette(isDark: true, theme: .lithe)
+
+    var background: NSColor { themeColor(.editor) }
+    var gutterBackground: NSColor { themeColor(.sidebar) }
+    var text: NSColor { themeColor(.primaryText) }
+    var caret: NSColor { themeColor(.primaryText) }
+    var selection: NSColor { themeColor(.accent).withAlphaComponent(isDark ? 0.42 : 0.24) }
+    var selectionText: NSColor { themeColor(.primaryText) }
+    var currentLine: NSColor { color(light: (0, 0, 0, 0.035), dark: (1, 1, 1, 0.035)) }
+    var bracket: NSColor { color(light: (0.18, 0.43, 0.79, 0.19), dark: (0.72, 0.72, 0.72, 0.22)) }
+    var symbol: NSColor { color(light: (0.18, 0.43, 0.79, 0.11), dark: (0.68, 0.68, 0.68, 0.14)) }
+    var guide: NSColor { themeColor(.guide) }
+    var activeGuide: NSColor { themeColor(.activeGuide) }
+    var unusedCode: NSColor { color(light: (0.48, 0.49, 0.52, 1), dark: (0.48, 0.48, 0.48, 1)) }
+    var link: NSColor { themeColor(.accent) }
+    var lineNumber: NSColor { color(light: (0.43, 0.45, 0.49, 1), dark: (0.34, 0.34, 0.34, 1)) }
+    var foldHover: NSColor { color(light: (0, 0, 0, 0.07), dark: (1, 1, 1, 0.07)) }
+    var foldIndicator: NSColor { color(light: (0.28, 0.30, 0.34, 0.58), dark: (0.62, 0.62, 0.62, 0.46)) }
+    var foldIndicatorHover: NSColor { color(light: (0.12, 0.14, 0.17, 0.90), dark: (0.86, 0.86, 0.86, 0.96)) }
+    var blameText: NSColor { color(light: (0.38, 0.40, 0.44, 1), dark: (0.53, 0.53, 0.53, 1)) }
+
+    var keyword: NSColor { themeColor(.skill) }
+    var annotation: NSColor { themeColor(.warning) }
+    var type: NSColor { themeColor(.accent) }
+    var number: NSColor { themeColor(.warning) }
+    var string: NSColor { themeColor(.success) }
+    var comment: NSColor { themeColor(.secondaryText) }
+
+    private func themeColor(_ token: LitheTheme.ResolvedColorToken) -> NSColor {
+        LitheTheme.nsColor(token, theme: theme, isDark: isDark)
+    }
+
+    private func color(
+        light: (CGFloat, CGFloat, CGFloat, CGFloat),
+        dark: (CGFloat, CGFloat, CGFloat, CGFloat)
+    ) -> NSColor {
+        let components = isDark ? dark : light
+        return NSColor(
+            srgbRed: components.0,
+            green: components.1,
+            blue: components.2,
+            alpha: components.3
+        )
+    }
+}
+
 struct CodeEditorView: NSViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var document: EditorDocument
@@ -19,6 +70,7 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> EditorContainerView {
+        let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
         let container = EditorContainerView()
         let scrollView = NSScrollView(frame: .zero)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -27,7 +79,7 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(red: 0.085, green: 0.089, blue: 0.096, alpha: 1)
+        scrollView.backgroundColor = palette.background
         scrollView.wantsLayer = true
         scrollView.layer?.masksToBounds = true
 
@@ -65,34 +117,61 @@ struct CodeEditorView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 12, height: 10)
         textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
         textView.indentationWidth = settings.tabWidth
-        textView.backgroundColor = scrollView.backgroundColor
-        textView.textColor = NSColor(white: 0.82, alpha: 1)
-        textView.insertionPointColor = .white
+        textView.applyAppearance(palette)
         textView.isEditable = !document.isReadOnly
         textView.isSelectable = true
         textView.onWindowAttached = { [weak coordinator = context.coordinator] in
             coordinator?.requestInitialFocusIfNeeded()
         }
-        textView.selectedTextAttributes = [
-            .backgroundColor: NSColor(red: 0.16, green: 0.31, blue: 0.54, alpha: 1),
-            .foregroundColor: NSColor.white
-        ]
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
-        textView.isJavaNavigationEnabled = document.url.pathExtension.lowercased() == "java"
+        textView.languageServerFeatures = model.languageToolingSessions.features(for: document.url)
+        textView.isLanguageNavigationEnabled = !textView.languageServerFeatures.intersection([
+            .definition, .references, .implementation
+        ]).isEmpty
         textView.onNavigateToSymbol = { [weak model] line, utf16Column in
             model?.navigateToSymbol(line: line, utf16Column: utf16Column, in: document.url)
         }
         textView.onGoToDefinition = { [weak model] in model?.goToDefinition() }
         textView.onGoToImplementation = { [weak model] in model?.goToImplementation() }
-        textView.onFindUsages = { [weak model] in model?.findJavaReferences() }
+        textView.onFindUsages = { [weak model] in model?.findReferences() }
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
         textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
         textView.onFindStateChange = { [weak model] index, count in
             model?.updateFindState(currentIndex: index, count: count)
+        }
+        textView.isLanguageIntelligenceEnabled = !textView.languageServerFeatures.intersection([
+            .hover, .completion, .rename, .formatting, .codeActions
+        ]).isEmpty
+        textView.onQuickDocumentation = { [weak model, weak textView] line, column in
+            model?.requestLanguageHover(line: line, utf16Column: column) { [weak textView] hover in
+                guard let textView else { return }
+                if let hover {
+                    textView.presentLanguageHover(hover)
+                } else {
+                    model?.showNotification("No documentation is available for this symbol")
+                }
+            }
+        }
+        textView.onCompletionRequested = { [weak model, weak textView] line, column in
+            model?.requestLanguageCompletions(line: line, utf16Column: column) { [weak textView] items in
+                textView?.presentLanguageCompletions(items)
+            }
+        }
+        textView.onCompletionSelected = { [weak model] item, range in
+            model?.applyLanguageCompletion(item, fallbackRange: range)
+        }
+        textView.onRenameRequested = { [weak model] line, column, newName in
+            model?.requestLanguageRename(line: line, utf16Column: column, newName: newName)
+        }
+        textView.onFormatRequested = { [weak model] in model?.requestLanguageFormatting() }
+        textView.onCodeActionsRequested = { [weak model, weak textView] line, column in
+            model?.requestLanguageCodeActions(line: line, utf16Column: column) { [weak textView, weak model] actions in
+                textView?.presentLanguageCodeActions(actions) { action in model?.applyLanguageCodeAction(action) }
+            }
         }
         textView.onPasteImage = { [weak coordinator = context.coordinator] in
             coordinator?.pasteMarkdownImage() ?? false
@@ -100,6 +179,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         scrollView.documentView = textView
         gutter.attach(textView: textView, scrollView: scrollView)
+        gutter.applyAppearance(palette)
         context.coordinator.attachMarkdownScrollSync(to: scrollView)
 
         context.coordinator.textView = textView
@@ -108,6 +188,8 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         context.coordinator.codeVisionOverlay = CodeVisionOverlayController(textView: textView)
         context.coordinator.inlayHintOverlay = JavaInlayHintOverlayController(textView: textView)
+        context.coordinator.isDarkAppearance = palette.isDark
+        context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.highlight()
         textView.updateEditorDecorations()
         context.coordinator.refreshFoldRegions(useDefaultImportFold: true)
@@ -124,20 +206,34 @@ struct CodeEditorView: NSViewRepresentable {
 
     func updateNSView(_ container: EditorContainerView, context: Context) {
         guard let textView = container.scrollView?.documentView as? NSTextView else { return }
+        let palette = CodeEditorPalette(isDark: colorScheme == .dark, theme: settings.colorTheme)
+        let appearanceChanged = context.coordinator.isDarkAppearance != palette.isDark
+            || context.coordinator.colorTheme != settings.colorTheme
         context.coordinator.document = document
         context.coordinator.model = model
         context.coordinator.debugService = debugService
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.markdownScrollPosition = markdownScrollPosition
         if let scrollView = container.scrollView {
+            scrollView.backgroundColor = palette.background
             context.coordinator.attachMarkdownScrollSync(to: scrollView)
             context.coordinator.attachMarkdownImagePasteMonitor(to: scrollView)
         }
+        context.coordinator.isDarkAppearance = palette.isDark
+        context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.requestInitialFocusIfNeeded()
         textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
         if let codeTextView = textView as? CodeTextView {
             codeTextView.indentationWidth = settings.tabWidth
+            codeTextView.languageServerFeatures = model.languageToolingSessions.features(for: document.url)
+            codeTextView.isLanguageNavigationEnabled = !codeTextView.languageServerFeatures.intersection([
+                .definition, .references, .implementation
+            ]).isEmpty
+            codeTextView.isLanguageIntelligenceEnabled = !codeTextView.languageServerFeatures.intersection([
+                .hover, .completion, .rename, .formatting, .codeActions
+            ]).isEmpty
         }
+        container.gutter?.applyAppearance(palette)
         textView.isEditable = !document.isReadOnly
         textView.isSelectable = true
         // Keep IME marked text (for example, an active Chinese pinyin
@@ -152,6 +248,10 @@ struct CodeEditorView: NSViewRepresentable {
             context.coordinator.highlight()
             (textView as? CodeTextView)?.updateEditorDecorations()
             container.gutter?.needsDisplay = true
+        }
+        if appearanceChanged {
+            context.coordinator.highlight()
+            (textView as? CodeTextView)?.updateEditorDecorations()
         }
         context.coordinator.updateCodeVisionAndBlame()
         context.coordinator.updateDiagnostics()
@@ -174,12 +274,13 @@ struct CodeEditorView: NSViewRepresentable {
         var codeVisionOverlay: CodeVisionOverlayController?
         var inlayHintOverlay: JavaInlayHintOverlayController?
         var isApplyingEditorChange = false
+        var isDarkAppearance = true
+        var colorTheme: AppColorTheme = .lithe
         var shouldFocus = true
         var markdownScrollPosition: Binding<MarkdownScrollPosition>?
         var appliedNavigationTargetID: UUID?
         var foldRegions: [JavaFoldRegion] = []
         var collapsedFoldIDs: Set<String> = []
-        private var implementationValidationTask: Task<Void, Never>?
         private var markdownImagePasteMonitor: Any?
         private weak var markdownScrollView: NSScrollView?
         private var markdownScrollObserver: NSObjectProtocol?
@@ -389,7 +490,11 @@ struct CodeEditorView: NSViewRepresentable {
 
         func highlight() {
             guard let textStorage = textView?.textStorage else { return }
-            SyntaxHighlighter.apply(to: textStorage, fileExtension: fileExtension)
+            SyntaxHighlighter.apply(
+                to: textStorage,
+                fileExtension: fileExtension,
+                isDark: isDarkAppearance
+            )
         }
 
         func refreshFoldRegions(useDefaultImportFold: Bool) {
@@ -429,38 +534,23 @@ struct CodeEditorView: NSViewRepresentable {
                 collapsedIDs: collapsedFoldIDs,
                 onToggle: { [weak self] region in self?.toggleFold(region) }
             )
-            implementationValidationTask?.cancel()
-            gutter?.updateImplementationMarkers([]) { [weak model, weak document] marker in
+            // `java.structure` is an explicit local editor fallback. It does
+            // not validate markers or own any language-server lifecycle.
+            let markers: [JavaImplementationMarker]
+            if let document,
+               fileExtension.lowercased() == "java",
+               let model {
+                markers = model.javaStructure(source: document.text)?.implementationMarkers ?? []
+            } else {
+                markers = []
+            }
+            gutter?.updateImplementationMarkers(markers) { [weak model, weak document] marker in
                 guard let document else { return }
                 model?.findJavaImplementations(
                     line: marker.line,
                     utf16Column: marker.utf16Column,
                     in: document.url
                 )
-            }
-            guard let document,
-                  fileExtension.lowercased() == "java",
-                  let model else { return }
-            let candidates = model.javaStructure(source: document.text)?.implementationMarkers ?? []
-            guard !candidates.isEmpty else { return }
-            implementationValidationTask = Task { @MainActor [weak self, weak document, weak model] in
-                guard let self,
-                      let document,
-                      let model else { return }
-                let markers = await model.implementationMarkers(
-                    for: document,
-                    candidates: candidates
-                )
-                guard !Task.isCancelled,
-                      self.document?.id == document.id else { return }
-                self.gutter?.updateImplementationMarkers(markers) { [weak model, weak document] marker in
-                    guard let document else { return }
-                    model?.findJavaImplementations(
-                        line: marker.line,
-                        utf16Column: marker.utf16Column,
-                        in: document.url
-                    )
-                }
             }
         }
 
@@ -484,14 +574,18 @@ struct CodeEditorView: NSViewRepresentable {
 
             let isBlameVisible = model.blameVisibleURL == url
             let blameLines = model.gitBlameLines[url] ?? []
-            let debugBreakpoints = debugService?.breakpoints.filter {
+            let javaBreakpointLines = debugService?.breakpoints.filter {
                 $0.fileURL.standardizedFileURL == url
-            } ?? []
+            }.map(\.line) ?? []
+            let genericBreakpointLines = model.genericDebugFeature.breakpoints.filter {
+                $0.fileURL.standardizedFileURL == url
+            }.map(\.line)
+            let debugBreakpointLines = Set(javaBreakpointLines + genericBreakpointLines)
             container?.gutterWidthConstraint?.constant = isBlameVisible ? 224 : 52
             gutter?.update(blameLines: blameLines, isVisible: isBlameVisible) { [weak model] blame in
                 Task { await model?.showGitCommit(blame.commitHash) }
             }
-            gutter?.updateDebugBreakpoints(debugBreakpoints) { [weak model] line in
+            gutter?.updateDebugBreakpointLines(debugBreakpointLines) { [weak model] line in
                 model?.toggleDebugBreakpoint(fileURL: url, line: line)
             }
         }
@@ -500,7 +594,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard let document, let model,
                   let textView = textView as? CodeTextView else { return }
             textView.updateDiagnostics(
-                model.javaDiagnostics[document.url.standardizedFileURL] ?? []
+                model.editorDiagnostics[document.url.standardizedFileURL] ?? []
             )
         }
 
@@ -615,9 +709,11 @@ private struct TextLineIndex {
     }
 }
 
-final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
+final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var indentationWidth = 4
-    var isJavaNavigationEnabled = false
+    var isLanguageNavigationEnabled = false
+    var isLanguageIntelligenceEnabled = false
+    var languageServerFeatures: LanguageServerFeatureSet = []
     var onWindowAttached: (() -> Void)?
     var onNavigateToSymbol: ((Int, Int) -> Void)?
     var onGoToDefinition: (() -> Void)?
@@ -627,27 +723,60 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var onFindNextRequested: (() -> Void)?
     var onFindPreviousRequested: (() -> Void)?
     var onFindStateChange: ((Int, Int) -> Void)?
+    var onQuickDocumentation: ((Int, Int) -> Void)?
+    var onCompletionRequested: ((Int, Int) -> Void)?
+    var onCompletionSelected: ((LanguageServerCompletionItem, LanguageServerRange) -> Void)?
+    var onRenameRequested: ((Int, Int, String) -> Void)?
+    var onFormatRequested: (() -> Void)?
+    var onCodeActionsRequested: ((Int, Int) -> Void)?
     var onPasteImage: (() -> Bool)?
 
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
+    private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
+    private var languageHoverPopover: NSPopover?
 
-    private let currentLineColor = NSColor(white: 1, alpha: 0.035)
-    private let bracketColor = NSColor(white: 0.72, alpha: 0.22)
-    private let symbolColor = NSColor(white: 0.68, alpha: 0.14)
-    private let guideColor = NSColor(white: 1, alpha: 0.085)
-    private let activeGuideColor = NSColor(white: 1, alpha: 0.24)
-    private let unusedCodeColor = NSColor(white: 0.48, alpha: 1)
+    private var currentLineColor = CodeEditorPalette.dark.currentLine
+    private var bracketColor = CodeEditorPalette.dark.bracket
+    private var symbolColor = CodeEditorPalette.dark.symbol
+    private var guideColor = CodeEditorPalette.dark.guide
+    private var activeGuideColor = CodeEditorPalette.dark.activeGuide
+    private var unusedCodeColor = CodeEditorPalette.dark.unusedCode
+    private var linkColor = CodeEditorPalette.dark.link
+    private var appliedDarkAppearance: Bool?
+    private var appliedColorTheme: AppColorTheme?
     private var foldRegions: [JavaFoldRegion] = []
     private var collapsedFoldIDs: Set<String> = []
     private var onToggleFold: ((JavaFoldRegion) -> Void)?
-    private var diagnostics: [JavaDiagnostic] = []
+    private var diagnostics: [EditorDiagnostic] = []
     private var fadedCodeRanges: [NSRange] = []
     private var linkRange: NSRange?
     private var trackingArea: NSTrackingArea?
     private var hoveredFoldID: String?
     private var lineIndex = TextLineIndex(source: "" as NSString)
     nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
+
+    fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
+        guard appliedDarkAppearance != palette.isDark
+            || appliedColorTheme != palette.theme else { return }
+        appliedDarkAppearance = palette.isDark
+        appliedColorTheme = palette.theme
+        backgroundColor = palette.background
+        textColor = palette.text
+        insertionPointColor = palette.caret
+        selectedTextAttributes = [
+            .backgroundColor: palette.selection,
+            .foregroundColor: palette.selectionText
+        ]
+        currentLineColor = palette.currentLine
+        bracketColor = palette.bracket
+        symbolColor = palette.symbol
+        guideColor = palette.guide
+        activeGuideColor = palette.activeGuide
+        unusedCodeColor = palette.unusedCode
+        linkColor = palette.link
+        needsDisplay = true
+    }
 
     override func paste(_ sender: Any?) {
         if onPasteImage?() == true { return }
@@ -656,6 +785,14 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if Self.isStandardPasteShortcut(event), onPasteImage?() == true {
+            return true
+        }
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let character = event.charactersIgnoringModifiers
+        if languageServerFeatures.contains(.completion),
+           (modifiers == .control && character == " "
+            || modifiers == .option && character == "\u{1B}") {
+            requestLanguageCompletions()
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -684,7 +821,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         lineIndex.lineRange(forLine: line)
     }
 
-    func updateDiagnostics(_ diagnostics: [JavaDiagnostic]) {
+    func updateDiagnostics(_ diagnostics: [EditorDiagnostic]) {
         self.diagnostics = diagnostics
         updateEditorDecorations()
     }
@@ -716,7 +853,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
             layoutManager.addTemporaryAttribute(.backgroundColor, value: bracketColor, forCharacterRange: range)
         }
 
-        if isJavaNavigationEnabled,
+        if isLanguageNavigationEnabled,
            let symbol = identifier(at: caret, in: source),
            let scope = enclosingCodeScope(at: caret, in: source) {
             let escaped = NSRegularExpression.escapedPattern(for: symbol.text)
@@ -1249,7 +1386,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
 
     override func flagsChanged(with event: NSEvent) {
         super.flagsChanged(with: event)
-        guard isJavaNavigationEnabled, hasNavigationModifier(event.modifierFlags) else {
+        guard isLanguageNavigationEnabled, hasNavigationModifier(event.modifierFlags) else {
             clearLinkHighlight()
             return
         }
@@ -1267,7 +1404,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         super.mouseMoved(with: event)
         let point = convert(event.locationInWindow, from: nil)
         updateFoldHover(at: point)
-        guard isJavaNavigationEnabled,
+        guard isLanguageNavigationEnabled,
               hasNavigationModifier(event.modifierFlags) else { return }
         updateLinkHighlight(at: point)
     }
@@ -1296,7 +1433,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     }
 
     private func updateLinkHighlight(at point: NSPoint) {
-        guard isJavaNavigationEnabled,
+        guard isLanguageNavigationEnabled,
               let target = linkRange(at: point) else {
             clearLinkHighlight()
             return
@@ -1321,14 +1458,14 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     }
 
     private func applyLinkHighlight() {
-        guard isJavaNavigationEnabled,
+        guard isLanguageNavigationEnabled,
               let linkRange,
               linkRange.location >= 0,
               NSMaxRange(linkRange) <= string.utf16.count,
               let layoutManager else { return }
         layoutManager.addTemporaryAttribute(
             .foregroundColor,
-            value: NSColor(red: 0.42, green: 0.68, blue: 1, alpha: 1),
+            value: linkColor,
             forCharacterRange: linkRange
         )
         layoutManager.addTemporaryAttribute(
@@ -1338,7 +1475,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         )
         layoutManager.addTemporaryAttribute(
             .underlineColor,
-            value: NSColor(red: 0.42, green: 0.68, blue: 1, alpha: 1),
+            value: linkColor,
             forCharacterRange: linkRange
         )
     }
@@ -1405,7 +1542,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         return true
     }
 
-    private func diagnosticRange(for diagnostic: JavaDiagnostic, in source: NSString) -> NSRange? {
+    private func diagnosticRange(for diagnostic: EditorDiagnostic, in source: NSString) -> NSRange? {
         guard source.length > 0 else { return nil }
         let lastLine = max(0, lineIndex.lineCount - 1)
         let startLine = min(max(0, diagnostic.line), lastLine)
@@ -1427,8 +1564,9 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         lineIndex.lineCount
     }
 
-    private func diagnosticColor(for severity: JavaDiagnosticSeverity) -> NSColor {
+    private func diagnosticColor(for severity: DiagnosticSeverity) -> NSColor {
         switch severity {
+        case .unknown: NSColor.systemGray
         case .error: NSColor.systemRed
         case .warning: NSColor.systemOrange
         case .information: NSColor.systemBlue
@@ -1535,37 +1673,185 @@ final class CodeTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
         }
 
         let menu = super.menu(for: event) ?? NSMenu()
-        guard isJavaNavigationEnabled else { return menu }
+        let languageItems = languageContextMenuItems()
+        guard !languageItems.isEmpty else { return menu }
         menu.insertItem(.separator(), at: 0)
-
-        let usages = NSMenuItem(
-            title: "Find Usages",
-            action: #selector(findUsagesFromMenu),
-            keyEquivalent: ""
-        )
-        usages.target = self
-        menu.insertItem(usages, at: 0)
-
-        let definition = NSMenuItem(
-            title: "Go to Definition",
-            action: #selector(goToDefinitionFromMenu),
-            keyEquivalent: ""
-        )
-        definition.target = self
-        menu.insertItem(definition, at: 0)
-
-        let implementation = NSMenuItem(
-            title: "Go to Implementation",
-            action: #selector(goToImplementationFromMenu),
-            keyEquivalent: ""
-        )
-        implementation.target = self
-        menu.insertItem(implementation, at: 0)
+        for item in languageItems.reversed() { menu.insertItem(item, at: 0) }
         return menu
+    }
+
+    func languageContextMenuItems() -> [NSMenuItem] {
+        var languageItems: [NSMenuItem] = []
+        func add(_ feature: LanguageServerFeatureSet, _ title: String, _ action: Selector) {
+            guard languageServerFeatures.contains(feature) else { return }
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            languageItems.append(item)
+        }
+        add(.implementation, "Go to Implementation", #selector(goToImplementationFromMenu))
+        add(.definition, "Go to Definition", #selector(goToDefinitionFromMenu))
+        add(.references, "Find Usages", #selector(findUsagesFromMenu))
+        add(.hover, "Quick Documentation", #selector(showQuickDocumentationFromMenu))
+        add(.completion, "Complete Symbol", #selector(completeSymbolFromMenu))
+        add(.rename, "Rename Symbol", #selector(renameSymbolFromMenu))
+        add(.formatting, "Format Document", #selector(formatDocumentFromMenu))
+        add(.codeActions, "Source Actions…", #selector(codeActionsFromMenu))
+        return languageItems
     }
 
     @objc private func goToDefinitionFromMenu() {
         onGoToDefinition?()
+    }
+
+    @objc private func showQuickDocumentationFromMenu() {
+        let position = languageServerPosition(at: selectedRange().location)
+        onQuickDocumentation?(position.line, position.utf16Column)
+    }
+
+    @objc private func completeSymbolFromMenu() {
+        requestLanguageCompletions()
+    }
+
+    @objc private func renameSymbolFromMenu() {
+        let position = languageServerPosition(at: selectedRange().location)
+        let alert = NSAlert()
+        alert.messageText = "Rename Symbol"
+        alert.informativeText = "Enter the new symbol name."
+        let field = NSTextField(string: "")
+        field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn,
+              !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        onRenameRequested?(position.line, position.utf16Column, field.stringValue)
+    }
+
+    @objc private func formatDocumentFromMenu() { onFormatRequested?() }
+
+    @objc private func codeActionsFromMenu() {
+        let position = languageServerPosition(at: selectedRange().location)
+        onCodeActionsRequested?(position.line, position.utf16Column)
+    }
+
+    private func requestLanguageCompletions() {
+        let position = languageServerPosition(at: selectedRange().location)
+        onCompletionRequested?(position.line, position.utf16Column)
+    }
+
+    func presentLanguageCompletions(_ items: [LanguageServerCompletionItem]) {
+        guard !items.isEmpty, window != nil else { return }
+        completionItemsByID = [:]
+        for item in items.prefix(200) { completionItemsByID[item.id] = item }
+        let menu = NSMenu(title: "Completions")
+        for item in items.prefix(200) {
+            let title = item.detail.map { "\(item.label)  —  \($0)" } ?? item.label
+            let entry = NSMenuItem(
+                title: title,
+                action: #selector(insertLanguageCompletion(_:)),
+                keyEquivalent: ""
+            )
+            entry.target = self
+            entry.representedObject = item.id
+            menu.addItem(entry)
+        }
+        menu.popUp(positioning: nil, at: caretMenuPoint(), in: self)
+    }
+
+    func presentLanguageCodeActions(
+        _ actions: [LanguageServerCodeAction],
+        onSelect: @escaping (LanguageServerCodeAction) -> Void
+    ) {
+        guard !actions.isEmpty, window != nil else { return }
+        let menu = NSMenu(title: "Source Actions")
+        for action in actions.prefix(50) {
+            let item = NSMenuItem(title: action.title, action: #selector(selectLanguageCodeAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = action
+            menu.addItem(item)
+        }
+        languageCodeActionHandler = onSelect
+        menu.popUp(positioning: nil, at: caretMenuPoint(), in: self)
+    }
+
+    private var languageCodeActionHandler: ((LanguageServerCodeAction) -> Void)?
+
+    @objc private func selectLanguageCodeAction(_ sender: NSMenuItem) {
+        guard let action = sender.representedObject as? LanguageServerCodeAction else { return }
+        languageCodeActionHandler?(action)
+        languageCodeActionHandler = nil
+    }
+
+    func presentLanguageHover(_ hover: LanguageServerHover) {
+        languageHoverPopover?.close()
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 480, height: 220))
+        textView.string = hover.contents
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.textColor = NSColor(white: 0.88, alpha: 1)
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textContainerInset = NSSize(width: 10, height: 9)
+        let scrollView = NSScrollView(frame: textView.frame)
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = NSColor(red: 0.105, green: 0.11, blue: 0.12, alpha: 1)
+        let controller = NSViewController()
+        controller.view = scrollView
+        controller.preferredContentSize = NSSize(width: 480, height: 220)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = controller
+        popover.show(relativeTo: caretAnchorRect(), of: self, preferredEdge: .maxY)
+        languageHoverPopover = popover
+    }
+
+    @objc private func insertLanguageCompletion(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let item = completionItemsByID[id] else { return }
+        let fallbackRange = rangeForUserCompletion
+        let start = languageServerPosition(at: fallbackRange.location)
+        let end = languageServerPosition(at: NSMaxRange(fallbackRange))
+        let languageRange = LanguageServerRange(
+            start: LanguageServerPosition(line: start.line, utf16Column: start.utf16Column),
+            end: LanguageServerPosition(line: end.line, utf16Column: end.utf16Column)
+        )
+        if let onCompletionSelected {
+            onCompletionSelected(item, languageRange)
+        } else {
+            insertText(LanguageServerSnippet.plainText(item.insertText), replacementRange: fallbackRange)
+        }
+        completionItemsByID = [:]
+    }
+
+    private func languageServerPosition(at location: Int) -> (line: Int, utf16Column: Int) {
+        let line = lineIndex.lineNumber(at: location)
+        let start = lineIndex.characterOffset(forLine: line)
+        return (line, max(0, location - start))
+    }
+
+    private func caretAnchorRect() -> NSRect {
+        guard let layoutManager, let textContainer else {
+            return NSRect(x: textContainerInset.width, y: textContainerInset.height, width: 1, height: 18)
+        }
+        let length = string.utf16.count
+        let location = length == 0 ? 0 : min(selectedRange().location, length - 1)
+        let glyph = length == 0 ? 0 : layoutManager.glyphIndexForCharacter(at: location)
+        var rect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyph, length: 0),
+            in: textContainer
+        )
+        rect.origin.x += textContainerOrigin.x
+        rect.origin.y += textContainerOrigin.y
+        rect.size = NSSize(width: max(1, rect.width), height: max(18, rect.height))
+        return rect
+    }
+
+    private func caretMenuPoint() -> NSPoint {
+        let rect = caretAnchorRect()
+        return NSPoint(x: rect.minX, y: rect.maxY)
     }
 
     @objc private func goToImplementationFromMenu() {
@@ -1677,6 +1963,7 @@ final class LineNumberGutterView: NSView {
     private var scrollRefreshScheduled = false
     private var hoveredFoldID: String?
     private var trackingArea: NSTrackingArea?
+    private var palette = CodeEditorPalette.dark
 
     override var isFlipped: Bool { true }
 
@@ -1699,7 +1986,7 @@ final class LineNumberGutterView: NSView {
         self.textView = textView
         self.scrollView = scrollView
         wantsLayer = true
-        layer?.backgroundColor = NSColor(red: 0.075, green: 0.080, blue: 0.087, alpha: 1).cgColor
+        layer?.backgroundColor = palette.gutterBackground.cgColor
         scrollView.contentView.postsBoundsChangedNotifications = true
         boundsObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
@@ -1710,6 +1997,13 @@ final class LineNumberGutterView: NSView {
                 self?.scheduleScrollRefresh()
             }
         }
+    }
+
+    fileprivate func applyAppearance(_ palette: CodeEditorPalette) {
+        guard self.palette.isDark != palette.isDark || self.palette.theme != palette.theme else { return }
+        self.palette = palette
+        layer?.backgroundColor = palette.gutterBackground.cgColor
+        needsDisplay = true
     }
 
     private func scheduleScrollRefresh() {
@@ -1774,11 +2068,11 @@ final class LineNumberGutterView: NSView {
         needsDisplay = true
     }
 
-    func updateDebugBreakpoints(
-        _ breakpoints: [JavaDebugBreakpoint],
+    func updateDebugBreakpointLines(
+        _ lines: Set<Int>,
         onToggle: @escaping (Int) -> Void
     ) {
-        debugBreakpointLines = Set(breakpoints.map { max(0, $0.line - 1) })
+        debugBreakpointLines = Set(lines.map { max(0, $0 - 1) })
         onToggleDebugBreakpoint = onToggle
         needsDisplay = true
     }
@@ -1825,7 +2119,7 @@ final class LineNumberGutterView: NSView {
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }
 
-        NSColor(red: 0.075, green: 0.080, blue: 0.087, alpha: 1).setFill()
+        palette.gutterBackground.setFill()
         dirtyRect.fill()
 
         let visibleRect = scrollView.documentVisibleRect
@@ -1875,7 +2169,7 @@ final class LineNumberGutterView: NSView {
                 continue
             }
             if lineNumber - 1 == currentLine {
-                NSColor(white: 1, alpha: 0.035).setFill()
+                palette.currentLine.setFill()
                 NSRect(x: 0, y: y, width: bounds.width, height: lineRect.height).fill()
             }
             if isBlameVisible, let blame = blameByLine[lineNumber - 1] {
@@ -1933,7 +2227,7 @@ final class LineNumberGutterView: NSView {
         let label = String(number) as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular),
-            .foregroundColor: NSColor(white: 0.34, alpha: 1)
+            .foregroundColor: palette.lineNumber
         ]
         let size = label.size(withAttributes: attributes)
         label.draw(at: NSPoint(x: bounds.width - size.width - 9, y: y), withAttributes: attributes)
@@ -1949,7 +2243,7 @@ final class LineNumberGutterView: NSView {
                 width: 18,
                 height: 17
             )
-            NSColor(white: 1, alpha: 0.07).setFill()
+            palette.foldHover.setFill()
             NSBezierPath(roundedRect: hoverRect, xRadius: 3, yRadius: 3).fill()
         }
         let path = NSBezierPath()
@@ -1963,10 +2257,7 @@ final class LineNumberGutterView: NSView {
             path.line(to: NSPoint(x: 13, y: centerY - 2))
         }
         path.close()
-        NSColor(
-            white: isHovered ? 0.86 : 0.62,
-            alpha: isHovered ? 0.96 : 0.46
-        ).setFill()
+        (isHovered ? palette.foldIndicatorHover : palette.foldIndicator).setFill()
         path.fill()
     }
 
@@ -2002,7 +2293,7 @@ final class LineNumberGutterView: NSView {
     private func drawBlame(_ blame: GitBlameLine, y: CGFloat) {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 10.5),
-            .foregroundColor: NSColor(white: 0.53, alpha: 1)
+            .foregroundColor: palette.blameText
         ]
         (blame.date as NSString).draw(at: NSPoint(x: 8, y: y), withAttributes: attributes)
         (blame.authorName as NSString).draw(
@@ -2109,7 +2400,6 @@ final class CodeVisionOverlayController {
         onImplementations: @escaping (JavaCodeVisionHint) -> Void,
         onAuthor: @escaping () -> Void
     ) {
-        guard hints != currentHints else { return }
         currentHints = hints
         buttons.forEach { $0.removeFromSuperview() }
         buttons = []
@@ -2129,12 +2419,26 @@ final class CodeVisionOverlayController {
                 contentEnd -= 1
             }
             guard contentEnd > lineRange.location else { continue }
-            let lineGlyph = layoutManager.glyphIndexForCharacter(at: lineRange.location)
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: lineGlyph, effectiveRange: nil)
-            let codeWidth = CGFloat(contentEnd - lineRange.location) * 7.83
-            var x = min(textView.bounds.width - 190, textView.textContainerOrigin.x + codeWidth + 8)
-            x = max(8, x)
+            let contentRange = NSRange(
+                location: lineRange.location,
+                length: contentEnd - lineRange.location
+            )
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: contentRange,
+                actualCharacterRange: nil
+            )
+            guard glyphRange.length > 0 else { continue }
+            let contentRect = layoutManager.boundingRect(
+                forGlyphRange: glyphRange,
+                in: textContainer
+            )
+            let lastGlyph = max(glyphRange.location, NSMaxRange(glyphRange) - 1)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
+            let x = textView.textContainerOrigin.x + contentRect.maxX + 8
             let y = lineRect.minY + textView.textContainerOrigin.y - 1
+
+            let requiredWidth = buttonWidth(for: hint)
+            guard x + requiredWidth <= textView.bounds.maxX - 8 else { continue }
 
             let usageButton = makeButton(title: "\(hint.usageCount) usage\(hint.usageCount == 1 ? "" : "s")") {
                 onUsages(hint)
@@ -2199,6 +2503,18 @@ final class CodeVisionOverlayController {
             button.imagePosition = .imageLeading
         }
         return button
+    }
+
+    private func buttonWidth(for hint: JavaCodeVisionHint) -> CGFloat {
+        var width: CGFloat = 70
+        if hint.implementationCount > 0 {
+            let title = "\(hint.implementationCount) implementation\(hint.implementationCount == 1 ? "" : "s")"
+            width += max(108, CGFloat(title.count) * 5.8 + 16) + 2
+        }
+        if let authorName = hint.authorName, !authorName.isEmpty {
+            width += 114
+        }
+        return width
     }
 }
 
@@ -2316,22 +2632,23 @@ private final class ClosureButton: NSButton {
 
 @MainActor
 private enum SyntaxHighlighter {
-    static func apply(to storage: NSTextStorage, fileExtension: String) {
+    static func apply(to storage: NSTextStorage, fileExtension: String, isDark: Bool) {
         let fullRange = NSRange(location: 0, length: storage.length)
         guard fullRange.length > 0 else { return }
+        let palette = CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme)
 
         storage.beginEditing()
         storage.setAttributes([
             .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-            .foregroundColor: NSColor(white: 0.80, alpha: 1)
+            .foregroundColor: palette.text
         ], range: fullRange)
 
-        apply(pattern: #"\b(class|struct|enum|protocol|extension|func|let|var|if|else|guard|switch|case|for|while|return|throw|throws|try|catch|async|await|public|private|internal|protected|static|final|new|import|package|interface|implements|extends|void|boolean|int|long|const|function|def|in|from|as|true|false|null|nil|self|this)\b"#, color: NSColor(red: 0.80, green: 0.48, blue: 0.77, alpha: 1), storage: storage)
-        apply(pattern: #"@[A-Za-z_][A-Za-z0-9_]*"#, color: NSColor(red: 0.86, green: 0.72, blue: 0.34, alpha: 1), storage: storage)
-        apply(pattern: #"\b[A-Z][A-Za-z0-9_]*\b"#, color: NSColor(red: 0.42, green: 0.72, blue: 0.90, alpha: 1), storage: storage)
-        apply(pattern: #"\b\d+(?:\.\d+)?\b"#, color: NSColor(red: 0.65, green: 0.75, blue: 0.49, alpha: 1), storage: storage)
-        apply(pattern: #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#, color: NSColor(red: 0.55, green: 0.75, blue: 0.48, alpha: 1), storage: storage)
-        apply(pattern: #"//.*$|#.*$|/\*[\s\S]*?\*/"#, options: [.anchorsMatchLines], color: NSColor(red: 0.39, green: 0.56, blue: 0.42, alpha: 1), storage: storage)
+        apply(pattern: #"\b(class|struct|enum|protocol|extension|func|let|var|if|else|guard|switch|case|for|while|return|throw|throws|try|catch|async|await|public|private|internal|protected|static|final|new|import|package|interface|implements|extends|void|boolean|int|long|const|function|def|in|from|as|true|false|null|nil|self|this)\b"#, color: palette.keyword, storage: storage)
+        apply(pattern: #"@[A-Za-z_][A-Za-z0-9_]*"#, color: palette.annotation, storage: storage)
+        apply(pattern: #"\b[A-Z][A-Za-z0-9_]*\b"#, color: palette.type, storage: storage)
+        apply(pattern: #"\b\d+(?:\.\d+)?\b"#, color: palette.number, storage: storage)
+        apply(pattern: #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#, color: palette.string, storage: storage)
+        apply(pattern: #"//.*$|#.*$|/\*[\s\S]*?\*/"#, options: [.anchorsMatchLines], color: palette.comment, storage: storage)
         storage.endEditing()
     }
 

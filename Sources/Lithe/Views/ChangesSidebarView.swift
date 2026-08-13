@@ -57,7 +57,7 @@ struct ChangesSidebarView: View {
         }
         .background(LitheTheme.sidebar)
         .onAppear { selectRequestedStashIfNeeded() }
-        .onChange(of: model.requestedStashReference) { _, _ in
+        .onChange(of: model.requestedStashReference) { _ in
             selectRequestedStashIfNeeded()
         }
         .confirmationDialog(

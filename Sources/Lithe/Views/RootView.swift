@@ -17,12 +17,20 @@ struct RootView: View {
                     .zIndex(session.id == projectSessions.activeSessionID ? 1 : 0)
             }
         }
+        .frame(
+            minWidth: windowLayout.minimumContentSize.width,
+            minHeight: windowLayout.minimumContentSize.height
+        )
         .background(LitheTheme.window)
-        .background(WindowCloseGuard(projectSessions: projectSessions))
+        .background(
+            WindowCloseGuard(
+                projectSessions: projectSessions,
+                layout: windowLayout
+            )
+        )
         .sheet(isPresented: $model.isSettingsPresented) {
             SettingsView(
                 settings: model.settings,
-                runtimeFeature: model.runtimeFeature,
                 initialCategory: model.requestedSettingsCategory
             )
                 .environmentObject(model)
@@ -128,19 +136,24 @@ struct RootView: View {
             }
         )
     }
+
+    private var windowLayout: LitheWindowLayout {
+        projectSessions.activeModel.workspaceURL == nil ? .welcome : .workspace
+    }
 }
 
 private struct WindowCloseGuard: NSViewRepresentable {
     let projectSessions: ProjectSessionManager
+    let layout: LitheWindowLayout
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(projectSessions: projectSessions)
+    func makeCoordinator() -> LitheWindowCoordinator {
+        LitheWindowCoordinator(projectSessions: projectSessions)
     }
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.async {
-            context.coordinator.attach(to: view.window)
+            context.coordinator.attach(to: view.window, layout: layout)
         }
         return view
     }
@@ -148,27 +161,149 @@ private struct WindowCloseGuard: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.projectSessions = projectSessions
         DispatchQueue.main.async {
-            context.coordinator.attach(to: view.window)
+            context.coordinator.attach(to: view.window, layout: layout)
+        }
+    }
+}
+
+enum LitheWindowLayout: Equatable {
+    case welcome
+    case workspace
+
+    static let welcomeContentSize = NSSize(width: 900, height: 620)
+    static let workspaceContentSize = NSSize(width: 1440, height: 900)
+    static let screenMargin: CGFloat = 12
+
+    var contentSize: NSSize {
+        switch self {
+        case .welcome: Self.welcomeContentSize
+        case .workspace: Self.workspaceContentSize
         }
     }
 
-    @MainActor
-    final class Coordinator: NSObject, NSWindowDelegate {
-        var projectSessions: ProjectSessionManager
-        weak var window: NSWindow?
-
-        init(projectSessions: ProjectSessionManager) {
-            self.projectSessions = projectSessions
+    var minimumContentSize: NSSize {
+        switch self {
+        case .welcome: NSSize(width: 820, height: 560)
+        case .workspace: NSSize(width: 980, height: 640)
         }
+    }
 
-        func attach(to window: NSWindow?) {
-            guard let window, self.window !== window else { return }
+    static func frame(_ targetFrame: NSRect, fitting visibleFrame: NSRect) -> NSRect {
+        let availableFrame = visibleFrame.insetBy(dx: screenMargin, dy: screenMargin)
+        var fittedFrame = targetFrame
+        fittedFrame.size.width = min(fittedFrame.width, availableFrame.width)
+        fittedFrame.size.height = min(fittedFrame.height, availableFrame.height)
+        fittedFrame.origin.x = min(
+            max(fittedFrame.origin.x, availableFrame.minX),
+            availableFrame.maxX - fittedFrame.width
+        )
+        fittedFrame.origin.y = min(
+            max(fittedFrame.origin.y, availableFrame.minY),
+            availableFrame.maxY - fittedFrame.height
+        )
+        return fittedFrame
+    }
+}
+
+@MainActor
+protocol ProjectWindowSessionHandling: AnyObject {
+    var hasActiveProject: Bool { get }
+    func closeActiveProject()
+}
+
+extension ProjectSessionManager: ProjectWindowSessionHandling {
+    var hasActiveProject: Bool {
+        activeModel.workspaceURL != nil
+    }
+}
+
+@MainActor
+final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
+    var projectSessions: any ProjectWindowSessionHandling
+    weak var window: NSWindow?
+    private var layout: LitheWindowLayout?
+    private var restoredWorkspaceFrame: NSRect?
+
+    init(projectSessions: any ProjectWindowSessionHandling) {
+        self.projectSessions = projectSessions
+    }
+
+    func attach(to window: NSWindow?, layout: LitheWindowLayout) {
+        guard let window else { return }
+        if self.window !== window {
             self.window = window
             window.delegate = self
+            self.layout = nil
+            restoredWorkspaceFrame = nil
         }
+        apply(layout, to: window)
+    }
 
-        func windowShouldClose(_ sender: NSWindow) -> Bool {
-            LitheAppDelegate.confirmUnsavedDocuments(for: projectSessions)
+    func toggleWorkspaceZoom() {
+        guard let visibleFrame = (window?.screen ?? NSScreen.main)?.visibleFrame else { return }
+        toggleWorkspaceZoom(fitting: visibleFrame)
+    }
+
+    func toggleWorkspaceZoom(fitting visibleFrame: NSRect) {
+        guard layout == .workspace, let window else { return }
+
+        let targetFrame: NSRect
+        if Self.framesMatch(window.frame, visibleFrame) {
+            targetFrame = restoredWorkspaceFrame.map {
+                LitheWindowLayout.frame($0, fitting: visibleFrame)
+            } ?? defaultWorkspaceFrame(for: window, fitting: visibleFrame)
+            restoredWorkspaceFrame = nil
+        } else {
+            restoredWorkspaceFrame = window.frame
+            targetFrame = visibleFrame
         }
+        window.setFrame(targetFrame, display: true, animate: window.isVisible)
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if projectSessions.hasActiveProject {
+            projectSessions.closeActiveProject()
+            return false
+        }
+        return true
+    }
+
+    private func apply(_ layout: LitheWindowLayout, to window: NSWindow) {
+        window.contentMinSize = layout.minimumContentSize
+        guard self.layout != layout else { return }
+
+        let shouldAnimate = self.layout != nil && window.isVisible
+        self.layout = layout
+        restoredWorkspaceFrame = nil
+
+        let currentFrame = window.frame
+        let targetContentRect = NSRect(origin: .zero, size: layout.contentSize)
+        var targetFrame = window.frameRect(forContentRect: targetContentRect)
+        targetFrame.origin = NSPoint(
+            x: currentFrame.midX - targetFrame.width / 2,
+            y: currentFrame.midY - targetFrame.height / 2
+        )
+        if let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame {
+            targetFrame = LitheWindowLayout.frame(targetFrame, fitting: visibleFrame)
+        }
+        window.setFrame(targetFrame, display: true, animate: shouldAnimate)
+    }
+
+    private func defaultWorkspaceFrame(for window: NSWindow, fitting visibleFrame: NSRect) -> NSRect {
+        let targetContentRect = NSRect(origin: .zero, size: LitheWindowLayout.workspace.contentSize)
+        var targetFrame = window.frameRect(forContentRect: targetContentRect)
+        targetFrame.origin = NSPoint(
+            x: visibleFrame.midX - targetFrame.width / 2,
+            y: visibleFrame.midY - targetFrame.height / 2
+        )
+        return LitheWindowLayout.frame(targetFrame, fitting: visibleFrame)
+    }
+
+    private static func framesMatch(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
+        let tolerance: CGFloat = 1
+        return abs(lhs.minX - rhs.minX) <= tolerance
+            && abs(lhs.minY - rhs.minY) <= tolerance
+            && abs(lhs.width - rhs.width) <= tolerance
+            && abs(lhs.height - rhs.height) <= tolerance
     }
 }

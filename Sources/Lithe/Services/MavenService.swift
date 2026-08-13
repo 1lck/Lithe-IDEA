@@ -114,7 +114,7 @@ final class MavenService: ObservableObject {
     private func startProcess(arguments: [String], title: String) {
         guard let project else { return }
         guard let executable = runtimeService.mavenExecutable(for: project) else {
-            output = "No Maven executable was found for this project. Configure Maven in Project Settings.\n"
+            output = "No Maven executable was found. Edit the Maven service configuration.\n"
             lastExitCode = 1
             return
         }

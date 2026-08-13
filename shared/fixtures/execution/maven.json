@@ -1,0 +1,197 @@
+{
+  "name": "Maven framework service detection from the declared module graph",
+  "notes": [
+    "A plugin is what makes a goal available, so the plugin a module applies -- not a `@SpringBootApplication` annotation in a source file -- decides both that a module is a service and which framework it is. An annotation judge reads only the files the caller passed, so the same project generated a different document on every call and every team or local override joined by id came loose.",
+    "Each framework gets its own provider (`spring-boot.maven`, `quarkus.maven`, `micronaut.maven`) because the goals invented different property names for the same three things. Spring Boot takes `-Dspring-boot.run.jvmArguments` / `.arguments` / `.main-class` and `spring-boot:run`; Quarkus takes `-Djvm.args` / `-Dquarkus.args` and `quarkus:dev`; Micronaut takes `-Dmn.jvmArgs` / `-Dmn.appArgs` and `mn:run`. Passing one framework's names to another's goal is silently ignored, and the service starts with none of the user's arguments.",
+    "Only Spring Boot's goal accepts a main class. Quarkus and Micronaut resolve it from the build -- the Micronaut mojo's `mainClass` has no user property at all -- so the annotation scan grafts a class onto `spring-boot.maven` configurations only.",
+    "Debugging is per framework too. `spring-boot:run` forwards JVM arguments verbatim, so JDWP travels among them. Quarkus (`-Ddebug=<port> -Dsuspend=y`) and Micronaut (`-Dmn.debug=true -Dmn.debug.port=<port> -Dmn.debug.suspend=true`) start the agent themselves, so JDWP must NOT also be injected into their JVM arguments: two agents on one port fail to bind and the service never starts. Both are told to suspend because a breakpoint in initialisation is otherwise unreachable -- neither suspends by default.",
+    "Maven modules are declared, not discovered: the detector reads the graph from the root `pom.xml` instead of judging each directory the shared walk visits. A directory-driven scan is wrong in both directions -- `<modules>` may name a directory the walk prunes (one called `build` or `out` is invisible), while a leftover `pom.xml` outside the graph is not part of the build at all.",
+    "Only `<build><plugins>` counts. A plugin under `<pluginManagement>` pins a version for children without applying it, and one under `<reporting>` never runs. `pom` packaging is an aggregator: it produces no artifact to run, so a plugin declared there configures its children rather than describing a service.",
+    "Maven is reached through the project toolchain binding rather than a bare program name, because the build may be driven by `./mvnw` instead of an installed `mvn`. Every configuration runs from the reactor root and addresses its module with `-pl`, so `cwd` stays `.` and the module travels in `extensions.maven.module`. The name is therefore what keeps two modules apart: `artifactId` where unique, the module path where two modules share one.",
+    "The annotation scan still supplies the main class, which is the only place it is named. Where a Spring Boot module holds exactly one annotated class, it becomes `extensions.maven.mainClass`; two candidates are ambiguous and are left for `spring-boot:run` to resolve. A class in a module with no framework plugin is still a runnable `java.main` entry."
+  ],
+  "requests": [
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace", "paths": ["backend/src/main/java/com/demo/DemoApplication.java"] },
+      "workspace": {
+        "pom.xml": "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>backend</module><module>shared-lib</module></modules></project>",
+        "backend/pom.xml": "<project><artifactId>backend</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "shared-lib/pom.xml": "<project><artifactId>shared-lib</artifactId></project>",
+        "backend/src/main/java/com/demo/DemoApplication.java": "package com.demo;\n@SpringBootApplication\npublic class DemoApplication { public static void main(String[] a) {} }\n"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "spring-boot.maven:backend",
+            "provider": "spring-boot.maven",
+            "name": "backend",
+            "execution": "service",
+            "confidence": "declared",
+            "command": null,
+            "cwd": ".",
+            "source": "backend/pom.xml",
+            "toolchains": { "java": "project-jdk", "maven": "project-maven" },
+            "debug": { "adapter": "jdwp" },
+            "extensions": {
+              "maven": { "module": "backend", "mainClass": "com.demo.DemoApplication" }
+            }
+          }
+        ],
+        "absentIds": ["spring-boot.maven:shared-lib", "spring:com.demo.DemoApplication"],
+        "reason": "The library module applies no boot plugin. The annotated class contributes its name to the module's service rather than a service of its own."
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "pom.xml": "<project><artifactId>root</artifactId><packaging>pom</packaging><modules><module>build</module></modules></project>",
+        "build/pom.xml": "<project><artifactId>builder-service</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "spring-boot.maven:builder-service",
+            "provider": "spring-boot.maven",
+            "execution": "service",
+            "source": "build/pom.xml",
+            "extensions": { "maven": { "module": "build" } }
+          }
+        ],
+        "reason": "The shared walk prunes directories named `build`, but `<modules>` names this one explicitly, so reading the declared graph is what makes it visible."
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "pom.xml": "<project><artifactId>parent</artifactId><packaging>pom</packaging><modules><module>service-a</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "service-a/pom.xml": "<project><artifactId>service-a</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "spring-boot.maven:service-a",
+            "provider": "spring-boot.maven",
+            "execution": "service",
+            "extensions": { "maven": { "module": "service-a" } }
+          }
+        ],
+        "absentIds": ["spring-boot.maven:parent"],
+        "reason": "The aggregator produces no artifact, so the plugin it declares configures its children."
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "pom.xml": "<project><artifactId>root</artifactId><packaging>pom</packaging><modules><module>team-a/gateway</module><module>team-b/gateway</module></modules></project>",
+        "team-a/gateway/pom.xml": "<project><artifactId>gateway</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "team-b/gateway/pom.xml": "<project><artifactId>gateway</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "spring-boot.maven:team-a/gateway",
+            "name": "team-a/gateway",
+            "extensions": { "maven": { "module": "team-a/gateway" } }
+          },
+          {
+            "id": "spring-boot.maven:team-b/gateway",
+            "name": "team-b/gateway",
+            "extensions": { "maven": { "module": "team-b/gateway" } }
+          }
+        ],
+        "reason": "`artifactId` is only unique per `groupId`. Both modules share one and all Spring Boot configurations share `cwd`, so the name falls back to the module path or one of two real services would be dropped during dedup."
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "pom.xml": "<project><artifactId>lib</artifactId><build><pluginManagement><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId><version>3.2.0</version></plugin></plugins></pluginManagement></build></project>"
+      },
+      "expected": {
+        "configurations": [],
+        "reason": "`pluginManagement` pins a version for children without applying the plugin, so nothing here is runnable."
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "pom.xml": "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>boot-api</module><module>quarkus-api</module><module>micronaut-api</module></modules></project>",
+        "boot-api/pom.xml": "<project><artifactId>boot-api</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "quarkus-api/pom.xml": "<project><artifactId>quarkus-api</artifactId><build><plugins><plugin><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "micronaut-api/pom.xml": "<project><artifactId>micronaut-api</artifactId><build><plugins><plugin><artifactId>micronaut-maven-plugin</artifactId></plugin></plugins></build></project>"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "spring-boot.maven:boot-api",
+            "provider": "spring-boot.maven",
+            "execution": "service",
+            "extensions": { "maven": { "module": "boot-api" } }
+          },
+          {
+            "id": "quarkus.maven:quarkus-api",
+            "provider": "quarkus.maven",
+            "execution": "service",
+            "extensions": { "maven": { "module": "quarkus-api" } }
+          },
+          {
+            "id": "micronaut.maven:micronaut-api",
+            "provider": "micronaut.maven",
+            "execution": "service",
+            "extensions": { "maven": { "module": "micronaut-api" } }
+          }
+        ],
+        "reason": "The plugin decides the framework, and the framework decides the provider, because each goal takes its arguments under different property names."
+      }
+    },
+    {
+      "command": "runConfig.createLaunchPlan",
+      "payload": { "root": "/workspace", "configurationId": "quarkus.maven:api", "debugPort": 5005 },
+      "notes": "Given `extensions.maven` of `{module: api, jvmArguments: [-Xmx2g], programArguments: [--dev]}`.",
+      "expected": {
+        "executable": { "toolchain": "project-maven" },
+        "workingDirectory": ".",
+        "arguments": [
+          "-B",
+          "-ntp",
+          "-pl",
+          "api",
+          "-Djvm.args=-Xmx2g",
+          "-Dquarkus.args=--dev",
+          "-Ddebug=5005",
+          "-Dsuspend=y",
+          "quarkus:dev"
+        ],
+        "reason": "`quarkus:dev` starts the debug agent itself given a port, so JDWP is absent from `jvm.args` -- two agents on one port would fail to bind."
+      }
+    },
+    {
+      "command": "runConfig.createLaunchPlan",
+      "payload": { "root": "/workspace", "configurationId": "micronaut.maven:api", "debugPort": 5005 },
+      "notes": "Given the same `extensions.maven` as the Quarkus case.",
+      "expected": {
+        "executable": { "toolchain": "project-maven" },
+        "workingDirectory": ".",
+        "arguments": [
+          "-B",
+          "-ntp",
+          "-pl",
+          "api",
+          "-Dmn.jvmArgs=-Xmx2g",
+          "-Dmn.appArgs=--dev",
+          "-Dmn.debug=true",
+          "-Dmn.debug.port=5005",
+          "-Dmn.debug.suspend=true",
+          "mn:run"
+        ],
+        "reason": "The Micronaut run mojo takes debugging as three separate properties, and no main class: it resolves one from the build."
+      }
+    }
+  ]
+}

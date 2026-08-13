@@ -105,7 +105,7 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                 )
             }
         }
-        .onChange(of: contentWidth) { _, _ in
+        .onChange(of: contentWidth) { _ in
             horizontalOffset = min(horizontalOffset, maximumHorizontalOffset)
         }
     }
@@ -237,11 +237,11 @@ private struct DiffSideRowView: View {
                     .lineLimit(1)
                 Spacer()
             }
-            .foregroundStyle(Color(red: 0.50, green: 0.72, blue: 0.98))
+            .foregroundStyle(LitheTheme.diffInformationText)
             .padding(.horizontal, 12)
             .frame(height: DiffLayoutMetrics.informationRowHeight)
             .frame(maxWidth: .infinity)
-            .background(Color(red: 0.13, green: 0.20, blue: 0.30))
+            .background(LitheTheme.diffInformationBackground)
             .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {

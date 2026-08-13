@@ -18,6 +18,11 @@ struct GitLogView: View {
     @State private var pendingCommitOperation: GitCommitOperationRequest?
     @State private var pendingBranchOperation: GitBranchOperationRequest?
     @State private var showCommitDecorations = true
+    @State private var graphLayout = GitGraphLayout(
+        rows: [],
+        laneCount: 0,
+        hasMissingParents: false
+    )
     @FocusState private var gitLogSearchFocused: Bool
 
     /// IntelliJ's Git tool window uses the macOS system UI font throughout;
@@ -110,6 +115,14 @@ struct GitLogView: View {
             }
         }
         .background(LitheTheme.sidebar)
+        .task(id: model.gitCommits) {
+            let commits = model.gitCommits
+            let updatedLayout = await Task.detached(priority: .userInitiated) {
+                GitGraphLayoutService.layout(commits: commits)
+            }.value
+            guard model.gitCommits == commits else { return }
+            graphLayout = updatedLayout
+        }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
                 Task {
@@ -633,27 +646,7 @@ struct GitLogView: View {
                                 visibleHashes: visibleCommitHashes,
                                 selectedHash: model.selectedGitCommit?.hash,
                                 showCommitDecorations: showCommitDecorations,
-                                onSelect: { commit in
-                                    Task { await model.selectGitCommit(commit) }
-                                },
-                                onCherryPick: { commit in
-                                    pendingCommitOperation = GitCommitOperationRequest(
-                                        kind: .cherryPick,
-                                        commit: commit
-                                    )
-                                },
-                                onRevert: { commit in
-                                    pendingCommitOperation = GitCommitOperationRequest(
-                                        kind: .revert,
-                                        commit: commit
-                                    )
-                                },
-                                onReset: { commit in
-                                    pendingCommitOperation = GitCommitOperationRequest(
-                                        kind: .reset,
-                                        commit: commit
-                                    )
-                                }
+                                actions: graphRowActions
                             )
 
                             if model.canLoadMoreGitHistory {
@@ -678,7 +671,7 @@ struct GitLogView: View {
                         }
                     }
                     .litheScrollViewChrome(hideHorizontal: true)
-                    .onChange(of: model.selectedGitCommit?.hash) {
+                    .onChange(of: model.selectedGitCommit?.hash) { _ in
                         guard let hash = model.selectedGitCommit?.hash else { return }
                         withAnimation(.easeOut(duration: 0.16)) {
                             proxy.scrollTo(hash, anchor: .center)
@@ -817,8 +810,24 @@ struct GitLogView: View {
         }
     }
 
-    private var graphLayout: GitGraphLayout {
-        GitGraphLayoutService.layout(commits: model.gitCommits)
+    /// Rows compare themselves by data and ignore these callbacks, so building
+    /// the group once per pane redraw never invalidates a row.
+    private var graphRowActions: GitGraphRowActions {
+        let pendingOperation = $pendingCommitOperation
+        return GitGraphRowActions(
+            onSelect: { [model] commit in
+                Task { await model.selectGitCommit(commit) }
+            },
+            onCherryPick: { commit in
+                pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .cherryPick, commit: commit)
+            },
+            onRevert: { commit in
+                pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .revert, commit: commit)
+            },
+            onReset: { commit in
+                pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .reset, commit: commit)
+            }
+        )
     }
 
     private var visibleCommitHashes: Set<String>? {

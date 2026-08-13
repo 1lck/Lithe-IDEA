@@ -3,9 +3,12 @@ import Foundation
 @MainActor
 final class AppSettings: ObservableObject {
     private enum Key {
+        static let colorTheme = "settings.colorTheme"
+        static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
         static let tabWidth = "settings.tabWidth"
+        static let editorTabLayoutMode = "settings.editorTabLayoutMode"
         static let showCodeVision = "settings.showCodeVision"
         static let autoSave = "settings.autoSave"
         static let autoSaveDelay = "settings.autoSaveDelay"
@@ -14,14 +17,27 @@ final class AppSettings: ObservableObject {
         static let hiddenFilePatterns = "settings.hiddenFilePatterns"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
+        static let javaLanguageServerJDKPath = "settings.javaLanguageServerJDKPath"
         static let commitMessageAI = "settings.commitMessageAI"
     }
 
     private let defaults: any KeyValueStore
 
+    @Published var colorTheme: AppColorTheme {
+        didSet {
+            AppThemeRuntime.shared.activate(colorTheme)
+            defaults.set(colorTheme.rawValue, forKey: Key.colorTheme)
+        }
+    }
+    @Published var themePreference: AppThemePreference {
+        didSet { defaults.set(themePreference.rawValue, forKey: Key.themePreference) }
+    }
     @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
     @Published var tabWidth: Int { didSet { defaults.set(tabWidth, forKey: Key.tabWidth) } }
+    @Published var editorTabLayoutMode: EditorTabLayoutMode {
+        didSet { defaults.set(editorTabLayoutMode.rawValue, forKey: Key.editorTabLayoutMode) }
+    }
     @Published var showCodeVision: Bool { didSet { defaults.set(showCodeVision, forKey: Key.showCodeVision) } }
     @Published var autoSave: Bool { didSet { defaults.set(autoSave, forKey: Key.autoSave) } }
     @Published var autoSaveDelay: Double { didSet { defaults.set(autoSaveDelay, forKey: Key.autoSaveDelay) } }
@@ -44,6 +60,9 @@ final class AppSettings: ObservableObject {
     @Published var projectOpenBehavior: ProjectOpenBehavior {
         didSet { defaults.set(projectOpenBehavior.rawValue, forKey: Key.projectOpenBehavior) }
     }
+    @Published var javaLanguageServerJDKPath: String {
+        didSet { defaults.set(javaLanguageServerJDKPath, forKey: Key.javaLanguageServerJDKPath) }
+    }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
     }
@@ -52,9 +71,18 @@ final class AppSettings: ObservableObject {
 
     init(store: any KeyValueStore) {
         self.defaults = store
+        colorTheme = AppColorTheme(
+            rawValue: defaults.string(forKey: Key.colorTheme) ?? ""
+        ) ?? .lithe
+        themePreference = AppThemePreference(
+            rawValue: defaults.string(forKey: Key.themePreference) ?? ""
+        ) ?? .dark
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         tabWidth = defaults.object(forKey: Key.tabWidth) as? Int ?? 4
+        editorTabLayoutMode = EditorTabLayoutMode(
+            rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
+        ) ?? .singleLine
         showCodeVision = defaults.object(forKey: Key.showCodeVision) as? Bool ?? true
         autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? false
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
@@ -69,12 +97,14 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = ProjectOpenBehavior(
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
+        javaLanguageServerJDKPath = defaults.string(forKey: Key.javaLanguageServerJDKPath) ?? ""
         if let data = defaults.data(forKey: Key.commitMessageAI),
            let saved = try? JSONDecoder().decode(CommitMessageAISettings.self, from: data) {
             commitMessageAI = saved
         } else {
             commitMessageAI = .default
         }
+        AppThemeRuntime.shared.activate(colorTheme)
     }
 
     var terminalShellPath: String? { terminalShell.path }
@@ -104,9 +134,12 @@ final class AppSettings: ObservableObject {
     }
 
     func restoreDefaults() {
+        colorTheme = .lithe
+        themePreference = .dark
         language = .english
         editorFontSize = 13
         tabWidth = 4
+        editorTabLayoutMode = .singleLine
         showCodeVision = true
         autoSave = false
         autoSaveDelay = 1.5
@@ -115,6 +148,7 @@ final class AppSettings: ObservableObject {
         hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
+        javaLanguageServerJDKPath = ""
         commitMessageAI = .default
     }
 
@@ -202,6 +236,74 @@ final class AppSettings: ObservableObject {
         guard let data = try? JSONEncoder().encode(commitMessageAI) else { return }
         defaults.set(data, forKey: Key.commitMessageAI)
     }
+}
+
+enum AppColorTheme: String, CaseIterable, Identifiable {
+    case lithe
+    case codex
+    case linear
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .lithe: "Lithe"
+        case .codex: "Codex"
+        case .linear: "Linear"
+        }
+    }
+}
+
+final class AppThemeRuntime: @unchecked Sendable {
+    static let shared = AppThemeRuntime()
+
+    private let lock = NSLock()
+    private var value: AppColorTheme = .lithe
+
+    private init() {}
+
+    func activate(_ theme: AppColorTheme) {
+        lock.lock()
+        value = theme
+        lock.unlock()
+    }
+
+    var activeTheme: AppColorTheme {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
+enum AppThemePreference: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+}
+
+enum EditorTabLayoutMode: String, CaseIterable, Identifiable {
+    case singleLine
+    case multipleRows
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .singleLine: "Single row"
+        case .multipleRows: "Wrap into rows"
+        }
+    }
+
 }
 
 enum ProjectOpenBehavior: String, CaseIterable, Identifiable {

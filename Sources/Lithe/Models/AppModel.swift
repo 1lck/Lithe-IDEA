@@ -1,12 +1,11 @@
-import AppKit
 import Combine
 import Foundation
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case project = "Project"
     case general = "General"
     case editor = "Editor"
     case terminal = "Terminal"
+    case lsp = "LSP"
     case ai = "AI & Commit"
     case updates = "Updates"
 
@@ -14,10 +13,10 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .project: "folder.badge.gearshape"
         case .general: "gearshape"
         case .editor: "textformat"
         case .terminal: "terminal"
+        case .lsp: "server.rack"
         case .ai: "wand.and.stars"
         case .updates: "arrow.down.circle"
         }
@@ -30,6 +29,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published private(set) var workspaceURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project
     @Published var isRunVisible = false
+    @Published var isTestsVisible = false
     @Published var isSettingsPresented = false
     @Published private(set) var requestedSettingsCategory: SettingsCategory = .general
     @Published var isCloneRepositoryPresented = false
@@ -63,7 +63,7 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeature.isPerformingProjectItemOperation
     }
     @Published var notificationMessage: String?
-    @Published private(set) var detectedAIConfigurations: [AIConfigurationSnapshot] = []
+    @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
     @Published var commitMessage = ""
     @Published var amendCommit = false
     @Published private(set) var isGeneratingCommitMessage = false
@@ -75,6 +75,12 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isMavenVisible = false
     @Published var isDebugVisible = false
     @Published var isImplementationChooserVisible = false
+    var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
+    var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot { languageToolingFeature.catalogSnapshot }
+    @Published var languageNavigationProviderID: String?
+    @Published var languageNavigationLocations: [LanguageNavigationLocation] = []
+    @Published var languageNavigationResultKind: LanguageNavigationResultKind = .definitions
+    @Published var isLoadingLanguageNavigation = false
     @Published var editorCaret: EditorCaret?
     @Published var editorNavigationTarget: EditorNavigationTarget?
     var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] {
@@ -90,13 +96,18 @@ final class AppModel: ObservableObject, Identifiable {
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
     private var didCloseProject: (() -> Void)?
-    private let services: AppServices
-    private let platformUI: any PlatformUI
+    private var securityScopedWorkspaceURL: URL?
+    let services: AppServices
+    let platformUI: any PlatformUI
     let settings: AppSettings
     let runtimeFeature: RuntimeSettingsFeatureModel
+    let languageToolingFeature: LanguageToolingFeatureModel
     let mavenFeature: MavenFeatureModel
-    let runFeature: JavaRunFeatureModel
+    let runFeature: RunFeatureModel
+    let projectDevelopmentFeature: ProjectDevelopmentFeatureModel
     let debugFeature: JavaDebugFeatureModel
+    let genericDebugFeature: GenericDebugFeatureModel
+    let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let workspaceFeature: WorkspaceFeatureModel
     let searchFeature: SearchFeatureModel
     let terminalFeature: TerminalFeatureModel
@@ -104,10 +115,24 @@ final class AppModel: ObservableObject, Identifiable {
     let gitFeature: GitFeatureModel
     let documentFeature: DocumentFeatureModel
     let javaFeature: JavaFeatureModel
+    let databaseFeature: DatabaseFeatureModel
+    var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
+    func fileExists(at url: URL) -> Bool { services.fileStorage.fileExists(at: url) }
+    var languageToolingSessions: LanguageToolingSessionManager { services.languageToolingSessions }
+    var languageServerTools: LanguageServerToolService { services.languageServerTools }
+    var languageTestService: LanguageTestService { services.languageTestService }
+    var languageDiagnostics: [URL: [LanguageServerDiagnostic]] {
+        languageToolingSessions.diagnostics
+    }
+    var editorDiagnostics: [URL: [EditorDiagnostic]] {
+        EditorDiagnostic.fromLanguageServerDiagnostics(languageDiagnostics)
+    }
     private var workspaceFeatureObservation: AnyCancellable?
+    private var runtimeFeatureObservation: AnyCancellable?
     private var searchFeatureObservation: AnyCancellable?
     private var terminalFeatureObservation: AnyCancellable?
     private var projectHistoryFeatureObservation: AnyCancellable?
+    private var databaseFeatureObservation: AnyCancellable?
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .codex }
@@ -121,9 +146,79 @@ final class AppModel: ObservableObject, Identifiable {
         requestedSettingsCategory = category
         isSettingsPresented = true
     }
+
+    func chooseLanguageServerExecutable(providerName: String) -> URL? {
+        platformUI.chooseFile(
+            title: settings.language == .simplifiedChinese
+                ? "选择 \(providerName) 语言服务器"
+                : "Choose \(providerName) language server",
+            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
+        )
+    }
+
+    func openLanguageServerDownload(_ url: URL) {
+        platformUI.open(url)
+    }
+
+    func languageServerToolConfigurationDidChange(providerID: String) {
+        languageToolingFeature.toolConfigurationDidChange(providerID: providerID)
+    }
+
+    func isLanguageServerDisabledInCurrentWorkspace(providerID: String) -> Bool {
+        languageToolingFeature.isDisabled(providerID)
+    }
+
+    func setLanguageServerEnabled(_ enabled: Bool, providerID: String) {
+        if enabled {
+            languageToolingFeature.setEnabled(true, providerID: providerID)
+        } else {
+            languageToolingFeature.setEnabled(false, providerID: providerID)
+        }
+    }
+
+    var javaLanguageServerJDKPath: String {
+        settings.javaLanguageServerJDKPath
+    }
+
+    var detectedJavaLanguageServerJDKs: [JavaRuntimeCandidate] {
+        runtimeFeature.javaRuntimes
+    }
+
+    func selectJavaLanguageServerJDK(_ runtime: JavaRuntimeCandidate) {
+        applyJavaLanguageServerJDKPath(runtime.homePath)
+    }
+
+    func refreshJavaLanguageServerJDKs() async {
+        await runtimeFeature.refreshAvailableRuntimes()
+    }
+
+    func chooseJavaLanguageServerJDK() {
+        guard let url = platformUI.chooseDirectory(
+            title: settings.language == .simplifiedChinese ? "选择 LSP 运行 JDK" : "Choose LSP Runtime JDK",
+            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
+        ) else { return }
+        guard services.projectRuntimeService.configuredJavaExecutableURL(overridePath: url.path) != nil else {
+            showNotification(settings.language == .simplifiedChinese
+                ? "所选目录不是有效的 JDK Home"
+                : "The selected directory is not a valid JDK Home")
+            return
+        }
+        applyJavaLanguageServerJDKPath(url.standardizedFileURL.path)
+    }
+
+    private func applyJavaLanguageServerJDKPath(_ path: String) {
+        languageToolingFeature.selectJavaJDK(path)
+    }
+
+    func disableLanguageServerForCurrentWorkspace(providerID: String) {
+        languageToolingFeature.setEnabled(false, providerID: providerID)
+    }
+
     private var gitFeatureObservation: AnyCancellable?
     private var documentFeatureObservation: AnyCancellable?
     private var javaFeatureObservation: AnyCancellable?
+    private var languageToolingObservation: AnyCancellable?
+    private var languageTestObservation: AnyCancellable?
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
     private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
 
@@ -134,15 +229,34 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeature = WorkspaceFeatureModel(
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
+            fileStorage: services.fileStorage,
+            gitWatchContextProvider: services.gitService,
             directoryWatcherFactory: services.directoryWatcherFactory,
             workspaceSessionStore: services.workspaceSessionStore
         )
         searchFeature = SearchFeatureModel(operations: services.workspaceOperations)
         runtimeFeature = RuntimeSettingsFeatureModel(service: services.projectRuntimeService)
+        languageToolingFeature = LanguageToolingFeatureModel(
+            catalogSource: services.languageProviderCatalogSource,
+            catalogSnapshot: services.languageProviderCatalogSnapshot,
+            sessions: services.languageToolingSessions,
+            runtimeFeature: runtimeFeature,
+            settings: settings,
+            projectRuntimeService: services.projectRuntimeService
+        )
         mavenFeature = MavenFeatureModel(service: services.mavenService)
-        runFeature = JavaRunFeatureModel(service: services.javaRunService)
+        runFeature = RunFeatureModel(service: services.runService)
+        projectDevelopmentFeature = ProjectDevelopmentFeatureModel(
+            mavenFeature: mavenFeature,
+            runFeature: runFeature
+        )
         debugFeature = JavaDebugFeatureModel(service: services.javaDebugService)
-        terminalFeature = TerminalFeatureModel(terminalFactory: services.terminalFactory)
+        genericDebugFeature = GenericDebugFeatureModel(sessions: services.languageToolingSessions)
+        debugLaunchConfigurationResolver = services.debugLaunchConfigurationResolver
+        terminalFeature = TerminalFeatureModel(
+            terminalFactory: services.terminalFactory,
+            shellDiscovery: services.shellDiscovery
+        )
         projectHistoryFeature = ProjectHistoryFeatureModel(
             workspaceOperations: services.workspaceOperations,
             fileOperations: services.fileOperations,
@@ -155,27 +269,44 @@ final class AppModel: ObservableObject, Identifiable {
         )
         documentFeature = DocumentFeatureModel(
             operations: services.workspaceOperations,
-            fileOperations: services.fileOperations
+            fileOperations: services.fileOperations,
+            fileStorage: services.fileStorage,
+            binaryFileViewerRegistry: services.binaryFileViewerRegistry
         )
         javaFeature = JavaFeatureModel(
-            service: services.javaLanguageService,
-            markerService: services.javaImplementationMarkerService,
             operations: services.javaMavenOperations,
             workspaceOperations: services.workspaceOperations
         )
+        databaseFeature = DatabaseFeatureModel(
+            operations: services.databaseOperations,
+            connectionStore: DatabaseConnectionStore(store: services.store, secureStore: services.databaseSecureStore),
+            recoveryStore: services.databaseRecoveryStore,
+            fileStorage: services.fileStorage
+        )
         javaFeature.configureRuntime(
             mavenFeature: mavenFeature,
-            runFeature: runFeature,
             debugFeature: debugFeature
         )
         recentProjects = services.recentProjectsStore.load()
+        databaseFeatureObservation = databaseFeature.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         workspaceFeatureObservation = workspaceFeature.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        runtimeFeatureObservation = runtimeFeature.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         searchFeatureObservation = searchFeature.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         terminalFeatureObservation = terminalFeature.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        languageToolingObservation = services.languageToolingSessions.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        languageTestObservation = services.languageTestService.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         projectHistoryFeature.configure(
@@ -207,6 +338,7 @@ final class AppModel: ObservableObject, Identifiable {
                         }
                     }
                 }
+                self.documentFeature.reorderDocuments(orderedPaths: paths)
                 if let activePath = session.activePath,
                    let document = self.openDocuments.first(where: {
                        $0.url.standardizedFileURL.path == activePath
@@ -238,7 +370,7 @@ final class AppModel: ObservableObject, Identifiable {
             },
             reloadProjectServices: { [weak self] in
                 guard let self, let workspaceURL = self.workspaceURL else { return }
-                await self.javaFeature.loadProject(at: workspaceURL, files: self.projectFiles)
+                await self.loadProjectServices(at: workspaceURL, files: self.projectFiles)
             },
             refreshGit: { [weak self] in await self?.refreshGit() },
             updateHistoryVisibilityRules: { [weak self] rules in
@@ -246,13 +378,20 @@ final class AppModel: ObservableObject, Identifiable {
             },
             onSnapshotLoaded: { [weak self] snapshot, isInitialLoad in
                 guard let self, let workspaceURL = self.workspaceURL else { return }
-                self.javaFeature.prepareProject(at: workspaceURL, files: snapshot.files)
                 await self.refreshGit()
-                await self.javaFeature.loadProject(at: workspaceURL, files: snapshot.files)
+                await self.loadProjectServices(at: workspaceURL, files: snapshot.files)
                 if isInitialLoad {
                     self.projectHistoryFeature.seed(files: snapshot.files)
                 }
             }
+        )
+        languageToolingFeature.configure(
+            documentsProvider: { [weak self] in self?.openDocuments ?? [] },
+            workspaceProvider: { [weak self] in self?.workspaceURL },
+            activateDocument: { [weak self] document in
+                self?.activateLanguageServerIfAvailable(for: document) ?? false
+            },
+            notify: { [weak self] message in self?.showNotification(message) }
         )
         projectHistoryFeatureObservation = projectHistoryFeature.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
@@ -283,6 +422,8 @@ final class AppModel: ObservableObject, Identifiable {
             notify: { [weak self] message in self?.showNotification(message) },
             onDocumentOpened: { [weak self] document in
                 guard let self else { return }
+                self.activateLanguageServerIfAvailable(for: document)
+                guard self.javaFeature.handles(fileURL: document.url) else { return }
                 Task { await self.refreshCodeVision(for: document.url) }
                 self.javaFeature.refreshInlayHints(
                     for: document,
@@ -319,8 +460,6 @@ final class AppModel: ObservableObject, Identifiable {
             documentProvider: { [weak self] in self?.activeDocument },
             caretProvider: { [weak self] in self?.editorCaret },
             notify: { [weak self] message in self?.showNotification(message) },
-            navigateToLocation: { [weak self] location in self?.navigate(to: location) },
-            presentResults: { [weak self] kind in self?.presentJavaNavigationResults(kind) },
             loadBlame: { [weak self] fileURL in
                 guard let self else { return [] }
                 return await self.gitFeature.loadBlame(for: fileURL)
@@ -352,8 +491,14 @@ final class AppModel: ObservableObject, Identifiable {
             let provider = settings.importAIConfiguration(configuration)
             try? services.secureStore.delete(key: provider.apiKeyIdentifier)
         }
-        runtimeFeature.setOnRuntimeChanged { [weak self] in
-            self?.reloadJavaRuntimeServices()
+        languageServerTools.onCandidatesChanged = { [weak self] providerID in
+            guard let self,
+                  self.languageToolingFeature.shouldRetryCandidate(providerID: providerID),
+                  let document = self.activeDocument,
+                  self.languageProviderCatalog.provider(for: document.url)?.id == providerID else {
+                return
+            }
+            _ = self.activateLanguageServerIfAvailable(for: document)
         }
         doubleShiftDetector = services.shortcutDetectorFactory.make { [weak self] in
             self?.toggleSearchEverywhere()
@@ -386,7 +531,10 @@ final class AppModel: ObservableObject, Identifiable {
 
     func shutdownProjectSession() {
         doubleShiftDetector?.stop()
+        languageToolingSessions.stopAll()
+        languageTestService.stop()
         stopTerminalSessions()
+        stopAccessingWorkspace()
         if let fileVisibilityRulesObserverID {
             settings.removeFileVisibilityRulesObserver(fileVisibilityRulesObserverID)
             self.fileVisibilityRulesObserverID = nil
@@ -394,26 +542,91 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func reloadJavaRuntimeServices() {
-        runFeature.stop()
         debugFeature.stop()
         mavenFeature.stop()
+        languageToolingSessions.stopLanguageServer(providerID: "java")
         javaFeature.stop()
-        if let workspaceURL { javaFeature.prepareProject(at: workspaceURL, files: projectFiles) }
+        if let workspaceURL {
+            if let document = activeDocument,
+               document.url.pathExtension.lowercased() == "java" {
+                activateLanguageServerIfAvailable(for: document)
+            }
+            Task { [weak self] in
+                guard let self else { return }
+                await self.loadProjectServices(at: workspaceURL, files: self.projectFiles)
+            }
+        }
+    }
+
+    /// Loads build-system and run state at the workspace boundary. The generic
+    /// run lifecycle is intentionally not owned by JavaFeatureModel.
+    func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
+        languageTestService.discover(workspaceURL: workspaceURL, files: files)
+        await projectDevelopmentFeature.loadProject(at: workspaceURL, files: files)
     }
 
     var projectName: String {
         workspaceURL?.lastPathComponent ?? "Lithe"
     }
 
-    var javaLanguageStatusMessage: String {
-        javaFeature.statusMessage
+    var languageServerStatusMessage: String {
+        let usesChinese = settings.language == .simplifiedChinese
+        guard let document = activeDocument,
+              let descriptor = languageProviderCatalog.provider(for: document.url),
+              descriptor.capabilities.contains(.languageServer) else {
+            return usesChinese ? "打开一个受支持的源码文件" : "Open a supported source file"
+        }
+
+        let status = LSPControlCenterPresenter.serverStatus(
+            isDisabled: languageToolingFeature.isDisabled(descriptor.id),
+            sessionState: languageToolingSessions.languageServerStates[descriptor.id]
+        )
+        switch status {
+        case .starting:
+            return usesChinese
+                ? "正在启动 \(descriptor.displayName) LSP 进程"
+                : "Starting the \(descriptor.displayName) LSP process"
+        case .initializing:
+            return usesChinese
+                ? "正在初始化 \(descriptor.displayName) LSP"
+                : "Initializing \(descriptor.displayName) LSP"
+        case .active:
+            return usesChinese
+                ? "\(descriptor.displayName) 语言服务器已就绪"
+                : "\(descriptor.displayName) language server ready"
+        case .stopping:
+            return usesChinese
+                ? "正在停止 \(descriptor.displayName) LSP"
+                : "Stopping \(descriptor.displayName) LSP"
+        case .stopped:
+            return usesChinese
+                ? "\(descriptor.displayName) 已由 catalog 声明，但当前没有运行中的 LSP 会话"
+                : "\(descriptor.displayName) is declared by the catalog, but no LSP session is running"
+        case .disabled:
+            return usesChinese
+                ? "\(descriptor.displayName) LSP 已在当前工作区禁用"
+                : "\(descriptor.displayName) LSP is disabled in this workspace"
+        case .error:
+            return usesChinese
+                ? "\(descriptor.displayName) LSP 异常退出"
+                : "\(descriptor.displayName) LSP exited unexpectedly"
+        }
     }
 
-    func implementationMarkers(
-        for document: EditorDocument,
-        candidates: [JavaImplementationMarker]
-    ) async -> [JavaImplementationMarker] {
-        await javaFeature.implementationMarkers(for: document, candidates: candidates)
+    func restartLanguageServers() {
+        languageToolingSessions.stopAllLanguageServers()
+        languageToolingFeature.resetWorkspaceState()
+        let didStart = activateCurrentDocumentLanguageServerIfAvailable()
+        showNotification(
+            didStart
+                ? (settings.language == .simplifiedChinese ? "语言服务器已启动" : "Language server started")
+                : (settings.language == .simplifiedChinese ? "当前没有运行中的 LSP 会话" : "No LSP session is running")
+        )
+    }
+
+    func clearLanguageServerDiagnostics() {
+        languageToolingSessions.clearDiagnostics()
+        showNotification(settings.language == .simplifiedChinese ? "语言服务器诊断已清空" : "Language server diagnostics cleared")
     }
 
     func javaStructure(source: String, declarationSources: [String] = []) -> JavaStructureResult? {
@@ -495,13 +708,22 @@ final class AppModel: ObservableObject, Identifiable {
         if let previousWorkspaceURL = workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: previousWorkspaceURL)
         }
+        // A workspace root is a hard language-server ownership boundary. Stop
+        // every provider session before replacing the catalog or clearing the
+        // document projection so no old-root documents, diagnostics, or
+        // responses can survive into the next workspace.
+        languageToolingSessions.stopAll()
+        reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
+        languageTestService.reset()
+        languageToolingFeature.resetWorkspaceState()
         runtimeFeature.openProject(at: normalizedURL)
         mavenFeature.reset()
         runFeature.reset()
         debugFeature.reset()
+        genericDebugFeature.reset()
+        clearLanguageNavigationProjection()
         javaFeature.stop()
-        javaFeature.configureProjectRoot(normalizedURL)
         workspaceFeature.reset()
         searchFeature.reset()
         isTerminalVisible = false
@@ -509,6 +731,7 @@ final class AppModel: ObservableObject, Identifiable {
         isProblemsVisible = false
         isMavenVisible = false
         isRunVisible = false
+        isTestsVisible = false
         isDebugVisible = false
         editorCaret = nil
         editorNavigationTarget = nil
@@ -535,6 +758,10 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
+    func resumeGitObservationAfterActivation() async {
+        await workspaceFeature.resumeObservationAfterActivation()
+    }
+
     func closeProject() {
         guard workspaceURL != nil else { return }
         guard documentFeature.beginProjectClose() else {
@@ -547,7 +774,9 @@ final class AppModel: ObservableObject, Identifiable {
         if let workspaceURL {
             workspaceFeature.persistWorkspaceSession(for: workspaceURL)
         }
+        stopAccessingWorkspace()
         workspaceURL = nil
+        reloadLanguageProviderCatalog(for: nil)
         selectedSidebar = .project
         workspaceFeature.reset()
         documentFeature.reset()
@@ -572,12 +801,16 @@ final class AppModel: ObservableObject, Identifiable {
         isProblemsVisible = false
         isMavenVisible = false
         isRunVisible = false
+        isTestsVisible = false
         isDebugVisible = false
         stopTerminalSessions()
+        languageToolingSessions.stopAll()
+        languageTestService.reset()
         runtimeFeature.closeProject()
         mavenFeature.reset()
         runFeature.reset()
         debugFeature.reset()
+        genericDebugFeature.reset()
         javaFeature.stop()
         editorCaret = nil
         editorNavigationTarget = nil
@@ -587,6 +820,12 @@ final class AppModel: ObservableObject, Identifiable {
         pendingProjectItemDeletion = nil
         refreshRecentProjects()
         didCloseProject?()
+    }
+
+    private func stopAccessingWorkspace() {
+        guard let securityScopedWorkspaceURL else { return }
+        platformUI.stopAccessingProject(securityScopedWorkspaceURL)
+        self.securityScopedWorkspaceURL = nil
     }
 
     func removeRecentProject(_ project: RecentProject) {
@@ -605,6 +844,10 @@ final class AppModel: ObservableObject, Identifiable {
         workbenchLayoutStore.save(layout, for: workspaceURL)
     }
 
+    private func reloadLanguageProviderCatalog(for workspaceURL: URL?) {
+        languageToolingFeature.reloadCatalog(for: workspaceURL)
+    }
+
     func openFile(
         _ url: URL,
         isReadOnly: Bool = false,
@@ -613,6 +856,10 @@ final class AppModel: ObservableObject, Identifiable {
         selectedChange = nil
         closeBranchComparison()
         documentFeature.openFile(url, isReadOnly: isReadOnly, displayPath: displayPath)
+    }
+
+    func javaIconKind(for url: URL) async -> LitheIconKind? {
+        await workspaceFeature.javaIconKind(for: url)
     }
 
     func refreshWorkspace() async {
@@ -752,7 +999,7 @@ final class AppModel: ObservableObject, Identifiable {
         documentFeature.saveActiveDocument()
     }
 
-    private func saveDocument(_ document: EditorDocument) throws {
+    func saveDocument(_ document: EditorDocument) throws {
         try documentFeature.save(document)
     }
 
@@ -768,17 +1015,54 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func handleDocumentChanged(_ document: EditorDocument) {
-        javaFeature.update(document)
+        activateLanguageServerIfAvailable(for: document)
         Task { @MainActor [weak self, weak document] in
             try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled, let self, let document else { return }
+            guard self.javaFeature.handles(fileURL: document.url) else { return }
             await self.refreshCodeVision(for: document.url)
             self.refreshJavaInlayHints(for: document)
         }
     }
 
     private func handleDocumentClosed(_ document: EditorDocument) {
-        javaFeature.close(document)
+        languageToolingSessions.closeDocument(document.url)
+        if javaFeature.handles(fileURL: document.url) {
+            javaFeature.close(document)
+        }
+    }
+
+    @discardableResult
+    func activateCurrentDocumentLanguageServerIfAvailable() -> Bool {
+        guard let activeDocument else { return false }
+        return activateLanguageServerIfAvailable(for: activeDocument)
+    }
+
+    @discardableResult
+    private func activateLanguageServerIfAvailable(for document: EditorDocument) -> Bool {
+        guard let workspaceURL,
+              let descriptor = languageProviderCatalog.provider(for: document.url) else { return false }
+        guard !languageToolingFeature.isDisabled(descriptor.id) else {
+            languageToolingSessions.recordLanguageServerLog(
+                providerID: descriptor.id,
+                level: .info,
+                message: "Language server activation skipped",
+                detail: "Disabled in this workspace"
+            )
+            return false
+        }
+        do {
+            try languageToolingSessions.synchronizeLanguageServer(
+                for: document.url,
+                text: document.text,
+                rootURL: workspaceURL
+            )
+            languageToolingFeature.markActivationSucceeded(providerID: descriptor.id)
+            return languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
+        } catch {
+            languageToolingFeature.markActivationFailed(providerID: descriptor.id, descriptor: descriptor, error: error)
+            return false
+        }
     }
 
     func searchProject(options: ProjectSearchOptions = .default) async {
@@ -1104,135 +1388,6 @@ final class AppModel: ObservableObject, Identifiable {
         pendingGeneratedCommitMessage = nil
     }
 
-    @discardableResult
-    func refreshAIConfigurations() -> Bool {
-        let configurations = loadAIConfigurations()
-        detectedAIConfigurations = configurations
-
-        guard let activeProvider = settings.activeCommitMessageProvider,
-              let source = configurationSource(for: activeProvider),
-              let configuration = configurations.first(where: { $0.source == source }) else {
-            return !configurations.isEmpty
-        }
-
-        updateImportedProvider(from: configuration)
-        return true
-    }
-
-    @discardableResult
-    func refreshCodexConfiguration() -> Bool {
-        refreshAIConfigurations()
-        return detectedCodexConfiguration != nil
-    }
-
-    @discardableResult
-    func importAIConfiguration(_ configuration: AIConfigurationSnapshot) -> Bool {
-        let provider = settings.importAIConfiguration(configuration)
-        try? services.secureStore.delete(key: provider.apiKeyIdentifier)
-        detectedAIConfigurations.removeAll { $0.source == configuration.source }
-        detectedAIConfigurations.append(configuration)
-        showNotification("\(configuration.source.title) configuration imported")
-        return true
-    }
-
-    @discardableResult
-    func importCodexConfiguration() -> Bool {
-        guard let codexConfiguration = loadAIConfigurations().first(where: { $0.source == .codex }) else {
-            detectedAIConfigurations.removeAll { $0.source == .codex }
-            showNotification("No Codex configuration was found")
-            return false
-        }
-        return importAIConfiguration(codexConfiguration)
-    }
-
-    var activeCommitMessageAPIKey: String {
-        guard let provider = settings.activeCommitMessageProvider else { return "" }
-        return services.credentialResolver.readAPIKey(for: provider) ?? ""
-    }
-
-    var activeCommitMessageCredentialIsConfigurationManaged: Bool {
-        guard let provider = settings.activeCommitMessageProvider else { return false }
-        return configurationSource(for: provider) != nil
-    }
-
-    var activeCommitMessageConfigurationSourceTitle: String? {
-        settings.activeCommitMessageProvider
-            .flatMap(configurationSource(for:))?
-            .title
-    }
-
-    var activeCommitMessageConfigurationSourceDescription: String? {
-        settings.activeCommitMessageProvider
-            .flatMap(configurationSource(for:))?
-            .settingsDescription
-    }
-
-    var activeCommitMessageCredentialIsCodexManaged: Bool {
-        activeCommitMessageCredentialIsConfigurationManaged
-    }
-
-    func saveActiveCommitMessageAPIKey(_ value: String) {
-        guard let provider = settings.activeCommitMessageProvider else { return }
-        if activeCommitMessageCredentialIsConfigurationManaged {
-            let source = activeCommitMessageConfigurationSourceTitle ?? "AI"
-            showNotification("API key is managed by \(source) configuration")
-            return
-        }
-        do {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                try services.secureStore.delete(key: provider.apiKeyIdentifier)
-            } else {
-                try services.secureStore.write(trimmed, key: provider.apiKeyIdentifier)
-            }
-            showNotification("API key saved locally")
-        } catch {
-            showNotification(error.localizedDescription)
-        }
-    }
-
-    private func loadAIConfigurations() -> [AIConfigurationSnapshot] {
-        services.aiConfigurationSources.compactMap { $0.load() }
-    }
-
-    private func configurationSource(
-        for provider: AIProviderProfile
-    ) -> AIConfigurationSourceKind? {
-        if let source = provider.credentialSource.configurationSource {
-            return source
-        }
-        if provider.apiKeyIdentifier == "lithe.codex.imported.apiKey" {
-            return .codex
-        }
-        if provider.apiKeyIdentifier == "lithe.claude.imported.apiKey" {
-            return .claude
-        }
-        return nil
-    }
-
-    private func updateImportedProvider(from configuration: AIConfigurationSnapshot) {
-        guard let activeProvider = settings.activeCommitMessageProvider,
-              configurationSource(for: activeProvider) == configuration.source else {
-            return
-        }
-
-        settings.updateActiveCommitMessageProvider { provider in
-            provider.name = configuration.providerName.isEmpty
-                ? "\(configuration.source.title) (imported)"
-                : "\(configuration.source.title) · \(configuration.providerName)"
-            provider.endpoint = configuration.endpoint
-            provider.model = configuration.model
-            provider.apiProtocol = configuration.apiProtocol
-            provider.authentication = configuration.authentication
-            provider.requiresAPIKey = configuration.requiresAPIKey
-            provider.apiKeyIdentifier = "lithe.\(configuration.source.rawValue).imported.apiKey"
-            provider.credentialSource = configuration.source.credentialSource
-        }
-        try? services.secureStore.delete(
-            key: "lithe.\(configuration.source.rawValue).imported.apiKey"
-        )
-    }
-
     func toggleStaging(_ change: GitChange) async {
         await gitFeature.toggleStaging(change)
     }
@@ -1244,6 +1399,7 @@ final class AppModel: ObservableObject, Identifiable {
     func toggleGitLog() async {
         isGitLogVisible.toggle()
         if isGitLogVisible {
+            isTestsVisible = false
             isTerminalVisible = false
             isReferencesVisible = false
             isProblemsVisible = false
@@ -1254,342 +1410,6 @@ final class AppModel: ObservableObject, Identifiable {
         if isGitLogVisible && gitCommits.isEmpty {
             await refreshGitHistory()
         }
-    }
-
-    func toggleTerminal() {
-        isTerminalVisible.toggle()
-        guard isTerminalVisible else { return }
-        isGitLogVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isDebugVisible = false
-        if activeTerminalSession == nil {
-            createTerminalSession()
-        }
-    }
-
-    var terminalSessions: [TerminalSession] {
-        terminalFeature.terminalSessions
-    }
-
-    var activeTerminalSessionID: UUID? {
-        terminalFeature.activeTerminalSessionID
-    }
-
-    var activeTerminalSession: TerminalSession? {
-        terminalFeature.activeTerminalSession
-    }
-
-    func terminalTitle(for session: TerminalSession) -> String {
-        terminalFeature.terminalTitle(for: session)
-    }
-
-    @discardableResult
-    func createTerminalSession(shellPath: String? = nil) -> TerminalSession? {
-        guard let workspaceURL else { return nil }
-        let session = terminalFeature.createSession(
-            in: workspaceURL,
-            shellPath: shellPath ?? settings.terminalShellPath
-        )
-        configureTerminalSession(session)
-        isTerminalVisible = true
-        isGitLogVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isDebugVisible = false
-        return session
-    }
-
-    private func configureTerminalSession(_ session: TerminalSession) {
-        let sessionID = session.id
-        session.onLink = { [weak self] link, params in
-            self?.openTerminalLink(link, params: params, sessionID: sessionID)
-        }
-    }
-
-    private func openTerminalLink(
-        _ link: String,
-        params: [String: String],
-        sessionID: UUID
-    ) {
-        guard let session = terminalSessions.first(where: { $0.id == sessionID }),
-              let fallbackDirectory = session.currentDirectory ?? workspaceURL else {
-            return
-        }
-
-        switch TerminalLinkResolver.resolve(link, relativeTo: fallbackDirectory) {
-        case .file(let location):
-            guard let workspaceURL else {
-                NSWorkspace.shared.open(location.url)
-                return
-            }
-            if isFile(location.url, inside: workspaceURL) {
-                openSourceLocation(
-                    url: location.url,
-                    line: location.line ?? 1,
-                    column: location.column
-                )
-            } else {
-                NSWorkspace.shared.open(location.url)
-            }
-        case .external(let url):
-            NSWorkspace.shared.open(url)
-        case nil:
-            return
-        }
-    }
-
-    private func isFile(_ fileURL: URL, inside directoryURL: URL) -> Bool {
-        let filePath = fileURL.standardizedFileURL.path
-        let directoryPath = directoryURL.standardizedFileURL.path
-        guard filePath != directoryPath else { return true }
-        return filePath.hasPrefix(directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/")
-    }
-
-    func selectTerminalSession(_ session: TerminalSession) {
-        guard terminalFeature.selectSession(session) else { return }
-        isTerminalVisible = true
-    }
-
-    func closeTerminalSession(_ session: TerminalSession) {
-        guard terminalSessions.contains(where: { $0.id == session.id }) else { return }
-        terminalFeature.closeSession(session)
-        if terminalSessions.isEmpty {
-            isTerminalVisible = false
-        }
-    }
-
-    func restartActiveTerminal() {
-        terminalFeature.restartActiveSession()
-    }
-
-    func restartActiveTerminal(using shellPath: String) {
-        terminalFeature.restartActiveSession(using: shellPath)
-    }
-
-    func stopTerminalSessions() {
-        terminalFeature.stopAllSessions()
-    }
-
-    func toggleMaven() {
-        isMavenVisible.toggle()
-        guard isMavenVisible else { return }
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isRunVisible = false
-        isDebugVisible = false
-        guard let workspaceURL else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            if self.mavenFeature.project == nil {
-                await self.javaFeature.loadProject(at: workspaceURL, files: self.projectFiles)
-            }
-        }
-    }
-
-    func runMaven(
-        phase: MavenLifecyclePhase,
-        module: MavenModule?,
-        profiles: Set<String>
-    ) {
-        isMavenVisible = true
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isRunVisible = false
-        isDebugVisible = false
-        mavenFeature.run(phase: phase, module: module, profiles: profiles)
-    }
-
-    func stopMaven() {
-        mavenFeature.stop()
-    }
-
-    func openMavenIssue(_ issue: MavenBuildIssue) {
-        guard let fileURL = issue.fileURL,
-              workspaceFeature.fileExists(at: fileURL) else { return }
-        openFile(fileURL)
-        editorNavigationTarget = EditorNavigationTarget(
-            url: fileURL.standardizedFileURL,
-            line: max(0, (issue.line ?? 1) - 1),
-            utf16Column: max(0, (issue.column ?? 1) - 1)
-        )
-    }
-
-    /// 打开源码文件并定位到指定行/列(供构建输出、运行堆栈等可点击文本跳转)。
-    func openSourceLocation(url: URL, line: Int, column: Int?) {
-        guard workspaceFeature.fileExists(at: url) else { return }
-        openFile(url)
-        editorNavigationTarget = EditorNavigationTarget(
-            url: url.standardizedFileURL,
-            line: max(0, line - 1),
-            utf16Column: max(0, (column ?? 1) - 1)
-        )
-    }
-
-    func toggleProblems() {
-        isProblemsVisible.toggle()
-        guard isProblemsVisible else { return }
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isDebugVisible = false
-    }
-
-    func openJavaDiagnostic(_ diagnostic: JavaDiagnostic) {
-        guard workspaceFeature.fileExists(at: diagnostic.fileURL) else { return }
-        openFile(diagnostic.fileURL)
-        editorNavigationTarget = EditorNavigationTarget(
-            url: diagnostic.fileURL.standardizedFileURL,
-            line: diagnostic.line,
-            utf16Column: diagnostic.utf16Column
-        )
-    }
-
-    func selectRunConfiguration(_ configuration: JavaRunConfiguration) {
-        runFeature.select(configuration)
-    }
-
-    func runSelectedConfiguration() {
-        guard javaFeature.runSelectedConfiguration(
-            currentDocument: activeDocument,
-            saveDocument: { [weak self] document in try self?.saveDocument(document) },
-            recordSave: { [weak self] document, previousText in
-                self?.recordSave(document, previousText: previousText)
-            }
-        ) else { return }
-        isRunVisible = true
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isMavenVisible = false
-        isDebugVisible = false
-        runFeature.runSelected(currentFileURL: activeDocument?.url)
-    }
-
-    func restartSelectedRun() {
-        isRunVisible = true
-        runFeature.restart()
-    }
-
-    func stopSelectedRun() {
-        runFeature.stop()
-    }
-
-    func toggleDebug() {
-        isDebugVisible.toggle()
-        guard isDebugVisible else { return }
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-    }
-
-    func startDebugging() {
-        guard javaFeature.startDebugging(
-            currentDocument: activeDocument,
-            workspaceURL: workspaceURL,
-            saveDocument: { [weak self] document in try self?.saveDocument(document) },
-            recordSave: { [weak self] document, previousText in
-                self?.recordSave(document, previousText: previousText)
-            }
-        ) else { return }
-        isDebugVisible = true
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isReferencesVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-    }
-
-    func stopDebugging() {
-        debugFeature.stop()
-    }
-
-    func toggleDebugBreakpointAtCaret() {
-        javaFeature.toggleDebugBreakpointAtCaret()
-    }
-
-    func toggleDebugBreakpoint(fileURL: URL, line: Int) {
-        javaFeature.toggleDebugBreakpoint(at: fileURL, line: line, documents: openDocuments)
-    }
-
-    func goToDefinition() {
-        javaFeature.goToDefinition()
-    }
-
-    func goToUsages() {
-        javaFeature.goToUsages()
-    }
-
-    func goToImplementation() {
-        javaFeature.goToImplementation()
-    }
-
-    func navigateToSymbol(line: Int, utf16Column: Int, in fileURL: URL) {
-        let normalizedURL = fileURL.standardizedFileURL
-        guard normalizedURL.pathExtension.lowercased() == "java" else { return }
-        editorCaret = EditorCaret(
-            url: normalizedURL,
-            line: max(0, line),
-            utf16Column: max(0, utf16Column)
-        )
-        javaFeature.navigateToDefinition(fallbackToImplementationsIfSelf: true)
-    }
-
-    func findJavaReferences() {
-        javaFeature.findJavaReferences()
-    }
-
-    func findJavaImplementations(line: Int, utf16Column: Int, in fileURL: URL) {
-        editorCaret = EditorCaret(
-            url: fileURL.standardizedFileURL,
-            line: line,
-            utf16Column: utf16Column
-        )
-        javaFeature.findJavaImplementations()
-    }
-
-    func navigate(to location: JavaNavigationLocation) {
-        isImplementationChooserVisible = false
-        openFile(
-            location.url,
-            isReadOnly: location.isReadOnly,
-            displayPath: location.displayPath
-        )
-        editorNavigationTarget = EditorNavigationTarget(
-            url: location.url.standardizedFileURL,
-            line: location.line,
-            utf16Column: location.utf16Column
-        )
-    }
-
-    func closeJavaNavigationResults() {
-        isReferencesVisible = false
-        isImplementationChooserVisible = false
-        javaFeature.clearNavigation()
-    }
-
-    private func presentJavaNavigationResults(_ kind: JavaNavigationResultKind) {
-        isGitLogVisible = false
-        isTerminalVisible = false
-        isProblemsVisible = false
-        isMavenVisible = false
-        isRunVisible = false
-        isReferencesVisible = kind != .implementations
-        isImplementationChooserVisible = kind == .implementations
     }
 
     func closeGitLog() {
@@ -1657,7 +1477,7 @@ final class AppModel: ObservableObject, Identifiable {
             line: hint.line,
             utf16Column: hint.utf16Column
         )
-        findJavaReferences()
+        findReferences()
     }
 
     func showGitCommit(_ hash: String) async {
@@ -1668,6 +1488,7 @@ final class AppModel: ObservableObject, Identifiable {
         isMavenVisible = false
         isRunVisible = false
         isDebugVisible = false
+        isTestsVisible = false
         isGitLogVisible = true
         await gitFeature.showGitCommit(hash)
     }
@@ -1799,7 +1620,7 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
-    private func recordSave(_ document: EditorDocument, previousText: String) {
+    func recordSave(_ document: EditorDocument, previousText: String) {
         projectHistoryFeature.recordSave(document, previousText: previousText)
     }
 
@@ -1812,6 +1633,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     case project
     case changes
     case search
+    case database
 
     var id: String { rawValue }
 
@@ -1820,6 +1642,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .project: "Project"
         case .changes: "Changes"
         case .search: "Search"
+        case .database: "Database"
         }
     }
 
@@ -1828,6 +1651,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .project: "folder"
         case .changes: "slider.horizontal.3"
         case .search: "magnifyingglass"
+        case .database: "cylinder.split.1x2"
         }
     }
 
@@ -1836,6 +1660,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .project: "toolwindows/toolWindowProject.svg"
         case .changes: "toolwindows/toolWindowCommit.svg"
         case .search: "toolwindows/toolWindowFind.svg"
+        case .database: "toolwindows/toolWindowDatabase.svg"
         }
     }
 }

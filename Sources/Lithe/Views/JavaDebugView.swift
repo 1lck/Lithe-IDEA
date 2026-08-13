@@ -57,8 +57,12 @@ struct JavaDebugView: View {
                 }
             case .runConfiguration:
                 HStack(spacing: 7) {
-                    Image(systemName: selectedDebugConfiguration?.systemImage ?? "shippingbox")
-                        .foregroundStyle(LitheTheme.secondaryText)
+                    if let selectedDebugConfiguration {
+                        RunConfigurationIcon(kind: selectedDebugConfiguration.kind, size: 16)
+                    } else {
+                        LitheSystemIcon(systemImage: "shippingbox")
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
                     Menu {
                         if debugConfigurations.isEmpty {
                             Text("No Spring Boot or Maven Module configurations")
@@ -67,7 +71,10 @@ struct JavaDebugView: View {
                                 Button {
                                     model.selectRunConfiguration(configuration)
                                 } label: {
-                                    Label(configuration.name, systemImage: configuration.systemImage)
+                                    HStack {
+                                        RunConfigurationIcon(kind: configuration.kind, size: 16)
+                                        Text(configuration.name)
+                                    }
                                 }
                             }
                         }
@@ -139,35 +146,37 @@ struct JavaDebugView: View {
 
             Spacer()
 
-            Button {
-                model.toggleDebugBreakpointAtCaret()
-            } label: {
-                Image(systemName: "smallcircle.filled.circle")
-            }
-            .litheIconButton()
-            .help("Toggle breakpoint at caret")
-
-            Button {
-                if canStop {
-                    model.stopDebugging()
-                } else {
-                    model.startDebugging()
+            Group {
+                Button {
+                    model.toggleDebugBreakpointAtCaret()
+                } label: {
+                    Image(systemName: "smallcircle.filled.circle")
                 }
-            } label: {
-                Image(systemName: canStop ? "stop.fill" : "play.fill")
-            }
-            .litheIconButton()
-            .foregroundStyle(canStop ? LitheTheme.warning : LitheTheme.success)
-            .help(canStop ? "Stop debugging" : "Start debugging")
+                .litheIconButton()
+                .help("Toggle breakpoint at caret")
 
-            Button {
-                service.pause()
-            } label: {
-                Image(systemName: "pause.fill")
+                Button {
+                    if canStop {
+                        model.stopDebugging()
+                    } else {
+                        model.startDebugging()
+                    }
+                } label: {
+                    Image(systemName: canStop ? "stop.fill" : "play.fill")
+                }
+                .litheIconButton()
+                .foregroundStyle(canStop ? LitheTheme.warning : LitheTheme.success)
+                .help(canStop ? "Stop debugging" : "Start debugging")
+
+                Button {
+                    service.pause()
+                } label: {
+                    Image(systemName: "pause.fill")
+                }
+                .litheIconButton()
+                .disabled(!service.canControl || service.state != .running)
+                .help("Pause")
             }
-            .litheIconButton()
-            .disabled(!service.canControl || service.state != .running)
-            .help("Pause")
 
             Button {
                 service.continueExecution()
@@ -247,11 +256,13 @@ struct JavaDebugView: View {
             }
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            sectionHeader("Inspect", count: nil)
-            inspectButton("Threads", icon: "person.3", action: service.inspectThreads)
-            inspectButton("Call Stack", icon: "list.number", action: service.inspectStack)
-            inspectButton("Local Variables", icon: "list.bullet.rectangle", action: service.inspectVariables)
-            evaluateRow
+            Group {
+                sectionHeader("Inspect", count: nil)
+                inspectButton("Threads", icon: "person.3", action: service.inspectThreads)
+                inspectButton("Call Stack", icon: "list.number", action: service.inspectStack)
+                inspectButton("Local Variables", icon: "list.bullet.rectangle", action: service.inspectVariables)
+                evaluateRow
+            }
 
             if let exceptionMessage = service.exceptionMessage {
                 exceptionBanner(exceptionMessage)
@@ -442,20 +453,25 @@ struct JavaDebugView: View {
             .lithePointer()
             .tint(LitheTheme.accent)
             .controlSize(.small)
-            .disabled(service.targetKind == .runConfiguration && selectedDebugConfiguration == nil)
+            .disabled(
+                runService.isLoadingProject ||
+                    (service.targetKind == .runConfiguration &&
+                        runService.configurationStatus == .ready &&
+                        selectedDebugConfiguration == nil)
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var debugConfigurations: [JavaRunConfiguration] {
         runService.configurations.filter {
-            $0.kind == .springBoot || $0.kind == .mavenModule
+            $0.kind.isMavenBacked
         }
     }
 
     private var selectedDebugConfiguration: JavaRunConfiguration? {
         guard let configuration = runService.selectedConfiguration,
-              configuration.kind == .springBoot || configuration.kind == .mavenModule else {
+              configuration.kind.isMavenBacked else {
             return nil
         }
         return configuration

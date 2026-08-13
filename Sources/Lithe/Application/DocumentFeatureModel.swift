@@ -12,6 +12,8 @@ final class DocumentFeatureModel: ObservableObject {
 
     private let operations: any WorkspaceOperations
     private let fileOperations: any WorkspaceFileOperations
+    private let fileStorage: any FileStorage
+    private let binaryFileViewerRegistry: BinaryFileViewerRegistry
     private var workspaceURLProvider: (@MainActor () -> URL?)?
     private var autoSaveEnabledProvider: (@MainActor () -> Bool)?
     private var autoSaveDelayProvider: (@MainActor () -> TimeInterval)?
@@ -32,10 +34,14 @@ final class DocumentFeatureModel: ObservableObject {
 
     init(
         operations: any WorkspaceOperations,
-        fileOperations: any WorkspaceFileOperations
+        fileOperations: any WorkspaceFileOperations,
+        fileStorage: any FileStorage,
+        binaryFileViewerRegistry: BinaryFileViewerRegistry
     ) {
         self.operations = operations
         self.fileOperations = fileOperations
+        self.fileStorage = fileStorage
+        self.binaryFileViewerRegistry = binaryFileViewerRegistry
     }
 
     func configure(
@@ -94,6 +100,18 @@ final class DocumentFeatureModel: ObservableObject {
         displayPath: String? = nil
     ) {
         let normalizedURL = url.standardizedFileURL
+
+        // Switching to an already-open document does not require file I/O.
+        // Apply that state change synchronously so repeated tree clicks feel immediate.
+        if let existing = openDocuments.first(where: { $0.url == normalizedURL }) {
+            latestFileOpenRequestID = UUID()
+            activeDocumentID = existing.id
+            if !isReadOnly {
+                onDocumentOpened?(existing)
+            }
+            return
+        }
+
         Task { await openFileAsync(
             normalizedURL,
             isReadOnly: isReadOnly,
@@ -117,11 +135,6 @@ final class DocumentFeatureModel: ObservableObject {
             if !isReadOnly {
                 onDocumentOpened?(existing)
             }
-            return
-        }
-
-        guard WorkspaceTextFilePolicy.isReadableTextFile(normalizedURL) else {
-            notify?("This file cannot be displayed as text")
             return
         }
 
@@ -149,6 +162,24 @@ final class DocumentFeatureModel: ObservableObject {
             operations.readFile(at: openingWorkspaceURL, relativePath: relativePath)
         }.value
         guard let text else {
+            // `file.read` accepts plain text regardless of suffix and rejects
+            // binary content. Only after that path fails do we probe a small
+            // header for an explicitly registered binary viewer. With the
+            // default empty registry this falls through to the rejection below.
+            let fileStorage = self.fileStorage
+            let header = await Task.detached(priority: .userInitiated) {
+                try? fileStorage.readPrefix(
+                    from: normalizedURL,
+                    byteCount: BinaryFileViewerRegistry.headerByteCount
+                )
+            }.value
+            if let header,
+               await binaryFileViewerRegistry.openIfSupported(
+                   url: normalizedURL,
+                   header: header
+               ) {
+                return
+            }
             notify?("This file cannot be displayed as text")
             return
         }
@@ -168,6 +199,67 @@ final class DocumentFeatureModel: ObservableObject {
         }
         onDocumentCollectionChanged?()
         onDocumentOpened?(document)
+    }
+
+    func openVirtualDocument(
+        _ url: URL,
+        text: String,
+        displayPath: String?
+    ) {
+        guard !url.isFileURL else { return }
+        if let existing = openDocuments.first(where: { $0.url == url }) {
+            activeDocumentID = existing.id
+            return
+        }
+        let document = EditorDocument(
+            url: url,
+            text: text,
+            modificationDate: nil,
+            isReadOnly: true,
+            displayPath: displayPath
+        )
+        openDocuments.append(document)
+        activeDocumentID = document.id
+        onDocumentCollectionChanged?()
+        onDocumentOpened?(document)
+    }
+
+    func moveDocument(_ documentID: UUID, before targetDocumentID: UUID) {
+        guard documentID != targetDocumentID,
+              let sourceIndex = openDocuments.firstIndex(where: { $0.id == documentID }),
+              openDocuments.contains(where: { $0.id == targetDocumentID }) else { return }
+        var next = openDocuments
+        let document = next.remove(at: sourceIndex)
+        guard let targetIndex = next.firstIndex(where: { $0.id == targetDocumentID }) else { return }
+        next.insert(document, at: targetIndex)
+        guard next.map(\.id) != openDocuments.map(\.id) else { return }
+        openDocuments = next
+        onDocumentCollectionChanged?()
+    }
+
+    func moveDocument(_ documentID: UUID, after targetDocumentID: UUID) {
+        guard documentID != targetDocumentID,
+              let sourceIndex = openDocuments.firstIndex(where: { $0.id == documentID }),
+              openDocuments.contains(where: { $0.id == targetDocumentID }) else { return }
+        var next = openDocuments
+        let document = next.remove(at: sourceIndex)
+        guard let targetIndex = next.firstIndex(where: { $0.id == targetDocumentID }) else { return }
+        next.insert(document, at: targetIndex + 1)
+        guard next.map(\.id) != openDocuments.map(\.id) else { return }
+        openDocuments = next
+        onDocumentCollectionChanged?()
+    }
+
+    func reorderDocuments(orderedPaths: [String]) {
+        let order = Dictionary(uniqueKeysWithValues: orderedPaths.enumerated().map { ($1, $0) })
+        let next = openDocuments.sorted { left, right in
+            let leftIndex = order[left.url.standardizedFileURL.path] ?? Int.max
+            let rightIndex = order[right.url.standardizedFileURL.path] ?? Int.max
+            return leftIndex < rightIndex
+        }
+        guard next.map(\.id) != openDocuments.map(\.id) else { return }
+        openDocuments = next
+        onDocumentCollectionChanged?()
     }
 
     func requestCloseDocument(_ document: EditorDocument) {

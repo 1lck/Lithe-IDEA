@@ -34,17 +34,20 @@ final class JavaDebugService: ObservableObject {
     private let processFactory: () -> any StreamingProcess
     private let fileStorage: any FileStorage
     private let javaMavenOperations: any JavaMavenOperations
+    private let runConfigurationOperations: any RunConfigurationOperations
 
     init(
         runtimeService: ProjectRuntimeService,
         processFactory: @escaping () -> any StreamingProcess,
         fileStorage: any FileStorage,
-        javaMavenOperations: any JavaMavenOperations
+        javaMavenOperations: any JavaMavenOperations,
+        runConfigurationOperations: any RunConfigurationOperations
     ) {
         self.runtimeService = runtimeService
         self.processFactory = processFactory
         self.fileStorage = fileStorage
         self.javaMavenOperations = javaMavenOperations
+        self.runConfigurationOperations = runConfigurationOperations
     }
 
     private enum InspectionKind {
@@ -60,10 +63,35 @@ final class JavaDebugService: ObservableObject {
     var isSessionActive: Bool { state != .idle }
     var canControl: Bool { jdbProcess?.isRunning == true }
 
-    func start(fileURL: URL, sourceText: String, projectURL: URL?, options: JavaRunOptions) {
+    func start(fileURL: URL, sourceText: String, projectURL: URL?, options: RunOptions) {
         stop()
         guard fileURL.pathExtension.lowercased() == "java" else {
             fail("Select a Java file before starting Debug.")
+            return
+        }
+        guard let projectURL else {
+            fail("Open a project before starting Debug.")
+            return
+        }
+        let debugPort = Self.nextPort()
+        guard let currentFile = relativePath(for: fileURL, root: projectURL) else {
+            fail("The selected Java file is outside the project.")
+            return
+        }
+        let plan: SharedLaunchPlan
+        do {
+            plan = try runConfigurationOperations.launchPlan(
+                at: projectURL,
+                configurationID: RunConfiguration.currentFileID,
+                currentFile: currentFile,
+                classPath: nil,
+                debugPort: debugPort
+            )
+            guard plan.toolchainID == "project-jdk" else {
+                throw RunConfigurationOperationFailure(message: "Current File does not use the project JDK.")
+            }
+        } catch {
+            fail(error.localizedDescription)
             return
         }
         guard let javaURL = runtimeService.javaExecutableURL(overridePath: options.javaHomePath),
@@ -72,7 +100,6 @@ final class JavaDebugService: ObservableObject {
             return
         }
 
-        let debugPort = Self.nextPort()
         let id = prepareSession(
             port: debugPort,
             host: "127.0.0.1",
@@ -80,19 +107,11 @@ final class JavaDebugService: ObservableObject {
             launchesDebuggee: true
         )
         debugClassName = className(for: fileURL, sourceText: sourceText)
-        var arguments = [
-            "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:\(debugPort)",
-            "-Duser.language=en",
-            "-Duser.country=US"
-        ]
-        arguments += Self.arguments(from: options.vmArguments)
-        arguments.append(fileURL.standardizedFileURL.path)
-        arguments += Self.arguments(from: options.programArguments)
         startDebuggee(
             executable: javaURL,
-            arguments: arguments,
+            arguments: plan.arguments,
             workingDirectory: workingDirectory(
-                options.workingDirectoryPath,
+                plan.workingDirectory,
                 fallback: fileURL.deletingLastPathComponent(),
                 relativeTo: projectURL
             ),
@@ -105,70 +124,68 @@ final class JavaDebugService: ObservableObject {
     }
 
     func startMaven(
-        configuration: JavaRunConfiguration,
+        configuration: RunConfiguration,
         project: MavenProject,
         projectURL: URL,
-        options: JavaRunOptions
+        options: RunOptions
     ) {
         stop()
-        guard configuration.kind == .springBoot || configuration.kind == .mavenModule else {
+        guard configuration.kind.isMavenBacked else {
             fail("Select a Spring Boot or Maven Module configuration before starting Debug.")
             return
         }
-        guard runtimeService.mavenJavaHomeURL(overridePath: options.javaHomePath) != nil,
+        let debugPort = Self.nextPort()
+        let plan: SharedLaunchPlan
+        do {
+            plan = try runConfigurationOperations.launchPlan(
+                at: projectURL,
+                configurationID: configuration.id,
+                currentFile: nil,
+                classPath: nil,
+                debugPort: debugPort
+            )
+            guard plan.toolchainID == "project-maven" else {
+                throw RunConfigurationOperationFailure(message: "The selected configuration does not use Maven.")
+            }
+        } catch {
+            fail(error.localizedDescription)
+            return
+        }
+        let mavenJavaHome = options.mavenJavaHomePath.isEmpty
+            ? options.javaHomePath
+            : options.mavenJavaHomePath
+        guard runtimeService.mavenJavaHomeURL(overridePath: mavenJavaHome) != nil,
               let jdbURL = runtimeService.jdbExecutableURL(
-                  overridePath: options.javaHomePath,
+                  overridePath: mavenJavaHome,
                   for: .maven
               ) else {
             fail("No JDK with jdb was found. Set JDK Home or JAVA_HOME.")
             return
         }
 
-        let debugPort = Self.nextPort()
         let id = prepareSession(
             port: debugPort,
             host: "127.0.0.1",
             title: configuration.name,
             launchesDebuggee: true
         )
-        var arguments = ["-B", "-ntp"]
-        if let modulePath = configuration.modulePath {
-            arguments += ["-pl", modulePath]
-        }
-        if !options.activeProfiles.isEmpty {
-            arguments += ["-P", options.activeProfiles.sorted().joined(separator: ",")]
-        }
-        if let mainClass = configuration.mainClass {
-            arguments.append("-Dspring-boot.run.main-class=" + mainClass)
-        }
-        let debugVMArguments = (
-            ["-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:\(debugPort)"]
-            + Self.arguments(from: options.vmArguments)
-        ).joined(separator: " ")
-        arguments.append("-Dspring-boot.run.jvmArguments=" + debugVMArguments)
-        let programArguments = options.programArguments.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !programArguments.isEmpty {
-            arguments.append("-Dspring-boot.run.arguments=" + programArguments)
-        }
-        arguments.append("spring-boot:run")
-
-        let moduleDirectory = configuration.modulePath.flatMap { modulePath in
-            project.allModules.first(where: { $0.relativePath == modulePath })?.url
-        } ?? project.rootURL
-        guard let executable = runtimeService.mavenExecutable(for: project) else {
-            fail("No Maven executable was found. Configure Maven in Project Settings.")
+        guard let executable = runtimeService.mavenExecutable(
+            for: project,
+            overridePath: options.mavenExecutablePath
+        ) else {
+            fail("No Maven executable was found. Edit this service configuration.")
             return
         }
-        append("$ " + executable.lastPathComponent + " " + arguments.joined(separator: " ") + "\n\n")
+        append("$ " + executable.lastPathComponent + " " + plan.arguments.joined(separator: " ") + "\n\n")
         startDebuggee(
             executable: executable,
-            arguments: arguments,
+            arguments: plan.arguments,
             workingDirectory: workingDirectory(
-                options.workingDirectoryPath,
-                fallback: moduleDirectory,
+                plan.workingDirectory,
+                fallback: project.rootURL,
                 relativeTo: projectURL
             ),
-            environment: runtimeService.environment(for: .maven, javaHomeOverride: options.javaHomePath),
+            environment: runtimeService.environment(for: .maven, javaHomeOverride: mavenJavaHome),
             jdbURL: jdbURL,
             host: "127.0.0.1",
             port: debugPort,
@@ -355,6 +372,13 @@ final class JavaDebugService: ObservableObject {
 
     private static func nextPort() -> Int {
         Int.random(in: 49_152...60_000)
+    }
+
+    private func relativePath(for fileURL: URL, root: URL) -> String? {
+        let file = fileURL.standardizedFileURL.path
+        let prefix = root.standardizedFileURL.path + "/"
+        guard file.hasPrefix(prefix) else { return nil }
+        return String(file.dropFirst(prefix.count))
     }
 
     private func prepareSession(
@@ -828,35 +852,4 @@ final class JavaDebugService: ObservableObject {
         return url
     }
 
-    private static func arguments(from input: String) -> [String] {
-        var result: [String] = []
-        var current = ""
-        var quote: Character?
-        var escaped = false
-        for character in input {
-            if escaped {
-                current.append(character)
-                escaped = false
-                continue
-            }
-            if character == "\\" && quote != "'" {
-                escaped = true
-                continue
-            }
-            if character == "'" || character == "\"" {
-                if quote == character { quote = nil }
-                else if quote == nil { quote = character }
-                else { current.append(character) }
-                continue
-            }
-            if character.isWhitespace && quote == nil {
-                if !current.isEmpty { result.append(current); current = "" }
-            } else {
-                current.append(character)
-            }
-        }
-        if escaped { current.append("\\") }
-        if !current.isEmpty { result.append(current) }
-        return result
-    }
 }

@@ -1,11 +1,20 @@
+import AppKit
 import SwiftUI
+
+private enum ActivityBarMetrics {
+    static let width: CGFloat = 38
+    static let buttonWidth: CGFloat = 30
+    static let buttonHeight: CGFloat = 30
+    static let spacing: CGFloat = 4
+    static let edgeInset: CGFloat = 4
+}
 
 struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var memoryUsageMonitor: MemoryUsageMonitor
-    @EnvironmentObject private var runFeature: JavaRunFeatureModel
+    @EnvironmentObject private var runFeature: RunFeatureModel
     @State private var sidebarWidth: CGFloat = 320
     @State private var sidebarDragStart: CGFloat = 320
     @State private var topPaneHeight: CGFloat?
@@ -15,7 +24,7 @@ struct WorkbenchView: View {
     @State private var isCheckoutRevisionPresented = false
     @State private var pendingTopBarPushReference: GitReference?
     @State private var isRunConfigurationPickerPresented = false
-    @State private var isRunConfigurationEditorPresented = false
+    @State private var isNewRunConfigurationPresented = false
     @State private var isProjectSwitcherPresented = false
     @State private var isMemoryUsagePopoverPresented = false
     @State private var didRestoreLayout = false
@@ -51,6 +60,23 @@ struct WorkbenchView: View {
             CheckoutRevisionDialog { revision in
                 Task { await model.checkoutRevision(revision) }
             }
+        }
+        .sheet(isPresented: $isNewRunConfigurationPresented) {
+            NewRunConfigurationView(feature: runFeature) {
+                isNewRunConfigurationPresented = false
+            }
+        }
+        .confirmationDialog(
+            runConfigurationSetupTitle,
+            isPresented: $runFeature.isGenerationConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button(runFeature.configurationStatus == .ready ? "Rescan" : "Identify and Generate") {
+                continueAfterRunConfigurationGeneration()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(runConfigurationSetupMessage)
         }
         .sheet(item: $model.pendingCheckoutConflict) { request in
             GitCheckoutConflictDialog(
@@ -203,13 +229,13 @@ struct WorkbenchView: View {
         .onAppear {
             restoreLayout()
         }
-        .onChange(of: sidebarWidth) { _, _ in
+        .onChange(of: sidebarWidth) { _ in
             saveLayout()
         }
-        .onChange(of: topPaneHeight) { _, _ in
+        .onChange(of: topPaneHeight) { _ in
             saveLayout()
         }
-        .onChange(of: model.workspaceURL?.standardizedFileURL.path) { _, _ in
+        .onChange(of: model.workspaceURL?.standardizedFileURL.path) { _ in
             didRestoreLayout = false
             restoreLayout()
         }
@@ -240,7 +266,7 @@ struct WorkbenchView: View {
                 .onAppear {
                     proxy.scrollTo(projectSessions.activeSessionID, anchor: .center)
                 }
-                .onChange(of: projectSessions.activeSessionID) { _, id in
+                .onChange(of: projectSessions.activeSessionID) { id in
                     withAnimation(.easeOut(duration: 0.12)) {
                         proxy.scrollTo(id, anchor: .center)
                     }
@@ -447,17 +473,6 @@ struct WorkbenchView: View {
 
             Spacer(minLength: 22)
 
-            HStack(spacing: 6) {
-                Image(systemName: "leaf")
-                    .foregroundStyle(LitheTheme.success)
-                Text(model.projectName)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-            }
-            .font(.system(size: 12.5, weight: .medium))
-            .foregroundStyle(LitheTheme.primaryText)
-
             runControls
 
             Button {
@@ -477,6 +492,7 @@ struct WorkbenchView: View {
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .lithePointer()
             .frame(width: 28, height: 28)
             .help("More actions")
@@ -484,30 +500,33 @@ struct WorkbenchView: View {
         .padding(.leading, 76)
         .padding(.trailing, 10)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
-        .background(LitheTheme.titlebar)
+        .background {
+            LitheTheme.titlebar
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    (NSApplication.shared.keyWindow?.delegate as? LitheWindowCoordinator)?
+                        .toggleWorkspaceZoom()
+                }
+        }
     }
 
     private var activityBar: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                VStack(spacing: 6) {
+                VStack(spacing: ActivityBarMetrics.spacing) {
                     ForEach(SidebarDestination.allCases) { destination in
                         Button {
                             model.selectedSidebar = destination
                         } label: {
                             LitheIDEAIcon(
                                 resourcePath: destination.ideaAssetPath,
-                                size: 16,
+                                size: 18,
                                 fallbackSystemImage: destination.systemImage
                             )
-                                .frame(width: 40, height: 34)
-                                .overlay(alignment: .leading) {
-                                    if model.selectedSidebar == destination {
-                                        Rectangle()
-                                            .fill(LitheTheme.accent)
-                                            .frame(width: 2, height: 21)
-                                    }
-                                }
+                                .frame(
+                                    width: ActivityBarMetrics.buttonWidth,
+                                    height: ActivityBarMetrics.buttonHeight
+                                )
                                 .litheRowHover(
                                     isActive: model.selectedSidebar == destination,
                                     cornerRadius: 4,
@@ -520,10 +539,12 @@ struct WorkbenchView: View {
                         .help(LocalizedStringKey(destination.title))
                     }
                 }
+                .padding(.top, ActivityBarMetrics.edgeInset)
 
                 Spacer(minLength: 0)
 
-                VStack(spacing: 6) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: ActivityBarMetrics.spacing) {
                     activityToolButton(
                         systemImage: "terminal",
                         help: "Terminal",
@@ -553,13 +574,32 @@ struct WorkbenchView: View {
                         model.toggleProblems()
                     }
 
+                    if model.hasMavenProject {
+                        activityToolButton(
+                            systemImage: "shippingbox",
+                            ideaAssetPath: "maven/toolWindowMaven.svg",
+                            help: "Maven",
+                            isSelected: model.isMavenVisible
+                        ) {
+                            model.toggleMaven()
+                        }
+                    }
+
                     activityToolButton(
-                        systemImage: "shippingbox",
-                        ideaAssetPath: "maven/toolWindowMaven.svg",
-                        help: "Maven",
-                        isSelected: model.isMavenVisible
+                        systemImage: "play.rectangle",
+                        ideaAssetPath: "toolwindows/toolWindowRun.svg",
+                        help: "Services",
+                        isSelected: model.isRunVisible
                     ) {
-                        model.toggleMaven()
+                        model.toggleRun()
+                    }
+
+                    activityToolButton(
+                        systemImage: "checkmark.seal",
+                        help: "Tests",
+                        isSelected: model.isTestsVisible
+                    ) {
+                        model.toggleTests()
                     }
 
                     activityToolButton(
@@ -579,19 +619,25 @@ struct WorkbenchView: View {
                     ) {
                         model.showSettings()
                     }
+                    }
                 }
-                .padding(.bottom, 8)
+                .frame(height: 292)
+                .padding(.bottom, ActivityBarMetrics.edgeInset)
             }
-            .frame(width: 48, height: geometry.size.height, alignment: .top)
+            .frame(width: ActivityBarMetrics.width, height: geometry.size.height, alignment: .top)
             .background(LitheTheme.titlebar)
         }
-        .frame(width: 48)
+        .frame(width: ActivityBarMetrics.width)
     }
 
     private var runControls: some View {
         HStack(spacing: 3) {
             Button {
-                isRunConfigurationPickerPresented.toggle()
+                if runFeature.configurationStatus == .ready {
+                    isRunConfigurationPickerPresented.toggle()
+                } else {
+                    runFeature.requestRunConfigurationGeneration()
+                }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: runFeature.selectedConfiguration?.systemImage ?? "play.fill")
@@ -617,6 +663,7 @@ struct WorkbenchView: View {
             .buttonStyle(.plain)
             .lithePointer()
             .help("Select run configuration")
+            .disabled(runFeature.isLoadingProject)
             .popover(isPresented: $isRunConfigurationPickerPresented, arrowEdge: .top) {
                 RunConfigurationPickerPopover(
                     configurations: runFeature.configurations,
@@ -624,24 +671,12 @@ struct WorkbenchView: View {
                         get: { runFeature.selectedConfigurationID },
                         set: { runFeature.selectedConfigurationID = $0 }
                     ),
-                    isPresented: $isRunConfigurationPickerPresented
+                    isPresented: $isRunConfigurationPickerPresented,
+                    onCreate: {
+                        isRunConfigurationPickerPresented = false
+                        isNewRunConfigurationPresented = true
+                    }
                 )
-            }
-
-            Button {
-                isRunConfigurationEditorPresented = true
-            } label: {
-                LitheIDEAIcon(resourcePath: "general/gear.svg", size: 15, fallbackSystemImage: "gearshape")
-            }
-            .litheIconButton()
-            .help("Edit run configuration")
-            .popover(isPresented: $isRunConfigurationEditorPresented, arrowEdge: .bottom) {
-                if let configuration = runFeature.selectedConfiguration {
-                    JavaRunConfigurationEditorView(
-                        feature: runFeature,
-                        configuration: configuration
-                    )
-                }
             }
 
             Button {
@@ -662,6 +697,42 @@ struct WorkbenchView: View {
             .help(LocalizedStringKey(
                 runFeature.isRunning ? "Stop current run" : "Run selected configuration"
             ))
+            .disabled(runFeature.isLoadingProject)
+        }
+    }
+
+    private var runConfigurationSetupTitle: String {
+        switch runFeature.configurationStatus {
+        case .missing:
+            String(localized: "Project run configuration not found")
+        case .invalid:
+            String(localized: "Project run configuration is invalid")
+        case .ready:
+            String(localized: "Rescan the project for services")
+        }
+    }
+
+    /// The dialog doubles as first-time setup and as an explicit rescan. Only
+    /// the first case can claim Run is unavailable until it completes.
+    private var runConfigurationSetupMessage: String {
+        runFeature.configurationStatus == .ready
+            ? String(localized: "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.")
+            : String(localized: "Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.")
+    }
+
+    private func continueAfterRunConfigurationGeneration() {
+        let intent = runFeature.generationIntent
+        Task {
+            await runFeature.generateRunConfigurations()
+            guard runFeature.configurationStatus == .ready else { return }
+            switch intent {
+            case .identifyOnly:
+                break
+            case .run:
+                model.runSelectedConfiguration()
+            case .debug:
+                model.startDebugging()
+            }
         }
     }
 
@@ -677,27 +748,23 @@ struct WorkbenchView: View {
                 if let ideaAssetPath {
                     LitheIDEAIcon(
                         resourcePath: ideaAssetPath,
-                        size: 17,
+                        size: 18,
                         fallbackSystemImage: systemImage
                     )
                 } else {
                     Image(systemName: systemImage)
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                 }
             }
-            .frame(width: 40, height: 34)
-                .overlay(alignment: .leading) {
-                    if isSelected {
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(LitheTheme.accent)
-                            .frame(width: 3, height: 22)
-                    }
-                }
-                .litheRowHover(
-                    isActive: isSelected,
-                    cornerRadius: 4,
-                    activeBackground: LitheTheme.subtleSelection
-                )
+            .frame(
+                width: ActivityBarMetrics.buttonWidth,
+                height: ActivityBarMetrics.buttonHeight
+            )
+            .litheRowHover(
+                isActive: isSelected,
+                cornerRadius: 4,
+                activeBackground: LitheTheme.subtleSelection
+            )
         }
         .buttonStyle(.plain)
         .lithePointer()
@@ -784,16 +851,22 @@ struct WorkbenchView: View {
                             TerminalView(session: session)
                                 .id(session.id)
                         } else if model.isReferencesVisible {
-                            JavaReferencesView()
+                            LanguageReferencesView()
                         } else if model.isProblemsVisible {
-                            JavaProblemsView()
+                            ProblemsView()
                         } else if model.isDebugVisible {
-                            JavaDebugView(
-                                feature: model.debugFeature,
-                                runFeature: runFeature
-                            )
+                            if model.prefersGenericDebugUI {
+                                GenericDebugView(feature: model.genericDebugFeature)
+                            } else {
+                                JavaDebugView(
+                                    feature: model.debugFeature,
+                                    runFeature: runFeature
+                                )
+                            }
                         } else if model.isRunVisible {
                             RunView(feature: runFeature)
+                        } else if model.isTestsVisible {
+                            LanguageTestsView(service: model.languageTestService)
                         } else if model.isMavenVisible {
                             MavenView(feature: model.mavenFeature)
                         } else {
@@ -820,6 +893,8 @@ struct WorkbenchView: View {
                 ChangesSidebarView()
             case .search:
                 SearchSidebarView()
+            case .database:
+                DatabaseSidebarView()
             }
         }
         .background(LitheTheme.sidebar)
@@ -831,7 +906,7 @@ struct WorkbenchView: View {
     }
 
     private var isBottomToolVisible: Bool {
-        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible || model.isProblemsVisible || model.isMavenVisible || model.isDebugVisible || model.isRunVisible
+        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible || model.isProblemsVisible || model.isMavenVisible || model.isDebugVisible || model.isRunVisible || model.isTestsVisible
     }
 
     private var statusBar: some View {
@@ -867,24 +942,7 @@ struct WorkbenchView: View {
                         ) {
                             model.selectedSidebar = .project
                         }
-                        if index < components.count - 1 || !activeJavaBreadcrumbs.isEmpty {
-                            breadcrumbSeparator
-                        }
-                    }
-
-                    ForEach(Array(activeJavaBreadcrumbs.enumerated()), id: \.offset) { index, hint in
-                        breadcrumbItem(
-                            title: hint.symbol,
-                            iconKind: index == activeJavaBreadcrumbs.count - 1 ? .javaGeneric : .javaClass,
-                            isEmphasized: index == activeJavaBreadcrumbs.count - 1
-                        ) {
-                            model.editorNavigationTarget = EditorNavigationTarget(
-                                url: document.url,
-                                line: hint.line,
-                                utf16Column: hint.utf16Column
-                            )
-                        }
-                        if index < activeJavaBreadcrumbs.count - 1 {
+                        if index < components.count - 1 {
                             breadcrumbSeparator
                         }
                     }
@@ -896,19 +954,6 @@ struct WorkbenchView: View {
                 }
             }
         }
-    }
-
-    private var activeJavaBreadcrumbs: [JavaCodeVisionHint] {
-        guard let document = model.activeDocument,
-              document.url.pathExtension.lowercased() == "java" else { return [] }
-        let caretLine = model.editorCaret?.url.standardizedFileURL == document.url.standardizedFileURL
-            ? model.editorCaret?.line ?? Int.max
-            : Int.max
-        return Array(
-            (model.javaCodeVisionHints[document.url] ?? [])
-                .filter { $0.line <= caretLine }
-                .suffix(2)
-        )
     }
 
     private func breadcrumbItem(
@@ -975,7 +1020,7 @@ struct WorkbenchView: View {
     private var gitStatus: some View {
         HStack(spacing: 7) {
             if model.isReferencesVisible {
-                Label("\(model.javaNavigationLocations.count) usages", systemImage: "scope")
+                Label("\(model.languageNavigationResults.count) usages", systemImage: "scope")
             }
             Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
             Image(systemName: "checkmark.circle.fill")
@@ -989,10 +1034,9 @@ struct WorkbenchView: View {
         } label: {
             Label {
                 HStack(spacing: 4) {
-                    Text(memoryUsageMonitor.currentText)
+                    Text("Total \(memoryUsageMonitor.totalText)")
                     Text("·")
-                    Text("avg")
-                    Text(memoryUsageMonitor.averageText)
+                    Text("Lithe \(memoryUsageMonitor.litheText)")
                 }
                 .monospacedDigit()
             } icon: {
@@ -1003,12 +1047,15 @@ struct WorkbenchView: View {
         .lithePointer()
         .help(
             Text(
-                "Current application memory: \(memoryUsageMonitor.currentText)\n" +
-                "Average since launch: \(memoryUsageMonitor.averageText)"
+                "Total managed memory: \(memoryUsageMonitor.totalText)\n" +
+                "Lithe: \(memoryUsageMonitor.litheText) · LSP: \(memoryUsageMonitor.lspText) · Services: \(memoryUsageMonitor.serviceText)"
             )
         )
         .popover(isPresented: $isMemoryUsagePopoverPresented, arrowEdge: .top) {
             memoryUsagePopover
+        }
+        .onChange(of: isMemoryUsagePopoverPresented) { isPresented in
+            memoryUsageMonitor.setDetailedUsageVisible(isPresented)
         }
     }
 
@@ -1017,7 +1064,7 @@ struct WorkbenchView: View {
             HStack(spacing: 8) {
                 Image(systemName: "memorychip")
                     .foregroundStyle(LitheTheme.accent)
-                Text("Application Memory")
+                Text("Managed Memory")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer(minLength: 8)
@@ -1038,9 +1085,22 @@ struct WorkbenchView: View {
                 .frame(height: 1)
 
             VStack(spacing: 0) {
-                memoryMetric("Current", value: memoryUsageMonitor.currentText)
-                memoryMetric("Average since launch", value: memoryUsageMonitor.averageText)
-                memoryMetric("Peak this run", value: memoryUsageMonitor.peakText)
+                memoryMetric("Lithe", value: memoryUsageMonitor.litheText)
+                memoryMetric(
+                    "Language servers",
+                    value: memoryUsageMonitor.languageServerProcessCount == 0
+                        ? String(localized: "Not running")
+                        : memoryUsageMonitor.lspText
+                )
+                memoryMetric(
+                    "Running services",
+                    value: memoryUsageMonitor.serviceProcessCount == 0
+                        ? String(localized: "Not running")
+                        : memoryUsageMonitor.serviceText
+                )
+                memoryMetric("Total", value: memoryUsageMonitor.totalText)
+                memoryMetric("Average total", value: memoryUsageMonitor.averageText)
+                memoryMetric("Peak total", value: memoryUsageMonitor.peakText)
                 memoryMetric("Runtime", value: memoryUsageMonitor.runtimeText)
                 memoryMetric("Sample interval", value: memoryUsageMonitor.samplingIntervalText)
             }
@@ -1053,7 +1113,7 @@ struct WorkbenchView: View {
 
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "info.circle")
-                Text("Resident memory of the Lithe process")
+                Text("Resident memory of Lithe and its managed process trees")
                     .fixedSize(horizontal: false, vertical: true)
             }
             .font(LitheTheme.smallFont)
@@ -1105,9 +1165,10 @@ struct WorkbenchView: View {
 }
 
 private struct RunConfigurationPickerPopover: View {
-    let configurations: [JavaRunConfiguration]
+    let configurations: [RunConfiguration]
     @Binding var selectedConfigurationID: String
     @Binding var isPresented: Bool
+    let onCreate: () -> Void
 
     var body: some View {
         VStack(spacing: 2) {
@@ -1117,13 +1178,7 @@ private struct RunConfigurationPickerPopover: View {
                     isPresented = false
                 } label: {
                     HStack(spacing: 9) {
-                        Image(systemName: configuration.systemImage)
-                            .font(.system(size: 13))
-                            .foregroundStyle(
-                                configuration.id == selectedConfigurationID
-                                    ? LitheTheme.primaryText
-                                    : LitheTheme.secondaryText
-                            )
+                        RunConfigurationIcon(kind: configuration.kind, size: 16)
                             .frame(width: 18)
 
                         Text(LocalizedStringKey(configuration.name))
@@ -1151,9 +1206,105 @@ private struct RunConfigurationPickerPopover: View {
                 .buttonStyle(.plain)
                 .lithePointer()
             }
+            Rectangle().fill(LitheTheme.divider).frame(height: 1).padding(.vertical, 4)
+            Button(action: onCreate) {
+                Label("New Configuration", systemImage: "plus")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
+            }
+            .buttonStyle(.plain)
+            .litheRowHover(cornerRadius: 5, activeBackground: LitheTheme.subtleSelection)
+            .lithePointer()
         }
         .padding(6)
         .frame(width: 270)
         .background(LitheTheme.popupBackground)
+    }
+}
+
+private struct NewRunConfigurationView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var feature: RunFeatureModel
+    let onCreated: () -> Void
+    @State private var name = ""
+    @State private var kind: RunConfigurationKind = .springBoot
+    @State private var modulePath = "."
+    @State private var mainClass = ""
+    @State private var scope: RunConfigurationSaveScope = .local
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("New Run Configuration").font(.system(size: 14, weight: .semibold))
+                    Text("Create a shared project configuration or a local override.")
+                        .font(.system(size: 11.5)).foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer()
+                Button { dismiss() } label: { Image(systemName: "xmark") }
+                    .litheIconButton().help("Close")
+            }
+            .foregroundStyle(LitheTheme.primaryText)
+            .padding(.horizontal, 16).frame(height: 54)
+            .background(LitheTheme.toolHeader)
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            Form {
+                TextField("Name", text: $name)
+                Picker("Type", selection: $kind) {
+                    ForEach(MavenFrameworkKind.allCases, id: \.self) { framework in
+                        Text(framework.title).tag(RunConfigurationKind.mavenFramework(framework))
+                    }
+                    Text("Maven Module").tag(RunConfigurationKind.mavenModule)
+                }
+                TextField("Module path", text: $modulePath)
+                // Quarkus and Micronaut resolve the main class from the build, so
+                // their goals would ignore one named here.
+                if kind.mavenFramework?.namesMainClass == true {
+                    TextField("Main class", text: $mainClass)
+                }
+                Picker("Save scope", selection: $scope) {
+                    Text("This Mac only").tag(RunConfigurationSaveScope.local)
+                    Text("Shared with project").tag(RunConfigurationSaveScope.project)
+                }
+                .pickerStyle(.segmented)
+                if let error {
+                    Text(error).foregroundStyle(LitheTheme.error).font(.system(size: 11))
+                }
+            }
+            .formStyle(.grouped)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Create") { create() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(14).background(LitheTheme.toolHeader)
+        }
+        .frame(width: 440, height: 360)
+        .background(LitheTheme.window)
+        .preferredColorScheme(.dark)
+    }
+
+    private func create() {
+        let draft = RunConfigurationDraft(
+            name: name,
+            kind: kind,
+            modulePath: modulePath,
+            mainClass: mainClass,
+            scope: scope
+        )
+        if feature.createConfiguration(draft) {
+            onCreated()
+        } else {
+            error = feature.configurationSaveError
+        }
     }
 }

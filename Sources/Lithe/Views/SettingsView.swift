@@ -7,23 +7,17 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
-    @ObservedObject var projectRuntime: RuntimeSettingsFeatureModel
     @State private var selection: SettingsCategory
     @State private var hiddenDirectoriesDraft = ""
     @State private var hiddenFilePatternsDraft = ""
-    @State private var javaHomeDraft = ""
-    @State private var mavenHomeDraft = ""
-    @State private var mavenJavaHomeDraft = ""
     @State private var aiAPIKeyDraft = ""
     @State private var isFormatPickerPresented = false
 
     init(
         settings: AppSettings,
-        runtimeFeature: RuntimeSettingsFeatureModel,
         initialCategory: SettingsCategory = .general
     ) {
         self.settings = settings
-        projectRuntime = runtimeFeature
         _selection = State(initialValue: initialCategory)
     }
 
@@ -41,20 +35,18 @@ struct SettingsView: View {
         }
         .frame(width: 820, height: 620)
         .background(LitheTheme.window)
-        .preferredColorScheme(.dark)
         .onAppear {
             syncVisibilityDrafts()
-            syncRuntimeDrafts()
             model.refreshAIConfigurations()
             syncAIProviderDraft()
         }
-        .onChange(of: settings.hiddenDirectoryNames) { syncVisibilityDrafts() }
-        .onChange(of: settings.hiddenFilePatterns) { syncVisibilityDrafts() }
-        .onChange(of: projectRuntime.settings.javaHomePath) { javaHomeDraft = projectRuntime.settings.javaHomePath }
-        .onChange(of: projectRuntime.settings.mavenHomePath) { mavenHomeDraft = projectRuntime.settings.mavenHomePath }
-        .onChange(of: projectRuntime.settings.mavenJavaHomePath) { mavenJavaHomeDraft = projectRuntime.settings.mavenJavaHomePath }
-        .onChange(of: settings.commitMessageAI.activeProviderID) { syncAIProviderDraft() }
-        .onDisappear(perform: commitRuntimeDrafts)
+        .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
+        .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
+        .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
+        // A sheet has its own SwiftUI presentation hierarchy on macOS. Own
+        // the locale here so every Settings presentation updates immediately.
+        .environment(\.locale, settings.language.locale)
+        .id(settings.language)
     }
 
     private var header: some View {
@@ -107,142 +99,65 @@ struct SettingsView: View {
         .background(LitheTheme.sidebar)
     }
 
-    private var content: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text(LocalizedStringKey(selection.rawValue))
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(LitheTheme.primaryText)
-
-                switch selection {
-                case .project: projectSettings
-                case .general: generalSettings
-                case .editor: editorSettings
-                case .terminal: terminalSettings
-                case .ai: aiSettings
-                case .updates: updatesSettings
-                }
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     @ViewBuilder
-    private var projectSettings: some View {
-        if let workspaceURL = model.workspaceURL {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(workspaceURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .textSelection(.enabled)
-
-                group("Java SDK") {
-                    runtimePickerRow(
-                        title: "Project JDK",
-                        selection: Binding(
-                            get: { projectRuntime.settings.javaHomePath },
-                            set: { projectRuntime.updateJavaHomePath($0) }
-                        ),
-                        automaticTitle: "Use detected system JDK",
-                        options: projectRuntime.javaRuntimes.map { ($0.homePath, $0.displayName) }
-                    )
-                    runtimePathRow(
-                        title: "JDK Home",
-                        placeholder: "Choose a JDK directory",
-                        text: $javaHomeDraft,
-                        onCommit: { projectRuntime.updateJavaHomePath(javaHomeDraft) }
-                    )
-                    runtimeStatusRow(
-                        title: "Effective JDK",
-                        value: projectRuntime.activeJavaRuntime().map {
-                            "\($0.displayName) · \($0.homePath)"
-                        } ?? "System JDK not resolved"
-                    )
-                }
-
-                group("Maven") {
-                    Picker("Maven source", selection: Binding(
-                        get: { projectRuntime.settings.mavenHomeSelection },
-                        set: { projectRuntime.updateMavenHomeSelection($0) }
-                    )) {
-                        ForEach(MavenHomeSelection.allCases) { selection in
-                            Text(LocalizedStringKey(selection.title)).tag(selection)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 260, alignment: .leading)
-                    .lithePointer()
-
-                    if projectRuntime.settings.mavenHomeSelection == .custom {
-                        runtimePathRow(
-                            title: "Maven Home",
-                            placeholder: "Choose Maven home or bin/mvn",
-                            text: $mavenHomeDraft,
-                            onCommit: { projectRuntime.updateMavenHomePath(mavenHomeDraft) }
-                        )
-                    } else {
-                        Text("Automatic uses a project mvnw first, then the system Maven on PATH.")
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(LitheTheme.secondaryText)
-                    }
-
-                    runtimePathRow(
-                        title: "Maven JDK",
-                        placeholder: "Use project JDK",
-                        text: $mavenJavaHomeDraft,
-                        onCommit: { projectRuntime.updateMavenJavaHomePath(mavenJavaHomeDraft) }
-                    )
-                    runtimeStatusRow(
-                        title: "Detected Maven",
-                        value: detectedMavenStatus
-                    )
-                }
-
-                HStack(spacing: 10) {
-                    Button {
-                        Task { await projectRuntime.refreshAvailableRuntimes() }
-                    } label: {
-                        Label(
-                            projectRuntime.isDiscovering ? "Discovering…" : "Refresh detected runtimes",
-                            systemImage: "arrow.clockwise"
-                        )
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(projectRuntime.isDiscovering)
-                    .lithePointer()
-
-                    Text("Project runtime settings are saved locally for this project.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-            }
+    private var content: some View {
+        if selection == .lsp {
+            LSPControlCenterView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Open a project to configure its JDK and Maven runtime.")
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Text("Application-wide editor and terminal settings remain available in the other categories.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text(LocalizedStringKey(selection.rawValue))
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(LitheTheme.primaryText)
+
+                    switch selection {
+                    case .general: generalSettings
+                    case .editor: editorSettings
+                    case .terminal: terminalSettings
+                    case .lsp: EmptyView()
+                    case .ai: aiSettings
+                    case .updates: updatesSettings
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-    }
-
-    private var detectedMavenStatus: String {
-        guard let project = model.mavenFeature.project else {
-            return projectRuntime.isDiscovering ? "Discovering Maven…" : "No Maven project detected"
-        }
-        if projectRuntime.settings.mavenHomeSelection == .wrapper {
-            return projectRuntime.mavenExecutable(for: project)?.path ?? "Maven Wrapper is not executable"
-        }
-        if let runtime = projectRuntime.activeMavenRuntime(for: project) {
-            return "\(runtime.displayName) · \(runtime.executablePath)"
-        }
-        return projectRuntime.mavenExecutable(for: project)?.path ?? "Maven executable not resolved"
     }
 
     private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
+            group("Appearance") {
+                row("Color theme") {
+                    Picker("", selection: $settings.colorTheme) {
+                        ForEach(AppColorTheme.allCases) { theme in
+                            Text(LocalizedStringKey(theme.title)).tag(theme)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 180, alignment: .leading)
+                    .lithePointer()
+                }
+
+                row("Appearance mode") {
+                    Picker("", selection: $settings.themePreference) {
+                        ForEach(AppThemePreference.allCases) { preference in
+                            Text(LocalizedStringKey(preference.title)).tag(preference)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 260)
+                    .lithePointer()
+                }
+
+                Text("Choose a color theme and whether Lithe follows the system appearance.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
             group("Language") {
                 Picker("Language", selection: $settings.language) {
                     ForEach(AppLanguage.allCases) { language in
@@ -349,15 +264,27 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Display") {
                 row("Font size") {
-                        Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
+                    Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
                         Text("\(Int(settings.editorFontSize)) pt")
                             .monospacedDigit()
                             .frame(width: 42, alignment: .trailing)
-                        }
-                        .lithePointer()
                     }
+                    .lithePointer()
+                }
                 Toggle("Show usages and Git author", isOn: $settings.showCodeVision)
                     .lithePointer()
+            }
+            group("Editor tabs") {
+                row("Layout") {
+                    Picker("", selection: $settings.editorTabLayoutMode) {
+                        ForEach(EditorTabLayoutMode.allCases) { mode in
+                            Text(LocalizedStringKey(mode.title)).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                    .lithePointer()
+                }
             }
             group("Indentation") {
                 row("Tab width") {
@@ -385,12 +312,9 @@ struct SettingsView: View {
                 .labelsHidden()
                 .frame(width: 180)
                 .lithePointer()
-                .onChange(of: settings.terminalShell) {
+                .onChange(of: settings.terminalShell) { _ in
                     guard model.activeTerminalSession?.isRunning == true else { return }
-                    let path = settings.terminalShellPath
-                        ?? ProcessInfo.processInfo.environment["SHELL"]
-                        ?? "/bin/zsh"
-                    model.restartActiveTerminal(using: path)
+                    model.restartActiveTerminal(using: model.activeTerminalShellPath)
                 }
             }
             Text("Used for new terminal sessions.")
@@ -962,61 +886,6 @@ struct SettingsView: View {
         .frame(minHeight: 28)
     }
 
-    private func runtimePickerRow(
-        title: String,
-        selection: Binding<String>,
-        automaticTitle: String,
-        options: [(String, String)]
-    ) -> some View {
-        HStack(spacing: 10) {
-            Text(LocalizedStringKey(title))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 118, alignment: .leading)
-            Picker("", selection: selection) {
-                Text(LocalizedStringKey(automaticTitle)).tag("")
-                ForEach(options, id: \.0) { option in
-                    Text(option.1).tag(option.0)
-                }
-            }
-            .labelsHidden()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .lithePointer()
-        }
-    }
-
-    private func runtimePathRow(
-        title: String,
-        placeholder: String,
-        text: Binding<String>,
-        onCommit: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: 8) {
-            Text(LocalizedStringKey(title))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 118, alignment: .leading)
-            TextField(LocalizedStringKey(placeholder), text: text)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(onCommit)
-            Button {
-                chooseDirectory {
-                    text.wrappedValue = $0
-                    onCommit()
-                }
-            } label: {
-                LitheSystemIcon(systemImage: "folder")
-            }
-            .litheIconButton()
-            .help("Choose directory")
-        }
-        .font(.system(size: 12))
-    }
-
-    private func syncRuntimeDrafts() {
-        javaHomeDraft = projectRuntime.settings.javaHomePath
-        mavenHomeDraft = projectRuntime.settings.mavenHomePath
-        mavenJavaHomeDraft = projectRuntime.settings.mavenJavaHomePath
-    }
-
     private func syncAIProviderDraft() {
         aiAPIKeyDraft = model.activeCommitMessageAPIKey
     }
@@ -1063,43 +932,6 @@ struct SettingsView: View {
         )
     }
 
-    private func commitRuntimeDrafts() {
-        if javaHomeDraft != projectRuntime.settings.javaHomePath {
-            projectRuntime.updateJavaHomePath(javaHomeDraft)
-        }
-        if mavenHomeDraft != projectRuntime.settings.mavenHomePath {
-            projectRuntime.updateMavenHomePath(mavenHomeDraft)
-        }
-        if mavenJavaHomeDraft != projectRuntime.settings.mavenJavaHomePath {
-            projectRuntime.updateMavenJavaHomePath(mavenJavaHomeDraft)
-        }
-    }
-
-    private func runtimeStatusRow(title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(LocalizedStringKey(title))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 118, alignment: .leading)
-            Text(value)
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(2)
-                .textSelection(.enabled)
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func chooseDirectory(onChange: @escaping (String) -> Void) {
-        let panel = NSOpenPanel()
-        panel.title = "Choose Runtime Directory"
-        panel.prompt = "Choose"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            onChange(url.path)
-        }
-    }
 
     private var footer: some View {
         HStack {

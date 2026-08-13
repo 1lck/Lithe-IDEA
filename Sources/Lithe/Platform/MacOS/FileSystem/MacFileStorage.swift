@@ -19,6 +19,10 @@ struct MacFileStorage: FileStorage {
         ).first ?? FileManager.default.temporaryDirectory
     }
 
+    func temporaryDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+    }
+
     func metadata(for url: URL) -> FileMetadata? {
         guard let values = try? url.resourceValues(forKeys: [
             .fileSizeKey,
@@ -50,6 +54,13 @@ struct MacFileStorage: FileStorage {
         )) ?? []
     }
 
+    func readPrefix(from url: URL, byteCount: Int) throws -> Data {
+        precondition(byteCount >= 0)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        return try handle.read(upToCount: byteCount) ?? Data()
+    }
+
     func readData(from url: URL, options: Data.ReadingOptions = []) throws -> Data {
         try Data(contentsOf: url, options: options)
     }
@@ -71,5 +82,9 @@ struct MacFileStorage: FileStorage {
 
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
         try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
     }
 }

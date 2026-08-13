@@ -274,6 +274,10 @@ struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
         core.gitStatus(at: rootURL)?.makeSnapshot(at: rootURL)
     }
 
+    func watchContext(at rootURL: URL) -> GitWatchContext? {
+        core.gitWatchContext(at: rootURL)?.makeContext()
+    }
+
     func diffPatch(
         at rootURL: URL,
         pathspecs: [String],

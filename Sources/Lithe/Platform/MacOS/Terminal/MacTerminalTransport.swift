@@ -7,6 +7,28 @@ import SwiftTerm
 final class LitheTerminalView: LocalProcessTerminalView {
     var onOpenLink: ((String, [String: String]) -> Void)?
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyThemeColors()
+    }
+
+    func applyThemeColors() {
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        nativeBackgroundColor = isDark
+            ? NSColor(srgbRed: 0.071, green: 0.075, blue: 0.081, alpha: 1)
+            : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        nativeForegroundColor = isDark
+            ? NSColor(srgbRed: 0.86, green: 0.87, blue: 0.89, alpha: 1)
+            : NSColor(srgbRed: 0.15, green: 0.16, blue: 0.18, alpha: 1)
+        caretColor = isDark
+            ? NSColor(srgbRed: 0.35, green: 0.67, blue: 0.98, alpha: 1)
+            : NSColor(srgbRed: 0.18, green: 0.43, blue: 0.79, alpha: 1)
+        selectedTextBackgroundColor = isDark
+            ? NSColor(srgbRed: 0.16, green: 0.31, blue: 0.48, alpha: 1)
+            : NSColor(srgbRed: 0.69, green: 0.82, blue: 0.98, alpha: 1)
+        needsDisplay = true
+    }
+
     override func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {
         onOpenLink?(link, params)
     }
@@ -17,6 +39,21 @@ final class LitheTerminalView: LocalProcessTerminalView {
 /// switching terminal tabs or hiding the tool window does not reset a TUI screen.
 @MainActor
 final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency LocalProcessTerminalViewDelegate {
+    static func availableShells(fileManager: FileManager = .default) -> [String] {
+        let environment = ProcessInfo.processInfo.environment
+        var candidates: [String] = []
+        if let shell = environment["SHELL"], !shell.isEmpty { candidates.append(shell) }
+        candidates.append(contentsOf: [
+            "/bin/zsh",
+            "/bin/bash",
+            "/opt/homebrew/bin/bash",
+            "/opt/homebrew/bin/pwsh"
+        ])
+        return candidates.reduce(into: [String]()) { result, path in
+            guard fileManager.isExecutableFile(atPath: path), !result.contains(path) else { return }
+            result.append(path)
+        }
+    }
     let view: LitheTerminalView
 
     var onTermination: ((Int32?) -> Void)?
@@ -47,30 +84,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             self?.onLink?(link, params)
         }
         view.font = Self.preferredTerminalFont()
-        view.nativeBackgroundColor = NSColor(
-            calibratedRed: 0.071,
-            green: 0.075,
-            blue: 0.081,
-            alpha: 1
-        )
-        view.nativeForegroundColor = NSColor(
-            calibratedRed: 0.86,
-            green: 0.87,
-            blue: 0.89,
-            alpha: 1
-        )
-        view.caretColor = NSColor(
-            calibratedRed: 0.35,
-            green: 0.67,
-            blue: 0.98,
-            alpha: 1
-        )
-        view.selectedTextBackgroundColor = NSColor(
-            calibratedRed: 0.16,
-            green: 0.31,
-            blue: 0.48,
-            alpha: 1
-        )
+        view.applyThemeColors()
         view.allowMouseReporting = true
         view.linkReporting = .implicit
         view.linkHighlightMode = .hoverWithModifier

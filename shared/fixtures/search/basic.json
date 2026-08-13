@@ -13,6 +13,10 @@
     {
       "path": "README.md",
       "content": "Search fixtures are shared by both platform implementations.\n"
+    },
+    {
+      "path": ".worktree/feature/src/main/java/com/example/UserService.java",
+      "content": "class UserService {\n    void loadUser() {}\n}\n"
     }
   ],
   "cases": [

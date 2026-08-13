@@ -32,7 +32,7 @@ struct MavenView: View {
                 resetTreeState()
             }
         }
-        .onChange(of: feature.project?.id) {
+        .onChange(of: feature.project?.id) { _ in
             resetTreeState()
         }
     }
@@ -308,6 +308,7 @@ struct MavenView: View {
             OutputTextView(
                 output: feature.output,
                 searchRoots: mavenSearchRoots,
+                fileExists: { model.fileExists(at: $0) },
                 emptyMessage: "Run a Maven lifecycle phase to see output."
             ) { url, line, column in
                 model.openSourceLocation(url: url, line: line, column: column)

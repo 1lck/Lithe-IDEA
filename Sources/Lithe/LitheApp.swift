@@ -1,9 +1,15 @@
 import AppKit
 import SwiftUI
 
+private let litheProcessLaunchDate = Date()
+
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     weak var projectSessions: ProjectSessionManager?
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let projectSessions else { return .terminateNow }
@@ -12,6 +18,11 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         projectSessions?.stopAllSessions()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard let projectSessions else { return }
+        Task { await projectSessions.resumeGitObservationAfterActivation() }
     }
 
     static func confirmUnsavedDocuments(for projectSessions: ProjectSessionManager) -> Bool {
@@ -47,13 +58,18 @@ struct LitheApp: App {
     init() {
         let store = MacUserDefaultsStore()
         let settings = AppSettings(store: store)
+        let processRegistry = ManagedProcessRegistry()
         _settings = StateObject(wrappedValue: settings)
         let projectSessions = ProjectSessionManager(
             settings: settings,
             modelFactory: {
                 AppModel(
                     settings: settings,
-                    services: MacServiceContainer(store: store).services
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        processRegistry: processRegistry
+                    ).services
                 )
             },
             newWindowOpener: Self.openProjectInNewWindow
@@ -62,7 +78,16 @@ struct LitheApp: App {
             projectSessions.openStartupProject(startupProjectURL)
         }
         _projectSessions = StateObject(wrappedValue: projectSessions)
-        _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor())
+        _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor(
+            startedAt: litheProcessLaunchDate,
+            baselineReporter: { marker in
+                guard let data = (marker + "\n").data(using: .utf8) else { return }
+                FileHandle.standardError.write(data)
+            },
+            logsPerformanceBaseline: ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1",
+            processRegistry: processRegistry,
+            memorySampler: MacProcessMemorySampler()
+        ))
         appDelegate.projectSessions = projectSessions
     }
 
@@ -77,13 +102,20 @@ struct LitheApp: App {
                 .environmentObject(memoryUsageMonitor)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
-                .frame(minWidth: 980, minHeight: 640)
-                .preferredColorScheme(.dark)
+                // SwiftUI does not consistently re-resolve every existing
+                // LocalizedStringKey when only the locale environment value
+                // changes. Re-identify the root so a language selection takes
+                // effect immediately across every workspace, including sheets.
+                .id(settings.language)
+                .preferredColorScheme(settings.themePreference.preferredColorScheme)
                 .task {
                     memoryUsageMonitor.start()
                 }
         }
-        .defaultSize(width: 1440, height: 900)
+        .defaultSize(
+            width: LitheWindowLayout.welcomeContentSize.width,
+            height: LitheWindowLayout.welcomeContentSize.height
+        )
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -122,33 +154,35 @@ struct LitheApp: App {
             }
 
             CommandMenu("Navigate") {
-                Button("Search Everywhere…") {
-                    model.toggleSearchEverywhere()
-                }
-                // 双 Shift 是主入口。IntelliJ 的 ⇧⌘A 是 Find Action，
-                // 这里不再占用它，改用 ⇧⌘O（Go to File 家族）作为可见的菜单快捷键。
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-                .disabled(model.workspaceURL == nil)
+                Group {
+                    Button("Search Everywhere…") {
+                        model.toggleSearchEverywhere()
+                    }
+                    // 双 Shift 是主入口。IntelliJ 的 ⇧⌘A 是 Find Action，
+                    // 这里不再占用它，改用 ⇧⌘O（Go to File 家族）作为可见的菜单快捷键。
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .disabled(model.workspaceURL == nil)
 
-                Divider()
+                    Divider()
 
-                Button("Find in File…") {
-                    model.showFindBar()
-                }
-                .keyboardShortcut("f", modifiers: .command)
-                .disabled(model.activeDocument == nil)
+                    Button("Find in File…") {
+                        model.showFindBar()
+                    }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(model.activeDocument == nil)
 
-                Button("Find Next") {
-                    model.navigateFind(offset: 1)
-                }
-                .keyboardShortcut("g", modifiers: .command)
-                .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
+                    Button("Find Next") {
+                        model.navigateFind(offset: 1)
+                    }
+                    .keyboardShortcut("g", modifiers: .command)
+                    .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
-                Button("Find Previous") {
-                    model.navigateFind(offset: -1)
+                    Button("Find Previous") {
+                        model.navigateFind(offset: -1)
+                    }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
                 }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
-                .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
                 Divider()
 
@@ -156,19 +190,19 @@ struct LitheApp: App {
                     model.goToUsages()
                 }
                 .keyboardShortcut("b", modifiers: .command)
-                .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
+                .disabled(!model.supportsLanguageServerFeature(.references))
 
                 Button("Go to Implementation") {
                     model.goToImplementation()
                 }
                 .keyboardShortcut("b", modifiers: [.command, .option])
-                .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
+                .disabled(!model.supportsLanguageServerFeature(.implementation))
 
                 Button("Find Usages") {
-                    model.findJavaReferences()
+                    model.findReferences()
                 }
                 .keyboardShortcut("u", modifiers: [.command, .option])
-                .disabled(model.activeDocument?.url.pathExtension.lowercased() != "java")
+                .disabled(!model.supportsLanguageServerFeature(.references))
 
                 Divider()
 
@@ -219,5 +253,15 @@ struct LitheApp: App {
             at: Bundle.main.bundleURL,
             configuration: configuration
         )
+    }
+}
+
+private extension AppThemePreference {
+    var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
     }
 }

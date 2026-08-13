@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "requirements": {
+    "version": 1,
+    "toolchains": {
+      "project-jdk": { "type": "java", "minimumVersion": "21", "preferredVendor": "temurin" }
+    }
+  },
+  "candidates": [
+    { "id": "project-jdk", "type": "java", "version": "17.0.12", "vendor": "Zulu" }
+  ],
+  "expected": {
+    "diagnosticCodes": ["toolchainVersionMismatch", "toolchainVendorMismatch"]
+  }
+}

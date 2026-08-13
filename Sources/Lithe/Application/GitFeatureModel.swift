@@ -62,6 +62,8 @@ final class GitFeatureModel: ObservableObject {
     private var onGitOperationEnded: (@MainActor () async -> Void)?
     private var gitHistoryLimit = 300
     private var deferredSavedChanges: GitDeferredSavedChanges?
+    private var refreshRequestedWhileRunning = false
+
 
     init(service: GitService, shelveService: ShelveService? = nil) {
         self.service = service
@@ -114,6 +116,7 @@ final class GitFeatureModel: ObservableObject {
         gitDiffWhitespaceMode = .doNotIgnore
         isLoadingDiff = false
         isRefreshingGit = false
+        refreshRequestedWhileRunning = false
         pendingDiscardChange = nil
         pendingDiscardHunk = nil
         isCommitting = false
@@ -139,15 +142,25 @@ final class GitFeatureModel: ObservableObject {
     }
 
     func refreshGit() async {
-        guard let workspaceURLProvider, !isRefreshingGit else { return }
+        guard let workspaceURLProvider else { return }
+        if isRefreshingGit {
+            refreshRequestedWhileRunning = true
+            return
+        }
         guard let workspaceURL = workspaceURLProvider() else {
             reset()
             return
         }
 
         isRefreshingGit = true
-        defer { isRefreshingGit = false }
+        repeat {
+            refreshRequestedWhileRunning = false
+            await refreshGitState(at: workspaceURL)
+        } while refreshRequestedWhileRunning && workspaceURLProvider() == workspaceURL
+        isRefreshingGit = false
+    }
 
+    private func refreshGitState(at workspaceURL: URL) async {
         if let snapshot = await service.snapshot(for: workspaceURL) {
             gitRepositoryRoot = snapshot.repositoryRoot
             currentBranch = snapshot.branch

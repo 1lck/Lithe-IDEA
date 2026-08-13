@@ -2,69 +2,335 @@ import AppKit
 import SwiftUI
 
 enum LitheTheme {
+    private struct RGBA {
+        let red: CGFloat
+        let green: CGFloat
+        let blue: CGFloat
+        let alpha: CGFloat
+
+        init(_ hex: UInt32, alpha: CGFloat = 1) {
+            red = CGFloat((hex >> 16) & 0xff) / 255
+            green = CGFloat((hex >> 8) & 0xff) / 255
+            blue = CGFloat(hex & 0xff) / 255
+            self.alpha = alpha
+        }
+
+        func withAlpha(_ alpha: CGFloat) -> RGBA {
+            RGBA(red: red, green: green, blue: blue, alpha: alpha)
+        }
+
+        func mixed(with other: RGBA, amount: CGFloat) -> RGBA {
+            let amount = min(max(amount, 0), 1)
+            return RGBA(
+                red: red + (other.red - red) * amount,
+                green: green + (other.green - green) * amount,
+                blue: blue + (other.blue - blue) * amount,
+                alpha: alpha + (other.alpha - alpha) * amount
+            )
+        }
+
+        init(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+            self.red = red
+            self.green = green
+            self.blue = blue
+            self.alpha = alpha
+        }
+
+        var nsColor: NSColor {
+            NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
+        }
+    }
+
+    private struct Palette {
+        let window: RGBA
+        let titlebar: RGBA
+        let toolHeader: RGBA
+        let sidebar: RGBA
+        let editor: RGBA
+        let raised: RGBA
+        let selection: RGBA
+        let subtleSelection: RGBA
+        let hoverBackground: RGBA
+        let pressedBackground: RGBA
+        let activeTabBackground: RGBA
+        let tabUnderline: RGBA
+        let diffInformationBackground: RGBA
+        let diffInformationText: RGBA
+        let divider: RGBA
+        let panelBorder: RGBA
+        let inputBackground: RGBA
+        let inputBorder: RGBA
+        let inputFocusBorder: RGBA
+        let popupBackground: RGBA
+        let popupShadow: RGBA
+        let badgeBackground: RGBA
+        let primaryText: RGBA
+        let secondaryText: RGBA
+        let tertiaryText: RGBA
+        let accent: RGBA
+        let success: RGBA
+        let warning: RGBA
+        let error: RGBA
+        let skill: RGBA
+        let link: RGBA
+        let guide: RGBA
+        let activeGuide: RGBA
+
+        static func make(theme: AppColorTheme, isDark: Bool) -> Palette {
+            let surface: RGBA
+            let ink: RGBA
+            let accent: RGBA
+            let diffAdded: RGBA
+            let diffRemoved: RGBA
+            let skill: RGBA
+            let contrast: CGFloat
+
+            switch (theme, isDark) {
+            case (.lithe, _):
+                return lithe(isDark: isDark)
+            case (.codex, true):
+                surface = RGBA(0x111111)
+                ink = RGBA(0xfcfcfc)
+                accent = RGBA(0x0169cc)
+                diffAdded = RGBA(0x00a240)
+                diffRemoved = RGBA(0xe02e2a)
+                skill = RGBA(0xb06dff)
+                contrast = 0.60
+            case (.codex, false):
+                surface = RGBA(0xffffff)
+                ink = RGBA(0x0d0d0d)
+                accent = RGBA(0x0169cc)
+                diffAdded = RGBA(0x00a240)
+                diffRemoved = RGBA(0xe02e2a)
+                skill = RGBA(0x751ed9)
+                contrast = 0.45
+            case (.linear, true):
+                surface = RGBA(0x0f0f11)
+                ink = RGBA(0xe3e4e6)
+                accent = RGBA(0x606acc)
+                diffAdded = RGBA(0x69c967)
+                diffRemoved = RGBA(0xff7e78)
+                skill = RGBA(0xc2a1ff)
+                contrast = 0.60
+            case (.linear, false):
+                surface = RGBA(0xfcfcfd)
+                ink = RGBA(0x1b1b1b)
+                accent = RGBA(0x5e6ad2)
+                diffAdded = RGBA(0x52a450)
+                diffRemoved = RGBA(0xc94446)
+                skill = RGBA(0x8160d8)
+                contrast = 0.45
+            }
+
+            let chromeAmount = (isDark ? 0.045 : 0.035) * (contrast / 0.45)
+            let strongChromeAmount = (isDark ? 0.075 : 0.055) * (contrast / 0.45)
+            let subtleAccent = surface.mixed(with: accent, amount: isDark ? 0.20 : 0.11)
+
+            return Palette(
+                window: surface,
+                titlebar: surface.mixed(with: ink, amount: strongChromeAmount),
+                toolHeader: surface.mixed(with: ink, amount: chromeAmount),
+                sidebar: isDark
+                    ? surface.mixed(with: RGBA(0x000000), amount: 0.10)
+                    : surface.mixed(with: ink, amount: chromeAmount),
+                editor: surface,
+                raised: surface.mixed(with: ink, amount: isDark ? 0.085 : 0.018),
+                selection: accent,
+                subtleSelection: subtleAccent,
+                hoverBackground: ink.withAlpha(isDark ? 0.065 : 0.055),
+                pressedBackground: ink.withAlpha(isDark ? 0.11 : 0.095),
+                activeTabBackground: surface.mixed(with: ink, amount: isDark ? 0.075 : 0.012),
+                tabUnderline: accent,
+                diffInformationBackground: surface.mixed(with: accent, amount: isDark ? 0.18 : 0.10),
+                diffInformationText: accent,
+                divider: ink.withAlpha(isDark ? 0.10 : 0.12),
+                panelBorder: ink.withAlpha(isDark ? 0.16 : 0.16),
+                inputBackground: isDark
+                    ? surface.mixed(with: RGBA(0x000000), amount: 0.15)
+                    : surface,
+                inputBorder: ink.withAlpha(isDark ? 0.15 : 0.18),
+                inputFocusBorder: accent.withAlpha(0.90),
+                popupBackground: surface.mixed(with: ink, amount: isDark ? 0.065 : 0.008),
+                popupShadow: RGBA(0x000000, alpha: isDark ? 0.55 : 0.20),
+                badgeBackground: ink.withAlpha(isDark ? 0.12 : 0.08),
+                primaryText: ink,
+                secondaryText: ink.withAlpha(isDark ? 0.62 : 0.60),
+                tertiaryText: ink.withAlpha(isDark ? 0.43 : 0.42),
+                accent: accent,
+                success: diffAdded,
+                warning: isDark ? RGBA(0xe6a23c) : RGBA(0xa96500),
+                error: diffRemoved,
+                skill: skill,
+                link: accent,
+                guide: ink.withAlpha(isDark ? 0.10 : 0.11),
+                activeGuide: ink.withAlpha(isDark ? 0.26 : 0.27)
+            )
+        }
+
+        private static func lithe(isDark: Bool) -> Palette {
+            typealias Components = (CGFloat, CGFloat, CGFloat, CGFloat)
+            func adaptive(light: Components, dark: Components) -> RGBA {
+                let value = isDark ? dark : light
+                return RGBA(red: value.0, green: value.1, blue: value.2, alpha: value.3)
+            }
+
+            return Palette(
+                window: adaptive(light: (0.965, 0.969, 0.976, 1), dark: (0.106, 0.113, 0.125, 1)),
+                titlebar: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.145, 0.155, 0.169, 1)),
+                toolHeader: adaptive(light: (0.945, 0.949, 0.957, 1), dark: (0.122, 0.130, 0.142, 1)),
+                sidebar: adaptive(light: (0.925, 0.933, 0.945, 1), dark: (0.090, 0.096, 0.106, 1)),
+                editor: adaptive(light: (1, 1, 1, 1), dark: (0.074, 0.079, 0.088, 1)),
+                raised: adaptive(light: (1, 1, 1, 1), dark: (0.165, 0.175, 0.190, 1)),
+                selection: adaptive(light: (0.205, 0.435, 0.765, 1), dark: (0.170, 0.290, 0.490, 1)),
+                subtleSelection: adaptive(light: (0.855, 0.902, 0.973, 1), dark: (0.205, 0.218, 0.238, 1)),
+                hoverBackground: adaptive(light: (0, 0, 0, 0.050), dark: (1, 1, 1, 0.055)),
+                pressedBackground: adaptive(light: (0, 0, 0, 0.090), dark: (1, 1, 1, 0.095)),
+                activeTabBackground: adaptive(light: (1, 1, 1, 1), dark: (0.145, 0.155, 0.170, 1)),
+                tabUnderline: adaptive(light: (0.180, 0.425, 0.790, 1), dark: (0.31, 0.58, 0.98, 1)),
+                diffInformationBackground: adaptive(light: (0.895, 0.935, 0.990, 1), dark: (0.13, 0.20, 0.30, 1)),
+                diffInformationText: adaptive(light: (0.105, 0.365, 0.680, 1), dark: (0.50, 0.72, 0.98, 1)),
+                divider: adaptive(light: (0, 0, 0, 0.100), dark: (1, 1, 1, 0.075)),
+                panelBorder: adaptive(light: (0, 0, 0, 0.145), dark: (1, 1, 1, 0.13)),
+                inputBackground: adaptive(light: (1, 1, 1, 1), dark: (0.065, 0.070, 0.078, 1)),
+                inputBorder: adaptive(light: (0, 0, 0, 0.150), dark: (1, 1, 1, 0.12)),
+                inputFocusBorder: adaptive(light: (0.180, 0.425, 0.790, 0.90), dark: (0.31, 0.58, 0.98, 0.85)),
+                popupBackground: adaptive(light: (1, 1, 1, 1), dark: (0.135, 0.143, 0.157, 1)),
+                popupShadow: adaptive(light: (0, 0, 0, 0.20), dark: (0, 0, 0, 0.55)),
+                badgeBackground: adaptive(light: (0, 0, 0, 0.075), dark: (1, 1, 1, 0.10)),
+                primaryText: adaptive(light: (0, 0, 0, 0.82), dark: (1, 1, 1, 0.86)),
+                secondaryText: adaptive(light: (0, 0, 0, 0.55), dark: (1, 1, 1, 0.50)),
+                tertiaryText: adaptive(light: (0, 0, 0, 0.38), dark: (1, 1, 1, 0.34)),
+                accent: adaptive(light: (0.180, 0.425, 0.790, 1), dark: (0.31, 0.58, 0.98, 1)),
+                success: adaptive(light: (0.105, 0.545, 0.235, 1), dark: (0.28, 0.72, 0.39, 1)),
+                warning: adaptive(light: (0.690, 0.410, 0.035, 1), dark: (0.91, 0.63, 0.20, 1)),
+                error: adaptive(light: (0.780, 0.175, 0.175, 1), dark: (0.92, 0.33, 0.33, 1)),
+                skill: adaptive(light: (0.55, 0.18, 0.64, 1), dark: (0.80, 0.48, 0.77, 1)),
+                link: adaptive(light: (0.110, 0.390, 0.740, 1), dark: (0.42, 0.68, 1.00, 1)),
+                guide: adaptive(light: (0, 0, 0, 0.105), dark: (1, 1, 1, 0.085)),
+                activeGuide: adaptive(light: (0, 0, 0, 0.25), dark: (1, 1, 1, 0.24))
+            )
+        }
+    }
+
+    static var activeTheme: AppColorTheme { AppThemeRuntime.shared.activeTheme }
+
+    enum ResolvedColorToken {
+        case editor
+        case sidebar
+        case primaryText
+        case secondaryText
+        case accent
+        case success
+        case warning
+        case error
+        case skill
+        case guide
+        case activeGuide
+    }
+
+    static func nsColor(
+        _ token: ResolvedColorToken,
+        theme: AppColorTheme = activeTheme,
+        isDark: Bool
+    ) -> NSColor {
+        let palette = Palette.make(theme: theme, isDark: isDark)
+        return switch token {
+        case .editor: palette.editor.nsColor
+        case .sidebar: palette.sidebar.nsColor
+        case .primaryText: palette.primaryText.nsColor
+        case .secondaryText: palette.secondaryText.nsColor
+        case .accent: palette.accent.nsColor
+        case .success: palette.success.nsColor
+        case .warning: palette.warning.nsColor
+        case .error: palette.error.nsColor
+        case .skill: palette.skill.nsColor
+        case .guide: palette.guide.nsColor
+        case .activeGuide: palette.activeGuide.nsColor
+        }
+    }
+
     // MARK: - 背景层次
-    // 从深到浅：window < sidebar < editor < raised。层间对比度刻意拉开，
-    // 让工具窗口、编辑区和浮层在暗色下依然能区分出前后关系。
-    static let window = Color(red: 0.106, green: 0.113, blue: 0.125)
-    static let titlebar = Color(red: 0.145, green: 0.155, blue: 0.169)
-    static let toolHeader = Color(red: 0.122, green: 0.130, blue: 0.142)
-    static let sidebar = Color(red: 0.090, green: 0.096, blue: 0.106)
-    static let editor = Color(red: 0.074, green: 0.079, blue: 0.088)
-    static let raised = Color(red: 0.165, green: 0.175, blue: 0.190)
+    static var window: Color { adaptive(\.window) }
+    static var titlebar: Color { adaptive(\.titlebar) }
+    static var toolHeader: Color { adaptive(\.toolHeader) }
+    static var sidebar: Color { adaptive(\.sidebar) }
+    static var editor: Color { adaptive(\.editor) }
+    static var raised: Color { adaptive(\.raised) }
 
     // MARK: - 选中与悬停
-    static let selection = Color(red: 0.170, green: 0.290, blue: 0.490)
-    static let subtleSelection = Color(red: 0.205, green: 0.218, blue: 0.238)
-    static let hoverBackground = Color.white.opacity(0.055)
-    static let pressedBackground = Color.white.opacity(0.095)
+    static var selection: Color { adaptive(\.selection) }
+    static var subtleSelection: Color { adaptive(\.subtleSelection) }
+    static var hoverBackground: Color { adaptive(\.hoverBackground) }
+    static var pressedBackground: Color { adaptive(\.pressedBackground) }
 
     // MARK: - 标签页
-    static let activeTabBackground = Color(red: 0.145, green: 0.155, blue: 0.170)
+    static var activeTabBackground: Color { adaptive(\.activeTabBackground) }
     static let inactiveTabBackground = Color.clear
-    static let tabUnderline = Color(red: 0.31, green: 0.58, blue: 0.98)
+    static var tabUnderline: Color { adaptive(\.tabUnderline) }
+    static var diffInformationBackground: Color { adaptive(\.diffInformationBackground) }
+    static var diffInformationText: Color { adaptive(\.diffInformationText) }
 
     // MARK: - 分隔与边框
-    static let divider = Color.white.opacity(0.075)
-    static let panelBorder = Color.white.opacity(0.13)
+    static var divider: Color { adaptive(\.divider) }
+    static var panelBorder: Color { adaptive(\.panelBorder) }
 
     // MARK: - 输入控件
-    static let inputBackground = Color(red: 0.065, green: 0.070, blue: 0.078)
-    static let inputBorder = Color.white.opacity(0.12)
-    static let inputFocusBorder = Color(red: 0.31, green: 0.58, blue: 0.98).opacity(0.85)
+    static var inputBackground: Color { adaptive(\.inputBackground) }
+    static var inputBorder: Color { adaptive(\.inputBorder) }
+    static var inputFocusBorder: Color { adaptive(\.inputFocusBorder) }
 
     // MARK: - 浮层
-    static let popupBackground = Color(red: 0.135, green: 0.143, blue: 0.157)
-    static let popupShadow = Color.black.opacity(0.55)
-    static let badgeBackground = Color.white.opacity(0.10)
+    static var popupBackground: Color { adaptive(\.popupBackground) }
+    static var popupShadow: Color { adaptive(\.popupShadow) }
+    static var badgeBackground: Color { adaptive(\.badgeBackground) }
 
     // MARK: - 文本
-    static let primaryText = Color.white.opacity(0.86)
-    static let secondaryText = Color.white.opacity(0.50)
-    static let tertiaryText = Color.white.opacity(0.34)
+    static var primaryText: Color { adaptive(\.primaryText) }
+    static var secondaryText: Color { adaptive(\.secondaryText) }
+    static var tertiaryText: Color { adaptive(\.tertiaryText) }
 
     // MARK: - 语义色
-    static let accent = Color(red: 0.31, green: 0.58, blue: 0.98)
-    static let success = Color(red: 0.28, green: 0.72, blue: 0.39)
-    static let warning = Color(red: 0.91, green: 0.63, blue: 0.20)
-    static let error = Color(red: 0.92, green: 0.33, blue: 0.33)
+    static var accent: Color { adaptive(\.accent) }
+    static var success: Color { adaptive(\.success) }
+    static var warning: Color { adaptive(\.warning) }
+    static var error: Color { adaptive(\.error) }
+    static var skill: Color { adaptive(\.skill) }
     /// Cmd/Ctrl 悬停时标识符转成的“可点击”色。
-    static let link = Color(red: 0.42, green: 0.68, blue: 1.00)
+    static var link: Color { adaptive(\.link) }
     // 语义化别名，便于 AppKit 装饰代码与设计稿 token 同名。
-    static let linkColor = link
+    static var linkColor: Color { link }
 
     // MARK: - 编辑器缩进竖线
-    static let guide = Color.white.opacity(0.085)
-    static let activeGuide = Color.white.opacity(0.24)
-    static let guideColor = guide
-    static let activeGuideColor = activeGuide
+    static var guide: Color { adaptive(\.guide) }
+    static var activeGuide: Color { adaptive(\.activeGuide) }
+    static var guideColor: Color { guide }
+    static var activeGuideColor: Color { activeGuide }
 
-    static let uiFont = Font.system(size: 13, weight: .regular)
-    static let smallFont = Font.system(size: 11, weight: .regular)
+    private static func adaptive(_ keyPath: KeyPath<Palette, RGBA>) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let palette = Palette.make(theme: activeTheme, isDark: isDark)
+            return palette[keyPath: keyPath].nsColor
+        })
+    }
+
+    static var uiFont: Font { uiFont(size: 14) }
+    static var smallFont: Font { uiFont(size: 12) }
     static let codeFont = Font.system(size: 13, design: .monospaced)
+
+    private static func uiFont(size: CGFloat) -> Font {
+        if activeTheme != .lithe, NSFont(name: "Inter", size: size) != nil {
+            return Font.custom("Inter", size: size)
+        }
+        return Font.system(size: size, weight: .regular)
+    }
 
     /// 统一的尺寸与间距刻度，避免各视图各写一套魔法数字。
     enum Metrics {
         static let rowHeight: CGFloat = 24
+        static let treeRowHeight: CGFloat = 27
+        static let treeIconSize: CGFloat = 16
+        static let treeFontSize: CGFloat = 13.5
         static let tabHeight: CGFloat = 34
         static let toolbarHeight: CGFloat = 40
         static let toolWindowHeaderHeight: CGFloat = 30
@@ -92,13 +358,17 @@ extension View {
     func litheRowHover(
         isActive: Bool = false,
         cornerRadius: CGFloat = LitheTheme.Metrics.cornerRadius,
-        activeBackground: Color = LitheTheme.selection
+        activeBackground: Color = LitheTheme.selection,
+        hoverBackground: Color = LitheTheme.hoverBackground,
+        animation: Animation? = .easeOut(duration: 0.12)
     ) -> some View {
         modifier(
             LitheRowHoverModifier(
                 isActive: isActive,
                 cornerRadius: cornerRadius,
-                activeBackground: activeBackground
+                activeBackground: activeBackground,
+                hoverBackground: hoverBackground,
+                animation: animation
             )
         )
     }
@@ -124,21 +394,30 @@ struct LitheIconButtonStyle: ButtonStyle {
     }
 }
 
+/// Keeps file-tree rows visually stable while they are being activated.
+struct LitheTreeRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+    }
+}
+
 private struct LitheRowHoverModifier: ViewModifier {
     let isActive: Bool
     let cornerRadius: CGFloat
     let activeBackground: Color
+    let hoverBackground: Color
+    let animation: Animation?
     @State private var isHovering = false
 
     func body(content: Content) -> some View {
         content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(isActive ? activeBackground : (isHovering ? LitheTheme.hoverBackground : .clear))
+                    .fill(isActive ? activeBackground : (isHovering ? hoverBackground : .clear))
             )
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
-            .animation(.easeOut(duration: 0.12), value: isHovering)
+            .animation(animation, value: isHovering)
     }
 }
 
@@ -188,25 +467,35 @@ struct LitheSecondaryButtonStyle: ButtonStyle {
 
 private struct LithePointerModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
-    @State private var isHovered = false
-    @State private var isPointing = false
+    @State private var cursor = LithePointerCursor()
 
     func body(content: Content) -> some View {
         content
             .onHover { isInside in
-                isHovered = isInside
-                updateCursor(isPointing: isInside && isEnabled)
+                cursor.isHovered = isInside
+                cursor.update(isPointing: isInside && isEnabled)
             }
-            .onChange(of: isEnabled) {
-                updateCursor(isPointing: isHovered && isEnabled)
+            .onChange(of: isEnabled) { _ in
+                cursor.update(isPointing: cursor.isHovered && isEnabled)
             }
             .onDisappear {
-                isHovered = false
-                updateCursor(isPointing: false)
+                cursor.isHovered = false
+                cursor.update(isPointing: false)
             }
     }
+}
 
-    private func updateCursor(isPointing newValue: Bool) {
+/// Hover tracking lives in a reference box rather than `@State` because nothing
+/// in the view body depends on it. Storing it as view state would invalidate
+/// every hovered control, which is costly when the pointer sweeps across many
+/// rows during a scroll.
+private final class LithePointerCursor {
+    var isHovered = false
+    private var isPointing = false
+
+    /// The push/pop pair is balanced even when a view disappears.
+    @MainActor
+    func update(isPointing newValue: Bool) {
         guard newValue != isPointing else { return }
         isPointing = newValue
         if newValue {
