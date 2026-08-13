@@ -14,34 +14,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-macos-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  release:
-    name: Build and publish Lithe for macOS
+  prepare:
+    name: Resolve release version
     if: github.actor == github.repository_owner
-    runs-on: macos-14
-    permissions:
-      contents: write
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      build_number: ${{ steps.version.outputs.build_number }}
 
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Set up Swift
-        # v2 downloads the macOS toolchain package directly. The beta v3
-        # Swiftly installer is currently unstable on the macos-14 runner.
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.2"
-
-      - name: Set up Rust targets
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
-
       - name: Resolve release version
         id: version
         env:
@@ -60,50 +47,133 @@ jobs:
             exit 1
           fi
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "build_number=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "build_number=$GITHUB_RUN_NUMBER"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Build the App bundle
+  build:
+    name: Build ${{ matrix.architecture }} release
+    needs: prepare
+    runs-on: macos-14
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture:
+          - arm64
+          - x86_64
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Set up Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+
+      - name: Restore SwiftPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            .build/checkouts
+            .build/repositories
+            ~/.cache/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+
+      - name: Build and package the App
         env:
-          LITHE_VERSION: ${{ steps.version.outputs.version }}
-          LITHE_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          LITHE_ARCH: ${{ matrix.architecture }}
+          LITHE_VERSION: ${{ needs.prepare.outputs.version }}
+          LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
         run: |
-          chmod +x scripts/package-app.sh
-          chmod +x scripts/create-dmg.sh
-          for architecture in arm64 x86_64; do
-            LITHE_ARCH="$architecture" ./scripts/package-app.sh
-            LITHE_ARCH="$architecture" ./scripts/create-dmg.sh
-            # 在 dist/ 内部计算，让校验文件只记录裸文件名，
-            # 这样下载后直接 shasum -c 就能通过。
-            dmg_name="Lithe-${LITHE_VERSION}-${architecture}.dmg"
-            (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
-          done
+          ./scripts/package-app.sh
+          ./scripts/create-dmg.sh
+          dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
+          (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
 
       - name: Verify the bundle and disk image
         env:
-          LITHE_VERSION: ${{ steps.version.outputs.version }}
+          LITHE_ARCH: ${{ matrix.architecture }}
+          LITHE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          app_path="dist/Lithe-${LITHE_ARCH}.app"
+          dmg_path="dist/Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
+          codesign --verify --deep --strict "$app_path"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleShortVersionString" \
+            "$app_path/Contents/Info.plist"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleVersion" \
+            "$app_path/Contents/Info.plist"
+          lipo "$app_path/Contents/MacOS/Lithe" -verify_arch "$LITHE_ARCH"
+          hdiutil imageinfo "$dmg_path" > /dev/null
+          test -s "$dmg_path"
+          (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg.sha256")
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-release-${{ matrix.architecture }}
+          path: |
+            dist/Lithe-${{ needs.prepare.outputs.version }}-${{ matrix.architecture }}.dmg
+            dist/Lithe-${{ needs.prepare.outputs.version }}-${{ matrix.architecture }}.dmg.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish macOS release
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ needs.prepare.outputs.version }}
+      tag: ${{ needs.prepare.outputs.tag }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Download release assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: macos-release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify downloaded assets
+        env:
+          LITHE_VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
         run: |
           for architecture in arm64 x86_64; do
-            app_path="dist/Lithe-${architecture}.app"
-            dmg_path="dist/Lithe-${LITHE_VERSION}-${architecture}.dmg"
-            codesign --verify --deep --strict "$app_path"
-            /usr/libexec/PlistBuddy \
-              -c "Print :CFBundleShortVersionString" \
-              "$app_path/Contents/Info.plist"
-            /usr/libexec/PlistBuddy \
-              -c "Print :CFBundleVersion" \
-              "$app_path/Contents/Info.plist"
-            lipo "$app_path/Contents/MacOS/Lithe" -verify_arch "$architecture"
-            hdiutil imageinfo "$dmg_path" > /dev/null
-            test -s "$dmg_path"
+            (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${architecture}.dmg.sha256")
           done
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          LITHE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          LITHE_VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
         run: |
           notes_file="docs/releases/v${LITHE_VERSION}.md"
           release_args=(
@@ -127,7 +197,7 @@ jobs:
 
   update-cask:
     name: Update Homebrew Cask
-    needs: release
+    needs: publish
     runs-on: macos-14
     permissions:
       contents: write
@@ -135,15 +205,15 @@ jobs:
 
     steps:
       - name: Check out the default branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
 
       - name: Download release checksums
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.release.outputs.tag }}
-          LITHE_VERSION: ${{ needs.release.outputs.version }}
+          RELEASE_TAG: ${{ needs.publish.outputs.tag }}
+          LITHE_VERSION: ${{ needs.publish.outputs.version }}
         run: |
           checksum_dir="$RUNNER_TEMP/lithe-release"
           mkdir -p "$checksum_dir"
@@ -155,7 +225,7 @@ jobs:
 
       - name: Update the Cask metadata
         env:
-          LITHE_VERSION: ${{ needs.release.outputs.version }}
+          LITHE_VERSION: ${{ needs.publish.outputs.version }}
         run: |
           arm_sha=$(awk 'NR == 1 { print $1 }' "$CHECKSUM_DIR/Lithe-${LITHE_VERSION}-arm64.dmg.sha256")
           intel_sha=$(awk 'NR == 1 { print $1 }' "$CHECKSUM_DIR/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256")
@@ -176,7 +246,7 @@ jobs:
       - name: Create or update the Cask pull request
         env:
           GH_TOKEN: ${{ github.token }}
-          LITHE_VERSION: ${{ needs.release.outputs.version }}
+          LITHE_VERSION: ${{ needs.publish.outputs.version }}
         run: |
           branch="automation/homebrew-cask-v${LITHE_VERSION}"
           git config user.name "github-actions[bot]"

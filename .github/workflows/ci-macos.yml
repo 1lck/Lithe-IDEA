@@ -15,14 +15,96 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Test and build macOS application
-    runs-on: macos-14
-    timeout-minutes: 45
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.classify.outputs.full }}
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="$PUSH_BASE_SHA"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base_sha="$PR_BASE_SHA"
+          fi
+
+          full=false
+          while IFS= read -r path; do
+            case "$path" in
+              README.md|README.zh-CN.md|docs/*|Casks/*)
+                ;;
+              *)
+                full=true
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "$base_sha" "$GITHUB_SHA")
+
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+
+      - name: Validate lightweight changes
+        if: steps.classify.outputs.full == 'false'
+        shell: bash
+        run: |
+          git diff --check "${{ github.event.pull_request.base.sha || github.event.before }}" "$GITHUB_SHA"
+          ruby -c Casks/lithe.rb
+          ruby -c scripts/update-homebrew-cask.rb
+
+  swift-tests:
+    name: Swift tests
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Restore SwiftPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            .build/checkouts
+            .build/repositories
+            ~/.cache/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+
+      - name: Run Swift tests
+        run: ./scripts/test-macos.sh
+
+  rust-tests:
+    name: Rust Core and database tests
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
 
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2
@@ -33,7 +115,61 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+
+      - name: Run Rust Core tests and verify the Swift bridge
+        run: ./scripts/verify-rust-core.sh
+
+      - name: Test database helpers
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+          cargo test --manifest-path rust/Cargo.toml -p lithe-db-sidecar
+          cargo test --manifest-path rust/Cargo.toml -p lithe-db-mcp
+
+  release-build:
+    name: Release configuration
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: macos-14
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Restore SwiftPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            .build/checkouts
+            .build/repositories
+            ~/.cache/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
 
       - name: Resolve host architecture
         shell: zsh {0}
@@ -56,17 +192,29 @@ jobs:
           ruby -c scripts/update-homebrew-cask.rb
           plutil -lint Resources/Info.plist
 
-      - name: Run Swift tests
-        run: ./scripts/test-macos.sh
-
-      - name: Run Rust Core tests and verify the Swift bridge
-        run: ./scripts/verify-rust-core.sh
-
-      - name: Test database helpers
-        run: |
-          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
-          cargo test --manifest-path rust/Cargo.toml -p lithe-db-sidecar
-          cargo test --manifest-path rust/Cargo.toml -p lithe-db-mcp
-
       - name: Build release configuration
         run: ./scripts/build-macos.sh --configuration release --triple "$LITHE_SWIFT_TRIPLE"
+
+  gate:
+    name: macOS CI gate
+    needs:
+      - changes
+      - swift-tests
+      - rust-tests
+      - release-build
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SWIFT_RESULT: ${{ needs.swift-tests.result }}
+          RUST_RESULT: ${{ needs.rust-tests.result }}
+          RELEASE_RESULT: ${{ needs.release-build.result }}
+        shell: bash
+        run: |
+          [[ "$CHANGES_RESULT" == "success" ]]
+          for result in "$SWIFT_RESULT" "$RUST_RESULT" "$RELEASE_RESULT"; do
+            [[ "$result" == "success" || "$result" == "skipped" ]]
+          done
