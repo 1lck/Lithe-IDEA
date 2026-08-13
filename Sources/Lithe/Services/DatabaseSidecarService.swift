@@ -458,7 +458,7 @@ final class DatabaseSidecarService: DatabaseOperations, @unchecked Sendable {
     private let executableURL: URL?
     private let environment: [String: String]?
 
-    init(processRunner: any ProcessRunner, executableURL: URL? = defaultExecutableURL(), environment: [String: String]? = nil) {
+    init(processRunner: any ProcessRunner, executableURL: URL?, environment: [String: String]? = nil) {
         self.processRunner = processRunner
         self.executableURL = executableURL
         self.environment = environment
@@ -677,14 +677,6 @@ final class DatabaseSidecarService: DatabaseOperations, @unchecked Sendable {
         return result
     }
 
-    static func defaultExecutableURL(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment, fileManager: FileManager = .default) -> URL? {
-        if let override = environment["LITHE_DB_SIDECAR_EXECUTABLE"], !override.isEmpty { return URL(fileURLWithPath: override) }
-        let candidates = [
-            bundle.bundleURL.appendingPathComponent("Contents/Helpers/lithe-db-sidecar"),
-            bundle.bundleURL.appendingPathComponent("Contents/Resources/Database/lithe-db-sidecar")
-        ]
-        return candidates.first { fileManager.isExecutableFile(atPath: $0.path) }
-    }
 }
 
 private struct EmptyParams: Codable {}

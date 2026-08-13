@@ -2,102 +2,7 @@ import Compression
 import CryptoKit
 import Foundation
 
-struct DatabaseBackupSchedule: Codable, Equatable, Identifiable, Sendable {
-    let profileID: UUID
-    var isEnabled: Bool
-    var intervalHours: Int
-    var retentionCount: Int
-    var nextRunAt: Date
-
-    var id: UUID { profileID }
-
-    init(profileID: UUID, isEnabled: Bool = true, intervalHours: Int = 24, retentionCount: Int = 14, nextRunAt: Date = Date()) {
-        self.profileID = profileID
-        self.isEnabled = isEnabled
-        self.intervalHours = max(1, intervalHours)
-        self.retentionCount = max(1, retentionCount)
-        self.nextRunAt = nextRunAt
-    }
-}
-
-struct DatabaseRecoveryPoint: Codable, Equatable, Identifiable, Sendable {
-    let id: UUID
-    let profileID: UUID
-    let reason: String
-    let createdAt: Date
-    let byteCount: Int
-    let fileName: String
-    let originalByteCount: Int
-    let isCompressed: Bool
-    let sha256: String
-
-    private enum CodingKeys: String, CodingKey { case id, profileID, reason, createdAt, byteCount, fileName, originalByteCount, isCompressed, sha256 }
-
-    init(id: UUID, profileID: UUID, reason: String, createdAt: Date, byteCount: Int, fileName: String, originalByteCount: Int, isCompressed: Bool, sha256: String = "") {
-        self.id = id
-        self.profileID = profileID
-        self.reason = reason
-        self.createdAt = createdAt
-        self.byteCount = byteCount
-        self.fileName = fileName
-        self.originalByteCount = originalByteCount
-        self.isCompressed = isCompressed
-        self.sha256 = sha256
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        profileID = try container.decode(UUID.self, forKey: .profileID)
-        reason = try container.decode(String.self, forKey: .reason)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
-        byteCount = try container.decode(Int.self, forKey: .byteCount)
-        fileName = try container.decode(String.self, forKey: .fileName)
-        originalByteCount = try container.decodeIfPresent(Int.self, forKey: .originalByteCount) ?? byteCount
-        isCompressed = try container.decodeIfPresent(Bool.self, forKey: .isCompressed) ?? false
-        sha256 = try container.decodeIfPresent(String.self, forKey: .sha256) ?? ""
-    }
-}
-
-struct DatabaseAuditEntry: Codable, Equatable, Identifiable, Sendable {
-    let id: UUID
-    let profileID: UUID
-    let action: String
-    let summary: String
-    let createdAt: Date
-    let recoveryPointID: UUID?
-    let rowsAffected: UInt64?
-    let succeeded: Bool
-    let errorMessage: String?
-}
-
-enum DatabaseExecutionSource: String, Codable, Equatable, Sendable {
-    case sql
-    case redis
-    case nacos
-}
-
-enum DatabaseExecutionStatus: String, Codable, Equatable, Sendable {
-    case succeeded
-    case failed
-    case cancelled
-}
-
-struct DatabaseExecutionEvent: Codable, Equatable, Identifiable, Sendable {
-    let id: UUID
-    let profileID: UUID
-    let profileName: String
-    let source: DatabaseExecutionSource
-    let operation: String
-    let startedAt: Date
-    let durationMilliseconds: Int
-    let status: DatabaseExecutionStatus
-    let rowsReturned: Int?
-    let rowsAffected: UInt64?
-    let errorMessage: String?
-}
-
-final class DatabaseRecoveryStore: @unchecked Sendable {
+final class MacDatabaseRecoveryStore: DatabaseRecoveryStoring, @unchecked Sendable {
     private static let executionLogLock = NSRecursiveLock()
     private let rootURL: URL
     private let fileManager: FileManager
@@ -111,6 +16,13 @@ final class DatabaseRecoveryStore: @unchecked Sendable {
         encoder.dateEncodingStrategy = .millisecondsSince1970
         decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
+    }
+
+    convenience init(fileStorage: any FileStorage) {
+        self.init(
+            rootURL: fileStorage.applicationSupportDirectory()
+                .appendingPathComponent("Lithe/DatabaseRecovery", isDirectory: true)
+        )
     }
 
     func createRecoveryPoint(profileID: UUID, reason: String, data: Data) throws -> DatabaseRecoveryPoint {

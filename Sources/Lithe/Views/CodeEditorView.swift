@@ -2400,7 +2400,6 @@ final class CodeVisionOverlayController {
         onImplementations: @escaping (JavaCodeVisionHint) -> Void,
         onAuthor: @escaping () -> Void
     ) {
-        guard hints != currentHints else { return }
         currentHints = hints
         buttons.forEach { $0.removeFromSuperview() }
         buttons = []
@@ -2420,12 +2419,26 @@ final class CodeVisionOverlayController {
                 contentEnd -= 1
             }
             guard contentEnd > lineRange.location else { continue }
-            let lineGlyph = layoutManager.glyphIndexForCharacter(at: lineRange.location)
-            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: lineGlyph, effectiveRange: nil)
-            let codeWidth = CGFloat(contentEnd - lineRange.location) * 7.83
-            var x = min(textView.bounds.width - 190, textView.textContainerOrigin.x + codeWidth + 8)
-            x = max(8, x)
+            let contentRange = NSRange(
+                location: lineRange.location,
+                length: contentEnd - lineRange.location
+            )
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: contentRange,
+                actualCharacterRange: nil
+            )
+            guard glyphRange.length > 0 else { continue }
+            let contentRect = layoutManager.boundingRect(
+                forGlyphRange: glyphRange,
+                in: textContainer
+            )
+            let lastGlyph = max(glyphRange.location, NSMaxRange(glyphRange) - 1)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
+            let x = textView.textContainerOrigin.x + contentRect.maxX + 8
             let y = lineRect.minY + textView.textContainerOrigin.y - 1
+
+            let requiredWidth = buttonWidth(for: hint)
+            guard x + requiredWidth <= textView.bounds.maxX - 8 else { continue }
 
             let usageButton = makeButton(title: "\(hint.usageCount) usage\(hint.usageCount == 1 ? "" : "s")") {
                 onUsages(hint)
@@ -2490,6 +2503,18 @@ final class CodeVisionOverlayController {
             button.imagePosition = .imageLeading
         }
         return button
+    }
+
+    private func buttonWidth(for hint: JavaCodeVisionHint) -> CGFloat {
+        var width: CGFloat = 70
+        if hint.implementationCount > 0 {
+            let title = "\(hint.implementationCount) implementation\(hint.implementationCount == 1 ? "" : "s")"
+            width += max(108, CGFloat(title.count) * 5.8 + 16) + 2
+        }
+        if let authorName = hint.authorName, !authorName.isEmpty {
+            width += 114
+        }
+        return width
     }
 }
 

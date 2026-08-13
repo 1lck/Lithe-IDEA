@@ -34,6 +34,7 @@ struct RunView: View {
                 OutputTextView(
                     output: feature.output,
                     searchRoots: feature.sourceSearchRoots,
+                    fileExists: { model.fileExists(at: $0) },
                     emptyMessage: String(localized: "Run a configuration to see process output.")
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
@@ -405,6 +406,7 @@ struct RunView: View {
             OutputTextView(
                 output: selectedOutput,
                 searchRoots: feature.sourceSearchRoots,
+                fileExists: { model.fileExists(at: $0) },
                 emptyMessage: String(localized: "Select a run configuration to see its output.")
             ) { url, line, column in
                 model.openSourceLocation(url: url, line: line, column: column)
@@ -638,6 +640,7 @@ struct RunView: View {
                 OutputTextView(
                     output: session.output,
                     searchRoots: feature.sourceSearchRoots,
+                    fileExists: { model.fileExists(at: $0) },
                     emptyMessage: String(localized: "Process output will appear here.")
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)

@@ -467,25 +467,35 @@ struct LitheSecondaryButtonStyle: ButtonStyle {
 
 private struct LithePointerModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
-    @State private var isHovered = false
-    @State private var isPointing = false
+    @State private var cursor = LithePointerCursor()
 
     func body(content: Content) -> some View {
         content
             .onHover { isInside in
-                isHovered = isInside
-                updateCursor(isPointing: isInside && isEnabled)
+                cursor.isHovered = isInside
+                cursor.update(isPointing: isInside && isEnabled)
             }
             .onChange(of: isEnabled) { _ in
-                updateCursor(isPointing: isHovered && isEnabled)
+                cursor.update(isPointing: cursor.isHovered && isEnabled)
             }
             .onDisappear {
-                isHovered = false
-                updateCursor(isPointing: false)
+                cursor.isHovered = false
+                cursor.update(isPointing: false)
             }
     }
+}
 
-    private func updateCursor(isPointing newValue: Bool) {
+/// Hover tracking lives in a reference box rather than `@State` because nothing
+/// in the view body depends on it. Storing it as view state would invalidate
+/// every hovered control, which is costly when the pointer sweeps across many
+/// rows during a scroll.
+@MainActor
+private final class LithePointerCursor {
+    var isHovered = false
+    private var isPointing = false
+
+    /// The push/pop pair is balanced even when a view disappears.
+    func update(isPointing newValue: Bool) {
         guard newValue != isPointing else { return }
         isPointing = newValue
         if newValue {

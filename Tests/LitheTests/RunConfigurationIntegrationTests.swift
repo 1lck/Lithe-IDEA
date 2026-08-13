@@ -4243,6 +4243,7 @@ private struct RunTestFileStorage: FileStorage {
     func homeDirectory() -> URL { URL(fileURLWithPath: "/tmp") }
     func cacheDirectory() -> URL { URL(fileURLWithPath: "/tmp") }
     func applicationSupportDirectory() -> URL { URL(fileURLWithPath: "/tmp") }
+    func temporaryDirectory() -> URL { URL(fileURLWithPath: "/tmp") }
     func metadata(for url: URL) -> FileMetadata? {
         FileMetadata(byteCount: nil, modificationDate: nil, isRegularFile: false, isDirectory: true)
     }
@@ -4255,6 +4256,7 @@ private struct RunTestFileStorage: FileStorage {
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
     func removeItem(at url: URL) throws {}
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
 }
 
 private final class CountingFileStorage: FileStorage, @unchecked Sendable {
@@ -4274,6 +4276,7 @@ private final class CountingFileStorage: FileStorage, @unchecked Sendable {
     func homeDirectory() -> URL { root }
     func cacheDirectory() -> URL { root }
     func applicationSupportDirectory() -> URL { root }
+    func temporaryDirectory() -> URL { root }
     func metadata(for url: URL) -> FileMetadata? {
         if url.standardizedFileURL == root {
             return FileMetadata(byteCount: nil, modificationDate: nil, isRegularFile: false, isDirectory: true)
@@ -4302,6 +4305,10 @@ private final class CountingFileStorage: FileStorage, @unchecked Sendable {
         guard let data = files.removeValue(forKey: sourceURL.standardizedFileURL.path) else {
             throw CocoaError(.fileNoSuchFile)
         }
+        files[destinationURL.standardizedFileURL.path] = data
+    }
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
+        guard let data = files[sourceURL.standardizedFileURL.path] else { throw CocoaError(.fileNoSuchFile) }
         files[destinationURL.standardizedFileURL.path] = data
     }
 }

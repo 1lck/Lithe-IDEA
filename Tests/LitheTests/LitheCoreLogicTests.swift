@@ -944,6 +944,9 @@ struct LitheCoreLogicTests {
         let preferences = DatabaseTestKeyValueStore()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
         let profile = DatabaseProfile(name: "SQLite", kind: .sqlite, path: "/tmp/lithe-batch.sqlite")
+        let recoveryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-batch-recovery-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: recoveryRoot) }
         try store.save([profile])
         let runner = RecordingProcessRunner { request in
             let input = try! #require(request.standardInput)
@@ -969,13 +972,15 @@ struct LitheCoreLogicTests {
         }
         let feature = DatabaseFeatureModel(
             operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
-            connectionStore: store
+            connectionStore: store,
+            recoveryStore: MacDatabaseRecoveryStore(rootURL: recoveryRoot),
+            fileStorage: MacFileStorage()
         )
 
         await feature.select(profile)
         feature.addSQLTab(sql: "INSERT INTO items VALUES (1); SELECT 1; UPDATE items SET value = 2 WHERE id = 1;")
         let tabID = try #require(feature.selectedSQLTabID)
-        await feature.runSQL(in: tabID)
+        await feature.runSQL(in: tabID, confirmedRisk: true)
 
         let sqlRequests = runner.requests.compactMap { request -> (String, String)? in
             guard let input = request.standardInput,
@@ -1112,7 +1117,7 @@ struct LitheCoreLogicTests {
     func databaseRecoveryStoreRoundTripsCompressedSnapshotsAndAudit() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-recovery-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = DatabaseRecoveryStore(rootURL: root)
+        let store = MacDatabaseRecoveryStore(rootURL: root)
         let profileID = UUID()
         let snapshot = Data(repeating: 65, count: 128 * 1_024)
         let point = try store.createRecoveryPoint(profileID: profileID, reason: "test", data: snapshot)
@@ -1151,7 +1156,7 @@ struct LitheCoreLogicTests {
         let contents = Data("CREATE TABLE items (id INTEGER);\n".utf8)
         try contents.write(to: source)
 
-        let store = DatabaseRecoveryStore(rootURL: root.appendingPathComponent("store"))
+        let store = MacDatabaseRecoveryStore(rootURL: root.appendingPathComponent("store"))
         let point = try store.createRecoveryPoint(profileID: UUID(), reason: "file", fileURL: source)
         #expect(!point.isCompressed)
         #expect(point.originalByteCount == contents.count)
@@ -2718,6 +2723,7 @@ struct EditorDocumentTests {
         let model = WorkspaceFeatureModel(
             operations: operations,
             fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
             gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
             directoryWatcherFactory: TestDirectoryWatcherFactory(),
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
@@ -2811,6 +2817,7 @@ struct EditorDocumentTests {
         let model = WorkspaceFeatureModel(
             operations: EmptyWorkspaceOperations(),
             fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
             gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
             directoryWatcherFactory: watcherFactory,
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
@@ -3198,6 +3205,7 @@ private func makeWorkspaceObservationUnitModel(
     let model = WorkspaceFeatureModel(
         operations: operations,
         fileOperations: fileOperations,
+        fileStorage: InMemoryFileStorage(),
         gitWatchContextProvider: provider,
         directoryWatcherFactory: watcherFactory,
         workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
@@ -3300,6 +3308,7 @@ private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
     func homeDirectory() -> URL { support }
     func cacheDirectory() -> URL { support }
     func applicationSupportDirectory() -> URL { support }
+    func temporaryDirectory() -> URL { support }
     func metadata(for url: URL) -> FileMetadata? { nil }
 
     func fileExists(at url: URL) -> Bool {
@@ -3357,6 +3366,10 @@ private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
         guard let value = files.removeValue(forKey: sourceURL.path) else {
             throw CocoaError(.fileNoSuchFile)
         }
+        files[destinationURL.path] = value
+    }
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
+        guard let value = files[sourceURL.path] else { throw CocoaError(.fileNoSuchFile) }
         files[destinationURL.path] = value
     }
 
