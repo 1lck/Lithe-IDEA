@@ -71,7 +71,17 @@ struct CoreVerification {
             return
         }
 
-        let files = searchFixture.files.sorted { $0.path < $1.path }
+        let fixtureRoot = URL(fileURLWithPath: "/tmp/lithe-shared-search-fixture")
+        let visibilityRules = FileVisibilityRules.default
+        let files = searchFixture.files
+            .filter { file in
+                !visibilityRules.isHidden(
+                    fixtureRoot.appendingPathComponent(file.path),
+                    relativeTo: fixtureRoot,
+                    isDirectory: false
+                )
+            }
+            .sorted { $0.path < $1.path }
         for fixtureCase in searchFixture.cases {
             var actual: [SearchFixture.Match] = []
             var options = ProjectSearchOptions.default

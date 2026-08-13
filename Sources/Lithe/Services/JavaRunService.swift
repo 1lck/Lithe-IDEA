@@ -597,7 +597,10 @@ final class RunService: ObservableObject {
         // project has no declared service. Its launch plan is selected by the
         // active language Provider at run time; Java projects still fall back
         // to the legacy core path.
-        var resolved = effective
+        var seenConfigurationIDs = Set<String>()
+        var resolved = effective.filter {
+            seenConfigurationIDs.insert($0.configuration.id).inserted
+        }
         if !resolved.contains(where: { $0.configuration.id == RunConfiguration.currentFileID }) {
             resolved.insert(
                 EffectiveRunConfiguration(

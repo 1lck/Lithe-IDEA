@@ -2,7 +2,7 @@ import Foundation
 
 struct FileVisibilityRules: Hashable, Sendable {
     static let builtInHiddenDirectories = [
-        ".git", ".build", ".swiftpm", "node_modules", "target", "build",
+        ".git", ".worktree", ".worktrees", ".build", ".swiftpm", "node_modules", "target", "build",
         "DerivedData", ".gradle", ".next", "dist", "coverage", "design-qa-artifacts"
     ]
     static let builtInHiddenFilePatterns = [

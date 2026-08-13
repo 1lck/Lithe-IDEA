@@ -3113,6 +3113,45 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func duplicateEffectiveConfigurationIDsDoNotCrashServiceProjection() async throws {
+        let configuration = JavaRunConfiguration(
+            id: "java-main:com.example.App",
+            name: "App",
+            kind: .javaMain,
+            modulePath: nil,
+            mainClass: "com.example.App"
+        )
+        let fixture = makeFixture(
+            status: .ready,
+            effective: [
+                EffectiveRunConfiguration(
+                    configuration: configuration,
+                    options: JavaRunOptions(vmArguments: "-Xmx1g"),
+                    source: .project
+                ),
+                EffectiveRunConfiguration(
+                    configuration: configuration,
+                    options: JavaRunOptions(vmArguments: "-Xmx2g"),
+                    source: .local
+                )
+            ]
+        )
+
+        await fixture.service.loadProject(
+            at: fixture.root,
+            files: [],
+            mavenProject: fixture.mavenProject
+        )
+
+        let projected = try #require(
+            fixture.service.configurations.first { $0.id == configuration.id }
+        )
+        #expect(fixture.service.configurations.count { $0.id == configuration.id } == 1)
+        #expect(fixture.service.options(for: projected).vmArguments == "-Xmx1g")
+        #expect(fixture.service.source(for: projected) == .project)
+    }
+
+    @Test
     func createdConfigurationIsResolvedAndSelected() async {
         let fixture = makeFixture(
             status: .ready,

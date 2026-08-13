@@ -349,8 +349,14 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
 
 pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
-    let has_java_sources = request
+    let mut paths = request
         .paths
+        .into_iter()
+        .filter(|path| !is_nested_checkout_path(path))
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    let has_java_sources = paths
         .iter()
         .any(|path| path.to_lowercase().ends_with(".java"));
     let has_maven_project = root.join("pom.xml").is_file() || root.join("mvnw").is_file();
@@ -360,10 +366,10 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .iter()
         .any(|name| root.join(name).is_file());
     let has_java_ecosystem = has_java_sources || has_maven_project || has_gradle_project;
-    let module_paths = inferred_maven_module_paths(&root, &request.paths, request.module_paths);
+    let module_paths = inferred_maven_module_paths(&root, &paths, request.module_paths);
     let scanned = crate::languages::run_configurations(JavaRunConfigurationsRequest {
         root: request.root.clone(),
-        paths: request.paths,
+        paths,
         module_paths,
     })?;
     let annotated_main_classes = scanned
@@ -372,7 +378,6 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .filter(|value| value.is_spring_boot)
         .map(|value| (value.path.clone(), value.qualified_name.clone()))
         .collect::<Vec<_>>();
-    let java_entry_count = scanned.configurations.len();
     let mut configurations = scanned
         .configurations
         .into_iter()
@@ -428,6 +433,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             }
         })
         .collect::<Vec<_>>();
+    let mut seen_configuration_ids = BTreeSet::new();
+    configurations.retain(|item| seen_configuration_ids.insert(item.id.clone()));
+    let java_entry_count = configurations.len();
     if has_java_sources {
         configurations.push(RunConfiguration {
             id: "current-file".to_string(),
@@ -621,6 +629,12 @@ fn normalize_project_relative(value: &str) -> Option<PathBuf> {
         return None;
     }
     Some(path.to_path_buf())
+}
+
+fn is_nested_checkout_path(value: &str) -> bool {
+    value.split(['/', '\\']).any(|component| {
+        component.eq_ignore_ascii_case(".worktree") || component.eq_ignore_ascii_case(".worktrees")
+    })
 }
 
 pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
@@ -1951,9 +1965,13 @@ fn input_change_summary(
 }
 
 fn ignored_directory(path: &Path) -> bool {
-    matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some(
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    name.eq_ignore_ascii_case(".worktree")
+        || name.eq_ignore_ascii_case(".worktrees")
+        || matches!(
+            name,
             ".git"
                 | ".lithe"
                 | ".idea"
@@ -1967,7 +1985,6 @@ fn ignored_directory(path: &Path) -> bool {
                 | "dist"
                 | "out"
         )
-    )
 }
 
 fn fingerprint_input(path: &Path) -> bool {
