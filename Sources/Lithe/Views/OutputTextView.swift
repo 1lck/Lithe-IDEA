@@ -16,31 +16,22 @@ struct OutputTextView: View {
     let onOpenLocation: (URL, Int, Int?) -> Void
 
     @State private var isAtBottom = true
+    @State private var scrollToLatestRequest = 0
 
     private static let bottomThreshold: CGFloat = 80
-    private static let contentID = "output-content"
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                if output.isEmpty {
-                    Text(emptyMessage)
-                        .font(.custom("Menlo", size: 11.5))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .padding(12)
-                        .id(Self.contentID)
-                } else {
-                    Text(renderedOutput)
-                        .font(.custom("Menlo", size: 11.5))
-                        .tint(LitheTheme.accent)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .padding(12)
-                        .id(Self.contentID)
-                }
-            }
+        OutputTextStorageView(
+            output: output,
+            searchRoots: searchRoots,
+            fileExists: fileExists,
+            emptyMessage: emptyMessage,
+            scrollToLatestRequest: scrollToLatestRequest,
+            bottomThreshold: Self.bottomThreshold,
+            render: Self.renderOutput,
+            onOpenLocation: onOpenLocation,
+            onBottomStateChange: { isAtBottom = $0 }
+        )
             .background(LitheTheme.editor)
             .overlay(alignment: .topTrailing) {
                 copyButton
@@ -48,35 +39,15 @@ struct OutputTextView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if !isAtBottom {
-                    jumpToLatestButton(proxy: proxy)
+                    jumpToLatestButton
                         .padding(10)
                 }
             }
-            .background(ScrollPositionTracker { distance in
-                isAtBottom = distance <= Self.bottomThreshold
-            })
-            .environment(\.openURL, OpenURLAction { url in
-                guard let location = Self.location(from: url) else { return .systemAction }
-                onOpenLocation(location.url, location.line, location.column)
-                return .handled
-            })
-            .onChange(of: output) { _ in
-                guard isAtBottom else { return }
-                withAnimation(.easeOut(duration: 0.15)) {
-                    proxy.scrollTo(Self.contentID, anchor: .bottom)
-                }
-            }
-        }
     }
 
     // MARK: - 渲染
 
-    private var renderedOutput: AttributedString {
-        guard !output.isEmpty else { return AttributedString() }
-        return Self.renderOutput(output, searchRoots: searchRoots, fileExists: fileExists)
-    }
-
-    private static func renderOutput(_ source: String, searchRoots: [URL], fileExists: @escaping (URL) -> Bool) -> AttributedString {
+    fileprivate static func renderOutput(_ source: String, searchRoots: [URL], fileExists: @escaping (URL) -> Bool) -> AttributedString {
         let parsed = ANSIOutputRenderer.parse(source)
         guard !parsed.cleanText.isEmpty else { return AttributedString() }
         var result = ANSIOutputRenderer.render(parsed, fontSize: 11.5)
@@ -278,7 +249,7 @@ struct OutputTextView: View {
         return components.url!
     }
 
-    private static func location(from url: URL) -> (url: URL, line: Int, column: Int?)? {
+    fileprivate static func location(from url: URL) -> (url: URL, line: Int, column: Int?)? {
         guard url.scheme == "lithe-open", url.host == "file",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let path = components.queryItems?.first(where: { $0.name == "path" })?.value,
@@ -295,7 +266,7 @@ struct OutputTextView: View {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             // 复制不含 ANSI 转义码的纯文本
-            pasteboard.setString(String(renderedOutput.characters), forType: .string)
+            pasteboard.setString(ANSIOutputRenderer.parse(output).cleanText, forType: .string)
         } label: {
             Label("Copy", systemImage: "doc.on.doc")
                 .font(.system(size: 11, weight: .medium))
@@ -313,11 +284,9 @@ struct OutputTextView: View {
         .help("Copy output")
     }
 
-    private func jumpToLatestButton(proxy: ScrollViewProxy) -> some View {
+    private var jumpToLatestButton: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(Self.contentID, anchor: .bottom)
-            }
+            scrollToLatestRequest &+= 1
             isAtBottom = true
         } label: {
             Label("Jump to latest", systemImage: "arrow.down.to.line")
@@ -334,84 +303,202 @@ struct OutputTextView: View {
     }
 }
 
-// MARK: - 滚动位置跟踪
+// MARK: - AppKit output storage
 
-/// 以 NSViewRepresentable 形式挂在 ScrollView 内,通过 NSScrollView 的
-/// boundsDidChange 通知回调"距底部距离",用于智能滚动。
-private struct ScrollPositionTracker: NSViewRepresentable {
-    var onScroll: @MainActor (CGFloat) -> Void
+enum OutputTextUpdate: Equatable {
+    case unchanged
+    case append(String)
+    case replaceTail(length: Int, with: String)
+    case replace
 
-    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+    static func plan(previous: String, next: String, previousHadANSI: Bool) -> Self {
+        guard previous != next else { return .unchanged }
+        guard !previous.isEmpty, !previousHadANSI, next.hasPrefix(previous) else { return .replace }
+        guard !previous.hasSuffix("\n") else {
+            return .append(String(next.dropFirst(previous.count)))
+        }
+        let tailStart = previous.lastIndex(of: "\n").map { previous.index(after: $0) } ?? previous.startIndex
+        let previousTail = String(previous[tailStart...])
+        let nextTail = String(next[tailStart...])
+        let cleanTailLength = ANSIOutputRenderer.parse(previousTail).cleanText.utf16.count
+        return .replaceTail(length: cleanTailLength, with: nextTail)
+    }
+}
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.onScroll = onScroll
-        context.coordinator.attach(to: nsView)
+private struct OutputTextStorageView: NSViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
+    let output: String
+    let searchRoots: [URL]
+    let fileExists: (URL) -> Bool
+    let emptyMessage: String
+    let scrollToLatestRequest: Int
+    let bottomThreshold: CGFloat
+    let render: (String, [URL], @escaping (URL) -> Bool) -> AttributedString
+    let onOpenLocation: (URL, Int, Int?) -> Void
+    let onBottomStateChange: @MainActor (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let textContainer = NSTextContainer(
+            containerSize: NSSize(width: 1, height: CGFloat.greatestFiniteMagnitude)
+        )
+        textContainer.widthTracksTextView = true
+        let layoutManager = NSLayoutManager()
+        layoutManager.allowsNonContiguousLayout = true
+        layoutManager.addTextContainer(textContainer)
+        let textStorage = NSTextStorage()
+        textStorage.addLayoutManager(layoutManager)
+        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        textView.delegate = context.coordinator
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = true
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 12, height: 12)
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = NSView.AutoresizingMask.width
+        textView.minSize = NSSize.zero
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.linkTextAttributes = [
+            NSAttributedString.Key.foregroundColor: LitheTheme.nsColor(
+                .accent,
+                isDark: context.environment.colorScheme == .dark
+            ),
+            NSAttributedString.Key.underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
+
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = textView
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        context.coordinator.attach(scrollView: scrollView, textView: textView)
+        return scrollView
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onScroll: onScroll) }
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.onOpenLocation = onOpenLocation
+        context.coordinator.onBottomStateChange = onBottomStateChange
+        context.coordinator.bottomThreshold = bottomThreshold
+        context.coordinator.apply(
+            output: output,
+            emptyMessage: emptyMessage,
+            isDark: colorScheme == .dark,
+            searchRoots: searchRoots,
+            fileExists: fileExists,
+            render: render
+        )
+        if context.coordinator.scrollToLatestRequest != scrollToLatestRequest {
+            context.coordinator.scrollToLatestRequest = scrollToLatestRequest
+            context.coordinator.scrollToBottom()
+        }
+    }
 
     @MainActor
-    final class Coordinator {
-        var onScroll: @MainActor (CGFloat) -> Void
-        private weak var scrollView: NSScrollView?
-        nonisolated(unsafe) private var boundsObserver: NSObjectProtocol?
-        nonisolated(unsafe) private var frameObserver: NSObjectProtocol?
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        weak var scrollView: NSScrollView?
+        weak var textView: NSTextView?
+        var onOpenLocation: ((URL, Int, Int?) -> Void)?
+        var onBottomStateChange: (@MainActor (Bool) -> Void)?
+        var bottomThreshold: CGFloat = 80
+        var scrollToLatestRequest = 0
+        private var source = ""
+        private var sourceHadANSI = false
+        private var showingEmptyMessage = false
+        private var isAtBottom = true
+        private var boundsObserver: NSObjectProtocol?
 
-        init(onScroll: @escaping @MainActor (CGFloat) -> Void) {
-            self.onScroll = onScroll
-        }
-
-        func attach(to view: NSView) {
-            guard let scrollView = view.enclosingScrollView, scrollView !== self.scrollView else { return }
-            detachObservers()
+        func attach(scrollView: NSScrollView, textView: NSTextView) {
             self.scrollView = scrollView
-            let center = NotificationCenter.default
-            boundsObserver = center.addObserver(
+            self.textView = textView
+            boundsObserver = NotificationCenter.default.addObserver(
                 forName: NSView.boundsDidChangeNotification,
                 object: scrollView.contentView,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.report() }
+                MainActor.assumeIsolated { self?.reportBottomState() }
             }
-            frameObserver = center.addObserver(
-                forName: NSView.frameDidChangeNotification,
-                object: scrollView,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.report() }
-            }
-            report()
         }
 
-        @MainActor
-        private func report() {
-            guard let scrollView else { return }
-            let bounds = scrollView.contentView.bounds
-            let documentHeight = scrollView.documentView?.frame.height ?? 0
-            onScroll(max(0, documentHeight - bounds.maxY))
+        func apply(
+            output: String,
+            emptyMessage: String,
+            isDark: Bool,
+            searchRoots: [URL],
+            fileExists: @escaping (URL) -> Bool,
+            render: (String, [URL], @escaping (URL) -> Bool) -> AttributedString
+        ) {
+            guard let storage = textView?.textStorage else { return }
+            let wasAtBottom = isAtBottom
+            if output.isEmpty {
+                guard !showingEmptyMessage || storage.string != emptyMessage else { return }
+                storage.setAttributedString(NSAttributedString(
+                    string: emptyMessage,
+                    attributes: [
+                        .font: NSFont(name: "Menlo", size: 11.5) ?? .monospacedSystemFont(ofSize: 11.5, weight: .regular),
+                        .foregroundColor: LitheTheme.nsColor(.primaryText, isDark: isDark)
+                    ]
+                ))
+                source = ""
+                sourceHadANSI = false
+                showingEmptyMessage = true
+            } else {
+                switch OutputTextUpdate.plan(previous: source, next: output, previousHadANSI: sourceHadANSI) {
+                case .unchanged:
+                    return
+                case let .append(suffix):
+                    let rendered = render(suffix, searchRoots, fileExists)
+                    storage.append(NSAttributedString(rendered))
+                    sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
+                case let .replaceTail(length, suffix):
+                    let rendered = NSAttributedString(render(suffix, searchRoots, fileExists))
+                    let replacementRange = NSRange(
+                        location: max(0, storage.length - length),
+                        length: min(length, storage.length)
+                    )
+                    storage.replaceCharacters(in: replacementRange, with: rendered)
+                    sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
+                case .replace:
+                    let rendered = render(output, searchRoots, fileExists)
+                    storage.setAttributedString(NSAttributedString(rendered))
+                    sourceHadANSI = output.unicodeScalars.contains { $0.value == 27 }
+                }
+                source = output
+                showingEmptyMessage = false
+            }
+            if wasAtBottom { scrollToBottom() }
+            reportBottomState()
         }
 
-        @MainActor
-        private func detachObservers() {
-            if let boundsObserver {
-                NotificationCenter.default.removeObserver(boundsObserver)
-                self.boundsObserver = nil
-            }
-            if let frameObserver {
-                NotificationCenter.default.removeObserver(frameObserver)
-                self.frameObserver = nil
-            }
-            scrollView = nil
+        func scrollToBottom() {
+            textView?.scrollToEndOfDocument(nil)
+            isAtBottom = true
+        }
+
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            guard let url = link as? URL, let location = OutputTextView.location(from: url) else { return false }
+            onOpenLocation?(location.url, location.line, location.column)
+            return true
+        }
+
+        private func reportBottomState() {
+            guard let scrollView, let textView else { return }
+            let visibleMaxY = scrollView.contentView.bounds.maxY
+            let documentHeight = textView.frame.height
+            let next = documentHeight - visibleMaxY <= bottomThreshold
+            guard next != isAtBottom else { return }
+            isAtBottom = next
+            onBottomStateChange?(next)
         }
 
         deinit {
-            // deinit 非 MainActor:仅移除通知 token,不触碰隔离属性
-            if let boundsObserver {
-                NotificationCenter.default.removeObserver(boundsObserver)
-            }
-            if let frameObserver {
-                NotificationCenter.default.removeObserver(frameObserver)
-            }
+            if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
         }
     }
 }
