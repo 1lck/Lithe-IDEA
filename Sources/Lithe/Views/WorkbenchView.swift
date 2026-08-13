@@ -1051,6 +1051,9 @@ struct WorkbenchView: View {
         .popover(isPresented: $isMemoryUsagePopoverPresented, arrowEdge: .top) {
             memoryUsagePopover
         }
+        .onChange(of: isMemoryUsagePopoverPresented) { isPresented in
+            memoryUsageMonitor.setDetailedUsageVisible(isPresented)
+        }
     }
 
     private var memoryUsagePopover: some View {
@@ -1080,8 +1083,18 @@ struct WorkbenchView: View {
 
             VStack(spacing: 0) {
                 memoryMetric("Lithe", value: memoryUsageMonitor.litheText)
-                memoryMetric("Language servers", value: memoryUsageMonitor.lspText)
-                memoryMetric("Running services", value: memoryUsageMonitor.serviceText)
+                memoryMetric(
+                    "Language servers",
+                    value: memoryUsageMonitor.languageServerProcessCount == 0
+                        ? String(localized: "Not running")
+                        : memoryUsageMonitor.lspText
+                )
+                memoryMetric(
+                    "Running services",
+                    value: memoryUsageMonitor.serviceProcessCount == 0
+                        ? String(localized: "Not running")
+                        : memoryUsageMonitor.serviceText
+                )
                 memoryMetric("Total", value: memoryUsageMonitor.totalText)
                 memoryMetric("Average total", value: memoryUsageMonitor.averageText)
                 memoryMetric("Peak total", value: memoryUsageMonitor.peakText)
