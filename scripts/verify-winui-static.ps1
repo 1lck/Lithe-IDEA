@@ -2,6 +2,7 @@
 param()
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Xml.Linq
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
@@ -10,6 +11,7 @@ $headerPath = "windows/winui/MainWindow.xaml.h"
 $sourcePath = "windows/winui/MainWindow.xaml.cpp"
 $resourcesPath = "windows/winui/App.xaml"
 $projectPath = "windows/winui/Lithe.WinUI.vcxproj"
+$iconResourcePath = "windows/packaging/lithe.rc"
 $xaml = Get-Content -Raw -LiteralPath $xamlPath
 $header = Get-Content -Raw -LiteralPath $headerPath
 $source = Get-Content -Raw -LiteralPath $sourcePath
@@ -28,7 +30,7 @@ $reader = [System.Xml.XmlReader]::Create($projectPath, $settings)
 try { [System.Xml.Linq.XDocument]::Load($reader) | Out-Null }
 finally { $reader.Dispose() }
 
-$eventNames = "Click|Tapped|DoubleTapped|RightTapped|PointerPressed|ItemClick|ItemInvoked|SelectionChanged|TextChanged|KeyDown|Loaded|SizeChanged|DragDelta|LostFocus|Checked|Unchecked|TabCloseRequested|Invoked"
+$eventNames = "Click|Tapped|DoubleTapped|RightTapped|PointerPressed|ItemClick|ItemInvoked|SelectionChanged|TextChanged|KeyDown|Loaded|SizeChanged|DragDelta|LostFocus|Checked|Unchecked|TabCloseRequested|Invoked|AddTabButtonClick"
 $eventPattern = '(?:' + $eventNames + ')="([A-Za-z_][A-Za-z0-9_]*)"'
 $handlers = [regex]::Matches($xaml, $eventPattern) |
     ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
@@ -55,6 +57,36 @@ foreach ($component in @("ui_dialogs.h", "ui_dialogs.cpp")) {
     }
     if ($project -notmatch ('Include="' + [regex]::Escape($component) + '"')) {
         throw "WinUI component is not included in the project: $component"
+    }
+}
+
+if (-not (Test-Path -LiteralPath $iconResourcePath -PathType Leaf)) {
+    throw "WinUI executable icon resource is missing: $iconResourcePath"
+}
+if ($project -notmatch 'ResourceCompile Include="\.\.\\packaging\\lithe\.rc"') {
+    throw "WinUI executable icon resource is not compiled into the project"
+}
+$iconResource = Get-Content -Raw -LiteralPath $iconResourcePath
+if ($iconResource -notmatch '(?m)^1\s+ICON\s+') {
+    throw "WinUI executable icon must use numeric resource ID 1"
+}
+
+if ($xaml -notmatch '<RichEditBox x:Name="TerminalOutputBox"') {
+    throw "Terminal output must use RichEditBox for styled ANSI output"
+}
+if ($source -notmatch 'terminalOutputSpans') {
+    throw "Terminal ANSI span rendering is not wired"
+}
+if ($xaml -notmatch 'x:Name="ActivityBarColumn"') {
+    throw "WinUI activity rail column is missing"
+}
+foreach ($handler in @(
+    "ActivityProjectClick", "ActivitySearchClick", "ActivityChangesClick",
+    "ActivityTerminalClick", "ActivityBuildClick",
+    "ActivityProblemsClick", "ActivityDebugClick"
+)) {
+    if ($xaml -notmatch ('Click="' + $handler + '"')) {
+        throw "Activity rail handler is not wired in XAML: $handler"
     }
 }
 

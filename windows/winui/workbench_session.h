@@ -242,8 +242,11 @@ public:
     void clearTerminal(std::string id);
     app::TerminalFeatureState terminalState() const;
     std::string terminalOutput(std::string_view id) const;
+    std::vector<lithe::windows::algorithms::TerminalSpan> terminalOutputSpans(
+        std::string_view id) const;
     void startTerminal(std::string id);
     void sendTerminal(std::string id, std::string input);
+    void sendTerminalText(std::string id, std::string input);
     void interruptTerminal(std::string id);
     void resizeTerminal(std::string id, int columns, int rows);
     void stopTerminal(std::string id);

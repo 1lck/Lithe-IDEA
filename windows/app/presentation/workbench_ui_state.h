@@ -47,9 +47,21 @@ struct GitChangeRow {
     std::string path;
     std::string label;
     bool blocking = false;
+    bool staged = false;
+    std::string status;
+};
+
+struct GitChangeGroups {
+    std::vector<GitChangeRow> staged;
+    std::vector<GitChangeRow> working;
 };
 
 std::vector<GitChangeRow> buildGitChangeRows(
+    const GitStatusDto& status,
+    const std::vector<std::string>& blockingPaths,
+    bool blockingOnly);
+
+GitChangeGroups buildGitChangeGroups(
     const GitStatusDto& status,
     const std::vector<std::string>& blockingPaths,
     bool blockingOnly);

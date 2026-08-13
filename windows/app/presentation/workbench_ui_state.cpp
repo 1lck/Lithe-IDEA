@@ -90,13 +90,28 @@ std::vector<GitChangeRow> buildGitChangeRows(
             change.path,
             area + "  " + (isBlocking ? "BLOCKED" : change.status) + "  " + change.path,
             isBlocking,
+            change.staged,
+            isBlocking ? "!" : change.status,
         });
     }
     for (const auto& path : blockingPaths) {
         if (!displayed.insert(path).second) continue;
-        rows.push_back(GitChangeRow{path, "!  BLOCKED  " + path, true});
+        rows.push_back(GitChangeRow{path, "!  BLOCKED  " + path, true, false, "!"});
     }
     return rows;
+}
+
+GitChangeGroups buildGitChangeGroups(
+    const GitStatusDto& status,
+    const std::vector<std::string>& blockingPaths,
+    bool blockingOnly) {
+    const auto rows = buildGitChangeRows(status, blockingPaths, blockingOnly);
+    GitChangeGroups groups;
+    for (const auto& row : rows) {
+        if (row.staged) groups.staged.push_back(row);
+        else groups.working.push_back(row);
+    }
+    return groups;
 }
 
 } // namespace lithe::windows

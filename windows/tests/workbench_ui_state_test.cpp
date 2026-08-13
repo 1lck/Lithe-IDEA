@@ -144,5 +144,22 @@ int main() {
     assert(blockedChanges[0].path == "src/Working.java");
     assert(blockedChanges[1].path == "src/OnlyMarker.java");
 
+    const auto groups = buildGitChangeGroups(gitStatus, {}, false);
+    assert(groups.staged.size() == 1);
+    assert(groups.staged[0].path == "src/Staged.java");
+    assert(groups.working.size() == 2);
+    assert(groups.working[0].path == "src/Working.java");
+    assert(groups.working[1].path == "src/New.java");
+    assert(groups.staged[0].staged);
+
+    const auto blockingGroups = buildGitChangeGroups(
+        gitStatus, {"src/Working.java", "src/OnlyMarker.java"}, true);
+    assert(blockingGroups.staged.empty());
+    assert(blockingGroups.working.size() == 2);
+    assert(blockingGroups.working[0].path == "src/Working.java");
+    assert(blockingGroups.working[0].blocking);
+    assert(blockingGroups.working[1].path == "src/OnlyMarker.java");
+    assert(blockingGroups.working[1].blocking);
+
     return 0;
 }

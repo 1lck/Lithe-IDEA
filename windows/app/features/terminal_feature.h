@@ -48,6 +48,8 @@ public:
     bool appendOutput(std::string_view id, std::string_view output);
     bool clearOutput(std::string_view id);
     std::string output(std::string_view id, std::size_t maximumCharacters = 500'000) const;
+    std::vector<algorithms::TerminalSpan> outputSpans(
+        std::string_view id, std::size_t maximumCharacters = 500'000) const;
     std::optional<TerminalSessionSnapshot> session(std::string_view id) const;
     TerminalFeatureState state() const;
     void reset();

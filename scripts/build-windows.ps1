@@ -24,17 +24,23 @@ $targetDirectory = if ($env:LITHE_RUST_TARGET_DIR) {
 }
 $env:CARGO_TARGET_DIR = $targetDirectory
 
+$previousErrorAction = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 & rustup target add $RustTarget
-if ($LASTEXITCODE -ne 0) { throw "Could not install Rust target $RustTarget" }
-
+$rustupExit = $LASTEXITCODE
+$ErrorActionPreference = $previousErrorAction
+if ($rustupExit -ne 0) { throw "Could not install Rust target $RustTarget" }
 $cargoArgs = @(
     "build",
     "--manifest-path", "rust/Cargo.toml",
     "--target", $RustTarget
 )
 $cargoArgs += $profileArgs
+$ErrorActionPreference = "Continue"
 & cargo @cargoArgs
-if ($LASTEXITCODE -ne 0) { throw "Rust core build failed" }
+$cargoExit = $LASTEXITCODE
+$ErrorActionPreference = $previousErrorAction
+if ($cargoExit -ne 0) { throw "Rust core build failed" }
 
 $rustProfile = if ($Configuration -eq "Release") { "release" } else { "debug" }
 $rustOutput = Join-Path $targetDirectory "$RustTarget/$rustProfile"

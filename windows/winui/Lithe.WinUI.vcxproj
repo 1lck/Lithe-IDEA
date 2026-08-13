@@ -138,6 +138,7 @@
     <Midl Include="Project.idl" />
     <ApplicationDefinition Include="App.xaml" />
     <Page Include="MainWindow.xaml" />
+    <ResourceCompile Include="..\packaging\lithe.rc" />
   </ItemGroup>
 
   <ItemGroup>

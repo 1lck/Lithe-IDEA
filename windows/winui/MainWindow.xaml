@@ -210,15 +210,21 @@
                     <FontIcon Glyph="&#xE756;" FontSize="14" />
                     <ToolTipService.ToolTip>Open terminal</ToolTipService.ToolTip>
                 </Button>
-                <Button Style="{StaticResource LitheIconButtonStyle}" Click="ToggleBottomPanelClick">
-                    <FontIcon Glyph="&#xE70D;" FontSize="14" />
-                    <ToolTipService.ToolTip>Toggle tool window</ToolTipService.ToolTip>
+                <Button Style="{StaticResource LitheIconButtonStyle}" Click="ToggleThemeClick">
+                    <FontIcon Glyph="&#xE793;" FontSize="14" />
+                    <ToolTipService.ToolTip>Toggle theme</ToolTipService.ToolTip>
+                </Button>
+                <Button Style="{StaticResource LitheIconButtonStyle}" Click="ShowSettingsClick">
+                    <FontIcon Glyph="&#xE713;" FontSize="14" />
+                    <ToolTipService.ToolTip>Settings</ToolTipService.ToolTip>
                 </Button>
             </StackPanel>
         </Grid>
 
         <Grid x:Name="WorkbenchSurface" Grid.Row="1" MinWidth="760" MinHeight="440">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ActivityBarColumn"
+                                  Width="{StaticResource LitheActivityBarWidth}" />
                 <ColumnDefinition x:Name="SidebarColumn"
                                   Width="{StaticResource LitheSidebarPreferredWidth}"
                                   MinWidth="{StaticResource LitheSidebarMinWidth}"
@@ -227,7 +233,57 @@
                 <ColumnDefinition Width="*" MinWidth="420" />
             </Grid.ColumnDefinitions>
 
-            <Grid Grid.Column="0" Background="{ThemeResource LitheSidebarBrush}">
+            <Grid Grid.Column="0" Background="{ThemeResource LitheActivityBarBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Rectangle x:Name="ActivityIndicator" Width="3" RadiusX="1.5" RadiusY="1.5"
+                           Fill="{ThemeResource LitheAccentBrush}"
+                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                           Height="0" Visibility="Collapsed" Margin="1,8,0,0" />
+                <StackPanel Grid.Row="0" Spacing="4" Padding="4,8">
+                    <Button Click="ActivityProjectClick" AutomationProperties.Name="Project"
+                            Style="{StaticResource LitheActivityButtonStyle}">
+                        <FontIcon Glyph="&#xE8B7;" FontSize="16" />
+                        <ToolTipService.ToolTip>Project</ToolTipService.ToolTip>
+                    </Button>
+                    <Button Click="ActivitySearchClick" AutomationProperties.Name="Search"
+                            Style="{StaticResource LitheActivityButtonStyle}">
+                        <FontIcon Glyph="&#xE721;" FontSize="16" />
+                        <ToolTipService.ToolTip>Search</ToolTipService.ToolTip>
+                    </Button>
+                    <Button Click="ActivityChangesClick" AutomationProperties.Name="Source Control"
+                            Style="{StaticResource LitheActivityButtonStyle}">
+                        <FontIcon Glyph="&#xE8A5;" FontSize="16" />
+                        <ToolTipService.ToolTip>Source Control</ToolTipService.ToolTip>
+                    </Button>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Spacing="4" Padding="4,4,4,8">
+                    <Button Click="ActivityTerminalClick" AutomationProperties.Name="Terminal"
+                            Style="{StaticResource LitheActivityButtonStyle}">
+                        <FontIcon Glyph="&#xE756;" FontSize="16" />
+                        <ToolTipService.ToolTip>Terminal</ToolTipService.ToolTip>
+                    </Button>
+                    <Button Click="ActivityBuildClick" AutomationProperties.Name="Build"
+                            Style="{StaticResource LitheActivityButtonStyle}">
+                        <FontIcon Glyph="&#xE7B8;" FontSize="16" />
+                        <ToolTipService.ToolTip>Build</ToolTipService.ToolTip>
+                    </Button>
+                    <Button Click="ActivityProblemsClick" AutomationProperties.Name="Problems"
+                            Style="{StaticResource LitheActivityButtonStyle}">
+                        <FontIcon Glyph="&#xE7BA;" FontSize="16" />
+                        <ToolTipService.ToolTip>Problems</ToolTipService.ToolTip>
+                    </Button>
+                    <Button Click="ActivityDebugClick" AutomationProperties.Name="Debug"
+                            Style="{StaticResource LitheActivityButtonStyle}">
+                        <FontIcon Glyph="&#xE7C4;" FontSize="16" />
+                        <ToolTipService.ToolTip>Debug</ToolTipService.ToolTip>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Column="1" Background="{ThemeResource LitheSidebarBrush}">
                 <TabView x:Name="SidebarTabs"
                          IsAddTabButtonVisible="False"
                          TabWidthMode="Equal"
@@ -285,59 +341,6 @@
                         </Grid>
                     </TabViewItem>
 
-                    <TabViewItem Header="Changes" IsClosable="False">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="{StaticResource LitheToolWindowHeaderHeight}" />
-                                <RowDefinition Height="*" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0" Padding="10,4,6,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="GitBranchText" Text="CHANGES"
-                                           Style="{StaticResource LithePaneHeaderStyle}"
-                                           VerticalAlignment="Center" />
-                                <ToggleButton x:Name="BlockedChangesFilterButton" Grid.Column="1"
-                                              Width="30" Height="28" Margin="0,1,2,1"
-                                              Checked="BlockedChangesFilterChanged"
-                                              Unchecked="BlockedChangesFilterChanged">
-                                    <FontIcon Glyph="&#xE71C;" FontSize="13" />
-                                    <ToolTipService.ToolTip>Show blocked paths only</ToolTipService.ToolTip>
-                                </ToggleButton>
-                                <Button Grid.Column="2" Style="{StaticResource LitheIconButtonStyle}"
-                                        Click="RefreshGitClick">
-                                    <FontIcon Glyph="&#xE72C;" FontSize="14" />
-                                    <ToolTipService.ToolTip>Refresh changes</ToolTipService.ToolTip>
-                                </Button>
-                            </Grid>
-                            <ListView x:Name="ChangesList"
-                                      Grid.Row="1"
-                                      SelectionMode="Multiple"
-                                      IsItemClickEnabled="True"
-                                      ItemClick="ChangeItemClick" />
-                            <CommandBar Grid.Row="2" DefaultLabelPosition="Collapsed"
-                                        Background="Transparent" IsOpen="False">
-                                <AppBarButton Label="Stage" Click="StageSelectedClick">
-                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74A;" /></AppBarButton.Icon>
-                                </AppBarButton>
-                                <AppBarButton Label="Unstage" Click="UnstageSelectedClick">
-                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74B;" /></AppBarButton.Icon>
-                                </AppBarButton>
-                                <AppBarButton Label="Discard" Click="DiscardSelectedClick">
-                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
-                                </AppBarButton>
-                                <AppBarButton Label="Roll back blocked file"
-                                              Click="RollbackBlockedPathClick">
-                                    <AppBarButton.Icon><FontIcon Glyph="&#xE7A7;" /></AppBarButton.Icon>
-                                </AppBarButton>
-                            </CommandBar>
-                        </Grid>
-                    </TabViewItem>
-
                     <TabViewItem Header="Search" IsClosable="False">
                         <Grid>
                             <Grid.RowDefinitions>
@@ -359,13 +362,125 @@
                                       ItemClick="SearchResultClick" />
                         </Grid>
                     </TabViewItem>
+                    <TabViewItem Header="Source Control" IsClosable="False">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Border Grid.Row="0" Margin="10,8,10,6" Padding="0"
+                                    Background="#1E2230" CornerRadius="5">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Rectangle Width="3" RadiusX="1.5" RadiusY="1.5"
+                                               Fill="{ThemeResource LitheAccentBrush}"
+                                               VerticalAlignment="Stretch" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                                Spacing="8" Margin="8,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="GitBranchText" Text="main"
+                                                   FontFamily="Cascadia Mono, Consolas"
+                                                   FontSize="12"
+                                                   Foreground="#DBE4F2"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Name="GitSyncStatusText"
+                                                   FontSize="10"
+                                                   FontFamily="Cascadia Mono, Consolas"
+                                                   Foreground="#7F9CD0"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <ToggleButton x:Name="BlockedChangesFilterButton" Grid.Column="2"
+                                                  Width="26" Height="24" Margin="2,0"
+                                                  Checked="BlockedChangesFilterChanged"
+                                                  Unchecked="BlockedChangesFilterChanged">
+                                        <FontIcon Glyph="&#xE71C;" FontSize="12" />
+                                        <ToolTipService.ToolTip>Show blocked paths only</ToolTipService.ToolTip>
+                                    </ToggleButton>
+                                    <Button Grid.Column="3" Style="{StaticResource LitheIconButtonStyle}"
+                                            Click="RefreshGitClick">
+                                        <FontIcon Glyph="&#xE72C;" FontSize="13" />
+                                        <ToolTipService.ToolTip>Refresh changes</ToolTipService.ToolTip>
+                                    </Button>
+                                    <Button Grid.Column="4" Style="{StaticResource LitheIconButtonStyle}"
+                                            Click="ShowGitBranchTreeClick">
+                                        <FontIcon Glyph="&#xE7A6;" FontSize="13" />
+                                        <ToolTipService.ToolTip>Branches</ToolTipService.ToolTip>
+                                    </Button>
+                                </Grid>
+                            </Border>
+                            <TreeView x:Name="GitBranchTree" Grid.Row="1"
+                                      MaxHeight="220" MinHeight="60"
+                                      Padding="4,2,4,6"
+                                      SelectionChanged="GitBranchTreeSelectionChanged" />
+                            <Grid Grid.Row="2" Margin="0,2,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="2*" MinHeight="56" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="3*" MinHeight="84" />
+                                </Grid.RowDefinitions>
+                                <StackPanel Orientation="Horizontal" Spacing="8" Padding="10,2,6,0">
+                                    <TextBlock Text="STAGED" Style="{StaticResource LithePaneHeaderStyle}" />
+                                    <Border Background="{ThemeResource LitheSubtleBrush}"
+                                            CornerRadius="9" Padding="0,0,0,0">
+                                        <TextBlock x:Name="GitStagedCountText" FontSize="10"
+                                                   Foreground="{ThemeResource LitheMutedTextBrush}"
+                                                   Padding="7,0" />
+                                    </Border>
+                                </StackPanel>
+                                <ListView x:Name="GitStagedList" Grid.Row="1"
+                                          SelectionMode="Multiple"
+                                          IsItemClickEnabled="True"
+                                          ItemClick="ChangeItemClick" />
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Padding="10,4,6,0">
+                                    <TextBlock Text="CHANGES" Style="{StaticResource LithePaneHeaderStyle}" />
+                                    <Border Background="{ThemeResource LitheSubtleBrush}"
+                                            CornerRadius="9">
+                                        <TextBlock x:Name="GitChangesCountText" FontSize="10"
+                                                   Foreground="{ThemeResource LitheMutedTextBrush}"
+                                                   Padding="7,0" />
+                                    </Border>
+                                </StackPanel>
+                                <ListView x:Name="ChangesList" Grid.Row="3"
+                                          SelectionMode="Multiple"
+                                          IsItemClickEnabled="True"
+                                          ItemClick="ChangeItemClick" />
+                            </Grid>
+                            <CommandBar Grid.Row="4" DefaultLabelPosition="Collapsed"
+                                        Background="Transparent" IsOpen="False">
+                                <AppBarButton Label="Stage" Click="StageSelectedClick">
+                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74A;" /></AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton Label="Unstage" Click="UnstageSelectedClick">
+                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74B;" /></AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton Label="Discard" Click="DiscardSelectedClick">
+                                    <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
+                                </AppBarButton>
+                                <AppBarButton Label="Roll back blocked file"
+                                              Click="RollbackBlockedPathClick">
+                                    <AppBarButton.Icon><FontIcon Glyph="&#xE7A7;" /></AppBarButton.Icon>
+                                </AppBarButton>
+                            </CommandBar>
+                        </Grid>
+                    </TabViewItem>
+
                 </TabView>
             </Grid>
 
-            <primitives:Thumb Grid.Column="1" DragDelta="SidebarSplitterDragDelta"
+            <primitives:Thumb Grid.Column="2" DragDelta="SidebarSplitterDragDelta"
                               Background="Transparent" />
 
-            <Grid Grid.Column="2" Background="{ThemeResource LitheWindowBrush}">
+            <Grid Grid.Column="3" Background="{ThemeResource LitheWindowBrush}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" MinHeight="220" />
                     <RowDefinition Height="5" />
@@ -609,54 +724,81 @@
                                     <RowDefinition Height="*" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <CommandBar Background="Transparent" DefaultLabelPosition="Collapsed">
-                                    <AppBarElementContainer>
-                                        <ComboBox x:Name="TerminalSessionsBox" Width="150"
-                                                  SelectionChanged="TerminalSessionSelectionChanged" />
-                                    </AppBarElementContainer>
-                                    <AppBarElementContainer>
-                                        <ComboBox x:Name="TerminalShellBox" Width="210"
-                                                  IsEditable="True"
-                                                  PlaceholderText="Shell executable"
-                                                  SelectionChanged="TerminalShellSelectionChanged"
-                                                  LostFocus="TerminalShellLostFocus">
-                                            <ComboBoxItem Content="cmd.exe" />
-                                            <ComboBoxItem Content="powershell.exe" />
-                                            <ComboBoxItem Content="pwsh.exe" />
-                                        </ComboBox>
-                                    </AppBarElementContainer>
-                                    <AppBarButton Label="New Terminal" Click="NewTerminalClick">
-                                        <AppBarButton.Icon><FontIcon Glyph="&#xE710;" /></AppBarButton.Icon>
-                                    </AppBarButton>
-                                    <AppBarButton Label="Start" Click="StartTerminalClick">
-                                        <AppBarButton.Icon><FontIcon Glyph="&#xE768;" /></AppBarButton.Icon>
-                                    </AppBarButton>
-                                    <AppBarButton Label="Interrupt" Click="InterruptTerminalClick">
-                                        <AppBarButton.Icon><FontIcon Glyph="&#xE71A;" /></AppBarButton.Icon>
-                                    </AppBarButton>
-                                    <AppBarButton Label="Restart" Click="RestartTerminalClick">
-                                        <AppBarButton.Icon><FontIcon Glyph="&#xE72C;" /></AppBarButton.Icon>
-                                    </AppBarButton>
-                                    <AppBarButton Label="Clear" Click="ClearTerminalClick">
-                                        <AppBarButton.Icon><FontIcon Glyph="&#xE74D;" /></AppBarButton.Icon>
-                                    </AppBarButton>
-                                    <AppBarButton Label="Stop" Click="StopTerminalClick">
-                                        <AppBarButton.Icon><FontIcon Glyph="&#xE71A;" /></AppBarButton.Icon>
-                                    </AppBarButton>
-                                    <AppBarButton Label="Close Terminal" Click="CloseTerminalClick">
-                                        <AppBarButton.Icon><FontIcon Glyph="&#xE711;" /></AppBarButton.Icon>
-                                    </AppBarButton>
-                                </CommandBar>
-                                <TextBox x:Name="TerminalOutputBox" Grid.Row="1"
-                                         IsReadOnly="True" AcceptsReturn="True"
-                                         TextWrapping="NoWrap" FontFamily="Cascadia Mono, Consolas"
-                                         FontSize="12" BorderThickness="0" CornerRadius="0"
-                                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
-                                <TextBox x:Name="TerminalInputBox" Grid.Row="2"
-                                         Margin="8,4,8,8"
-                                         PlaceholderText="Enter terminal command"
-                                         KeyDown="TerminalInputKeyDown" />
+                                <Grid Grid.Row="0" Padding="8,3,8,3"
+                                      Background="{ThemeResource LitheToolHeaderBrush}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="TERMINAL" Style="{StaticResource LitheToolWindowHeaderStyle}"
+                                               VerticalAlignment="Center" Margin="2,0,10,0" />
+                                    <TabView x:Name="TerminalSessionsTabs" Grid.Column="1"
+                                             IsAddTabButtonVisible="True"
+                                             AddTabButtonClick="TerminalSessionsAddClick"
+                                             TabCloseRequested="TerminalSessionsTabCloseRequested"
+                                             TabWidthMode="SizeToContent"
+                                             CanDragTabs="False"
+                                             SelectionChanged="TerminalSessionsTabSelectionChanged" />
+                                    <ComboBox x:Name="TerminalShellBox" Grid.Column="2" Width="210"
+                                              Margin="8,0,0,0"
+                                              IsEditable="True"
+                                              PlaceholderText="Shell executable"
+                                              SelectionChanged="TerminalShellSelectionChanged"
+                                              LostFocus="TerminalShellLostFocus">
+                                        <ComboBoxItem Content="cmd.exe" />
+                                        <ComboBoxItem Content="powershell.exe" />
+                                        <ComboBoxItem Content="pwsh.exe" />
+                                    </ComboBox>
+                                    <TextBlock x:Name="TerminalPathText" Grid.Column="3"
+                                               FontFamily="Cascadia Mono, Consolas"
+                                               FontSize="11"
+                                               Foreground="{ThemeResource LitheMutedTextBrush}"
+                                               VerticalAlignment="Center"
+                                               Margin="8,0,0,0"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxWidth="260" />
+                                    <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="2">
+                                    <Button Style="{StaticResource LitheIconButtonStyle}" Click="NewTerminalClick">
+                                        <ToolTipService.ToolTip>New Terminal</ToolTipService.ToolTip>
+                                        <FontIcon Glyph="&#xE710;" />
+                                    </Button>
+                                    <Button Style="{StaticResource LitheIconButtonStyle}" Click="StartTerminalClick">
+                                        <ToolTipService.ToolTip>Start</ToolTipService.ToolTip>
+                                        <FontIcon Glyph="&#xE768;" />
+                                    </Button>
+                                    <Button Style="{StaticResource LitheIconButtonStyle}" Click="InterruptTerminalClick">
+                                        <ToolTipService.ToolTip>Interrupt</ToolTipService.ToolTip>
+                                        <FontIcon Glyph="&#xE71A;" />
+                                    </Button>
+                                    <Button Style="{StaticResource LitheIconButtonStyle}" Click="RestartTerminalClick">
+                                        <ToolTipService.ToolTip>Restart</ToolTipService.ToolTip>
+                                        <FontIcon Glyph="&#xE72C;" />
+                                    </Button>
+                                    <Button Style="{StaticResource LitheIconButtonStyle}" Click="ClearTerminalClick">
+                                        <ToolTipService.ToolTip>Clear</ToolTipService.ToolTip>
+                                        <FontIcon Glyph="&#xE74D;" />
+                                    </Button>
+                                    <Button Style="{StaticResource LitheIconButtonStyle}" Click="StopTerminalClick">
+                                        <ToolTipService.ToolTip>Stop</ToolTipService.ToolTip>
+                                        <FontIcon Glyph="&#xE71A;" />
+                                    </Button>
+                                    <Button Style="{StaticResource LitheIconButtonStyle}" Click="CloseTerminalClick">
+                                        <ToolTipService.ToolTip>Close Terminal</ToolTipService.ToolTip>
+                                        <FontIcon Glyph="&#xE711;" />
+                                    </Button>
+                                    </StackPanel>
+                                </Grid>
+                                <RichEditBox x:Name="TerminalOutputBox" Grid.Row="1" Grid.RowSpan="2"
+                                             IsReadOnly="True" TextWrapping="NoWrap"
+                                             FontFamily="Cascadia Mono, Consolas"
+                                             FontSize="12" BorderThickness="0" CornerRadius="0"
+                                             Padding="8,4,8,8"
+                                             Loaded="TerminalOutputLoaded"
+                                             KeyDown="TerminalOutputKeyDown"
+                                             CharacterReceived="TerminalOutputCharacterReceived" />
                             </Grid>
                         </TabViewItem>
 
@@ -832,6 +974,7 @@
                                          TabWidthMode="Equal">
                                     <TabViewItem Header="History" IsClosable="False">
                                         <ListView x:Name="GitHistoryList"
+                                                  Padding="4"
                                                   IsItemClickEnabled="True"
                                                   ItemClick="GitHistoryItemClick" />
                                     </TabViewItem>
@@ -917,7 +1060,7 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="COMMIT" Style="{StaticResource LithePaneHeaderStyle}" />
+                                        <TextBlock Text="COMMIT" Style="{StaticResource LitheToolWindowHeaderStyle}" />
                                         <Button Grid.Column="1" Style="{StaticResource LitheIconButtonStyle}"
                                                 Click="GenerateAICommitClick">
                                             <FontIcon Glyph="&#xE945;" FontSize="14" />
@@ -937,11 +1080,13 @@
                                              PlaceholderText="Commit message" />
                                     <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8">
                                         <CheckBox x:Name="AmendCommitCheckBox" Content="Amend" />
-                                        <Button Content="Stage all" Click="StageAllClick" />
-                                        <Button Content="Commit"
+                                        <Button x:Name="StageAllButton" Content="Stage all" Click="StageAllClick" />
+                                        <Button x:Name="CommitButton"
+                                                Content="Commit"
                                                 Style="{StaticResource LithePrimaryButtonStyle}"
                                                 Click="CommitClick" />
-                                        <Button Content="Commit and Push"
+                                        <Button x:Name="CommitAndPushButton"
+                                                Content="Commit and Push"
                                                 Click="CommitAndPushClick" />
                                     </StackPanel>
                                 </Grid>
@@ -1012,17 +1157,32 @@
               BorderBrush="{ThemeResource LitheBorderBrush}"
               BorderThickness="0,1,0,0" Padding="10,0">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="StatusText" Foreground="{ThemeResource LitheMutedTextBrush}" FontSize="11"
-                       Text="Ready" TextTrimming="CharacterEllipsis"
-                       VerticalAlignment="Center" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <Ellipse x:Name="StatusDot" Width="8" Height="8"
+                         Fill="{ThemeResource LitheMutedTextBrush}" />
+                <TextBlock x:Name="StatusText" Foreground="{ThemeResource LitheMutedTextBrush}" FontSize="11"
+                           Text="Ready" TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock x:Name="FilePathText" Grid.Column="1"
+                       Foreground="{ThemeResource LitheMutedTextBrush}"
+                       FontSize="11" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" MaxWidth="420"
+                       Margin="16,0,0,0" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="14"
+                        VerticalAlignment="Center">
                 <TextBlock x:Name="GitStatusText" Foreground="{ThemeResource LitheMutedTextBrush}" FontSize="11"
                            VerticalAlignment="Center" />
                 <TextBlock x:Name="CursorPositionText" Text="Ln 1, Col 1"
                            Foreground="{ThemeResource LitheMutedTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                <TextBlock Text="UTF-8" Foreground="{ThemeResource LitheMutedTextBrush}"
+                           FontSize="11" VerticalAlignment="Center" />
+                <TextBlock Text="LF" Foreground="{ThemeResource LitheMutedTextBrush}"
+                           FontSize="11" VerticalAlignment="Center" />
                 <TextBlock x:Name="AnalysisStatusText" Foreground="{ThemeResource LitheMutedTextBrush}" FontSize="11"
                            VerticalAlignment="Center" />
             </StackPanel>
@@ -1061,7 +1221,7 @@
                                Stretch="Uniform" />
                         <StackPanel VerticalAlignment="Center" Spacing="3">
                             <TextBlock Text="Lithe" FontSize="18" FontWeight="SemiBold" />
-                            <TextBlock Text="0.1.11 · Windows" FontSize="11"
+                            <TextBlock Text="0.1.11 路 Windows" FontSize="11"
                                        Foreground="{ThemeResource LitheMutedTextBrush}" />
                             <Button Height="22" Padding="0" HorizontalAlignment="Left"
                                     Background="Transparent" BorderThickness="0"

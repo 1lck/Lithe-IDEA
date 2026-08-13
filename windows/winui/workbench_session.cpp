@@ -2020,6 +2020,11 @@ std::string WorkbenchSession::terminalOutput(std::string_view id) const {
     return terminalFeature_->output(id);
 }
 
+std::vector<lithe::windows::algorithms::TerminalSpan> WorkbenchSession::terminalOutputSpans(
+    std::string_view id) const {
+    return terminalFeature_->outputSpans(id);
+}
+
 std::string WorkbenchSession::defaultTerminalShell() const {
     if (!settings_.terminalShellPath.empty()) return settings_.terminalShellPath;
     const auto environment = runtimeLocator_.environment();
@@ -2064,6 +2069,16 @@ void WorkbenchSession::sendTerminal(std::string id, std::string input) {
     found = terminals_.find(id);
     if (found != terminals_.end() && found->second->isRunning()) {
         found->second->send(std::move(input) + "\r\n");
+    }
+}
+
+void WorkbenchSession::sendTerminalText(std::string id, std::string input) {
+    auto found = terminals_.find(id);
+    if (found == terminals_.end()) return;
+    if (!found->second->isRunning()) startTerminal(id);
+    found = terminals_.find(id);
+    if (found != terminals_.end() && found->second->isRunning()) {
+        found->second->send(std::move(input));
     }
 }
 

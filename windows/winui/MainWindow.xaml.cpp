@@ -6,6 +6,8 @@
 #endif
 
 #include "fuzzy_match.h"
+#include "git_graph_layout.h"
+#include "git_reference_tree.h"
 #include "gutter_hit_test.h"
 #include "syntax_highlighter.h"
 #include "text_diff.h"
@@ -14,6 +16,7 @@
 
 #include <microsoft.ui.xaml.window.h>
 
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <ctime>
@@ -111,15 +114,110 @@ ListViewItem makeListItem(std::string label, std::string tag = {}) {
     return item;
 }
 
+Media::SolidColorBrush applicationBrush(wchar_t const* key) {
+    return Application::Current().Resources()
+        .Lookup(box_value(hstring(key))).try_as<Media::SolidColorBrush>();
+}
+
+ListViewItem makeGitChangeItem(const lithe::windows::GitChangeRow& row) {
+    ListViewItem item;
+    item.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    item.Padding(Thickness{10, 4, 8, 4});
+    item.Tag(box_value(text(row.path)));
+
+    StackPanel panel;
+    panel.Orientation(Orientation::Horizontal);
+    panel.Spacing(7);
+
+    TextBlock status;
+    const wchar_t* statusColor = L"LitheMutedTextBrush";
+    if (row.staged) statusColor = L"LitheSuccessBrush";
+    if (!row.status.empty()) {
+        switch (row.status.front()) {
+        case 'M': statusColor = L"LitheWarningBrush"; break;
+        case 'A': statusColor = L"LitheSuccessBrush"; break;
+        case 'D': statusColor = L"LitheErrorBrush"; break;
+        default: break;
+        }
+    }
+    status.Text(text(row.status));
+    status.Width(15);
+    status.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    status.FontSize(11);
+    status.TextAlignment(TextAlignment::Center);
+    status.Foreground(applicationBrush(statusColor));
+    panel.Children().Append(status);
+
+    StackPanel textStack;
+    textStack.Spacing(0);
+    TextBlock name;
+    name.Text(text(row.path));
+    name.FontSize(12.5);
+    name.TextTrimming(TextTrimming::CharacterEllipsis);
+    textStack.Children().Append(name);
+    if (row.path.find('/') != std::string::npos) {
+        TextBlock path;
+        path.Text(text(row.path));
+        path.FontSize(10);
+        path.FontFamily(Media::FontFamily(L"Cascadia Mono, Consolas"));
+        path.Foreground(applicationBrush(L"LitheMutedTextBrush"));
+        path.TextTrimming(TextTrimming::CharacterEllipsis);
+        textStack.Children().Append(path);
+    }
+    panel.Children().Append(textStack);
+
+    item.Content(panel);
+    return item;
+}
+
 std::string itemTag(IInspectable const& item) {
     const auto listItem = item.try_as<ListViewItem>();
     if (!listItem || !listItem.Tag()) return {};
     return utf8(unbox_value<hstring>(listItem.Tag()));
 }
 
-Media::SolidColorBrush applicationBrush(wchar_t const* key) {
-    return Application::Current().Resources()
-        .Lookup(box_value(hstring(key))).try_as<Media::SolidColorBrush>();
+ListViewItem makeGitHistoryItem(const lithe::windows::GitCommitDto& commit) {
+    ListViewItem item;
+    item.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+    item.Padding(Thickness{8, 5, 8, 5});
+    item.Tag(box_value(text(commit.hash)));
+
+    StackPanel panel;
+    panel.Spacing(2);
+
+    StackPanel header;
+    header.Orientation(Orientation::Horizontal);
+    header.Spacing(8);
+
+    TextBlock hash;
+    hash.Text(text(commit.shortHash));
+    hash.FontFamily(Media::FontFamily(L"Cascadia Mono, Consolas"));
+    hash.FontSize(11);
+    hash.Foreground(applicationBrush(L"LitheAccentBrush"));
+    header.Children().Append(hash);
+
+    if (!commit.decorations.empty()) {
+        TextBlock decorations;
+        decorations.Text(text(commit.decorations));
+        decorations.FontSize(11);
+        decorations.Foreground(applicationBrush(L"LitheProjectGreenBrush"));
+        header.Children().Append(decorations);
+    }
+    panel.Children().Append(header);
+
+    TextBlock subject;
+    subject.Text(text(commit.subject));
+    subject.TextTrimming(TextTrimming::CharacterEllipsis);
+    panel.Children().Append(subject);
+
+    TextBlock metadata;
+    metadata.Text(text(commit.authorName + "  " + commit.date));
+    metadata.FontSize(11);
+    metadata.Foreground(applicationBrush(L"LitheMutedTextBrush"));
+    panel.Children().Append(metadata);
+
+    item.Content(panel);
+    return item;
 }
 
 Windows::UI::Color applicationColor(wchar_t const* key, ElementTheme theme) {
@@ -127,6 +225,46 @@ Windows::UI::Color applicationColor(wchar_t const* key, ElementTheme theme) {
     const auto dictionary = Application::Current().Resources().ThemeDictionaries()
         .Lookup(box_value(themeKey)).as<ResourceDictionary>();
     return unbox_value<Windows::UI::Color>(dictionary.Lookup(box_value(hstring(key))));
+}
+
+Windows::UI::Color terminalColor(int index, ElementTheme theme) {
+    if (index < 0) return applicationColor(L"LitheCodeTextColor", theme);
+    static constexpr std::array<std::array<std::uint8_t, 3>, 16> palette{{
+        {{0, 0, 0}}, {{205, 49, 49}}, {{13, 188, 121}}, {{229, 229, 16}},
+        {{36, 114, 200}}, {{188, 63, 188}}, {{17, 168, 205}}, {{229, 229, 229}},
+        {{102, 102, 102}}, {{241, 76, 76}}, {{35, 209, 139}}, {{245, 245, 67}},
+        {{59, 142, 234}}, {{214, 112, 214}}, {{41, 184, 219}}, {{255, 255, 255}}
+    }};
+    std::uint8_t red = 0;
+    std::uint8_t green = 0;
+    std::uint8_t blue = 0;
+    if (index < 16) {
+        red = palette[static_cast<std::size_t>(index)][0];
+        green = palette[static_cast<std::size_t>(index)][1];
+        blue = palette[static_cast<std::size_t>(index)][2];
+    } else if (index < 232) {
+        const auto value = index - 16;
+        const auto redIndex = value / 36;
+        const auto greenIndex = (value / 6) % 6;
+        const auto blueIndex = value % 6;
+        const auto channel = [](int component) {
+            return static_cast<std::uint8_t>(component == 0 ? 0 : 55 + component * 40);
+        };
+        red = channel(redIndex);
+        green = channel(greenIndex);
+        blue = channel(blueIndex);
+    } else {
+        const auto value = static_cast<std::uint8_t>(8 + (index - 232) * 10);
+        red = value;
+        green = value;
+        blue = value;
+    }
+    if (theme == ElementTheme::Dark && index < 8) {
+        red = static_cast<std::uint8_t>(std::min(255, red + 20));
+        green = static_cast<std::uint8_t>(std::min(255, green + 20));
+        blue = static_cast<std::uint8_t>(std::min(255, blue + 20));
+    }
+    return Windows::UI::Color{255, red, green, blue};
 }
 
 TextBlock diffCell(std::string value, int column, bool muted = false) {
@@ -2407,7 +2545,7 @@ void MainWindow::StartTerminalClick(IInspectable const&, RoutedEventArgs const&)
     } else {
         session_->startTerminal(activeTerminalID_);
     }
-    TerminalInputBox().Focus(FocusState::Programmatic);
+    TerminalOutputBox().Focus(FocusState::Programmatic);
 }
 
 void MainWindow::NewTerminalClick(IInspectable const&, RoutedEventArgs const&) {
@@ -2417,7 +2555,7 @@ void MainWindow::NewTerminalClick(IInspectable const&, RoutedEventArgs const&) {
         setStatus("Open a workspace before starting a terminal");
         return;
     }
-    TerminalInputBox().Focus(FocusState::Programmatic);
+    TerminalOutputBox().Focus(FocusState::Programmatic);
 }
 
 void MainWindow::CloseTerminalClick(IInspectable const&, RoutedEventArgs const&) {
@@ -2446,11 +2584,32 @@ void MainWindow::ClearTerminalClick(IInspectable const&, RoutedEventArgs const&)
     if (!activeTerminalID_.empty()) session_->clearTerminal(activeTerminalID_);
 }
 
-void MainWindow::TerminalSessionSelectionChanged(
+void MainWindow::TerminalSessionsTabSelectionChanged(
     IInspectable const&, SelectionChangedEventArgs const&) {
     if (terminalUiUpdating_) return;
-    const auto id = itemTag(TerminalSessionsBox().SelectedItem());
-    if (!id.empty()) session_->selectTerminal(id);
+    const auto selected = TerminalSessionsTabs().SelectedItem().try_as<TabViewItem>();
+    if (!selected) return;
+    const auto tag = selected.Tag().try_as<Windows::Foundation::IPropertyValue>();
+    if (tag && tag.Type() == Windows::Foundation::PropertyType::String) {
+        const auto id = utf8(tag.GetString());
+        if (!id.empty()) session_->selectTerminal(id);
+    }
+}
+
+void MainWindow::TerminalSessionsAddClick(
+    IInspectable const&, Windows::Foundation::IInspectable const&) {
+    NewTerminalClick(nullptr, RoutedEventArgs{});
+}
+
+void MainWindow::TerminalSessionsTabCloseRequested(
+    TabView const&, TabViewTabCloseRequestedEventArgs const& args) {
+    const auto tab = args.Tab();
+    const auto tag = tab.Tag().try_as<Windows::Foundation::IPropertyValue>();
+    if (!tag || tag.Type() != Windows::Foundation::PropertyType::String) return;
+    const auto id = utf8(tag.GetString());
+    if (id.empty()) return;
+    ++terminalGeneration_;
+    session_->closeTerminal(id);
 }
 
 void MainWindow::TerminalShellSelectionChanged(
@@ -3013,133 +3172,304 @@ fire_and_forget MainWindow::ShowSettingsClick(IInspectable const&, RoutedEventAr
     const auto current = session_->settings();
     ContentDialog dialog;
     dialog.XamlRoot(RootGrid().XamlRoot());
-    dialog.Title(box_value(L"Settings"));
-    dialog.PrimaryButtonText(L"Save");
-    dialog.CloseButtonText(L"Cancel");
+    dialog.Title(box_value(L"设置"));
     dialog.DefaultButton(ContentDialogButton::Primary);
-    ScrollViewer scroll;
-    scroll.MaxHeight(580);
-    StackPanel panel;
-    panel.MinWidth(600);
-    panel.Spacing(8);
 
-    TextBlock editorHeading;
-    editorHeading.Text(L"EDITOR");
-    editorHeading.Style(Application::Current().Resources()
-                            .Lookup(box_value(L"LithePaneHeaderStyle")).as<Style>());
-    panel.Children().Append(editorHeading);
-    NumberBox fontSize;
-    fontSize.Header(box_value(L"Editor font size"));
-    fontSize.Minimum(9);
-    fontSize.Maximum(32);
-    fontSize.SmallChange(0.5);
-    fontSize.Value(current.editorFontSize);
-    panel.Children().Append(fontSize);
-    ToggleSwitch codeVision;
-    codeVision.Header(box_value(L"Show code vision and implementation markers"));
-    codeVision.IsOn(current.showCodeVision);
-    panel.Children().Append(codeVision);
-    ToggleSwitch inlayHints;
-    inlayHints.Header(box_value(L"Show Java inlay hints"));
-    inlayHints.IsOn(current.showInlayHints);
-    panel.Children().Append(inlayHints);
+    struct SettingsField {
+        winrt::Microsoft::UI::Xaml::FrameworkElement element;
+    };
+    std::unordered_map<std::string, winrt::Microsoft::UI::Xaml::FrameworkElement> fields;
 
-    TextBlock projectHeading;
-    projectHeading.Text(L"PROJECT");
-    projectHeading.Margin(Thickness{0, 10, 0, 0});
-    projectHeading.Style(editorHeading.Style());
-    panel.Children().Append(projectHeading);
-    TextBox hiddenDirectories;
-    hiddenDirectories.Header(box_value(L"Hidden directories (comma-separated)"));
-    hiddenDirectories.Text(text(joinValues(current.hiddenDirectoryNames)));
-    panel.Children().Append(hiddenDirectories);
-    TextBox hiddenFiles;
-    hiddenFiles.Header(box_value(L"Hidden file patterns (comma-separated)"));
-    hiddenFiles.Text(text(joinValues(current.hiddenFilePatterns)));
-    panel.Children().Append(hiddenFiles);
+    const auto headingStyle = Application::Current().Resources()
+                                  .Lookup(box_value(L"LithePaneHeaderStyle")).as<Style>();
+    const auto sectionHeading = [&headingStyle](StackPanel const& panel, std::wstring const& title) {
+        TextBlock heading;
+        heading.Text(title);
+        heading.Margin(Thickness{0, 10, 0, 0});
+        heading.Style(headingStyle);
+        panel.Children().Append(heading);
+    };
+    const auto mutedNote = [](StackPanel const& panel, std::wstring const& note) {
+        TextBlock info;
+        info.Text(note);
+        info.TextWrapping(TextWrapping::Wrap);
+        info.FontSize(11);
+        info.Foreground(applicationBrush(L"LitheMutedTextBrush"));
+        panel.Children().Append(info);
+    };
+    const auto registerField = [&fields](std::string key,
+                                          winrt::Microsoft::UI::Xaml::FrameworkElement const& element) {
+        fields.emplace(std::move(key), element);
+    };
 
-    TextBlock generalHeading;
-    generalHeading.Text(L"GENERAL");
-    generalHeading.Margin(Thickness{0, 10, 0, 0});
-    generalHeading.Style(editorHeading.Style());
-    panel.Children().Append(generalHeading);
-    TextBlock workspaceInfo;
-    workspaceInfo.Text(text(localizedText("Workspace", simplifiedChinese_) + ": " +
-        (session_->workspaceRoot().empty()
-            ? localizedText("No workspace open", simplifiedChinese_)
-            : pathUtf8(session_->workspaceRoot()))));
-    workspaceInfo.TextTrimming(TextTrimming::CharacterEllipsis);
-    panel.Children().Append(workspaceInfo);
-    TextBlock coreInfo;
-    coreInfo.Text(text("Rust Core: " + session_->coreVersion()));
-    coreInfo.Foreground(applicationBrush(L"LitheMutedTextBrush"));
-    panel.Children().Append(coreInfo);
-    ComboBox language;
-    language.Header(box_value(L"Interface language"));
-    language.Items().Append(box_value(L"System default"));
-    language.Items().Append(box_value(L"English"));
-    language.Items().Append(box_value(L"Simplified Chinese"));
-    language.SelectedIndex(current.uiLanguage == "en" ? 1 : current.uiLanguage == "zh_CN" ? 2 : 0);
-    panel.Children().Append(language);
-    TextBox dataDirectory;
-    dataDirectory.Header(box_value(L"Data directory"));
-    dataDirectory.PlaceholderText(L"Leave empty for the system default");
-    dataDirectory.Text(text(current.dataDirectory));
-    panel.Children().Append(dataDirectory);
-    TextBox shell;
-    shell.Header(box_value(L"Terminal shell executable"));
-    shell.PlaceholderText(L"Automatic: ComSpec or cmd.exe");
-    shell.Text(text(current.terminalShellPath));
-    panel.Children().Append(shell);
+    const auto buildPane = [&](std::wstring const& pane,
+                               StackPanel const& panel) {
+        if (pane == L"appearance") {
+            sectionHeading(panel, L"APPEARANCE");
+            ComboBox language;
+            language.Header(box_value(L"Interface language"));
+            language.Items().Append(box_value(L"System default"));
+            language.Items().Append(box_value(L"English"));
+            language.Items().Append(box_value(L"Simplified Chinese"));
+            language.SelectedIndex(
+                current.uiLanguage == "en" ? 1 : current.uiLanguage == "zh_CN" ? 2 : 0);
+            registerField("language", language);
+            panel.Children().Append(language);
+            sectionHeading(panel, L"DATA AND PATHS");
+            TextBlock workspaceInfo;
+            workspaceInfo.Text(text(localizedText("Workspace", simplifiedChinese_) + ": " +
+                (session_->workspaceRoot().empty()
+                    ? localizedText("No workspace open", simplifiedChinese_)
+                    : pathUtf8(session_->workspaceRoot()))));
+            workspaceInfo.TextTrimming(TextTrimming::CharacterEllipsis);
+            panel.Children().Append(workspaceInfo);
+            TextBlock coreInfo;
+            coreInfo.Text(text("Rust Core: " + session_->coreVersion()));
+            coreInfo.Foreground(applicationBrush(L"LitheMutedTextBrush"));
+            panel.Children().Append(coreInfo);
+            TextBox dataDirectory;
+            dataDirectory.Header(box_value(L"Data directory"));
+            dataDirectory.PlaceholderText(
+                L"Absolute path on any drive (e.g. D:\\LitheData); empty = system default");
+            dataDirectory.Text(text(current.dataDirectory));
+            registerField("dataDirectory", dataDirectory);
+            panel.Children().Append(dataDirectory);
+            mutedNote(panel,
+                L"缓存、日志与插件数据保存位置；建议选非系统盘以避免占用 C 盘。变更后需重启生效。");
+            return;
+        }
+        if (pane == L"editor") {
+            sectionHeading(panel, L"EDITOR");
+            NumberBox fontSize;
+            fontSize.Header(box_value(L"Editor font size"));
+            fontSize.Minimum(9);
+            fontSize.Maximum(32);
+            fontSize.SmallChange(0.5);
+            fontSize.Value(current.editorFontSize);
+            registerField("fontSize", fontSize);
+            panel.Children().Append(fontSize);
+            ToggleSwitch codeVision;
+            codeVision.Header(box_value(L"Show code vision and implementation markers"));
+            codeVision.IsOn(current.showCodeVision);
+            registerField("codeVision", codeVision);
+            panel.Children().Append(codeVision);
+            ToggleSwitch inlayHints;
+            inlayHints.Header(box_value(L"Show Java inlay hints"));
+            inlayHints.IsOn(current.showInlayHints);
+            registerField("inlayHints", inlayHints);
+            panel.Children().Append(inlayHints);
+            sectionHeading(panel, L"PROJECT");
+            TextBox hiddenDirectories;
+            hiddenDirectories.Header(box_value(L"Hidden directories (comma-separated)"));
+            hiddenDirectories.Text(text(joinValues(current.hiddenDirectoryNames)));
+            registerField("hiddenDirectories", hiddenDirectories);
+            panel.Children().Append(hiddenDirectories);
+            TextBox hiddenFiles;
+            hiddenFiles.Header(box_value(L"Hidden file patterns (comma-separated)"));
+            hiddenFiles.Text(text(joinValues(current.hiddenFilePatterns)));
+            registerField("hiddenFiles", hiddenFiles);
+            panel.Children().Append(hiddenFiles);
+            return;
+        }
+        if (pane == L"git") {
+            sectionHeading(panel, L"GIT");
+            mutedNote(panel,
+                L"高级 Git 操作（fetch/pull/push/stash/shelf/cherry-pick/rebase/merge/reset）"
+                L"已收敛到 Git 菜单与命令面板。");
+            mutedNote(panel,
+                L"AI 提交信息仅读取暂存区（staged）内容，并拒绝把 .env、.pem、.key、.p12、.pfx "
+                L"等敏感文件送入提示词；端点必须为 HTTPS。");
+            return;
+        }
+        if (pane == L"terminal") {
+            sectionHeading(panel, L"TERMINAL");
+            TextBox shell;
+            shell.Header(box_value(L"Terminal shell executable"));
+            shell.PlaceholderText(L"Automatic: ComSpec or cmd.exe");
+            shell.Text(text(current.terminalShellPath));
+            registerField("shell", shell);
+            panel.Children().Append(shell);
+            mutedNote(panel,
+                L"会话以标签页管理；键盘输入（文本、Enter、退格、方向键、Ctrl+C/Ctrl+V）"
+                L"直接发送给终端进程。");
+            return;
+        }
+        if (pane == L"build") {
+            sectionHeading(panel, L"BUILD AND RUN");
+            mutedNote(panel,
+                L"JDK 21 与 Maven 3.8.8 由运行时自动探测；手动测试必须保证 java、javac、jdb "
+                L"与 JAVA_HOME 使用同一套 JDK。");
+            return;
+        }
+        if (pane == L"ai") {
+            sectionHeading(panel, L"AI AND COMMIT");
+            const auto aiSettings = session_->loadAICommitSettings();
+            TextBlock aiStatus;
+            if (aiSettings.providers.empty()) {
+                aiStatus.Text(L"No AI commit-message provider configured.");
+            } else {
+                aiStatus.Text(text(localizedText("Provider", simplifiedChinese_) + ": " +
+                                   aiSettings.providers.front().name + "  " +
+                                   localizedText("Model", simplifiedChinese_) + ": " +
+                                   aiSettings.providers.front().model));
+            }
+            aiStatus.TextWrapping(TextWrapping::Wrap);
+            aiStatus.Foreground(applicationBrush(L"LitheMutedTextBrush"));
+            panel.Children().Append(aiStatus);
+            Button configureAI;
+            configureAI.Content(box_value(L"Configure AI commit messages..."));
+            configureAI.HorizontalAlignment(HorizontalAlignment::Left);
+            configureAI.Click([&dialog, &action](IInspectable const&, RoutedEventArgs const&) {
+                action = SettingsAction::ConfigureAI;
+                dialog.Hide();
+            });
+            panel.Children().Append(configureAI);
+            return;
+        }
+        if (pane == L"updates") {
+            sectionHeading(panel, L"UPDATES");
+            mutedNote(panel,
+                L"Windows 更新包仅在 SHA-256 与 Authenticode 双重验证通过后才会下载与安装。");
+            Button checkUpdates;
+            checkUpdates.Content(box_value(L"Check for updates"));
+            checkUpdates.HorizontalAlignment(HorizontalAlignment::Left);
+            checkUpdates.Click([&dialog, &action](IInspectable const&, RoutedEventArgs const&) {
+                action = SettingsAction::CheckUpdates;
+                dialog.Hide();
+            });
+            panel.Children().Append(checkUpdates);
+            return;
+        }
+    };
 
-    TextBlock aiHeading;
-    aiHeading.Text(L"AI AND COMMIT");
-    aiHeading.Margin(Thickness{0, 10, 0, 0});
-    aiHeading.Style(editorHeading.Style());
-    panel.Children().Append(aiHeading);
-    const auto aiSettings = session_->loadAICommitSettings();
-    TextBlock aiStatus;
-    if (aiSettings.providers.empty()) {
-        aiStatus.Text(L"No AI commit-message provider configured.");
-    } else {
-        aiStatus.Text(text(localizedText("Provider", simplifiedChinese_) + ": " +
-                           aiSettings.providers.front().name + "  " +
-                           localizedText("Model", simplifiedChinese_) + ": " +
-                           aiSettings.providers.front().model));
+    ScrollViewer outerScroll;
+    outerScroll.MaxHeight(600);
+    Grid layout;
+    layout.Width(820);
+    auto navColumn = ColumnDefinition{};
+    navColumn.Width(GridLength{218});
+    auto contentColumn = ColumnDefinition{};
+    contentColumn.Width(GridLength{1, GridUnitType::Star});
+    layout.ColumnDefinitions().Append(navColumn);
+    layout.ColumnDefinitions().Append(contentColumn);
+    auto titleRowDef = RowDefinition{};
+    titleRowDef.Height(GridLength{1, GridUnitType::Auto});
+    auto contentRowDef = RowDefinition{};
+    contentRowDef.Height(GridLength{1, GridUnitType::Star});
+    auto footerRowDef = RowDefinition{};
+    footerRowDef.Height(GridLength{1, GridUnitType::Auto});
+    layout.RowDefinitions().Append(titleRowDef);
+    layout.RowDefinitions().Append(contentRowDef);
+    layout.RowDefinitions().Append(footerRowDef);
+
+    ListView nav;
+    nav.SelectionMode(ListViewSelectionMode::Single);
+    const std::vector<std::pair<std::wstring, std::wstring>> panes = {
+        {L"appearance", L"外观与行为"},
+        {L"editor", L"编辑器"},
+        {L"git", L"Git"},
+        {L"terminal", L"终端"},
+        {L"build", L"构建与运行"},
+        {L"ai", L"AI 提交"},
+        {L"updates", L"更新"},
+    };
+    for (const auto& [key, title] : panes) {
+        nav.Items().Append(makeListItem(
+            utf8(winrt::hstring{title}), utf8(winrt::hstring{key})));
     }
-    aiStatus.TextWrapping(TextWrapping::Wrap);
-    aiStatus.Foreground(applicationBrush(L"LitheMutedTextBrush"));
-    panel.Children().Append(aiStatus);
-    Button configureAI;
-    configureAI.Content(box_value(L"Configure AI commit messages..."));
-    configureAI.HorizontalAlignment(HorizontalAlignment::Left);
-    configureAI.Click([&dialog, &action](IInspectable const&, RoutedEventArgs const&) {
-        action = SettingsAction::ConfigureAI;
-        dialog.Hide();
-    });
-    panel.Children().Append(configureAI);
 
-    TextBlock updatesHeading;
-    updatesHeading.Text(L"UPDATES");
-    updatesHeading.Margin(Thickness{0, 10, 0, 0});
-    updatesHeading.Style(editorHeading.Style());
-    panel.Children().Append(updatesHeading);
-    TextBlock updatesInfo;
-    updatesInfo.Text(L"Windows releases are downloaded only after SHA-256 and Authenticode verification.");
-    updatesInfo.TextWrapping(TextWrapping::Wrap);
-    updatesInfo.Foreground(applicationBrush(L"LitheMutedTextBrush"));
-    panel.Children().Append(updatesInfo);
-    Button checkUpdates;
-    checkUpdates.Content(box_value(L"Check for updates"));
-    checkUpdates.HorizontalAlignment(HorizontalAlignment::Left);
-    checkUpdates.Click([&dialog, &action](IInspectable const&, RoutedEventArgs const&) {
-        action = SettingsAction::CheckUpdates;
+    TextBlock titleText;
+    titleText.Text(L"设置");
+    titleText.FontSize(14);
+    titleText.FontWeight(Windows::UI::Text::FontWeights::SemiBold());
+    TextBlock titleSub;
+    titleSub.Text(L"外观与行为");
+    titleSub.FontSize(11);
+    titleSub.Foreground(applicationBrush(L"LitheMutedTextBrush"));
+    titleSub.Margin(Thickness{8, 0, 0, 0});
+    StackPanel titleRow;
+    titleRow.Orientation(Orientation::Horizontal);
+    titleRow.VerticalAlignment(VerticalAlignment::Center);
+    titleRow.Children().Append(titleText);
+    titleRow.Children().Append(titleSub);
+
+    Grid contentHost;
+    Grid::SetColumn(contentHost, 1);
+    Grid::SetRow(contentHost, 1);
+    contentHost.Margin(Thickness{0, 10, 0, 0});
+
+    auto showPane = [&](std::wstring const& key) {
+        contentHost.Children().Clear();
+        ScrollViewer paneScroll;
+        paneScroll.MaxHeight(460);
+        StackPanel panel;
+        panel.Spacing(8);
+        buildPane(key, panel);
+        paneScroll.Content(panel);
+        contentHost.Children().Append(paneScroll);
+        for (const auto& [k, t] : panes) {
+            if (k == key) titleSub.Text(t);
+        }
+    };
+
+    for (const auto& [key, title] : panes) {
+        ScrollViewer paneScroll;
+        StackPanel panel;
+        panel.Spacing(8);
+        buildPane(key, panel);
+        paneScroll.Content(panel);
+        contentHost.Children().Append(paneScroll);
+    }
+    contentHost.Children().Clear();
+
+    Button cancelButton;
+    cancelButton.Content(box_value(L"取消"));
+    cancelButton.MinWidth(76);
+    Button saveButton;
+    saveButton.Content(box_value(L"保存"));
+    saveButton.Style(Application::Current().Resources()
+                         .Lookup(box_value(L"LithePrimaryButtonStyle")).as<Style>());
+    saveButton.MinWidth(76);
+    StackPanel footer;
+    footer.Orientation(Orientation::Horizontal);
+    footer.HorizontalAlignment(HorizontalAlignment::Right);
+    footer.Spacing(8);
+    footer.Children().Append(cancelButton);
+    footer.Children().Append(saveButton);
+    Grid::SetColumnSpan(footer, 2);
+    Grid::SetRow(footer, 2);
+    footer.Margin(Thickness{0, 10, 0, 0});
+
+    Grid::SetColumn(titleRow, 0);
+    Grid::SetColumnSpan(titleRow, 2);
+
+    nav.SelectionChanged([&nav, &showPane](IInspectable const&, SelectionChangedEventArgs const&) {
+        if (const auto selected = nav.SelectedItem().try_as<ListViewItem>()) {
+            if (const auto tag = selected.Tag().try_as<Windows::Foundation::IPropertyValue>();
+                tag && tag.Type() == Windows::Foundation::PropertyType::String) {
+                showPane(std::wstring(tag.GetString().c_str()));
+            }
+        }
+    });
+    Grid::SetColumn(nav, 0);
+    Grid::SetRow(nav, 1);
+    layout.Children().Append(titleRow);
+    layout.Children().Append(nav);
+    layout.Children().Append(contentHost);
+    layout.Children().Append(footer);
+    outerScroll.Content(layout);
+    nav.SelectedIndex(0);
+
+    bool saved = false;
+    saveButton.Click([&dialog, &saved](IInspectable const&, RoutedEventArgs const&) {
+        saved = true;
         dialog.Hide();
     });
-    panel.Children().Append(checkUpdates);
-    scroll.Content(panel);
-    dialog.Content(scroll);
-    if (co_await showDialog(dialog) != ContentDialogResult::Primary) {
+    cancelButton.Click([&dialog](IInspectable const&, RoutedEventArgs const&) {
+        dialog.Hide();
+    });
+
+    if (co_await showDialog(dialog) != ContentDialogResult::Primary || !saved) {
         if (action == SettingsAction::ConfigureAI) {
             ConfigureAICommitClick(nullptr, RoutedEventArgs{});
         } else if (action == SettingsAction::CheckUpdates) {
@@ -3149,15 +3479,15 @@ fire_and_forget MainWindow::ShowSettingsClick(IInspectable const&, RoutedEventAr
     }
 
     auto settings = current;
-    settings.editorFontSize = fontSize.Value();
-    settings.showCodeVision = codeVision.IsOn();
-    settings.showInlayHints = inlayHints.IsOn();
-    settings.uiLanguage = language.SelectedIndex() == 1 ? "en"
-        : language.SelectedIndex() == 2 ? "zh_CN" : "system";
-    settings.dataDirectory = utf8(dataDirectory.Text());
-    settings.terminalShellPath = utf8(shell.Text());
-    settings.hiddenDirectoryNames = splitValues(utf8(hiddenDirectories.Text()));
-    settings.hiddenFilePatterns = splitValues(utf8(hiddenFiles.Text()));
+    settings.editorFontSize = fields.at("fontSize").as<NumberBox>().Value();
+    settings.showCodeVision = fields.at("codeVision").as<ToggleSwitch>().IsOn();
+    settings.showInlayHints = fields.at("inlayHints").as<ToggleSwitch>().IsOn();
+    settings.uiLanguage = fields.at("language").as<ComboBox>().SelectedIndex() == 1 ? "en"
+        : fields.at("language").as<ComboBox>().SelectedIndex() == 2 ? "zh_CN" : "system";
+    settings.dataDirectory = utf8(fields.at("dataDirectory").as<TextBox>().Text());
+    settings.terminalShellPath = utf8(fields.at("shell").as<TextBox>().Text());
+    settings.hiddenDirectoryNames = splitValues(utf8(fields.at("hiddenDirectories").as<TextBox>().Text()));
+    settings.hiddenFilePatterns = splitValues(utf8(fields.at("hiddenFiles").as<TextBox>().Text()));
     const bool languageChanged =
         lithe::windows::app::normalizeUiLanguage(settings.uiLanguage) !=
         lithe::windows::app::normalizeUiLanguage(current.uiLanguage);
@@ -3681,6 +4011,80 @@ void MainWindow::BottomToolSelectionChanged(IInspectable const&, SelectionChange
     if (!restoringWorkbench_) scheduleWorkbenchStateSave();
 }
 
+void MainWindow::updateActivitySelection(ActivityBarSlot slot) {
+    const auto setIndicator = [this](int32_t top) {
+        if (top < 0) {
+            ActivityIndicator().Visibility(Visibility::Collapsed);
+            return;
+        }
+        ActivityIndicator().Visibility(Visibility::Visible);
+        ActivityIndicator().Height(28);
+        ActivityIndicator().Margin(Thickness{1, static_cast<double>(top), 0, 0});
+    };
+    switch (slot) {
+    case ActivityBarSlot::Project: setIndicator(8); break;
+    case ActivityBarSlot::Changes: setIndicator(40); break;
+    case ActivityBarSlot::Search: setIndicator(72); break;
+    case ActivityBarSlot::Terminal: setIndicator(8); break;
+    case ActivityBarSlot::Git: setIndicator(40); break;
+    case ActivityBarSlot::Build: setIndicator(72); break;
+    case ActivityBarSlot::Problems: setIndicator(104); break;
+    case ActivityBarSlot::Debug: setIndicator(136); break;
+    case ActivityBarSlot::None: setIndicator(-1); break;
+    }
+}
+
+void MainWindow::ActivityProjectClick(IInspectable const&, RoutedEventArgs const&) {
+    SidebarTabs().SelectedIndex(0);
+    updateActivitySelection(ActivityBarSlot::Project);
+}
+
+void MainWindow::ActivityChangesClick(IInspectable const&, RoutedEventArgs const&) {
+    SidebarTabs().SelectedIndex(1);
+    updateActivitySelection(ActivityBarSlot::Changes);
+}
+
+void MainWindow::ActivitySearchClick(IInspectable const&, RoutedEventArgs const&) {
+    SidebarTabs().SelectedIndex(2);
+    updateActivitySelection(ActivityBarSlot::Search);
+    WorkspaceSearchBox().Focus(FocusState::Programmatic);
+}
+
+void MainWindow::ActivityTerminalClick(IInspectable const&, RoutedEventArgs const&) {
+    StartTerminalClick(nullptr, RoutedEventArgs{});
+    updateActivitySelection(ActivityBarSlot::Terminal);
+}
+
+void MainWindow::ActivityGitClick(IInspectable const&, RoutedEventArgs const&) {
+    LoadGitHistoryClick(nullptr, RoutedEventArgs{});
+    updateActivitySelection(ActivityBarSlot::Git);
+}
+
+void MainWindow::ActivityBuildClick(IInspectable const&, RoutedEventArgs const&) {
+    showBottomTool(1);
+    updateActivitySelection(ActivityBarSlot::Build);
+}
+
+void MainWindow::ActivityProblemsClick(IInspectable const&, RoutedEventArgs const&) {
+    showBottomTool(2);
+    updateActivitySelection(ActivityBarSlot::Problems);
+}
+
+void MainWindow::ActivityDebugClick(IInspectable const&, RoutedEventArgs const&) {
+    showBottomTool(3);
+    updateActivitySelection(ActivityBarSlot::Debug);
+}
+
+void MainWindow::ActivitySettingsClick(IInspectable const&, RoutedEventArgs const&) {
+    ShowSettingsClick(nullptr, RoutedEventArgs{});
+}
+
+void MainWindow::ToggleThemeClick(IInspectable const&, RoutedEventArgs const&) {
+    const auto current = RootGrid().RequestedTheme();
+    RootGrid().RequestedTheme(current == ElementTheme::Dark
+        ? ElementTheme::Light : ElementTheme::Dark);
+}
+
 void MainWindow::WorkspaceSearchKeyDown(
     IInspectable const&, Input::KeyRoutedEventArgs const& event) {
     if (event.Key() != Windows::System::VirtualKey::Enter) return;
@@ -3699,14 +4103,81 @@ void MainWindow::FindBoxKeyDown(IInspectable const&, Input::KeyRoutedEventArgs c
     }
 }
 
-void MainWindow::TerminalInputKeyDown(
+void MainWindow::TerminalOutputKeyDown(
     IInspectable const&, Input::KeyRoutedEventArgs const& event) {
-    if (event.Key() != Windows::System::VirtualKey::Enter) return;
-    const auto input = utf8(TerminalInputBox().Text());
-    if (!input.empty() && !activeTerminalID_.empty()) {
-        session_->sendTerminal(activeTerminalID_, input);
+    if (activeTerminalID_.empty()) return;
+    const auto key = event.Key();
+    std::string sequence;
+    if (key == Windows::System::VirtualKey::Enter) {
+        sequence = "\r";
+    } else if (key == Windows::System::VirtualKey::Back) {
+        sequence = "\x7f";
+    } else if (key == Windows::System::VirtualKey::Left) {
+        sequence = "\x1b[D";
+    } else if (key == Windows::System::VirtualKey::Right) {
+        sequence = "\x1b[C";
+    } else if (key == Windows::System::VirtualKey::Up) {
+        sequence = "\x1b[A";
+    } else if (key == Windows::System::VirtualKey::Down) {
+        sequence = "\x1b[B";
+    } else if (key == Windows::System::VirtualKey::Home) {
+        sequence = "\x1b[H";
+    } else if (key == Windows::System::VirtualKey::End) {
+        sequence = "\x1b[F";
+    } else if (key == Windows::System::VirtualKey::Tab) {
+        sequence = "\t";
+    } else if (key == Windows::System::VirtualKey::Escape) {
+        sequence = "\x1b";
+    } else if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+        if (key == Windows::System::VirtualKey::C) sequence = "\x03";
+        else if (key == Windows::System::VirtualKey::L) sequence = "\x0c";
+        else if (key == Windows::System::VirtualKey::A) sequence = "\x01";
+        else if (key == Windows::System::VirtualKey::V) {
+            pasteTerminalClipboard();
+            event.Handled(true);
+            return;
+        }
+        else return;
+    } else {
+        return;
     }
-    TerminalInputBox().Text(L"");
+    if (!sequence.empty()) session_->sendTerminalText(activeTerminalID_, sequence);
+    event.Handled(true);
+}
+
+fire_and_forget MainWindow::pasteTerminalClipboard() {
+    const auto lifetime = get_strong();
+    const auto id = activeTerminalID_;
+    if (id.empty()) co_return;
+    auto content = Windows::ApplicationModel::DataTransfer::Clipboard::GetContent();
+    if (!content.Contains(Windows::ApplicationModel::DataTransfer::StandardDataFormats::Text())) {
+        co_return;
+    }
+    const auto text = co_await content.GetTextAsync();
+    if (!text.empty()) {
+        session_->sendTerminalText(id, utf8(text));
+    }
+}
+
+void MainWindow::TerminalOutputCharacterReceived(
+    IInspectable const&, Input::CharacterReceivedRoutedEventArgs const& event) {
+    if (activeTerminalID_.empty()) {
+        event.Handled(false);
+        return;
+    }
+    const auto character = event.Character();
+    std::wstring wide(1, character);
+    std::string utf8Sequence;
+    const auto length = WideCharToMultiByte(
+        CP_UTF8, 0, wide.data(), 1, nullptr, 0, nullptr, nullptr);
+    if (length > 0) {
+        utf8Sequence.resize(static_cast<std::size_t>(length));
+        WideCharToMultiByte(
+            CP_UTF8, 0, wide.data(), 1, utf8Sequence.data(), length, nullptr, nullptr);
+    }
+    if (!utf8Sequence.empty()) {
+        session_->sendTerminalText(activeTerminalID_, utf8Sequence);
+    }
     event.Handled(true);
 }
 
@@ -3722,6 +4193,24 @@ void MainWindow::DebugExpressionKeyDown(
 }
 
 void MainWindow::RootKeyDown(IInspectable const&, Input::KeyRoutedEventArgs const& event) {
+    const auto altPressed = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    const auto controlPressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    if (altPressed && event.Key() == Windows::System::VirtualKey::Number9) {
+        ActivityGitClick(nullptr, RoutedEventArgs{});
+        event.Handled(true);
+        return;
+    }
+    if (altPressed && event.Key() == Windows::System::VirtualKey::F12) {
+        ActivityTerminalClick(nullptr, RoutedEventArgs{});
+        event.Handled(true);
+        return;
+    }
+    if (controlPressed && event.Key() == Windows::System::VirtualKey::A &&
+        (GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+        ShowCommandPaletteClick(nullptr, RoutedEventArgs{});
+        event.Handled(true);
+        return;
+    }
     if (event.Key() != Windows::System::VirtualKey::Shift) return;
     const auto now = std::chrono::steady_clock::now();
     if (lastShiftPress_.time_since_epoch().count() != 0 &&
@@ -3761,6 +4250,11 @@ void MainWindow::EditorSelectionChanged(IInspectable const&, RoutedEventArgs con
 
 void MainWindow::EditorLoaded(IInspectable const&, RoutedEventArgs const&) {
     configureEditorScroll();
+}
+
+void MainWindow::TerminalOutputLoaded(IInspectable const&, RoutedEventArgs const&) {
+    terminalOutputReady_ = true;
+    renderTerminalOutput(activeTerminalID_);
 }
 
 void MainWindow::EditorGutterPointerPressed(
@@ -4260,6 +4754,7 @@ void MainWindow::resetWorkspaceUI() {
     openDocuments_.clear();
     dirtyPaths_.clear();
     activePath_.clear();
+    FilePathText().Text(L"");
     pendingNavigationLine_.reset();
     pendingNavigationColumn_.reset();
     pendingHistoryContentPath_.clear();
@@ -4289,9 +4784,11 @@ void MainWindow::resetWorkspaceUI() {
     LocalHistoryList().Items().Clear();
     activeTerminalID_.clear();
     terminalUiUpdating_ = true;
-    TerminalSessionsBox().Items().Clear();
+    TerminalSessionsTabs().TabItems().Clear();
     TerminalShellBox().Text(L"");
-    TerminalOutputBox().Text(L"");
+    if (terminalOutputReady_) {
+        TerminalOutputBox().Document().SetText(Text::TextSetOptions::None, L"");
+    }
     terminalUiUpdating_ = false;
     DiffRowsPanel().Children().Clear();
     DiffOverviewList().Items().Clear();
@@ -4382,9 +4879,45 @@ TabViewItem MainWindow::ensureEditorTab(const std::string& path) {
     tab.Tag(box_value(text(path)));
     tab.IsClosable(true);
     configureEditorTabContextMenu(tab, path);
+    applyTabHeaderIcon(tab, path);
     EditorTabs().TabItems().Append(tab);
     EditorTabs().SelectedItem(tab);
     return tab;
+}
+
+void MainWindow::applyTabHeaderIcon(TabViewItem const& tab, const std::string& path) {
+    StackPanel header;
+    header.Orientation(Orientation::Horizontal);
+    header.Spacing(6);
+    FontIcon icon;
+    icon.Glyph(fileTypeGlyph(path));
+    icon.FontSize(12);
+    icon.Foreground(applicationBrush(L"LitheMutedTextBrush"));
+    header.Children().Append(icon);
+    TextBlock label;
+    label.Text(text((dirtyPaths_.contains(path) ? "* " : "") + fileName(path)));
+    header.Children().Append(label);
+    tab.Header(header);
+}
+
+wchar_t const* MainWindow::fileTypeGlyph(std::string_view path) {
+    const auto extension = std::filesystem::path(path).extension().string();
+    const auto lower = [](std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(), [](char character) {
+            return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        });
+        return value;
+    }(extension);
+    if (lower == ".java") return L"\uE838";
+    if (lower == ".html" || lower == ".htm") return L"\uE8A5";
+    if (lower == ".js" || lower == ".ts" || lower == ".jsx" || lower == ".tsx") return L"\uEBD3";
+    if (lower == ".css" || lower == ".scss") return L"\uE943";
+    if (lower == ".py") return L"\uF273";
+    if (lower == ".xml" || lower == ".xaml") return L"\uE9D2";
+    if (lower == ".md" || lower == ".markdown") return L"\uE8A5";
+    if (lower == ".json") return L"\uE943";
+    if (lower == ".properties") return L"\uE9D2";
+    return L"\uE7C3";
 }
 
 void MainWindow::remapEditorPaths(std::string_view oldPath, std::string_view newPath) {
@@ -4412,13 +4945,13 @@ void MainWindow::remapEditorPaths(std::string_view oldPath, std::string_view new
         const auto destination = remapped(source);
         if (!destination) continue;
         tab.Tag(box_value(text(*destination)));
-        tab.Header(box_value(text(
-            (dirtyPaths_.contains(*destination) ? "* " : "") + fileName(*destination))));
+        applyTabHeaderIcon(tab, *destination);
         configureEditorTabContextMenu(tab, *destination);
     }
     if (const auto destination = remapped(activePath_)) {
         activePath_ = *destination;
-        BreadcrumbText().Text(text(activePath_));
+    BreadcrumbText().Text(text(activePath_));
+    FilePathText().Text(text(activePath_));
         if (isJavaPath(activePath_)) {
             session_->activateJavaDocument(activePath_, editorText());
             session_->analyzeJavaDocument(activePath_, editorText());
@@ -4431,7 +4964,7 @@ void MainWindow::updateTabHeader(const std::string& path) {
     for (uint32_t index = 0; index < EditorTabs().TabItems().Size(); ++index) {
         const auto tab = EditorTabs().TabItems().GetAt(index).try_as<TabViewItem>();
         if (!tab || !tab.Tag() || utf8(unbox_value<hstring>(tab.Tag())) != path) continue;
-        tab.Header(box_value(text((dirtyPaths_.contains(path) ? "* " : "") + fileName(path))));
+        applyTabHeaderIcon(tab, path);
         return;
     }
 }
@@ -4446,6 +4979,7 @@ void MainWindow::removeEditorTab(TabViewItem const& tab) {
     if (path != activePath_) return;
     if (!isExternalDocument(path)) session_->closeJavaDocument();
         activePath_.clear();
+        FilePathText().Text(L"");
         MarkdownModePanel().Visibility(Visibility::Collapsed);
         MarkdownPreviewPane().Visibility(Visibility::Collapsed);
         MarkdownPreviewColumn().Width(GridLength{0.0, GridUnitType::Pixel});
@@ -5099,19 +5633,81 @@ void MainWindow::renderGitChanges() {
                          pendingIntegrationPaths_.end());
     const auto checked = BlockedChangesFilterButton().IsChecked();
     const bool blockingOnly = checked && checked.Value();
-    const auto rows = lithe::windows::buildGitChangeRows(
+    const auto groups = lithe::windows::buildGitChangeGroups(
         *gitStatus_, blockingPaths, blockingOnly);
+    GitStagedCountText().Text(text("(" + std::to_string(groups.staged.size()) + ")"));
+    GitChangesCountText().Text(text("(" + std::to_string(groups.working.size()) + ")"));
+    GitStagedList().Items().Clear();
+    for (const auto& row : groups.staged) {
+        GitStagedList().Items().Append(makeGitChangeItem(row));
+    }
     ChangesList().Items().Clear();
+    for (const auto& row : groups.working) {
+        ChangesList().Items().Append(makeGitChangeItem(row));
+    }
     const auto branch = gitStatus_->branch.value_or("Detached HEAD");
     GitBranchText().Text(text(branch));
     GitStatusText().Text(text(branch));
-    for (const auto& row : rows) {
-        ChangesList().Items().Append(makeListItem(row.label, row.path));
+    if (gitAheadBehind_) {
+        GitSyncStatusText().Text(text(
+            "↑" + std::to_string(gitAheadBehind_->ahead) +
+            " ↓" + std::to_string(gitAheadBehind_->behind)));
+    } else {
+        GitSyncStatusText().Text(L"");
     }
+}
+
+void MainWindow::renderGitBranchTree(const lithe::windows::GitHistoryDto& history) {
+    std::vector<lithe::windows::algorithms::GitReferenceInfo> references;
+    references.reserve(history.references.size());
+    for (const auto& ref : history.references) {
+        references.push_back({ref.fullName, ref.shortName, ref.kind,
+                              ref.isCurrent, ref.upstreamShortName});
+    }
+    const auto tree = lithe::windows::algorithms::buildGitReferenceTree(references);
+    GitBranchTree().RootNodes().Clear();
+    for (const auto& node : tree) {
+        auto treeNode = winrt::Microsoft::UI::Xaml::Controls::TreeViewNode{};
+        const auto nodeRef = node.reference ? node.reference->fullName : node.path;
+        treeNode.Content(box_value(text(nodeRef + "  " + node.name)));
+        treeNode.IsExpanded(true);
+        for (const auto& child : node.children) {
+            auto childNode = winrt::Microsoft::UI::Xaml::Controls::TreeViewNode{};
+            const auto childRef = child.reference ? child.reference->fullName : child.path;
+            childNode.Content(box_value(text(childRef + "  " + child.name)));
+            treeNode.Children().Append(childNode);
+        }
+        GitBranchTree().RootNodes().Append(treeNode);
+    }
+}
+
+void MainWindow::ShowGitBranchTreeClick(IInspectable const&, RoutedEventArgs const&) {
+    const auto visible = GitBranchTree().Visibility() == Visibility::Collapsed;
+    GitBranchTree().Visibility(visible ? Visibility::Visible : Visibility::Collapsed);
+    if (visible) session_->loadGitHistory();
+}
+
+void MainWindow::GitBranchTreeSelectionChanged(
+    IInspectable const&, TreeViewSelectionChangedEventArgs const&) {
+    const auto node = GitBranchTree().SelectedNode();
+    if (!node) return;
+    const auto content = node.Content().try_as<Windows::Foundation::IPropertyValue>();
+    if (!content || content.Type() != Windows::Foundation::PropertyType::String) return;
+    std::string value = utf8(content.GetString());
+    const auto space = value.find("  ");
+    if (space != std::string::npos) value = value.substr(0, space);
+    if (value.empty() || !value.starts_with("refs/")) return;
+    const bool isRemote = value.starts_with("refs/remotes/");
+    const std::string kind = isRemote ? "remote" : "branch";
+    session_->checkout(value, kind);
 }
 
 void MainWindow::renderGit(lithe::windows::app::GitFeatureState state) {
     gitConflictPaths_ = state.conflictFilterPaths;
+    const auto gitBusy = state.isLoadingStatus || state.isWriting || state.isApplying;
+    StageAllButton().IsEnabled(!gitBusy);
+    CommitButton().IsEnabled(!gitBusy);
+    CommitAndPushButton().IsEnabled(!gitBusy);
     if (state.status && !state.isLoadingStatus) gitStatus_ = *state.status;
     if (state.isLoadingOperationState) {
         GitOperationText().Text(ui("Checking Git operation state..."));
@@ -5155,13 +5751,10 @@ void MainWindow::renderGit(lithe::windows::app::GitFeatureState state) {
     renderGitChanges();
     if (state.diff && !state.isLoadingDiff) renderDiff(*state.diff);
     if (state.history && !state.isLoadingHistory) {
+        renderGitBranchTree(*state.history);
         GitHistoryList().Items().Clear();
         for (const auto& commit : state.history->commits) {
-            const auto decoration = commit.decorations.empty() ? "" : "  " + commit.decorations;
-            GitHistoryList().Items().Append(makeListItem(
-                commit.shortHash + "  " + commit.subject + decoration + "\n" +
-                    commit.authorName + "  " + commit.date,
-                commit.hash));
+            GitHistoryList().Items().Append(makeGitHistoryItem(commit));
         }
     }
     if (state.stashes && !state.isLoadingStashes) {
@@ -5608,10 +6201,31 @@ fire_and_forget MainWindow::renderUpdateDownload(
 }
 
 void MainWindow::renderTerminalOutput(std::string id) {
+    if (!terminalOutputReady_) return;
+    if (id.empty()) return;
     if (id != activeTerminalID_) return;
-    TerminalOutputBox().Text(text(session_->terminalOutput(id)));
-    TerminalOutputBox().Select(
-        static_cast<int32_t>(TerminalOutputBox().Text().size()), 0);
+    const auto spans = session_->terminalOutputSpans(id);
+    auto document = TerminalOutputBox().Document();
+    document.SetText(Text::TextSetOptions::None, L"");
+    std::string output;
+    for (const auto& span : spans) output += span.text;
+    document.SetText(Text::TextSetOptions::None, text(output));
+    int32_t position = 0;
+    const auto theme = TerminalOutputBox().ActualTheme();
+    for (const auto& span : spans) {
+        const auto offsets = utf16Offsets(span.text);
+        const auto length = offsets.back();
+        if (length > 0) {
+            auto range = document.GetRange(position, position + length);
+            range.CharacterFormat().ForegroundColor(terminalColor(span.foreground, theme));
+            range.CharacterFormat().Bold(span.bold ? Text::FormatEffect::On : Text::FormatEffect::Off);
+            range.CharacterFormat().Underline(span.underline
+                ? Text::UnderlineType::Single
+                : Text::UnderlineType::None);
+        }
+        position += length;
+    }
+    document.Selection().SetRange(position, position);
 }
 
 void MainWindow::renderTerminals(lithe::windows::app::TerminalFeatureState state) {
@@ -5619,9 +6233,11 @@ void MainWindow::renderTerminals(lithe::windows::app::TerminalFeatureState state
     terminalRevision_ = state.revision;
     terminalUiUpdating_ = true;
     activeTerminalID_ = state.activeSessionID.value_or(std::string{});
-    TerminalSessionsBox().Items().Clear();
+    TerminalSessionsTabs().TabItems().Clear();
     int32_t selectedIndex = -1;
+    int32_t index = 0;
     for (const auto& terminal : state.sessions) {
+        TabViewItem tab;
         std::string status;
         switch (terminal.status) {
         case lithe::windows::app::TerminalSessionStatus::Starting: status = "Starting"; break;
@@ -5635,15 +6251,31 @@ void MainWindow::renderTerminals(lithe::windows::app::TerminalFeatureState state
             title = localizedText("Terminal", simplifiedChinese_) +
                 title.substr(prefix.size() - 1);
         }
-        TerminalSessionsBox().Items().Append(makeListItem(
-            title + "  [" + localizedText(status, simplifiedChinese_) + "]", terminal.id));
+        const std::string statusMark =
+            terminal.status == lithe::windows::app::TerminalSessionStatus::Running ? "\u25CF "
+            : terminal.status == lithe::windows::app::TerminalSessionStatus::Starting ? "\u25CB "
+            : "";
+        tab.Header(box_value(text(statusMark + title)));
+        tab.Tag(box_value(text(terminal.id)));
+        tab.IsClosable(true);
+        ToolTipService::SetToolTip(
+            tab, box_value(text(title + "  [" + localizedText(status, simplifiedChinese_) + "]")));
+        TerminalSessionsTabs().TabItems().Append(tab);
         if (terminal.id == activeTerminalID_) {
-            selectedIndex = static_cast<int32_t>(TerminalSessionsBox().Items().Size()) - 1;
+            selectedIndex = index;
             TerminalShellBox().Text(text(terminal.shellPath));
         }
+        ++index;
     }
-    TerminalSessionsBox().SelectedIndex(selectedIndex);
+    TerminalSessionsTabs().SelectedIndex(selectedIndex);
     if (selectedIndex < 0) TerminalShellBox().Text(L"");
+    TerminalPathText().Text(L"");
+    if (selectedIndex >= 0) {
+        const auto& active = state.sessions[static_cast<std::size_t>(selectedIndex)];
+        if (!active.workingDirectory.empty()) {
+            TerminalPathText().Text(text(active.workingDirectory));
+        }
+    }
     terminalUiUpdating_ = false;
     renderTerminalOutput(activeTerminalID_);
 }

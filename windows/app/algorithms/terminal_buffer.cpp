@@ -35,13 +35,16 @@ TerminalBuffer::TerminalBuffer() {
 }
 
 void TerminalBuffer::reset() {
-    lines_ = {std::vector<std::string>{}};
+    lines_ = {std::vector<Cell>{}};
     row_ = 0;
     column_ = 0;
     savedRow_ = 0;
     savedColumn_ = 0;
     escapeMode_ = EscapeMode::Normal;
     csiParameters_.clear();
+    foreground_ = -1;
+    bold_ = false;
+    underline_ = false;
 }
 
 void TerminalBuffer::append(std::string_view value) {
@@ -86,20 +89,79 @@ void TerminalBuffer::append(std::string_view value) {
 }
 
 std::string TerminalBuffer::render(std::size_t maxCharacters) const {
-    std::vector<std::string> tokens;
+    const auto spans = styledRender(maxCharacters);
+    std::string result;
+    for (const auto& span : spans) result += span.text;
+    return result;
+}
+
+std::vector<TerminalSpan> TerminalBuffer::styledRender(std::size_t maxCharacters) const {
+    std::vector<TerminalSpan> tokens;
     for (std::size_t line = 0; line < lines_.size(); ++line) {
         std::size_t start = 0;
         std::size_t end = lines_[line].size();
-        while (start < end && isWhitespace(lines_[line][start])) ++start;
-        while (end > start && isWhitespace(lines_[line][end - 1])) --end;
-        for (std::size_t index = start; index < end; ++index) tokens.push_back(lines_[line][index]);
-        if (line + 1 < lines_.size()) tokens.emplace_back("\n");
+        while (start < end && isWhitespace(lines_[line][start].text)) ++start;
+        while (end > start && isWhitespace(lines_[line][end - 1].text)) --end;
+        for (std::size_t index = start; index < end; ++index) {
+            const auto& cell = lines_[line][index];
+            if (!tokens.empty() && tokens.back().foreground == cell.foreground &&
+                tokens.back().bold == cell.bold &&
+                tokens.back().underline == cell.underline) {
+                tokens.back().text += cell.text;
+            } else {
+                tokens.push_back(TerminalSpan{
+                    cell.text, cell.foreground, cell.bold, cell.underline});
+            }
+        }
+        if (line + 1 < lines_.size()) {
+            if (!tokens.empty() && tokens.back().foreground == -1 &&
+                !tokens.back().bold && !tokens.back().underline) {
+                tokens.back().text += '\n';
+            } else {
+                tokens.push_back(TerminalSpan{"\n", -1, false, false});
+            }
+        }
     }
     if (maxCharacters == 0 || tokens.empty()) return {};
-    const auto start = tokens.size() > maxCharacters ? tokens.size() - maxCharacters : 0;
-    std::string result;
-    for (std::size_t index = start; index < tokens.size(); ++index) result += tokens[index];
-    return result;
+
+    std::size_t characterCount = 0;
+    for (const auto& token : tokens) {
+        for (std::size_t offset = 0; offset < token.text.size();) {
+            const auto byte = static_cast<unsigned char>(token.text[offset]);
+            const auto length = byte < 0x80 ? 1 : byte < 0xe0 ? 2 : byte < 0xf0 ? 3 : 4;
+            offset += std::min<std::size_t>(static_cast<std::size_t>(length),
+                                            token.text.size() - offset);
+            ++characterCount;
+        }
+    }
+    if (characterCount <= maxCharacters) return tokens;
+
+    std::size_t toSkip = characterCount - maxCharacters;
+    std::size_t index = 0;
+    while (index < tokens.size()) {
+        std::size_t tokenCharacters = 0;
+        for (std::size_t offset = 0; offset < tokens[index].text.size();) {
+            const auto byte = static_cast<unsigned char>(tokens[index].text[offset]);
+            const auto length = byte < 0x80 ? 1 : byte < 0xe0 ? 2 : byte < 0xf0 ? 3 : 4;
+            offset += std::min<std::size_t>(static_cast<std::size_t>(length),
+                                            tokens[index].text.size() - offset);
+            ++tokenCharacters;
+        }
+        if (toSkip < tokenCharacters) break;
+        toSkip -= tokenCharacters;
+        ++index;
+    }
+    if (index == tokens.size()) return {};
+    while (toSkip > 0 && !tokens[index].text.empty()) {
+        const auto byte = static_cast<unsigned char>(tokens[index].text[0]);
+        const auto length = byte < 0x80 ? 1 : byte < 0xe0 ? 2 : byte < 0xf0 ? 3 : 4;
+        tokens[index].text.erase(
+            0, std::min<std::size_t>(static_cast<std::size_t>(length),
+                                     tokens[index].text.size()));
+        --toSkip;
+    }
+    tokens.erase(tokens.begin(), tokens.begin() + static_cast<std::ptrdiff_t>(index));
+    return tokens;
 }
 
 void TerminalBuffer::consume(std::uint32_t scalar) {
@@ -157,9 +219,12 @@ void TerminalBuffer::consumeText(std::uint32_t scalar) {
 
 void TerminalBuffer::write(std::string character) {
     ensureRow();
-    while (lines_[row_].size() < column_) lines_[row_].emplace_back(" ");
-    if (column_ == lines_[row_].size()) lines_[row_].push_back(std::move(character));
-    else lines_[row_][column_] = std::move(character);
+    while (lines_[row_].size() < column_) {
+        lines_[row_].push_back(Cell{" ", foreground_, bold_, underline_});
+    }
+    Cell cell{std::move(character), foreground_, bold_, underline_};
+    if (column_ == lines_[row_].size()) lines_[row_].push_back(std::move(cell));
+    else lines_[row_][column_] = std::move(cell);
     ++column_;
     if (column_ >= MaximumColumns) {
         column_ = 0;
@@ -201,6 +266,35 @@ void TerminalBuffer::handleCSI(std::uint32_t final) {
     if (!value.empty() || (!csiParameters_.empty() && csiParameters_.back() == ';')) flush();
     const auto first = values.empty() || values.front() == 0 ? 1 : values.front();
     const auto second = values.size() > 1 && values[1] != 0 ? values[1] : 1;
+    if (final == 'm') {
+        if (values.empty()) values.push_back(0);
+        for (std::size_t index = 0; index < values.size(); ++index) {
+            const auto value = values[index];
+            if (value == 0) {
+                foreground_ = -1;
+                bold_ = false;
+                underline_ = false;
+            } else if (value == 1) {
+                bold_ = true;
+            } else if (value == 22) {
+                bold_ = false;
+            } else if (value == 4) {
+                underline_ = true;
+            } else if (value == 24) {
+                underline_ = false;
+            } else if (value == 39) {
+                foreground_ = -1;
+            } else if (value >= 30 && value <= 37) {
+                foreground_ = value - 30;
+            } else if (value >= 90 && value <= 97) {
+                foreground_ = value - 90 + 8;
+            } else if (value == 38 && index + 2 < values.size() && values[index + 1] == 5) {
+                foreground_ = std::clamp(values[index + 2], 0, 255);
+                index += 2;
+            }
+        }
+        return;
+    }
     switch (final) {
     case 'A': row_ = row_ > static_cast<std::size_t>(first) ? row_ - first : 0; break;
     case 'B':

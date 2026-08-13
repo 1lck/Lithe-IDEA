@@ -5,6 +5,9 @@ rust/target/
 .idea/
 DerivedData/
 /windows/build*/
+/windows/winui/Generated Files/
+/windows/winui/x64/
+/windows/winui/obj/
 dist/
 Fixtures/**/target/
 *.xcuserstate

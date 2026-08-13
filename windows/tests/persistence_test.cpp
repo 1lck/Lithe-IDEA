@@ -43,11 +43,13 @@ int main() {
     assert(effectiveUiLanguage("en", true) == "en");
     assert(effectiveUiLanguage("zh_CN", false) == "zh_CN");
     using lithe::windows::app::normalizeDataDirectory;
-    assert(normalizeDataDirectory("") == "");
-    assert(normalizeDataDirectory("  ") == "");
-    assert(normalizeDataDirectory("E:\\LitheData\\") == "E:/LitheData");
-    assert(normalizeDataDirectory("E:/LitheData/") == "E:/LitheData");
-    assert(normalizeDataDirectory("E:/LitheData") == "E:/LitheData");
+assert(normalizeDataDirectory("") == "");
+assert(normalizeDataDirectory("  ") == "");
+assert(normalizeDataDirectory("E:\\LitheData\\") == "E:/LitheData");
+assert(normalizeDataDirectory("E:/LitheData/") == "E:/LitheData");
+assert(normalizeDataDirectory("E:/LitheData") == "E:/LitheData");
+assert(normalizeDataDirectory("D:\\LitheData") == "D:/LitheData");
+assert(normalizeDataDirectory("D:/Lithe/Data/") == "D:/Lithe/Data");
 
     MemoryStore store;
     lithe::windows::app::AppSettingsStore settingsStore(store);

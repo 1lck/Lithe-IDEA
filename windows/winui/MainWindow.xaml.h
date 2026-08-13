@@ -27,6 +27,9 @@ struct MainWindow : MainWindowT<MainWindow> {
         IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
 
     void RefreshGitClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ShowGitBranchTreeClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void GitBranchTreeSelectionChanged(
+        IInspectable const&, Microsoft::UI::Xaml::Controls::TreeViewSelectionChangedEventArgs const&);
     void FetchGitClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
     winrt::fire_and_forget PushGitClick(
         IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
@@ -185,6 +188,28 @@ struct MainWindow : MainWindowT<MainWindow> {
         IInspectable const&, Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
     void BottomToolSelectionChanged(
         IInspectable const&, Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
+    enum class ActivityBarSlot {
+        None,
+        Project,
+        Changes,
+        Search,
+        Terminal,
+        Git,
+        Build,
+        Problems,
+        Debug,
+    };
+    void updateActivitySelection(ActivityBarSlot slot);
+    void ActivityProjectClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ActivityChangesClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ActivitySearchClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ActivityTerminalClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ActivityGitClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ActivityBuildClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ActivityProblemsClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ActivityDebugClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ActivitySettingsClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void ToggleThemeClick(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
 
     void WorkspaceSearchKeyDown(
         IInspectable const&, Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
@@ -192,8 +217,13 @@ struct MainWindow : MainWindowT<MainWindow> {
         IInspectable const&, Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
     void TerminalInputKeyDown(
         IInspectable const&, Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
-    void TerminalSessionSelectionChanged(
+    void TerminalSessionsTabSelectionChanged(
         IInspectable const&, Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
+    void TerminalSessionsAddClick(
+        IInspectable const&, Windows::Foundation::IInspectable const&);
+    void TerminalSessionsTabCloseRequested(
+        Microsoft::UI::Xaml::Controls::TabView const&,
+        Microsoft::UI::Xaml::Controls::TabViewTabCloseRequestedEventArgs const&);
     void TerminalShellSelectionChanged(
         IInspectable const&, Microsoft::UI::Xaml::Controls::SelectionChangedEventArgs const&);
     void TerminalShellLostFocus(
@@ -209,6 +239,12 @@ struct MainWindow : MainWindowT<MainWindow> {
     void EditorTextChanged(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
     void EditorSelectionChanged(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
     void EditorLoaded(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void TerminalOutputLoaded(IInspectable const&, Microsoft::UI::Xaml::RoutedEventArgs const&);
+    void TerminalOutputKeyDown(
+        IInspectable const&, Microsoft::UI::Xaml::Input::KeyRoutedEventArgs const&);
+    void TerminalOutputCharacterReceived(
+        IInspectable const&, Microsoft::UI::Xaml::Input::CharacterReceivedRoutedEventArgs const&);
+    winrt::fire_and_forget pasteTerminalClipboard();
     void EditorGutterPointerPressed(
         IInspectable const&,
         Microsoft::UI::Xaml::Input::PointerRoutedEventArgs const&);
@@ -286,6 +322,9 @@ private:
                               std::optional<std::uint64_t> utf16Column = std::nullopt);
     Microsoft::UI::Xaml::Controls::TabViewItem ensureEditorTab(const std::string& path);
     void updateTabHeader(const std::string& path);
+    void applyTabHeaderIcon(Microsoft::UI::Xaml::Controls::TabViewItem const& tab,
+                            const std::string& path);
+    static wchar_t const* fileTypeGlyph(std::string_view path);
     void remapEditorPaths(std::string_view oldPath, std::string_view newPath);
     std::vector<std::string> selectedChangePaths();
     std::string selectedTreePath();
@@ -340,6 +379,7 @@ private:
         lithe::windows::winui::ProjectReplacementApplyResult result);
     void renderGit(lithe::windows::app::GitFeatureState state);
     void renderGitChanges();
+    void renderGitBranchTree(const lithe::windows::GitHistoryDto& history);
     winrt::fire_and_forget showCheckoutConflict(
         lithe::windows::app::GitPendingCheckout pending,
         std::vector<std::string> blockingPaths);
@@ -400,6 +440,7 @@ private:
     std::vector<GutterAction> gutterActions_;
     std::optional<lithe::windows::app::GitPendingIntegration> pendingIntegration_;
     std::optional<lithe::windows::GitStatusDto> gitStatus_;
+    std::optional<lithe::windows::GitPullPreflightDto> gitAheadBehind_;
     std::vector<std::string> gitConflictPaths_;
     std::vector<std::string> pendingIntegrationPaths_;
     std::string blamePath_;
@@ -422,8 +463,10 @@ private:
     bool restoringWorkbench_ = false;
     bool externalConflictVisible_ = false;
     bool terminalUiUpdating_ = false;
+    bool terminalOutputReady_ = false;
     bool showWelcomeOnLoad_ = false;
     std::uint64_t terminalRevision_ = 0;
+    std::uint64_t terminalGeneration_ = 0;
     double bottomPanelHeight_ = 290.0;
 };
 

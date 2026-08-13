@@ -34,6 +34,10 @@ int main() {
     assert(model.markStarting(first));
     assert(!model.session(first)->exitCode);
     assert(model.markRunning(first));
+    assert(model.appendOutput(first, "\x1b[32mgreen\x1b[0m"));
+    const auto styled = model.outputSpans(first);
+    assert(styled.size() == 1);
+    assert(styled[0].text == "green" && styled[0].foreground == 2);
     assert(model.markStopped(first));
     assert(!model.markExited(first));
     assert(!model.setShell(first, {}));

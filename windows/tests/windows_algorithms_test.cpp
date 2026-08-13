@@ -205,6 +205,16 @@ void testTerminalBuffer() {
     buffer.reset();
     buffer.append("\x1b[999999999999Cdone");
     assert(buffer.render(5) == "done");
+    buffer.reset();
+    buffer.append("plain \x1b[31mred\x1b[1;4m bold-underlined\x1b[0m plain");
+    const auto spans = buffer.styledRender(100);
+    assert(spans.size() == 4);
+    assert(spans[0].text == "plain " && spans[0].foreground == -1);
+    assert(spans[1].text == "red" && spans[1].foreground == 1);
+    assert(spans[2].text == " bold-underlined" && spans[2].foreground == 1 &&
+           spans[2].bold && spans[2].underline);
+    assert(spans[3].text == " plain" && spans[3].foreground == -1 &&
+           !spans[3].bold && !spans[3].underline);
 }
 
 void testGitGraph() {

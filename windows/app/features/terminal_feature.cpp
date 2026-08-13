@@ -113,6 +113,15 @@ std::string TerminalFeatureModel::output(
         ? std::string{} : found->second.output.render(maximumCharacters);
 }
 
+std::vector<algorithms::TerminalSpan> TerminalFeatureModel::outputSpans(
+    std::string_view id, std::size_t maximumCharacters) const {
+    std::lock_guard lock(mutex_);
+    const auto found = sessions_.find(std::string(id));
+    return found == sessions_.end()
+        ? std::vector<algorithms::TerminalSpan>{}
+        : found->second.output.styledRender(maximumCharacters);
+}
+
 std::optional<TerminalSessionSnapshot> TerminalFeatureModel::session(std::string_view id) const {
     std::lock_guard lock(mutex_);
     const auto found = sessions_.find(std::string(id));
