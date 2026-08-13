@@ -6,6 +6,45 @@ import Testing
 struct GitStatusObservationTests {
     @Test
     @MainActor
+    func identicalGitRefreshSkipsExpensiveDownstreamWork() async {
+        let repository = URL(fileURLWithPath: "/tmp/lithe-identical-git-refresh")
+        let snapshot = GitSnapshot(
+            repositoryRoot: repository,
+            branch: "main",
+            changes: [
+                GitChange(
+                    repositoryRoot: repository,
+                    path: "tracked.txt",
+                    originalPath: nil,
+                    indexStatus: " ",
+                    workTreeStatus: "M"
+                )
+            ]
+        )
+        let model = GitFeatureModel(
+            service: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            snapshotProvider: { _ in snapshot },
+            stashesProvider: { _ in [] },
+            operationStateProvider: { _ in nil },
+            diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) }
+        )
+        var downstreamRefreshCount = 0
+        model.configure(
+            workspaceURLProvider: { repository },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: { downstreamRefreshCount += 1 }
+        )
+
+        await model.refreshGit()
+        #expect(downstreamRefreshCount == 1)
+
+        await model.refreshGit()
+        #expect(downstreamRefreshCount == 1)
+    }
+
+    @Test
+    @MainActor
     func visibleWorkspaceEditStillUsesTheWorkspacePipelineAndRefreshesGit() async throws {
         let fixture = try GitObservationFixture(label: "visible-edit")
         let repository = fixture.url.appendingPathComponent("repository", isDirectory: true)

@@ -215,6 +215,11 @@ pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreErr
     execute_git(&root, &request.arguments, request.input)
 }
 
+fn readonly_command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
+    let root = validate_root(&request.root)?;
+    execute_git_readonly(&root, &request.arguments, request.input)
+}
+
 pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
     let mut arguments: Vec<String>;
@@ -449,9 +454,29 @@ fn execute_git(
     arguments: &[String],
     input: Option<String>,
 ) -> Result<GitCommandResponse, CoreError> {
+    execute_git_with_options(root, arguments, input, false)
+}
+
+fn execute_git_readonly(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+) -> Result<GitCommandResponse, CoreError> {
+    execute_git_with_options(root, arguments, input, true)
+}
+
+fn execute_git_with_options(
+    root: &str,
+    arguments: &[String],
+    input: Option<String>,
+    disable_optional_locks: bool,
+) -> Result<GitCommandResponse, CoreError> {
     crate::protocol::cancellation::check()?;
     let mut process = Command::new("git");
     process.args(arguments).current_dir(root);
+    if disable_optional_locks {
+        process.env("GIT_OPTIONAL_LOCKS", "0");
+    }
     process.stdin(if input.is_some() {
         std::process::Stdio::piped()
     } else {
@@ -579,7 +604,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     }
     arguments.extend(request.pathspecs);
 
-    let command_response = command(GitCommandRequest {
+    let command_response = readonly_command(GitCommandRequest {
         root: request.root,
         arguments,
         input: None,
@@ -651,7 +676,7 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
 pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreError> {
     let limit = request.limit.clamp(1, 5_000);
     let root = validate_root(&request.root)?;
-    let reference_output = command(GitCommandRequest {
+    let reference_output = readonly_command(GitCommandRequest {
         root: root.clone(),
         arguments: vec![
             "for-each-ref".to_string(),
@@ -696,7 +721,7 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         "--date=format:%Y/%m/%d %H:%M".to_string(),
         "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
     ]);
-    let commit_output = command(GitCommandRequest {
+    let commit_output = readonly_command(GitCommandRequest {
         root,
         arguments,
         input: None,
@@ -724,7 +749,7 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
 pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.commit)?;
-    let response = command(GitCommandRequest {
+    let response = readonly_command(GitCommandRequest {
         root,
         arguments: vec![
             "show".to_string(),
@@ -752,7 +777,7 @@ pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, Core
 pub fn commit_files(request: GitCommitFilesRequest) -> Result<GitFilesResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.commit)?;
-    let response = command(GitCommandRequest {
+    let response = readonly_command(GitCommandRequest {
         root,
         arguments: vec![
             "-c".to_string(),
@@ -779,7 +804,7 @@ pub fn commit_files(request: GitCommitFilesRequest) -> Result<GitFilesResponse, 
 pub fn comparison(request: GitComparisonRequest) -> Result<GitComparisonResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.reference)?;
-    let response = command(GitCommandRequest {
+    let response = readonly_command(GitCommandRequest {
         root,
         arguments: vec![
             "-c".to_string(),
@@ -814,7 +839,7 @@ pub fn checkout_preflight(
     let root = validate_root(&request.root)?;
     let reference = validated_reference(Some(&request.reference))?;
 
-    let dirty = command(GitCommandRequest {
+    let dirty = readonly_command(GitCommandRequest {
         root: root.clone(),
         arguments: vec![
             "diff".to_string(),
@@ -837,7 +862,7 @@ pub fn checkout_preflight(
 
     // Untracked files block a checkout too, whenever the target branch tracks the same
     // path: git refuses rather than overwrite them. These never appear in `diff HEAD`.
-    let untracked = command(GitCommandRequest {
+    let untracked = readonly_command(GitCommandRequest {
         root: root.clone(),
         arguments: vec![
             "ls-files".to_string(),
@@ -867,7 +892,7 @@ pub fn checkout_preflight(
 
     let mut blocking_paths = Vec::new();
     if !untracked_paths.is_empty() {
-        let tracked_on_target = command(GitCommandRequest {
+        let tracked_on_target = readonly_command(GitCommandRequest {
             root: root.clone(),
             arguments: vec![
                 "ls-tree".to_string(),
@@ -899,7 +924,7 @@ pub fn checkout_preflight(
         return Ok(GitCheckoutPreflightResponse { blocking_paths });
     }
 
-    let divergent = command(GitCommandRequest {
+    let divergent = readonly_command(GitCommandRequest {
         root,
         arguments: vec![
             "diff".to_string(),
@@ -938,7 +963,7 @@ pub fn conflict_marker_paths(
 ) -> Result<GitConflictMarkerResponse, CoreError> {
     let root = validate_root(&request.root)?;
 
-    let found = command(GitCommandRequest {
+    let found = readonly_command(GitCommandRequest {
         root,
         arguments: vec![
             "grep".to_string(),
@@ -1005,7 +1030,7 @@ pub fn integration_preflight(
     };
 
     // Tracked files differing from HEAD, staged or not: `diff HEAD` covers both.
-    let dirty = command(GitCommandRequest {
+    let dirty = readonly_command(GitCommandRequest {
         root: root.clone(),
         arguments: vec![
             "diff".to_string(),
@@ -1051,7 +1076,7 @@ pub fn integration_preflight(
     // are the files that commit changed against its own parent.
     let written = match shape {
         IntegrationShape::MergeBase => {
-            let base = command(GitCommandRequest {
+            let base = readonly_command(GitCommandRequest {
                 root: root.clone(),
                 arguments: vec![
                     "merge-base".to_string(),
@@ -1066,7 +1091,7 @@ pub fn integration_preflight(
                         .with_details(base.output),
                 );
             }
-            command(GitCommandRequest {
+            readonly_command(GitCommandRequest {
                 root,
                 arguments: vec![
                     "diff".to_string(),
@@ -1079,7 +1104,7 @@ pub fn integration_preflight(
         }
         // `diff-tree` against the commit itself; the extra flags make a merge commit
         // and the root commit behave rather than print nothing.
-        IntegrationShape::SingleCommit => command(GitCommandRequest {
+        IntegrationShape::SingleCommit => readonly_command(GitCommandRequest {
             root,
             arguments: vec![
                 "diff-tree".to_string(),
@@ -1128,7 +1153,7 @@ pub fn pull_preflight(
 ) -> Result<GitPullPreflightResponse, CoreError> {
     let root = validate_root(&request.root)?;
 
-    let upstream = command(GitCommandRequest {
+    let upstream = readonly_command(GitCommandRequest {
         root: root.clone(),
         arguments: vec![
             "rev-parse".to_string(),
@@ -1150,7 +1175,7 @@ pub fn pull_preflight(
     }
     let upstream = upstream.output.trim().to_string();
 
-    let counts = command(GitCommandRequest {
+    let counts = readonly_command(GitCommandRequest {
         root: root.clone(),
         arguments: vec![
             "rev-list".to_string(),
@@ -1171,7 +1196,7 @@ pub fn pull_preflight(
     let behind = fields.next().and_then(|v| v.parse().ok()).unwrap_or(0);
     let ahead = fields.next().and_then(|v| v.parse().ok()).unwrap_or(0);
 
-    let dirty = command(GitCommandRequest {
+    let dirty = readonly_command(GitCommandRequest {
         root,
         arguments: vec![
             "status".to_string(),
@@ -1196,18 +1221,14 @@ pub fn pull_preflight(
     })
 }
 
-/// Resolves a path inside the Git directory, honoring worktrees and submodules
-/// where `.git` is a file pointing elsewhere rather than a directory.
-fn git_path(root: &str, name: &str) -> Result<Option<std::path::PathBuf>, CoreError> {
-    let response = command(GitCommandRequest {
-        root: root.to_string(),
-        arguments: vec![
-            "rev-parse".to_string(),
-            "--git-path".to_string(),
-            name.to_string(),
-        ],
-        input: None,
-    })?;
+/// Resolves the Git directory once, honoring worktrees and submodules where
+/// `.git` is a file pointing elsewhere rather than a directory.
+fn git_directory(root: &str) -> Result<Option<PathBuf>, CoreError> {
+    let response = execute_git_readonly(
+        root,
+        &["rev-parse".to_string(), "--absolute-git-dir".to_string()],
+        None,
+    )?;
     if response.exit_code != 0 {
         return Err(
             CoreError::new(ErrorCode::ProcessFailed, "Git rev-parse failed")
@@ -1218,9 +1239,7 @@ fn git_path(root: &str, name: &str) -> Result<Option<std::path::PathBuf>, CoreEr
     if raw.is_empty() {
         return Ok(None);
     }
-    // `--git-path` yields a path relative to the working directory, not the git dir.
-    let path = std::path::Path::new(root).join(raw);
-    Ok(path.exists().then_some(path))
+    Ok(Some(PathBuf::from(raw)))
 }
 
 /// Reads a single-line numeric counter written by an in-progress rebase.
@@ -1249,27 +1268,34 @@ pub fn operation_state(
 
     // Order matters: a conflicted rebase can carry a REVERT_HEAD from the commit
     // it is replaying, so the more specific rebase directories are checked first.
-    if let Some(directory) = git_path(&root, "rebase-merge")?.or(git_path(&root, "rebase-apply")?) {
-        kind = "rebase".to_string();
-        step = rebase_counter(&directory, "msgnum");
-        total = rebase_counter(&directory, "end");
-        reference = std::fs::read_to_string(directory.join("onto"))
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
-    } else if git_path(&root, "MERGE_HEAD")?.is_some() {
-        kind = "merge".to_string();
-    } else if git_path(&root, "CHERRY_PICK_HEAD")?.is_some() {
-        kind = "cherryPick".to_string();
-    } else if git_path(&root, "REVERT_HEAD")?.is_some() {
-        kind = "revert".to_string();
+    if let Some(git_directory) = git_directory(&root)? {
+        let rebase_merge = git_directory.join("rebase-merge");
+        let rebase_apply = git_directory.join("rebase-apply");
+        let operation_directory = [rebase_merge, rebase_apply]
+            .into_iter()
+            .find(|path| path.exists());
+        if let Some(directory) = operation_directory {
+            kind = "rebase".to_string();
+            step = rebase_counter(&directory, "msgnum");
+            total = rebase_counter(&directory, "end");
+            reference = std::fs::read_to_string(directory.join("onto"))
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+        } else if git_directory.join("MERGE_HEAD").exists() {
+            kind = "merge".to_string();
+        } else if git_directory.join("CHERRY_PICK_HEAD").exists() {
+            kind = "cherryPick".to_string();
+        } else if git_directory.join("REVERT_HEAD").exists() {
+            kind = "revert".to_string();
+        }
     }
 
-    let status = command(GitCommandRequest {
-        root,
-        arguments: vec!["status".to_string(), "--porcelain".to_string()],
-        input: None,
-    })?;
+    let status = execute_git_readonly(
+        &root,
+        &["status".to_string(), "--porcelain".to_string()],
+        None,
+    )?;
     if status.exit_code != 0 {
         return Err(
             CoreError::new(ErrorCode::ProcessFailed, "Git status failed")
@@ -1369,7 +1395,7 @@ fn is_conflicted_status(code: &str) -> bool {
 
 pub fn stashes(request: GitStashesRequest) -> Result<GitStashesResponse, CoreError> {
     let root = validate_root(&request.root)?;
-    let response = command(GitCommandRequest {
+    let response = readonly_command(GitCommandRequest {
         root,
         arguments: vec![
             "stash".to_string(),
@@ -1397,7 +1423,7 @@ pub fn blame(request: GitBlameRequest) -> Result<GitBlameResponse, CoreError> {
             "Git blame contains an invalid path",
         ));
     }
-    let response = command(GitCommandRequest {
+    let response = readonly_command(GitCommandRequest {
         root: request.root,
         arguments: vec![
             "blame".to_string(),
@@ -2443,7 +2469,12 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
+    // Status and path discovery are read-only from Lithe's point of view. Git
+    // may otherwise refresh its optional index data while answering a query,
+    // which emits `.git/index` events into the native watcher and can trigger
+    // another status refresh.
     Command::new("git")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .args(arguments)
         .current_dir(directory)
         .output()

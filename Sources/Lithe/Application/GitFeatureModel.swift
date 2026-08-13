@@ -53,6 +53,10 @@ final class GitFeatureModel: ObservableObject {
 
     private let service: GitService
     private let shelveService: ShelveService?
+    private let snapshotProvider: @Sendable (URL) async -> GitSnapshot?
+    private let stashesProvider: @Sendable (URL) async -> [GitStash]
+    private let operationStateProvider: @Sendable (URL) async -> GitOperationState?
+    private let diffDocumentProvider: @Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument
     private var workspaceURLProvider: (@MainActor () -> URL?)?
     private var isGitLogVisibleProvider: (@MainActor () -> Bool)?
     private var notify: (@MainActor (String) -> Void)?
@@ -65,9 +69,22 @@ final class GitFeatureModel: ObservableObject {
     private var refreshRequestedWhileRunning = false
 
 
-    init(service: GitService, shelveService: ShelveService? = nil) {
+    init(
+        service: GitService,
+        shelveService: ShelveService? = nil,
+        snapshotProvider: (@Sendable (URL) async -> GitSnapshot?)? = nil,
+        stashesProvider: (@Sendable (URL) async -> [GitStash])? = nil,
+        operationStateProvider: (@Sendable (URL) async -> GitOperationState?)? = nil,
+        diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil
+    ) {
         self.service = service
         self.shelveService = shelveService
+        self.snapshotProvider = snapshotProvider ?? { await service.snapshot(for: $0) }
+        self.stashesProvider = stashesProvider ?? { await service.stashes(at: $0) }
+        self.operationStateProvider = operationStateProvider ?? { await service.operationState(at: $0) }
+        self.diffDocumentProvider = diffDocumentProvider ?? {
+            await service.diffDocument(for: $0, whitespace: $1)
+        }
     }
 
     func configure(
@@ -161,16 +178,41 @@ final class GitFeatureModel: ObservableObject {
     }
 
     private func refreshGitState(at workspaceURL: URL) async {
-        if let snapshot = await service.snapshot(for: workspaceURL) {
-            gitRepositoryRoot = snapshot.repositoryRoot
-            currentBranch = snapshot.branch
-            gitChanges = snapshot.changes
-            if !gitConflictFilterPaths.isEmpty {
-                gitConflictFilterPaths.formIntersection(Set(snapshot.changes.map(\.path)))
+        var didChange = false
+        if let snapshot = await snapshotProvider(workspaceURL) {
+            let changesChanged = gitChanges != snapshot.changes
+            if gitRepositoryRoot != snapshot.repositoryRoot {
+                gitRepositoryRoot = snapshot.repositoryRoot
+                didChange = true
             }
-            gitStashes = await service.stashes(at: snapshot.repositoryRoot)
-            gitShelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
-            gitOperationState = await service.operationState(at: snapshot.repositoryRoot)
+            if currentBranch != snapshot.branch {
+                currentBranch = snapshot.branch
+                didChange = true
+            }
+            if changesChanged {
+                gitChanges = snapshot.changes
+                didChange = true
+            }
+            if !gitConflictFilterPaths.isEmpty {
+                let previousFilter = gitConflictFilterPaths
+                gitConflictFilterPaths.formIntersection(Set(snapshot.changes.map(\.path)))
+                didChange = didChange || previousFilter != gitConflictFilterPaths
+            }
+            let stashes = await stashesProvider(snapshot.repositoryRoot)
+            if gitStashes != stashes {
+                gitStashes = stashes
+                didChange = true
+            }
+            let shelves = await shelveService?.entries(for: snapshot.repositoryRoot) ?? []
+            if gitShelves != shelves {
+                gitShelves = shelves
+                didChange = true
+            }
+            let operationState = await operationStateProvider(snapshot.repositoryRoot)
+            if gitOperationState != operationState {
+                gitOperationState = operationState
+                didChange = true
+            }
             if let gitOperationState, deferredSavedChanges == nil,
                let stash = gitStashes.first(where: { $0.message.contains("Lithe auto-stash before") }) {
                 deferredSavedChanges = GitDeferredSavedChanges(
@@ -181,39 +223,45 @@ final class GitFeatureModel: ObservableObject {
 
             if let selectedChange,
                let updated = snapshot.changes.first(where: { $0.path == selectedChange.path }) {
-                self.selectedChange = updated
-                let document = await service.diffDocument(
-                    for: updated,
-                    whitespace: gitDiffWhitespaceMode
-                )
-                selectedDiffPatch = document.patch
-                diffRows = document.rows
-                diffHunks = document.hunks
+                if self.selectedChange != updated {
+                    self.selectedChange = updated
+                    didChange = true
+                }
+                let document = await diffDocumentProvider(updated, gitDiffWhitespaceMode)
+                if selectedDiffPatch != document.patch {
+                    selectedDiffPatch = document.patch
+                    diffRows = document.rows
+                    diffHunks = document.hunks
+                    didChange = true
+                }
             } else if selectedChange != nil {
                 self.selectedChange = nil
                 selectedDiffPatch = ""
                 diffRows = []
                 diffHunks = []
                 isLoadingDiff = false
+                didChange = true
             }
         } else {
-            gitRepositoryRoot = nil
-            currentBranch = "No Git"
-            gitChanges = []
-            gitStashes = []
-            gitShelves = []
-            gitOperationState = nil
-            selectedChange = nil
-            selectedDiffPatch = ""
-            diffRows = []
-            diffHunks = []
-            isLoadingDiff = false
+            if gitRepositoryRoot != nil { gitRepositoryRoot = nil; didChange = true }
+            if currentBranch != "No Git" { currentBranch = "No Git"; didChange = true }
+            if !gitChanges.isEmpty { gitChanges = []; didChange = true }
+            if !gitStashes.isEmpty { gitStashes = []; didChange = true }
+            if !gitShelves.isEmpty { gitShelves = []; didChange = true }
+            if gitOperationState != nil { gitOperationState = nil; didChange = true }
+            if selectedChange != nil { selectedChange = nil; didChange = true }
+            if !selectedDiffPatch.isEmpty { selectedDiffPatch = ""; didChange = true }
+            if !diffRows.isEmpty { diffRows = []; didChange = true }
+            if !diffHunks.isEmpty { diffHunks = []; didChange = true }
+            if isLoadingDiff { isLoadingDiff = false; didChange = true }
         }
 
-        if isGitLogVisibleProvider?() == true {
+        if didChange && isGitLogVisibleProvider?() == true {
             await refreshGitHistory()
         }
-        await onStateRefreshed?()
+        if didChange {
+            await onStateRefreshed?()
+        }
     }
 
     func selectChange(_ change: GitChange) async {
