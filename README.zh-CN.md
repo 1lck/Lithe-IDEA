@@ -118,7 +118,7 @@ Lithe 是一款面向 AI 辅助开发、追求极致性能的通用型 IDE。它
 
 ## 如何使用
 
-Lithe 需要 macOS 14 或更高版本。Java 项目功能需要 JDK，推荐使用 JDK 17 或 JDK 21；Maven 项目需要项目自带 `mvnw` 或系统中可用的 Maven。轻量补全无需启动外部进程；安装相应语言服务器后，Lithe 会通过共享 Rust LSP Core 按服务器实际声明的能力提供语义功能。详细设计与自定义 provider 配置见[语言工具与 LSP 架构](./docs/architecture/language-tooling.md)。
+Lithe 需要 macOS 13 或更高版本。Java 项目功能需要 JDK，推荐使用 JDK 17 或 JDK 21；Maven 项目需要项目自带 `mvnw` 或系统中可用的 Maven。轻量补全无需启动外部进程；安装相应语言服务器后，Lithe 会通过共享 Rust LSP Core 按服务器实际声明的能力提供语义功能。详细设计与自定义 provider 配置见[语言工具与 LSP 架构](./docs/architecture/language-tooling.md)。
 
 从 [GitHub Releases](https://github.com/1lck/Lithe-IDEA/releases/latest) 下载最新的 macOS `.dmg`。如果该版本提供独立架构安装包，M 系列芯片选择 `arm64`，Intel 芯片选择 `x86_64`。打开磁盘映像，将 `Lithe.app` 拖入 `/Applications` 后启动。
 
