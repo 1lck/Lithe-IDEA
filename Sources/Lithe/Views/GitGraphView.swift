@@ -200,7 +200,8 @@ private struct GitGraphCanvas: View {
             let centerY = size.height / 2
             let currentX = x(for: row.lane)
 
-            for (lane, colorIndex) in row.incomingLaneColors.enumerated() {
+            for (lane, incomingColorIndex) in row.incomingLaneColors.enumerated() {
+                guard let colorIndex = incomingColorIndex else { continue }
                 let path = linePath(
                     from: CGPoint(x: x(for: lane), y: 0),
                     to: CGPoint(x: x(for: lane), y: lane == row.lane ? centerY : size.height)
@@ -271,7 +272,9 @@ private struct GitGraphCanvas: View {
     }
 
     private var nodeColorIndex: Int {
-        row.incomingLaneColors[safe: row.lane] ?? 0
+        row.incomingLaneColors[safe: row.lane].flatMap { $0 }
+            ?? row.parentEdges.first?.colorIndex
+            ?? 0
     }
 
     private func x(for lane: Int) -> CGFloat {
