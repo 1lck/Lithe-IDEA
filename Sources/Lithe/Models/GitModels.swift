@@ -533,7 +533,7 @@ enum GitPullStrategy: String, Sendable {
     case rebase
 }
 
-enum GitOperationKind: String, Sendable {
+enum GitOperationKind: String, Equatable, Sendable {
     case merge
     case rebase
     case cherryPick
@@ -574,7 +574,7 @@ enum GitOperationKind: String, Sendable {
 
 /// A merge, rebase, cherry-pick, or revert that Git left half-finished, usually
 /// because it hit conflicts. Absent when the repository is in its normal state.
-struct GitOperationState: Sendable {
+struct GitOperationState: Equatable, Sendable {
     let kind: GitOperationKind
     let reference: String?
     let step: Int?

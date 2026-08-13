@@ -1,8 +1,9 @@
 use super::support::temporary_root;
 use crate::execute_json;
 use serde_json::Value;
-use std::fs;
+use std::fs::{self, FileTimes, OpenOptions};
 use std::process::Command;
+use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
 fn git_status_returns_contract_shape() {
@@ -32,6 +33,82 @@ fn git_status_returns_contract_shape() {
     assert_eq!(response["data"]["repositoryRoot"], ".");
     assert_eq!(response["data"]["changes"][0]["path"], "new.txt");
     assert_eq!(response["data"]["changes"][0]["untracked"], true);
+
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn git_status_does_not_refresh_the_index() {
+    let root = temporary_root("git-status-index");
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .env_remove("GIT_OPTIONAL_LOCKS")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "core.trustctime", "true"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    let tracked = root.join("tracked.txt");
+    fs::write(&tracked, "tracked\n").expect("test file should be writable");
+    assert!(run(&["add", "tracked.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+    let index = root.join(".git/index");
+    let make_cached_stat_stale = |seconds| {
+        let file = OpenOptions::new()
+            .write(true)
+            .open(&tracked)
+            .expect("tracked file should be writable");
+        file.set_times(FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(seconds)))
+            .expect("tracked file timestamp should be mutable");
+    };
+
+    // Keep a control path so this test fails closed if the fixture does not make
+    // Git consider the cached stat stale on the host running it.
+    make_cached_stat_stale(946_684_800);
+    let control_before = fs::metadata(&index)
+        .and_then(|metadata| metadata.modified())
+        .expect("index timestamp should be readable");
+    assert!(run(&["status", "--porcelain"]).status.success());
+    let control_after = fs::metadata(&index)
+        .and_then(|metadata| metadata.modified())
+        .expect("index timestamp should be readable");
+    assert_ne!(
+        control_before, control_after,
+        "the fixture should require an index refresh"
+    );
+
+    make_cached_stat_stale(978_307_200);
+    let before = fs::metadata(&index)
+        .and_then(|metadata| metadata.modified())
+        .expect("index timestamp should be readable");
+    let request = serde_json::json!({
+        "id": "git-status-readonly",
+        "command": "git.status",
+        "payload": {"root": root}
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("Git request should encode"),
+    ))
+    .expect("Git response should be JSON");
+    let after = fs::metadata(&index)
+        .and_then(|metadata| metadata.modified())
+        .expect("index timestamp should be readable");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["changes"], serde_json::json!([]));
+    assert_eq!(
+        before, after,
+        "a read-only status query must not rewrite the index"
+    );
 
     fs::remove_dir_all(root).expect("temporary repository should be removable");
 }

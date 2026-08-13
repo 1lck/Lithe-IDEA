@@ -2769,6 +2769,50 @@ struct EditorDocumentTests {
     }
 
     @Test
+    @MainActor
+    func workspaceInitialRebuildRequestsOneGitRefresh() async {
+        let operations = SequencedWorkspaceOperations(snapshotAvailability: [true])
+        let model = WorkspaceFeatureModel(
+            operations: operations,
+            fileOperations: EmptyWorkspaceFileOperations(),
+            fileStorage: InMemoryFileStorage(),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
+            directoryWatcherFactory: TestDirectoryWatcherFactory(),
+            workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
+        )
+        var snapshotLoadCount = 0
+        var gitRefreshCount = 0
+        model.configure(
+            documentsProvider: { [] },
+            activeDocumentProvider: { nil },
+            selectedSidebarProvider: { "project" },
+            setSelectedSidebar: { _ in },
+            restoreSession: { _, _ in },
+            openFile: { _ in },
+            notify: { _ in },
+            recordHistory: { _, _ in },
+            relocateHistory: { _, _ in },
+            relocateOpenDocuments: { _, _ in },
+            closeDocuments: { _ in },
+            processExternalChanges: { _ in false },
+            reloadProjectServices: {},
+            refreshGit: { gitRefreshCount += 1 },
+            updateHistoryVisibilityRules: { _ in },
+            onSnapshotLoaded: { _, _ in snapshotLoadCount += 1 }
+        )
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-initial-refresh")
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let result = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+
+        guard case .loaded = result else {
+            Issue.record("The initial workspace snapshot should load")
+            return
+        }
+        #expect(snapshotLoadCount == 1)
+        #expect(gitRefreshCount == 1)
+    }
+
+    @Test
     func workspaceFilesystemFallbackBuildsAVisibleTreeAndHonorsHiddenRules() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory

@@ -217,10 +217,21 @@ final class AppModel: ObservableObject, Identifiable {
     private var gitFeatureObservation: AnyCancellable?
     private var documentFeatureObservation: AnyCancellable?
     private var javaFeatureObservation: AnyCancellable?
+    private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
     private var languageTestObservation: AnyCancellable?
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
     private var workbenchLayoutStore: WorkbenchLayoutStore { services.workbenchLayoutStore }
+
+    private func scheduleObjectWillChangeRelay() {
+        guard !isObjectWillChangeRelayScheduled else { return }
+        isObjectWillChangeRelayScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.isObjectWillChangeRelayScheduled = false
+            self.objectWillChange.send()
+        }
+    }
 
     init(settings: AppSettings, services: AppServices) {
         self.settings = settings
@@ -289,25 +300,25 @@ final class AppModel: ObservableObject, Identifiable {
         )
         recentProjects = services.recentProjectsStore.load()
         databaseFeatureObservation = databaseFeature.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         workspaceFeatureObservation = workspaceFeature.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         runtimeFeatureObservation = runtimeFeature.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         searchFeatureObservation = searchFeature.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         terminalFeatureObservation = terminalFeature.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         languageToolingObservation = services.languageToolingSessions.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         languageTestObservation = services.languageTestService.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         projectHistoryFeature.configure(
             workspaceURLProvider: { [weak self] in self?.workspaceURL },
@@ -378,7 +389,7 @@ final class AppModel: ObservableObject, Identifiable {
             },
             onSnapshotLoaded: { [weak self] snapshot, isInitialLoad in
                 guard let self, let workspaceURL = self.workspaceURL else { return }
-                await self.refreshGit()
+                // WorkspaceFeatureModel requests the single Git refresh after this callback.
                 await self.loadProjectServices(at: workspaceURL, files: snapshot.files)
                 if isInitialLoad {
                     self.projectHistoryFeature.seed(files: snapshot.files)
@@ -394,7 +405,7 @@ final class AppModel: ObservableObject, Identifiable {
             notify: { [weak self] message in self?.showNotification(message) }
         )
         projectHistoryFeatureObservation = projectHistoryFeature.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         gitFeature.configure(
             workspaceURLProvider: { [weak self] in self?.workspaceURL },
@@ -413,7 +424,7 @@ final class AppModel: ObservableObject, Identifiable {
             }
         )
         gitFeatureObservation = gitFeature.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         documentFeature.configure(
             workspaceURLProvider: { [weak self] in self?.workspaceURL },
@@ -454,7 +465,7 @@ final class AppModel: ObservableObject, Identifiable {
             }
         )
         documentFeatureObservation = documentFeature.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         javaFeature.configure(
             documentProvider: { [weak self] in self?.activeDocument },
@@ -466,7 +477,7 @@ final class AppModel: ObservableObject, Identifiable {
             }
         )
         javaFeatureObservation = javaFeature.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.scheduleObjectWillChangeRelay()
         }
         fileVisibilityRulesObserverID = settings.addFileVisibilityRulesObserver { [weak self] in
             guard let self else { return }
