@@ -775,11 +775,35 @@ final class LanguageToolingSessionManager: ObservableObject {
                         completion: completion
                     )
                 case .failure(let error):
-                    completion(.failure(error))
+                    recordFeatureProviderFailure(
+                        providers[index],
+                        feature: "completion",
+                        error: error
+                    )
+                    routeCompletions(
+                        providers: providers,
+                        index: index + 1,
+                        context: context,
+                        items: items,
+                        seenLabels: seenLabels,
+                        completion: completion
+                    )
                 }
             }
         } catch {
-            completion(.failure(error))
+            recordFeatureProviderFailure(
+                providers[index],
+                feature: "completion",
+                error: error
+            )
+            routeCompletions(
+                providers: providers,
+                index: index + 1,
+                context: context,
+                items: items,
+                seenLabels: seenLabels,
+                completion: completion
+            )
         }
     }
 
@@ -806,11 +830,31 @@ final class LanguageToolingSessionManager: ObservableObject {
                         completion: completion
                     )
                 case .failure(let error):
-                    completion(.failure(error))
+                    recordFeatureProviderFailure(
+                        providers[index],
+                        feature: "hover",
+                        error: error
+                    )
+                    routeHover(
+                        providers: providers,
+                        index: index + 1,
+                        context: context,
+                        completion: completion
+                    )
                 }
             }
         } catch {
-            completion(.failure(error))
+            recordFeatureProviderFailure(
+                providers[index],
+                feature: "hover",
+                error: error
+            )
+            routeHover(
+                providers: providers,
+                index: index + 1,
+                context: context,
+                completion: completion
+            )
         }
     }
 
@@ -841,12 +885,48 @@ final class LanguageToolingSessionManager: ObservableObject {
                         completion(.success(locations))
                     }
                 case .failure(let error):
-                    completion(.failure(error))
+                    recordFeatureProviderFailure(
+                        providers[index],
+                        feature: method,
+                        error: error
+                    )
+                    routeNavigation(
+                        providers: providers,
+                        index: index + 1,
+                        method: method,
+                        context: context,
+                        completion: completion
+                    )
                 }
             }
         } catch {
-            completion(.failure(error))
+            recordFeatureProviderFailure(
+                providers[index],
+                feature: method,
+                error: error
+            )
+            routeNavigation(
+                providers: providers,
+                index: index + 1,
+                method: method,
+                context: context,
+                completion: completion
+            )
         }
+    }
+
+    private func recordFeatureProviderFailure(
+        _ provider: any LanguageFeatureProvider,
+        feature: String,
+        error: Error
+    ) {
+        guard provider.id.hasPrefix("lsp:") else { return }
+        recordLanguageServerLog(
+            providerID: String(provider.id.dropFirst("lsp:".count)),
+            level: .warning,
+            message: "Language server feature failed; using fallback",
+            detail: "\(feature): \(error.localizedDescription)"
+        )
     }
 
     private func configureLanguageServerCallbacks(

@@ -1236,11 +1236,9 @@ struct RunConfigurationIntegrationTests {
 
         var completionResult: Result<[LanguageServerCompletionItem], Error>?
         var completionCount = 0
-        try harness.manager.completions(
+        try harness.session.completions(
             fileURL: harness.source,
-            text: "struct App { let ti = 1 }\n",
-            position: LanguageServerPosition(line: 0, utf16Column: 19),
-            rootURL: harness.root
+            position: LanguageServerPosition(line: 0, utf16Column: 19)
         ) { result in
             completionCount += 1
             completionResult = result
@@ -1285,11 +1283,9 @@ struct RunConfigurationIntegrationTests {
         #expect(harness.core.startCalls.first?.requestTimeout == 0.002)
 
         var completionResult: Result<[LanguageServerCompletionItem], Error>?
-        try harness.manager.completions(
+        try harness.session.completions(
             fileURL: harness.source,
-            text: "struct App { let ti = 1 }\n",
-            position: LanguageServerPosition(line: 0, utf16Column: 19),
-            rootURL: harness.root
+            position: LanguageServerPosition(line: 0, utf16Column: 19)
         ) { completionResult = $0 }
 
         harness.core.enqueueRequestFailure(
