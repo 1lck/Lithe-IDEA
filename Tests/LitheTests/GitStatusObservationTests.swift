@@ -360,6 +360,7 @@ private func makeObservationModel(recorder: GitObservationRecorder) -> Workspace
     let model = WorkspaceFeatureModel(
         operations: GitObservationWorkspaceOperations(),
         fileOperations: MacWorkspaceFileOperations(),
+        fileStorage: MacFileStorage(),
         gitWatchContextProvider: GitObservationWatchContextProvider(),
         directoryWatcherFactory: GitObservationDirectoryWatcherFactory(),
         workspaceSessionStore: WorkspaceSessionStore(store: GitObservationKeyValueStore())

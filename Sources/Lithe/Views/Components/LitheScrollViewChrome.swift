@@ -50,18 +50,36 @@ struct LitheScrollViewChrome: NSViewRepresentable {
             configureEnclosingScrollView()
         }
 
+        /// Assigning any of these properties makes AppKit re-tile the scroll view,
+        /// which calls back into `layout()`. Writing only genuine changes keeps
+        /// that from becoming a layout feedback loop on every redraw.
         func configureEnclosingScrollView() {
             guard let scrollView = enclosingScrollView else { return }
 
-            scrollView.scrollerStyle = alwaysShowVertical ? .legacy : .overlay
-            scrollView.autohidesScrollers = !alwaysShowVertical
-            scrollView.hasVerticalScroller = true
-            scrollView.verticalScroller?.knobStyle = .dark
-            scrollView.horizontalScroller?.knobStyle = .dark
+            let scrollerStyle: NSScroller.Style = alwaysShowVertical ? .legacy : .overlay
+            if scrollView.scrollerStyle != scrollerStyle {
+                scrollView.scrollerStyle = scrollerStyle
+            }
+            if scrollView.autohidesScrollers != !alwaysShowVertical {
+                scrollView.autohidesScrollers = !alwaysShowVertical
+            }
+            if !scrollView.hasVerticalScroller {
+                scrollView.hasVerticalScroller = true
+            }
+            if scrollView.verticalScroller?.knobStyle != .dark {
+                scrollView.verticalScroller?.knobStyle = .dark
+            }
+            if scrollView.horizontalScroller?.knobStyle != .dark {
+                scrollView.horizontalScroller?.knobStyle = .dark
+            }
 
             if hideHorizontal {
-                scrollView.hasHorizontalScroller = false
-                scrollView.horizontalScrollElasticity = .none
+                if scrollView.hasHorizontalScroller {
+                    scrollView.hasHorizontalScroller = false
+                }
+                if scrollView.horizontalScrollElasticity != .none {
+                    scrollView.horizontalScrollElasticity = .none
+                }
             }
             configureScrollWheelMonitor(for: scrollView)
         }

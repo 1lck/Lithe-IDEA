@@ -267,14 +267,7 @@ private struct FileNodeRow: View {
         .contextMenu { fileContextMenu }
         .task(id: node.url.standardizedFileURL.path) {
             guard node.url.pathExtension.lowercased() == "java" else { return }
-            let url = node.url
-            resolvedJavaIconKind = await Task.detached(priority: .utility) {
-                guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-                defer { try? handle.close() }
-                let data = handle.readData(ofLength: 4 * 1024)
-                guard let prefix = String(data: data, encoding: .utf8) else { return nil }
-                return LitheIcons.javaSymbolKind(fromSourcePrefix: prefix)
-            }.value
+            resolvedJavaIconKind = await model.javaIconKind(for: node.url)
         }
     }
 

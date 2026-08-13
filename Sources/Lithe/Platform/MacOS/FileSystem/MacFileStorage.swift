@@ -19,6 +19,10 @@ struct MacFileStorage: FileStorage {
         ).first ?? FileManager.default.temporaryDirectory
     }
 
+    func temporaryDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+    }
+
     func metadata(for url: URL) -> FileMetadata? {
         guard let values = try? url.resourceValues(forKeys: [
             .fileSizeKey,
@@ -78,5 +82,9 @@ struct MacFileStorage: FileStorage {
 
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
         try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
     }
 }

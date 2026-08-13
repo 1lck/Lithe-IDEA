@@ -39,6 +39,21 @@ final class LitheTerminalView: LocalProcessTerminalView {
 /// switching terminal tabs or hiding the tool window does not reset a TUI screen.
 @MainActor
 final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency LocalProcessTerminalViewDelegate {
+    static func availableShells(fileManager: FileManager = .default) -> [String] {
+        let environment = ProcessInfo.processInfo.environment
+        var candidates: [String] = []
+        if let shell = environment["SHELL"], !shell.isEmpty { candidates.append(shell) }
+        candidates.append(contentsOf: [
+            "/bin/zsh",
+            "/bin/bash",
+            "/opt/homebrew/bin/bash",
+            "/opt/homebrew/bin/pwsh"
+        ])
+        return candidates.reduce(into: [String]()) { result, path in
+            guard fileManager.isExecutableFile(atPath: path), !result.contains(path) else { return }
+            result.append(path)
+        }
+    }
     let view: LitheTerminalView
 
     var onTermination: ((Int32?) -> Void)?

@@ -9,10 +9,17 @@ final class TerminalFeatureModel: ObservableObject {
     @Published private(set) var activeTerminalSessionID: UUID?
 
     private let terminalFactory: () -> any TerminalTransport
+    private let shellDiscovery: () -> [String]
 
-    init(terminalFactory: @escaping () -> any TerminalTransport) {
+    init(
+        terminalFactory: @escaping () -> any TerminalTransport,
+        shellDiscovery: @escaping () -> [String] = { [] }
+    ) {
         self.terminalFactory = terminalFactory
+        self.shellDiscovery = shellDiscovery
     }
+
+    var availableShells: [String] { shellDiscovery() }
 
     var activeTerminalSession: TerminalSession? {
         guard let activeTerminalSessionID else { return terminalSessions.first }

@@ -6,13 +6,20 @@ enum GitGraphLayoutService {
         let colorIndex: Int
     }
 
+    /// Lanes are fixed slots rather than a packed list. A branch keeps the same
+    /// slot for its whole visible life, because the renderer draws each incoming
+    /// lane as a vertical segment at a lane-derived x: shifting a slot index
+    /// between two adjacent rows would leave those segments unable to meet, which
+    /// reads as a broken branch line. Inserting or removing slots positionally
+    /// renumbers every later lane, so a slot is only ever cleared in place and
+    /// reused once free.
     static func layout(commits: [GitCommit]) -> GitGraphLayout {
         guard !commits.isEmpty else {
             return GitGraphLayout(rows: [], laneCount: 0, hasMissingParents: false)
         }
 
         let knownHashes = Set(commits.map(\.hash))
-        var lanes: [Lane] = []
+        var slots: [Lane?] = []
         var nextColorIndex = 0
         var maximumLaneCount = 0
         var hasMissingParents = false
@@ -21,54 +28,77 @@ enum GitGraphLayoutService {
 
         for commit in commits {
             let currentLane: Int
-            if let existingLane = lanes.firstIndex(where: { $0.hash == commit.hash }) {
+            if let existingLane = slots.firstIndex(where: { $0?.hash == commit.hash }) {
                 currentLane = existingLane
             } else {
-                currentLane = lanes.count
-                lanes.append(Lane(hash: commit.hash, colorIndex: nextColorIndex))
+                currentLane = Self.claimSlot(in: &slots)
+                slots[currentLane] = Lane(hash: commit.hash, colorIndex: nextColorIndex)
                 nextColorIndex += 1
             }
 
-            let incomingColors = lanes.map(\.colorIndex)
-            let currentColorIndex = lanes[currentLane].colorIndex
+            let incomingColors = slots.map { $0?.colorIndex }
+            let currentColorIndex = slots[currentLane]?.colorIndex ?? 0
 
-            lanes.remove(at: currentLane)
+            // The commit's own line terminates at its node, so the slot is free
+            // for a parent to continue in — keeping the first parent on the same x.
+            slots[currentLane] = nil
+
+            var edges: [GitGraphEdge] = []
+            edges.reserveCapacity(commit.parentHashes.count)
 
             for (parentIndex, parentHash) in commit.parentHashes.enumerated() {
                 guard knownHashes.contains(parentHash) else {
                     hasMissingParents = true
+                    edges.append(
+                        GitGraphEdge(
+                            id: "\(commit.hash):\(parentIndex):\(parentHash)",
+                            parentHash: parentHash,
+                            targetLane: nil,
+                            colorIndex: parentIndex == 0 ? currentColorIndex : nextColorIndex,
+                            isMissing: true
+                        )
+                    )
                     continue
                 }
-                guard !lanes.contains(where: { $0.hash == parentHash }) else { continue }
-                let insertionIndex = min(currentLane + parentIndex, lanes.count)
+
+                let targetLane: Int
                 let colorIndex: Int
-                if parentIndex == 0 {
+                if let existingLane = slots.firstIndex(where: { $0?.hash == parentHash }) {
+                    // The parent is already awaited elsewhere; merge into that lane
+                    // instead of opening a second one for the same commit.
+                    targetLane = existingLane
+                    colorIndex = slots[existingLane]?.colorIndex ?? currentColorIndex
+                } else if parentIndex == 0 {
+                    targetLane = currentLane
                     colorIndex = currentColorIndex
+                    slots[targetLane] = Lane(hash: parentHash, colorIndex: colorIndex)
                 } else {
+                    targetLane = Self.claimSlot(in: &slots)
                     colorIndex = nextColorIndex
                     nextColorIndex += 1
+                    slots[targetLane] = Lane(hash: parentHash, colorIndex: colorIndex)
                 }
-                lanes.insert(Lane(hash: parentHash, colorIndex: colorIndex), at: insertionIndex)
-            }
 
-            let parentEdges = commit.parentHashes.enumerated().map { parentIndex, parentHash in
-                let targetLane = lanes.firstIndex(where: { $0.hash == parentHash })
-                let isMissing = targetLane == nil
-                if isMissing { hasMissingParents = true }
-                let colorIndex = targetLane.map { lanes[$0].colorIndex }
-                    ?? (parentIndex == 0 ? currentColorIndex : nextColorIndex + parentIndex - 1)
-                return GitGraphEdge(
-                    id: "\(commit.hash):\(parentIndex):\(parentHash)",
-                    parentHash: parentHash,
-                    targetLane: targetLane,
-                    colorIndex: colorIndex,
-                    isMissing: isMissing
+                edges.append(
+                    GitGraphEdge(
+                        id: "\(commit.hash):\(parentIndex):\(parentHash)",
+                        parentHash: parentHash,
+                        targetLane: targetLane,
+                        colorIndex: colorIndex,
+                        isMissing: false
+                    )
                 )
             }
 
+            // Trailing empty slots would widen every row's graph gutter for the
+            // rest of the log. Trimming only the tail never renumbers a live lane.
+            while slots.last == .some(nil) {
+                slots.removeLast()
+            }
+
             let laneCount = max(
-                max(incomingColors.count, lanes.count),
-                max(currentLane + 1, parentEdges.compactMap(\.targetLane).max().map { $0 + 1 } ?? 0)
+                max(incomingColors.count, slots.count),
+                max(currentLane + 1, edges.compactMap(\.targetLane).max().map { $0 + 1 } ?? 0)
             )
             maximumLaneCount = max(maximumLaneCount, laneCount)
 
@@ -78,7 +108,7 @@ enum GitGraphLayoutService {
                     lane: currentLane,
                     laneCount: laneCount,
                     incomingLaneColors: incomingColors,
-                    parentEdges: parentEdges,
+                    parentEdges: edges,
                     labels: labels(from: commit.decorations)
                 )
             )
@@ -89,6 +119,14 @@ enum GitGraphLayoutService {
             laneCount: max(1, maximumLaneCount),
             hasMissingParents: hasMissingParents
         )
+    }
+
+    /// Returns the leftmost free slot, widening the lane set only when every
+    /// existing slot is occupied.
+    private static func claimSlot(in slots: inout [Lane?]) -> Int {
+        if let free = slots.firstIndex(where: { $0 == nil }) { return free }
+        slots.append(nil)
+        return slots.count - 1
     }
 
     private static func labels(from decorations: String) -> [GitGraphLabel] {
