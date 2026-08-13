@@ -1060,7 +1060,6 @@ final class AppModel: ObservableObject, Identifiable {
             languageToolingFeature.markActivationSucceeded(providerID: descriptor.id)
             return languageToolingSessions.activeLanguageServerIDs.contains(descriptor.id)
         } catch {
-            let message = error.localizedDescription
             languageToolingFeature.markActivationFailed(providerID: descriptor.id, descriptor: descriptor, error: error)
             return false
         }
