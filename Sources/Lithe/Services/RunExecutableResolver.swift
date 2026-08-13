@@ -27,7 +27,7 @@ final class RunExecutableResolver: RunExecutableResolving {
         switch plan.executable {
         case .toolchain(let id):
             let toolchainProjectURL = id == "project-maven" && plan.workingDirectory != "."
-                ? projectURL.appendingPathComponent(plan.workingDirectory, isDirectory: true)
+                ? projectURL.appending(path: plan.workingDirectory, directoryHint: .isDirectory)
                 : projectURL
             let resolved = try toolchainRegistry.resolve(
                 identifier: id,

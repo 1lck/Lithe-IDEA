@@ -125,7 +125,7 @@ fn collect_modules(
 
 pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, CoreError> {
     let workspace_root = existing_root(&request.root)?;
-    let Some((root, relative_path)) = maven_root(&workspace_root, &request.paths) else {
+    let Some((root, relative_path)) = maven_root(&workspace_root, &request.paths)? else {
         return Ok(None);
     };
     let pom = root.join("pom.xml");
@@ -157,49 +157,70 @@ pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, Core
     }))
 }
 
-/// Selects one Maven root from visible workspace paths. The application model
-/// currently represents one Maven reactor, so the shallowest descriptor wins;
-/// lexical ordering makes independent candidates deterministic.
-pub(crate) fn maven_root(root: &Path, paths: &[String]) -> Option<(PathBuf, String)> {
-    let canonical_root = root.canonicalize().ok()?;
+/// Selects one parseable Maven root from visible workspace paths. The
+/// application model currently represents one Maven reactor, so the shallowest
+/// valid descriptor wins; lexical ordering makes independent candidates
+/// deterministic. Parse failures are retained only when no candidate is valid.
+pub(crate) fn maven_root(
+    root: &Path,
+    paths: &[String],
+) -> Result<Option<(PathBuf, String)>, CoreError> {
+    let canonical_root = root.canonicalize().map_err(CoreError::from)?;
+    let mut candidates = Vec::new();
     if canonical_root.join("pom.xml").is_file() {
-        return Some((root.to_path_buf(), ".".to_string()));
+        candidates.push((root.to_path_buf(), ".".to_string(), 0));
     }
 
-    let mut candidates = paths
-        .iter()
-        .filter_map(|path| normalize_relative_path(path))
-        .filter(|path| {
-            Path::new(path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.eq_ignore_ascii_case("pom.xml"))
-        })
-        .filter_map(|path| {
-            let directory = Path::new(&path).parent()?;
-            let relative_path = directory.to_string_lossy().replace('\\', "/");
-            let candidate = root.join(directory);
-            let canonical_candidate = candidate.canonicalize().ok()?;
-            if !canonical_candidate.starts_with(&canonical_root) {
-                return None;
-            }
-            canonical_candidate.join("pom.xml").is_file().then_some((
-                candidate,
-                relative_path,
-                directory.components().count(),
-            ))
-        })
-        .collect::<Vec<_>>();
+    candidates.extend(
+        paths
+            .iter()
+            .filter_map(|path| normalize_relative_path(path))
+            .filter(|path| {
+                Path::new(path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case("pom.xml"))
+            })
+            .filter_map(|path| {
+                let directory = Path::new(&path).parent()?;
+                let relative_path = if directory.as_os_str().is_empty() {
+                    ".".to_string()
+                } else {
+                    directory.to_string_lossy().replace('\\', "/")
+                };
+                let candidate = root.join(directory);
+                let canonical_candidate = candidate.canonicalize().ok()?;
+                if !canonical_candidate.starts_with(&canonical_root) {
+                    return None;
+                }
+                canonical_candidate.join("pom.xml").is_file().then_some((
+                    candidate,
+                    relative_path,
+                    directory.components().count(),
+                ))
+            }),
+    );
     candidates.sort_by(|left, right| {
         left.2
             .cmp(&right.2)
             .then_with(|| left.1.to_lowercase().cmp(&right.1.to_lowercase()))
             .then_with(|| left.1.cmp(&right.1))
     });
-    candidates
-        .into_iter()
-        .next()
-        .map(|(path, relative_path, _)| (path, relative_path))
+    candidates.dedup_by(|left, right| left.0 == right.0);
+
+    let mut first_parse_error = None;
+    for (path, relative_path, _) in candidates {
+        match descriptor(&path.join("pom.xml")) {
+            Ok(Some(_)) => return Ok(Some((path, relative_path))),
+            Ok(None) => {}
+            Err(error) if first_parse_error.is_none() => first_parse_error = Some(error),
+            Err(_) => {}
+        }
+    }
+    match first_parse_error {
+        Some(error) => Err(error),
+        None => Ok(None),
+    }
 }
 
 pub fn diagnostics(

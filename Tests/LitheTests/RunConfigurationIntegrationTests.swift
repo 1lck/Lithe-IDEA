@@ -897,7 +897,10 @@ struct RunConfigurationIntegrationTests {
     func mavenToolchainResolvesTheWrapperFromTheLaunchWorkingDirectory() throws {
         let workspaceRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-nested-maven-wrapper", isDirectory: true)
-        let mavenRoot = workspaceRoot.appendingPathComponent("projects/demo", isDirectory: true)
+        let mavenRoot = URL(
+            fileURLWithPath: workspaceRoot.path + "/projects/demo",
+            isDirectory: true
+        )
         let runtime = ProjectRuntimeService(
             runtimeLocator: NestedMavenWrapperRuntimeLocator(wrapperRoot: mavenRoot),
             store: RunTestKeyValueStore()
@@ -914,6 +917,7 @@ struct RunConfigurationIntegrationTests {
         )
 
         #expect(resolved.executableURL == mavenRoot.appendingPathComponent("mvnw"))
+        #expect(!resolved.executableURL.absoluteString.contains("%2F"))
     }
 
     @Test

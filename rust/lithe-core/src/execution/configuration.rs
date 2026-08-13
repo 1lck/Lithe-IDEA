@@ -349,7 +349,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
 
 pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
-    let maven_root = crate::project::maven_root(&root, &request.paths);
+    let maven_root = crate::project::maven_root(&root, &request.paths)?;
     let maven_relative_path = maven_root
         .as_ref()
         .map(|(_, relative_path)| relative_path.as_str());

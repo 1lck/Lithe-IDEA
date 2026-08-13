@@ -266,9 +266,10 @@ are ignored. `history.entries` returns Unix-second timestamps and relative
 
 `maven.scan` accepts `{ "root": string, "paths"?: string[] }` and returns
 `null` when neither the root nor the supplied visible workspace-relative paths
-contain a readable `pom.xml`. The root descriptor wins when present; otherwise
-the shallowest descriptor is selected, with `/`-normalized lexical path order
-breaking ties. A project response contains its workspace `relativePath`,
+contain a readable `pom.xml`. Candidates are tried in shallowest-first order,
+with `/`-normalized lexical paths breaking ties, until one parses successfully;
+a malformed candidate does not hide a valid nested project. A project response
+contains its workspace `relativePath`,
 `groupId`, `artifactId`, `version`, `packaging`, recursive `modules`, `profiles`,
 and `hasWrapper`. Module paths are relative to the selected Maven root and use
 `/` separators. Malformed XML returns `parse_failed`.
@@ -280,7 +281,7 @@ and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
 
 `java.runConfigurations` accepts `{ "root": string, "paths": string[],
-"modulePaths": string[] }`. Paths are relative Java files. The response
+"modulePaths": string[] }`. Java and module paths are workspace-relative. The response
 contains detected `mainClasses` and deterministic `configurations`; process
 launching remains a platform adapter responsibility.
 

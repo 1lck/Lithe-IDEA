@@ -250,7 +250,7 @@ struct RustCoreBridge: Sendable {
         func makeProject(workspaceRootURL: URL) -> MavenProject {
             let rootURL = relativePath == "."
                 ? workspaceRootURL
-                : workspaceRootURL.appendingPathComponent(relativePath, isDirectory: true)
+                : workspaceRootURL.appending(path: relativePath, directoryHint: .isDirectory)
             return MavenProject(
                 rootURL: rootURL,
                 pomURL: rootURL.appendingPathComponent("pom.xml"),

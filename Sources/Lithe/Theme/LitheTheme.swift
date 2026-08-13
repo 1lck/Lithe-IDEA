@@ -489,12 +489,12 @@ private struct LithePointerModifier: ViewModifier {
 /// in the view body depends on it. Storing it as view state would invalidate
 /// every hovered control, which is costly when the pointer sweeps across many
 /// rows during a scroll.
-@MainActor
 private final class LithePointerCursor {
     var isHovered = false
     private var isPointing = false
 
     /// The push/pop pair is balanced even when a view disappears.
+    @MainActor
     func update(isPointing newValue: Bool) {
         guard newValue != isPointing else { return }
         isPointing = newValue

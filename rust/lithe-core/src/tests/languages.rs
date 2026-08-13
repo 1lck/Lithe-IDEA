@@ -117,6 +117,71 @@ fn maven_scan_discovers_a_deterministic_project_below_the_workspace() {
 }
 
 #[test]
+fn maven_scan_skips_a_malformed_root_descriptor_for_a_valid_nested_project() {
+    let root = temporary_root("nested-maven-malformed-root");
+    fs::create_dir_all(root.join("projects/demo")).expect("nested project should be creatable");
+    fs::write(root.join("pom.xml"), "<project><artifactId>broken")
+        .expect("malformed root pom should be writable");
+    fs::write(
+        root.join("projects/demo/pom.xml"),
+        r#"<project><artifactId>selected</artifactId></project>"#,
+    )
+    .expect("nested pom should be writable");
+
+    let request = serde_json::json!({
+        "id": "nested-maven-malformed-root",
+        "command": "maven.scan",
+        "payload": {
+            "root": root,
+            "paths": ["pom.xml", "projects/demo/pom.xml"]
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("Maven request should encode"),
+    ))
+    .expect("Maven response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["relativePath"], "projects/demo");
+    assert_eq!(response["data"]["artifactId"], "selected");
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+#[test]
+fn java_run_configurations_match_workspace_relative_nested_maven_modules() {
+    let root = temporary_root("java-nested-maven-module");
+    let source = "projects/demo/service/src/main/java/com/example/App.java";
+    fs::create_dir_all(root.join("projects/demo/service/src/main/java/com/example"))
+        .expect("nested Java source directory should be creatable");
+    fs::write(
+        root.join(source),
+        "package com.example; @SpringBootApplication class App { public static void main(String[] args) {} }",
+    )
+    .expect("nested Java source should be writable");
+
+    let request = serde_json::json!({
+        "id": "java-nested-maven-module",
+        "command": "java.runConfigurations",
+        "payload": {
+            "root": root,
+            "paths": [source],
+            "modulePaths": ["projects/demo/service"]
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("Java request should encode"),
+    ))
+    .expect("Java response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["configurations"][0]["modulePath"],
+        "projects/demo/service"
+    );
+    fs::remove_dir_all(root).expect("Java fixture should be removable");
+}
+
+#[test]
 fn java_core_commands_return_shared_runtime_and_structure_data() {
     let root = temporary_root("java");
     fs::create_dir_all(root.join("src/main/java/com/example"))

@@ -33,8 +33,12 @@ struct MavenRuntimeTests {
         let workspaceRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-maven-payload", isDirectory: true)
         let project = payload.makeProject(workspaceRootURL: workspaceRoot)
-        let expectedRoot = workspaceRoot.appendingPathComponent("services/api", isDirectory: true)
+        let expectedRoot = URL(
+            fileURLWithPath: workspaceRoot.path + "/services/api",
+            isDirectory: true
+        )
         #expect(project.rootURL == expectedRoot)
+        #expect(!project.rootURL.absoluteString.contains("%2F"))
         #expect(project.pomURL == expectedRoot.appendingPathComponent("pom.xml"))
         #expect(project.groupID == "com.example")
         #expect(project.artifactID == "root")
@@ -44,6 +48,44 @@ struct MavenRuntimeTests {
         #expect(project.modules[0].url == expectedRoot.appendingPathComponent("module-a"))
         #expect(project.profiles == [MavenProfile(id: "dev", isActiveByDefault: true)])
         #expect(project.hasWrapper)
+    }
+
+    @Test
+    func nestedMavenRunConfigurationsUseWorkspaceRelativeModulePaths() {
+        let workspaceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-nested-maven-run-\(UUID().uuidString)", isDirectory: true)
+        let mavenRoot = URL(
+            fileURLWithPath: workspaceRoot.path + "/projects/demo",
+            isDirectory: true
+        )
+        let moduleRoot = mavenRoot.appendingPathComponent("service", isDirectory: true)
+        let module = MavenModule(
+            relativePath: "service",
+            url: moduleRoot,
+            groupID: "com.example",
+            artifactID: "service-api",
+            version: "1.0",
+            packaging: "jar",
+            modules: []
+        )
+        let project = MavenProject(
+            rootURL: mavenRoot,
+            pomURL: mavenRoot.appendingPathComponent("pom.xml"),
+            groupID: "com.example",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "pom",
+            modules: [module],
+            profiles: [],
+            hasWrapper: false
+        )
+
+        let modules = RustJavaMavenOperations(core: RustCoreBridge()).workspaceMavenModules(
+            in: project,
+            relativeTo: workspaceRoot
+        )
+        #expect(modules.map { $0.path } == ["projects/demo/service"])
+        #expect(modules.map { $0.module.relativePath } == ["service"])
     }
 
     @Test
