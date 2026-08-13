@@ -9,6 +9,7 @@ struct LanguageServerSetupView: View {
     let openOfficialDownload: (URL) -> Void
     let configurationChanged: (String) -> Void
     let isEmbedded: Bool
+    let showsProviderPicker: Bool
 
     @State private var selectedProviderID: String
     @State private var executablePathDraft = ""
@@ -22,7 +23,8 @@ struct LanguageServerSetupView: View {
         chooseExecutable: @escaping (LanguageProviderDescriptor) -> URL?,
         openOfficialDownload: @escaping (URL) -> Void,
         configurationChanged: @escaping (String) -> Void,
-        isEmbedded: Bool = false
+        isEmbedded: Bool = false,
+        showsProviderPicker: Bool = true
     ) {
         self.tools = tools
         self.providers = providers
@@ -31,6 +33,7 @@ struct LanguageServerSetupView: View {
         self.openOfficialDownload = openOfficialDownload
         self.configurationChanged = configurationChanged
         self.isEmbedded = isEmbedded
+        self.showsProviderPicker = showsProviderPicker
         let initialID = initialProviderID.flatMap { id in
             providers.contains(where: { $0.id == id }) ? id : nil
         } ?? providers.first?.id ?? ""
@@ -72,19 +75,19 @@ struct LanguageServerSetupView: View {
             setupHeader
             Divider().overlay(LitheTheme.divider)
 
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 14) {
-                    providerPicker
-                    detectionSection
-                    pathSection
-                    installSection
-                }
+            if isEmbedded {
+                setupSections
                 .padding(14)
+            } else {
+                ScrollView(.vertical) {
+                    setupSections
+                        .padding(14)
+                }
+                .litheScrollViewChrome(hideHorizontal: true)
             }
-            .litheScrollViewChrome(hideHorizontal: true)
         }
         .frame(width: isEmbedded ? nil : 430, height: isEmbedded ? nil : 510)
-        .frame(maxWidth: isEmbedded ? .infinity : nil, minHeight: isEmbedded ? 430 : nil)
+        .frame(maxWidth: isEmbedded ? .infinity : nil)
         .background(LitheTheme.sidebar)
         .onChange(of: selectedProviderID) { providerID in
             executablePathDraft = tools.customExecutablePath(for: providerID) ?? ""
@@ -93,6 +96,18 @@ struct LanguageServerSetupView: View {
         .task(id: selectedProviderID) {
             guard let descriptor = selectedDescriptor else { return }
             await tools.refreshCandidates(for: descriptor)
+        }
+    }
+
+    private var setupSections: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if showsProviderPicker, providers.count > 1 {
+                providerPicker
+            }
+            launchConfigurationSection
+            detectionSection
+            pathSection
+            installSection
         }
     }
 
@@ -180,6 +195,59 @@ struct LanguageServerSetupView: View {
                 }
             }
         }
+    }
+
+    private var launchConfigurationSection: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            sectionTitle(copy.launchConfiguration)
+            VStack(alignment: .leading, spacing: 6) {
+                configurationValue(
+                    label: copy.commands,
+                    value: selectedDescriptor?.languageServerLaunch?.executableNames
+                        .joined(separator: ", ") ?? copy.notConfigured
+                )
+                configurationValue(
+                    label: copy.arguments,
+                    value: listValue(
+                        selectedDescriptor?.languageServerLaunch?.arguments,
+                        separator: " "
+                    )
+                )
+                configurationValue(
+                    label: copy.environment,
+                    value: listValue(
+                        selectedDescriptor?.languageServerLaunch?.environment.keys.sorted(),
+                        separator: ", "
+                    )
+                )
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 7).fill(LitheTheme.raised.opacity(0.55)))
+
+            Text(copy.providerConfigurationHint)
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func configurationValue(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(width: 72, alignment: .leading)
+            Text(value)
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.primaryText)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func listValue(_ values: [String]?, separator: String) -> String {
+        guard let values, !values.isEmpty else { return copy.none }
+        return values.joined(separator: separator)
     }
 
     private var pathSection: some View {
@@ -386,6 +454,17 @@ private struct LanguageServerSetupCopy {
     var subtitle: String { usesChinese ? "安装、探测并指定 LSP 可执行文件" : "Install, detect, and select LSP executables" }
     var languageServer: String { usesChinese ? "语言服务器" : "Language server" }
     var detectedExecutable: String { usesChinese ? "当前解析结果" : "Resolved executable" }
+    var launchConfiguration: String { usesChinese ? "启动配置" : "Launch configuration" }
+    var commands: String { usesChinese ? "候选命令" : "Commands" }
+    var arguments: String { usesChinese ? "启动参数" : "Arguments" }
+    var environment: String { usesChinese ? "环境变量" : "Environment" }
+    var none: String { usesChinese ? "无" : "None" }
+    var notConfigured: String { usesChinese ? "未配置" : "Not configured" }
+    var providerConfigurationHint: String {
+        usesChinese
+            ? "命令、参数、环境变量和 Brew formula 可由项目的 .lithe/lsp/language-providers.json 覆盖。"
+            : "Commands, arguments, environment, and the Brew formula can be overridden in .lithe/lsp/language-providers.json."
+    }
     var executableFoundUnverified: String {
         usesChinese ? "已找到可执行文件（未验证）" : "Executable found (not verified)"
     }

@@ -4,6 +4,31 @@ import Testing
 @Suite("LSP Control Center presentation")
 struct LSPControlCenterPresentationTests {
     @Test
+    func everyLaunchableLanguageServerSupportsToolConfiguration() {
+        let configurable = LanguageProviderDescriptor(
+            id: "templ",
+            displayName: "Templ",
+            fileExtensions: ["templ"],
+            capabilities: [.languageServer],
+            activationPolicy: .onDemand,
+            languageServerLaunch: LanguageServerLaunchDescriptor(
+                executableNames: ["templ"],
+                arguments: ["lsp"]
+            )
+        )
+        let builtinOnly = LanguageProviderDescriptor(
+            id: "text",
+            displayName: "Text",
+            fileExtensions: ["txt"],
+            capabilities: [],
+            activationPolicy: .onDemand
+        )
+
+        #expect(LSPControlCenterPresenter.supportsToolConfiguration(configurable))
+        #expect(!LSPControlCenterPresenter.supportsToolConfiguration(builtinOnly))
+    }
+
+    @Test
     func runtimeStateAloneDeterminesServerStatus() {
         // Code diagnostics are deliberately unrelated to this resolver. A ready
         // session remains active even when the editor has an error diagnostic.

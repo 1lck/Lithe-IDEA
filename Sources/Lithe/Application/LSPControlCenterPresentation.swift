@@ -18,6 +18,13 @@ enum LSPCapabilityPresentationState: Equatable, Sendable {
 }
 
 enum LSPControlCenterPresenter {
+    static func supportsToolConfiguration(
+        _ descriptor: LanguageProviderDescriptor
+    ) -> Bool {
+        descriptor.capabilities.contains(.languageServer)
+            && descriptor.languageServerLaunch != nil
+    }
+
     static func serverStatus(
         isDisabled: Bool,
         sessionState: LanguageServerSessionState?

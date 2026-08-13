@@ -13,10 +13,11 @@ struct LSPControlCenterView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     projectSummary
-                    if projectLanguageServers.isEmpty {
+                    providerConfigurationSummary
+                    if configurableLanguageServers.isEmpty {
                         emptyState
                     } else {
-                        ForEach(projectLanguageServers) { descriptor in
+                        ForEach(configurableLanguageServers) { descriptor in
                             languageRow(descriptor)
                         }
                     }
@@ -50,11 +51,46 @@ struct LSPControlCenterView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(usesChinese
-                ? "仅显示当前项目使用的语言。关闭后会停止对应语言服务器并释放资源。"
-                : "Only languages used by this project are shown. Turning one off stops its language server and releases its resources.")
+                ? "内置 Provider 与项目配置合并显示。每个 LSP 都可以自动探测、指定可执行文件或通过 Brew 安装。"
+                : "Built-in providers are merged with project configuration. Every LSP supports automatic discovery, a custom executable, and Brew installation.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var providerConfigurationSummary: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Image(systemName: "doc.badge.gearshape")
+                    .foregroundStyle(LitheTheme.accent)
+                Text(usesChinese ? "项目 Provider 配置" : "Project provider configuration")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.primaryText)
+                Spacer(minLength: 0)
+                Text(catalogOriginLabel)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .padding(.horizontal, 7)
+                    .frame(height: 20)
+                    .background(Capsule().fill(LitheTheme.raised))
+            }
+            Text(".lithe/lsp/language-providers.json")
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(LitheTheme.primaryText)
+                .textSelection(.enabled)
+            Text(usesChinese
+                ? "可按 Provider ID 覆盖或新增语言，配置文件匹配、启动命令、参数、环境变量、验证参数和 Brew formula。"
+                : "Override providers by ID or add languages with file matching, launch commands, arguments, environment, validation, and a Brew formula.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 7).fill(LitheTheme.sidebar))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(LitheTheme.panelBorder, lineWidth: 1)
         }
     }
 
@@ -103,6 +139,23 @@ struct LSPControlCenterView: View {
                 .accessibilityLabel(Text(usesChinese
                     ? "启用 \(descriptor.displayName) 语言服务器"
                     : "Enable \(descriptor.displayName) language server"))
+            }
+
+            if configuredProviderID == descriptor.id {
+                Divider().overlay(LitheTheme.divider)
+                LanguageServerSetupView(
+                    tools: model.languageServerTools,
+                    providers: [descriptor],
+                    initialProviderID: descriptor.id,
+                    language: settings.language,
+                    chooseExecutable: { provider in
+                        model.chooseLanguageServerExecutable(providerName: provider.displayName)
+                    },
+                    openOfficialDownload: model.openLanguageServerDownload,
+                    configurationChanged: model.languageServerToolConfigurationDidChange,
+                    isEmbedded: true,
+                    showsProviderPicker: false
+                )
             }
 
             if configuredProviderID == descriptor.id, descriptor.id == "java" {
@@ -208,16 +261,28 @@ struct LSPControlCenterView: View {
         .foregroundStyle(LitheTheme.warning)
     }
 
-    private var projectLanguageServers: [LanguageProviderDescriptor] {
+    private var configurableLanguageServers: [LanguageProviderDescriptor] {
         model.languageProviderCatalog.descriptors
-            .filter { $0.capabilities.contains(.languageServer) && $0.languageServerLaunch != nil }
-            .filter { descriptor in
-                model.projectFiles.contains { descriptor.handles(fileURL: $0) }
-            }
+            .filter(LSPControlCenterPresenter.supportsToolConfiguration)
     }
 
     private func hasConfiguration(for descriptor: LanguageProviderDescriptor) -> Bool {
-        descriptor.id == "java"
+        LSPControlCenterPresenter.supportsToolConfiguration(descriptor)
+    }
+
+    private func projectUses(_ descriptor: LanguageProviderDescriptor) -> Bool {
+        model.projectFiles.contains { descriptor.handles(fileURL: $0) }
+    }
+
+    private var catalogOriginLabel: String {
+        switch model.languageProviderCatalogSnapshot.origin {
+        case .builtin:
+            usesChinese ? "内置默认" : "Built-in defaults"
+        case .workspaceOverride:
+            usesChinese ? "项目覆盖已加载" : "Project override loaded"
+        case .compatibilityFallback:
+            usesChinese ? "兼容回退" : "Compatibility fallback"
+        }
     }
 
     private var javaJDKDisplayPath: String {
@@ -259,6 +324,11 @@ struct LSPControlCenterView: View {
         case .stopping: return usesChinese ? "正在停止" : "Stopping"
         case .disabled: return usesChinese ? "已关闭" : "Off"
         case .stopped:
+            if !projectUses(descriptor) {
+                return usesChinese
+                    ? "当前项目没有匹配文件；配置仍会保存"
+                    : "No matching project files; configuration is still saved"
+            }
             return usesChinese ? "按需启动，打开对应文件时运行" : "Starts on demand when a matching file is opened"
         case .error:
             if descriptor.id == "java" {
