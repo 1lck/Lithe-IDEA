@@ -43,6 +43,10 @@ struct SettingsView: View {
         .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
+        // A sheet has its own SwiftUI presentation hierarchy on macOS. Own
+        // the locale here so every Settings presentation updates immediately.
+        .environment(\.locale, settings.language.locale)
+        .id(settings.language)
     }
 
     private var header: some View {
