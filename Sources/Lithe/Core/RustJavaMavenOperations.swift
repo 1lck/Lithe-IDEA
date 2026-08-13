@@ -1,7 +1,7 @@
 import Foundation
 
 protocol JavaMavenOperations: Sendable {
-    func scanMavenProject(at rootURL: URL) -> MavenProject?
+    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject?
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
     func codeVision(
         at rootURL: URL,
@@ -42,8 +42,18 @@ struct JavaCodeVisionValue: Sendable {
 struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
     let core: RustCoreBridge
 
-    func scanMavenProject(at rootURL: URL) -> MavenProject? {
-        core.scanMaven(at: rootURL)?.makeProject(rootURL: rootURL.standardizedFileURL)
+    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? {
+        let root = rootURL.standardizedFileURL
+        let rootComponents = root.pathComponents
+        let paths = files.compactMap { fileURL -> String? in
+            let file = fileURL.standardizedFileURL
+            guard file.lastPathComponent.lowercased() == "pom.xml",
+                  file.pathComponents.starts(with: rootComponents) else { return nil }
+            return file.pathComponents
+                .dropFirst(rootComponents.count)
+                .joined(separator: "/")
+        }
+        return core.scanMaven(at: root, paths: paths)?.makeProject(workspaceRootURL: root)
     }
 
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] {
@@ -105,12 +115,11 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
         mavenProject: MavenProject?
     ) -> [JavaRunConfiguration] {
         let root = rootURL.standardizedFileURL
-        let paths = files.compactMap { fileURL -> String? in
-            let file = fileURL.standardizedFileURL
-            guard file.path.hasPrefix(root.path + "/") else { return nil }
-            return String(file.path.dropFirst(root.path.count + 1))
+        let paths = files.compactMap {
+            workspaceRelativePath(for: $0, root: root)
         }
-        let modulePaths = mavenProject?.allModules.map(\.relativePath) ?? []
+        let workspaceModules = workspaceMavenModules(in: mavenProject, relativeTo: root)
+        let modulePaths = workspaceModules.map(\.0)
         guard let payload = core.scanJavaRunConfigurations(
             at: root,
             paths: paths,
@@ -119,22 +128,34 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
 
         return payload.configurations.compactMap { value in
             guard let kind = JavaRunConfigurationKind(rawValue: value.kind) else { return nil }
-            let name: String
-            if kind == .mavenModule,
-               let modulePath = value.modulePath,
-               let module = mavenProject?.allModules.first(where: { $0.relativePath == modulePath }) {
-                name = module.displayName
-            } else {
-                name = value.name
+            let module = value.modulePath.flatMap { modulePath in
+                workspaceModules.first(where: { $0.0 == modulePath })?.1
             }
             return JavaRunConfiguration(
                 id: value.id,
-                name: name,
+                name: kind == .mavenModule ? module?.displayName ?? value.name : value.name,
                 kind: kind,
-                modulePath: value.modulePath,
+                modulePath: module?.relativePath ?? value.modulePath,
                 mainClass: value.mainClass
             )
         }
+    }
+
+    func workspaceMavenModules(
+        in project: MavenProject?,
+        relativeTo root: URL
+    ) -> [(path: String, module: MavenModule)] {
+        project?.allModules.compactMap { module in
+            workspaceRelativePath(for: module.url, root: root).map { ($0, module) }
+        } ?? []
+    }
+
+    private func workspaceRelativePath(for url: URL, root: URL) -> String? {
+        let path = url.standardizedFileURL.path
+        let rootPath = root.standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        return String(path.dropFirst(prefix.count))
     }
 
     func structure(

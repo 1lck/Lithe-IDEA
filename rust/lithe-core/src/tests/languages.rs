@@ -27,13 +27,14 @@ fn maven_scan_returns_recursive_shared_project_model() {
     let request = serde_json::json!({
         "id": "maven",
         "command": "maven.scan",
-        "payload": {"root": root}
+        "payload": {"root": root, "paths": ["module-a/pom.xml", "pom.xml"]}
     });
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::to_string(&request).expect("Maven request should encode"),
     ))
     .expect("Maven response should be JSON");
     assert_eq!(response["ok"], true);
+    assert_eq!(response["data"]["relativePath"], ".");
     assert_eq!(response["data"]["artifactId"], "demo");
     assert_eq!(response["data"]["packaging"], "pom");
     assert_eq!(response["data"]["profiles"][0]["id"], "dev");
@@ -68,6 +69,116 @@ fn maven_scan_returns_recursive_shared_project_model() {
         "error"
     );
     fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+#[test]
+fn maven_scan_discovers_a_deterministic_project_below_the_workspace() {
+    let root = temporary_root("nested-maven");
+    fs::create_dir_all(root.join("apps-a/module-a")).expect("first project should be creatable");
+    fs::create_dir_all(root.join("apps-z")).expect("second project should be creatable");
+    fs::write(
+        root.join("apps-a/pom.xml"),
+        r#"<project><artifactId>selected</artifactId><packaging>pom</packaging><modules><module>module-a</module></modules></project>"#,
+    )
+    .expect("first pom should be writable");
+    fs::write(
+        root.join("apps-a/module-a/pom.xml"),
+        r#"<project><artifactId>child</artifactId></project>"#,
+    )
+    .expect("module pom should be writable");
+    fs::write(
+        root.join("apps-z/pom.xml"),
+        r#"<project><artifactId>other</artifactId></project>"#,
+    )
+    .expect("second pom should be writable");
+
+    let request = serde_json::json!({
+        "id": "nested-maven",
+        "command": "maven.scan",
+        "payload": {
+            "root": root,
+            "paths": [
+                "apps-z/pom.xml",
+                "apps-a/module-a/pom.xml",
+                "apps-a/pom.xml"
+            ]
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("Maven request should encode"),
+    ))
+    .expect("Maven response should be JSON");
+
+    assert_eq!(response["ok"], true);
+    assert_eq!(response["data"]["relativePath"], "apps-a");
+    assert_eq!(response["data"]["artifactId"], "selected");
+    assert_eq!(response["data"]["modules"][0]["relativePath"], "module-a");
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+#[test]
+fn maven_scan_skips_a_malformed_root_descriptor_for_a_valid_nested_project() {
+    let root = temporary_root("nested-maven-malformed-root");
+    fs::create_dir_all(root.join("projects/demo")).expect("nested project should be creatable");
+    fs::write(root.join("pom.xml"), "<project><artifactId>broken")
+        .expect("malformed root pom should be writable");
+    fs::write(
+        root.join("projects/demo/pom.xml"),
+        r#"<project><artifactId>selected</artifactId></project>"#,
+    )
+    .expect("nested pom should be writable");
+
+    let request = serde_json::json!({
+        "id": "nested-maven-malformed-root",
+        "command": "maven.scan",
+        "payload": {
+            "root": root,
+            "paths": ["pom.xml", "projects/demo/pom.xml"]
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("Maven request should encode"),
+    ))
+    .expect("Maven response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["relativePath"], "projects/demo");
+    assert_eq!(response["data"]["artifactId"], "selected");
+    fs::remove_dir_all(root).expect("Maven fixture should be removable");
+}
+
+#[test]
+fn java_run_configurations_match_workspace_relative_nested_maven_modules() {
+    let root = temporary_root("java-nested-maven-module");
+    let source = "projects/demo/service/src/main/java/com/example/App.java";
+    fs::create_dir_all(root.join("projects/demo/service/src/main/java/com/example"))
+        .expect("nested Java source directory should be creatable");
+    fs::write(
+        root.join(source),
+        "package com.example; @SpringBootApplication class App { public static void main(String[] args) {} }",
+    )
+    .expect("nested Java source should be writable");
+
+    let request = serde_json::json!({
+        "id": "java-nested-maven-module",
+        "command": "java.runConfigurations",
+        "payload": {
+            "root": root,
+            "paths": [source],
+            "modulePaths": ["projects/demo/service"]
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("Java request should encode"),
+    ))
+    .expect("Java response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["configurations"][0]["modulePath"],
+        "projects/demo/service"
+    );
+    fs::remove_dir_all(root).expect("Java fixture should be removable");
 }
 
 #[test]

@@ -87,7 +87,7 @@ struct MavenView: View {
 
     private func refreshProject() {
         guard let workspaceURL = model.workspaceURL else { return }
-        Task { await feature.loadProject(at: workspaceURL) }
+        Task { await feature.loadProject(at: workspaceURL, files: model.projectFiles) }
     }
 
     private func projectPane(_ project: MavenProject) -> some View {

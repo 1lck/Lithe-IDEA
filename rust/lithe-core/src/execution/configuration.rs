@@ -356,17 +356,28 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .collect::<Vec<_>>();
     paths.sort();
     paths.dedup();
+    let maven_root = crate::project::maven_root(&root, &paths)?;
+    let maven_relative_path = maven_root
+        .as_ref()
+        .map(|(_, relative_path)| relative_path.as_str());
     let has_java_sources = paths
         .iter()
         .any(|path| path.to_lowercase().ends_with(".java"));
-    let has_maven_project = root.join("pom.xml").is_file() || root.join("mvnw").is_file();
+    let has_maven_project = maven_relative_path.is_some()
+        || root.join("mvnw").is_file()
+        || root.join("mvnw.cmd").is_file();
     // A Gradle build needs the same JDK requirement as Maven, and its sources may
     // be Kotlin or Groovy rather than Java, so the build files count on their own.
     let has_gradle_project = ["build.gradle", "build.gradle.kts", "gradlew"]
         .iter()
         .any(|name| root.join(name).is_file());
     let has_java_ecosystem = has_java_sources || has_maven_project || has_gradle_project;
-    let module_paths = inferred_maven_module_paths(&root, &paths, request.module_paths);
+    let configured_module_paths = request
+        .module_paths
+        .into_iter()
+        .map(|path| workspace_maven_path(maven_relative_path, &path))
+        .collect();
+    let module_paths = inferred_maven_module_paths(&root, &paths, configured_module_paths);
     let scanned = crate::languages::run_configurations(JavaRunConfigurationsRequest {
         root: request.root.clone(),
         paths,
@@ -389,10 +400,12 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             };
             let id = java_configuration_id(&value);
             let mut maven = serde_json::Map::new();
-            maven.insert(
-                "module".to_string(),
-                json!(value.module_path.unwrap_or_else(|| ".".to_string())),
-            );
+            let module_path = value
+                .module_path
+                .as_deref()
+                .map(|path| maven_module_path(maven_relative_path, path))
+                .unwrap_or_else(|| ".".to_string());
+            maven.insert("module".to_string(), json!(module_path));
             if let Some(main_class) = value.main_class {
                 maven.insert("mainClass".to_string(), json!(main_class));
             }
@@ -406,7 +419,11 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                 },
                 command: None,
                 args: Vec::new(),
-                cwd: ".".to_string(),
+                cwd: if provider == "java.current-file" {
+                    ".".to_string()
+                } else {
+                    maven_relative_path.unwrap_or(".").to_string()
+                },
                 env: BTreeMap::new(),
                 confidence: Confidence::Native,
                 toolchains: if provider == "java.current-file" {
@@ -468,14 +485,23 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .iter()
         .map(|item| item.id.clone())
         .collect::<BTreeSet<_>>();
-    let mut detected = detected_configurations(&root, &claimed)?;
-    adopt_annotated_main_classes(&mut detected, &annotated_main_classes);
+    let mut detected = detected_configurations(
+        &root,
+        maven_root.as_ref().map(|(path, _)| path.as_path()),
+        &claimed,
+    )?;
+    adopt_annotated_main_classes(&mut detected, &annotated_main_classes, maven_relative_path);
     // Counts real entry points, not documents: the always-present "Current File"
     // fallback is excluded so an empty project still reports zero and the UI can
     // say so, while a detected npm service correctly reports one.
     let entry_count = java_entry_count + detected.len();
     configurations.extend(detected);
-    let requirements = detect_requirements(&root, has_java_ecosystem, &configurations)?;
+    let requirements = detect_requirements(
+        &root,
+        maven_root.as_ref().map(|(path, _)| path.as_path()),
+        has_java_ecosystem,
+        &configurations,
+    )?;
     let generated = RunConfigurationDocument {
         version: VERSION,
         generator: Some(GeneratorMetadata {
@@ -487,6 +513,27 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     Ok(
         json!({ "generated": generated, "toolchainRequirements": requirements, "entryCount": entry_count }),
     )
+}
+
+fn workspace_maven_path(maven_root: Option<&str>, path: &str) -> String {
+    match (maven_root, path) {
+        (Some(root), ".") => root.to_string(),
+        (Some(root), path) if root != "." => format!("{root}/{path}"),
+        _ => path.to_string(),
+    }
+}
+
+fn maven_module_path(maven_root: Option<&str>, path: &str) -> String {
+    let Some(root) = maven_root.filter(|root| *root != ".") else {
+        return path.to_string();
+    };
+    if path == root {
+        ".".to_string()
+    } else {
+        path.strip_prefix(&(root.to_string() + "/"))
+            .unwrap_or(path)
+            .to_string()
+    }
 }
 
 /// Whether a service is a Spring Boot service is decided by the build, not by an
@@ -559,6 +606,7 @@ fn java_module_identity(module: Option<&str>) -> String {
 fn adopt_annotated_main_classes(
     configurations: &mut [RunConfiguration],
     annotated: &[(String, String)],
+    maven_root: Option<&str>,
 ) {
     for configuration in configurations
         .iter_mut()
@@ -571,7 +619,7 @@ fn adopt_annotated_main_classes(
         // module is ambiguous, and guessing would start the wrong service.
         let mut matches = annotated
             .iter()
-            .filter(|(path, _)| within_module(path, &module))
+            .filter(|(path, _)| within_maven_module(path, &module, maven_root))
             .map(|(_, qualified_name)| qualified_name);
         let Some(main_class) = matches.next() else {
             continue;
@@ -589,8 +637,9 @@ fn adopt_annotated_main_classes(
     }
 }
 
-fn within_module(path: &str, module: &str) -> bool {
-    module == "." || path.starts_with(&format!("{module}/"))
+fn within_maven_module(path: &str, module: &str, maven_root: Option<&str>) -> bool {
+    let workspace_module = workspace_maven_path(maven_root, module);
+    workspace_module == "." || path.starts_with(&format!("{workspace_module}/"))
 }
 
 /// Translates detector output into the run-configuration contract.
@@ -602,9 +651,10 @@ fn within_module(path: &str, module: &str) -> bool {
 /// provider `create_launch_plan` already handles.
 fn detected_configurations(
     root: &Path,
+    maven_root: Option<&Path>,
     claimed: &BTreeSet<String>,
 ) -> Result<Vec<RunConfiguration>, CoreError> {
-    Ok(super::detectors::detect_all(root)?
+    Ok(super::detectors::detect_all(root, maven_root)?
         .into_iter()
         .map(|item| RunConfiguration {
             id: item.id(),
@@ -724,7 +774,8 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
             continue;
         }
         if let Some(module) = configuration.module().filter(|value| value != ".") {
-            if !project_directory_exists(&root, &module) {
+            let workspace_module = workspace_maven_path(Some(&configuration.cwd), &module);
+            if !project_directory_exists(&root, &workspace_module) {
                 configuration.disabled = true;
                 diagnostics.push(json!({
                     "id": configuration.id,
@@ -1764,6 +1815,7 @@ fn read_requirements(root: &Path) -> Result<Option<ToolchainRequirementsDocument
 
 fn detect_requirements(
     root: &Path,
+    maven_root: Option<&Path>,
     has_java_ecosystem: bool,
     configurations: &[RunConfiguration],
 ) -> Result<ToolchainRequirementsDocument, CoreError> {
@@ -1783,26 +1835,29 @@ fn detect_requirements(
         version: None,
         java: Some("project-jdk".to_string()),
     };
-    let pom = root.join("pom.xml");
+    let maven_root = maven_root.unwrap_or(root);
+    let pom = maven_root.join("pom.xml");
     if let Ok(text) = fs::read_to_string(pom) {
         let re = regex::Regex::new(r"(?:maven.compiler.release|maven.compiler.source|maven.compiler.target|java.version)\s*>?\s*[:=]?\s*([0-9]+)").unwrap();
         jdk.minimum_version = re
             .captures(&text)
             .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
     }
-    if let Some((version, vendor)) = declared_java_version(root) {
+    if let Some((version, vendor)) =
+        declared_java_version(maven_root).or_else(|| declared_java_version(root))
+    {
         jdk.minimum_version = Some(version);
         jdk.preferred_vendor = vendor;
     }
-    if root.join("mvnw").exists() {
+    if maven_root.join("mvnw").exists() {
         maven.wrapper = Some("./mvnw".to_string());
     }
-    maven.version = maven_wrapper_version(root);
+    maven.version = maven_wrapper_version(maven_root);
     let mut toolchains = BTreeMap::new();
     if has_java_ecosystem {
         toolchains.insert("project-jdk".to_string(), jdk);
     }
-    if root.join("pom.xml").is_file() || root.join("mvnw").is_file() {
+    if maven_root.join("pom.xml").is_file() || maven_root.join("mvnw").is_file() {
         toolchains.insert("project-maven".to_string(), maven);
     }
     let providers = configurations

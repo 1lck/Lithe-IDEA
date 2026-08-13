@@ -42,14 +42,14 @@ final class MavenService: ObservableObject {
         }
     }
 
-    func loadProject(at workspaceURL: URL) async {
+    func loadProject(at workspaceURL: URL, files: [URL]) async {
         let loadID = UUID()
         projectLoadID = loadID
         isLoadingProject = true
         let rootURL = workspaceURL.standardizedFileURL
         let javaMavenOperations = javaMavenOperations
         let scannedProject = await Task.detached(priority: .utility) {
-            javaMavenOperations.scanMavenProject(at: rootURL)
+            javaMavenOperations.scanMavenProject(at: rootURL, files: files)
         }.value
         guard !Task.isCancelled, projectLoadID == loadID else { return }
         project = scannedProject

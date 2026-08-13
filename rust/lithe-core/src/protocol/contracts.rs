@@ -152,6 +152,7 @@ pub struct MavenModuleResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MavenScanResponse {
+    pub relative_path: String,
     pub group_id: Option<String>,
     pub artifact_id: String,
     pub version: Option<String>,

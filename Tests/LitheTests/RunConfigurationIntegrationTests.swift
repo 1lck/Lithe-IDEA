@@ -894,6 +894,33 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func mavenToolchainResolvesTheWrapperFromTheLaunchWorkingDirectory() throws {
+        let workspaceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-nested-maven-wrapper", isDirectory: true)
+        let mavenRoot = URL(
+            fileURLWithPath: workspaceRoot.path + "/projects/demo",
+            isDirectory: true
+        )
+        let runtime = ProjectRuntimeService(
+            runtimeLocator: NestedMavenWrapperRuntimeLocator(wrapperRoot: mavenRoot),
+            store: RunTestKeyValueStore()
+        )
+        let resolver = RunExecutableResolver(runtimeService: runtime)
+        let resolved = try resolver.resolve(
+            SharedLaunchPlan(
+                executable: .toolchain("project-maven"),
+                arguments: ["verify"],
+                workingDirectory: "projects/demo"
+            ),
+            projectURL: workspaceRoot,
+            options: RunOptions()
+        )
+
+        #expect(resolved.executableURL == mavenRoot.appendingPathComponent("mvnw"))
+        #expect(!resolved.executableURL.absoluteString.contains("%2F"))
+    }
+
+    @Test
     func commandResolverLayersGenericEnvironmentWithoutJavaInjection() throws {
         let runtime = ProjectRuntimeService(
             runtimeLocator: RunTestRuntimeLocator(),
@@ -4113,6 +4140,24 @@ private struct RunTestRuntimeLocator: RuntimeLocator {
     func systemJDBExecutable() -> URL? { URL(fileURLWithPath: "/toolchains/jdk/bin/jdb") }
 }
 
+private struct NestedMavenWrapperRuntimeLocator: RuntimeLocator {
+    let wrapperRoot: URL
+
+    func environment() -> [String: String] { [:] }
+    func discover() -> RuntimeDiscoveryResult {
+        RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
+    }
+    func validJavaHome(path: String) -> URL? { nil }
+    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
+    func isExecutable(at url: URL) -> Bool {
+        url.standardizedFileURL == wrapperRoot.appendingPathComponent("mvnw").standardizedFileURL
+    }
+    func systemMavenExecutable() -> URL? { nil }
+    func mavenExecutable(forHomePath path: String) -> URL? { nil }
+    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
+    func systemJDBExecutable() -> URL? { nil }
+}
+
 private struct MissingJavaRuntimeLocator: RuntimeLocator {
     func environment() -> [String: String] { ["PATH": "/usr/bin"] }
     func discover() -> RuntimeDiscoveryResult {
@@ -4427,7 +4472,7 @@ private final class RunTestKeyValueStore: KeyValueStore, @unchecked Sendable {
 }
 
 private struct RunTestJavaMavenOperations: JavaMavenOperations {
-    func scanMavenProject(at rootURL: URL) -> MavenProject? { nil }
+    func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? { nil }
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue] { [] }
     func codeVision(at rootURL: URL, targetPath: String, paths: [String]) -> [JavaCodeVisionValue] { [] }
     func className(source: String, simpleName: String) -> String? { nil }
@@ -4448,6 +4493,7 @@ struct CorePayloadDecodingTests {
     func mavenScanDecodesTheCoordinateSpellingTheCoreEmits() throws {
         let json = """
         {
+          "relativePath": ".",
           "groupId": "com.lithe.demo",
           "artifactId": "full-stack-demo",
           "version": "1.0.0-SNAPSHOT",
@@ -4471,7 +4517,10 @@ struct CorePayloadDecodingTests {
             RustCoreBridge.MavenScanPayload.self,
             from: Data(json.utf8)
         )
-        let project = payload.makeProject(rootURL: URL(fileURLWithPath: "/tmp/demo"))
+        let project = payload.makeProject(
+            workspaceRootURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("lithe-maven-core-payload", isDirectory: true)
+        )
 
         #expect(project.artifactID == "full-stack-demo")
         #expect(project.modules.map(\.artifactID) == ["backend-api"])

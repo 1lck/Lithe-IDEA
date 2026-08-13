@@ -3,10 +3,12 @@
   "request": {
     "command": "maven.scan",
     "payload": {
-      "root": "/workspace"
+      "root": "/workspace",
+      "paths": ["pom.xml", "module-a/pom.xml", "module-a/module-b/pom.xml"]
     }
   },
   "expected": {
+    "relativePath": ".",
     "artifactId": "demo",
     "packaging": "pom",
     "modules": [

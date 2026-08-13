@@ -15,6 +15,8 @@ use std::path::{Component, Path, PathBuf};
 #[serde(rename_all = "camelCase")]
 pub struct MavenScanRequest {
     pub root: String,
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,7 +124,10 @@ fn collect_modules(
 }
 
 pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, CoreError> {
-    let root = existing_root(&request.root)?;
+    let workspace_root = existing_root(&request.root)?;
+    let Some((root, relative_path)) = maven_root(&workspace_root, &request.paths)? else {
+        return Ok(None);
+    };
     let pom = root.join("pom.xml");
     let Some(root_descriptor) = descriptor(&pom)? else {
         return Ok(None);
@@ -136,6 +141,7 @@ pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, Core
         .collect();
 
     Ok(Some(MavenScanResponse {
+        relative_path,
         group_id: root_descriptor.group_id,
         artifact_id: root_descriptor.artifact_id.unwrap_or_else(|| {
             root.file_name()
@@ -149,6 +155,72 @@ pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, Core
         profiles: root_descriptor.profiles,
         has_wrapper: has_wrapper(&root),
     }))
+}
+
+/// Selects one parseable Maven root from visible workspace paths. The
+/// application model currently represents one Maven reactor, so the shallowest
+/// valid descriptor wins; lexical ordering makes independent candidates
+/// deterministic. Parse failures are retained only when no candidate is valid.
+pub(crate) fn maven_root(
+    root: &Path,
+    paths: &[String],
+) -> Result<Option<(PathBuf, String)>, CoreError> {
+    let canonical_root = root.canonicalize().map_err(CoreError::from)?;
+    let mut candidates = Vec::new();
+    if canonical_root.join("pom.xml").is_file() {
+        candidates.push((root.to_path_buf(), ".".to_string(), 0));
+    }
+
+    candidates.extend(
+        paths
+            .iter()
+            .filter_map(|path| normalize_relative_path(path))
+            .filter(|path| {
+                Path::new(path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case("pom.xml"))
+            })
+            .filter_map(|path| {
+                let directory = Path::new(&path).parent()?;
+                let relative_path = if directory.as_os_str().is_empty() {
+                    ".".to_string()
+                } else {
+                    directory.to_string_lossy().replace('\\', "/")
+                };
+                let candidate = root.join(directory);
+                let canonical_candidate = candidate.canonicalize().ok()?;
+                if !canonical_candidate.starts_with(&canonical_root) {
+                    return None;
+                }
+                canonical_candidate.join("pom.xml").is_file().then_some((
+                    candidate,
+                    relative_path,
+                    directory.components().count(),
+                ))
+            }),
+    );
+    candidates.sort_by(|left, right| {
+        left.2
+            .cmp(&right.2)
+            .then_with(|| left.1.to_lowercase().cmp(&right.1.to_lowercase()))
+            .then_with(|| left.1.cmp(&right.1))
+    });
+    candidates.dedup_by(|left, right| left.0 == right.0);
+
+    let mut first_parse_error = None;
+    for (path, relative_path, _) in candidates {
+        match descriptor(&path.join("pom.xml")) {
+            Ok(Some(_)) => return Ok(Some((path, relative_path))),
+            Ok(None) => {}
+            Err(error) if first_parse_error.is_none() => first_parse_error = Some(error),
+            Err(_) => {}
+        }
+    }
+    match first_parse_error {
+        Some(error) => Err(error),
+        None => Ok(None),
+    }
 }
 
 pub fn diagnostics(
@@ -374,10 +446,12 @@ fn normalize_relative_path(value: &str) -> Option<String> {
     if path.as_os_str().is_empty() || path.is_absolute() {
         return None;
     }
-    if path
-        .components()
-        .any(|component| matches!(component, Component::ParentDir))
-    {
+    if path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
         return None;
     }
     let value = path.to_string_lossy().replace('\\', "/");
