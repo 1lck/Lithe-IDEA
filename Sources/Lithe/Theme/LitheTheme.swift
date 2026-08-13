@@ -465,6 +465,7 @@ struct LitheSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+@MainActor
 private struct LithePointerModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
     @State private var cursor = LithePointerCursor()
