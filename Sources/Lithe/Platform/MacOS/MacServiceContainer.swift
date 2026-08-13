@@ -32,6 +32,7 @@ final class MacServiceContainer {
         let rustCore = RustCoreBridge()
         let javaMavenOperations = RustJavaMavenOperations(core: rustCore)
         let fileStorage = MacFileStorage()
+        let workspaceOperations = RustWorkspaceOperations(core: rustCore)
         runConfigurationStore = MacRunConfigurationStore(
             core: rustCore,
             storage: fileStorage,
@@ -133,7 +134,13 @@ final class MacServiceContainer {
             catalog: languagePackRegistry.catalog,
             runtimes: languagePackRegistry.toolingRuntimes,
             runtimeFactory: languageToolingRuntimeFactory,
-            core: rustCore
+            core: rustCore,
+            languageFeatureProviders: [
+                ProjectSymbolFeatureProvider(
+                    operations: workspaceOperations,
+                    visibilityRules: { settings.fileVisibilityRules }
+                )
+            ]
         )
         let testExecutableResolver = RunExecutableResolver(
             runtimeService: runtimeService,
@@ -174,7 +181,6 @@ final class MacServiceContainer {
             runConfigurationOperations: runConfigurationStore
         )
         let gitOperations = RustGitOperations(core: rustCore)
-        let workspaceOperations = RustWorkspaceOperations(core: rustCore)
         let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
         let markdownRenderer = RustMarkdownRendering(core: rustCore)
         let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)

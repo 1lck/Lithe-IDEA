@@ -20,6 +20,7 @@ flowchart LR
     UI["Editor / feature model"] --> MANAGER["LanguageToolingSessionManager"]
     MANAGER --> ROUTER["LanguageFeatureProvider routing"]
     ROUTER --> BUILTIN["Builtin provider<br/>keywords + current-file symbols"]
+    ROUTER --> PROJECT["Project symbol provider<br/>workspace text index"]
     ROUTER --> LSPPROVIDER["LSP provider<br/>server capabilities"]
     LSPPROVIDER --> SESSION["Swift semantic facade<br/>opaque operation IDs"]
     SESSION --> CORE["Rust LSP runtime<br/>process + state + deadlines + stdio"]
@@ -31,6 +32,7 @@ flowchart LR
 | `LanguageToolingSessionManager` | 文档同步、provider 选择、结果降级/合并、诊断和会话归属 | JSON-RPC 编解码、直接启动 `Process` |
 | `LanguageFeatureProvider` | 声明单项能力、优先级和统一结果类型 | 维护 UI 状态 |
 | `BuiltinLanguageFeatureProvider` | 当前文件标识符、轻量 hover/导航、语言关键字 | 类型推断、跨文件索引 |
+| `ProjectSymbolFeatureProvider` | 用已预热的 workspace text index 生成跨文件、UTF-16 精确的词法导航候选 | 类型解析、替代 LSP 语义结果 |
 | `LanguageServerFeatureProvider` | 将已协商的服务器能力适配到统一 provider 接口 | 猜测服务器能力 |
 | `StdioLanguageServerSession` | 调用语义命令、投影 typed event，并以不透明 operation ID 交付 UI 回调 | LSP 请求 ID、frame、文档版本、协议超时或子进程 |
 | Rust Core | LSP 子进程与 stdio、session/document state、请求 ID、deadline、frame、UTF-16 位置、结果归一化、动态能力 | 可执行文件发现、UI provider 路由 |
@@ -60,14 +62,20 @@ lsp/
 
 ## Provider 路由
 
-当前优先级由高到低为 `languageServer (200)`、预留的 `projectSymbols (100)`、`builtin (0)`。每次请求先按文件和功能过滤 provider，再按优先级路由：
+当前优先级由高到低为 `languageServer (200)`、`projectSymbols (100)`、`builtin (0)`。每次请求先按文件和功能过滤 provider，再按优先级路由：
 
 - **Completion**：依次收集所有成功结果，保持高优先级顺序，并按 `label` 去重。因此 LSP 可提供精确候选，本地关键字和当前文件符号仍能补足结果。
 - **Hover**：返回第一个非空结果；LSP 无结果或失败时继续询问本地 provider。
-- **Definition/References/Implementation**：返回第一个非空位置列表，并在 LSP 不可用时降级到当前文件文本级导航。
+- **Definition/References/Implementation**：LSP 与 project-symbol provider 并发请求。项目索引候选先返回时只作为 provisional result 展示，不自动跳转；LSP 的非空语义结果随后替换候选并成为最终结果。LSP 空结果或失败时使用项目候选，再降级到当前文件文本级导航。
 - **Rename/Formatting/Code Action/Resolve/Execute Command**：目前仍是 LSP-only；未运行或未声明相应能力时应返回明确的 capability 错误。
 
 provider 抛错不会让路由提前结束。这个策略用于隔离第三方语言服务器故障，但也意味着新增 provider 时必须给出稳定优先级，并避免返回伪造的“成功但无意义”结果。
+
+project-symbol provider 不按扩展名或 provider ID 分支。它从光标提取通用标识符，使用 workspace search index 的 whole-word/case-sensitive 查询缩小候选文件，再在后台读取命中行并计算精确 UTF-16 范围。打开且未保存的当前文档直接扫描 editor buffer，避免磁盘索引覆盖用户的新输入。Definition/Implementation 只用语言无关的结构词提高候选排序；最终语义仍以 LSP 为准。
+
+成功的导航结果按 method、workspace、文件、位置和文本指纹保存 8 秒进程内缓存；相同的并发请求也只发送一次，再把结果扇出给所有调用方。任一文档同步、关闭、外部文件变更、catalog/root/session 变化都会使缓存失效，避免跨版本复用位置。每次 provisional/final/cache 命中都会把 `source`、`elapsedMs` 和结果数写入 LSP 控制中心的“运行日志”，便于区分索引耗时与服务器耗时。
+
+编辑器的 `⌘B` 是 declaration-or-usages 命令，而不是 references 的别名：先请求 definition；引用位置得到单个目标时直接跳转，已经位于声明 token 上时再请求 references 并打开轻量选择器。完整 Find Usages 使用相同的文件、行号和代码预览行，但保留在底部工具窗口中。导航前后位置由 `EditorNavigationFeatureModel` 维护，可以用 `⌘[`/`⌘]` 返回和前进。
 
 ## 无进程能力
 
@@ -140,7 +148,7 @@ LSP 控制中心标题栏的工具设置会在用户偏好中保存每个 provid
 1. Swift 完成可执行文件和环境发现，向 Rust 提交 typed `startServer`；
 2. Rust engine 创建 session、启动进程并安装 stdout/stderr reader，再发送 `initialize`；
 3. 收到响应后，Rust 保存服务器 capability，发送 `initialized` 和 provider adapter 通知；
-4. manager 发布实际 capability，随后通过 `didOpen`/全量 `didChange` 同步文档；
+4. manager 发布实际 capability，随后通过 `didOpen`/全量 `didChange` 同步文档；连续编辑在应用层以 120ms 窗口合并，语义导航发起前强制刷新最新 buffer；相同文本指纹不会重复发送；
 5. Rust 以 LSP request ID 关联 deadline，并用不透明 operation ID 把 terminal result 投影给 Swift。
 
 服务端 capability 可以来自 initialize 响应，也可以通过 `client/registerCapability` 和
@@ -154,7 +162,8 @@ LSP 控制中心标题栏的工具设置会在用户偏好中保存每个 provid
 - session 当前以 provider ID 和单个 workspace root 为单位，尚无 multi-root session。
 - `workspace/applyEdit` 只提供协议确认和 normalized edit 数据，实际应用仍必须经过编辑器工作区安全校验。
 - initialize 可协商 snippet、resolve、inlay hint、folding range、code lens 和 workspace symbol；UI 只启用已完整投影且服务器实际声明的能力。
-- 文档同步当前发送全量文本，没有按服务器类型实现增量 diff。
+- 文档同步当前仍发送全量文本，没有按服务器类型实现增量 diff；应用层只负责短窗口合并和相同文本去重。
+- workspace text index 当前是进程内预热和文件监听增量更新，不跨应用启动持久化；它提供快速词法候选，不是类型图或调用图。
 - catalog 描述的是“可尝试启动的工具”；最终功能必须以运行时服务器 capability 为准。
 - project config 是受信任的项目配置，只接受 schema 中的 typed 字段，不执行 shell 命令。
 

@@ -78,6 +78,36 @@ struct LanguageNavigationLocation: Identifiable, Hashable, Sendable {
     var displayName: String { displayPath?.split(separator: "/").last.map(String.init) ?? url.lastPathComponent }
 }
 
+enum LanguageNavigationSemantics {
+    /// LSP definition ranges normally identify the declaration token. Treat a
+    /// caret inside that token as already being at the declaration so the
+    /// declaration-or-usages command can switch to references.
+    static func contains(
+        _ caret: EditorCaret,
+        in location: LanguageServerLocation
+    ) -> Bool {
+        guard caret.url.standardizedFileURL == location.url.standardizedFileURL else {
+            return false
+        }
+        let position = LanguageServerPosition(
+            line: caret.line,
+            utf16Column: caret.utf16Column
+        )
+        let range = location.range
+        if range.start == range.end { return position == range.start }
+        return isOrdered(range.start, beforeOrEqualTo: position)
+            && isOrdered(position, beforeOrEqualTo: range.end)
+    }
+
+    private static func isOrdered(
+        _ lhs: LanguageServerPosition,
+        beforeOrEqualTo rhs: LanguageServerPosition
+    ) -> Bool {
+        lhs.line < rhs.line
+            || (lhs.line == rhs.line && lhs.utf16Column <= rhs.utf16Column)
+    }
+}
+
 struct JavaWorkspaceSymbol: Identifiable, Hashable, Sendable {
     let name: String
     let containerName: String?

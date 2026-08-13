@@ -193,9 +193,15 @@ struct CodeEditorView: NSViewRepresentable {
         textView.onNavigateToSymbol = { [weak model] line, utf16Column in
             model?.navigateToSymbol(line: line, utf16Column: utf16Column, in: document.url)
         }
-        textView.onGoToDefinition = { [weak model] in model?.goToDefinition() }
-        textView.onGoToImplementation = { [weak model] in model?.goToImplementation() }
-        textView.onFindUsages = { [weak model] in model?.findReferences() }
+        textView.onGoToDefinition = { [weak model] line, column in
+            model?.goToDefinition(line: line, utf16Column: column)
+        }
+        textView.onGoToImplementation = { [weak model] line, column in
+            model?.goToImplementation(line: line, utf16Column: column)
+        }
+        textView.onFindUsages = { [weak model] line, column in
+            model?.findReferences(line: line, utf16Column: column)
+        }
         textView.onFindRequested = { [weak model] in model?.showFindBar() }
         textView.onFindNextRequested = { [weak model] in model?.navigateFind(offset: 1) }
         textView.onFindPreviousRequested = { [weak model] in model?.navigateFind(offset: -1) }
@@ -919,9 +925,9 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     var languageServerFeatures: LanguageServerFeatureSet = []
     var onWindowAttached: (() -> Void)?
     var onNavigateToSymbol: ((Int, Int) -> Void)?
-    var onGoToDefinition: (() -> Void)?
-    var onGoToImplementation: (() -> Void)?
-    var onFindUsages: (() -> Void)?
+    var onGoToDefinition: ((Int, Int) -> Void)?
+    var onGoToImplementation: ((Int, Int) -> Void)?
+    var onFindUsages: ((Int, Int) -> Void)?
     var onFindRequested: (() -> Void)?
     var onFindNextRequested: (() -> Void)?
     var onFindPreviousRequested: (() -> Void)?
@@ -1968,7 +1974,8 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     @objc private func goToDefinitionFromMenu() {
-        onGoToDefinition?()
+        let position = languageServerPosition(at: selectedRange().location)
+        onGoToDefinition?(position.line, position.utf16Column)
     }
 
     @objc private func showQuickDocumentationFromMenu() {
@@ -2123,11 +2130,13 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     }
 
     @objc private func goToImplementationFromMenu() {
-        onGoToImplementation?()
+        let position = languageServerPosition(at: selectedRange().location)
+        onGoToImplementation?(position.line, position.utf16Column)
     }
 
     @objc private func findUsagesFromMenu() {
-        onFindUsages?()
+        let position = languageServerPosition(at: selectedRange().location)
+        onFindUsages?(position.line, position.utf16Column)
     }
 
     override init(frame frameRect: NSRect) {

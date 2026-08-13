@@ -64,6 +64,30 @@ struct EditorNavigationTests {
     }
 
     @Test
+    @MainActor
+    func navigationHistorySupportsBackAndForward() async {
+        let feature = EditorNavigationFeatureModel()
+        let source = EditorNavigationTarget(
+            url: URL(fileURLWithPath: "/workspace/Source.swift"),
+            line: 3,
+            utf16Column: 2
+        )
+        let destination = EditorNavigationTarget(
+            url: URL(fileURLWithPath: "/workspace/Destination.swift"),
+            line: 12,
+            utf16Column: 4
+        )
+
+        feature.navigate(to: destination, from: source) { true }
+        await waitUntil { feature.target?.url == destination.url }
+
+        #expect(feature.canNavigateBack)
+        #expect(feature.takeBackDestination(from: destination)?.url == source.url)
+        #expect(feature.canNavigateForward)
+        #expect(feature.takeForwardDestination(from: source)?.url == destination.url)
+    }
+
+    @Test
     func viewportKeepsComfortablyVisibleTargetsStable() {
         let destination = EditorNavigationViewport.destinationY(
             currentY: 400,
@@ -158,6 +182,31 @@ struct EditorNavigationTests {
 
         #expect(reports.count == 2)
         #expect(reports.last?.1 == 1)
+    }
+
+    @Test
+    func declarationOrUsagesRecognizesCaretInsideDefinitionRange() {
+        let fileURL = URL(fileURLWithPath: "/workspace/main.rs")
+        let location = LanguageServerLocation(
+            url: fileURL,
+            range: LanguageServerRange(
+                start: LanguageServerPosition(line: 12, utf16Column: 7),
+                end: LanguageServerPosition(line: 12, utf16Column: 14)
+            )
+        )
+
+        #expect(LanguageNavigationSemantics.contains(
+            EditorCaret(url: fileURL, line: 12, utf16Column: 10),
+            in: location
+        ))
+        #expect(!LanguageNavigationSemantics.contains(
+            EditorCaret(url: fileURL, line: 13, utf16Column: 10),
+            in: location
+        ))
+        #expect(!LanguageNavigationSemantics.contains(
+            EditorCaret(url: URL(fileURLWithPath: "/workspace/other.rs"), line: 12, utf16Column: 10),
+            in: location
+        ))
     }
 
     @MainActor

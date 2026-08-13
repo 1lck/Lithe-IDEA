@@ -115,6 +115,135 @@ struct LanguageFeatureProviderTests {
         #expect(locations.map(\.url) == [fileURL])
     }
 
+    @Test
+    func projectSymbolsUseWorkspaceIndexAndPreserveUTF16Columns() async throws {
+        let rootURL = URL(fileURLWithPath: "/workspace")
+        let currentURL = rootURL.appendingPathComponent("Sources/Current.swift")
+        let otherURL = rootURL.appendingPathComponent("Sources/Other.swift")
+        let operations = ProjectSymbolTestWorkspaceOperations(
+            results: [
+                FileSearchResult(url: otherURL, line: 1, preview: "let 变量 = 2")
+            ],
+            files: ["Sources/Other.swift": "😀 let 变量 = 2\n"]
+        )
+        let provider = ProjectSymbolFeatureProvider(
+            operations: operations,
+            visibilityRules: { .default }
+        )
+        let context = LanguageFeatureRequestContext(
+            fileURL: currentURL,
+            text: "😀 let 变量 = 1\nprint(变量)",
+            position: LanguageServerPosition(line: 0, utf16Column: 8),
+            workspaceURL: rootURL
+        )
+
+        let locations = try await withCheckedThrowingContinuation { continuation in
+            do {
+                try provider.navigate(method: "textDocument/references", in: context) {
+                    continuation.resume(with: $0)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+
+        #expect(locations.count == 3)
+        #expect(locations.contains {
+            $0.url == currentURL && $0.range.start == LanguageServerPosition(line: 0, utf16Column: 7)
+        })
+        #expect(locations.contains {
+            $0.url == currentURL && $0.range.start == LanguageServerPosition(line: 1, utf16Column: 6)
+        })
+        #expect(locations.contains {
+            $0.url == otherURL && $0.range.start == LanguageServerPosition(line: 0, utf16Column: 7)
+        })
+    }
+
+    @Test
+    func managerPublishesProjectCandidatesBeforeLSPAndCachesSemanticResult() async throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/main.go")
+        let projectLocation = Self.location(fileURL, line: 4)
+        let semanticLocation = Self.location(fileURL, line: 9)
+        let project = NavigationFeatureProvider(
+            id: "project-symbols",
+            priority: .projectSymbols,
+            locations: [projectLocation]
+        )
+        let lsp = NavigationFeatureProvider(
+            id: "lsp:test",
+            priority: .languageServer,
+            locations: [semanticLocation],
+            delayMilliseconds: 30
+        )
+        let manager = LanguageToolingSessionManager(languageFeatureProviders: [project, lsp])
+        var provisionalValues: [[LanguageServerLocation]] = []
+
+        let first = try await navigate(
+            with: manager,
+            fileURL: fileURL,
+            provisional: { provisionalValues.append($0) }
+        )
+        let second = try await navigate(with: manager, fileURL: fileURL)
+
+        #expect(provisionalValues == [[projectLocation]])
+        #expect(first == [semanticLocation])
+        #expect(second == [semanticLocation])
+        #expect(project.navigationRequestCount == 1)
+        #expect(lsp.navigationRequestCount == 1)
+        #expect(manager.languageServerLogs.contains {
+            $0.detail?.contains("source=cache") == true
+        })
+    }
+
+    @Test
+    func managerCachesProjectFallbackWhenLanguageServerHasNoResult() async throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/main.go")
+        let projectLocation = Self.location(fileURL, line: 4)
+        let project = NavigationFeatureProvider(
+            id: "project-symbols",
+            priority: .projectSymbols,
+            locations: [projectLocation]
+        )
+        let lsp = NavigationFeatureProvider(
+            id: "lsp:test",
+            priority: .languageServer,
+            locations: []
+        )
+        let manager = LanguageToolingSessionManager(languageFeatureProviders: [project, lsp])
+
+        let first = try await navigate(with: manager, fileURL: fileURL)
+        let second = try await navigate(with: manager, fileURL: fileURL)
+
+        #expect(first == [projectLocation])
+        #expect(second == [projectLocation])
+        #expect(project.navigationRequestCount == 1)
+        #expect(lsp.navigationRequestCount == 1)
+        #expect(manager.languageServerLogs.contains {
+            $0.detail?.contains("source=cache") == true
+        })
+    }
+
+    @Test
+    func managerCoalescesIdenticalNavigationRequestsInFlight() async throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/main.go")
+        let semanticLocation = Self.location(fileURL, line: 9)
+        let lsp = NavigationFeatureProvider(
+            id: "lsp:test",
+            priority: .languageServer,
+            locations: [semanticLocation],
+            delayMilliseconds: 30
+        )
+        let manager = LanguageToolingSessionManager(languageFeatureProviders: [lsp])
+
+        async let first = navigate(with: manager, fileURL: fileURL)
+        async let second = navigate(with: manager, fileURL: fileURL)
+        let values = try await (first, second)
+
+        #expect(values.0 == [semanticLocation])
+        #expect(values.1 == [semanticLocation])
+        #expect(lsp.navigationRequestCount == 1)
+    }
+
     private static func item(label: String, detail: String) -> LanguageServerCompletionItem {
         LanguageServerCompletionItem(
             label: label,
@@ -129,6 +258,65 @@ struct LanguageFeatureProviderTests {
             data: nil
         )
     }
+
+    private static func location(_ url: URL, line: Int) -> LanguageServerLocation {
+        let position = LanguageServerPosition(line: line, utf16Column: 0)
+        return LanguageServerLocation(
+            url: url,
+            range: LanguageServerRange(start: position, end: position)
+        )
+    }
+
+    private func navigate(
+        with manager: LanguageToolingSessionManager,
+        fileURL: URL,
+        provisional: (([LanguageServerLocation]) -> Void)? = nil
+    ) async throws -> [LanguageServerLocation] {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                try manager.navigate(
+                    method: "textDocument/references",
+                    fileURL: fileURL,
+                    text: "target",
+                    position: LanguageServerPosition(line: 0, utf16Column: 2),
+                    rootURL: fileURL.deletingLastPathComponent(),
+                    provisional: provisional
+                ) { continuation.resume(with: $0) }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+}
+
+private struct ProjectSymbolTestWorkspaceOperations: WorkspaceOperations {
+    let results: [FileSearchResult]
+    let files: [String: String]
+
+    func snapshot(at _: URL, visibilityRules _: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
+    func search(
+        at _: URL,
+        query _: String,
+        options _: ProjectSearchOptions,
+        visibilityRules _: FileVisibilityRules
+    ) -> [FileSearchResult]? { results }
+    func searchEverywhere(
+        at _: URL,
+        query _: String,
+        options _: ProjectSearchOptions,
+        visibilityRules _: FileVisibilityRules
+    ) -> SearchEverywhereResults? { nil }
+    func previewReplacement(
+        at _: URL,
+        query _: String,
+        replacement _: String,
+        options _: ProjectSearchOptions,
+        paths _: [String],
+        textOverrides _: [String: String],
+        visibilityRules _: FileVisibilityRules
+    ) -> [ProjectReplacementFile]? { nil }
+    func readFile(at _: URL, relativePath: String) -> String? { files[relativePath] }
+    func writeFile(_: String, at _: URL, relativePath _: String) -> Bool { false }
 }
 
 private enum FeatureProviderTestError: LocalizedError {
@@ -275,5 +463,62 @@ private final class CompletionFeatureProvider: LanguageFeatureProvider {
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws {
         completion(.success([]))
+    }
+}
+
+@MainActor
+private final class NavigationFeatureProvider: LanguageFeatureProvider {
+    let id: String
+    let priority: LanguageFeatureProviderPriority
+    private let locations: [LanguageServerLocation]
+    private let delayMilliseconds: Int
+    private(set) var navigationRequestCount = 0
+
+    init(
+        id: String,
+        priority: LanguageFeatureProviderPriority,
+        locations: [LanguageServerLocation],
+        delayMilliseconds: Int = 0
+    ) {
+        self.id = id
+        self.priority = priority
+        self.locations = locations
+        self.delayMilliseconds = delayMilliseconds
+    }
+
+    func supports(_ feature: LanguageFeature, in _: LanguageFeatureRequestContext) -> Bool {
+        if case .navigation = feature { return true }
+        return false
+    }
+
+    func completions(
+        in _: LanguageFeatureRequestContext,
+        completion: @escaping (Result<[LanguageServerCompletionItem], Error>) -> Void
+    ) throws {
+        completion(.success([]))
+    }
+
+    func hover(
+        in _: LanguageFeatureRequestContext,
+        completion: @escaping (Result<LanguageServerHover?, Error>) -> Void
+    ) throws {
+        completion(.success(nil))
+    }
+
+    func navigate(
+        method _: String,
+        in _: LanguageFeatureRequestContext,
+        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
+    ) throws {
+        navigationRequestCount += 1
+        let locations = locations
+        guard delayMilliseconds > 0 else {
+            completion(.success(locations))
+            return
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+            completion(.success(locations))
+        }
     }
 }

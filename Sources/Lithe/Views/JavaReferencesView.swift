@@ -2,17 +2,42 @@ import SwiftUI
 
 struct LanguageReferencesView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var query = ""
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            if model.languageNavigationResults.isEmpty {
+            filterBar
+            if filteredLocations.isEmpty {
                 emptyState
             } else {
                 results
             }
         }
         .background(LitheTheme.sidebar)
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.secondaryText)
+            TextField("Filter results", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .litheIconButton()
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background(LitheTheme.popupBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        }
     }
 
     private var toolbar: some View {
@@ -33,31 +58,16 @@ struct LanguageReferencesView: View {
     private var results: some View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 1) {
-                ForEach(model.languageNavigationResults) { location in
+                ForEach(filteredLocations) { location in
                     Button {
                         model.navigate(to: location)
                     } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                                .font(.system(size: 11))
-                                .foregroundStyle(LitheTheme.accent)
-                                .frame(width: 16)
-                            Text(location.displayName)
-                                .font(.system(size: 12.5, weight: .medium))
-                                .foregroundStyle(LitheTheme.primaryText)
-                            Text(location.displayPath ?? model.relativePath(for: location.url))
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(LitheTheme.secondaryText)
-                                .lineLimit(1)
-                            Spacer()
-                            Text("\(location.line + 1):\(location.utf16Column + 1)")
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundStyle(LitheTheme.secondaryText)
-                        }
-                        .padding(.horizontal, 10)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 30)
-                        .contentShape(Rectangle())
+                        LanguageNavigationResultRow(
+                            location: location,
+                            parentPath: parentPath(for: location),
+                            preview: model.languageNavigationPreviews[location.id] ?? "",
+                            isSelected: false
+                        )
                     }
                     .buttonStyle(.plain)
                     .lithePointer()
@@ -65,6 +75,21 @@ struct LanguageReferencesView: View {
             }
             .padding(6)
         }
+    }
+
+    private var filteredLocations: [LanguageNavigationLocation] {
+        guard !query.isEmpty else { return model.languageNavigationResults }
+        return model.languageNavigationResults.filter {
+            $0.displayName.localizedCaseInsensitiveContains(query)
+                || parentPath(for: $0).localizedCaseInsensitiveContains(query)
+                || (model.languageNavigationPreviews[$0.id] ?? "")
+                    .localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func parentPath(for location: LanguageNavigationLocation) -> String {
+        let path = location.displayPath ?? model.relativePath(for: location.url)
+        return (path as NSString).deletingLastPathComponent
     }
 
     private var emptyState: some View {
@@ -186,35 +211,12 @@ struct LanguageNavigationChooserView: View {
 
     private func resultRow(_ location: LanguageNavigationLocation, index: Int) -> some View {
         Button { navigate(to: location) } label: {
-            HStack(spacing: 9) {
-                LitheIcon(kind: LitheIcons.kind(for: location.url, isDirectory: false), size: 15)
-                    .frame(width: 18)
-                Text(location.displayName)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .lineLimit(1)
-                    .frame(width: 170, alignment: .leading)
-                Text(parentPath(for: location))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(width: 150, alignment: .leading)
-                Text("\(location.line + 1)")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 44, alignment: .trailing)
-                Text(model.languageNavigationPreviews[location.id] ?? "")
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 9)
-            .frame(maxWidth: .infinity)
-            .frame(height: 29)
-            .background(index == selectedIndex ? LitheTheme.selection : .clear)
-            .contentShape(Rectangle())
+            LanguageNavigationResultRow(
+                location: location,
+                parentPath: parentPath(for: location),
+                preview: model.languageNavigationPreviews[location.id] ?? "",
+                isSelected: index == selectedIndex
+            )
         }
         .buttonStyle(.plain)
         .lithePointer()
@@ -278,5 +280,44 @@ struct LanguageNavigationChooserView: View {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
         }
+    }
+}
+
+private struct LanguageNavigationResultRow: View {
+    let location: LanguageNavigationLocation
+    let parentPath: String
+    let preview: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 9) {
+            LitheIcon(kind: LitheIcons.kind(for: location.url, isDirectory: false), size: 15)
+                .frame(width: 18)
+            Text(location.displayName)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+                .frame(width: 170, alignment: .leading)
+            Text(parentPath)
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 150, alignment: .leading)
+            Text("\(location.line + 1)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .frame(width: 44, alignment: .trailing)
+            Text(preview)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(LitheTheme.primaryText)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 9)
+        .frame(maxWidth: .infinity)
+        .frame(height: 29)
+        .background(isSelected ? LitheTheme.selection : .clear)
+        .contentShape(Rectangle())
     }
 }

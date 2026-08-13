@@ -21,6 +21,7 @@ struct LSPControlCenterView: View {
                             languageRow(descriptor)
                         }
                     }
+                    runtimeActivity
                     if model.languageProviderCatalogSnapshot.isDegraded {
                         degradedCatalogNotice
                     }
@@ -31,6 +32,69 @@ struct LSPControlCenterView: View {
             .background(LitheTheme.editor)
         }
         .background(LitheTheme.editor)
+    }
+
+    private var runtimeActivity: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Label(
+                    usesChinese ? "运行日志" : "Runtime activity",
+                    systemImage: "waveform.path.ecg"
+                )
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.primaryText)
+                Spacer()
+                if !model.languageToolingSessions.languageServerLogs.isEmpty {
+                    Button(usesChinese ? "清空" : "Clear") {
+                        model.languageToolingSessions.clearLanguageServerLogs()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.accent)
+                    .lithePointer()
+                }
+            }
+
+            if model.languageToolingSessions.languageServerLogs.isEmpty {
+                Text(usesChinese ? "暂无 LSP 活动" : "No LSP activity yet")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            } else {
+                ForEach(Array(model.languageToolingSessions.languageServerLogs.prefix(20))) { entry in
+                    HStack(alignment: .top, spacing: 7) {
+                        Circle()
+                            .fill(logColor(entry.level))
+                            .frame(width: 6, height: 6)
+                            .padding(.top, 4)
+                        Text(entry.timestamp.formatted(date: .omitted, time: .standard))
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                            .frame(width: 72, alignment: .leading)
+                        Text(entry.providerID)
+                            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .frame(width: 54, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.message)
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(LitheTheme.primaryText)
+                            if let detail = entry.detail, !detail.isEmpty {
+                                Text(detail)
+                                    .font(.system(size: 9.5, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 7).fill(LitheTheme.sidebar))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+        }
     }
 
     private var header: some View {
@@ -348,6 +412,14 @@ struct LSPControlCenterView: View {
         case .active: LitheTheme.success
         case .stopping: LitheTheme.warning
         case .stopped, .disabled: LitheTheme.secondaryText
+        case .error: LitheTheme.error
+        }
+    }
+
+    private func logColor(_ level: LanguageServerLogLevel) -> Color {
+        switch level {
+        case .info: LitheTheme.accent
+        case .warning: LitheTheme.warning
         case .error: LitheTheme.error
         }
     }

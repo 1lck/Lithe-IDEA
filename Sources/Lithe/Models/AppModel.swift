@@ -83,9 +83,12 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var languageNavigationResultKind: LanguageNavigationResultKind = .definitions
     @Published var languageNavigationSubject = ""
     @Published var isLoadingLanguageNavigation = false
+    var languageNavigationRequestID = UUID()
     var languageNavigationPreviewRequestID = UUID()
     @Published var editorCaret: EditorCaret?
     var editorNavigationTarget: EditorNavigationTarget? { editorNavigationFeature.target }
+    var canNavigateBack: Bool { editorNavigationFeature.canNavigateBack }
+    var canNavigateForward: Bool { editorNavigationFeature.canNavigateForward }
     var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] {
         javaFeature.javaCodeVisionHints
     }
@@ -138,6 +141,7 @@ final class AppModel: ObservableObject, Identifiable {
     private var projectHistoryFeatureObservation: AnyCancellable?
     private var databaseFeatureObservation: AnyCancellable?
     private var editorNavigationFeatureObservation: AnyCancellable?
+    private var languageServerSynchronizationTasks: [URL: Task<Void, Never>] = [:]
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .codex }
@@ -381,6 +385,7 @@ final class AppModel: ObservableObject, Identifiable {
             },
             processExternalChanges: { [weak self] paths in
                 guard let self else { return false }
+                self.languageToolingSessions.invalidateNavigationCache()
                 let conflict = self.documentFeature.processExternalChanges(paths)
                 self.projectHistoryFeature.recordExternalChanges(paths)
                 return conflict
@@ -551,6 +556,7 @@ final class AppModel: ObservableObject, Identifiable {
 
     func shutdownProjectSession() {
         doubleShiftDetector?.stop()
+        cancelLanguageServerSynchronizationTasks()
         languageToolingSessions.stopAll()
         languageTestService.stop()
         stopTerminalSessions()
@@ -738,6 +744,7 @@ final class AppModel: ObservableObject, Identifiable {
         // every provider session before replacing the catalog or clearing the
         // document projection so no old-root documents, diagnostics, or
         // responses can survive into the next workspace.
+        cancelLanguageServerSynchronizationTasks()
         languageToolingSessions.stopAll()
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
@@ -830,6 +837,7 @@ final class AppModel: ObservableObject, Identifiable {
         isTestsVisible = false
         isDebugVisible = false
         stopTerminalSessions()
+        cancelLanguageServerSynchronizationTasks()
         languageToolingSessions.stopAll()
         languageTestService.reset()
         runtimeFeature.closeProject()
@@ -890,13 +898,21 @@ final class AppModel: ObservableObject, Identifiable {
     func navigateEditor(
         to target: EditorNavigationTarget,
         isReadOnly: Bool = false,
-        displayPath: String? = nil
+        displayPath: String? = nil,
+        recordsHistory: Bool = true
     ) {
         selectedChange = nil
         closeBranchComparison()
         let normalizedURL = target.url.standardizedFileURL
         let normalizedTarget = EditorNavigationTarget(url: normalizedURL, range: target.range)
-        editorNavigationFeature.navigate(to: normalizedTarget) { [documentFeature] in
+        let source = editorCaret.map {
+            EditorNavigationTarget(url: $0.url.standardizedFileURL, line: $0.line, utf16Column: $0.utf16Column)
+        }
+        editorNavigationFeature.navigate(
+            to: normalizedTarget,
+            from: source,
+            recordsHistory: recordsHistory
+        ) { [documentFeature] in
             guard let document = await documentFeature.openFileAsync(
                 normalizedURL,
                 isReadOnly: isReadOnly,
@@ -1064,7 +1080,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func handleDocumentChanged(_ document: EditorDocument) {
-        activateLanguageServerIfAvailable(for: document)
+        scheduleLanguageServerSynchronization(for: document)
         Task { @MainActor [weak self, weak document] in
             try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled, let self, let document else { return }
@@ -1075,6 +1091,9 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     private func handleDocumentClosed(_ document: EditorDocument) {
+        let url = document.url.standardizedFileURL
+        languageServerSynchronizationTasks[url]?.cancel()
+        languageServerSynchronizationTasks[url] = nil
         languageToolingSessions.closeDocument(document.url)
         if javaFeature.handles(fileURL: document.url) {
             javaFeature.close(document)
@@ -1112,6 +1131,29 @@ final class AppModel: ObservableObject, Identifiable {
             languageToolingFeature.markActivationFailed(providerID: descriptor.id, descriptor: descriptor, error: error)
             return false
         }
+    }
+
+    func flushLanguageServerSynchronization(for document: EditorDocument) {
+        let url = document.url.standardizedFileURL
+        languageServerSynchronizationTasks[url]?.cancel()
+        languageServerSynchronizationTasks[url] = nil
+        _ = activateLanguageServerIfAvailable(for: document)
+    }
+
+    private func scheduleLanguageServerSynchronization(for document: EditorDocument) {
+        let url = document.url.standardizedFileURL
+        languageServerSynchronizationTasks[url]?.cancel()
+        languageServerSynchronizationTasks[url] = Task { @MainActor [weak self, weak document] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, let self, let document else { return }
+            _ = self.activateLanguageServerIfAvailable(for: document)
+            self.languageServerSynchronizationTasks[url] = nil
+        }
+    }
+
+    private func cancelLanguageServerSynchronizationTasks() {
+        for task in languageServerSynchronizationTasks.values { task.cancel() }
+        languageServerSynchronizationTasks.removeAll()
     }
 
     func searchProject(options: ProjectSearchOptions = .default) async {

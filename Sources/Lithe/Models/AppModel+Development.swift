@@ -2,6 +2,22 @@ import Foundation
 
 @MainActor
 extension AppModel {
+    func navigateBack() {
+        let current = editorCaret.map {
+            EditorNavigationTarget(url: $0.url, line: $0.line, utf16Column: $0.utf16Column)
+        }
+        guard let destination = editorNavigationFeature.takeBackDestination(from: current) else { return }
+        navigateEditor(to: destination, recordsHistory: false)
+    }
+
+    func navigateForward() {
+        let current = editorCaret.map {
+            EditorNavigationTarget(url: $0.url, line: $0.line, utf16Column: $0.utf16Column)
+        }
+        guard let destination = editorNavigationFeature.takeForwardDestination(from: current) else { return }
+        navigateEditor(to: destination, recordsHistory: false)
+    }
+
     func toggleRun() {
         isRunVisible.toggle()
         guard isRunVisible else { return }
@@ -337,12 +353,16 @@ extension AppModel {
         isRunVisible = false
     }
 
-    func goToDefinition() {
+    func goToDefinition(line: Int? = nil, utf16Column: Int? = nil) {
         guard supportsLanguageServerFeature(.definition) else {
             showNotification("Definition navigation is not supported by this language server")
             return
         }
-        performGenericNavigation(method: "textDocument/definition", kind: .definitions)
+        performGenericNavigation(
+            method: "textDocument/definition",
+            kind: .definitions,
+            caretOverride: navigationCaret(line: line, utf16Column: utf16Column)
+        )
     }
 
     func goToUsages() {
@@ -357,12 +377,86 @@ extension AppModel {
         )
     }
 
-    func goToImplementation() {
+    func goToDeclarationOrUsages() {
+        guard supportsLanguageServerFeature(.definition) else {
+            if supportsLanguageServerFeature(.references) {
+                goToUsages()
+            } else {
+                showNotification("Navigation is not supported by this language server")
+            }
+            return
+        }
+        guard let document = activeDocument,
+              let caret = editorCaret,
+              caret.url.standardizedFileURL == document.url.standardizedFileURL,
+              let workspaceURL,
+              let provider = languageProviderCatalog.provider(for: document.url) else {
+            showNotification("Place the caret on a language symbol first")
+            return
+        }
+
+        isLoadingLanguageNavigation = true
+        languageNavigationSubject = navigationSubject(in: document, at: caret)
+        languageNavigationProviderID = provider.id
+        languageNavigationResultKind = .definitions
+        let requestID = UUID()
+        languageNavigationRequestID = requestID
+        flushLanguageServerSynchronization(for: document)
+        do {
+            try languageToolingSessions.navigate(
+                method: "textDocument/definition",
+                fileURL: document.url,
+                text: document.text,
+                position: LanguageServerPosition(
+                    line: max(0, caret.line),
+                    utf16Column: max(0, caret.utf16Column)
+                ),
+                rootURL: workspaceURL
+            ) { [weak self] result in
+                guard let self, self.languageNavigationRequestID == requestID else { return }
+                switch result {
+                case .failure(let error):
+                    self.isLoadingLanguageNavigation = false
+                    self.languageNavigationProviderID = nil
+                    self.showNotification(error.localizedDescription)
+                case .success(let definitions):
+                    let isAtDeclaration = definitions.count == 1
+                        && definitions.first.map { LanguageNavigationSemantics.contains(caret, in: $0) } == true
+                    if isAtDeclaration,
+                       self.languageToolingSessions.features(for: document.url).contains(.references) {
+                        self.requestUsagesForDeclaration(
+                            document: document,
+                            caret: caret,
+                            workspaceURL: workspaceURL,
+                            requestID: requestID
+                        )
+                    } else {
+                        self.isLoadingLanguageNavigation = false
+                        self.presentGenericNavigationValues(
+                            definitions,
+                            kind: .definitions,
+                            presentation: .navigateSingle
+                        )
+                    }
+                }
+            }
+        } catch {
+            isLoadingLanguageNavigation = false
+            languageNavigationProviderID = nil
+            showNotification(error.localizedDescription)
+        }
+    }
+
+    func goToImplementation(line: Int? = nil, utf16Column: Int? = nil) {
         guard supportsLanguageServerFeature(.implementation) else {
             showNotification("Implementation navigation is not supported by this language server")
             return
         }
-        performGenericNavigation(method: "textDocument/implementation", kind: .implementations)
+        performGenericNavigation(
+            method: "textDocument/implementation",
+            kind: .implementations,
+            caretOverride: navigationCaret(line: line, utf16Column: utf16Column)
+        )
     }
 
     func navigateToSymbol(line: Int, utf16Column: Int, in fileURL: URL) {
@@ -383,7 +477,7 @@ extension AppModel {
         }
     }
 
-    func findReferences() {
+    func findReferences(line: Int? = nil, utf16Column: Int? = nil) {
         guard supportsLanguageServerFeature(.references) else {
             showNotification("Reference navigation is not supported by this language server")
             return
@@ -391,7 +485,8 @@ extension AppModel {
         performGenericNavigation(
             method: "textDocument/references",
             kind: .references,
-            presentation: .toolWindow
+            presentation: .toolWindow,
+            caretOverride: navigationCaret(line: line, utf16Column: utf16Column)
         )
     }
 
@@ -413,6 +508,8 @@ extension AppModel {
     }
 
     func navigate(to location: LanguageNavigationLocation) {
+        languageNavigationRequestID = UUID()
+        isLoadingLanguageNavigation = false
         isLanguageNavigationChooserVisible = false
         guard location.url.isFileURL else {
             guard let providerID = languageNavigationProviderID else {
@@ -465,6 +562,7 @@ extension AppModel {
     }
 
     func clearLanguageNavigationProjection() {
+        languageNavigationRequestID = UUID()
         languageNavigationProviderID = nil
         languageNavigationLocations = []
         languageNavigationPreviews = [:]
@@ -781,11 +879,11 @@ extension AppModel {
         method: String,
         kind: LanguageNavigationResultKind,
         presentation: LanguageNavigationPresentation = .navigateSingle,
-        fallbackToImplementationsIfSelf: Bool = false
+        fallbackToImplementationsIfSelf: Bool = false,
+        caretOverride: EditorCaret? = nil
     ) {
-        guard !isLoadingLanguageNavigation,
-              let document = activeDocument,
-              let caret = editorCaret,
+        guard let document = activeDocument,
+              let caret = caretOverride ?? editorCaret,
               caret.url.standardizedFileURL == document.url.standardizedFileURL,
               let workspaceURL,
               let provider = languageProviderCatalog.provider(for: document.url) else {
@@ -797,10 +895,13 @@ extension AppModel {
             isLanguageNavigationChooserVisible = true
             languageNavigationLocations = []
             languageNavigationPreviews = [:]
-            languageNavigationSubject = editorSelectedText
         }
+        languageNavigationSubject = navigationSubject(in: document, at: caret)
         languageNavigationProviderID = provider.id
         languageNavigationResultKind = kind
+        let requestID = UUID()
+        languageNavigationRequestID = requestID
+        flushLanguageServerSynchronization(for: document)
         do {
             try languageToolingSessions.navigate(
                 method: method,
@@ -810,9 +911,20 @@ extension AppModel {
                     line: max(0, caret.line),
                     utf16Column: max(0, caret.utf16Column)
                 ),
-                rootURL: workspaceURL
+                rootURL: workspaceURL,
+                provisional: { [weak self] values in
+                    guard let self, self.languageNavigationRequestID == requestID else { return }
+                    // A direct definition/implementation jump must stay visually
+                    // stable; lexical candidates are only useful in result lists.
+                    if case .navigateSingle = presentation { return }
+                    self.presentProvisionalGenericNavigationValues(
+                        values,
+                        kind: kind,
+                        presentation: presentation
+                    )
+                }
             ) { [weak self] result in
-                guard let self else { return }
+                guard let self, self.languageNavigationRequestID == requestID else { return }
                 self.isLoadingLanguageNavigation = false
                 switch result {
                 case .failure(let error):
@@ -832,7 +944,8 @@ extension AppModel {
                             caret: caret,
                             workspaceURL: workspaceURL,
                             originalValues: values,
-                            presentation: presentation
+                            presentation: presentation,
+                            requestID: requestID
                         )
                         return
                     }
@@ -853,12 +966,85 @@ extension AppModel {
         }
     }
 
+    private func requestUsagesForDeclaration(
+        document: EditorDocument,
+        caret: EditorCaret,
+        workspaceURL: URL,
+        requestID: UUID
+    ) {
+        languageNavigationResultKind = .references
+        isLanguageNavigationChooserVisible = true
+        languageNavigationLocations = []
+        languageNavigationPreviews = [:]
+        do {
+            try languageToolingSessions.navigate(
+                method: "textDocument/references",
+                fileURL: document.url,
+                text: document.text,
+                position: LanguageServerPosition(
+                    line: max(0, caret.line),
+                    utf16Column: max(0, caret.utf16Column)
+                ),
+                rootURL: workspaceURL,
+                provisional: { [weak self] values in
+                    guard let self, self.languageNavigationRequestID == requestID else { return }
+                    self.presentProvisionalGenericNavigationValues(
+                        values,
+                        kind: .references,
+                        presentation: .chooser
+                    )
+                }
+            ) { [weak self] result in
+                guard let self, self.languageNavigationRequestID == requestID else { return }
+                self.isLoadingLanguageNavigation = false
+                switch result {
+                case .failure(let error):
+                    self.languageNavigationProviderID = nil
+                    self.isLanguageNavigationChooserVisible = false
+                    self.showNotification(error.localizedDescription)
+                case .success(let values):
+                    self.presentGenericNavigationValues(
+                        values,
+                        kind: .references,
+                        presentation: .chooser
+                    )
+                }
+            }
+        } catch {
+            isLoadingLanguageNavigation = false
+            languageNavigationProviderID = nil
+            isLanguageNavigationChooserVisible = false
+            showNotification(error.localizedDescription)
+        }
+    }
+
+    private func navigationCaret(line: Int?, utf16Column: Int?) -> EditorCaret? {
+        guard let document = activeDocument,
+              let line,
+              let utf16Column else { return nil }
+        return EditorCaret(
+            url: document.url.standardizedFileURL,
+            line: max(0, line),
+            utf16Column: max(0, utf16Column)
+        )
+    }
+
+    private func navigationSubject(in document: EditorDocument, at caret: EditorCaret) -> String {
+        let selected = editorSelectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !selected.isEmpty { return selected }
+        return ProjectSymbolNavigation.identifier(
+            in: document.text,
+            at: LanguageServerPosition(line: caret.line, utf16Column: caret.utf16Column)
+        )?.value ?? ""
+    }
+
     private func requestGenericImplementationFallback(
         document: EditorDocument,
         caret: EditorCaret,
         workspaceURL: URL,
         originalValues: [LanguageServerLocation],
-        presentation: LanguageNavigationPresentation
+        presentation: LanguageNavigationPresentation,
+        requestID: UUID
     ) {
         isLoadingLanguageNavigation = true
         do {
@@ -872,7 +1058,7 @@ extension AppModel {
                 ),
                 rootURL: workspaceURL
             ) { [weak self] result in
-                guard let self else { return }
+                guard let self, self.languageNavigationRequestID == requestID else { return }
                 self.isLoadingLanguageNavigation = false
                 if case .success(let implementations) = result, !implementations.isEmpty {
                     self.presentGenericNavigationValues(
@@ -931,6 +1117,31 @@ extension AppModel {
                 presentation: presentation == .navigateSingle ? .chooser : presentation
             )
         }
+    }
+
+    private func presentProvisionalGenericNavigationValues(
+        _ values: [LanguageServerLocation],
+        kind: LanguageNavigationResultKind,
+        presentation: LanguageNavigationPresentation
+    ) {
+        guard !values.isEmpty else { return }
+        let locations = values.map {
+            LanguageNavigationLocation(
+                url: $0.url,
+                range: $0.range,
+                isReadOnly: $0.isReadOnly,
+                displayPath: $0.displayPath
+            )
+        }
+        languageNavigationResultKind = kind
+        languageNavigationLocations = locations
+        loadLanguageNavigationPreviews(for: locations)
+        // Lexical index results are intentionally never auto-jumped. The LSP
+        // may replace them with the semantic destination a moment later.
+        presentLanguageNavigationResults(
+            kind,
+            presentation: presentation == .toolWindow ? .toolWindow : .chooser
+        )
     }
 
     private func loadLanguageNavigationPreviews(for locations: [LanguageNavigationLocation]) {

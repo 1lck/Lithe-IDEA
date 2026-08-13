@@ -1188,6 +1188,31 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func identicalDocumentTextIsNotSynchronizedTwice() async throws {
+        let harness = makeLanguageServerHarness()
+        let original = "struct App {}\n"
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: original,
+            rootURL: harness.root
+        )
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: original,
+            rootURL: harness.root
+        )
+        #expect(await Self.waitForMainActorCondition { harness.core.syncCalls.count == 1 })
+
+        try harness.manager.synchronizeLanguageServer(
+            for: harness.source,
+            text: "struct App { let changed = true }\n",
+            rootURL: harness.root
+        )
+        #expect(await Self.waitForMainActorCondition { harness.core.syncCalls.count == 2 })
+    }
+
+    @Test
     func initializeTimeoutTransitionsInitializingSessionToFailed() async throws {
         let harness = makeLanguageServerHarness(initializeTimeoutNanoseconds: 2_000_000)
 

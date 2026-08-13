@@ -24,6 +24,25 @@ enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
 /// and lightweight local providers without exposing either implementation.
 @MainActor
 final class LanguageToolingSessionManager: ObservableObject {
+    private struct NavigationCacheKey: Hashable {
+        let method: String
+        let fileURL: URL
+        let rootURL: URL
+        let position: LanguageServerPosition
+        let textFingerprint: Int
+    }
+
+    private struct CachedNavigationResult {
+        let storedAt: Date
+        let locations: [LanguageServerLocation]
+    }
+
+    private struct PendingNavigationRequest {
+        var completions: [(Result<[LanguageServerLocation], Error>) -> Void]
+        var provisionalObservers: [([LanguageServerLocation]) -> Void]
+        var latestProvisional: [LanguageServerLocation]?
+    }
+
     @Published private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
     @Published private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     @Published private(set) var languageServerLogs: [LanguageServerLogEntry] = []
@@ -48,6 +67,10 @@ final class LanguageToolingSessionManager: ObservableObject {
     private var debugAdapters: [String: any DebugAdapterSession] = [:]
     private var debugAdapterRoots: [String: URL] = [:]
     private var requestedBreakpoints: [String: [URL: [DebugSourceBreakpoint]]] = [:]
+    private var synchronizedDocumentFingerprints: [URL: Int] = [:]
+    private var navigationCache: [NavigationCacheKey: CachedNavigationResult] = [:]
+    private var pendingNavigationRequests: [NavigationCacheKey: PendingNavigationRequest] = [:]
+    private let navigationCacheLifetime: TimeInterval = 8
 
     init(
         catalog: LanguageProviderCatalog = .standard,
@@ -89,6 +112,7 @@ final class LanguageToolingSessionManager: ObservableObject {
             .filter { previousDescriptors[$0] != updatedDescriptors[$0] }
 
         self.catalog = catalog
+        invalidateNavigationCache()
         let validProviderIDs = Set(catalog.descriptors.map(\.id))
         languageServerFeatures = languageServerFeatures.filter { validProviderIDs.contains($0.key) }
         languageServerStates = languageServerStates.filter { validProviderIDs.contains($0.key) }
@@ -240,17 +264,28 @@ final class LanguageToolingSessionManager: ObservableObject {
             )
             session = created
         }
+        let standardizedFileURL = fileURL.standardizedFileURL
+        let fingerprint = Self.textFingerprint(text)
+        if synchronizedDocumentFingerprints[standardizedFileURL] == fingerprint {
+            return
+        }
+        // Any document change can affect references and definitions in another
+        // file, so invalidate the small semantic cache conservatively.
+        invalidateNavigationCache()
         try session.synchronize(
             fileURL: fileURL,
             text: text,
             languageID: descriptor.languageIdentifier(for: fileURL)
         )
+        synchronizedDocumentFingerprints[standardizedFileURL] = fingerprint
     }
 
     func closeDocument(_ fileURL: URL) {
         let standardizedURL = fileURL.standardizedFileURL
         clearDiagnostics(for: standardizedURL)
         languageServerSession(for: standardizedURL)?.closeDocument(standardizedURL)
+        synchronizedDocumentFingerprints[standardizedURL] = nil
+        invalidateNavigationCache()
     }
 
     func clearDiagnostics() {
@@ -305,6 +340,8 @@ final class LanguageToolingSessionManager: ObservableObject {
         languageServerInfos[providerID] = nil
         languageServerFeatureProviders[providerID] = nil
         languageServerStates[providerID] = .stopped
+        synchronizedDocumentFingerprints.removeAll()
+        invalidateNavigationCache()
     }
 
     func stopAllLanguageServers() {
@@ -325,6 +362,8 @@ final class LanguageToolingSessionManager: ObservableObject {
         languageServerSessionIdentities.removeAll()
         languageServerFeatureProviders.removeAll()
         languageServerStates = [:]
+        synchronizedDocumentFingerprints.removeAll()
+        invalidateNavigationCache()
         for session in sessions { session.stop() }
     }
 
@@ -334,6 +373,7 @@ final class LanguageToolingSessionManager: ObservableObject {
         text: String,
         position: LanguageServerPosition,
         rootURL: URL,
+        provisional: (([LanguageServerLocation]) -> Void)? = nil,
         completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
     ) throws {
         let context = featureContext(
@@ -349,13 +389,180 @@ final class LanguageToolingSessionManager: ObservableObject {
         guard !providers.isEmpty else {
             throw unavailableLanguageServerError(for: fileURL)
         }
+        let cacheKey = NavigationCacheKey(
+            method: method,
+            fileURL: fileURL.standardizedFileURL,
+            rootURL: rootURL.standardizedFileURL,
+            position: position,
+            textFingerprint: Self.textFingerprint(text)
+        )
+        if let cached = cachedNavigationResult(for: cacheKey) {
+            recordNavigationTiming(
+                fileURL: fileURL,
+                method: method,
+                source: "cache",
+                startedAt: Date(),
+                resultCount: cached.count
+            )
+            completion(.success(cached))
+            return
+        }
+        if var pending = pendingNavigationRequests[cacheKey] {
+            pending.completions.append(completion)
+            if let provisional {
+                pending.provisionalObservers.append(provisional)
+                if let latest = pending.latestProvisional { provisional(latest) }
+            }
+            pendingNavigationRequests[cacheKey] = pending
+            return
+        }
+        pendingNavigationRequests[cacheKey] = PendingNavigationRequest(
+            completions: [completion],
+            provisionalObservers: provisional.map { [$0] } ?? [],
+            latestProvisional: nil
+        )
+
+        let languageServers = providers.filter { $0.priority == .languageServer }
+        let projectSymbols = providers.filter { $0.priority == .projectSymbols }
+        let fallback = providers.filter { $0.priority < .projectSymbols }
+        guard !languageServers.isEmpty else {
+            routeNavigation(
+                providers: providers,
+                index: 0,
+                method: method,
+                context: context
+            ) { [self] result in
+                let locations = (try? result.get()) ?? []
+                if !locations.isEmpty { storeNavigationResult(locations, for: cacheKey) }
+                completeNavigationRequest(cacheKey, with: .success(locations))
+            }
+            return
+        }
+
+        let startedAt = Date()
+        guard !projectSymbols.isEmpty else {
+            routeNavigation(
+                providers: languageServers,
+                index: 0,
+                method: method,
+                context: context
+            ) { [self] result in
+                let locations = (try? result.get()) ?? []
+                guard !locations.isEmpty else {
+                    routeNavigation(
+                        providers: fallback,
+                        index: 0,
+                        method: method,
+                        context: context
+                    ) { [self] fallbackResult in
+                        let fallbackLocations = (try? fallbackResult.get()) ?? []
+                        recordNavigationTiming(
+                            fileURL: fileURL,
+                            method: method,
+                            source: "builtin",
+                            startedAt: startedAt,
+                            resultCount: fallbackLocations.count
+                        )
+                        if !fallbackLocations.isEmpty {
+                            storeNavigationResult(fallbackLocations, for: cacheKey)
+                        }
+                        completeNavigationRequest(cacheKey, with: .success(fallbackLocations))
+                    }
+                    return
+                }
+                storeNavigationResult(locations, for: cacheKey)
+                recordNavigationTiming(
+                    fileURL: fileURL,
+                    method: method,
+                    source: "language-server",
+                    startedAt: startedAt,
+                    resultCount: locations.count
+                )
+                completeNavigationRequest(cacheKey, with: .success(locations))
+            }
+            return
+        }
+
+        var isFinished = false
+        var languageServerFinished = false
+        var projectSymbolsFinished = false
+        var projectLocations: [LanguageServerLocation] = []
+
+        func finish(_ locations: [LanguageServerLocation], source: String, cache: Bool) {
+            guard !isFinished else { return }
+            isFinished = true
+            if cache, !locations.isEmpty {
+                storeNavigationResult(locations, for: cacheKey)
+            }
+            recordNavigationTiming(
+                fileURL: fileURL,
+                method: method,
+                source: source,
+                startedAt: startedAt,
+                resultCount: locations.count
+            )
+            completeNavigationRequest(cacheKey, with: .success(locations))
+        }
+
+        func finishWithFallback() {
+            guard !isFinished else { return }
+            routeNavigation(
+                providers: fallback,
+                index: 0,
+                method: method,
+                context: context
+            ) { result in
+                finish((try? result.get()) ?? [], source: "builtin", cache: true)
+            }
+        }
+
         routeNavigation(
-            providers: providers,
+            providers: projectSymbols,
             index: 0,
             method: method,
-            context: context,
-            completion: completion
-        )
+            context: context
+        ) { [self] result in
+            guard !isFinished else { return }
+            projectSymbolsFinished = true
+            projectLocations = (try? result.get()) ?? []
+            if !projectLocations.isEmpty {
+                recordNavigationTiming(
+                    fileURL: fileURL,
+                    method: method,
+                    source: "project-index-provisional",
+                    startedAt: startedAt,
+                    resultCount: projectLocations.count
+                )
+                publishNavigationProvisional(projectLocations, for: cacheKey)
+            }
+            if languageServerFinished {
+                if projectLocations.isEmpty {
+                    finishWithFallback()
+                } else {
+                    finish(projectLocations, source: "project-index", cache: true)
+                }
+            }
+        }
+
+        routeNavigation(
+            providers: languageServers,
+            index: 0,
+            method: method,
+            context: context
+        ) { result in
+            guard !isFinished else { return }
+            languageServerFinished = true
+            let locations = (try? result.get()) ?? []
+            if !locations.isEmpty {
+                finish(locations, source: "language-server", cache: true)
+            } else if projectSymbolsFinished {
+                if projectLocations.isEmpty {
+                    finishWithFallback()
+                } else {
+                    finish(projectLocations, source: "project-index", cache: true)
+                }
+            }
+        }
     }
 
     func hover(
@@ -630,6 +837,8 @@ final class LanguageToolingSessionManager: ObservableObject {
         lastDebugEvents = [:]
         verifiedBreakpoints = [:]
         requestedBreakpoints = [:]
+        synchronizedDocumentFingerprints.removeAll()
+        invalidateNavigationCache()
     }
 
     @discardableResult
@@ -927,6 +1136,71 @@ final class LanguageToolingSessionManager: ObservableObject {
             message: "Language server feature failed; using fallback",
             detail: "\(feature): \(error.localizedDescription)"
         )
+    }
+
+    func invalidateNavigationCache() {
+        navigationCache.removeAll(keepingCapacity: true)
+    }
+
+    private func cachedNavigationResult(for key: NavigationCacheKey) -> [LanguageServerLocation]? {
+        let now = Date()
+        navigationCache = navigationCache.filter {
+            now.timeIntervalSince($0.value.storedAt) <= navigationCacheLifetime
+        }
+        return navigationCache[key]?.locations
+    }
+
+    private func storeNavigationResult(
+        _ locations: [LanguageServerLocation],
+        for key: NavigationCacheKey
+    ) {
+        if navigationCache.count >= 128,
+           let oldest = navigationCache.min(by: { $0.value.storedAt < $1.value.storedAt })?.key {
+            navigationCache[oldest] = nil
+        }
+        navigationCache[key] = CachedNavigationResult(storedAt: Date(), locations: locations)
+    }
+
+    private func publishNavigationProvisional(
+        _ locations: [LanguageServerLocation],
+        for key: NavigationCacheKey
+    ) {
+        guard var pending = pendingNavigationRequests[key] else { return }
+        pending.latestProvisional = locations
+        pendingNavigationRequests[key] = pending
+        for observer in pending.provisionalObservers { observer(locations) }
+    }
+
+    private func completeNavigationRequest(
+        _ key: NavigationCacheKey,
+        with result: Result<[LanguageServerLocation], Error>
+    ) {
+        guard let pending = pendingNavigationRequests.removeValue(forKey: key) else { return }
+        for completion in pending.completions { completion(result) }
+    }
+
+    private func recordNavigationTiming(
+        fileURL: URL,
+        method: String,
+        source: String,
+        startedAt: Date,
+        resultCount: Int
+    ) {
+        let providerID = catalog.provider(for: fileURL)?.id ?? "language-tooling"
+        let elapsedMilliseconds = max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+        recordLanguageServerLog(
+            providerID: providerID,
+            level: .info,
+            message: "Navigation completed",
+            detail: "method=\(method) source=\(source) elapsedMs=\(elapsedMilliseconds) results=\(resultCount)"
+        )
+    }
+
+    private static func textFingerprint(_ text: String) -> Int {
+        var hasher = Hasher()
+        hasher.combine(text.utf16.count)
+        hasher.combine(text)
+        return hasher.finalize()
     }
 
     private func configureLanguageServerCallbacks(
