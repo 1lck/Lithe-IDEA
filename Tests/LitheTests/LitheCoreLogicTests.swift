@@ -944,6 +944,9 @@ struct LitheCoreLogicTests {
         let preferences = DatabaseTestKeyValueStore()
         let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseTestSecureStore())
         let profile = DatabaseProfile(name: "SQLite", kind: .sqlite, path: "/tmp/lithe-batch.sqlite")
+        let recoveryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-batch-recovery-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: recoveryRoot) }
         try store.save([profile])
         let runner = RecordingProcessRunner { request in
             let input = try! #require(request.standardInput)
@@ -969,13 +972,15 @@ struct LitheCoreLogicTests {
         }
         let feature = DatabaseFeatureModel(
             operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/tmp/lithe-db-sidecar")),
-            connectionStore: store
+            connectionStore: store,
+            recoveryStore: MacDatabaseRecoveryStore(rootURL: recoveryRoot),
+            fileStorage: MacFileStorage()
         )
 
         await feature.select(profile)
         feature.addSQLTab(sql: "INSERT INTO items VALUES (1); SELECT 1; UPDATE items SET value = 2 WHERE id = 1;")
         let tabID = try #require(feature.selectedSQLTabID)
-        await feature.runSQL(in: tabID)
+        await feature.runSQL(in: tabID, confirmedRisk: true)
 
         let sqlRequests = runner.requests.compactMap { request -> (String, String)? in
             guard let input = request.standardInput,
