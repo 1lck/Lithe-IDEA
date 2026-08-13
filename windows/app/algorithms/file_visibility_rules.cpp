@@ -67,7 +67,8 @@ std::vector<std::string> components(std::string_view value) {
 
 const std::vector<std::string>& FileVisibilityRules::builtInHiddenDirectories() {
     static const std::vector<std::string> values{
-        ".git", ".build", ".swiftpm", "node_modules", "target", "build",
+        ".git", ".worktree", ".worktrees", ".build", ".swiftpm",
+        "node_modules", "target", "build",
         "DerivedData", ".gradle", ".next", "dist", "coverage",
         "design-qa-artifacts"};
     return values;

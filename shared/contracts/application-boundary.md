@@ -33,6 +33,10 @@ verification scripts are the executable source of boundary checks.
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
 
+Workspace visibility and project detection exclude nested checkout containers
+named `.worktree` or `.worktrees` by default, so a copied project is not treated
+as a second set of sources or runnable services.
+
 Process-backed features use the shared request fields `operationID` and
 optional `timeoutMilliseconds`. Adapters emit lifecycle states `starting`,
 `running`, `stopping`, `finished`, and `failed`; `operationID` lets the UI

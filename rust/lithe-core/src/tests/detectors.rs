@@ -112,6 +112,18 @@ fn detectors_never_descend_into_dependency_directories() {
     let root = temporary_root("detect-prune");
     fs::create_dir_all(&root).unwrap();
     multi_language_project(&root);
+    fs::create_dir_all(root.join(".worktree/feature")).unwrap();
+    fs::write(
+        root.join(".worktree/feature/package.json"),
+        r#"{"scripts":{"dev":"vite"}}"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.join(".worktrees/bugfix")).unwrap();
+    fs::write(
+        root.join(".worktrees/bugfix/package.json"),
+        r#"{"scripts":{"dev":"vite"}}"#,
+    )
+    .unwrap();
 
     let sources = generated_configurations(&root)
         .iter()
@@ -120,6 +132,12 @@ fn detectors_never_descend_into_dependency_directories() {
 
     assert!(
         !sources.iter().any(|source| source.contains("node_modules")),
+        "{sources:?}"
+    );
+    assert!(
+        !sources.iter().any(|source| {
+            source.starts_with(".worktree/") || source.starts_with(".worktrees/")
+        }),
         "{sources:?}"
     );
 

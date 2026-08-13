@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 
 const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
     ".git",
+    ".worktree",
+    ".worktrees",
     ".build",
     ".swiftpm",
     "node_modules",
