@@ -43,10 +43,22 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
                         "dynamicRegistration": true,
                         "contentFormat": ["markdown", "plaintext"]
                     },
-                    "definition": { "dynamicRegistration": true },
-                    "declaration": { "dynamicRegistration": true },
-                    "typeDefinition": { "dynamicRegistration": true },
-                    "implementation": { "dynamicRegistration": true },
+                    "definition": {
+                        "dynamicRegistration": true,
+                        "linkSupport": true
+                    },
+                    "declaration": {
+                        "dynamicRegistration": true,
+                        "linkSupport": true
+                    },
+                    "typeDefinition": {
+                        "dynamicRegistration": true,
+                        "linkSupport": true
+                    },
+                    "implementation": {
+                        "dynamicRegistration": true,
+                        "linkSupport": true
+                    },
                     "references": { "dynamicRegistration": true },
                     "rename": { "dynamicRegistration": true },
                     "formatting": { "dynamicRegistration": true },

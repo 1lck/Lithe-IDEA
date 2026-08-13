@@ -58,10 +58,8 @@ struct EditorAreaView: View {
                 }
             }
 
-            if model.isImplementationChooserVisible {
-                LanguageImplementationChooserView()
-                    .padding(.top, 48)
-                    .padding(.horizontal, 24)
+            if model.isLanguageNavigationChooserVisible {
+                LanguageNavigationChooserView()
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
         }

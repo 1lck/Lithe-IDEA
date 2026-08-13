@@ -183,4 +183,20 @@ enum LanguageNavigationResultKind {
         case .implementations: "Implementations"
         }
     }
+
+    var countLabel: String {
+        switch self {
+        case .definitions: "definitions"
+        case .references: "usages"
+        case .implementations: "implementations"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .definitions: "arrow.turn.down.right"
+        case .references: "scope"
+        case .implementations: "arrow.triangle.branch"
+        }
+    }
 }

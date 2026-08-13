@@ -74,13 +74,16 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isProblemsVisible = false
     @Published var isMavenVisible = false
     @Published var isDebugVisible = false
-    @Published var isImplementationChooserVisible = false
+    @Published var isLanguageNavigationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
     var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot { languageToolingFeature.catalogSnapshot }
     @Published var languageNavigationProviderID: String?
     @Published var languageNavigationLocations: [LanguageNavigationLocation] = []
+    @Published var languageNavigationPreviews: [String: String] = [:]
     @Published var languageNavigationResultKind: LanguageNavigationResultKind = .definitions
+    @Published var languageNavigationSubject = ""
     @Published var isLoadingLanguageNavigation = false
+    var languageNavigationPreviewRequestID = UUID()
     @Published var editorCaret: EditorCaret?
     var editorNavigationTarget: EditorNavigationTarget? { editorNavigationFeature.target }
     var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] {

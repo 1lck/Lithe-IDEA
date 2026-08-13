@@ -353,7 +353,7 @@ extension AppModel {
         performGenericNavigation(
             method: "textDocument/references",
             kind: .references,
-            navigateToSingleResult: true
+            presentation: .chooser
         )
     }
 
@@ -391,7 +391,7 @@ extension AppModel {
         performGenericNavigation(
             method: "textDocument/references",
             kind: .references,
-            navigateToSingleResult: false
+            presentation: .toolWindow
         )
     }
 
@@ -408,12 +408,12 @@ extension AppModel {
         performGenericNavigation(
             method: "textDocument/implementation",
             kind: .implementations,
-            navigateToSingleResult: false
+            presentation: .chooser
         )
     }
 
     func navigate(to location: LanguageNavigationLocation) {
-        isImplementationChooserVisible = false
+        isLanguageNavigationChooserVisible = false
         guard location.url.isFileURL else {
             guard let providerID = languageNavigationProviderID else {
                 showNotification("The virtual source provider is no longer available")
@@ -460,13 +460,16 @@ extension AppModel {
 
     func closeLanguageNavigationResults() {
         isReferencesVisible = false
-        isImplementationChooserVisible = false
+        isLanguageNavigationChooserVisible = false
         clearLanguageNavigationProjection()
     }
 
     func clearLanguageNavigationProjection() {
         languageNavigationProviderID = nil
         languageNavigationLocations = []
+        languageNavigationPreviews = [:]
+        languageNavigationSubject = ""
+        languageNavigationPreviewRequestID = UUID()
         isLoadingLanguageNavigation = false
     }
 
@@ -777,7 +780,7 @@ extension AppModel {
     private func performGenericNavigation(
         method: String,
         kind: LanguageNavigationResultKind,
-        navigateToSingleResult: Bool = true,
+        presentation: LanguageNavigationPresentation = .navigateSingle,
         fallbackToImplementationsIfSelf: Bool = false
     ) {
         guard !isLoadingLanguageNavigation,
@@ -790,6 +793,12 @@ extension AppModel {
             return
         }
         isLoadingLanguageNavigation = true
+        if presentation == .chooser {
+            isLanguageNavigationChooserVisible = true
+            languageNavigationLocations = []
+            languageNavigationPreviews = [:]
+            languageNavigationSubject = editorSelectedText
+        }
         languageNavigationProviderID = provider.id
         languageNavigationResultKind = kind
         do {
@@ -808,6 +817,9 @@ extension AppModel {
                 switch result {
                 case .failure(let error):
                     self.languageNavigationProviderID = nil
+                    if presentation == .chooser {
+                        self.isLanguageNavigationChooserVisible = false
+                    }
                     self.showNotification(error.localizedDescription)
                 case .success(let values):
                     if fallbackToImplementationsIfSelf,
@@ -820,20 +832,23 @@ extension AppModel {
                             caret: caret,
                             workspaceURL: workspaceURL,
                             originalValues: values,
-                            navigateToSingleResult: navigateToSingleResult
+                            presentation: presentation
                         )
                         return
                     }
                     self.presentGenericNavigationValues(
                         values,
                         kind: kind,
-                        navigateToSingleResult: navigateToSingleResult
+                        presentation: presentation
                     )
                 }
             }
         } catch {
             isLoadingLanguageNavigation = false
             languageNavigationProviderID = nil
+            if presentation == .chooser {
+                isLanguageNavigationChooserVisible = false
+            }
             showNotification(error.localizedDescription)
         }
     }
@@ -843,7 +858,7 @@ extension AppModel {
         caret: EditorCaret,
         workspaceURL: URL,
         originalValues: [LanguageServerLocation],
-        navigateToSingleResult: Bool
+        presentation: LanguageNavigationPresentation
     ) {
         isLoadingLanguageNavigation = true
         do {
@@ -863,13 +878,13 @@ extension AppModel {
                     self.presentGenericNavigationValues(
                         implementations,
                         kind: .implementations,
-                        navigateToSingleResult: navigateToSingleResult
+                        presentation: presentation
                     )
                 } else {
                     self.presentGenericNavigationValues(
                         originalValues,
                         kind: .definitions,
-                        navigateToSingleResult: navigateToSingleResult
+                        presentation: presentation
                     )
                 }
             }
@@ -878,7 +893,7 @@ extension AppModel {
             presentGenericNavigationValues(
                 originalValues,
                 kind: .definitions,
-                navigateToSingleResult: navigateToSingleResult
+                presentation: presentation
             )
         }
     }
@@ -886,7 +901,7 @@ extension AppModel {
     private func presentGenericNavigationValues(
         _ values: [LanguageServerLocation],
         kind: LanguageNavigationResultKind,
-        navigateToSingleResult: Bool
+        presentation: LanguageNavigationPresentation
     ) {
         let locations = values.map {
             LanguageNavigationLocation(
@@ -898,7 +913,9 @@ extension AppModel {
         }
         languageNavigationResultKind = kind
         languageNavigationLocations = locations
+        loadLanguageNavigationPreviews(for: locations)
         guard !locations.isEmpty else {
+            isLanguageNavigationChooserVisible = false
             switch kind {
             case .definitions: showNotification("Definition not found")
             case .references: showNotification("No usages found")
@@ -906,21 +923,55 @@ extension AppModel {
             }
             return
         }
-        if navigateToSingleResult, locations.count == 1, let location = locations.first {
+        if presentation == .navigateSingle, locations.count == 1, let location = locations.first {
             navigate(to: location)
         } else {
-            presentLanguageNavigationResults(kind)
+            presentLanguageNavigationResults(
+                kind,
+                presentation: presentation == .navigateSingle ? .chooser : presentation
+            )
         }
     }
 
-    func presentLanguageNavigationResults(_ kind: LanguageNavigationResultKind) {
+    private func loadLanguageNavigationPreviews(for locations: [LanguageNavigationLocation]) {
+        let requestID = UUID()
+        languageNavigationPreviewRequestID = requestID
+        languageNavigationPreviews = [:]
+        let openSources = Dictionary(uniqueKeysWithValues: openDocuments.map {
+            ($0.url.standardizedFileURL, $0.text)
+        })
+        let operations = workspaceFileOperations
+
+        Task { [weak self] in
+            let previews = await Task.detached(priority: .userInitiated) {
+                LanguageNavigationPreview.build(
+                    locations: locations,
+                    openSources: openSources,
+                    readSource: { try? operations.readText(from: $0) }
+                )
+            }.value
+            guard let self, self.languageNavigationPreviewRequestID == requestID else { return }
+            self.languageNavigationPreviews = previews
+        }
+    }
+
+    private func presentLanguageNavigationResults(
+        _ kind: LanguageNavigationResultKind,
+        presentation: LanguageNavigationPresentation = .toolWindow
+    ) {
         isGitLogVisible = false
         isTerminalVisible = false
         isProblemsVisible = false
         isMavenVisible = false
         isRunVisible = false
-        isReferencesVisible = kind != .implementations
-        isImplementationChooserVisible = kind == .implementations
+        isReferencesVisible = presentation == .toolWindow
+        isLanguageNavigationChooserVisible = presentation == .chooser
     }
 
+}
+
+private enum LanguageNavigationPresentation {
+    case navigateSingle
+    case chooser
+    case toolWindow
 }

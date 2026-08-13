@@ -78,6 +78,32 @@ struct EditorNavigationViewport {
     }
 }
 
+/// Keeps source navigation focused on the declaration itself. Some language
+/// servers return a container or even a whole file as a valid target range;
+/// using that range for layout would center and highlight the entire container.
+struct EditorNavigationPresentation {
+    static func revealRange(for targetRange: NSRange, in text: NSString) -> NSRange {
+        guard text.length > 0 else { return NSRange(location: 0, length: 0) }
+
+        let location = min(targetRange.location, text.length - 1)
+        let lineRange = text.lineRange(for: NSRange(location: location, length: 0))
+        var contentEnd = NSMaxRange(lineRange)
+        while contentEnd > lineRange.location, [10, 13].contains(text.character(at: contentEnd - 1)) {
+            contentEnd -= 1
+        }
+
+        let targetEnd = min(NSMaxRange(targetRange), text.length)
+        if targetRange.length > 0, targetEnd <= contentEnd {
+            return NSRange(location: location, length: targetEnd - location)
+        }
+
+        return NSRange(
+            location: lineRange.location,
+            length: max(1, contentEnd - lineRange.location)
+        )
+    }
+}
+
 struct CodeEditorView: NSViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
@@ -666,27 +692,15 @@ struct CodeEditorView: NSViewRepresentable {
             let text = textView.string as NSString
             let targetRange = textView.navigationCharacterRange(for: target.range, in: text)
             let location = min(targetRange.location, text.length)
-            let revealRange = navigationRevealRange(targetRange, in: text)
+            let revealRange = EditorNavigationPresentation.revealRange(
+                for: targetRange,
+                in: text
+            )
             textView.setSelectedRange(NSRange(location: location, length: 0))
             revealNavigationRange(revealRange, in: textView)
             showNavigationHighlight(revealRange, in: textView)
             textView.window?.makeFirstResponder(textView)
             scheduleCaretUpdate()
-        }
-
-        private func navigationRevealRange(_ range: NSRange, in text: NSString) -> NSRange {
-            guard text.length > 0 else { return NSRange(location: 0, length: 0) }
-            if range.length > 0 { return range }
-            let location = min(range.location, text.length - 1)
-            let lineRange = text.lineRange(for: NSRange(location: location, length: 0))
-            var end = NSMaxRange(lineRange)
-            while end > lineRange.location, [10, 13].contains(text.character(at: end - 1)) {
-                end -= 1
-            }
-            return NSRange(
-                location: lineRange.location,
-                length: max(1, end - lineRange.location)
-            )
         }
 
         private func revealNavigationRange(_ range: NSRange, in textView: CodeTextView) {

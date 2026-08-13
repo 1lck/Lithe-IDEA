@@ -96,6 +96,28 @@ struct EditorNavigationTests {
     }
 
     @Test
+    func presentationUsesPreciseSingleLineNavigationRanges() {
+        let text = "struct Service {\n    func run() {}\n}\n" as NSString
+        let range = NSRange(location: 21, length: 4)
+
+        #expect(EditorNavigationPresentation.revealRange(for: range, in: text) == range)
+    }
+
+    @Test
+    func presentationCollapsesContainerNavigationRangesToTheirStartingLine() {
+        let text = "mod adapter;\n\nfn connect() {}\nfn close() {}\n" as NSString
+        let wholeFileRange = NSRange(location: 0, length: text.length)
+
+        let revealRange = EditorNavigationPresentation.revealRange(
+            for: wholeFileRange,
+            in: text
+        )
+
+        #expect(revealRange == NSRange(location: 0, length: 12))
+        #expect(text.substring(with: revealRange) == "mod adapter;")
+    }
+
+    @Test
     @MainActor
     func lspRangeUsesUTF16OffsetsWithoutScanningFromTheDocumentStart() {
         let textView = CodeTextView(frame: .zero)

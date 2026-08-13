@@ -476,6 +476,17 @@ fn client_core_initializes_and_applies_server_capabilities() {
         client_capabilities["textDocument"]["codeLens"]["dynamicRegistration"],
         true
     );
+    for feature in [
+        "definition",
+        "declaration",
+        "typeDefinition",
+        "implementation",
+    ] {
+        assert_eq!(
+            client_capabilities["textDocument"][feature]["linkSupport"],
+            true
+        );
+    }
     assert!(client_capabilities["textDocument"]["synchronization"]
         .get("didSave")
         .is_none());
@@ -1579,6 +1590,59 @@ fn navigation_locations_preserve_uris_without_fabricating_virtual_file_paths() {
     assert!(locations[1]["filePath"].is_null());
     assert_eq!(locations[1]["isReadOnly"], true);
     assert!(locations[1]["displayPath"].is_null());
+}
+
+#[test]
+fn navigation_location_links_prefer_the_precise_target_selection_range() {
+    let uri = "file:///tmp/project/main.rs";
+    let opened = client_open_document(ClientOpenDocumentRequest {
+        state: LspClientState::default(),
+        uri: uri.to_string(),
+        language_id: "rust".to_string(),
+        text: "mod adapter;\n".to_string(),
+    })
+    .unwrap();
+    let requested = client_feature_request(ClientFeatureRequest {
+        state: opened.state,
+        uri: uri.to_string(),
+        method: "textDocument/definition".to_string(),
+        position: Some(LspPosition {
+            line: 0,
+            utf16_column: 5,
+        }),
+        new_name: None,
+        range: None,
+        diagnostics: Vec::new(),
+        completion_item: None,
+        code_action: None,
+        command: None,
+    })
+    .unwrap();
+    let response = client_apply_server_message(ClientApplyServerMessageRequest {
+        state: requested.state,
+        message: json!({
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": [{
+                "targetUri": "file:///tmp/project/adapter.rs",
+                "targetRange": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": 80, "character": 1 }
+                },
+                "targetSelectionRange": {
+                    "start": { "line": 2, "character": 4 },
+                    "end": { "line": 2, "character": 11 }
+                }
+            }]
+        })
+        .to_string(),
+    })
+    .unwrap();
+    let location = &response.events[0].result.as_ref().unwrap()["locations"][0];
+
+    assert_eq!(location["range"]["start"]["line"], 2);
+    assert_eq!(location["range"]["start"]["utf16Column"], 4);
+    assert_eq!(location["range"]["end"]["utf16Column"], 11);
 }
 
 #[test]
