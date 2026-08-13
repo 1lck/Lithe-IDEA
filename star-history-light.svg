@@ -19,26 +19,27 @@
 <line x1="115" y1="112.00" x2="1135" y2="112.00" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="4 8"/>
 <text x="97.00" y="118.00" text-anchor="end" font-size="17" fill="#4b5563">500</text>
 <text x="115.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 02</text>
-<text x="319.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 04</text>
-<text x="625.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 07</text>
-<text x="931.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 10</text>
-<text x="1135.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 12</text>
-<path d="M 115.00,535.00 L 115.00,535.00 C 149.00,535.00 183.00,535.00 217.00,535.00 C 251.00,535.00 285.00,487.38 319.00,483.39 C 353.00,479.41 387.00,478.36 421.00,476.63 C 455.00,474.89 489.00,474.71 523.00,472.40 C 557.00,470.08 591.00,462.70 625.00,452.94 C 659.00,443.17 693.00,403.16 727.00,393.72 C 761.00,384.28 795.00,381.31 829.00,375.11 C 863.00,368.90 897.00,364.11 931.00,356.49 C 965.00,348.88 999.00,331.92 1033.00,326.88 C 1067.00,321.84 1101.00,320.12 1135.00,316.73 L 1135.00,535.00 Z" fill="#e34b2d" fill-opacity="0.10" stroke="none"/>
-<path d="M 115.00,535.00 C 149.00,535.00 183.00,535.00 217.00,535.00 C 251.00,535.00 285.00,487.38 319.00,483.39 C 353.00,479.41 387.00,478.36 421.00,476.63 C 455.00,474.89 489.00,474.71 523.00,472.40 C 557.00,470.08 591.00,462.70 625.00,452.94 C 659.00,443.17 693.00,403.16 727.00,393.72 C 761.00,384.28 795.00,381.31 829.00,375.11 C 863.00,368.90 897.00,364.11 931.00,356.49 C 965.00,348.88 999.00,331.92 1033.00,326.88 C 1067.00,321.84 1101.00,320.12 1135.00,316.73" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="393.18" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 05</text>
+<text x="671.36" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 08</text>
+<text x="949.55" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 11</text>
+<text x="1135.00" y="575.00" text-anchor="middle" font-size="18" fill="#111111">Aug 13</text>
+<path d="M 115.00,535.00 L 115.00,535.00 C 145.91,535.00 176.82,535.00 207.73,535.00 C 238.64,535.00 269.55,487.38 300.45,483.39 C 331.36,479.41 362.27,478.36 393.18,476.63 C 424.09,474.89 455.00,474.71 485.91,472.40 C 516.82,470.08 547.73,462.70 578.64,452.94 C 609.55,443.17 640.45,403.16 671.36,393.72 C 702.27,384.28 733.18,381.31 764.09,375.11 C 795.00,368.90 825.91,364.11 856.82,356.49 C 887.73,348.88 918.64,331.92 949.55,326.88 C 980.45,321.84 1011.36,320.79 1042.27,316.73 C 1073.18,312.67 1104.09,306.58 1135.00,301.50 L 1135.00,535.00 Z" fill="#e34b2d" fill-opacity="0.10" stroke="none"/>
+<path d="M 115.00,535.00 C 145.91,535.00 176.82,535.00 207.73,535.00 C 238.64,535.00 269.55,487.38 300.45,483.39 C 331.36,479.41 362.27,478.36 393.18,476.63 C 424.09,474.89 455.00,474.71 485.91,472.40 C 516.82,470.08 547.73,462.70 578.64,452.94 C 609.55,443.17 640.45,403.16 671.36,393.72 C 702.27,384.28 733.18,381.31 764.09,375.11 C 795.00,368.90 825.91,364.11 856.82,356.49 C 887.73,348.88 918.64,331.92 949.55,326.88 C 980.45,321.84 1011.36,320.79 1042.27,316.73 C 1073.18,312.67 1104.09,306.58 1135.00,301.50" fill="none" stroke="#e34b2d" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
 <circle cx="115.00" cy="535.00" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="217.00" cy="535.00" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="319.00" cy="483.39" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="421.00" cy="476.63" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="523.00" cy="472.40" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="625.00" cy="452.94" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="727.00" cy="393.72" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="829.00" cy="375.11" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="931.00" cy="356.49" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="1033.00" cy="326.88" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="1135.00" cy="316.73" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
-<circle cx="1135.00" cy="316.73" r="10" fill="none" stroke="#e34b2d" stroke-opacity="0.24" stroke-width="5"/>
-<rect x="1041.00" y="271.73" width="76" height="26" rx="13" fill="#ffffff" stroke="#e34b2d" stroke-width="1.5"/>
-<text x="1079.00" y="289.73" text-anchor="middle" font-size="15" font-weight="700" fill="#111111">258 stars</text>
+<circle cx="207.73" cy="535.00" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="300.45" cy="483.39" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="393.18" cy="476.63" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="485.91" cy="472.40" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="578.64" cy="452.94" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="671.36" cy="393.72" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="764.09" cy="375.11" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="856.82" cy="356.49" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="949.55" cy="326.88" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="1042.27" cy="316.73" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="1135.00" cy="301.50" r="5" fill="#ffffff" stroke="#e34b2d" stroke-width="3"/>
+<circle cx="1135.00" cy="301.50" r="10" fill="none" stroke="#e34b2d" stroke-opacity="0.24" stroke-width="5"/>
+<rect x="1041.00" y="256.50" width="76" height="26" rx="13" fill="#ffffff" stroke="#e34b2d" stroke-width="1.5"/>
+<text x="1079.00" y="274.50" text-anchor="middle" font-size="15" font-weight="700" fill="#111111">276 stars</text>
 <rect x="135" y="130" width="300" height="58" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5"/>
 <circle cx="158" cy="159" r="6" fill="#e34b2d"/>
 <text x="179.00" y="165.00" font-size="19" font-weight="600" fill="#111111">1lck/Lithe-IDEA</text>
