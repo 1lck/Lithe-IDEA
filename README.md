@@ -233,7 +233,7 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
       </a>
     </td>
     <td>
-      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> provides access to large language models and supports the development of Lithe. Thank you to FastAI for supporting this project!
+      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> provides convenient relay access to a range of leading large language models, making it easier to connect AI capabilities to everyday development workflows. Its support helps Lithe continue improving its AI-assisted experience. Thank you to FastAI for supporting this project!
     </td>
   </tr>
   <tr>
@@ -243,7 +243,27 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com"><strong>CodeZ</strong></a> provides relay access to GPT-family models and supports the development of Lithe. Thank you to CodeZ for supporting this project!
+      <a href="https://codezsy.com"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH">
+        <img src="./docs/assets/sponsors/yuanliu-token.png" width="64" alt="Yuanliu Token">
+      </a>
+    </td>
+    <td>
+      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH"><strong>Yuanliu Token</strong></a> offers relay access to multiple large language model APIs, giving developers a flexible entry point for experimenting with different models and building AI applications. Its sponsorship supports Lithe as the project expands and polishes its AI features. Thank you to Yuanliu Token for supporting this project!
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://torchai.ai">
+        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      </a>
+    </td>
+    <td>
+      <a href="https://torchai.ai"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
     </td>
   </tr>
   <tr>
@@ -253,7 +273,7 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
       </a>
     </td>
     <td>
-      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> provides relay access to Claude models and supports the development of Lithe. Thank you to Code GO for supporting this project!
+      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> specializes in relay services for Claude models, helping users access capable coding and reasoning models with less setup overhead. Its support gives Lithe more room to refine model integration and developer workflows. Thank you to Code GO for supporting this project!
     </td>
   </tr>
 </table>
