@@ -1,7 +1,7 @@
 # Application Boundary Contract
 
 The application boundary describes product behavior that a SwiftUI/AppKit or
-Qt/Windows UI can consume. It does not describe widgets, threads, processes,
+React/Tauri Windows UI can consume. It does not describe widgets, threads, processes,
 or operating-system APIs. It defines the cross-platform contract; current
 product scope and setup are documented in [`README.md`](../../README.md); the
 verification scripts are the executable source of boundary checks.

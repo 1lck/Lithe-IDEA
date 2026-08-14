@@ -1,0 +1,105 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "main-capability",
+  "description": "Capability for all windows",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-toggle-maximize",
+    "core:event:default",
+    "opener:allow-reveal-item-in-dir",
+    "opener:default",
+    "window-state:default",
+    "clipboard-manager:default",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-confirm",
+    "dialog:allow-ask",
+    "fs:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "**"
+        }
+      ],
+      "requireLiteralLeadingDot": false
+    },
+    "fs:allow-read-file",
+    "fs:allow-read-text-file",
+    "fs:allow-write-file",
+    "fs:allow-read-dir",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-write-text-file",
+    "fs:allow-remove",
+    "fs:allow-copy-file",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://lithe.dev/**"
+        },
+        {
+          "url": "https://api.openai.com/**"
+        },
+        {
+          "url": "https://openrouter.ai/**"
+        },
+        {
+          "url": "http://localhost:3000/**"
+        },
+        {
+          "url": "http://127.0.0.1:3000/**"
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/**"
+        },
+        {
+          "url": "http://*:*/**"
+        },
+        {
+          "url": "https://*:*/**"
+        },
+        {
+          "url": "http://localhost:*/**"
+        },
+        {
+          "url": "http://127.0.0.1:*/**"
+        },
+        {
+          "url": "https://localhost:*/**"
+        },
+        {
+          "url": "https://127.0.0.1:*/**"
+        }
+      ]
+    },
+    "http:allow-fetch",
+    "process:allow-restart",
+    "process:allow-exit",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        {
+          "validator": "^(https?://|file://|mailto:).*"
+        }
+      ]
+    },
+    "store:default",
+    "deep-link:default",
+    "updater:default"
+  ]
+}

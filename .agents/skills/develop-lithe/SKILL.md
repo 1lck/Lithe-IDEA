@@ -30,11 +30,11 @@ framework conventions.
 | `Sources/Lithe/Core/` | Platform-neutral ports and typed Rust operations |
 | `Sources/Lithe/Platform/MacOS/` | macOS adapters and composition |
 | `rust/lithe-core/` | Deterministic shared commands, models, validation, and C ABI |
-| `windows/` | Native C++23, Win32 adapter, and Qt implementation |
+| `windows/` | React/Tauri Windows product and Rust platform adapters |
 | `shared/` | Cross-platform contracts and fixtures, not compiled implementation |
 | `third_party/` | Upstream code; leave unchanged unless the task explicitly targets it |
 
-macOS is the current reference product. Windows is an independent native
+macOS is the current reference product. Windows is an independent React/Tauri
 implementation and must not import Swift source or depend on macOS types.
 
 ## Preserve application boundaries
@@ -48,15 +48,16 @@ implementation and must not import Swift source or depend on macOS types.
   `Process`, `Pipe`, `FileManager`, `FileHandle`, watchers, persistence stores,
   or concrete `Mac*` adapters.
 - Core and application code must remain free of SwiftUI, AppKit, CoreServices,
-  Win32, Qt, and concrete platform implementations.
+  Tauri, WebView2, Win32, and concrete platform implementations.
 - `MacServiceContainer` is the macOS composition root. Platform capabilities
   belong in `Sources/Lithe/Platform/MacOS/`.
 - Deterministic behavior shared by both products belongs in `rust/lithe-core/`.
   Native filesystem, process, terminal, runtime, security, persistence, and UI
   behavior belongs in platform adapters.
-- Windows application algorithms and services must not depend on Win32 or Qt.
-  Qt code must not include `core_client.h` directly, and public ports must not
-  expose Win32 handle types.
+- Windows feature code must import `@/platform/tauri-core` instead of the Tauri
+  core API directly. Shared operations route through `lithe-core`; Windows-only
+  terminal, watcher, credential, process, and WebView behavior stays in the
+  Tauri host or a platform plugin.
 
 ## Keep shared contracts deterministic
 
@@ -103,15 +104,18 @@ the existing stack can reasonably avoid.
 - Add tests in the owning crate for changes to commands, parsing, validation,
   ordering, cancellation, or serialization.
 
-### Windows C++ and Qt
+### Windows React and Tauri
 
-- Use C++23 and the existing CMake target boundaries. Use the Qt version pinned
-  in `.github/workflows/ci-windows.yml`.
-- Keep Qt widget state in `windows/qt/`, application behavior in `windows/app/`,
-  Rust communication in `windows/core/`, and native behavior in
-  `windows/adapters/`.
-- Add CTest coverage under `windows/tests/` for application, DTO, algorithm,
-  persistence, or adapter behavior that can be tested without manual UI work.
+- Use Bun for frontend scripts and Tauri 2 for the Windows host. Keep React
+  feature code in `windows/tauri/src/features`, reusable UI in
+  `windows/tauri/src/ui`, the invoke boundary in
+  `windows/tauri/src/platform`, and native Rust behavior in
+  `windows/tauri/src-tauri`.
+- Do not restore a parallel C++/Qt application layer or one Tauri command per
+  shared Core operation. Translate compatibility command names through the
+  central platform dispatcher.
+- Add frontend tests for product behavior and Rust tests in the owning crate.
+  Verify WebView2, ConPTY, installer, signing, and updater behavior on Windows.
 
 ## Avoid hardcoded environment details
 
@@ -130,8 +134,8 @@ the existing stack can reasonably avoid.
 
 - Do not silently discard errors. Return, translate, or log them at the layer
   that has enough context to act on them.
-- Preserve stable contract error categories when crossing Rust, Swift, C++, or
-  process boundaries.
+- Preserve stable contract error categories when crossing Rust, Swift,
+  TypeScript, Tauri, or process boundaries.
 - User-facing failures should be actionable without exposing credentials,
   environment contents, or unnecessary internal details.
 - Comments should explain non-obvious constraints or decisions, not narrate the
@@ -151,7 +155,7 @@ before handoff.
 | Core feature behavior | `./scripts/verify-core.sh` |
 | Git graph behavior | `./scripts/verify-git-graph.sh` |
 | Windows boundaries from macOS/Linux | `./scripts/verify-windows-boundaries.sh` |
-| Windows implementation on Windows | `./scripts/build-windows.ps1 -Configuration Release -BuildQt`, then `ctest --test-dir windows/build-windows -C Release --output-on-failure` |
+| Windows implementation on Windows | `./scripts/build-windows.ps1 -Configuration Release`, then `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml` |
 
 Also run tests for directly affected crates or targets. If the current machine
 cannot run a platform-specific check, state that clearly; do not claim an

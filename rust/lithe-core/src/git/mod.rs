@@ -2430,6 +2430,8 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         return Ok(GitStatusResponse {
             repository_root: None,
             branch: None,
+            ahead: 0,
+            behind: 0,
             changes: Vec::new(),
         });
     }
@@ -2461,11 +2463,33 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         );
     }
     let changes = parse_status(&status_output.stdout);
+    let (ahead, behind) = tracking_counts(&repository_root);
     Ok(GitStatusResponse {
         repository_root: Some(relative_or_absolute(&repository_root, &root)),
         branch,
+        ahead,
+        behind,
         changes,
     })
+}
+
+fn tracking_counts(repository_root: &Path) -> (usize, usize) {
+    let Ok(output) = run_git(
+        repository_root,
+        &["rev-list", "--left-right", "--count", "@{upstream}...HEAD"],
+    ) else {
+        return (0, 0);
+    };
+    if !output.status.success() {
+        return (0, 0);
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut values = text
+        .split_whitespace()
+        .filter_map(|value| value.parse().ok());
+    let behind = values.next().unwrap_or(0);
+    let ahead = values.next().unwrap_or(0);
+    (ahead, behind)
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {

@@ -14,7 +14,8 @@ use crate::project::{
     SearchIndexUpdateRequest, SearchRequest, WorkspaceSnapshotRequest,
 };
 use crate::project::{
-    HistoryContentRequest, HistoryEntriesRequest, HistoryRecordRequest, HistoryRelocateRequest,
+    HistoryContentRequest, HistoryDeleteRequest, HistoryEntriesRequest, HistoryRecordRequest,
+    HistoryRelocateRequest, HistoryRenameRequest,
 };
 use crate::project::{MarkdownRenderRequest, MavenDiagnosticsRequest, MavenScanRequest};
 use crate::protocol::CoreResponse;
@@ -259,6 +260,33 @@ fn execute(request: &str) -> CoreResponse {
                 .and_then(crate::project::relocate)
             {
                 Ok(()) => CoreResponse::success(id, serde_json::json!({"relocated": true})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::HistoryRename => {
+            match serde_json::from_value::<HistoryRenameRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid history rename request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::project::rename)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("history entry should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::HistoryDelete => {
+            match serde_json::from_value::<HistoryDeleteRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid history delete request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::project::delete)
+            {
+                Ok(()) => CoreResponse::success(id, serde_json::json!({"deleted": true})),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

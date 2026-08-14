@@ -123,6 +123,8 @@ pub struct HistoryEntryResponse {
     pub reason: String,
     pub content_path: String,
     pub byte_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -290,6 +292,8 @@ pub struct GitChange {
 pub struct GitStatusResponse {
     pub repository_root: Option<String>,
     pub branch: Option<String>,
+    pub ahead: usize,
+    pub behind: usize,
     pub changes: Vec<GitChange>,
 }
 

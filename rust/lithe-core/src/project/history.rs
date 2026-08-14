@@ -55,6 +55,24 @@ pub struct HistoryRelocateRequest {
     pub destination_path: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRenameRequest {
+    pub storage_root: String,
+    pub path: String,
+    pub id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryDeleteRequest {
+    pub storage_root: String,
+    pub path: String,
+    pub id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredEntry {
@@ -65,6 +83,8 @@ struct StoredEntry {
     reason: String,
     content_path: String,
     byte_count: usize,
+    #[serde(default)]
+    label: Option<String>,
 }
 
 pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryResponse>, CoreError> {
@@ -142,6 +162,7 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
         reason: request.reason,
         content_path,
         byte_count: content.len(),
+        label: None,
     };
     fs::write(storage.join(&stored.content_path), &content)?;
     fs::write(
@@ -229,6 +250,60 @@ pub fn relocate(request: HistoryRelocateRequest) -> Result<(), CoreError> {
     Ok(())
 }
 
+pub fn rename(request: HistoryRenameRequest) -> Result<HistoryEntryResponse, CoreError> {
+    let storage = storage_root(&request.storage_root)?;
+    let relative = safe_relative_path(&request.path)?;
+    validate_entry_id(&request.id)?;
+    let directory = storage.join(stable_identifier(&relative));
+    let metadata_path = directory.join(format!("{}.json", request.id));
+    let data = fs::read(&metadata_path).map_err(CoreError::from)?;
+    let mut entry: StoredEntry = serde_json::from_slice(&data).map_err(|error| {
+        CoreError::new(ErrorCode::ParseFailed, "Invalid local history metadata")
+            .with_details(error.to_string())
+    })?;
+    if entry.id != request.id || entry.relative_path != relative {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Local history entry does not match the requested path",
+        ));
+    }
+    entry.label = request.label.filter(|label| !label.trim().is_empty());
+    fs::write(
+        metadata_path,
+        serde_json::to_vec(&entry).expect("history metadata should encode"),
+    )?;
+    Ok(entry.into_response())
+}
+
+pub fn delete(request: HistoryDeleteRequest) -> Result<(), CoreError> {
+    let storage = storage_root(&request.storage_root)?;
+    let relative = safe_relative_path(&request.path)?;
+    validate_entry_id(&request.id)?;
+    let directory = storage.join(stable_identifier(&relative));
+    let metadata_path = directory.join(format!("{}.json", request.id));
+    let data = fs::read(&metadata_path).map_err(CoreError::from)?;
+    let entry: StoredEntry = serde_json::from_slice(&data).map_err(|error| {
+        CoreError::new(ErrorCode::ParseFailed, "Invalid local history metadata")
+            .with_details(error.to_string())
+    })?;
+    if entry.id != request.id || entry.relative_path != relative {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Local history entry does not match the requested path",
+        ));
+    }
+    fs::remove_file(storage.join(entry.content_path)).map_err(CoreError::from)?;
+    fs::remove_file(metadata_path).map_err(CoreError::from)?;
+    if directory
+        .read_dir()
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(false)
+    {
+        let _ = fs::remove_dir(directory);
+    }
+    Ok(())
+}
+
 impl StoredEntry {
     fn into_response(self) -> HistoryEntryResponse {
         HistoryEntryResponse {
@@ -238,6 +313,7 @@ impl StoredEntry {
             reason: self.reason,
             content_path: self.content_path,
             byte_count: self.byte_count,
+            label: self.label,
         }
     }
 }
@@ -279,6 +355,7 @@ fn read_entries(directory: &Path, storage: &Path) -> Vec<StoredEntry> {
                 reason: legacy.reason,
                 content_path: content,
                 byte_count: legacy.byte_count,
+                label: None,
             })
         })
         .filter(|entry| storage.join(&entry.content_path).is_file())
@@ -290,6 +367,20 @@ fn read_entries(directory: &Path, storage: &Path) -> Vec<StoredEntry> {
             .then_with(|| right.id.cmp(&left.id))
     });
     entries
+}
+
+fn validate_entry_id(id: &str) -> Result<(), CoreError> {
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|character| character.is_ascii_hexdigit() || character == '-')
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid local history entry ID",
+        ));
+    }
+    Ok(())
 }
 
 fn default_prune_expired() -> bool {

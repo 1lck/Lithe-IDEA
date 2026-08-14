@@ -1,0 +1,154 @@
+import { DownloadIcon as Download, FileCodeIcon as FileJson, RowsIcon as Rows } from "@/ui/icons";
+import { useMemo, useState } from "react";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { useEditorSettingsStore } from "@/features/editor/stores/settings.store";
+import { hasTextContent } from "@/features/panes/types/pane-content.types";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { Button } from "@/ui/button";
+import Select from "@/ui/select";
+import { TableView } from "./csv-table-view";
+import { parseCsv } from "./csv-utils";
+
+type Delim = "," | "\t" | ";" | "|";
+
+function autodetectDelimiter(text: string): Delim {
+  // Sample first ~50 lines to score delimiters
+  const lines = text.split("\n").slice(0, 50);
+  const candidates: Delim[] = [",", "\t", ";", "|"];
+  const scores = candidates.map((d) => {
+    const counts = lines.map((l) => (l.match(new RegExp(`\\${d}`, "g")) || []).length);
+    const mean = counts.reduce((a, b) => a + b, 0) / Math.max(1, counts.length);
+    const variance = counts.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, counts.length);
+    return { d, mean, variance };
+  });
+  // Prefer higher mean (more columns) and lower variance (consistent)
+  scores.sort((a, b) => b.mean - a.mean || a.variance - b.variance);
+  return scores[0]?.d || ",";
+}
+
+export function CsvPreview() {
+  const sourceContent = useBufferStore((state) => {
+    const activeBuffer = state.activeBufferId
+      ? state.buffers.find((buffer) => buffer.id === state.activeBufferId)
+      : null;
+    const sourceFilePath =
+      activeBuffer?.type === "csvPreview" ? activeBuffer.sourceFilePath : undefined;
+    const sourceBuffer = sourceFilePath
+      ? state.buffers.find((buffer) => buffer.path === sourceFilePath)
+      : activeBuffer;
+    return sourceBuffer && hasTextContent(sourceBuffer) ? sourceBuffer.content : "";
+  });
+  const fontSize = useEditorSettingsStore.use.fontSize();
+  const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily);
+
+  const [delimiter, setDelimiter] = useState<Delim | "auto">("auto");
+  const [hasHeader, setHasHeader] = useState(true);
+
+  const { headers, rows } = useMemo(() => {
+    const delim = delimiter === "auto" ? autodetectDelimiter(sourceContent) : delimiter;
+    return parseCsv(sourceContent, delim, hasHeader);
+  }, [sourceContent, delimiter, hasHeader]);
+
+  const handleCopyCsv = async () => {
+    try {
+      const sep = delimiter === "\t" ? "\t" : delimiter;
+      const head = headers.join(sep);
+      const body = rows.map((r) => r.map((c) => String(c ?? "")).join(sep)).join("\n");
+      const text = hasHeader ? `${head}\n${body}` : body;
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // no-op
+    }
+  };
+
+  const handleCopyJson = async () => {
+    try {
+      const arr = rows.map((r) => {
+        const obj: Record<string, string> = {};
+        headers.forEach((h, i) => {
+          obj[h || `Column ${i + 1}`] = String(r[i] ?? "");
+        });
+        return obj;
+      });
+      await navigator.clipboard.writeText(JSON.stringify(arr, null, 2));
+    } catch {
+      // no-op
+    }
+  };
+
+  return (
+    <div
+      className="flex h-full flex-col overflow-hidden bg-background"
+      style={{ fontSize: `${fontSize}px`, fontFamily: `${uiFontFamily}, sans-serif` }}
+    >
+      <TableView
+        columns={headers}
+        rows={rows}
+        virtualize
+        rowHeight={28}
+        overscan={16}
+        actions={
+          <div className="flex items-center gap-1">
+            {/* Delimiter selector */}
+            <label
+              htmlFor="csv-delimiter"
+              className="font-sans mr-1 text-subtle-foreground ui-text-sm"
+            >
+              Delimiter
+            </label>
+            <Select
+              id="csv-delimiter"
+              value={delimiter}
+              onChange={(value) => setDelimiter(value as any)}
+              options={[
+                { value: "auto", label: "Auto" },
+                { value: ",", label: "Comma" },
+                { value: "\t", label: "Tab" },
+                { value: ";", label: "Semicolon" },
+                { value: "|", label: "Pipe" },
+              ]}
+              size="xs"
+              className="min-w-24 rounded border-border px-1"
+              title="Change delimiter"
+            />
+
+            {/* Header toggle */}
+            <Button
+              onClick={() => setHasHeader((v) => !v)}
+              variant="default"
+              size="xs"
+              className="h-6 gap-1 text-subtle-foreground"
+              tooltip="Toggle header row"
+            >
+              <Rows /> {hasHeader ? "Header On" : "Header Off"}
+            </Button>
+
+            {/* Copy CSV */}
+            <Button
+              onClick={handleCopyCsv}
+              variant="default"
+              className="h-6 gap-1 text-subtle-foreground"
+              tooltip="Copy as CSV"
+              size="xs"
+            >
+              <Download weight="fill" /> CSV
+            </Button>
+
+            {/* Copy JSON */}
+            <Button
+              onClick={handleCopyJson}
+              variant="default"
+              className="h-6 gap-1 text-subtle-foreground"
+              tooltip="Copy as JSON"
+              size="xs"
+            >
+              <FileJson /> JSON
+            </Button>
+          </div>
+        }
+      />
+      {/* footer spacer or future actions */}
+      <div className="h-0" />
+    </div>
+  );
+}

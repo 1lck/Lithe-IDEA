@@ -43,7 +43,7 @@ body:
     id: environment
     attributes:
       label: Environment / 环境信息
-      description: Include relevant JDK, Maven, JDT LS, Rust, or Qt versions. / 请填写相关的 JDK、Maven、JDT LS、Rust 或 Qt 版本。
+      description: Include relevant JDK, Maven, JDT LS, Rust, WebView2, or Tauri versions. / 请填写相关的 JDK、Maven、JDT LS、Rust、WebView2 或 Tauri 版本。
       placeholder: |
         JDK:
         Maven:

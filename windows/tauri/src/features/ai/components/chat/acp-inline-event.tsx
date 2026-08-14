@@ -1,0 +1,38 @@
+import {
+  WarningCircleIcon as AlertCircle,
+  CheckCircleIcon as CheckCircle2,
+  ClockIcon as Clock3,
+  KeyIcon as KeyRound,
+} from "@/ui/icons";
+import type { ChatAcpEvent } from "@/features/ai/types/chat-ui.types";
+import { ChatActivityLine } from "./chat-activity-line";
+
+interface AcpInlineEventProps {
+  event: ChatAcpEvent;
+}
+
+function getEventIcon(event: ChatAcpEvent) {
+  if (event.category === "permission") return KeyRound;
+  if (event.state === "error") return AlertCircle;
+  if (event.state === "success") return CheckCircle2;
+  return Clock3;
+}
+
+export function AcpInlineEvent({ event }: AcpInlineEventProps) {
+  const Icon = getEventIcon(event);
+  const text = event.detail ? `${event.label}: ${event.detail}` : event.label;
+  const state =
+    event.state === "error"
+      ? "error"
+      : event.state === "success"
+        ? "success"
+        : event.state === "running"
+          ? "running"
+          : "info";
+
+  return (
+    <div className="px-4 py-0.5">
+      <ChatActivityLine icon={<Icon />} title={text} state={state} />
+    </div>
+  );
+}
