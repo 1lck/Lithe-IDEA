@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import LitheAIAssistanceModule
+import LitheCoreContracts
 import Testing
 @testable import Lithe
 

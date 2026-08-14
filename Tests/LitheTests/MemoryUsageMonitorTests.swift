@@ -1,10 +1,27 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import Testing
 @testable import Lithe
 
 @MainActor
 struct MemoryUsageMonitorTests {
+    @Test
+    func managedProcessRegistryTracksModuleOwnershipAndLegacyCategories() {
+        let registry = ManagedProcessRegistry()
+        registry.register(pid: 101, category: .languageServer, moduleID: .languageIntelligence)
+        registry.register(pid: 202, category: .service, moduleID: .execution)
+
+        #expect(registry.processIDs(for: .languageServer) == [101])
+        #expect(registry.processIDs(for: .service) == [202])
+        #expect(registry.processIDs(for: .languageIntelligence) == [101])
+        #expect(registry.processCount(for: .execution) == 1)
+
+        registry.unregister(pid: 101, category: .languageServer, moduleID: .languageIntelligence)
+        #expect(registry.processIDs(for: .languageIntelligence).isEmpty)
+        #expect(registry.processIDs(for: .languageServer).isEmpty)
+    }
+
     @Test
     func managedProcessCategoriesAggregateAndRelease() {
         let registry = ManagedProcessRegistry()

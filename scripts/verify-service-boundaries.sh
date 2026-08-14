@@ -14,10 +14,11 @@ appmodel_business_pattern='Task\.detached|LocalHistoryService|WorkspaceTextFileP
 core_violations=$(rg -n "$core_pattern" Sources/Lithe/Core || true)
 service_violations=$(rg -n "$service_pattern" Sources/Lithe/Services || true)
 ui_violations=$(rg -n "$ui_service_pattern" Sources/Lithe/Views || true)
-composition_violations=$(rg -n "$composition_pattern" Sources/Lithe/Models/AppModel.swift || true)
-application_ui_violations=$(rg -n "$application_ui_pattern" Sources/Lithe/Models/AppModel.swift || true)
-appmodel_business_violations=$(rg -n "$appmodel_business_pattern" Sources/Lithe/Models/AppModel.swift || true)
-appmodel_line_count=$(wc -l < Sources/Lithe/Models/AppModel.swift | tr -d ' ')
+appmodel_path=Sources/Lithe/Models/AppModel/AppModel.swift
+composition_violations=$(rg -n "$composition_pattern" "$appmodel_path" || true)
+application_ui_violations=$(rg -n "$application_ui_pattern" "$appmodel_path" || true)
+appmodel_business_violations=$(rg -n "$appmodel_business_pattern" "$appmodel_path" || true)
+appmodel_line_count=$(wc -l < "$appmodel_path" | tr -d ' ')
 
 if [[ -n "$core_violations" ]]; then
     print -u2 "Core boundary violations:"

@@ -1,4 +1,8 @@
 import Foundation
+import LitheCoreContracts
+import LitheDebugModule
+import LitheExecutionModule
+import LitheLanguageIntelligenceModule
 import Testing
 @testable import Lithe
 
@@ -62,9 +66,9 @@ struct RunConfigurationIntegrationTests {
         )
         #expect(typeScriptPlan.toolchainID == "project-tsx")
 
-        let goPlan = try registry.launchPlan(for: go, workspaceURL: root)
-        #expect(goPlan.toolchainID == "project-go")
-        #expect(goPlan.arguments == ["run", "cmd/api/main.go"])
+        #expect(throws: LanguageRunPlanError.noProvider(fileExtension: "go")) {
+            _ = try registry.launchPlan(for: go, workspaceURL: root)
+        }
 
         #expect(throws: LanguageRunPlanError.noProvider(fileExtension: "java")) {
             _ = try registry.launchPlan(
@@ -131,6 +135,26 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func extensionOwnedLanguageDoesNotReceiveBuiltInProcessProviders() throws {
+        let descriptor = LanguageProviderDescriptor(
+            id: "zig",
+            displayName: "Zig",
+            fileExtensions: ["zig"],
+            capabilities: [.run, .languageServer, .debugAdapter, .testing],
+            activationPolicy: .onDemand
+        )
+        let registry = LanguagePackRegistry.standard(
+            catalog: LanguageProviderCatalog(descriptors: [descriptor]),
+            extensionRequiredProviderIDs: ["zig"]
+        )
+
+        #expect(registry.runProviders.provider(id: "zig") == nil)
+        #expect(registry.testProviders.provider(id: "zig") == nil)
+        #expect(registry.pack(id: "zig")?.debugAdapterLaunch == nil)
+        #expect(registry.pack(id: "zig")?.toolingRuntime == nil)
+    }
+
+    @Test
     func customLanguagePackRegistersWithoutChangingCoreServices() {
         let descriptor = LanguageProviderDescriptor(
             id: "ruby",
@@ -153,7 +177,7 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func projectCatalogCanCreateRuntimeForANewProviderDynamically() {
+    func projectCatalogCreatesLanguageRuntimeOnlyWhenTheLSPIsRequested() throws {
         let factory = TestLanguageProviderRuntimeFactory()
         let manager = LanguageToolingSessionManager(
             catalog: LanguageProviderCatalog(descriptors: []),
@@ -174,7 +198,12 @@ struct RunConfigurationIntegrationTests {
 
         manager.updateCatalog(LanguageProviderCatalog(descriptors: [descriptor]))
 
-        #expect(manager.supportsGenericDebugging(for: URL(fileURLWithPath: "/tmp/main.roc")))
+        #expect(factory.createdDescriptors.isEmpty)
+        try manager.synchronizeLanguageServer(
+            for: URL(fileURLWithPath: "/tmp/main.roc"),
+            text: "app \"main\"",
+            rootURL: URL(fileURLWithPath: "/tmp")
+        )
         #expect(factory.createdDescriptors == [descriptor])
     }
 
@@ -186,26 +215,31 @@ struct RunConfigurationIntegrationTests {
             store: RunTestKeyValueStore()
         )
         var nodeFactoryCalls = 0
-        let nodeRuntime = try #require(StdioLanguageProviderRuntime.standard(
-            catalog: catalog,
+        let debugFactory = DebugAdapterRuntimeFactory(
             runtimeService: runtimeService,
-            processFactory: { RecordingRawProcessSession() },
-            debugSessionFactories: ["node": {
+            transportFactory: { executableURL, arguments, environment in
+                MacProcessDebugAdapterTransport(
+                    executableURL: executableURL,
+                    arguments: arguments,
+                    environment: environment,
+                    process: RecordingRawProcessSession()
+                )
+            },
+            launches: [:],
+            sessionFactories: ["node": {
                 nodeFactoryCalls += 1
                 return TestDebugAdapterSession()
             }]
-        ).first { $0.descriptor.id == "node" })
-        let javaDescriptor = try #require(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java")))
-        let javaRuntime = TestDebugLanguageProviderRuntime(descriptor: javaDescriptor)
-        let manager = LanguageToolingSessionManager(
-            catalog: catalog,
-            runtimes: [nodeRuntime, javaRuntime]
         )
 
-        #expect(manager.supportsGenericDebugging(for: URL(fileURLWithPath: "/tmp/app.ts")))
-        #expect(!manager.supportsGenericDebugging(for: URL(fileURLWithPath: "/tmp/Main.java")))
         #expect(nodeFactoryCalls == 0)
-        #expect(manager.activeDebugAdapterIDs.isEmpty)
+        let debugManager = DebugAdapterSessionManager(
+            providers: catalog.debugProviders,
+            makeSession: { descriptor, rootURL in
+                debugFactory.makeSession(for: descriptor, rootURL: rootURL)
+            }
+        )
+        #expect(debugManager.activeAdapterIDs.isEmpty)
     }
 
     @Test
@@ -222,14 +256,17 @@ struct RunConfigurationIntegrationTests {
             descriptor: javaDescriptor,
             supportsDebugAdapter: true
         )
-        let manager = LanguageToolingSessionManager(
-            catalog: catalog,
-            runtimes: [runtime]
+        let debugManager = DebugAdapterSessionManager(
+            providers: catalog.debugProviders,
+            makeSession: { descriptor, rootURL in
+                descriptor.id == runtime.descriptor.id
+                    ? runtime.makeSession()
+                    : nil
+            }
         )
         let source = URL(fileURLWithPath: "/tmp/Main.java")
 
-        #expect(manager.supportsGenericDebugging(for: source))
-        _ = try manager.activateDebugAdapter(
+        _ = try debugManager.activate(
             for: source,
             rootURL: URL(fileURLWithPath: "/tmp/java-project")
         )
@@ -313,11 +350,8 @@ struct RunConfigurationIntegrationTests {
     @Test
     func legacyJavaDoesNotAcceptGenericDAPBreakpointsWithoutAnAdapter() throws {
         let source = URL(fileURLWithPath: "/tmp/Main.java")
-        #expect(throws: LanguageToolingSessionError.capabilityUnavailable(
-            provider: "Java",
-            capability: "debug adapter breakpoints"
-        )) {
-            try LanguageToolingSessionManager(catalog: .standard).setDebugBreakpoints(
+        #expect(throws: DebugProviderError.noProvider(fileExtension: "java")) {
+            try DebugAdapterSessionManager(providers: LanguageProviderCatalog.standard.debugProviders) { _, _ in nil }.setBreakpoints(
                 [DebugSourceBreakpoint(line: 1)],
                 in: source
             )
@@ -745,21 +779,28 @@ struct RunConfigurationIntegrationTests {
         )
         var factoryCalls = 0
         let expected = TestDebugAdapterSession()
-        let runtimes = StdioLanguageProviderRuntime.standard(
-            catalog: .standard,
+        let factory = DebugAdapterRuntimeFactory(
             runtimeService: runtimeService,
-            processFactory: { RecordingRawProcessSession() },
-            debugSessionFactories: [
+            transportFactory: { executableURL, arguments, environment in
+                MacProcessDebugAdapterTransport(
+                    executableURL: executableURL,
+                    arguments: arguments,
+                    environment: environment,
+                    process: RecordingRawProcessSession()
+                )
+            },
+            launches: [:],
+            sessionFactories: [
                 "node": {
                     factoryCalls += 1
                     return expected
                 }
             ]
         )
-        let node = try #require(runtimes.first(where: { $0.descriptor.id == "node" }))
+        let node = try #require(LanguageProviderCatalog.standard.debugProviders.first { $0.id == "node" })
 
         #expect(factoryCalls == 0)
-        let created = try #require(node.makeDebugAdapterSession())
+        let created = try #require(factory.makeSession(for: node, rootURL: URL(fileURLWithPath: "/tmp")))
         #expect(factoryCalls == 1)
         #expect(created === expected)
     }
@@ -772,21 +813,28 @@ struct RunConfigurationIntegrationTests {
         )
         var factoryCalls = 0
         let expected = TestDebugAdapterSession()
-        let runtimes = StdioLanguageProviderRuntime.standard(
-            catalog: .standard,
+        let factory = DebugAdapterRuntimeFactory(
             runtimeService: runtimeService,
-            processFactory: { RecordingRawProcessSession() },
-            debugSessionFactories: [
+            transportFactory: { executableURL, arguments, environment in
+                MacProcessDebugAdapterTransport(
+                    executableURL: executableURL,
+                    arguments: arguments,
+                    environment: environment,
+                    process: RecordingRawProcessSession()
+                )
+            },
+            launches: [:],
+            sessionFactories: [
                 "go": {
                     factoryCalls += 1
                     return expected
                 }
             ]
         )
-        let go = try #require(runtimes.first(where: { $0.descriptor.id == "go" }))
+        let go = try #require(LanguageProviderCatalog.standard.debugProviders.first { $0.id == "go" })
 
         #expect(factoryCalls == 0)
-        let created = try #require(go.makeDebugAdapterSession())
+        let created = try #require(factory.makeSession(for: go, rootURL: URL(fileURLWithPath: "/tmp")))
         #expect(factoryCalls == 1)
         #expect(created === expected)
     }
@@ -1038,7 +1086,6 @@ struct RunConfigurationIntegrationTests {
         let runtime = StdioLanguageProviderRuntime(
             descriptor: descriptor,
             runtimeService: runtimeService,
-            processFactory: { process },
             languageServerLaunch: descriptor.languageServerLaunch,
             languageServerCore: core
         )
@@ -1112,7 +1159,6 @@ struct RunConfigurationIntegrationTests {
         let runtime = StdioLanguageProviderRuntime(
             descriptor: descriptor,
             runtimeService: runtimeService,
-            processFactory: { RecordingRawProcessSession() },
             languageServerLaunch: descriptor.languageServerLaunch,
             languageServerCore: core
         )
@@ -1515,7 +1561,6 @@ struct RunConfigurationIntegrationTests {
         let runtime = StdioLanguageProviderRuntime(
             descriptor: descriptor,
             runtimeService: runtimeService,
-            processFactory: { process },
             languageServerLaunch: descriptor.languageServerLaunch,
             languageServerCore: core
         )
@@ -1811,17 +1856,24 @@ struct RunConfigurationIntegrationTests {
             for: URL(fileURLWithPath: "/tmp/main.py")
         ))
         let runtime = TestDebugLanguageProviderRuntime(descriptor: descriptor)
-        let manager = LanguageToolingSessionManager(catalog: .standard, runtimes: [runtime])
+        let manager = DebugAdapterSessionManager(
+            providers: LanguageProviderCatalog.standard.debugProviders,
+            makeSession: { descriptor, rootURL in
+                descriptor.id == runtime.descriptor.id
+                    ? runtime.makeSession()
+                    : nil
+            }
+        )
         let firstRoot = URL(fileURLWithPath: "/tmp/first-python-project")
         let firstSource = firstRoot.appendingPathComponent("main.py")
-        try manager.setDebugBreakpoints([DebugSourceBreakpoint(line: 12)], in: firstSource)
+        try manager.setBreakpoints([DebugSourceBreakpoint(line: 12)], in: firstSource)
 
-        _ = try manager.activateDebugAdapter(for: firstSource, rootURL: firstRoot)
+        _ = try manager.activate(for: firstSource, rootURL: firstRoot)
         #expect(runtime.debugAdapters.first?.breakpointUpdates.count == 1)
         manager.stopAll()
 
         let secondRoot = URL(fileURLWithPath: "/tmp/second-python-project")
-        _ = try manager.activateDebugAdapter(
+        _ = try manager.activate(
             for: secondRoot.appendingPathComponent("main.py"),
             rootURL: secondRoot
         )
@@ -1839,31 +1891,42 @@ struct RunConfigurationIntegrationTests {
             store: RunTestKeyValueStore()
         )
         let process = RecordingRawProcessSession()
-        let runtime = StdioLanguageProviderRuntime(
-            descriptor: descriptor,
+        let runtime = DebugAdapterRuntimeFactory(
             runtimeService: runtimeService,
-            processFactory: { process },
-            debugLaunch: StdioDebugAdapterLaunch(
+            transportFactory: { executableURL, arguments, environment in
+                MacProcessDebugAdapterTransport(
+                    executableURL: executableURL,
+                    arguments: arguments,
+                    environment: environment,
+                    process: process
+                )
+            },
+            launches: [descriptor.id: StdioDebugAdapterLaunch(
                 adapterID: "python",
                 executableNames: ["python3"],
                 arguments: ["-m", "debugpy.adapter"]
-            )
+            )]
         )
-        let manager = LanguageToolingSessionManager(runtimes: [runtime])
+        let manager = DebugAdapterSessionManager(
+            providers: LanguageProviderCatalog.standard.debugProviders,
+            makeSession: { descriptor, rootURL in
+                runtime.makeSession(for: descriptor, rootURL: rootURL)
+            }
+        )
         let root = URL(fileURLWithPath: "/tmp/python-project", isDirectory: true)
         let source = root.appendingPathComponent("main.py")
-        try manager.setDebugBreakpoints([DebugSourceBreakpoint(line: 7)], in: source)
+        try manager.setBreakpoints([DebugSourceBreakpoint(line: 7)], in: source)
 
-        let session = try manager.activateDebugAdapter(for: source, rootURL: root)
+        let session = try manager.activate(for: source, rootURL: root)
         let controlling = try #require(session as? any DebugAdapterControllingSession)
         let processRequest = try #require(process.requests.first)
         #expect(processRequest.executablePath == "/usr/bin/python3")
         #expect(processRequest.arguments == ["-m", "debugpy.adapter"])
-        #expect(manager.debugStates["python"] == .initializing)
+        #expect(manager.states["python"] == .initializing)
         let initialize = try #require(Self.debugRequest(named: "initialize", in: process.sentData))
         let initializeSequence = try #require(initialize["seq"] as? Int)
 
-        _ = try manager.launchDebugAdapter(
+        _ = try manager.launch(
             for: source,
             rootURL: root,
             configuration: DebugLaunchConfiguration(
@@ -1888,7 +1951,7 @@ struct RunConfigurationIntegrationTests {
         ])
         await Self.drainMainActorTasks()
         #expect(controlling.state == .launching)
-        #expect(manager.debugStates["python"] == .launching)
+        #expect(manager.states["python"] == .launching)
         let launch = try #require(Self.debugRequest(named: "launch", in: process.sentData))
         let launchSequence = try #require(launch["seq"] as? Int)
         let launchArguments = try #require(launch["arguments"] as? [String: Any])
@@ -1938,7 +2001,7 @@ struct RunConfigurationIntegrationTests {
         ])
         await Self.drainMainActorTasks()
         #expect(controlling.state == .paused)
-        #expect(manager.lastDebugEvents["python"] == .stopped(
+        #expect(manager.lastEvents["python"] == .stopped(
             reason: "breakpoint",
             threadID: 42,
             description: "Paused on breakpoint"
@@ -2019,9 +2082,9 @@ struct RunConfigurationIntegrationTests {
         await Self.drainMainActorTasks()
         #expect(controlling.state == .running)
 
-        manager.stopDebugAdapter(providerID: "python")
+        manager.stop(providerID: "python")
         #expect(!process.isRunning)
-        #expect(manager.debugStates["python"] == .idle)
+        #expect(manager.states["python"] == .idle)
     }
 
     @Test
@@ -2113,12 +2176,25 @@ struct RunConfigurationIntegrationTests {
             store: RunTestKeyValueStore()
         )
         let process = RecordingRawProcessSession()
-        let runtime = try #require(StdioLanguageProviderRuntime.standard(
-            catalog: .standard,
+        let runtime = DebugAdapterRuntimeFactory(
             runtimeService: runtimeService,
-            processFactory: { process }
-        ).first(where: { $0.descriptor.id == "rust" }))
-        let adapter = try #require(runtime.makeDebugAdapterSession())
+            transportFactory: { executableURL, arguments, environment in
+                MacProcessDebugAdapterTransport(
+                    executableURL: executableURL,
+                    arguments: arguments,
+                    environment: environment,
+                    process: process
+                )
+            },
+            launches: ["rust": StdioDebugAdapterLaunch(
+                adapterID: "lldb",
+                executableNames: ["lldb-dap"],
+                arguments: [],
+                fallbacks: [.init(executableName: "xcrun", argumentPrefix: ["lldb-dap"])]
+            )]
+        )
+        let descriptor = try #require(LanguageProviderCatalog.standard.debugProviders.first { $0.id == "rust" })
+        let adapter = try #require(runtime.makeSession(for: descriptor, rootURL: URL(fileURLWithPath: "/tmp/rust-xcrun")))
 
         try adapter.start(rootURL: URL(fileURLWithPath: "/tmp/rust-xcrun"))
 
@@ -2137,17 +2213,28 @@ struct RunConfigurationIntegrationTests {
             store: RunTestKeyValueStore()
         )
         let process = RecordingRawProcessSession()
-        let runtime = StdioLanguageProviderRuntime(
-            descriptor: descriptor,
+        let runtime = DebugAdapterRuntimeFactory(
             runtimeService: runtimeService,
-            processFactory: { process },
-            debugLaunch: StdioDebugAdapterLaunch(
+            transportFactory: { executableURL, arguments, environment in
+                MacProcessDebugAdapterTransport(
+                    executableURL: executableURL,
+                    arguments: arguments,
+                    environment: environment,
+                    process: process
+                )
+            },
+            launches: [descriptor.id: StdioDebugAdapterLaunch(
                 adapterID: "python",
                 executableNames: ["python3"],
                 arguments: ["-m", "debugpy.adapter"]
-            )
+            )]
         )
-        let manager = LanguageToolingSessionManager(runtimes: [runtime])
+        let manager = DebugAdapterSessionManager(
+            providers: LanguageProviderCatalog.standard.debugProviders,
+            makeSession: { descriptor, rootURL in
+                runtime.makeSession(for: descriptor, rootURL: rootURL)
+            }
+        )
         let feature = GenericDebugFeatureModel(sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/python-feature", isDirectory: true)
         let source = root.appendingPathComponent("app.py")
@@ -3758,8 +3845,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
     private let providerID: String
     private let sessionID: String
     private var nextOperationNumber = 1
-    private var nextSequence: UInt64 = 1
-    private var events: [RustCoreBridge.LspRuntimeEventPayload] = []
+    private var events: [LanguageServerRuntimeEvent] = []
 
     private(set) var startCalls: [StartCall] = []
     private(set) var stopCalls: [String] = []
@@ -3774,7 +3860,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         self.sessionID = sessionID ?? "test-\(providerID)-session"
     }
 
-    func lspStartServer(
+    func startLanguageServer(
         providerID: String,
         executableURL: URL,
         arguments: [String],
@@ -3787,7 +3873,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
-    ) -> Result<RustCoreBridge.LspStartServerPayload, RustCoreBridge.CoreCallError> {
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
         startCalls.append(StartCall(
             providerID: providerID,
             executableURL: executableURL,
@@ -3802,23 +3888,24 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
         ))
-        return .success(Self.decode([
-            "sessionId": sessionID,
-            "state": "initializing"
-        ]))
+        return .success(LanguageServerRuntimeStart(
+            sessionID: sessionID,
+            state: "initializing",
+            processID: nil
+        ))
     }
 
-    func lspStopServer(sessionID: String) {
+    func stopLanguageServer(sessionID: String) {
         stopCalls.append(sessionID)
         enqueueEvent(type: "stateChanged", fields: ["state": "stopped"])
     }
 
-    func lspSyncDocument(
+    func syncLanguageServerDocument(
         sessionID: String,
         fileURL: URL,
         languageID: String,
         text: String
-    ) -> Result<Void, RustCoreBridge.CoreCallError> {
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
         syncCalls.append(SyncCall(
             sessionID: sessionID,
             fileURL: fileURL,
@@ -3828,11 +3915,11 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         return .success(())
     }
 
-    func lspCloseDocument(sessionID: String, fileURL: URL) {
+    func closeLanguageServerDocument(sessionID: String, fileURL: URL) {
         closeCalls.append(FileCall(sessionID: sessionID, fileURL: fileURL))
     }
 
-    func lspRequest(
+    func requestLanguageServerOperation(
         sessionID: String,
         operation: LanguageServerOperation,
         fileURL: URL?,
@@ -3844,7 +3931,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
-    ) -> Result<RustCoreBridge.LspOperationPayload, RustCoreBridge.CoreCallError> {
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
         let operationID = "operation-\(nextOperationNumber)"
         nextOperationNumber += 1
         requestCalls.append(RequestCall(
@@ -3861,19 +3948,19 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             codeAction: codeAction,
             command: command
         ))
-        return .success(Self.decode(["operationId": operationID]))
+        return .success(LanguageServerRuntimeOperation(operationID: operationID))
     }
 
-    func lspCancelOperation(sessionID: String, operationID: String) {
+    func cancelLanguageServerOperation(sessionID: String, operationID: String) {
         cancelCalls.append(CancelCall(sessionID: sessionID, operationID: operationID))
     }
 
-    func lspPollEvents(sessionID _: String) -> [RustCoreBridge.LspRuntimeEventPayload] {
+    func pollLanguageServerEvents(sessionID _: String) -> [LanguageServerRuntimeEvent] {
         defer { events.removeAll() }
         return events
     }
 
-    func lspDestroyServer(sessionID: String) {
+    func destroyLanguageServer(sessionID: String) {
         destroyedSessionIDs.append(sessionID)
     }
 
@@ -3882,17 +3969,21 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         serverInfo: (name: String, version: String?)? = nil
     ) {
         if !capabilities.isEmpty {
-            enqueueEvent(type: "featuresChanged", fields: ["capabilities": capabilities])
+            events.append(LanguageServerRuntimeEvent(
+                type: "featuresChanged",
+                capabilities: capabilities
+            ))
         }
         if let serverInfo {
-            enqueueEvent(type: "serverInfoChanged", fields: [
-                "serverInfo": [
-                    "name": serverInfo.name,
-                    "version": serverInfo.version as Any
-                ]
-            ])
+            events.append(LanguageServerRuntimeEvent(
+                type: "serverInfoChanged",
+                serverInfo: LanguageServerInfo(
+                    name: serverInfo.name,
+                    version: serverInfo.version
+                )
+            ))
         }
-        enqueueEvent(type: "stateChanged", fields: ["state": "ready"])
+        events.append(LanguageServerRuntimeEvent(type: "stateChanged", state: "ready"))
     }
 
     func enqueueFailure(
@@ -3901,26 +3992,27 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         underlyingMessage: String? = nil,
         processExitCode: Int? = nil
     ) {
-        enqueueEvent(type: "stateChanged", fields: [
-            "state": "failed",
-            "error": runtimeError(
+        events.append(LanguageServerRuntimeEvent(
+            type: "stateChanged",
+            state: "failed",
+            error: runtimeError(
                 code: code,
                 message: message,
                 underlyingMessage: underlyingMessage,
                 processExitCode: processExitCode
             )
-        ])
+        ))
     }
 
     func enqueueRequestSuccess(operation: LanguageServerOperation, result: Any) {
         guard let call = requestCalls.last(where: { $0.operation == operation }) else {
             preconditionFailure("No recorded request for \(operation.rawValue)")
         }
-        enqueueEvent(type: "requestCompleted", fields: [
-            "operationId": call.operationID,
-            "method": operation.rawValue,
-            "result": result
-        ])
+        events.append(LanguageServerRuntimeEvent(
+            type: "requestCompleted",
+            operationID: call.operationID,
+            result: Self.jsonValue(result)
+        ))
     }
 
     func enqueueRequestFailure(
@@ -3933,44 +4025,46 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         guard let call = requestCalls.last(where: { $0.operation == operation }) else {
             preconditionFailure("No recorded request for \(operation.rawValue)")
         }
-        enqueueEvent(type: "requestCompleted", fields: [
-            "operationId": call.operationID,
-            "method": operation.rawValue,
-            "error": runtimeError(
+        events.append(LanguageServerRuntimeEvent(
+            type: "requestCompleted",
+            operationID: call.operationID,
+            error: runtimeError(
                 code: code,
                 message: message,
                 underlyingMessage: underlyingMessage,
                 processExitCode: processExitCode
             )
-        ])
+        ))
     }
 
     func enqueueDiagnostics(for fileURL: URL, message: String) {
-        enqueueEvent(type: "diagnostics", fields: [
-            "uri": fileURL.standardizedFileURL.absoluteString,
-            "version": 1,
-            "diagnostics": [[
-                "range": [
-                    "start": ["line": 0, "utf16Column": 7],
-                    "end": ["line": 0, "utf16Column": 10]
-                ],
-                "severity": 2,
-                "message": message,
-                "source": "test-language-server"
-            ]]
-        ])
+        events.append(LanguageServerRuntimeEvent(
+            type: "diagnostics",
+            uri: fileURL.standardizedFileURL.absoluteString,
+            diagnostics: [LanguageServerDiagnostic(
+                range: LanguageServerRange(
+                    start: LanguageServerPosition(line: 0, utf16Column: 7),
+                    end: LanguageServerPosition(line: 0, utf16Column: 10)
+                ),
+                severity: 2,
+                message: message,
+                source: "test-language-server",
+                code: nil
+            )]
+        ))
     }
 
     private func enqueueEvent(type: String, fields: [String: Any]) {
-        var object: [String: Any] = [
-            "type": type,
-            "sequence": nextSequence,
-            "providerId": providerID,
-            "sessionId": sessionID
-        ]
-        nextSequence += 1
-        object.merge(fields) { _, updated in updated }
-        events.append(Self.decode(object))
+        events.append(LanguageServerRuntimeEvent(
+            type: type,
+            state: fields["state"] as? String,
+            operationID: fields["operationId"] as? String,
+            uri: fields["uri"] as? String,
+            result: fields["result"].flatMap(Self.jsonValue),
+            capabilities: fields["capabilities"] as? [String],
+            message: fields["message"] as? String,
+            detail: fields["detail"] as? String
+        ))
     }
 
     private func runtimeError(
@@ -3978,25 +4072,21 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         message: String,
         underlyingMessage: String?,
         processExitCode: Int?
-    ) -> [String: Any] {
-        var error: [String: Any] = [
-            "code": code,
-            "providerId": providerID,
-            "sessionId": sessionID,
-            "stage": "test",
-            "message": message
-        ]
-        if let underlyingMessage { error["underlyingMessage"] = underlyingMessage }
-        if let processExitCode { error["processExitCode"] = processExitCode }
-        return error
+    ) -> LanguageServerRuntimeError {
+        _ = code
+        return LanguageServerRuntimeError(
+            message: message,
+            underlyingMessage: underlyingMessage,
+            processExitCode: processExitCode
+        )
     }
 
-    private static func decode<Payload: Decodable>(_ object: Any) -> Payload {
+    private static func jsonValue(_ object: Any) -> ToolingJSONValue? {
         do {
             let data = try JSONSerialization.data(withJSONObject: object)
-            return try JSONDecoder().decode(Payload.self, from: data)
+            return try JSONDecoder().decode(ToolingJSONValue.self, from: data)
         } catch {
-            preconditionFailure("Invalid language-server test payload: \(error)")
+            return nil
         }
     }
 }
@@ -4224,15 +4314,14 @@ private final class TestDebugAdapterSession: DebugAdapterControllingSession {
 @MainActor
 private final class TestDebugLanguageProviderRuntime: LanguageProviderRuntime {
     let descriptor: LanguageProviderDescriptor
-    let supportsDebugAdapterSession: Bool
     private(set) var debugAdapters: [TestDebugAdapterSession] = []
 
     init(descriptor: LanguageProviderDescriptor, supportsDebugAdapter: Bool = false) {
         self.descriptor = descriptor
-        supportsDebugAdapterSession = supportsDebugAdapter
+        _ = supportsDebugAdapter
     }
 
-    func makeDebugAdapterSession() -> (any DebugAdapterSession)? {
+    func makeSession() -> (any DebugAdapterSession)? {
         let session = TestDebugAdapterSession()
         debugAdapters.append(session)
         return session
@@ -4251,7 +4340,6 @@ private final class TestLanguageServerRuntime: LanguageProviderRuntime {
     }
 
     func makeLanguageServerSession() -> (any LanguageServerSession)? { session }
-    func makeDebugAdapterSession() -> (any DebugAdapterSession)? { nil }
 }
 
 @MainActor

@@ -1,51 +1,9 @@
 import Foundation
+import LitheCoreContracts
 
 /// Where a tool candidate came from.  The value is intentionally platform
 /// neutral so the same run/DAP UI can explain a Windows registry entry or a
 /// macOS Homebrew/Xcode candidate without importing platform frameworks.
-enum RuntimeToolSource: String, Codable, Hashable, Sendable {
-    case project
-    case environment
-    case path
-    case homebrew
-    case xcode
-    case system
-    case custom
-
-    var displayName: String {
-        switch self {
-        case .project: "Project"
-        case .environment: "Environment"
-        case .path: "PATH"
-        case .homebrew: "Homebrew"
-        case .xcode: "Xcode Command Line Tools"
-        case .system: "System"
-        case .custom: "Custom"
-        }
-    }
-}
-
-struct RuntimeToolCandidate: Identifiable, Equatable, Sendable {
-    let command: String
-    let executableURL: URL
-    let source: RuntimeToolSource
-    let detail: String?
-
-    var id: String { command + "\u{1F}" + executableURL.standardizedFileURL.path }
-
-    init(
-        command: String,
-        executableURL: URL,
-        source: RuntimeToolSource,
-        detail: String? = nil
-    ) {
-        self.command = command
-        self.executableURL = executableURL.standardizedFileURL
-        self.source = source
-        self.detail = detail
-    }
-}
-
 struct RuntimeToolGuidance: Equatable, Sendable {
     let command: String
     let displayName: String

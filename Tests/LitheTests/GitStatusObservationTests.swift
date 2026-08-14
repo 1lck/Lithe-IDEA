@@ -1,4 +1,6 @@
 import Foundation
+@testable import LitheGitModule
+import LitheSearchModule
 import Testing
 @testable import Lithe
 

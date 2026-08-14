@@ -6,6 +6,7 @@ private let litheProcessLaunchDate = Date()
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     weak var projectSessions: ProjectSessionManager?
+    var recordCleanPluginShutdown: (() -> Void)?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
@@ -18,6 +19,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         projectSessions?.stopAllSessions()
+        recordCleanPluginShutdown?()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -59,6 +61,9 @@ struct LitheApp: App {
         let store = MacUserDefaultsStore()
         let settings = AppSettings(store: store)
         let processRegistry = ManagedProcessRegistry()
+        let moduleStore = MacModuleConfigurationStore(store: store)
+        let pluginRuntimeRecovery = MacPluginRuntimeRecoveryCoordinator()
+        pluginRuntimeRecovery.recoverPreviousSession(using: moduleStore)
         _settings = StateObject(wrappedValue: settings)
         let projectSessions = ProjectSessionManager(
             settings: settings,
@@ -68,7 +73,12 @@ struct LitheApp: App {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        processRegistry: processRegistry
+                        processRegistry: processRegistry,
+                        moduleLaunchMode: CommandLine.arguments.contains("--safe-mode")
+                            ? .safeMode
+                            : .normal,
+                        moduleStore: moduleStore,
+                        pluginRuntimeRecovery: pluginRuntimeRecovery
                     ).services
                 )
             },
@@ -89,6 +99,9 @@ struct LitheApp: App {
             memorySampler: MacProcessMemorySampler()
         ))
         appDelegate.projectSessions = projectSessions
+        appDelegate.recordCleanPluginShutdown = {
+            pluginRuntimeRecovery.recordCleanShutdown(using: moduleStore)
+        }
     }
 
     private var model: AppModel { projectSessions.activeModel }

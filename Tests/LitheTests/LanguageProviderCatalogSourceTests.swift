@@ -1,4 +1,6 @@
 import Foundation
+import LitheCoreContracts
+import LitheModuleAPI
 import Testing
 @testable import Lithe
 
@@ -85,6 +87,66 @@ struct LanguageProviderCatalogSourceTests {
         #expect(!snapshot.isDegraded)
         #expect(snapshot.issues.isEmpty)
         #expect(snapshot.schemaVersion == 2)
+    }
+
+    @Test
+    func installedLanguagePackageAddsAProviderMissingFromTheRustCatalog() throws {
+        let source = PluginLanguageProviderCatalogSource(
+            base: RustLanguageProviderCatalogSource(loader: CatalogPayloadLoader(
+                isAvailable: true,
+                data: catalogPayload(origin: "builtin")
+            )),
+            languageSupports: [LanguageSupportDeclaration(
+                id: "zig",
+                displayName: "Zig",
+                fileExtensions: ["zig"],
+                projectFileNames: ["build.zig"],
+                languageServerModuleID: .languageServerExtension("zig"),
+                executionModuleID: .languageExecutionExtension("zig"),
+                testingModuleID: .languageExecutionExtension("zig")
+            )]
+        )
+
+        let workspaceURL = URL(fileURLWithPath: "/tmp/zig-workspace", isDirectory: true)
+        let snapshot = source.load(workspaceURL: workspaceURL)
+        let provider = try #require(snapshot.catalog.provider(
+            for: workspaceURL.appendingPathComponent("src/main.zig")
+        ))
+
+        #expect(provider.id == "zig")
+        #expect(provider.displayName == "Zig")
+        #expect(provider.capabilities.contains(.languageServer))
+        #expect(provider.capabilities.contains(.run))
+        #expect(!provider.capabilities.contains(.debugAdapter))
+        #expect(provider.capabilities.contains(.testing))
+    }
+
+    @Test
+    func packageDeclarationOwnsItsProcessBackedCapabilities() throws {
+        let source = PluginLanguageProviderCatalogSource(
+            base: RustLanguageProviderCatalogSource(loader: CatalogPayloadLoader(
+                isAvailable: false,
+                data: nil
+            )),
+            languageSupports: [LanguageSupportDeclaration(
+                id: "go",
+                displayName: "Go",
+                fileExtensions: ["go"],
+                languageServerModuleID: .languageServerExtension("go"),
+                executionModuleID: .languageExecutionExtension("go"),
+                testingModuleID: .languageExecutionExtension("go")
+            )]
+        )
+
+        let provider = try #require(source.load(workspaceURL: nil).catalog.provider(
+            for: URL(fileURLWithPath: "/tmp/main.go")
+        ))
+
+        #expect(provider.capabilities.contains(.languageServer))
+        #expect(provider.capabilities.contains(.run))
+        #expect(!provider.capabilities.contains(.debugAdapter))
+        #expect(provider.capabilities.contains(.testing))
+        #expect(provider.languageServerLaunch == nil)
     }
 
     private func catalogPayload(origin: String, diagnostics: String = "[]") -> Data {

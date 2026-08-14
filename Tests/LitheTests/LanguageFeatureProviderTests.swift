@@ -1,4 +1,5 @@
 import Foundation
+import LitheLanguageIntelligenceModule
 import Testing
 @testable import Lithe
 
