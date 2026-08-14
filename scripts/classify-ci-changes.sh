@@ -42,11 +42,15 @@ full=false
 comments=false
 metadata=false
 
-while IFS=$'\t' read -r status first_path second_path; do
-    path="$first_path"
+while IFS=$'\t' read -r status first_path _; do
     if [[ "$status" == R* || "$status" == C* ]]; then
-        path="$second_path"
+        # A rename or copy can move executable content into a lightweight path.
+        # Keep the classifier fail-closed because both paths affect behavior.
+        full=true
+        break
     fi
+
+    path="$first_path"
     lowercase_path="${path,,}"
 
     case "$lowercase_path" in

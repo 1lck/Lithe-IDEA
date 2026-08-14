@@ -29,6 +29,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Test CI change classifier
+        shell: bash
+        run: ./scripts/test-classify-ci-changes.sh
+
       - name: Classify changed paths
         id: classify
         env:
@@ -38,9 +42,11 @@ jobs:
         shell: bash
         run: |
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            echo "full=true" >> "$GITHUB_OUTPUT"
-            echo "comments=false" >> "$GITHUB_OUTPUT"
-            echo "metadata=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "full=true"
+              echo "comments=false"
+              echo "metadata=false"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 

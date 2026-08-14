@@ -8,6 +8,7 @@ on:
       - "shared/**"
       - "scripts/build-windows.ps1"
       - "scripts/classify-ci-changes.sh"
+      - "scripts/test-classify-ci-changes.sh"
       - "scripts/verify-windows-boundaries.ps1"
       - ".github/workflows/ci-windows.yml"
   push:
@@ -19,6 +20,7 @@ on:
       - "shared/**"
       - "scripts/build-windows.ps1"
       - "scripts/classify-ci-changes.sh"
+      - "scripts/test-classify-ci-changes.sh"
       - "scripts/verify-windows-boundaries.ps1"
       - ".github/workflows/ci-windows.yml"
   workflow_dispatch:
@@ -38,6 +40,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Test CI change classifier
+        shell: bash
+        run: ./scripts/test-classify-ci-changes.sh
 
       - name: Classify changed content
         id: classify

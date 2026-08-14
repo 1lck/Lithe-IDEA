@@ -29,18 +29,57 @@ failures=0
 for file in "${production_files[@]}"; do
     first_source_line="$(awk 'NF { sub(/^[[:space:]]*/, ""); print; exit }' "$file")"
     if [[ "$first_source_line" != "//!"* ]]; then
-        printf '%s\n' "${file#$ROOT_DIR/}:1: production modules must start with //! documentation" >&2
+        relative_file="${file#"$ROOT_DIR"/}"
+        printf '%s\n' "$relative_file:1: production modules must start with //! documentation" >&2
         failures=$((failures + 1))
     fi
 done
 
-# Rust Core comments are English. Limit this check to comment-only lines so that
-# localized strings and fixtures remain valid source content.
+# Rust Core comments are English. Keep URL schemes out of the line-comment
+# match, then scan block comments separately so localized strings remain valid
+# source content without allowing inline comments to bypass the rule.
 if command -v rg >/dev/null 2>&1; then
-    non_english_comments="$(rg -n '^\s*//[/!]?.*\p{Han}' "${rust_files[@]}" || true)"
+    non_english_line_comments="$(rg -n '(^|[^:])//.*\p{Han}' "${rust_files[@]}" || true)"
 else
-    non_english_comments="$(grep -nE '^[[:space:]]*//.*[一-龥]' "${rust_files[@]}" || true)"
+    non_english_line_comments="$(grep -nE '(^|[^:])//.*[一-龥]' "${rust_files[@]}" || true)"
 fi
+non_english_block_comments="$(awk '
+    FNR == 1 { in_block = 0 }
+
+    function emit_if_localized(value) {
+        if (value ~ /[一-龥]/) {
+            print FILENAME ":" FNR ":" value
+        }
+    }
+
+    {
+        remaining = $0
+        while (1) {
+            if (in_block) {
+                end_position = index(remaining, "*/")
+                if (end_position == 0) {
+                    emit_if_localized(remaining)
+                    break
+                }
+                emit_if_localized(substr(remaining, 1, end_position + 1))
+                remaining = substr(remaining, end_position + 2)
+                in_block = 0
+            } else {
+                open = index(remaining, "/*")
+                line_comment = index(remaining, "//")
+                if (line_comment > 0 && (open == 0 || line_comment < open)) {
+                    break
+                }
+                if (open == 0) {
+                    break
+                }
+                remaining = substr(remaining, open + 2)
+                in_block = 1
+            }
+        }
+    }
+' "${rust_files[@]}" || true)"
+non_english_comments="$(printf '%s\n%s\n' "$non_english_line_comments" "$non_english_block_comments" | sed '/^$/d' | sort -u)"
 if [[ -n "$non_english_comments" ]]; then
     printf '%s\n' "Rust Core comments must be written in English:" >&2
     printf '%s\n' "$non_english_comments" >&2
@@ -55,7 +94,12 @@ unsafe_without_safety="$(awk '
         safety = 0
     }
 
-    /^[[:space:]]*\/\/\// {
+    FNR == 1 {
+        reset_docs()
+        in_attribute = 0
+    }
+
+    /^[[:space:]]*\/\/\/([^!]|$)/ {
         documented = 1
         if ($0 ~ /#[[:space:]]*Safety/) {
             safety = 1
@@ -81,7 +125,7 @@ unsafe_without_safety="$(awk '
     }
 
     {
-        public_unsafe_function = $0 ~ /^[[:space:]]*pub[[:space:]]+(async[[:space:]]+)?(const[[:space:]]+)?unsafe[[:space:]]+(extern[[:space:]]+"[^"]+"[[:space:]]+)?fn[[:space:]]+/
+        public_unsafe_function = $0 ~ /^[[:space:]]*pub([[:space:]]*\([^)]*\))?[[:space:]]+(async[[:space:]]+)?(const[[:space:]]+)?unsafe[[:space:]]+(extern[[:space:]]+"[^"]+"[[:space:]]+)?fn[[:space:]]+/
         if (public_unsafe_function && (!documented || !safety)) {
             print FILENAME ":" FNR ": public unsafe functions require /// documentation with a # Safety section"
         }
