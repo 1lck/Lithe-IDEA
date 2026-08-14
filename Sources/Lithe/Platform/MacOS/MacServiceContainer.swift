@@ -73,10 +73,8 @@ final class MacServiceContainer {
             configurationSources: aiConfigurationSources
         )
         let pluginHostServices = MacPluginHostServiceRegistry()
-        pluginHostServices.register(
-            MacLanguageExecutionHost(processRegistry: processRegistry),
-            for: .languageExecution
-        )
+        let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
+        pluginHostServices.register(languageExecutionHost, for: .languageExecution)
         let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
         let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
         let moduleRuntime = ModuleRuntime(
@@ -97,9 +95,12 @@ final class MacServiceContainer {
             recoveryStore: moduleStore,
             launchMode: moduleLaunchMode
         ))
+        let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
         let moduleRegistry = ModuleRegistry(
             runtime: moduleRuntime,
-            pluginManifests: BuiltInPluginCatalog.manifests + pluginStartup.activeNativeManifests
+            pluginManifests: BuiltInPluginCatalog.manifests
+                + bundledLanguageManifests
+                + pluginStartup.activeNativeManifests
         )
         do {
             try moduleRegistry.register(ModuleFactory(manifest: WorkspaceFoundationModule.moduleManifest) {
@@ -150,7 +151,8 @@ final class MacServiceContainer {
         // manifests below contribute factories; keeping static ownership here
         // prevents the host from silently restoring its legacy process path.
         let installedPluginManifests = pluginStartup.installedManifests
-        let installedLanguageSupports = pluginStartup.installedLanguageSupports
+        let installedLanguageSupports = bundledLanguageManifests.flatMap { $0.languageSupports ?? [] }
+            + pluginStartup.installedLanguageSupports
         let languageProviderCatalogSource = PluginLanguageProviderCatalogSource(
             base: rustLanguageProviderCatalogSource,
             languageSupports: installedLanguageSupports
@@ -354,6 +356,24 @@ final class MacServiceContainer {
                     try moduleRegistry.register(factory)
                 }
             }
+            for specification in BundledLanguagePluginCatalog.specifications {
+                let languageServerModule = BundledLanguageServerModule(specification: specification)
+                try moduleRegistry.register(ModuleFactory(manifest: languageServerModule.manifest) {
+                    BundledLanguageServerModule(specification: specification)
+                })
+                if specification.supportsExecution {
+                    let executionModule = BundledLanguageExecutionModule(
+                        languageID: specification.id,
+                        executionHost: languageExecutionHost
+                    )
+                    try moduleRegistry.register(ModuleFactory(manifest: executionModule.manifest) {
+                        BundledLanguageExecutionModule(
+                            languageID: specification.id,
+                            executionHost: languageExecutionHost
+                        )
+                    })
+                }
+            }
             try moduleRegistry.validate()
         } catch {
             preconditionFailure("Invalid workspace module graph: \(error.localizedDescription)")
@@ -366,12 +386,14 @@ final class MacServiceContainer {
             moduleRuntime: moduleRuntime,
             configurationStore: moduleStore,
             launchMode: moduleLaunchMode,
-            startup: pluginStartup
+            startup: pluginStartup,
+            managedBuiltInPlugins: (BuiltInPluginCatalog.manifest(forModule: .database).map { [$0] } ?? [])
+                + bundledLanguageManifests
         )
         let pluginCatalog: ValidatedPluginCatalog
         do {
             pluginCatalog = try ValidatedPluginCatalog(
-                manifests: BuiltInPluginCatalog.manifests + installedPluginManifests,
+                manifests: BuiltInPluginCatalog.manifests + bundledLanguageManifests + installedPluginManifests,
                 hostVersion: BuiltInPluginCatalog.hostVersion
             )
         } catch {

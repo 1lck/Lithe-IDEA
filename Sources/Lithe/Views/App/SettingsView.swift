@@ -120,7 +120,6 @@ struct SettingsView: View {
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
                     case .ai: aiSettings
-                    case .plugins: pluginSettings
                     case .updates: updatesSettings
                     }
                 }
@@ -260,84 +259,6 @@ struct SettingsView: View {
                         .lithePointer()
                         .tint(LitheTheme.accent)
                 }
-            }
-        }
-    }
-
-    private var pluginSettings: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Spacer()
-                Button {
-                    model.installPluginPackage()
-                } label: {
-                    Label("Install", systemImage: "plus")
-                }
-                .buttonStyle(.bordered)
-            }
-
-            ForEach(model.pluginManagementIssues) { issue in
-                HStack(spacing: 10) {
-                    Label(issue.message, systemImage: "exclamationmark.triangle")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.warning)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    if let pluginID = issue.pluginID {
-                        Button("Roll Back") {
-                            model.rollbackPlugin(pluginID)
-                        }
-                        Button("Uninstall", role: .destructive) {
-                            model.uninstallPlugin(pluginID)
-                        }
-                    }
-                }
-            }
-
-            ForEach(model.pluginSnapshots) { plugin in
-                HStack(spacing: 12) {
-                    Image(systemName: "puzzlepiece.extension")
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(width: 20)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(plugin.manifest.displayName)
-                            .font(.system(size: 13, weight: .medium))
-                        Text(verbatim: "\(plugin.manifest.vendor.displayName) · \(plugin.manifest.version)")
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(LitheTheme.secondaryText)
-                        Text(plugin.statusMessage)
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(plugin.requiresRestart ? LitheTheme.warning : LitheTheme.secondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
-                    if plugin.origin == .marketplace {
-                        Menu {
-                            Button("Roll Back") {
-                                model.rollbackPlugin(plugin.id)
-                            }
-                            .disabled(!plugin.canRollback)
-                            Divider()
-                            Button("Uninstall", role: .destructive) {
-                                model.uninstallPlugin(plugin.id)
-                            }
-                            .disabled(plugin.isRequired || plugin.installationStatus == .uninstallPending)
-                        } label: {
-                            Image(systemName: "ellipsis")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .frame(width: 28)
-                        .help("Plugin actions")
-                    }
-                    Toggle("Enabled", isOn: Binding(
-                        get: { plugin.isEnabled },
-                        set: { model.setPluginEnabled($0, pluginID: plugin.id) }
-                    ))
-                    .labelsHidden()
-                    .disabled(plugin.isRequired || plugin.installationStatus == .uninstallPending)
-                }
-                .padding(.vertical, 6)
-                Divider()
             }
         }
     }

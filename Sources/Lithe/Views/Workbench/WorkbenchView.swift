@@ -28,6 +28,7 @@ struct WorkbenchView: View {
     @State private var isNewRunConfigurationPresented = false
     @State private var isProjectSwitcherPresented = false
     @State private var isMemoryUsagePopoverPresented = false
+    @State private var isPluginPanelPresented = false
     @State private var didRestoreLayout = false
     @State private var hoveredProjectTabID: UUID?
 
@@ -44,6 +45,7 @@ struct WorkbenchView: View {
             HStack(spacing: 0) {
                 activityBar
                 workspaceArea
+                pluginActivityBar
             }
             .frame(maxHeight: .infinity)
 
@@ -588,6 +590,24 @@ struct WorkbenchView: View {
         .frame(width: ActivityBarMetrics.width)
     }
 
+    private var pluginActivityBar: some View {
+        VStack {
+            Button { isPluginPanelPresented.toggle() } label: {
+                Image(systemName: "puzzlepiece.extension")
+                    .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
+                    .litheRowHover(isActive: isPluginPanelPresented, cornerRadius: 4, activeBackground: LitheTheme.subtleSelection)
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .foregroundStyle(isPluginPanelPresented ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            .help("Plugins")
+            Spacer()
+        }
+        .padding(.top, ActivityBarMetrics.edgeInset)
+        .frame(width: ActivityBarMetrics.width)
+        .background(LitheTheme.titlebar)
+    }
+
     private var runControls: some View {
         HStack(spacing: 3) {
             Button {
@@ -783,8 +803,15 @@ struct WorkbenchView: View {
                         onDragEnded: {}
                     )
 
-                    EditorAreaView()
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    Group {
+                        if isPluginPanelPresented {
+                            PluginManagementView()
+                                .environmentObject(model)
+                        } else {
+                            EditorAreaView()
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .padding(.top, 6)
                 .padding(.horizontal, 6)
