@@ -31,7 +31,7 @@ struct LocalHistoryModuleTests {
             return makeModule()
         })
         var first: ProjectHistoryFeatureModel? = try #require((try await runtime.activateCapability(.historyWorkspace) as? HistoryModuleCapability)?.feature)
-        weak let released = first
+        weak var released = first
         first = nil
         try await runtime.sleep(.localHistory)
         #expect(released == nil)

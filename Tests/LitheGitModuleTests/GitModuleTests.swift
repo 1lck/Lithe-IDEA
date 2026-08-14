@@ -37,7 +37,7 @@ struct GitModuleTests {
         var first: GitFeatureModel? = try #require(
             (try await runtime.activateCapability(.gitWorkspace) as? GitModuleCapability)?.feature
         )
-        weak let released = first
+        weak var released = first
         first = nil
         try await runtime.sleep(.git)
 

@@ -49,7 +49,7 @@ struct AIAssistanceModuleTests {
         var first: AIAssistanceCapability? = try #require(
             try await runtime.activateCapability(.aiCommitMessage) as? AIAssistanceCapability
         )
-        weak let releasedCapability = first
+        weak var releasedCapability = first
         #expect(recorder.moduleFactoryCalls == 1)
         #expect(recorder.transportFactoryCalls == 1)
         first = nil

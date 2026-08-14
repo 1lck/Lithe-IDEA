@@ -39,7 +39,7 @@ struct SearchModuleTests {
         var first: SearchFeatureModel? = try #require(
             (try await runtime.activateCapability(.searchWorkspace) as? SearchModuleCapability)?.feature
         )
-        weak let releasedFeature = first
+        weak var releasedFeature = first
         first = nil
         try await runtime.sleep(.search)
 

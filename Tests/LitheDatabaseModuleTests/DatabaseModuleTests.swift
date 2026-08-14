@@ -38,7 +38,7 @@ struct DatabaseModuleTests {
         var first: DatabaseFeatureModel? = try #require(
             (try await runtime.activateCapability(.databaseWorkspace) as? DatabaseModuleCapability)?.feature
         )
-        weak let released = first
+        weak var released = first
         first = nil
         try await runtime.sleep(.database)
 
