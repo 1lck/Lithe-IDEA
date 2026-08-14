@@ -1,9 +1,12 @@
+//! UTF-16-aware text edit validation and application.
+
 use crate::lsp::interface::{LspPosition, LspPositionResponse, LspRange, LspRangeResponse};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Source text and LSP edits to validate and apply as one operation.
 pub struct ApplyTextEditsRequest {
     pub text: String,
     #[serde(default)]
@@ -12,6 +15,7 @@ pub struct ApplyTextEditsRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Replacement expressed in LSP UTF-16 coordinates.
 pub struct LspTextEdit {
     pub range: LspRange,
     pub new_text: String,
@@ -19,10 +23,12 @@ pub struct LspTextEdit {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Text-only response shared by edit and snippet commands.
 pub struct TextResponse {
     pub text: String,
 }
 
+/// Applies non-overlapping edits from the end of the document toward the start.
 pub fn apply_text_edits(request: ApplyTextEditsRequest) -> Result<TextResponse, CoreError> {
     let mut replacements = Vec::new();
     for edit in request.edits {

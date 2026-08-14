@@ -1,3 +1,5 @@
+//! Loading and validation for built-in and workspace language-provider catalogs.
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -10,6 +12,7 @@ const BUILTIN_LANGUAGE_PROVIDERS: &str = include_str!(concat!(
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Effective provider catalog after applying an optional workspace override.
 pub struct LspProviderCatalog {
     pub version: u32,
     pub origin: LspProviderCatalogOrigin,
@@ -20,13 +23,17 @@ pub struct LspProviderCatalog {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Source that last changed the effective provider configuration.
 pub enum LspProviderCatalogOrigin {
+    /// The effective catalog is exactly the embedded provider document.
     Builtin,
+    /// At least one workspace-local patch was merged into the built-ins.
     WorkspaceOverride,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Non-fatal configuration problem surfaced alongside usable providers.
 pub struct LspProviderConfigDiagnostic {
     pub path: String,
     pub message: String,
@@ -34,6 +41,7 @@ pub struct LspProviderConfigDiagnostic {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// File recognition, capabilities, and server metadata for one language provider.
 pub struct LspProviderDescriptor {
     pub id: String,
     pub display_name: String,
@@ -51,6 +59,7 @@ pub struct LspProviderDescriptor {
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Executable candidates and initialization values for a language server.
 pub struct LspServerLaunchDescriptor {
     pub executable_names: Vec<String>,
     #[serde(default)]
@@ -65,6 +74,7 @@ pub struct LspServerLaunchDescriptor {
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Installation hints shown when no compatible server executable is available.
 pub struct LspServerInstallationDescriptor {
     #[serde(default)]
     pub homebrew_formula: Option<String>,
@@ -74,18 +84,27 @@ pub struct LspServerInstallationDescriptor {
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Product feature that a language provider can contribute.
 pub enum LspProviderCapability {
+    /// Produces runnable project configurations.
     Run,
+    /// Supplies semantic language features through an LSP process.
     LanguageServer,
+    /// Supplies an adapter that implements the Debug Adapter Protocol.
     DebugAdapter,
+    /// Formats source documents.
     Formatting,
+    /// Discovers or runs project tests.
     Testing,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Policy controlling when a provider's external process may start.
 pub enum LspActivationPolicy {
+    /// Starts the provider only after a feature explicitly requests it.
     OnDemand,
+    /// Starts the provider as soon as its project activation conditions match.
     Always,
 }
 
@@ -135,6 +154,7 @@ struct LspProviderPatch {
     #[serde(default)]
     disabled: bool,
 }
+/// Serializes the effective provider catalog for the C ABI.
 pub fn provider_catalog_json(workspace_root: Option<&Path>) -> String {
     let catalog = provider_catalog(workspace_root);
     serde_json::to_string(&catalog).unwrap_or_else(|_| {
@@ -147,6 +167,7 @@ pub fn provider_catalog_json(workspace_root: Option<&Path>) -> String {
     })
 }
 
+/// Loads built-ins and applies a workspace-local provider configuration, if present.
 pub fn provider_catalog(workspace_root: Option<&Path>) -> LspProviderCatalog {
     let mut diagnostics = Vec::new();
     let mut origin = LspProviderCatalogOrigin::Builtin;

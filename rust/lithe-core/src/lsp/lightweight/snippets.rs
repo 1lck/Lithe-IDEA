@@ -1,12 +1,16 @@
+//! Conversion of LSP snippets into insertion-ready plain text.
+
 use super::edits::TextResponse;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// LSP snippet whose placeholders should be reduced to insertion text.
 pub struct PlainSnippetRequest {
     pub value: String,
 }
 
+/// Removes snippet control syntax while preserving default placeholder text.
 pub fn plain_snippet(request: PlainSnippetRequest) -> TextResponse {
     TextResponse {
         text: snippet_plain_text(&request.value),

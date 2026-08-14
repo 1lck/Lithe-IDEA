@@ -1,3 +1,5 @@
+//! Runnable recipe discovery for Just and shell-script projects.
+
 use super::super::types::Confidence;
 use super::{Detected, DirectoryContext};
 

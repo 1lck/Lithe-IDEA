@@ -271,7 +271,7 @@ fn file_mask_limits_search_to_matching_extensions() {
     assert!(java_only.iter().any(|path| path.ends_with("Service.java")));
     assert!(!java_only.iter().any(|path| path.ends_with("notes.txt")));
 
-    // 多个掩码取并集，且容忍逗号后的空格。
+    // Multiple masks form a union, and whitespace after commas is ignored.
     let both = search("*.java, *.txt");
     assert!(both.iter().any(|path| path.ends_with("Service.java")));
     assert!(both.iter().any(|path| path.ends_with("notes.txt")));

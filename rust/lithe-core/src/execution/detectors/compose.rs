@@ -1,3 +1,5 @@
+//! Docker Compose service discovery from the standard manifest names.
+
 use super::{Detected, DirectoryContext};
 
 const FILES: &[&str] = &[
@@ -7,6 +9,7 @@ const FILES: &[&str] = &[
     "compose.yaml",
 ];
 
+/// Returns one service configuration for each declared Compose service.
 pub fn detect(ctx: &DirectoryContext) -> Vec<Detected> {
     let Some(file) = ctx.any_of(FILES) else {
         return Vec::new();

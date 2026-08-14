@@ -1,86 +1,161 @@
+//! Versioned command requests and the stable set of dispatcher command names.
+
 use serde::Deserialize;
 use serde_json::Value;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Versioned request envelope accepted by every shared Core entry point.
 pub struct CoreRequest {
+    /// Caller-provided correlation identifier copied to the response.
     #[serde(default)]
     pub id: Option<String>,
+    /// Identifier used for cooperative cancellation and stale-result handling.
     #[serde(default)]
     pub operation_id: Option<String>,
+    /// Optional deadline applied by operations that support bounded execution.
     #[serde(default)]
     pub timeout_milliseconds: Option<u64>,
+    /// Stable compatibility name resolved by [`CoreCommand::parse`].
     pub command: String,
+    /// Command-specific JSON object; omitted payloads deserialize as JSON null.
     #[serde(default)]
     pub payload: Value,
 }
 
 #[derive(Debug, Clone)]
+/// Typed form of the stable command names accepted by the dispatcher.
+///
+/// Variants are grouped by domain, but their serialized compatibility names
+/// live only in [`CoreCommand::parse`] so every host uses one mapping.
 pub enum CoreCommand {
+    /// Reports the Core and protocol versions (`core.ping`).
     Ping,
+    /// Builds the visible project tree (`workspace.snapshot`).
     WorkspaceSnapshot,
+    /// Builds or reuses the workspace search index (`workspace.searchIndex.warm`).
     WorkspaceSearchIndexWarm,
+    /// Applies changed paths to the search index (`workspace.searchIndex.update`).
     WorkspaceSearchIndexUpdate,
+    /// Drops a workspace's cached search index (`workspace.searchIndex.invalidate`).
     WorkspaceSearchIndexInvalidate,
+    /// Searches visible file paths and contents (`workspace.search`).
     WorkspaceSearch,
+    /// Searches file paths, contents, and symbols (`workspace.searchEverywhere`).
     WorkspaceSearchEverywhere,
+    /// Previews replacements without writing files (`workspace.replacePreview`).
     WorkspaceReplacePreview,
+    /// Reads one workspace-relative UTF-8 file (`file.read`).
     FileRead,
+    /// Replaces one workspace-relative UTF-8 file (`file.write`).
     FileWrite,
+    /// Records one local-history snapshot (`history.record`).
     HistoryRecord,
+    /// Lists retained local-history metadata (`history.entries`).
     HistoryEntries,
+    /// Reads the contents of one history snapshot (`history.content`).
     HistoryContent,
+    /// Moves history after a workspace path relocation (`history.relocate`).
     HistoryRelocate,
+    /// Changes the optional label of a history snapshot (`history.rename`).
     HistoryRename,
+    /// Deletes one history snapshot (`history.delete`).
     HistoryDelete,
+    /// Inspects a declared Maven reactor (`maven.scan`).
     MavenScan,
+    /// Normalizes diagnostics from Maven output (`maven.diagnostics`).
     MavenDiagnostics,
+    /// Renders and sanitizes shared Markdown (`markdown.render`).
     MarkdownRender,
+    /// Applies validated UTF-16 LSP text edits (`lsp.applyTextEdits`).
     LspApplyTextEdits,
+    /// Reduces an LSP snippet to insertion text (`lsp.plainSnippet`).
     LspPlainSnippet,
+    /// Provides same-document fallback completions (`lsp.builtinCompletions`).
     LspBuiltinCompletions,
+    /// Provides a same-document fallback hover (`lsp.builtinHover`).
     LspBuiltinHover,
+    /// Provides same-document fallback navigation (`lsp.builtinNavigation`).
     LspBuiltinNavigation,
+    /// Starts and initializes a managed language server (`lsp.startServer`).
     LspStartServer,
+    /// Gracefully shuts down a managed server (`lsp.stopServer`).
     LspStopServer,
+    /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
+    /// Closes a synchronized document (`lsp.closeDocument`).
     LspCloseDocument,
+    /// Queues one semantic server request (`lsp.request`).
     LspRequest,
+    /// Cancels one pending semantic request (`lsp.cancelOperation`).
     LspCancelOperation,
+    /// Drains queued session events (`lsp.pollEvents`).
     LspPollEvents,
+    /// Stops and removes a server session (`lsp.destroyServer`).
     LspDestroyServer,
+    /// Discovers Java main classes and run entries (`java.runConfigurations`).
     JavaRunConfigurations,
+    /// Validates layered run-configuration documents (`runConfig.inspect`).
     RunConfigInspect,
+    /// Regenerates detected run configurations (`runConfig.generate`).
     RunConfigGenerate,
+    /// Merges configuration layers and toolchains (`runConfig.resolve`).
     RunConfigResolve,
+    /// Persists editable run options (`runConfig.updateOptions`).
     RunConfigUpdateOptions,
+    /// Adds a user-authored run configuration (`runConfig.createUserConfiguration`).
     RunConfigCreateUserConfiguration,
+    /// Produces the process plan for one configuration (`runConfig.createLaunchPlan`).
     RunConfigCreateLaunchPlan,
+    /// Counts workspace uses of Java declarations (`java.codeVision`).
     JavaCodeVision,
+    /// Resolves a package-qualified Java class name (`java.className`).
     JavaClassName,
+    /// Finds a Java type or member declaration (`java.sourceDefinition`).
     JavaSourceDefinition,
+    /// Reads a Spring server port from configuration (`java.serverPort`).
     JavaServerPort,
+    /// Computes lightweight Java structure features (`java.structure`).
     JavaStructure,
+    /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
+    /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
+    /// Executes a caller-supplied argument vector without a shell (`git.command`).
     GitCommand,
+    /// Performs one supported Git mutation (`git.write`).
     GitWrite,
+    /// Builds a structured Git diff (`git.diff`).
     GitDiff,
+    /// Applies a patch to the index or working tree (`git.apply`).
     GitApply,
+    /// Lists references and bounded commit history (`git.history`).
     GitHistory,
+    /// Resolves metadata for one commit (`git.commit`).
     GitCommit,
+    /// Lists paths changed by one commit (`git.commitFiles`).
     GitCommitFiles,
+    /// Compares a reference with the current checkout (`git.comparison`).
     GitComparison,
+    /// Lists repository stashes (`git.stashes`).
     GitStashes,
+    /// Finds edits that would block checkout (`git.checkoutPreflight`).
     GitCheckoutPreflight,
+    /// Reports whether the tracked branch can fast-forward (`git.pullPreflight`).
     GitPullPreflight,
+    /// Finds state that blocks merge, rebase, cherry-pick, or revert (`git.integrationPreflight`).
     GitIntegrationPreflight,
+    /// Finds staged files containing conflict markers (`git.conflictMarkers`).
     GitConflictMarkers,
+    /// Inspects an interrupted sequential Git operation (`git.operationState`).
     GitOperationState,
+    /// Returns normalized line attribution (`git.blame`).
     GitBlame,
 }
 
 impl CoreCommand {
+    /// Resolves a compatibility command name without accepting aliases or
+    /// case variations that could behave differently across hosts.
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "core.ping" => Some(Self::Ping),

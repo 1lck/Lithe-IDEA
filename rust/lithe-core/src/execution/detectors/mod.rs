@@ -61,6 +61,7 @@ pub struct Detected {
 }
 
 impl Detected {
+    /// Creates a short-lived or interactive application detection.
     pub fn application(
         provider: &str,
         name: &str,
@@ -80,6 +81,7 @@ impl Detected {
         )
     }
 
+    /// Creates a long-running service detection.
     pub fn service(
         provider: &str,
         name: &str,
@@ -99,6 +101,7 @@ impl Detected {
         )
     }
 
+    /// Creates a command expected to run to completion.
     pub fn task(
         provider: &str,
         name: &str,
@@ -135,6 +138,7 @@ impl Detected {
         }
     }
 
+    /// Replaces the default declared confidence with the detector's evidence level.
     pub fn with_confidence(mut self, confidence: Confidence) -> Self {
         self.confidence = confidence;
         self
@@ -157,6 +161,7 @@ impl Detected {
         self
     }
 
+    /// Declares the debug adapter supported by this detection.
     pub fn with_debug(mut self, adapter: &str) -> Self {
         self.debug = Some(adapter.to_string());
         self
@@ -171,6 +176,7 @@ impl Detected {
         self
     }
 
+    /// Attaches provider-specific metadata without expanding the shared schema.
     pub fn with_extension(mut self, namespace: &str, value: serde_json::Value) -> Self {
         self.extensions.insert(namespace.to_string(), value);
         self

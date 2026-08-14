@@ -1,3 +1,5 @@
+//! Incremental workspace search indexing with exact final-content matching.
+
 use crate::project::files::{java_symbols, read_searchable_text, relative_path, VisibilityRules};
 use crate::protocol::{CoreError, ErrorCode, SearchMatch};
 use std::collections::{HashMap, HashSet};
@@ -17,6 +19,7 @@ pub(crate) struct WorkspaceSearchIndex {
     postings: HashMap<u32, Vec<u32>>,
 }
 
+/// Searchable file contents and symbols stored under a stable numeric ID.
 pub(crate) struct IndexedFile {
     pub(crate) path: String,
     trigrams: Vec<u32>,
@@ -24,6 +27,7 @@ pub(crate) struct IndexedFile {
 }
 
 #[derive(Clone)]
+/// Normalized Java symbol retained for Search Everywhere results.
 pub(crate) struct IndexedSymbol {
     pub(crate) name: String,
     pub(crate) kind: String,
@@ -32,13 +36,18 @@ pub(crate) struct IndexedSymbol {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Result of attempting to apply watcher paths to an existing index.
 pub(crate) enum UpdateOutcome {
+    /// No compatible cached index existed, so there was nothing to update.
     NotIndexed,
+    /// Every changed file was applied to the existing index in place.
     Updated,
+    /// A directory or visibility change invalidated the index's global file set.
     RequiresRebuild,
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Counts surfaced after building or updating a workspace index.
 pub(crate) struct SearchIndexStats {
     pub(crate) file_count: usize,
     pub(crate) symbol_count: usize,

@@ -104,6 +104,30 @@ the existing stack can reasonably avoid.
 - Add tests in the owning crate for changes to commands, parsing, validation,
   ordering, cancellation, or serialization.
 
+#### Rust Core comments
+
+Apply the following comment standard to first-party code under
+`rust/lithe-core/`. It does not require comment coverage in the database helpers,
+Windows/Tauri Rust crates, generated code, or third-party sources.
+
+- Write comments in English and keep them accurate when behavior changes.
+- Start each production module with a concise `//!` description of its
+  responsibility or architectural boundary.
+- Use `///` for exported APIs, shared request and response types, core domain
+  types, and C ABI functions. Document ownership and add `# Safety` for unsafe
+  entry points; describe errors only when the failure contract is not obvious.
+- Document enums, structs, variants, and fields whenever their names alone do
+  not make their semantics, allowed values, units, ownership, or protocol role
+  immediately clear. This requirement applies to internal types as well as
+  exported contracts.
+- Use `//` inside implementations to explain non-obvious decisions and
+  constraints involving compatibility, determinism, ordering, security,
+  performance, or cross-platform behavior.
+- In tests, comment the scenario, regression risk, or boundary being protected
+  when the test name and assertions do not make that intent clear.
+- Do not narrate statements, restate descriptive names, or add comments to
+  trivial accessors and straightforward control flow solely for coverage.
+
 ### Windows React and Tauri
 
 - Use Bun for frontend scripts and Tauri 2 for the Windows host. Keep React

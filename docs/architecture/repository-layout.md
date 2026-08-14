@@ -122,6 +122,20 @@ The dependency direction is `protocol <- domain packages <- runtime/FFI`. A doma
 
 Moving Rust files must not change JSON command strings, Serde field names, error codes, or the exported C symbols. Directory-sensitive fixtures and embedded resources must use `CARGO_MANIFEST_DIR` instead of paths derived from a module's current depth.
 
+### Rust Core comment standard
+
+First-party production modules under `rust/lithe-core/` start with an English
+`//!` description of their responsibility or boundary. Exported APIs, shared
+request and response structures, core domain types, and C ABI functions use
+`///`; unsafe entry points document pointer ownership and `# Safety`
+requirements. Enums, structs, variants, and fields whose names do not make
+their semantics, allowed values, units, ownership, or protocol role immediately
+clear are documented even when they are internal. Implementation comments explain non-obvious compatibility,
+determinism, ordering, security, performance, or cross-platform constraints.
+They should explain why the code has its shape instead of narrating individual
+statements. Tests document scenarios or regression risks only when their names
+and assertions are not already sufficient.
+
 ## Ownership rules
 
 | Shared Rust Core | Platform-owned adapters |
