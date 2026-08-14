@@ -7,6 +7,21 @@ import Testing
 @Suite("Lithe core logic")
 struct LitheCoreLogicTests {
     @Test
+    func languageServersAreDisabledUntilExplicitlyEnabledInAWorkspace() {
+        var enablement = WorkspaceLanguageServerEnablement()
+
+        #expect(enablement.isDisabled("java"))
+        #expect(enablement.isDisabled("rust"))
+
+        enablement.setEnabled(true, providerID: "java")
+        #expect(!enablement.isDisabled("java"))
+        #expect(enablement.isDisabled("rust"))
+
+        enablement.reset()
+        #expect(enablement.isDisabled("java"))
+    }
+
+    @Test
     @MainActor
     func closingAWorkspaceWindowClosesTheProjectInsteadOfTheWindow() {
         let sessions = TestProjectWindowSessions(hasActiveProject: true)

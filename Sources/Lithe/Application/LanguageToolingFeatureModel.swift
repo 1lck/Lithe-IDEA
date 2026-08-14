@@ -1,6 +1,26 @@
 import Combine
 import Foundation
 
+struct WorkspaceLanguageServerEnablement {
+    private(set) var enabledProviderIDs: Set<String> = []
+
+    func isDisabled(_ providerID: String) -> Bool {
+        !enabledProviderIDs.contains(providerID)
+    }
+
+    mutating func setEnabled(_ enabled: Bool, providerID: String) {
+        if enabled {
+            enabledProviderIDs.insert(providerID)
+        } else {
+            enabledProviderIDs.remove(providerID)
+        }
+    }
+
+    mutating func reset() {
+        enabledProviderIDs.removeAll()
+    }
+}
+
 /// Owns language-provider selection and workspace-scoped language-server UI state.
 /// Protocol/session ownership remains in LanguageToolingSessionManager; this model
 /// coordinates the feature without exposing that workflow to views.
@@ -8,7 +28,7 @@ import Foundation
 final class LanguageToolingFeatureModel: ObservableObject {
     @Published private(set) var catalog: LanguageProviderCatalog
     @Published private(set) var catalogSnapshot: LanguageProviderCatalogSnapshot
-    private(set) var disabledProviderIDs: Set<String> = []
+    @Published private var enablement = WorkspaceLanguageServerEnablement()
     private(set) var startupFailures: [String: String] = [:]
 
     private let catalogSource: any LanguageProviderCatalogSource
@@ -51,7 +71,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func resetWorkspaceState() {
-        disabledProviderIDs.removeAll()
+        enablement.reset()
         startupFailures.removeAll()
     }
 
@@ -63,15 +83,14 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func isDisabled(_ providerID: String) -> Bool {
-        disabledProviderIDs.contains(providerID)
+        enablement.isDisabled(providerID)
     }
 
     func setEnabled(_ enabled: Bool, providerID: String) {
+        enablement.setEnabled(enabled, providerID: providerID)
         if enabled {
-            disabledProviderIDs.remove(providerID)
             synchronizeOpenDocuments(providerID: providerID)
         } else {
-            disabledProviderIDs.insert(providerID)
             sessions.recordLanguageServerLog(
                 providerID: providerID,
                 level: .warning,
@@ -83,21 +102,23 @@ final class LanguageToolingFeatureModel: ObservableObject {
     }
 
     func toolConfigurationDidChange(providerID: String) {
-        disabledProviderIDs.remove(providerID)
         startupFailures[providerID] = nil
         sessions.stopLanguageServer(providerID: providerID)
         sessions.recordLanguageServerLog(
             providerID: providerID,
             level: .info,
             message: "Language server tool configuration changed",
-            detail: "Workspace disable state cleared"
+            detail: isDisabled(providerID)
+                ? "Configuration saved; language server remains disabled"
+                : "Restarting enabled language server"
         )
+        guard !isDisabled(providerID) else { return }
+        synchronizeOpenDocuments(providerID: providerID)
     }
 
     func selectJavaJDK(_ path: String) {
         settings.javaLanguageServerJDKPath = path
         toolConfigurationDidChange(providerID: "java")
-        synchronizeOpenDocuments(providerID: "java")
     }
 
     func markActivationSucceeded(providerID: String) {

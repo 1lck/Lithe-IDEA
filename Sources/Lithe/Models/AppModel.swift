@@ -641,7 +641,6 @@ final class AppModel: ObservableObject, Identifiable {
 
     func restartLanguageServers() {
         languageToolingSessions.stopAllLanguageServers()
-        languageToolingFeature.resetWorkspaceState()
         let didStart = activateCurrentDocumentLanguageServerIfAvailable()
         showNotification(
             didStart

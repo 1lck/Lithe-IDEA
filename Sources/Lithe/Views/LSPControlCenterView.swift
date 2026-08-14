@@ -115,8 +115,8 @@ struct LSPControlCenterView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(usesChinese
-                ? "内置 Provider 与项目配置合并显示。每个 LSP 都可以自动探测、指定可执行文件或通过 Brew 安装。"
-                : "Built-in providers are merged with project configuration. Every LSP supports automatic discovery, a custom executable, and Brew installation.")
+                ? "LSP 默认关闭以避免后台性能损耗。启用后可自动探测、指定可执行文件或通过 Brew 安装。"
+                : "Language servers are off by default to avoid background overhead. Once enabled, each supports automatic discovery, a custom executable, and Brew installation.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -222,7 +222,7 @@ struct LSPControlCenterView: View {
                 )
             }
 
-            if configuredProviderID == descriptor.id, descriptor.id == "java" {
+            if descriptor.id == "java" {
                 Divider().overlay(LitheTheme.divider)
                 VStack(alignment: .leading, spacing: 7) {
                     Text(usesChinese ? "LSP 运行 JDK" : "LSP Runtime JDK")
