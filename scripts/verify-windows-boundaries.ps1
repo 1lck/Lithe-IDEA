@@ -10,8 +10,9 @@ if ($cppFiles.Count -gt 0) {
     throw "Windows product must not restore the retired Qt/C++ implementation."
 }
 
-$directImports = rg -l 'from "@tauri-apps/api/core"' windows/tauri/src `
-    --glob '*.ts' --glob '*.tsx' |
+$directImports = Get-ChildItem windows/tauri/src -Recurse -File -Include *.ts,*.tsx |
+    Select-String -SimpleMatch 'from "@tauri-apps/api/core"' -List |
+    Select-Object -ExpandProperty Path |
     Where-Object {
         $_ -notmatch 'core[\\/]lithe-core-client\.ts$' -and
         $_ -notmatch 'platform[\\/]tauri-core\.ts$'
