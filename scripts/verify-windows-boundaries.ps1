@@ -10,11 +10,16 @@ if ($cppFiles.Count -gt 0) {
     throw "Windows product must not restore the retired Qt/C++ implementation."
 }
 
-$directImports = rg -l 'from "@tauri-apps/api/core"' windows/tauri/src `
-    --glob '*.ts' --glob '*.tsx' |
+$tauriSource = (Resolve-Path windows/tauri/src).Path
+$allowedDirectImports = @(
+    (Join-Path $tauriSource "core/lithe-core-client.ts")
+    (Join-Path $tauriSource "platform/tauri-core.ts")
+)
+$directImports = Get-ChildItem $tauriSource -Recurse -File -Include *.ts,*.tsx |
+    Select-String -SimpleMatch -CaseSensitive 'from "@tauri-apps/api/core"' |
+    Select-Object -ExpandProperty Path -Unique |
     Where-Object {
-        $_ -notmatch 'core[\\/]lithe-core-client\.ts$' -and
-        $_ -notmatch 'platform[\\/]tauri-core\.ts$'
+        $_ -notin $allowedDirectImports
     }
 if ($directImports) {
     throw "Frontend modules must use @/platform/tauri-core: $($directImports -join ', ')"
