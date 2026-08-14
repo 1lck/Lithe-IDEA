@@ -1,0 +1,251 @@
+import { detectLanguageFromFileName } from "@/features/editor/utils/language-detection";
+import { SINGLETON_TOOL_BUFFER_METADATA } from "@/features/panes/constants/tool-buffers";
+import type { OpenContentSpec, PaneContent } from "@/features/panes/types/pane-content.types";
+
+export const createPaneContent = (id: string, spec: OpenContentSpec): PaneContent => {
+  const base = {
+    id,
+    isPinned: false,
+    isActive: true,
+  };
+
+  switch (spec.type) {
+    case "editor":
+      return {
+        ...base,
+        type: "editor",
+        path: spec.path,
+        name: spec.name,
+        content: spec.content,
+        savedContent: spec.content,
+        isDirty: false,
+        isVirtual: spec.isVirtual ?? false,
+        isPreview: spec.isPreview ?? false,
+        readOnly: spec.readOnly,
+        language: spec.language ?? detectLanguageFromFileName(spec.name),
+        tokens: [],
+      };
+    case "terminal": {
+      const sessionId = spec.sessionId ?? id.replace("buffer_", "");
+      return {
+        ...base,
+        type: "terminal",
+        path: spec.path ?? `terminal://${sessionId}`,
+        name: spec.name ?? "Terminal",
+        isPreview: false,
+        sessionId,
+        shell: spec.shell,
+        initialCommand: spec.command,
+        workingDirectory: spec.workingDirectory,
+        remoteConnectionId: spec.remoteConnectionId,
+      };
+    }
+    case "agent":
+      return {
+        ...base,
+        type: "agent",
+        path: `agent://${spec.sessionId ?? id}`,
+        name: "Agent",
+        isPreview: false,
+        sessionId: spec.sessionId ?? id.replace("buffer_", ""),
+      };
+    case "webViewer":
+      return {
+        ...base,
+        type: "webViewer",
+        path: `web-viewer://${spec.url}`,
+        name: "Web Viewer",
+        isPreview: false,
+        url: spec.url,
+        zoomLevel: spec.zoomLevel,
+        profileKey: spec.profileKey,
+        history: spec.history,
+        historyIndex: spec.historyIndex,
+      };
+    case "newTab":
+      return {
+        ...base,
+        type: "newTab",
+        path: `newtab://${id}`,
+        name: "New Tab",
+        isPreview: false,
+      };
+    case "diff":
+      return {
+        ...base,
+        type: "diff",
+        path: spec.path,
+        name: spec.name,
+        isPreview: false,
+        content: spec.content,
+        savedContent: spec.content,
+        diffData: spec.diffData,
+      };
+    case "image":
+      return {
+        ...base,
+        type: "image",
+        path: spec.path,
+        name: spec.name,
+        isPreview: false,
+      };
+    case "pdf":
+      return {
+        ...base,
+        type: "pdf",
+        path: spec.path,
+        name: spec.name,
+        isPreview: false,
+      };
+    case "binary":
+      return {
+        ...base,
+        type: "binary",
+        path: spec.path,
+        name: spec.name,
+        isPreview: false,
+      };
+    case "database":
+      return {
+        ...base,
+        type: "database",
+        path: spec.path,
+        name: spec.name,
+        isPreview: false,
+        databaseType: spec.databaseType,
+        connectionId: spec.connectionId,
+      };
+    case "pullRequest":
+      return {
+        ...base,
+        type: "pullRequest",
+        path: spec.selectedFilePath
+          ? `pr://${spec.prNumber}?file=${encodeURIComponent(spec.selectedFilePath)}`
+          : spec.initialView === "files"
+            ? `pr://${spec.prNumber}?view=files`
+            : `pr://${spec.prNumber}`,
+        name: spec.name ?? "Pull Request",
+        isPreview: false,
+        repoPath: spec.repoPath,
+        prNumber: spec.prNumber,
+        authorAvatarUrl: spec.authorAvatarUrl,
+      };
+    case "githubIssue":
+      return {
+        ...base,
+        type: "githubIssue",
+        path: spec.url ?? `github-issue://${spec.issueNumber}`,
+        name: spec.name ?? "Issue",
+        isPreview: false,
+        repoPath: spec.repoPath,
+        issueNumber: spec.issueNumber,
+        authorAvatarUrl: spec.authorAvatarUrl,
+        url: spec.url,
+      };
+    case "githubAction":
+      return {
+        ...base,
+        type: "githubAction",
+        path: spec.url ?? `github-action://${spec.runId}`,
+        name: spec.name ?? "Action",
+        isPreview: false,
+        repoPath: spec.repoPath,
+        runId: spec.runId,
+        url: spec.url,
+      };
+    case "githubForm": {
+      const resourceLabel =
+        spec.formKind === "pull-request"
+          ? "Pull Request"
+          : spec.formKind === "issue"
+            ? "Issue"
+            : "Workflow";
+      return {
+        ...base,
+        type: "githubForm",
+        path: `github-form://create/${spec.formKind}/${encodeURIComponent(spec.repoPath)}`,
+        name: spec.formKind === "action" ? "Run Workflow" : `New ${resourceLabel}`,
+        isPreview: false,
+        repoPath: spec.repoPath,
+        formKind: spec.formKind,
+        operation: "create",
+        defaultHead: spec.defaultHead,
+      };
+    }
+    case "markdownDocument":
+      return {
+        ...base,
+        type: "markdownDocument",
+        path: `markdown-document://${spec.documentId}`,
+        name: "Untitled Document",
+        isPreview: false,
+        content: spec.content ?? "",
+      };
+    case "markdownPreview":
+      return {
+        ...base,
+        type: "markdownPreview",
+        path: spec.path,
+        name: spec.name,
+        isPreview: false,
+        content: spec.content,
+        sourceFilePath: spec.sourceFilePath,
+      };
+    case "htmlPreview":
+      return {
+        ...base,
+        type: "htmlPreview",
+        path: spec.path,
+        name: spec.name,
+        isPreview: false,
+        content: spec.content,
+        sourceFilePath: spec.sourceFilePath,
+      };
+    case "csvPreview":
+      return {
+        ...base,
+        type: "csvPreview",
+        path: spec.path,
+        name: spec.name,
+        isPreview: false,
+        content: spec.content,
+        sourceFilePath: spec.sourceFilePath,
+      };
+    case "externalEditor":
+      return {
+        ...base,
+        type: "externalEditor",
+        path: spec.path,
+        name: spec.name,
+        isPreview: false,
+        terminalConnectionId: spec.terminalConnectionId,
+      };
+    case "globalSearch":
+    case "diagnostics":
+    case "references":
+    case "extensions": {
+      const metadata = SINGLETON_TOOL_BUFFER_METADATA[spec.type];
+      return {
+        ...base,
+        type: spec.type,
+        path: metadata.path,
+        name: metadata.name,
+        isPreview: false,
+      };
+    }
+    case "onboarding":
+      return {
+        ...base,
+        type: "onboarding",
+        path: `onboarding://${spec.context.mode}/${spec.context.currentVersion}`,
+        name:
+          spec.context.mode === "updated" || spec.context.mode === "release-notes"
+            ? "What's New"
+            : "Welcome",
+        isPreview: false,
+        mode: spec.context.mode,
+        currentVersion: spec.context.currentVersion,
+        previousVersion: spec.context.previousVersion,
+      };
+  }
+};

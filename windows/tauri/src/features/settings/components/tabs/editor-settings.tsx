@@ -1,0 +1,568 @@
+import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { getAllLanguages } from "@/features/editor/utils/language-id";
+import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
+import NumberInput from "@/ui/number-input";
+import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
+import Select from "@/ui/select";
+import Switch from "@/ui/switch";
+import { FontSelector } from "../font-selector";
+
+export const EditorSettings = () => {
+  const settings = useSettingsStore(
+    useShallow((state) => ({
+      autoCompletion: state.settings.autoCompletion,
+      autoDetectLanguage: state.settings.autoDetectLanguage,
+      autoSave: state.settings.autoSave,
+      breadcrumbShowSymbols: state.settings.breadcrumbShowSymbols,
+      defaultLanguage: state.settings.defaultLanguage,
+      editorBracketPairColorization: state.settings.editorBracketPairColorization,
+      editorCursorBlinking: state.settings.editorCursorBlinking,
+      editorCursorStyle: state.settings.editorCursorStyle,
+      editorFontLigatures: state.settings.editorFontLigatures,
+      editorItalicComments: state.settings.editorItalicComments,
+      editorLineHeight: state.settings.editorLineHeight,
+      editorScrollBeyondLastLine: state.settings.editorScrollBeyondLastLine,
+      editorSmoothScrolling: state.settings.editorSmoothScrolling,
+      editorStickyScroll: state.settings.editorStickyScroll,
+      fontFamily: state.settings.fontFamily,
+      fontSize: state.settings.fontSize,
+      formatOnSave: state.settings.formatOnSave,
+      highlightOccurrences: state.settings.highlightOccurrences,
+      horizontalTabScroll: state.settings.horizontalTabScroll,
+      codeLens: state.settings.codeLens,
+      inlayHints: state.settings.inlayHints,
+      lineNumbers: state.settings.lineNumbers,
+      lintOnSave: state.settings.lintOnSave,
+      maxOpenTabs: state.settings.maxOpenTabs,
+      parameterHints: state.settings.parameterHints,
+      renderIndentGuides: state.settings.renderIndentGuides,
+      renderWhitespace: state.settings.renderWhitespace,
+      semanticTokens: state.settings.semanticTokens,
+      showMinimap: state.settings.showMinimap,
+      tabSize: state.settings.tabSize,
+      vimRelativeLineNumbers: state.settings.vimRelativeLineNumbers,
+      wordWrap: state.settings.wordWrap,
+    })),
+  );
+  const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
+  const languageOptions = useMemo(
+    () => [
+      { value: "auto", label: "Auto Detect" },
+      ...getAllLanguages().map((language) => ({
+        value: language.id,
+        label: language.displayName,
+      })),
+    ],
+    [],
+  );
+  const renderWhitespaceOptions = [
+    { value: "none", label: "None" },
+    { value: "boundary", label: "Boundary" },
+    { value: "trailing", label: "Trailing" },
+    { value: "all", label: "All" },
+  ];
+  return (
+    <SettingsView>
+      <Section title="Editor">
+        <SettingRow
+          label="Editor Font Family"
+          description="Font family for code editor"
+          onReset={() => updateSetting("fontFamily", getDefaultSetting("fontFamily"))}
+          canReset={settings.fontFamily !== getDefaultSetting("fontFamily")}
+        >
+          <FontSelector
+            value={settings.fontFamily}
+            onChange={(fontFamily) => updateSetting("fontFamily", fontFamily)}
+            className={SETTINGS_CONTROL_WIDTHS.text}
+            monospaceOnly={true}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Font Size"
+          description="Editor font size in pixels"
+          onReset={() => updateSetting("fontSize", getDefaultSetting("fontSize"))}
+          canReset={settings.fontSize !== getDefaultSetting("fontSize")}
+        >
+          <NumberInput
+            min="8"
+            max="32"
+            value={settings.fontSize}
+            onChange={(val) => updateSetting("fontSize", val)}
+            className={SETTINGS_CONTROL_WIDTHS.numberCompact}
+            size="md"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Font Ligatures"
+          description="Use programming ligatures provided by the selected editor font"
+          onReset={() =>
+            updateSetting("editorFontLigatures", getDefaultSetting("editorFontLigatures"))
+          }
+          canReset={settings.editorFontLigatures !== getDefaultSetting("editorFontLigatures")}
+        >
+          <Switch
+            checked={settings.editorFontLigatures}
+            onChange={(checked) => updateSetting("editorFontLigatures", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Italic Comments"
+          description="Render code comments in italics"
+          onReset={() =>
+            updateSetting("editorItalicComments", getDefaultSetting("editorItalicComments"))
+          }
+          canReset={settings.editorItalicComments !== getDefaultSetting("editorItalicComments")}
+        >
+          <Switch
+            checked={settings.editorItalicComments}
+            onChange={(checked) => updateSetting("editorItalicComments", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Line Height"
+          description="Editor line height multiplier"
+          onReset={() => updateSetting("editorLineHeight", getDefaultSetting("editorLineHeight"))}
+          canReset={settings.editorLineHeight !== getDefaultSetting("editorLineHeight")}
+        >
+          <NumberInput
+            min="1"
+            max="2"
+            step={0.1}
+            value={settings.editorLineHeight}
+            onChange={(val) => updateSetting("editorLineHeight", val)}
+            className={SETTINGS_CONTROL_WIDTHS.numberCompact}
+            size="md"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Tab Size"
+          description="Number of spaces per tab"
+          onReset={() => updateSetting("tabSize", getDefaultSetting("tabSize"))}
+          canReset={settings.tabSize !== getDefaultSetting("tabSize")}
+        >
+          <NumberInput
+            min="1"
+            max="8"
+            value={settings.tabSize}
+            onChange={(val) => updateSetting("tabSize", val)}
+            className={SETTINGS_CONTROL_WIDTHS.numberCompact}
+            size="md"
+          />
+        </SettingRow>
+        <SettingRow
+          label="Word Wrap"
+          description="Wrap lines that exceed viewport width"
+          onReset={() => updateSetting("wordWrap", getDefaultSetting("wordWrap"))}
+          canReset={settings.wordWrap !== getDefaultSetting("wordWrap")}
+        >
+          <Switch
+            checked={settings.wordWrap}
+            onChange={(checked) => updateSetting("wordWrap", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Line Numbers"
+          description="Show line numbers in the editor"
+          onReset={() => updateSetting("lineNumbers", getDefaultSetting("lineNumbers"))}
+          canReset={settings.lineNumbers !== getDefaultSetting("lineNumbers")}
+        >
+          <Switch
+            checked={settings.lineNumbers}
+            onChange={(checked) => updateSetting("lineNumbers", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Render Whitespace"
+          description="Show visible markers for spaces and tabs"
+          onReset={() => updateSetting("renderWhitespace", getDefaultSetting("renderWhitespace"))}
+          canReset={settings.renderWhitespace !== getDefaultSetting("renderWhitespace")}
+        >
+          <Select
+            value={settings.renderWhitespace}
+            options={renderWhitespaceOptions}
+            onChange={(value) =>
+              updateSetting("renderWhitespace", value as typeof settings.renderWhitespace)
+            }
+            className={SETTINGS_CONTROL_WIDTHS.default}
+            size="md"
+            variant="default"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Indent Guides"
+          description="Show vertical guides for indentation levels"
+          onReset={() =>
+            updateSetting("renderIndentGuides", getDefaultSetting("renderIndentGuides"))
+          }
+          canReset={settings.renderIndentGuides !== getDefaultSetting("renderIndentGuides")}
+        >
+          <Switch
+            checked={settings.renderIndentGuides}
+            onChange={(checked) => updateSetting("renderIndentGuides", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Highlight Occurrences"
+          description="Highlight visible matches for the word under the cursor"
+          onReset={() =>
+            updateSetting("highlightOccurrences", getDefaultSetting("highlightOccurrences"))
+          }
+          canReset={settings.highlightOccurrences !== getDefaultSetting("highlightOccurrences")}
+        >
+          <Switch
+            checked={settings.highlightOccurrences}
+            onChange={(checked) => updateSetting("highlightOccurrences", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Relative Line Numbers"
+          description="Show relative numbers when Vim mode is active"
+          onReset={() =>
+            updateSetting("vimRelativeLineNumbers", getDefaultSetting("vimRelativeLineNumbers"))
+          }
+          canReset={settings.vimRelativeLineNumbers !== getDefaultSetting("vimRelativeLineNumbers")}
+        >
+          <Switch
+            checked={settings.vimRelativeLineNumbers}
+            onChange={(checked) => updateSetting("vimRelativeLineNumbers", checked)}
+            size="sm"
+            disabled={!settings.lineNumbers}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Show Minimap"
+          description="Show a minimap overview on the right side of the editor"
+          onReset={() => updateSetting("showMinimap", getDefaultSetting("showMinimap"))}
+          canReset={settings.showMinimap !== getDefaultSetting("showMinimap")}
+        >
+          <Switch
+            checked={settings.showMinimap}
+            onChange={(checked) => updateSetting("showMinimap", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Sticky Scroll"
+          description="Keep containing scopes visible at the top while scrolling"
+          onReset={() =>
+            updateSetting("editorStickyScroll", getDefaultSetting("editorStickyScroll"))
+          }
+          canReset={settings.editorStickyScroll !== getDefaultSetting("editorStickyScroll")}
+        >
+          <Switch
+            checked={settings.editorStickyScroll}
+            onChange={(checked) => updateSetting("editorStickyScroll", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Bracket Pair Colorization"
+          description="Use matching colors to distinguish nested bracket pairs"
+          onReset={() =>
+            updateSetting(
+              "editorBracketPairColorization",
+              getDefaultSetting("editorBracketPairColorization"),
+            )
+          }
+          canReset={
+            settings.editorBracketPairColorization !==
+            getDefaultSetting("editorBracketPairColorization")
+          }
+        >
+          <Switch
+            checked={settings.editorBracketPairColorization}
+            onChange={(checked) => updateSetting("editorBracketPairColorization", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Smooth Scrolling"
+          description="Animate editor scrolling between positions"
+          onReset={() =>
+            updateSetting("editorSmoothScrolling", getDefaultSetting("editorSmoothScrolling"))
+          }
+          canReset={settings.editorSmoothScrolling !== getDefaultSetting("editorSmoothScrolling")}
+        >
+          <Switch
+            checked={settings.editorSmoothScrolling}
+            onChange={(checked) => updateSetting("editorSmoothScrolling", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Scroll Beyond Last Line"
+          description="Allow scrolling the final line above the bottom of the editor"
+          onReset={() =>
+            updateSetting(
+              "editorScrollBeyondLastLine",
+              getDefaultSetting("editorScrollBeyondLastLine"),
+            )
+          }
+          canReset={
+            settings.editorScrollBeyondLastLine !== getDefaultSetting("editorScrollBeyondLastLine")
+          }
+        >
+          <Switch
+            checked={settings.editorScrollBeyondLastLine}
+            onChange={(checked) => updateSetting("editorScrollBeyondLastLine", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Cursor Style"
+          description="Shape of the editor cursor outside Vim normal mode"
+          onReset={() => updateSetting("editorCursorStyle", getDefaultSetting("editorCursorStyle"))}
+          canReset={settings.editorCursorStyle !== getDefaultSetting("editorCursorStyle")}
+        >
+          <Select
+            value={settings.editorCursorStyle}
+            options={[
+              { value: "line", label: "Line" },
+              { value: "line-thin", label: "Thin Line" },
+              { value: "block", label: "Block" },
+              { value: "block-outline", label: "Block Outline" },
+              { value: "underline", label: "Underline" },
+              { value: "underline-thin", label: "Thin Underline" },
+            ]}
+            onChange={(value) =>
+              updateSetting("editorCursorStyle", value as typeof settings.editorCursorStyle)
+            }
+            className={SETTINGS_CONTROL_WIDTHS.default}
+            size="md"
+            variant="default"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Cursor Blinking"
+          description="Animation used by the editor cursor outside Vim normal mode"
+          onReset={() =>
+            updateSetting("editorCursorBlinking", getDefaultSetting("editorCursorBlinking"))
+          }
+          canReset={settings.editorCursorBlinking !== getDefaultSetting("editorCursorBlinking")}
+        >
+          <Select
+            value={settings.editorCursorBlinking}
+            options={[
+              { value: "blink", label: "Blink" },
+              { value: "smooth", label: "Smooth" },
+              { value: "phase", label: "Phase" },
+              { value: "expand", label: "Expand" },
+              { value: "solid", label: "Solid" },
+            ]}
+            onChange={(value) =>
+              updateSetting("editorCursorBlinking", value as typeof settings.editorCursorBlinking)
+            }
+            className={SETTINGS_CONTROL_WIDTHS.default}
+            size="md"
+            variant="default"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Max Open Tabs"
+          description="Maximum number of tabs before oldest closes"
+          onReset={() => updateSetting("maxOpenTabs", getDefaultSetting("maxOpenTabs"))}
+          canReset={settings.maxOpenTabs !== getDefaultSetting("maxOpenTabs")}
+        >
+          <NumberInput
+            min="1"
+            max="100"
+            value={settings.maxOpenTabs}
+            onChange={(val) => updateSetting("maxOpenTabs", val)}
+            className={SETTINGS_CONTROL_WIDTHS.numberCompact}
+            size="md"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Buffer Carousel"
+          description="Show open buffers as a horizontally scrollable carousel in the main view"
+          onReset={() =>
+            updateSetting("horizontalTabScroll", getDefaultSetting("horizontalTabScroll"))
+          }
+          canReset={settings.horizontalTabScroll !== getDefaultSetting("horizontalTabScroll")}
+        >
+          <Switch
+            checked={settings.horizontalTabScroll}
+            onChange={(checked) => updateSetting("horizontalTabScroll", checked)}
+            size="sm"
+          />
+        </SettingRow>
+        <SettingRow
+          label="Auto Save"
+          description="Automatically save files when editing"
+          onReset={() => updateSetting("autoSave", getDefaultSetting("autoSave"))}
+          canReset={settings.autoSave !== getDefaultSetting("autoSave")}
+        >
+          <Switch
+            checked={settings.autoSave}
+            onChange={(checked) => updateSetting("autoSave", checked)}
+            size="sm"
+          />
+        </SettingRow>
+        <SettingRow
+          label="Default Language"
+          description="Default syntax highlighting for new files"
+          onReset={() => updateSetting("defaultLanguage", getDefaultSetting("defaultLanguage"))}
+          canReset={settings.defaultLanguage !== getDefaultSetting("defaultLanguage")}
+        >
+          <Select
+            value={settings.defaultLanguage}
+            options={languageOptions}
+            onChange={(value) => updateSetting("defaultLanguage", value)}
+            className={SETTINGS_CONTROL_WIDTHS.default}
+            size="md"
+            variant="default"
+            searchable
+            searchableTrigger="input"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Auto-detect Language"
+          description="Automatically detect file language from extension"
+          onReset={() =>
+            updateSetting("autoDetectLanguage", getDefaultSetting("autoDetectLanguage"))
+          }
+          canReset={settings.autoDetectLanguage !== getDefaultSetting("autoDetectLanguage")}
+        >
+          <Switch
+            checked={settings.autoDetectLanguage}
+            onChange={(checked) => updateSetting("autoDetectLanguage", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Format on Save"
+          description="Automatically format code when saving"
+          onReset={() => updateSetting("formatOnSave", getDefaultSetting("formatOnSave"))}
+          canReset={settings.formatOnSave !== getDefaultSetting("formatOnSave")}
+        >
+          <Switch
+            checked={settings.formatOnSave}
+            onChange={(checked) => updateSetting("formatOnSave", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Lint on Save"
+          description="Run linter when saving files"
+          onReset={() => updateSetting("lintOnSave", getDefaultSetting("lintOnSave"))}
+          canReset={settings.lintOnSave !== getDefaultSetting("lintOnSave")}
+        >
+          <Switch
+            checked={settings.lintOnSave}
+            onChange={(checked) => updateSetting("lintOnSave", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Auto Completion"
+          description="Show completion suggestions while typing"
+          onReset={() => updateSetting("autoCompletion", getDefaultSetting("autoCompletion"))}
+          canReset={settings.autoCompletion !== getDefaultSetting("autoCompletion")}
+        >
+          <Switch
+            checked={settings.autoCompletion}
+            onChange={(checked) => updateSetting("autoCompletion", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Parameter Hints"
+          description="Show function parameter hints"
+          onReset={() => updateSetting("parameterHints", getDefaultSetting("parameterHints"))}
+          canReset={settings.parameterHints !== getDefaultSetting("parameterHints")}
+        >
+          <Switch
+            checked={settings.parameterHints}
+            onChange={(checked) => updateSetting("parameterHints", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Inlay Hints"
+          description="Show inline type and parameter hints from language servers"
+          onReset={() => updateSetting("inlayHints", getDefaultSetting("inlayHints"))}
+          canReset={settings.inlayHints !== getDefaultSetting("inlayHints")}
+        >
+          <Switch
+            checked={settings.inlayHints}
+            onChange={(checked) => updateSetting("inlayHints", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Code Lens"
+          description="Show inline code actions above symbols"
+          onReset={() => updateSetting("codeLens", getDefaultSetting("codeLens"))}
+          canReset={settings.codeLens !== getDefaultSetting("codeLens")}
+        >
+          <Switch
+            checked={settings.codeLens}
+            onChange={(checked) => updateSetting("codeLens", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Semantic Tokens"
+          description="Use language server semantic highlighting"
+          onReset={() => updateSetting("semanticTokens", getDefaultSetting("semanticTokens"))}
+          canReset={settings.semanticTokens !== getDefaultSetting("semanticTokens")}
+        >
+          <Switch
+            checked={settings.semanticTokens}
+            onChange={(checked) => updateSetting("semanticTokens", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Show Symbol in Breadcrumb"
+          description="Show the containing function/class for the cursor position in the breadcrumb bar"
+          onReset={() =>
+            updateSetting("breadcrumbShowSymbols", getDefaultSetting("breadcrumbShowSymbols"))
+          }
+          canReset={settings.breadcrumbShowSymbols !== getDefaultSetting("breadcrumbShowSymbols")}
+        >
+          <Switch
+            checked={settings.breadcrumbShowSymbols}
+            onChange={(checked) => updateSetting("breadcrumbShowSymbols", checked)}
+            size="sm"
+          />
+        </SettingRow>
+      </Section>
+    </SettingsView>
+  );
+};

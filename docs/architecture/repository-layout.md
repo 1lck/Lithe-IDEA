@@ -2,8 +2,8 @@
 
 Lithe contains two independent platform applications connected by a small set
 of shared contracts. macOS is the current reference product. Windows is a
-Qt/C++ implementation in progress; it must not import Swift source or depend
-on macOS types.
+React/Tauri implementation; it must not import Swift source or depend on macOS
+types.
 
 ## Top-level layout
 
@@ -23,7 +23,7 @@ Lithe-IDEA/
 ├── Plugins/Official/       # source manifests and Bundle metadata for official plugins
 ├── Tests/LitheTests/       # Swift Testing unit tests
 ├── rust/lithe-core/        # shared Rust commands, models, and C ABI
-├── windows/                # C++ CoreClient, Win32 adapters, and Qt UI
+├── windows/                # React/Tauri Windows application and Rust adapters
 ├── shared/                 # contracts and cross-platform fixtures
 ├── Fixtures/               # reusable Java, Maven, Spring Boot, and Git data
 ├── scripts/                # build, packaging, fixture, and verification tools
@@ -43,17 +43,18 @@ SwiftUI/AppKit → AppModel → Application Feature Models → AppServices
                                       └── macOS ports and adapters
 ```
 
-The Windows implementation has the corresponding native layers:
+The Windows implementation has the corresponding web/native layers:
 
 ```text
-windows/qt/       Qt Widgets workbench and UI state
-windows/core/     C++ client for the Rust JSON C ABI
-windows/adapters/ Win32 file, watcher, process, terminal, runtime, and storage adapters
+windows/tauri/src/           React workbench, feature stores, and presentation
+windows/tauri/src/platform/  frontend boundary for shared and native commands
+windows/tauri/src-tauri/     Tauri composition and Windows-owned Rust adapters
 ```
 
 Both platforms consume `rust/lithe-core` through the same JSON envelope and
-command names. Shared behavior belongs in `shared/contracts/` and should have
-a fixture under `shared/fixtures/` before the second platform relies on it.
+command names. The Windows Tauri host links the Rust crate directly while
+macOS uses the C ABI. Shared behavior belongs in `shared/contracts/` and should
+have a fixture under `shared/fixtures/` before the second platform relies on it.
 
 ## Swift source organization
 
@@ -133,8 +134,8 @@ Moving Rust files must not change JSON command strings, Serde field names, error
 | Error codes, cancellation, deadlines, and JSON envelope | PTY/ConPTY, signals, handles, and native UI |
 
 The UI must depend on feature models and shared models, not on a concrete
-adapter. Core and Services must remain free of AppKit, SwiftUI, Win32, Qt,
-`Process`, and direct platform file APIs.
+adapter. Core and Services must remain free of AppKit, SwiftUI, Tauri, WebView2,
+Win32, `Process`, and direct platform file APIs.
 
 Language tooling has an additional protocol/application split: Rust owns the
 complete LSP process/session runtime and normalized results, while platform

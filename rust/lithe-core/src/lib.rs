@@ -16,5 +16,13 @@ pub fn execute_json(request: &str) -> String {
     runtime::execute_json(request)
 }
 
+/// Requests cooperative cancellation of an active operation.
+///
+/// Native Rust hosts use this entry point while the Swift and C++ clients keep
+/// using the stable `lithe_core_cancel` C ABI.
+pub fn cancel_operation(operation_id: &str) -> bool {
+    protocol::cancellation::cancel(operation_id)
+}
+
 #[cfg(test)]
 mod tests;

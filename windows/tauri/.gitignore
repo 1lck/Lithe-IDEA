@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.bun-cache/
+.cache/
+.tmp/
+.env
+.env.local
+*.log
+src-tauri/target/
+src-tauri/gen/
+.DS_Store
+.Thumbs.db

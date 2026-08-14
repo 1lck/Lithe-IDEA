@@ -1,7 +1,8 @@
 # Rust Core API
 
 The Rust core is the shared application runtime for macOS SwiftUI and Windows
-Qt/C++. Both bindings call the same C ABI:
+React/Tauri. macOS calls the stable C ABI while the Tauri host links the Rust
+crate directly. The C ABI remains:
 
 ```c
 const char *lithe_core_version(void);
@@ -13,8 +14,8 @@ void lithe_core_free_string(char *value);
 
 The macOS package uses the small C bridge in `Sources/LitheRustCore/`. The
 canonical C declarations are in `rust/lithe-core/include/lithe_core.h`.
-Windows can link the same `staticlib` or `cdylib` and call these functions from
-C++.
+Native clients can link the same `staticlib` or `cdylib`; Rust hosts call
+`lithe_core::execute_json` and `lithe_core::cancel_operation` directly.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
@@ -68,6 +69,8 @@ stable error code and a user-facing message:
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
 | `history.relocate` | Move a file's history records after a rename |
+| `history.rename` | Set or clear a user-visible label on a history entry |
+| `history.delete` | Delete one history entry and its snapshot |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `lsp.applyTextEdits` | Apply LSP UTF-16 text edits with range validation |
@@ -113,7 +116,9 @@ stable error code and a user-facing message:
 Workspace paths in responses are relative and use `/` separators. Line numbers
 are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
-relative to that repository root. The core rejects absolute paths and `..`
+relative to that repository root. `git.status.ahead` and `behind` report the
+current branch's tracking counts and are zero when no upstream is configured.
+The core rejects absolute paths and `..`
 traversal for file commands. Native file dialogs, file watching, PTY/ConPTY,
 Java processes, and runtime discovery remain platform adapters.
 
@@ -261,8 +266,10 @@ accepts `workspaceRoot`, a relative `path`, a `reason`, and optional UTF-8
 are versioned, de-duplicated against the latest snapshot, capped at 100 entries
 per file, and pruned after 30 days. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
-`contentPath` values. `history.content` rejects traversal, and
-`history.relocate` updates metadata and storage paths at the command boundary.
+`contentPath` values. `history.content` rejects traversal,
+`history.relocate` updates metadata and storage paths, and `history.rename` and
+`history.delete` validate both the relative file path and entry ID before
+changing stored metadata.
 
 `maven.scan` accepts `{ "root": string, "paths"?: string[] }` and returns
 `null` when neither the root nor the supplied visible workspace-relative paths

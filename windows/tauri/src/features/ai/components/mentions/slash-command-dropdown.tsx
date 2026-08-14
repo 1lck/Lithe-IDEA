@@ -1,0 +1,132 @@
+import React, { useCallback, useEffect, useRef, type RefObject } from "react";
+import type { SlashCommand } from "@/features/ai/types/acp.types";
+import type { SlashCommandState } from "@/features/ai/types/chat-composer.types";
+import { useUIState } from "@/features/window/stores/ui-state.store";
+import {
+  CommandEmpty,
+  CommandItemBadge,
+  CommandItemMeta,
+  CommandItemRow,
+  CommandList,
+} from "@/ui/command";
+import { ComposerAttachedPanel } from "../input/composer-attached-panel";
+
+interface SlashCommandDropdownProps {
+  anchorRef: RefObject<HTMLElement | null>;
+  onSelect: (command: SlashCommand) => void;
+  onClose?: () => void;
+  slashCommandState: SlashCommandState;
+  availableSlashCommands: SlashCommand[];
+  filteredCommands: SlashCommand[];
+  onSelectedIndexChange: (index: number) => void;
+}
+
+export const SlashCommandDropdown = React.memo(function SlashCommandDropdown({
+  anchorRef,
+  onSelect,
+  onClose,
+  slashCommandState,
+  availableSlashCommands,
+  filteredCommands,
+  onSelectedIndexChange,
+}: SlashCommandDropdownProps) {
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const setIsQuickOpenVisible = useUIState((state) => state.setIsQuickOpenVisible);
+  const setIsCommandPaletteVisible = useUIState((state) => state.setIsCommandPaletteVisible);
+
+  const { selectedIndex } = slashCommandState;
+  const closeSlashCommands = useCallback(() => {
+    onClose?.();
+  }, [onClose]);
+
+  useEffect(() => {
+    const selectedItem = listRef.current?.children[selectedIndex] as HTMLElement | undefined;
+    if (selectedItem) {
+      selectedItem.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      });
+    }
+  }, [selectedIndex]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isCommandModifier = event.metaKey || event.ctrlKey;
+      if (isCommandModifier && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSlashCommands();
+        if (event.shiftKey) {
+          setIsCommandPaletteVisible(true);
+        } else {
+          setIsQuickOpenVisible(true);
+        }
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSlashCommands();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeSlashCommands, setIsCommandPaletteVisible, setIsQuickOpenVisible]);
+
+  return (
+    <ComposerAttachedPanel
+      open={slashCommandState.active}
+      anchorRef={anchorRef}
+      onClose={closeSlashCommands}
+      ariaLabel="Slash command suggestions"
+      maxHeight={240}
+    >
+      {filteredCommands.length > 0 ? (
+        <CommandList
+          ref={listRef}
+          role="listbox"
+          aria-label="Slash command suggestions"
+          contentClassName="p-1.5"
+        >
+          {filteredCommands.map((command, index) => (
+            <CommandItemRow
+              key={command.name}
+              type="button"
+              data-item-index={index}
+              isSelected={index === selectedIndex}
+              onClick={() => onSelect(command)}
+              onMouseEnter={() => onSelectedIndexChange(index)}
+              role="option"
+              aria-selected={index === selectedIndex}
+              tabIndex={index === selectedIndex ? 0 : -1}
+              icon={<span>/</span>}
+              iconClassName="size-4"
+              title={command.name}
+              description={command.description}
+              density="compact"
+              contentClassName="[&>span:first-child]:shrink-0"
+              accessory={
+                command.input?.hint ? (
+                  <CommandItemBadge>{command.input.hint}</CommandItemBadge>
+                ) : index === selectedIndex ? (
+                  <CommandItemMeta>Enter</CommandItemMeta>
+                ) : null
+              }
+            />
+          ))}
+        </CommandList>
+      ) : (
+        <CommandEmpty>
+          {availableSlashCommands.length > 0
+            ? "No matching slash commands"
+            : "No slash commands available yet"}
+        </CommandEmpty>
+      )}
+    </ComposerAttachedPanel>
+  );
+});

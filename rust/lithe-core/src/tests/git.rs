@@ -31,6 +31,8 @@ fn git_status_returns_contract_shape() {
     .expect("Git response should be JSON");
     assert_eq!(response["ok"], true);
     assert_eq!(response["data"]["repositoryRoot"], ".");
+    assert_eq!(response["data"]["ahead"], 0);
+    assert_eq!(response["data"]["behind"], 0);
     assert_eq!(response["data"]["changes"][0]["path"], "new.txt");
     assert_eq!(response["data"]["changes"][0]["untracked"], true);
 

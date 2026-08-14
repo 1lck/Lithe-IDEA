@@ -1,0 +1,257 @@
+import type React from "react";
+import { memo } from "react";
+import type { FileTreeGitStatusDecoration } from "@/features/file-explorer/lib/file-tree-git-status";
+import type { FileEntry } from "@/features/file-system/types/app.types";
+import { InlineRenameInput } from "@/ui/input";
+import { SidebarTreeDisclosure, SidebarTreeRow } from "@/features/sidebar/components/sidebar-tree";
+import { cn } from "@/utils/cn";
+import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
+
+const FILE_TREE_BASE_INDENT = 10;
+
+export interface FileTreeGuideTarget {
+  path: string;
+  name: string;
+  isDir: boolean;
+  isActive: boolean;
+}
+
+function areGuideTargetsEqual(
+  previous: Array<FileTreeGuideTarget | null>,
+  next: Array<FileTreeGuideTarget | null>,
+): boolean {
+  if (previous.length !== next.length) return false;
+
+  return previous.every((previousTarget, index) => {
+    const nextTarget = next[index];
+    if (previousTarget === nextTarget) return true;
+    if (!previousTarget || !nextTarget) return false;
+
+    return (
+      previousTarget.path === nextTarget.path &&
+      previousTarget.name === nextTarget.name &&
+      previousTarget.isDir === nextTarget.isDir &&
+      previousTarget.isActive === nextTarget.isActive
+    );
+  });
+}
+
+interface FileExplorerTreeItemProps {
+  file: FileEntry;
+  depth: number;
+  displayName?: string;
+  guideTargets: Array<FileTreeGuideTarget | null>;
+  previousDepth: number;
+  nextDepth: number;
+  indentSize: number;
+  showIcon: boolean;
+  showIndentGuides: boolean;
+  isExpanded: boolean;
+  isActive: boolean;
+  isCut: boolean;
+  isDragOver: boolean;
+  isDragging: boolean;
+  editingValue?: string;
+  onEditingValueChange: (value: string) => void;
+  onSubmit: (value: string, file: FileEntry) => void;
+  onCancel: (file: FileEntry) => void;
+  getGitStatusDecoration: (file: FileEntry) => FileTreeGitStatusDecoration | null;
+  searchQuery?: string;
+  rowId?: string;
+}
+
+function renderHighlightedLabel(label: string, query: string | undefined) {
+  const trimmedQuery = query?.trim();
+  if (!trimmedQuery) return label;
+
+  const labelLower = label.toLowerCase();
+  const queryLower = trimmedQuery.toLowerCase();
+  const matchIndex = labelLower.indexOf(queryLower);
+
+  if (matchIndex === -1) return label;
+
+  return (
+    <>
+      {label.slice(0, matchIndex)}
+      <mark className="file-tree-search-highlight">
+        {label.slice(matchIndex, matchIndex + trimmedQuery.length)}
+      </mark>
+      {label.slice(matchIndex + trimmedQuery.length)}
+    </>
+  );
+}
+
+function FileExplorerTreeItemComponent({
+  file,
+  depth,
+  displayName,
+  guideTargets,
+  previousDepth,
+  nextDepth,
+  indentSize,
+  showIcon,
+  showIndentGuides,
+  isExpanded,
+  isActive,
+  isCut,
+  isDragOver,
+  isDragging,
+  editingValue,
+  onEditingValueChange,
+  onSubmit,
+  onCancel,
+  getGitStatusDecoration,
+  searchQuery,
+  rowId,
+}: FileExplorerTreeItemProps) {
+  const paddingLeft = FILE_TREE_BASE_INDENT + depth * indentSize;
+  const gitStatusDecoration = getGitStatusDecoration(file);
+  const guideLevels = Array.from({ length: depth }, (_, level) => level);
+  const renderTreeGuides = () =>
+    showIndentGuides ? (
+      <div className="file-tree-guides">
+        {guideLevels.map((level) => {
+          const target = guideTargets[level];
+          const startsHere = previousDepth <= level;
+          const endsHere = nextDepth <= level;
+          return (
+            <span
+              key={level}
+              className="file-tree-guide"
+              data-file-path={target?.path}
+              data-is-dir={target?.isDir}
+              data-path={target?.path}
+              data-active={target?.isActive ? "true" : undefined}
+              title={target?.name}
+              style={
+                {
+                  left: `calc(${FILE_TREE_BASE_INDENT + level * indentSize}px + var(--file-tree-guide-icon-offset, 7px))`,
+                  top: startsHere ? "4px" : "0",
+                  bottom: endsHere ? "4px" : "0",
+                } as React.CSSProperties
+              }
+            />
+          );
+        })}
+      </div>
+    ) : null;
+
+  if (file.isEditing || file.isRenaming) {
+    return (
+      <div className="file-tree-item w-full" data-depth={depth}>
+        {renderTreeGuides()}
+        <div
+          className="file-tree-row flex w-full items-center rounded-lg gap-1.5 px-1.5 py-1 ui-text-sm leading-row"
+          style={{
+            paddingLeft: `${paddingLeft}px`,
+          }}
+        >
+          <SidebarTreeDisclosure visible={false} />
+          {showIcon ? (
+            <ThemedFileIcon
+              fileName={file.isDir ? "folder" : "file"}
+              isDir={file.isDir}
+              isExpanded={false}
+              className="relative z-1 shrink-0 text-subtle-foreground"
+            />
+          ) : null}
+          <InlineRenameInput
+            type="text"
+            autoCapitalize="none"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck="false"
+            value={editingValue ?? ""}
+            onFocus={(event) => {
+              event.currentTarget.scrollIntoView({
+                behavior: "auto",
+                block: "nearest",
+                inline: "nearest",
+              });
+              if (file.isRenaming) {
+                onEditingValueChange(file.name);
+              }
+            }}
+            onValueChange={onEditingValueChange}
+            onSubmit={(value) => onSubmit(value, file)}
+            onCancel={() => onCancel(file)}
+            className="relative z-1 flex-1"
+            placeholder={file.isDir ? "folder name" : "file name"}
+            aria-label={
+              file.isRenaming ? `Rename ${file.name}` : `Name new ${file.isDir ? "folder" : "file"}`
+            }
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <SidebarTreeRow
+      id={rowId}
+      active={isActive}
+      depth={depth}
+      indentSize={indentSize}
+      baseIndent={FILE_TREE_BASE_INDENT}
+      previousDepth={previousDepth}
+      nextDepth={nextDepth}
+      expanded={file.isDir ? isExpanded : undefined}
+      showDisclosure={file.isDir}
+      reserveDisclosureSpace={!file.isDir}
+      guides={renderTreeGuides()}
+      data-file-path={file.path}
+      data-is-dir={file.isDir}
+      data-path={file.path}
+      title={file.isSymlink && file.symlinkTarget ? `Symlink to: ${file.symlinkTarget}` : undefined}
+      className={cn(
+        "min-w-max",
+        isDragOver && "border-2! border-dashed! border-primary! bg-primary! bg-opacity-20!",
+        isDragging && "cursor-move",
+        file.ignored && "opacity-50",
+        isCut && "italic opacity-40",
+      )}
+      leading={
+        showIcon ? (
+          <ThemedFileIcon
+            fileName={file.name}
+            isDir={file.isDir}
+            isExpanded={isExpanded}
+            isSymlink={file.isSymlink}
+            className="relative z-1 shrink-0 text-subtle-foreground"
+          />
+        ) : null
+      }
+      label={
+        <span className={cn("select-none whitespace-nowrap", gitStatusDecoration?.colorClassName)}>
+          {renderHighlightedLabel(displayName ?? file.name, searchQuery)}
+        </span>
+      }
+    />
+  );
+}
+
+export const FileExplorerTreeItem = memo(
+  FileExplorerTreeItemComponent,
+  (prev, next) =>
+    prev.file === next.file &&
+    prev.depth === next.depth &&
+    prev.displayName === next.displayName &&
+    areGuideTargetsEqual(prev.guideTargets, next.guideTargets) &&
+    prev.previousDepth === next.previousDepth &&
+    prev.nextDepth === next.nextDepth &&
+    prev.indentSize === next.indentSize &&
+    prev.showIcon === next.showIcon &&
+    prev.showIndentGuides === next.showIndentGuides &&
+    prev.isExpanded === next.isExpanded &&
+    prev.isActive === next.isActive &&
+    prev.isCut === next.isCut &&
+    prev.isDragOver === next.isDragOver &&
+    prev.isDragging === next.isDragging &&
+    prev.editingValue === next.editingValue &&
+    prev.onEditingValueChange === next.onEditingValueChange &&
+    prev.onSubmit === next.onSubmit &&
+    prev.onCancel === next.onCancel &&
+    prev.getGitStatusDecoration === next.getGitStatusDecoration &&
+    prev.searchQuery === next.searchQuery &&
+    prev.rowId === next.rowId,
+);

@@ -1,0 +1,171 @@
+import {
+  ArrowsClockwiseIcon as ArrowsClockwise,
+  PlusIcon as Plus,
+  TrashIcon as Trash,
+} from "@/ui/icons";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { sendDebugAdapterRequest } from "../services/debug-adapter-service";
+import { useDebuggerStore } from "../stores/debugger.store";
+import type { DebugRequestContext } from "../types/debugger.types";
+import { Button } from "@/ui/button";
+import Input from "@/ui/input";
+import { DebugEmptyState } from "./debugger-panels";
+
+interface DebugWatchPanelProps {
+  activeSessionId?: string;
+  selectedFrameId: number | null;
+  isPaused: boolean;
+  pendingRequests: Record<number, DebugRequestContext>;
+}
+
+export function DebugWatchPanel({
+  activeSessionId,
+  selectedFrameId,
+  isPaused,
+  pendingRequests,
+}: DebugWatchPanelProps) {
+  const watchExpressions = useDebuggerStore.use.watchExpressions();
+  const watchResults = useDebuggerStore.use.watchResults();
+  const debuggerActions = useDebuggerStore.use.actions();
+  const [newExpression, setNewExpression] = useState("");
+
+  const pendingExpressionIds = useMemo(
+    () =>
+      new Set(
+        Object.values(pendingRequests)
+          .filter((request) => request.command === "evaluate")
+          .map((request) => request.expressionId),
+      ),
+    [pendingRequests],
+  );
+
+  const evaluateExpression = useCallback(
+    async (expressionId: string, expression: string) => {
+      if (!activeSessionId || !isPaused) return;
+
+      try {
+        const seq = await sendDebugAdapterRequest(activeSessionId, "evaluate", {
+          expression,
+          frameId: selectedFrameId ?? undefined,
+          context: "watch",
+        });
+        debuggerActions.registerAdapterRequest(seq, { command: "evaluate", expressionId });
+      } catch (error) {
+        debuggerActions.setWatchResult({
+          expressionId,
+          value: "",
+          variablesReference: 0,
+          error: error instanceof Error ? error.message : String(error),
+          evaluatedAt: Date.now(),
+        });
+      }
+    },
+    [activeSessionId, debuggerActions, isPaused, selectedFrameId],
+  );
+
+  const evaluateAll = useCallback(() => {
+    if (!activeSessionId || !isPaused) return;
+
+    for (const watchExpression of watchExpressions) {
+      void evaluateExpression(watchExpression.id, watchExpression.expression);
+    }
+  }, [activeSessionId, evaluateExpression, isPaused, watchExpressions]);
+
+  useEffect(() => {
+    evaluateAll();
+  }, [evaluateAll, selectedFrameId]);
+
+  const addExpression = () => {
+    const watchExpression = debuggerActions.addWatchExpression(newExpression);
+    if (!watchExpression) return;
+
+    setNewExpression("");
+    void evaluateExpression(watchExpression.id, watchExpression.expression);
+  };
+
+  return (
+    <div className="space-y-1.5 p-2">
+      <div className="flex items-center gap-1.5">
+        <Input
+          value={newExpression}
+          onChange={(event) => setNewExpression(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addExpression();
+            }
+          }}
+          placeholder="Add expression"
+          size="xs"
+        />
+        <Button
+          variant="default"
+          tooltip="Add watch"
+          disabled={!newExpression.trim()}
+          onClick={addExpression}
+          size="icon-xs"
+        >
+          <Plus />
+        </Button>
+        <Button
+          variant="ghost"
+          tooltip="Refresh watches"
+          disabled={!activeSessionId || !isPaused || watchExpressions.length === 0}
+          onClick={evaluateAll}
+          size="icon-xs"
+        >
+          <ArrowsClockwise />
+        </Button>
+      </div>
+
+      {watchExpressions.length === 0 ? (
+        <DebugEmptyState>Add expressions to inspect while paused.</DebugEmptyState>
+      ) : (
+        <div className="space-y-1">
+          {watchExpressions.map((watchExpression) => {
+            const result = watchResults[watchExpression.id];
+            const isPending = pendingExpressionIds.has(watchExpression.id);
+
+            return (
+              <div
+                key={watchExpression.id}
+                className="group rounded-lg border border-border/60 bg-surface/40 px-2 py-1.5"
+              >
+                <div className="flex items-start gap-2">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 truncate text-left font-mono ui-text-sm text-foreground"
+                    onClick={() =>
+                      void evaluateExpression(watchExpression.id, watchExpression.expression)
+                    }
+                  >
+                    {watchExpression.expression}
+                  </button>
+                  <Button
+                    variant="ghost"
+                    className="opacity-0 group-hover:opacity-100"
+                    tooltip="Remove watch"
+                    onClick={() => debuggerActions.removeWatchExpression(watchExpression.id)}
+                    size="icon"
+                  >
+                    <Trash />
+                  </Button>
+                </div>
+                <div className="mt-1 truncate font-mono ui-text-sm text-subtle-foreground">
+                  {isPending
+                    ? "Evaluating..."
+                    : result?.error
+                      ? result.error
+                      : result?.value || "Not evaluated"}
+                  {result?.type && !result.error ? (
+                    <span className="ml-1 text-subtle-foreground/70">({result.type})</span>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}

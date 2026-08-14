@@ -1,0 +1,93 @@
+import { useEffect } from "react";
+import { Button } from "@/ui/button";
+import Keybinding from "./keybinding";
+import { cn } from "@/utils/cn";
+import { useKeybindingRecorder } from "../hooks/use-keybinding-recorder";
+
+interface KeybindingInputProps {
+  commandId: string;
+  value?: string;
+  onSave: (keybinding: string) => void;
+  onCancel: () => void;
+  autoFocus?: boolean;
+}
+
+export function KeybindingInput({
+  commandId,
+  value,
+  onSave,
+  onCancel,
+  autoFocus = true,
+}: KeybindingInputProps) {
+  const { isRecording, keys, keybindingString, startRecording, stopRecording, reset } =
+    useKeybindingRecorder(commandId);
+
+  useEffect(() => {
+    if (autoFocus) {
+      startRecording();
+    }
+  }, [autoFocus, startRecording]);
+
+  useEffect(() => {
+    if (!isRecording && keybindingString) {
+      onSave(keybindingString);
+      reset();
+    }
+  }, [isRecording, keybindingString, onSave, reset]);
+
+  const handleClick = () => {
+    if (!isRecording) {
+      startRecording();
+    }
+  };
+
+  const handleCancel = () => {
+    stopRecording();
+    reset();
+    onCancel();
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex h-7 w-full min-w-0 items-center justify-between gap-1 rounded border px-2",
+        isRecording ? "border-primary bg-primary/5" : "border-border bg-surface",
+      )}
+      onClick={handleClick}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          handleCancel();
+        }
+      }}
+      role="textbox"
+      aria-label="Record keybinding"
+      tabIndex={0}
+    >
+      <div className="min-w-0 flex-1 truncate">
+        {keys.length > 0 ? (
+          <Keybinding keys={keys} />
+        ) : (
+          <span className="font-sans ui-text-sm text-subtle-foreground">
+            {isRecording ? "Press keys..." : value || "Not assigned"}
+          </span>
+        )}
+      </div>
+      {isRecording && (
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleCancel();
+          }}
+          className="ui-text-sm shrink-0 px-1 text-subtle-foreground hover:bg-transparent hover:text-foreground"
+          aria-label="Cancel recording"
+        >
+          ESC
+        </Button>
+      )}
+    </div>
+  );
+}

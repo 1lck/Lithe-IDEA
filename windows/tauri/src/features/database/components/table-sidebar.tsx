@@ -1,0 +1,106 @@
+import {
+  EyeIcon as Eye,
+  HashIcon as Hash,
+  PlusIcon as Plus,
+  RadioButtonIcon as Radio,
+  TableIcon as Table,
+} from "@/ui/icons";
+import {
+  SidebarHeaderIconButton,
+  SidebarListItem,
+  SidebarPanel,
+  SidebarSectionLabel,
+  SidebarTitleBar,
+} from "@/ui/sidebar";
+import { ScrollArea } from "@/ui/scroll-area";
+import { cn } from "@/utils/cn";
+import { getDatabaseObjectOwner, groupDatabaseObjects } from "../lib/database-catalog";
+import type { DatabaseObjectKind, TableInfo } from "../types/common.types";
+import SqlHistoryList from "./sql-history-list";
+
+interface TableSidebarProps {
+  tables: TableInfo[];
+  selectedTable: string | null;
+  onSelectTable: (name: string) => void;
+  onTableContextMenu: (e: React.MouseEvent, name: string, objectKind: DatabaseObjectKind) => void;
+  onCreateTable: () => void;
+  sqlHistory: string[];
+  onSelectHistory: (query: string) => void;
+  onRunHistory: (query: string) => void;
+  onRemoveHistory: (query: string) => void;
+  onClearHistory: () => void;
+}
+
+export default function TableSidebar({
+  tables,
+  selectedTable,
+  onSelectTable,
+  onTableContextMenu,
+  onCreateTable,
+  sqlHistory,
+  onSelectHistory,
+  onRunHistory,
+  onRemoveHistory,
+  onClearHistory,
+}: TableSidebarProps) {
+  const objectGroups = groupDatabaseObjects(tables);
+  const groupIcon = {
+    table: Table,
+    view: Eye,
+    materialized_view: Eye,
+    subscription: Radio,
+    index: Hash,
+  } satisfies Record<DatabaseObjectKind, typeof Table>;
+
+  return (
+    <SidebarPanel className="w-64 overflow-hidden">
+      <SidebarTitleBar title={`Objects (${tables.length})`} className="group">
+        <SidebarHeaderIconButton
+          onClick={onCreateTable}
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          aria-label="Create table"
+          tooltip="Create table"
+          tooltipSide="bottom"
+        >
+          <Plus />
+        </SidebarHeaderIconButton>
+      </SidebarTitleBar>
+      <ScrollArea className="flex-1" contentClassName="space-y-1 p-2">
+        {objectGroups.map((group, index) => {
+          const Icon = groupIcon[group.kind];
+          return (
+            <div key={group.kind}>
+              <SidebarSectionLabel className={cn("px-2.5 py-1 uppercase", index > 0 && "mt-2")}>
+                {group.label}
+              </SidebarSectionLabel>
+              {group.objects.map((t) => {
+                const owner = getDatabaseObjectOwner(t);
+                return (
+                  <SidebarListItem
+                    key={t.name}
+                    onClick={() => onSelectTable(t.name)}
+                    onContextMenu={(e) => onTableContextMenu(e, t.name, group.kind)}
+                    active={selectedTable === t.name}
+                    aria-label={`Select ${group.kind} ${t.name}`}
+                    leading={<Icon className="mt-0.5 shrink-0" />}
+                    description={owner ? `on ${owner}` : undefined}
+                  >
+                    {t.name}
+                  </SidebarListItem>
+                );
+              })}
+            </div>
+          );
+        })}
+      </ScrollArea>
+      <SqlHistoryList
+        queries={sqlHistory}
+        compact
+        onSelect={onSelectHistory}
+        onRun={onRunHistory}
+        onRemove={onRemoveHistory}
+        onClear={onClearHistory}
+      />
+    </SidebarPanel>
+  );
+}

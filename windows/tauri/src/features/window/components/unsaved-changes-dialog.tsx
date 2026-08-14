@@ -1,0 +1,40 @@
+import { WarningIcon as AlertTriangle } from "@/ui/icons";
+import { Button } from "@/ui/button";
+import Dialog from "@/ui/dialog";
+
+interface Props {
+  onSave: () => void;
+  onDiscard: () => void;
+  onCancel: () => void;
+  fileName: string;
+}
+
+const UnsavedChangesDialog = ({ onSave, onDiscard, onCancel, fileName }: Props) => {
+  return (
+    <Dialog
+      title="Unsaved Changes"
+      icon={AlertTriangle}
+      onClose={onCancel}
+      size="sm"
+      footer={
+        <>
+          <Button onClick={onCancel} size="xs">
+            Cancel
+          </Button>
+          <Button onClick={onDiscard} size="xs">
+            Don't Save
+          </Button>
+          <Button onClick={onSave} variant="accent" size="xs">
+            Save
+          </Button>
+        </>
+      }
+    >
+      <p className="text-foreground ui-text-sm">
+        Do you want to save the changes you made to <strong>{fileName}</strong>?
+      </p>
+    </Dialog>
+  );
+};
+
+export default UnsavedChangesDialog;

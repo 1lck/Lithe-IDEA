@@ -1,0 +1,197 @@
+@theme inline {
+  --font-sans: var(--app-font-family);
+  --font-mono: var(--editor-font-family);
+  --leading-row: 1.35;
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-selected: var(--selected);
+  --color-selection: var(--selection);
+
+  --color-tab-bar: var(--tab-bar-bg);
+  --color-tab-active: var(--tab-active-bg);
+  --color-tab-hover: var(--tab-hover-bg);
+
+  --color-primary: var(--primary);
+
+  --color-cursor: var(--cursor);
+  --color-cursor-vim-normal: var(--cursor-vim-normal);
+  --color-cursor-vim-insert: var(--cursor-vim-insert);
+
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+
+  --color-git-modified: var(--git-modified);
+  --color-git-modified-staged: var(--git-modified-staged);
+  --color-git-added: var(--git-added);
+  --color-git-deleted: var(--git-deleted);
+  --color-git-untracked: var(--git-untracked);
+  --color-git-renamed: var(--git-renamed);
+
+  --color-syntax-comment: var(--syntax-comment);
+  --color-syntax-keyword: var(--syntax-keyword);
+  --color-syntax-string: var(--syntax-string);
+  --color-syntax-number: var(--syntax-number);
+  --color-syntax-function: var(--syntax-function);
+  --color-syntax-variable: var(--syntax-variable);
+  --color-syntax-tag: var(--syntax-tag);
+  --color-syntax-attribute: var(--syntax-attribute);
+  --color-syntax-punctuation: var(--syntax-punctuation);
+  --color-syntax-constant: var(--syntax-constant);
+  --color-syntax-property: var(--syntax-property);
+  --color-syntax-type: var(--syntax-type);
+  --color-syntax-operator: var(--syntax-operator);
+  --color-syntax-boolean: var(--syntax-boolean);
+  --color-syntax-null: var(--syntax-null);
+  --color-syntax-regex: var(--syntax-regex);
+  --color-syntax-jsx: var(--syntax-jsx);
+  --color-syntax-jsx-attribute: var(--syntax-jsx-attribute);
+
+  --color-symbol-function: var(--symbol-function);
+  --color-symbol-type: var(--symbol-type);
+  --color-symbol-interface: var(--symbol-interface);
+  --color-symbol-enum: var(--symbol-enum);
+  --color-symbol-variable: var(--symbol-variable);
+  --color-symbol-property: var(--symbol-property);
+  --color-symbol-type-parameter: var(--symbol-type-parameter);
+
+  --color-terminal-black: var(--terminal-black);
+  --color-terminal-red: var(--terminal-red);
+  --color-terminal-green: var(--terminal-green);
+  --color-terminal-yellow: var(--terminal-yellow);
+  --color-terminal-blue: var(--terminal-blue);
+  --color-terminal-magenta: var(--terminal-magenta);
+  --color-terminal-cyan: var(--terminal-cyan);
+  --color-terminal-white: var(--terminal-white);
+  --color-terminal-bright-black: var(--terminal-bright-black);
+  --color-terminal-bright-red: var(--terminal-bright-red);
+  --color-terminal-bright-green: var(--terminal-bright-green);
+  --color-terminal-bright-yellow: var(--terminal-bright-yellow);
+  --color-terminal-bright-blue: var(--terminal-bright-blue);
+  --color-terminal-bright-magenta: var(--terminal-bright-magenta);
+  --color-terminal-bright-cyan: var(--terminal-bright-cyan);
+  --color-terminal-bright-white: var(--terminal-bright-white);
+}
+
+@layer base {
+  :root {
+    --app-font-family:
+      "Geist Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+    --editor-font-family:
+      "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+      monospace;
+    --app-ui-font-size: 15px;
+    --app-ui-scale: 1;
+    --ui-text-caption: 12px;
+    --ui-text-chrome: 13px;
+    --ui-text-sm: var(--app-ui-font-size);
+    --ui-text-base: var(--app-ui-font-size);
+    --lithe-title-bar-height: 2rem;
+    --lithe-footer-height: 1.75rem;
+    --lithe-pane-header-height: 2.75rem;
+    --lithe-tab-bar-height: var(--lithe-pane-header-height);
+    --lithe-tab-height: 1.75rem;
+    --lithe-tab-max-width: 12.5rem;
+    --lithe-sidebar-header-height: 2rem;
+    --lithe-workbench-gap: 8px;
+    --lithe-chrome-control-height: 1.5rem;
+    --lithe-chrome-hit-target: 1.75rem;
+    --lithe-chrome-line-height: 1rem;
+    --lithe-chrome-gap-tight: 2px;
+    --lithe-chrome-gap: 4px;
+    --lithe-chrome-gap-loose: 6px;
+    --lithe-chrome-padding-inline: 8px;
+    --lithe-chrome-radius: 6px;
+    --radius: 10px;
+    --app-duration-fast: 150ms;
+    --app-duration-normal: 200ms;
+    --app-ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+    --app-ease-in-out: cubic-bezier(0.66, 0, 0.34, 1);
+    --app-press-scale: 1;
+    --border-strong: color-mix(in srgb, var(--border) 72%, var(--foreground) 28%);
+    --success: var(--primary);
+    --warning: var(--muted-foreground);
+    --tab-bar-bg: color-mix(in srgb, var(--surface) 72%, var(--background));
+    --tab-active-bg: var(--background);
+    --tab-hover-bg: color-mix(in srgb, var(--accent) 72%, transparent);
+    --shadow-card:
+      0 1px 2px rgb(0 0 0 / 0.05), 0 2px 4px rgb(0 0 0 / 0.02), 0 0 0 0.5px rgb(0 0 0 / 0.08);
+    --shadow-popover:
+      0 8px 16px rgb(0 0 0 / 0.04), 0 16px 32px rgb(0 0 0 / 0.03), 0 2px 4px rgb(0 0 0 / 0.04),
+      0 0 0 0.5px rgb(0 0 0 / 0.1);
+    --shadow-dialog:
+      0 8px 16px rgb(0 0 0 / 0.04), 0 24px 56px rgb(0 0 0 / 0.08), 0 2px 6px rgb(0 0 0 / 0.04),
+      0 0 0 0.5px rgb(0 0 0 / 0.12);
+    --shadow-drag:
+      0 8px 18px rgb(0 0 0 / 0.12), 0 18px 44px rgb(0 0 0 / 0.12), 0 0 0 0.5px rgb(0 0 0 / 0.12);
+    --shadow-editor-sticky: 0 8px 16px -14px rgb(0 0 0 / 0.28);
+
+    --symbol-function: var(--syntax-function);
+    --symbol-type: var(--syntax-type, var(--syntax-tag));
+    --symbol-interface: var(--syntax-regex, var(--syntax-operator, var(--syntax-attribute)));
+    --symbol-enum: var(--syntax-number);
+    --symbol-variable: var(--syntax-property, var(--syntax-variable));
+    --symbol-property: var(--syntax-string);
+    --symbol-type-parameter: var(--syntax-operator, var(--syntax-attribute));
+  }
+
+  html.platform-macos {
+    --lithe-title-bar-height: 2.25rem;
+  }
+
+  .lithe-sidebar-rail {
+    --lithe-sidebar-rail-foreground: var(--foreground);
+    --subtle-foreground: var(--lithe-sidebar-rail-foreground);
+  }
+
+  :root[data-window-chrome-density="comfortable"] {
+    --ui-text-caption: 13px;
+    --ui-text-chrome: 14px;
+    --lithe-footer-height: 2rem;
+    --lithe-tab-height: 2rem;
+    --lithe-sidebar-header-height: 2.25rem;
+    --lithe-chrome-control-height: 1.75rem;
+    --lithe-chrome-hit-target: 2rem;
+    --lithe-chrome-gap-tight: 4px;
+    --lithe-chrome-gap: 6px;
+    --lithe-chrome-gap-loose: 8px;
+    --lithe-chrome-padding-inline: 10px;
+  }
+
+  :root[data-theme-type="dark"] {
+    --shadow-card:
+      0 1px 2px rgb(0 0 0 / 0.24), 0 2px 4px rgb(0 0 0 / 0.18), 0 0 0 0.5px rgb(255 255 255 / 0.1);
+    --shadow-popover:
+      0 8px 16px rgb(0 0 0 / 0.26), 0 16px 32px rgb(0 0 0 / 0.22), 0 2px 4px rgb(0 0 0 / 0.22),
+      0 0 0 0.5px rgb(255 255 255 / 0.1);
+    --shadow-dialog:
+      0 8px 16px rgb(0 0 0 / 0.3), 0 24px 56px rgb(0 0 0 / 0.36), 0 2px 6px rgb(0 0 0 / 0.24),
+      0 0 0 0.5px rgb(255 255 255 / 0.12);
+    --shadow-drag:
+      0 8px 18px rgb(0 0 0 / 0.36), 0 18px 44px rgb(0 0 0 / 0.34),
+      0 0 0 0.5px rgb(255 255 255 / 0.12);
+    --shadow-editor-sticky: 0 10px 20px -16px rgb(0 0 0 / 0.72);
+  }
+
+  html {
+    font-family: var(--app-font-family);
+    font-size: calc(16px * var(--app-ui-scale));
+  }
+}

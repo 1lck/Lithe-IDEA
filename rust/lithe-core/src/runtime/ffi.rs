@@ -44,7 +44,7 @@ pub unsafe extern "C" fn lithe_core_cancel(operation_id: *const c_char) -> i32 {
         return 0;
     }
     let operation_id = CStr::from_ptr(operation_id).to_string_lossy();
-    crate::protocol::cancellation::cancel(&operation_id) as i32
+    crate::cancel_operation(&operation_id) as i32
 }
 
 #[no_mangle]
