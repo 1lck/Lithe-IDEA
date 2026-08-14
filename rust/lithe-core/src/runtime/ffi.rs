@@ -1,13 +1,28 @@
+//! Ownership-safe C ABI wrappers for the JSON command and cancellation APIs.
+
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::PathBuf;
 
+/// Returns a pointer to the static, NUL-terminated Core ABI version.
+///
+/// The pointer remains valid for the lifetime of the process and must not be
+/// passed to [`lithe_core_free_string`].
 #[no_mangle]
 pub extern "C" fn lithe_core_version() -> *const c_char {
     static VERSION: &[u8] = b"0.1.0\0";
     VERSION.as_ptr().cast()
 }
 
+/// Executes one JSON request through the stable C ABI.
+///
+/// The returned string is owned by the caller and must be released exactly
+/// once with [`lithe_core_free_string`].
+///
+/// # Safety
+///
+/// `request` must be null or point to a readable, NUL-terminated byte string
+/// for the duration of this call.
 #[no_mangle]
 pub unsafe extern "C" fn lithe_core_execute_json(request: *const c_char) -> *mut c_char {
     if request.is_null() {
@@ -19,6 +34,15 @@ pub unsafe extern "C" fn lithe_core_execute_json(request: *const c_char) -> *mut
     response_pointer(&crate::execute_json(&request))
 }
 
+/// Loads the merged language-provider catalog for an optional workspace root.
+///
+/// The returned string is owned by the caller and must be released exactly
+/// once with [`lithe_core_free_string`].
+///
+/// # Safety
+///
+/// `workspace_root` must be null or point to a readable, NUL-terminated byte
+/// string for the duration of this call.
 #[no_mangle]
 pub unsafe extern "C" fn lithe_core_lsp_provider_catalog_json(
     workspace_root: *const c_char,
@@ -38,6 +62,11 @@ pub unsafe extern "C" fn lithe_core_lsp_provider_catalog_json(
 
 /// Requests cooperative cancellation of an in-flight operation. The call is
 /// thread-safe and returns 1 when an active operation was found.
+///
+/// # Safety
+///
+/// `operation_id` must be null or point to a readable, NUL-terminated byte
+/// string for the duration of this call.
 #[no_mangle]
 pub unsafe extern "C" fn lithe_core_cancel(operation_id: *const c_char) -> i32 {
     if operation_id.is_null() {
@@ -47,6 +76,13 @@ pub unsafe extern "C" fn lithe_core_cancel(operation_id: *const c_char) -> i32 {
     crate::cancel_operation(&operation_id) as i32
 }
 
+/// Releases a string returned by a Core C ABI function.
+///
+/// # Safety
+///
+/// `value` must be null or a pointer returned by this library that has not
+/// already been freed. Static pointers such as [`lithe_core_version`] are not
+/// owned strings and must not be passed here.
 #[no_mangle]
 pub unsafe extern "C" fn lithe_core_free_string(value: *mut c_char) {
     if !value.is_null() {

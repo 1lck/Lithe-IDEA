@@ -1,3 +1,5 @@
+//! Deterministic Git inspection and mutation behind the shared command contract.
+
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
@@ -17,12 +19,14 @@ use std::time::Duration;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for a deterministic porcelain status snapshot.
 pub struct GitStatusRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for the directories and files a host watcher should observe.
 pub struct GitWatchContextRequest {
     pub root: String,
 }
@@ -44,6 +48,7 @@ pub struct GitCommandRequest {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Stable output returned by argument-based Git execution.
 pub struct GitCommandResponse {
     pub output: String,
     pub exit_code: i32,
@@ -57,6 +62,7 @@ pub struct GitCommandResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Recovery context when restoring a stash produces conflicts.
 pub struct GitStashRestoreResponse {
     pub stash_reference: String,
     pub conflicted_paths: Vec<String>,
@@ -64,13 +70,16 @@ pub struct GitStashRestoreResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Typed mutation request translated into a controlled Git invocation.
 pub struct GitWriteRequest {
     pub root: String,
+    /// Stable mutation discriminator interpreted by [`write`].
     pub operation: String,
     #[serde(default)]
     pub paths: Vec<String>,
     #[serde(default)]
     pub reference: Option<String>,
+    /// Reference category used by checkout: `local`, `remote`, or `tag`.
     #[serde(default)]
     pub reference_kind: Option<String>,
     #[serde(default)]
@@ -83,6 +92,7 @@ pub struct GitWriteRequest {
     pub remote: Option<String>,
     #[serde(default)]
     pub destination: Option<String>,
+    /// Operation-specific strategy, such as reset mode or pull reconciliation.
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
@@ -99,6 +109,7 @@ pub struct GitWriteRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for a structured diff suitable for side-by-side rendering.
 pub struct GitDiffRequest {
     pub root: String,
     pub pathspecs: Vec<String>,
@@ -118,14 +129,17 @@ pub struct GitDiffRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to apply a patch to the index or working tree.
 pub struct GitApplyRequest {
     pub root: String,
     pub patch: String,
+    /// Patch target or validation mode, including `stage`, `unstage`, and `worktree`.
     pub mode: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for bounded commit history from an optional reference.
 pub struct GitHistoryRequest {
     pub root: String,
     #[serde(default)]
@@ -136,6 +150,7 @@ pub struct GitHistoryRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for metadata and parent information about one commit.
 pub struct GitCommitRequest {
     pub root: String,
     pub commit: String,
@@ -143,6 +158,7 @@ pub struct GitCommitRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for the paths changed by one commit.
 pub struct GitCommitFilesRequest {
     pub root: String,
     pub commit: String,
@@ -150,6 +166,7 @@ pub struct GitCommitFilesRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to compare a reference with the current checkout.
 pub struct GitComparisonRequest {
     pub root: String,
     pub reference: String,
@@ -157,12 +174,14 @@ pub struct GitComparisonRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for the repository's ordered stash list.
 pub struct GitStashesRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to identify local edits that would block switching references.
 pub struct GitCheckoutPreflightRequest {
     pub root: String,
     pub reference: String,
@@ -170,12 +189,14 @@ pub struct GitCheckoutPreflightRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to find staged files that still contain conflict markers.
 pub struct GitConflictMarkerRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to determine whether a merge or rebase can start safely.
 pub struct GitIntegrationPreflightRequest {
     pub root: String,
     pub reference: String,
@@ -185,18 +206,21 @@ pub struct GitIntegrationPreflightRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to determine whether the tracked branch can fast-forward.
 pub struct GitPullPreflightRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to inspect an interrupted merge, rebase, cherry-pick, or revert.
 pub struct GitOperationStateRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for line attribution on one workspace-relative file.
 pub struct GitBlameRequest {
     pub root: String,
     pub path: String,
@@ -210,6 +234,7 @@ fn default_history_limit() -> usize {
     300
 }
 
+/// Executes an argument-based Git command after validating the workspace root.
 pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
     execute_git(&root, &request.arguments, request.input)
@@ -220,6 +245,7 @@ fn readonly_command(request: GitCommandRequest) -> Result<GitCommandResponse, Co
     execute_git_readonly(&root, &request.arguments, request.input)
 }
 
+/// Executes one supported repository mutation without invoking a shell.
 pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
     let mut arguments: Vec<String>;
@@ -545,6 +571,7 @@ fn execute_git_with_options(
     })
 }
 
+/// Builds a structured working-tree, staged, untracked, or commit diff.
 pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     if request.pathspecs.is_empty() || request.pathspecs.iter().any(|path| !is_safe_pathspec(path))
     {
@@ -618,6 +645,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     })
 }
 
+/// Applies a validated patch using the requested index or working-tree mode.
 pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> {
     let arguments = match request.mode.as_str() {
         "stage" => vec![
@@ -673,6 +701,7 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
     })
 }
 
+/// Returns bounded commit history without relying on localized display output.
 pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreError> {
     let limit = request.limit.clamp(1, 5_000);
     let root = validate_root(&request.root)?;
@@ -746,6 +775,7 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
     })
 }
 
+/// Resolves one commit and its parent metadata.
 pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.commit)?;
@@ -774,6 +804,7 @@ pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, Core
     Ok(GitCommitLookupResponse { commit })
 }
 
+/// Lists workspace-relative files changed by one commit.
 pub fn commit_files(request: GitCommitFilesRequest) -> Result<GitFilesResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.commit)?;
@@ -801,6 +832,7 @@ pub fn commit_files(request: GitCommitFilesRequest) -> Result<GitFilesResponse, 
     })
 }
 
+/// Computes ahead/behind counts and changed files for a reference comparison.
 pub fn comparison(request: GitComparisonRequest) -> Result<GitComparisonResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.reference)?;
@@ -1393,6 +1425,7 @@ fn is_conflicted_status(code: &str) -> bool {
     matches!(code, "UU" | "AA" | "DD" | "DU" | "UD" | "AU" | "UA")
 }
 
+/// Lists stashes with stable references and parsed metadata.
 pub fn stashes(request: GitStashesRequest) -> Result<GitStashesResponse, CoreError> {
     let root = validate_root(&request.root)?;
     let response = readonly_command(GitCommandRequest {
@@ -1416,6 +1449,7 @@ pub fn stashes(request: GitStashesRequest) -> Result<GitStashesResponse, CoreErr
     })
 }
 
+/// Returns line attribution parsed from Git's machine-readable porcelain form.
 pub fn blame(request: GitBlameRequest) -> Result<GitBlameResponse, CoreError> {
     if !is_safe_pathspec(&request.path) {
         return Err(CoreError::new(
@@ -2055,11 +2089,13 @@ fn null_device() -> &'static str {
     }
 }
 
+/// One removed or added line retained with its original side's line number.
 struct DiffEntry {
     number: usize,
     text: String,
 }
 
+/// Parsed patch hunk before it is aligned into side-by-side rows.
 struct DiffHunkRecord {
     id: String,
     header: String,
@@ -2364,6 +2400,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
     (rows, hunks)
 }
 
+/// Resolves the Git administrative paths and references a watcher must observe.
 pub fn watch_context(
     request: GitWatchContextRequest,
 ) -> Result<Option<GitWatchContextResponse>, CoreError> {
@@ -2415,6 +2452,7 @@ fn canonical_git_output(output: std::process::Output, label: &str) -> Result<Str
         })
 }
 
+/// Returns the normalized repository status and branch context.
 pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError> {
     let root = PathBuf::from(&request.root)
         .canonicalize()

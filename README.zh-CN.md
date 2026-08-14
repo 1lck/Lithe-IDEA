@@ -213,7 +213,7 @@ open dist/Lithe.app
 ./scripts/verify-rust-core.sh
 ```
 
-目录归属、跨平台边界和共享规则见[仓库目录与共享边界](./docs/architecture/repository-layout.md)。提交功能改动时，请说明验证方式和已知限制。
+目录归属、跨平台边界、共享规则以及 Rust Core 必须遵守的注释规范见[仓库目录与共享边界](./docs/architecture/repository-layout.md)。提交功能改动时，请说明验证方式和已知限制。
 
 ## 项目支持
 

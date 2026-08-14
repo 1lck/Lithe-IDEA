@@ -1,3 +1,5 @@
+//! Lightweight Java source and Maven-aware run-configuration inspection.
+
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     JavaClassNameResponse, JavaCodeVisionHintResponse, JavaCodeVisionResponse,
@@ -13,6 +15,7 @@ use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Workspace inputs used to discover Java main classes and run configurations.
 pub struct JavaRunConfigurationsRequest {
     pub root: String,
     #[serde(default)]
@@ -23,6 +26,7 @@ pub struct JavaRunConfigurationsRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Source inputs for lightweight folds, markers, and inlay hints.
 pub struct JavaStructureRequest {
     pub source: String,
     #[serde(default)]
@@ -31,6 +35,7 @@ pub struct JavaStructureRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Workspace sources used to count references for Code Vision hints.
 pub struct JavaCodeVisionRequest {
     pub root: String,
     pub target_path: String,
@@ -40,6 +45,7 @@ pub struct JavaCodeVisionRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Source and simple name used to resolve a package-qualified class name.
 pub struct JavaClassNameRequest {
     pub source: String,
     pub simple_name: String,
@@ -47,6 +53,7 @@ pub struct JavaClassNameRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Source lookup for a type, method, or field declaration.
 pub struct JavaSourceDefinitionRequest {
     pub source: String,
     pub declaration_name: String,
@@ -56,11 +63,13 @@ pub struct JavaSourceDefinitionRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Spring configuration content inspected for a declared server port.
 pub struct JavaServerPortRequest {
     pub content: String,
     pub file_extension: String,
 }
 
+/// Discovers stable Java and Spring Boot run entries from selected sources.
 pub fn run_configurations(
     request: JavaRunConfigurationsRequest,
 ) -> Result<JavaRunConfigurationsResponse, CoreError> {
@@ -115,6 +124,7 @@ pub fn run_configurations(
     })
 }
 
+/// Computes lightweight Java structure without starting a language server.
 pub fn structure(request: JavaStructureRequest) -> Result<JavaStructureResponse, CoreError> {
     let source = request.source;
     Ok(JavaStructureResponse {
@@ -124,6 +134,7 @@ pub fn structure(request: JavaStructureRequest) -> Result<JavaStructureResponse,
     })
 }
 
+/// Counts workspace references for declarations in the target source file.
 pub fn code_vision(request: JavaCodeVisionRequest) -> Result<JavaCodeVisionResponse, CoreError> {
     let root = existing_root(&request.root)?;
     let target_path = normalize_relative(&request.target_path).ok_or_else(|| {
@@ -169,6 +180,7 @@ pub fn code_vision(request: JavaCodeVisionRequest) -> Result<JavaCodeVisionRespo
     Ok(JavaCodeVisionResponse { hints })
 }
 
+/// Resolves a simple class name against the source package declaration.
 pub fn class_name(request: JavaClassNameRequest) -> Result<JavaClassNameResponse, CoreError> {
     let package = Regex::new(r"(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;")
         .expect("static Java package expression is valid")
@@ -181,6 +193,7 @@ pub fn class_name(request: JavaClassNameRequest) -> Result<JavaClassNameResponse
     })
 }
 
+/// Finds a type or member declaration in one Java source document.
 pub fn source_definition(
     request: JavaSourceDefinitionRequest,
 ) -> Result<Option<crate::protocol::JavaSourceDefinitionResponse>, CoreError> {
@@ -244,6 +257,7 @@ pub fn source_definition(
     Ok(None)
 }
 
+/// Reads a Spring server port from properties or YAML content.
 pub fn server_port(request: JavaServerPortRequest) -> Result<JavaServerPortResponse, CoreError> {
     if request.file_extension.eq_ignore_ascii_case("properties") {
         for line in request.content.lines() {
@@ -838,6 +852,7 @@ fn utf16_offset(source: &str, byte: usize) -> usize {
     source[..byte.min(source.len())].encode_utf16().count()
 }
 
+/// Lexical region used to exclude strings, characters, and comments from scans.
 enum ScanState {
     Code,
     String,

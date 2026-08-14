@@ -1,3 +1,5 @@
+//! Cargo binary discovery from manifests and conventional source layouts.
+
 use super::{Detected, DirectoryContext};
 
 /// Cargo binaries come from `[[bin]]` entries, or implicitly from `src/main.rs`.

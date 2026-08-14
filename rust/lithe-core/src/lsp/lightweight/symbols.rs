@@ -1,3 +1,5 @@
+//! In-process document symbols, references, renames, and semantic-token helpers.
+
 use super::edits::{range_for_offsets, utf16_position_to_byte_offset};
 use crate::lsp::interface::{
     LspPosition, LspPositionResponse, LspRangeResponse, LspTextEditResponse,
@@ -8,6 +10,7 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Document and cursor used by lightweight completion or hover.
 pub struct BuiltinRequest {
     pub file_path: String,
     pub text: String,
@@ -16,6 +19,7 @@ pub struct BuiltinRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Document, cursor, and LSP method used by lightweight navigation.
 pub struct BuiltinNavigationRequest {
     pub file_path: String,
     pub text: String,
@@ -25,15 +29,18 @@ pub struct BuiltinNavigationRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Deterministically ordered completion candidates from the current document.
 pub struct BuiltinCompletionResponse {
     pub items: Vec<BuiltinCompletionItem>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Completion candidate expressed in the normalized Core response shape.
 pub struct BuiltinCompletionItem {
     pub label: String,
     pub insert_text: String,
+    /// Numeric LSP `CompletionItemKind`, when the fallback can infer one.
     pub kind: Option<i32>,
     pub detail: Option<String>,
     pub text_edit: LspTextEditResponse,
@@ -41,12 +48,14 @@ pub struct BuiltinCompletionItem {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Optional hover result for the identifier at the cursor.
 pub struct BuiltinHoverResponse {
     pub hover: Option<BuiltinHover>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Lightweight hover contents and the identifier range they describe.
 pub struct BuiltinHover {
     pub contents: String,
     pub is_markdown: bool,
@@ -55,12 +64,14 @@ pub struct BuiltinHover {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Locations found by the lightweight navigation fallback.
 pub struct BuiltinNavigationResponse {
     pub locations: Vec<BuiltinLocation>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One normalized navigation target.
 pub struct BuiltinLocation {
     pub file_path: String,
     pub range: LspRangeResponse,
@@ -76,6 +87,7 @@ struct IdentifierOccurrence {
     range: LspRangeResponse,
 }
 
+/// Produces prefix-matching identifiers from the current document.
 pub fn builtin_completions(
     request: BuiltinRequest,
 ) -> Result<BuiltinCompletionResponse, CoreError> {
@@ -127,6 +139,7 @@ pub fn builtin_completions(
     Ok(BuiltinCompletionResponse { items })
 }
 
+/// Returns a minimal hover for the identifier under the cursor.
 pub fn builtin_hover(request: BuiltinRequest) -> Result<BuiltinHoverResponse, CoreError> {
     validate_file_path(&request.file_path)?;
     let cursor = utf16_position_to_byte_offset(&request.text, request.position)?;
@@ -142,6 +155,7 @@ pub fn builtin_hover(request: BuiltinRequest) -> Result<BuiltinHoverResponse, Co
     })
 }
 
+/// Finds same-document definitions, implementations, or references.
 pub fn builtin_navigation(
     request: BuiltinNavigationRequest,
 ) -> Result<BuiltinNavigationResponse, CoreError> {

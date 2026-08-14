@@ -1,3 +1,5 @@
+//! Workspace traversal, file operations, search, and replacement previews.
+
 use super::search_index::{self, UpdateOutcome, WorkspaceSearchIndex};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{
@@ -32,6 +34,7 @@ const MAX_OPEN_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Workspace root and visibility overrides used to build a file-tree snapshot.
 pub struct WorkspaceSnapshotRequest {
     pub root: String,
     #[serde(default)]
@@ -42,6 +45,7 @@ pub struct WorkspaceSnapshotRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Bounded file, content, and symbol search options.
 pub struct SearchRequest {
     pub root: String,
     pub query: String,
@@ -63,13 +67,14 @@ pub struct SearchRequest {
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
     pub hidden_file_patterns: Vec<String>,
-    /// 逗号分隔的文件掩码，如 `*.java, *.kt`。空串表示不过滤。
+    /// Comma-separated file masks such as `*.java, *.kt`; empty means no filter.
     #[serde(default)]
     pub file_mask: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Workspace root and visibility rules used to warm or invalidate an index.
 pub struct SearchIndexRequest {
     pub root: String,
     #[serde(default)]
@@ -80,6 +85,7 @@ pub struct SearchIndexRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Changed workspace-relative paths to apply to a cached search index.
 pub struct SearchIndexUpdateRequest {
     pub root: String,
     #[serde(default)]
@@ -92,6 +98,7 @@ pub struct SearchIndexUpdateRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Search-index size and whether an incremental request required a rebuild.
 pub struct SearchIndexStatusResponse {
     pub file_count: usize,
     pub symbol_count: usize,
@@ -101,6 +108,7 @@ pub struct SearchIndexStatusResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Search and replacement options used to produce a non-mutating preview.
 pub struct ReplacementPreviewRequest {
     pub root: String,
     pub query: String,
@@ -111,7 +119,7 @@ pub struct ReplacementPreviewRequest {
     pub whole_words: bool,
     #[serde(default)]
     pub regular_expression: bool,
-    /// 保留原命中的大小写形态：全大写、首字母大写、其余照抄替换串。
+    /// Preserve all-uppercase or initial-uppercase shape from literal matches.
     #[serde(default)]
     pub preserve_case: bool,
     #[serde(default)]
@@ -128,6 +136,7 @@ pub struct ReplacementPreviewRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to read one validated workspace-relative UTF-8 file.
 pub struct FileReadRequest {
     pub root: String,
     pub path: String,
@@ -135,6 +144,7 @@ pub struct FileReadRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to replace one validated workspace-relative UTF-8 file.
 pub struct FileWriteRequest {
     pub root: String,
     pub path: String,
@@ -145,6 +155,7 @@ fn default_max_results() -> usize {
     200
 }
 
+/// Scans visible workspace entries and invalidates any stale search index.
 pub fn snapshot(request: WorkspaceSnapshotRequest) -> Result<WorkspaceSnapshotResponse, CoreError> {
     let root = existing_root(&request.root)?;
     search_index::invalidate_root(&root);
@@ -154,6 +165,7 @@ pub fn snapshot(request: WorkspaceSnapshotRequest) -> Result<WorkspaceSnapshotRe
     Ok(WorkspaceSnapshotResponse { root: node, files })
 }
 
+/// Searches visible file paths and current file contents using the shared index.
 pub fn search(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     let root = existing_root(&request.root)?;
     let query = request.query.trim().to_string();
@@ -255,6 +267,7 @@ fn search_with_index(
     Ok(SearchResponse { matches })
 }
 
+/// Combines file, content, and Java-symbol results for Search Everywhere.
 pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     let root = existing_root(&request.root)?;
     let query = request.query.trim().to_string();
@@ -319,6 +332,7 @@ pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreE
     Ok(SearchResponse { matches })
 }
 
+/// Computes per-file replacements without writing any workspace content.
 pub fn replace_preview(
     request: ReplacementPreviewRequest,
 ) -> Result<ReplacementPreviewResponse, CoreError> {
@@ -407,6 +421,7 @@ pub fn replace_preview(
     Ok(ReplacementPreviewResponse { files })
 }
 
+/// Builds or reuses the search index and reports its current size.
 pub fn warm_search_index(
     request: SearchIndexRequest,
 ) -> Result<SearchIndexStatusResponse, CoreError> {
@@ -425,6 +440,7 @@ pub fn warm_search_index(
     })
 }
 
+/// Applies changed paths to a cached index, rebuilding when its rules changed.
 pub fn update_search_index(
     request: SearchIndexUpdateRequest,
 ) -> Result<SearchIndexStatusResponse, CoreError> {
@@ -448,6 +464,7 @@ pub fn update_search_index(
     })
 }
 
+/// Drops the cached index for one validated workspace root.
 pub fn invalidate_search_index(request: SearchIndexRequest) -> Result<(), CoreError> {
     let requested_root = PathBuf::from(&request.root);
     let root = search_index::canonicalize_with_missing_components(&requested_root)
@@ -456,6 +473,7 @@ pub fn invalidate_search_index(request: SearchIndexRequest) -> Result<(), CoreEr
     Ok(())
 }
 
+/// Reads one bounded, workspace-contained file as UTF-8 text.
 pub fn read_file(request: FileReadRequest) -> Result<FileReadResponse, CoreError> {
     let root = existing_root(&request.root)?;
     let path = safe_relative_path(&root, &request.path)?;
@@ -482,6 +500,7 @@ pub fn read_file(request: FileReadRequest) -> Result<FileReadResponse, CoreError
     })
 }
 
+/// Replaces one workspace-contained file and refreshes its cached search entry.
 pub fn write_file(request: FileWriteRequest) -> Result<FileWriteResponse, CoreError> {
     let root = existing_root(&request.root)?;
     let path = writable_relative_path(&root, &request.path)?;
@@ -499,6 +518,7 @@ pub fn write_file(request: FileWriteRequest) -> Result<FileWriteResponse, CoreEr
     })
 }
 
+/// Effective built-in plus caller-supplied rules for excluding workspace paths.
 pub(crate) struct VisibilityRules {
     pub(crate) hidden_directories: Vec<String>,
     pub(crate) hidden_file_patterns: Vec<String>,
@@ -716,9 +736,10 @@ fn normalize(values: Vec<String>) -> Vec<String> {
     result
 }
 
-/// 按原命中文本的大小写形态改写替换串，对齐 IDEA 的 Preserve Case：
-/// 全大写命中 -> 替换串全大写；首字母大写 -> 替换串首字母大写；
-/// 其余形态（含 camelCase、混合大小写）照抄替换串。
+/// Matches IDEA's Preserve Case behavior for literal replacement text.
+///
+/// All-uppercase matches uppercase the replacement, initial-uppercase matches
+/// capitalize it, and camelCase or mixed-case matches leave it unchanged.
 fn apply_case_pattern(matched: &str, replacement: &str) -> String {
     let letters = matched.chars().filter(|value| value.is_alphabetic());
     let mut has_lower = false;
@@ -730,11 +751,11 @@ fn apply_case_pattern(matched: &str, replacement: &str) -> String {
             has_upper = true;
         }
     }
-    // 没有字母可参考时无从判断形态，照抄。
+    // With no letters there is no case shape to preserve.
     if !has_lower && !has_upper {
         return replacement.to_string();
     }
-    // 多于一个字母的全大写才算 SCREAMING_CASE，避免把单字母 "F" 误判。
+    // Require multiple letters so a single `F` is not mistaken for SCREAMING_CASE.
     let letter_count = matched
         .chars()
         .filter(|value| value.is_alphabetic())
@@ -756,7 +777,7 @@ fn apply_case_pattern(matched: &str, replacement: &str) -> String {
     replacement.to_string()
 }
 
-/// 把 `*.java, *.kt` 这样的掩码串拆成一组模式；空串返回空表示不过滤。
+/// Splits a mask list such as `*.java, *.kt`; an empty list disables filtering.
 fn parse_file_mask(mask: &str) -> Vec<String> {
     mask.split(',')
         .map(|part| part.trim())
@@ -765,7 +786,7 @@ fn parse_file_mask(mask: &str) -> Vec<String> {
         .collect()
 }
 
-/// 掩码只针对文件名比对，任一模式命中即通过。
+/// Matches masks against the file name only and accepts any matching pattern.
 fn file_mask_allows(masks: &[String], path: &str) -> bool {
     if masks.is_empty() {
         return true;
@@ -805,6 +826,7 @@ fn glob_matches(pattern: &str, value: &str) -> bool {
     pattern_index == pattern.len()
 }
 
+/// Literal or regular-expression search semantics compiled for repeated matches.
 struct Matcher {
     plain_query: String,
     regex: Option<Regex>,
@@ -864,8 +886,8 @@ impl Matcher {
         })
     }
 
-    /// `preserve_case` 只作用于字面量替换；正则替换保持原样，
-    /// 因为替换串里可能含 `$1` 之类的捕获引用，改写大小写会破坏语义。
+    /// Preserve Case applies only to literal replacements. Regex replacements
+    /// can contain captures such as `$1`, whose meaning case rewriting breaks.
     fn replace_with_options(
         &self,
         text: &str,

@@ -1,17 +1,27 @@
+//! Plugin manifest parsing, compatibility checks, and deterministic catalog merging.
+
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Manifest schema understood by this Core build.
 pub const PLUGIN_MANIFEST_SCHEMA_VERSION: u32 = 1;
+/// Host/plugin API level required by compatible packages.
 pub const PLUGIN_API_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// Strict three-component semantic version used for compatibility comparisons.
 pub struct PluginVersion {
+    /// Breaking-change component.
     pub major: u32,
+    /// Backward-compatible feature component.
     pub minor: u32,
+    /// Backward-compatible fix component.
     pub patch: u32,
 }
 
 impl PluginVersion {
+    /// Parses exactly `major.minor.patch`; prerelease tags and missing parts are
+    /// rejected because the manifest contract does not define their ordering.
     pub fn parse(value: &str) -> Option<Self> {
         let mut parts = value.split('.');
         let version = Self {
@@ -24,93 +34,178 @@ impl PluginVersion {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Deterministic reason a catalog cannot be loaded by the current host.
 pub enum PluginValidationError {
+    /// The catalog is not valid JSON or does not match the manifest shape.
     InvalidJson,
-    UnsupportedSchema { plugin: String, version: u32 },
-    UnsupportedApi { plugin: String, version: u32 },
-    InvalidVersion { plugin: String, value: String },
-    IncompatibleHost { plugin: String },
-    InvalidEntrypoint { plugin: String },
+    /// A catalog or plugin uses an unknown manifest schema.
+    UnsupportedSchema {
+        /// Plugin identifier, or `catalog` when the top-level schema failed.
+        plugin: String,
+        /// Unsupported manifest schema version found in the input.
+        version: u32,
+    },
+    /// A catalog or plugin targets a different plugin API.
+    UnsupportedApi {
+        /// Plugin identifier, or `catalog` when the top-level API failed.
+        plugin: String,
+        /// Unsupported plugin API level found in the input.
+        version: u32,
+    },
+    /// A version does not use the strict three-component format.
+    InvalidVersion {
+        /// Plugin whose version or compatibility bound is malformed.
+        plugin: String,
+        /// Original version string that could not be parsed.
+        value: String,
+    },
+    /// The current host falls outside the package's declared version interval.
+    IncompatibleHost {
+        /// Plugin identifier, or `catalog` for a fixture-host mismatch.
+        plugin: String,
+    },
+    /// Entrypoint metadata is incomplete or inconsistent with its kind.
+    InvalidEntrypoint {
+        /// Plugin containing inconsistent loading or publisher metadata.
+        plugin: String,
+    },
+    /// More than one package declares the same plugin identifier.
     DuplicatePlugin(String),
+    /// More than one package claims ownership of the same module identifier.
     DuplicateModule(String),
+    /// A plugin contains no modules and therefore cannot contribute behavior.
     EmptyPlugin(String),
+    /// Plugin packages are not in canonical identifier order.
     UnsortedPlugins,
-    UnsortedModules { plugin: String },
-    InvalidLanguageSupport { plugin: String, language: String },
+    /// A package's module identifiers are not in canonical order.
+    UnsortedModules {
+        /// Plugin whose module identifiers are not in canonical order.
+        plugin: String,
+    },
+    /// Language recognition or capability ownership is invalid.
+    InvalidLanguageSupport {
+        /// Plugin declaring the invalid language contribution.
+        plugin: String,
+        /// Language identifier whose recognition or module ownership is invalid.
+        language: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Top-level plugin catalog fixture consumed by compatibility verification.
 pub struct PluginCatalogFixture {
+    /// Version of the catalog JSON shape.
     pub schema_version: u32,
+    /// Exact host version for which the fixture was assembled.
     pub host_version: String,
+    /// Plugin API level shared by every package in the catalog.
     #[serde(rename = "pluginAPIVersion")]
     pub plugin_api_version: u32,
+    /// Packages sorted by stable plugin identifier.
     pub plugins: Vec<PluginPackageManifest>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Compatibility and ownership metadata for one plugin package.
 pub struct PluginPackageManifest {
+    /// Stable package identifier used as the catalog key.
     pub id: String,
+    /// Human-readable name presented by host applications.
     pub display_name: String,
+    /// Package version in strict `major.minor.patch` form.
     pub version: String,
+    /// Plugin API level against which the package was built.
     pub api_version: u32,
+    /// Inclusive lower and optional exclusive upper host bounds.
     pub host_compatibility: HostCompatibility,
+    /// Publisher identity and signature policy.
     pub vendor: PluginVendor,
+    /// Native or built-in loading metadata.
     pub entrypoint: PluginEntrypoint,
+    /// Stable module identifiers owned by this package, in sorted order.
     #[serde(rename = "moduleIDs")]
     pub module_ids: Vec<String>,
+    /// Language capabilities contributed by the package.
     #[serde(default)]
     pub language_supports: Vec<LanguageSupportManifest>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// File recognition and module ownership for one contributed language.
 pub struct LanguageSupportManifest {
+    /// Lowercase stable language identifier.
     pub id: String,
+    /// Human-readable language name.
     pub display_name: String,
+    /// Extensions without a leading dot, kept in deterministic order.
     #[serde(default)]
     pub file_extensions: Vec<String>,
+    /// Exact file names recognized as this language.
     #[serde(default)]
     pub file_names: Vec<String>,
+    /// Project marker names that activate language support for a workspace.
     #[serde(default)]
     pub project_file_names: Vec<String>,
+    /// Package-owned module providing language-server integration.
     #[serde(rename = "languageServerModuleID")]
     pub language_server_module_id: Option<String>,
+    /// Package-owned module providing run configurations.
     #[serde(rename = "executionModuleID")]
     pub execution_module_id: Option<String>,
+    /// Package-owned module providing test integration.
     #[serde(rename = "testingModuleID")]
     pub testing_module_id: Option<String>,
+    /// Package-owned module providing debug integration.
     #[serde(rename = "debugModuleID")]
     pub debug_module_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Half-open host-version interval supported by a plugin.
 pub struct HostCompatibility {
+    /// Oldest compatible host version, inclusive.
     pub minimum: String,
+    /// First incompatible host version, when an upper bound is required.
     pub maximum_exclusive: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Plugin publisher identity and the signature relationship required by the host.
 pub struct PluginVendor {
+    /// Stable publisher identifier.
     pub id: String,
+    /// Human-readable publisher name.
     pub display_name: String,
+    /// Signature policy; currently only `sameTeamAsHost` is accepted.
     pub signature_requirement: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Mutually exclusive loading metadata for built-in and native-bundle plugins.
 pub struct PluginEntrypoint {
+    /// Entrypoint discriminator: `builtIn` or `nativeBundle`.
     pub kind: String,
+    /// Build target used by a built-in plugin.
     pub target_name: Option<String>,
+    /// Bundle identifier required for a native plugin.
     pub bundle_identifier: Option<String>,
+    /// Principal class required for a native plugin.
     pub principal_class: Option<String>,
+    /// Workspace-relative bundle location required for a native plugin.
     pub bundle_path: Option<String>,
 }
 
+/// Validates a complete catalog and returns the owning plugin for every module.
+///
+/// Validation also enforces deterministic ordering, host/API compatibility,
+/// entrypoint consistency, and that language capabilities reference only
+/// modules owned by their declaring package.
 pub fn validate_plugin_catalog_json(
     input: &str,
     host_version: PluginVersion,

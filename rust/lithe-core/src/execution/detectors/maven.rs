@@ -1,3 +1,5 @@
+//! Maven service discovery from the declared reactor and applied plugins.
+
 use super::super::types::Confidence;
 use super::{Detected, DirectoryContext};
 use crate::project::{declared_modules, DeclaredModule};
