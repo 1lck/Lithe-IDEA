@@ -89,6 +89,14 @@ struct RustGitOperations: GitOperations, GitCommandRunner, Sendable {
         write(at: change.repositoryRoot, operation: "unstage", paths: change.pathspecs)
     }
 
+    func stage(paths: [String], at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "stage", paths: paths)
+    }
+
+    func unstage(paths: [String], at rootURL: URL) -> ProcessResult? {
+        write(at: rootURL, operation: "unstage", paths: paths)
+    }
+
     func discard(_ change: GitChange) -> ProcessResult? {
         return write(at: change.repositoryRoot, operation: "discard", paths: change.pathspecs)
     }

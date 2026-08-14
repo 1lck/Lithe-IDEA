@@ -603,6 +603,24 @@ final class GitFeatureModel: ObservableObject {
         await refreshGit()
     }
 
+    /// Stages or unstages every file in a section (for example the "Changes" or
+    /// "Unversioned Files" group header checkbox). Mirrors the tri-state behavior
+    /// of the JetBrains changelist checkbox: if every file is already staged the
+    /// group is unstaged, otherwise the group is staged to completion.
+    func toggleStagingAll(_ changes: [GitChange]) async {
+        guard let gitRepositoryRoot, !changes.isEmpty else { return }
+        let shouldStage = !changes.allSatisfy(\.isStaged)
+        let paths = changes.flatMap(\.pathspecs)
+        let result = await withGitOperation {
+            shouldStage
+                ? await service.stage(paths: paths, at: gitRepositoryRoot)
+                : await service.unstage(paths: paths, at: gitRepositoryRoot)
+        }
+        let verb = shouldStage ? "Staged" : "Unstaged"
+        showResult(result, success: "\(verb) \(changes.count) file(s)")
+        await refreshGit()
+    }
+
     func stageAllChanges() async {
         guard let gitRepositoryRoot else { return }
         let result = await withGitOperation { await service.stageAll(at: gitRepositoryRoot) }

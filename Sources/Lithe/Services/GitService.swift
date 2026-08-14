@@ -55,6 +55,8 @@ protocol GitOperations: Sendable {
 
     func stage(_ change: GitChange) -> ProcessResult?
     func unstage(_ change: GitChange) -> ProcessResult?
+    func stage(paths: [String], at rootURL: URL) -> ProcessResult?
+    func unstage(paths: [String], at rootURL: URL) -> ProcessResult?
     func discard(_ change: GitChange) -> ProcessResult?
     func discardAll(_ change: GitChange) -> ProcessResult?
     func commit(at rootURL: URL, message: String, amend: Bool) -> ProcessResult?
@@ -230,6 +232,14 @@ struct GitService: GitWatchContextProviding, Sendable {
 
     func unstage(_ change: GitChange) async -> CommandResult {
         await command { $0.unstage(change) }
+    }
+
+    func stage(paths: [String], at repositoryRoot: URL) async -> CommandResult {
+        await command { $0.stage(paths: paths, at: repositoryRoot) }
+    }
+
+    func unstage(paths: [String], at repositoryRoot: URL) async -> CommandResult {
+        await command { $0.unstage(paths: paths, at: repositoryRoot) }
     }
 
     func discard(_ change: GitChange) async -> CommandResult {

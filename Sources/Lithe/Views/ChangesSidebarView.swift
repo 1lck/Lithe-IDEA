@@ -521,33 +521,47 @@ struct ChangesSidebarView: View {
         showsParentPaths: Bool
     ) -> some View {
         if !changes.isEmpty {
-            Button {
-                expanded.wrappedValue.toggle()
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .frame(width: 10)
-                    Image(systemName: "square")
+            HStack(spacing: 0) {
+                Button {
+                    Task { await model.toggleStagingAll(changes) }
+                } label: {
+                    Image(systemName: sectionStagingSymbol(changes))
                         .font(.system(size: 16))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Text(LocalizedStringKey(title))
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                    Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
-                        .font(.system(size: 11))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Spacer()
+                        .foregroundStyle(sectionStagingColor(changes))
+                        .frame(width: 24, height: 30)
+                        .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 7)
-                .frame(maxWidth: .infinity)
-                .frame(height: 30)
-                .background(LitheTheme.subtleSelection.opacity(0.72))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help("Stage or unstage all files in this group")
+
+                Button {
+                    expanded.wrappedValue.toggle()
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8, weight: .bold))
+                            .frame(width: 10)
+                        Text(LocalizedStringKey(title))
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(LitheTheme.primaryText)
+                        Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
+                            .font(.system(size: 11))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
             }
-            .buttonStyle(.plain)
-            .lithePointer()
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .background(LitheTheme.subtleSelection.opacity(0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
 
             if expanded.wrappedValue {
                 ForEach(changes) { change in
@@ -555,6 +569,17 @@ struct ChangesSidebarView: View {
                 }
             }
         }
+    }
+
+    private func sectionStagingSymbol(_ changes: [GitChange]) -> String {
+        let staged = changes.filter(\.isStaged).count
+        if staged == changes.count { return "checkmark.square.fill" }
+        if staged == 0 { return "square" }
+        return "minus.square"
+    }
+
+    private func sectionStagingColor(_ changes: [GitChange]) -> Color {
+        changes.allSatisfy(\.isStaged) ? LitheTheme.accent : LitheTheme.secondaryText
     }
 
     private func changeRow(_ change: GitChange, showsParentPath: Bool) -> some View {
