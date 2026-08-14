@@ -1,7 +1,8 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="${0:A:h:h}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 SOURCE_DIR="$ROOT_DIR/rust/lithe-core/src"
 cd "$ROOT_DIR"
 
@@ -18,7 +19,7 @@ done < <(find "$SOURCE_DIR" -type f -name '*.rs' \
     -print0)
 
 if (( ${#production_files[@]} == 0 )); then
-    print -u2 -- "Rust Core comment verification found no production modules"
+    printf '%s\n' "Rust Core comment verification found no production modules" >&2
     exit 1
 fi
 
@@ -28,7 +29,7 @@ failures=0
 for file in "${production_files[@]}"; do
     first_source_line="$(awk 'NF { sub(/^[[:space:]]*/, ""); print; exit }' "$file")"
     if [[ "$first_source_line" != "//!"* ]]; then
-        print -u2 -- "${file#$ROOT_DIR/}:1: production modules must start with //! documentation"
+        printf '%s\n' "${file#$ROOT_DIR/}:1: production modules must start with //! documentation" >&2
         failures=$((failures + 1))
     fi
 done
@@ -41,8 +42,8 @@ else
     non_english_comments="$(grep -nE '^[[:space:]]*//.*[一-龥]' "${rust_files[@]}" || true)"
 fi
 if [[ -n "$non_english_comments" ]]; then
-    print -u2 -- "Rust Core comments must be written in English:"
-    print -u2 -- "$non_english_comments"
+    printf '%s\n' "Rust Core comments must be written in English:" >&2
+    printf '%s\n' "$non_english_comments" >&2
     failures=$((failures + 1))
 fi
 
@@ -88,7 +89,7 @@ unsafe_without_safety="$(awk '
     }
 ' "${rust_files[@]}")"
 if [[ -n "$unsafe_without_safety" ]]; then
-    print -u2 -- "$unsafe_without_safety"
+    printf '%s\n' "$unsafe_without_safety" >&2
     failures=$((failures + 1))
 fi
 
@@ -105,4 +106,4 @@ cargo rustdoc --quiet \
     -D missing_docs \
     -D rustdoc::broken_intra_doc_links
 
-print "Rust Core comment verification passed"
+printf '%s\n' "Rust Core comment verification passed"
