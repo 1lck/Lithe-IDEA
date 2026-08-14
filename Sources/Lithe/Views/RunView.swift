@@ -703,60 +703,67 @@ struct RunView: View {
                 }
 
                 VStack(spacing: 8) {
-                    configurationDetailRow(
-                        "Type",
-                        value: String(localized: String.LocalizationValue(configuration.kind.title))
-                    )
-                    configurationDetailRow("Category", value: localizedExecution(configuration.execution))
-                    configurationDetailRow("Provider", value: configuration.kind.id, monospaced: true)
-                    configurationDetailRow("Working directory", value: workingDirectory, monospaced: true)
-
-                    if session?.isRunning == true,
-                       let serviceURL = feature.serviceURL(for: configuration) {
-                        configurationLinkRow("Address", url: serviceURL)
-                    }
-
-                    if let modulePath = nonEmpty(configuration.modulePath) {
-                        configurationDetailRow("Module", value: modulePath, monospaced: true)
-                    }
-                    if let mainClass = nonEmpty(configuration.mainClass) {
-                        configurationDetailRow("Main class", value: mainClass, monospaced: true)
-                    }
-                    if capabilities.contains(.javaRuntime),
-                       let javaHome = nonEmpty(options.javaHomePath) {
-                        configurationDetailRow("JDK home", value: javaHome, monospaced: true)
-                    }
-                    if configuration.kind.isMavenBacked,
-                       let mavenExecutable = nonEmpty(options.mavenExecutablePath) {
-                        configurationDetailRow("Maven", value: mavenExecutable, monospaced: true)
-                    }
-                    if configuration.kind.isMavenBacked,
-                       let mavenJavaHome = nonEmpty(options.mavenJavaHomePath) {
-                        configurationDetailRow("Maven JDK", value: mavenJavaHome, monospaced: true)
-                    }
-                    if capabilities.contains(.javaVMArguments),
-                       let vmArguments = nonEmpty(options.vmArguments) {
-                        configurationDetailRow("VM arguments", value: vmArguments, monospaced: true)
-                    }
-                    if let programArguments = nonEmpty(options.programArguments) {
-                        configurationDetailRow("Program arguments", value: programArguments, monospaced: true)
-                    }
-                    if capabilities.contains(.mavenProfiles), !options.activeProfiles.isEmpty {
+                    Group {
                         configurationDetailRow(
-                            "Active profiles",
-                            value: options.activeProfiles.sorted().joined(separator: ", "),
-                            monospaced: true
+                            "Type",
+                            value: String(localized: String.LocalizationValue(configuration.kind.title))
                         )
-                    }
-                    if (!capabilities.contains(.javaRuntime) || options.javaHomePath.isEmpty),
-                       (!capabilities.contains(.javaVMArguments) || options.vmArguments.isEmpty),
-                       options.programArguments.isEmpty,
-                       (!capabilities.contains(.mavenProfiles) || options.activeProfiles.isEmpty) {
-                        configurationDetailRow("Options", value: String(localized: "Default options"))
+                        configurationDetailRow("Category", value: localizedExecution(configuration.execution))
+                        configurationDetailRow("Provider", value: configuration.kind.id, monospaced: true)
+                        configurationDetailRow("Working directory", value: workingDirectory, monospaced: true)
                     }
 
-                    configurationDetailRow("Source", value: localizedSource(feature.source(for: configuration)))
-                    configurationDetailRow("Configuration ID", value: configuration.id, monospaced: true)
+                    Group {
+                        if session?.isRunning == true,
+                           let serviceURL = feature.serviceURL(for: configuration) {
+                            configurationLinkRow("Address", url: serviceURL)
+                        }
+
+                        if let modulePath = nonEmpty(configuration.modulePath) {
+                            configurationDetailRow("Module", value: modulePath, monospaced: true)
+                        }
+                        if let mainClass = nonEmpty(configuration.mainClass) {
+                            configurationDetailRow("Main class", value: mainClass, monospaced: true)
+                        }
+                        if capabilities.contains(.javaRuntime),
+                           let javaHome = nonEmpty(options.javaHomePath) {
+                            configurationDetailRow("JDK home", value: javaHome, monospaced: true)
+                        }
+                        if configuration.kind.isMavenBacked,
+                           let mavenExecutable = nonEmpty(options.mavenExecutablePath) {
+                            configurationDetailRow("Maven", value: mavenExecutable, monospaced: true)
+                        }
+                        if configuration.kind.isMavenBacked,
+                           let mavenJavaHome = nonEmpty(options.mavenJavaHomePath) {
+                            configurationDetailRow("Maven JDK", value: mavenJavaHome, monospaced: true)
+                        }
+                        if capabilities.contains(.javaVMArguments),
+                           let vmArguments = nonEmpty(options.vmArguments) {
+                            configurationDetailRow("VM arguments", value: vmArguments, monospaced: true)
+                        }
+                        if let programArguments = nonEmpty(options.programArguments) {
+                            configurationDetailRow("Program arguments", value: programArguments, monospaced: true)
+                        }
+                        if capabilities.contains(.mavenProfiles), !options.activeProfiles.isEmpty {
+                            configurationDetailRow(
+                                "Active profiles",
+                                value: options.activeProfiles.sorted().joined(separator: ", "),
+                                monospaced: true
+                            )
+                        }
+                    }
+
+                    Group {
+                        if (!capabilities.contains(.javaRuntime) || options.javaHomePath.isEmpty),
+                           (!capabilities.contains(.javaVMArguments) || options.vmArguments.isEmpty),
+                           options.programArguments.isEmpty,
+                           (!capabilities.contains(.mavenProfiles) || options.activeProfiles.isEmpty) {
+                            configurationDetailRow("Options", value: String(localized: "Default options"))
+                        }
+
+                        configurationDetailRow("Source", value: localizedSource(feature.source(for: configuration)))
+                        configurationDetailRow("Configuration ID", value: configuration.id, monospaced: true)
+                    }
                 }
             }
             .padding(.horizontal, 16)
