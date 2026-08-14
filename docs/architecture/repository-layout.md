@@ -10,13 +10,17 @@ on macOS types.
 ```text
 Lithe-IDEA/
 ├── Sources/Lithe/          # macOS SwiftUI/AppKit application
-│   ├── Application/        # feature models and application service graph
-│   ├── Core/               # ports, Rust operations, and terminal primitives
-│   ├── Models/             # UI-facing models and value types
+│   ├── Application/        # composition, feature models, and lifecycle policy
+│   ├── Core/               # ports, language catalogs, and typed Rust operations
+│   ├── Models/             # UI aggregate, bridges, and domain-grouped value types
 │   ├── Platform/MacOS/     # macOS composition root and adapters
-│   ├── Services/           # workflow orchestration
-│   └── Views/              # SwiftUI/AppKit presentation
+│   ├── Services/           # workflows grouped by product domain
+│   └── Views/              # SwiftUI/AppKit presentation grouped by feature
+├── Sources/Lithe*Module/   # independently owned built-in and plugin modules
+├── Sources/LitheModuleAPI/ # module lifecycle, catalog, and plugin contracts
+├── Sources/LitheCoreContracts/ # platform-neutral feature contracts
 ├── Sources/LitheRustCore/  # Swift Package C bridge declarations
+├── Plugins/Official/       # source manifests and Bundle metadata for official plugins
 ├── Tests/LitheTests/       # Swift Testing unit tests
 ├── rust/lithe-core/        # shared Rust commands, models, and C ABI
 ├── windows/                # C++ CoreClient, Win32 adapters, and Qt UI
@@ -50,6 +54,52 @@ windows/adapters/ Win32 file, watcher, process, terminal, runtime, and storage a
 Both platforms consume `rust/lithe-core` through the same JSON envelope and
 command names. Shared behavior belongs in `shared/contracts/` and should have
 a fixture under `shared/fixtures/` before the second platform relies on it.
+
+## Swift source organization
+
+Directories inside the macOS executable target express ownership rather than
+visibility. SwiftPM discovers them recursively, so moving a file between these
+directories must not require a target or product change:
+
+```text
+Sources/Lithe/
+├── Application/
+│   ├── Composition/  # application service graphs and module resource owners
+│   ├── Features/     # UI-facing state transitions and user actions
+│   └── Lifecycle/    # application-level lifecycle policy and errors
+├── Core/
+│   ├── Language/     # language-provider catalog adapters
+│   ├── Ports/        # platform-neutral interfaces
+│   └── Rust/         # typed Rust JSON/C ABI adapters
+├── Models/
+│   ├── AppModel/     # AppModel aggregate and focused extensions
+│   ├── Bridges/      # executable-target conformance bridges
+│   └── <Domain>/     # editor, diff, Java, runtime, search, and workspace values
+├── Services/<Domain>/ # product workflows grouped by their owning domain
+└── Views/<Feature>/   # presentation grouped by the user-facing feature
+```
+
+Feature module targets use the smallest applicable subset of the following
+convention. A directory should exist only when the target owns that kind of
+code:
+
+```text
+Sources/Lithe<Feature>Module/
+├── Module/       # module entrypoint and feature graph
+├── Application/  # feature state and UI-facing coordination
+├── Models/       # domain and value types
+├── Ports/        # interfaces owned by the feature
+├── Services/     # workflows
+├── Runtime/      # process, protocol, and session implementations
+└── Providers/    # provider implementations
+```
+
+Official language-support plugins additionally use `Capabilities/`, `Plugin/`,
+and `Support/` for exported language abilities, the native plugin entrypoint,
+and shared identifiers. New files should be named after their primary type;
+use `Type+Concern.swift` only for a focused extension or executable-target
+bridge. Do not rename module IDs, capability IDs, JSON fields, C symbols, or
+plugin entrypoint names as part of physical source reorganization.
 
 ## Rust Core packages
 

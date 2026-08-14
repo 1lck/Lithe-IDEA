@@ -1,9 +1,7 @@
 import Foundation
+import LitheCoreContracts
 
-struct ResolvedRunExecutable: Sendable {
-    let executableURL: URL
-    let environment: [String: String]
-}
+typealias ResolvedRunExecutable = LitheCoreContracts.ResolvedRunExecutable
 
 struct RunExecutableResolutionError: LocalizedError, Equatable, Sendable {
     let message: String
@@ -23,18 +21,4 @@ protocol RunToolchainMetadataResolving: Sendable {
 /// Application boundary for resolving a launch plan. Toolchain ids are an
 /// open registry, but every id must have an explicit resolver; an unknown id
 /// must never silently acquire Maven semantics.
-@MainActor
-protocol RunExecutableResolving: AnyObject {
-    func resolve(
-        _ plan: SharedLaunchPlan,
-        projectURL: URL,
-        options: RunOptions
-    ) throws -> ResolvedRunExecutable
-    func refreshCandidates(projectURL: URL) async
-    func candidates(projectURL: URL) -> [ProjectToolchainCandidate]
-}
-
-extension RunExecutableResolving {
-    func refreshCandidates(projectURL: URL) async {}
-    func candidates(projectURL: URL) -> [ProjectToolchainCandidate] { [] }
-}
+typealias RunExecutableResolving = LitheCoreContracts.RunExecutableResolving

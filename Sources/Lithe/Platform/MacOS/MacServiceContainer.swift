@@ -1,4 +1,17 @@
 import Foundation
+import LitheAIAssistanceModule
+import LitheApplicationKernel
+import LitheCoreContracts
+import LitheDatabaseModule
+import LitheDebugModule
+import LitheExecutionModule
+import LitheGitModule
+import LitheLocalHistoryModule
+import LitheLanguageIntelligenceModule
+import LitheModuleAPI
+import LitheSearchModule
+import LitheTerminalModule
+import LitheWorkspaceModule
 
 private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
     func make(
@@ -23,163 +36,27 @@ private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
 final class MacServiceContainer {
     let services: AppServices
     let runConfigurationStore: MacRunConfigurationStore
+    let moduleLifecycleCoordinator: ModuleLifecycleCoordinator
 
     init(
         store: any KeyValueStore,
         settings: AppSettings,
-        processRegistry: ManagedProcessRegistry = ManagedProcessRegistry()
+        processRegistry: ManagedProcessRegistry = ManagedProcessRegistry(),
+        moduleLaunchMode: ModuleLaunchMode = .normal,
+        moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
+        pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil
     ) {
         let rustCore = RustCoreBridge()
         let javaMavenOperations = RustJavaMavenOperations(core: rustCore)
         let fileStorage = MacFileStorage()
-        runConfigurationStore = MacRunConfigurationStore(
+        let runConfigurationStore = MacRunConfigurationStore(
             core: rustCore,
             storage: fileStorage,
             preferences: store
         )
+        self.runConfigurationStore = runConfigurationStore
         let fileOperations = MacWorkspaceFileOperations()
         let processRunner = MacProcessRunner()
-        let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
-        let databaseOperations = DatabaseSidecarService(processRunner: processRunner, executableURL: databaseSidecarURL)
-        let databaseRecoveryStore = MacDatabaseRecoveryStore(fileStorage: fileStorage)
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: MacRuntimeLocator(),
-            store: store,
-            toolDiscovery: MacRuntimeToolDiscovery()
-        )
-        let languageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
-        let languageProviderCatalogSnapshot = languageProviderCatalogSource.load()
-        let languageProviderCatalog = languageProviderCatalogSnapshot.catalog
-        let languageServerTools = LanguageServerToolService(
-            runtimeService: runtimeService,
-            processRunner: processRunner,
-            store: store
-        )
-        // Build the catalog once so every standard runtime consumes the
-        // language-pack launch metadata instead of maintaining a second map.
-        let languagePackDefinitions = LanguagePackRegistry.standard(
-            catalog: languageProviderCatalog
-        )
-        Task {
-            for descriptor in languageProviderCatalog.descriptors where
-                descriptor.capabilities.contains(.languageServer) {
-                await languageServerTools.refreshCandidates(for: descriptor)
-            }
-        }
-        let debugSessionFactories: [String: () -> (any DebugAdapterSession)?] = [
-            "go": {
-                guard let dlv = runtimeService.executableOnPath("dlv") else { return nil }
-                return DebugAdapterProtocolSession(
-                    adapterID: "go",
-                    transport: MacDlvDebugAdapterTransport(
-                        executableURL: dlv,
-                        environment: runtimeService.processEnvironment(),
-                        process: MacRawProcessSession()
-                    )
-                )
-            },
-            "node": {
-                guard let node = runtimeService.executableOnPath("node") else { return nil }
-                let environment = runtimeService.processEnvironment()
-                let locator = MacJavaScriptDebugAdapterLocator(
-                    environment: environment,
-                    executableOnPath: { runtimeService.executableOnPath($0) }
-                )
-                return DebugAdapterProtocolSession(
-                    adapterID: "pwa-node",
-                    transport: MacNodeDebugAdapterTransport(
-                        nodeExecutableURL: node,
-                        locator: locator,
-                        process: MacRawProcessSession()
-                    )
-                )
-            }
-        ]
-        let debugLaunches = Dictionary(
-            uniqueKeysWithValues: languagePackDefinitions.packs.compactMap { pack in
-                pack.debugAdapterLaunch.map { (pack.descriptor.id, $0) }
-            }
-        )
-        let languageToolingRuntimeFactory = StdioLanguageProviderRuntimeFactory(
-            runtimeService: runtimeService,
-            processFactory: { MacRawProcessSession() },
-            languageServerCore: rustCore,
-            languageServerExecutableResolver: { descriptor in
-                languageServerTools.executableURL(for: descriptor)
-            },
-            // JDT LS runs on a JDK the Rust runtime cannot discover for itself.
-            languageServerRuntimeResolver: { descriptor in
-                descriptor.id == "java"
-                    ? runtimeService.configuredJavaExecutableURL(
-                        overridePath: settings.javaLanguageServerJDKPath
-                    )
-                    : nil
-            },
-            languageServerCacheDirectory: fileStorage
-                .cacheDirectory()
-                .appendingPathComponent("Lithe/language-servers", isDirectory: true),
-            processRegistry: processRegistry,
-            debugLaunches: debugLaunches,
-            debugSessionFactories: debugSessionFactories
-        )
-        let languageToolingRuntimes: [any LanguageProviderRuntime] = languagePackDefinitions.packs
-            .compactMap { languageToolingRuntimeFactory.makeRuntime(for: $0.descriptor) }
-        let languagePackRegistry = LanguagePackRegistry.standard(
-            catalog: languageProviderCatalog,
-            runtimes: languageToolingRuntimes
-        )
-        let runToolchainRegistry = languagePackRegistry.toolchainRegistry
-        let languageToolingSessions = LanguageToolingSessionManager(
-            catalog: languagePackRegistry.catalog,
-            runtimes: languagePackRegistry.toolingRuntimes,
-            runtimeFactory: languageToolingRuntimeFactory,
-            core: rustCore
-        )
-        let testExecutableResolver = RunExecutableResolver(
-            runtimeService: runtimeService,
-            toolchainRegistry: runToolchainRegistry,
-            metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
-        )
-        let languageTestService = LanguageTestService(
-            registry: languagePackRegistry,
-            executableResolver: testExecutableResolver,
-            processFactory: { MacStreamingProcess(processRegistry: processRegistry) }
-        )
-
-        let mavenService = MavenService(
-            runtimeService: runtimeService,
-            process: MacStreamingProcess(processRegistry: processRegistry),
-            javaMavenOperations: javaMavenOperations
-        )
-        let runService = RunService(
-            runtimeService: runtimeService,
-            process: MacStreamingProcess(processRegistry: processRegistry),
-            processFactory: { MacStreamingProcess(processRegistry: processRegistry) },
-            fileStorage: fileStorage,
-            preferences: store,
-            javaMavenOperations: javaMavenOperations,
-            runConfigurationOperations: runConfigurationStore,
-            executableResolver: RunExecutableResolver(
-                runtimeService: runtimeService,
-                toolchainRegistry: runToolchainRegistry,
-                metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
-            ),
-            languagePackRegistry: languagePackRegistry
-        )
-        let javaDebugService = JavaDebugService(
-            runtimeService: runtimeService,
-            processFactory: { MacStreamingProcess(processRegistry: processRegistry) },
-            fileStorage: fileStorage,
-            javaMavenOperations: javaMavenOperations,
-            runConfigurationOperations: runConfigurationStore
-        )
-        let gitOperations = RustGitOperations(core: rustCore)
-        let workspaceOperations = RustWorkspaceOperations(core: rustCore)
-        let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
-        let markdownRenderer = RustMarkdownRendering(core: rustCore)
-        let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)
-        let gitService = GitService(operations: gitOperations)
-        let shelveService = ShelveService(storage: fileStorage)
         let secureStore = MacLocalSecretStore()
         let databaseSecureStore = MacKeychainSecureStore(
             service: "app.lithe.desktop.database",
@@ -195,23 +72,318 @@ final class MacServiceContainer {
             localStore: secureStore,
             configurationSources: aiConfigurationSources
         )
-        let commitMessageGenerator = CommitMessageGenerationService(
-            transport: MacURLSessionTransport(),
-            credentialResolver: credentialResolver
+        let pluginHostServices = MacPluginHostServiceRegistry()
+        pluginHostServices.register(
+            MacLanguageExecutionHost(processRegistry: processRegistry),
+            for: .languageExecution
         )
+        let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
+        let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
+        let moduleRuntime = ModuleRuntime(
+            configurationStore: moduleStore,
+            recoveryStore: moduleStore,
+            launchMode: moduleLaunchMode
+        )
+        moduleLifecycleCoordinator = ModuleLifecycleCoordinator(runtime: moduleRuntime)
+        let pluginPackageStore = MacPluginPackageStore(fileStorage: fileStorage)
+        let pluginStartup = MacPluginStartupLoader(
+            packageStore: pluginPackageStore,
+            nativeLoader: MacNativePluginLoader(
+                hostContext: PluginHostContext(resolver: pluginHostServices)
+            ),
+            runtimeRecovery: pluginRuntimeRecovery
+        ).load(policy: MacPluginLoadPolicy(
+            configurationStore: moduleStore,
+            recoveryStore: moduleStore,
+            launchMode: moduleLaunchMode
+        ))
+        let moduleRegistry = ModuleRegistry(
+            runtime: moduleRuntime,
+            pluginManifests: BuiltInPluginCatalog.manifests + pluginStartup.activeNativeManifests
+        )
+        do {
+            try moduleRegistry.register(ModuleFactory(manifest: WorkspaceFoundationModule.moduleManifest) {
+                WorkspaceFoundationModule(makeGraph: {
+                    let owner = WorkspaceModuleResourceOwner()
+                    return owner
+                })
+            })
+            try moduleRegistry.register(ModuleFactory(
+                manifest: AIAssistanceModule.moduleManifest,
+                contributions: AIAssistanceModule.moduleContributions
+            ) {
+                AIAssistanceModule(
+                    transportFactory: { MacURLSessionTransport() },
+                    credentialResolver: credentialResolver
+                )
+            })
+            try moduleRegistry.register(ModuleFactory(manifest: DatabaseModule.moduleManifest, contributions: DatabaseModule.moduleContributions) {
+                DatabaseModule(
+                    processRunner: processRunner,
+                    executableURL: databaseSidecarURL,
+                    preferenceStore: MacDatabasePreferenceStore(store: store),
+                    secureStore: MacKeychainSecureStore(
+                        service: "app.lithe.desktop.database",
+                        legacyStore: MacLocalSecretStore()
+                    ),
+                    recoveryStore: MacDatabaseRecoveryStore(fileStorage: fileStorage),
+                    fileStorage: fileStorage
+                )
+            })
+            try moduleRegistry.register(ModuleFactory(manifest: TerminalModule.moduleManifest, contributions: TerminalModule.moduleContributions) {
+                TerminalModule(
+                    terminalFactory: { MacTerminalTransport() },
+                    shellDiscovery: { MacTerminalTransport.availableShells() }
+                )
+            })
+        } catch {
+            preconditionFailure("Invalid built-in module graph: \(error.localizedDescription)")
+        }
+        let runtimeService = ProjectRuntimeService(
+            runtimeLocator: MacRuntimeLocator(),
+            store: store,
+            toolDiscovery: MacRuntimeToolDiscovery()
+        )
+        let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
+        // Installation owns the process-backed language boundary even when a
+        // package is disabled, quarantined, or failed to load. Only the active
+        // manifests below contribute factories; keeping static ownership here
+        // prevents the host from silently restoring its legacy process path.
+        let installedPluginManifests = pluginStartup.installedManifests
+        let installedLanguageSupports = pluginStartup.installedLanguageSupports
+        let languageProviderCatalogSource = PluginLanguageProviderCatalogSource(
+            base: rustLanguageProviderCatalogSource,
+            languageSupports: installedLanguageSupports
+        )
+        let languageProviderCatalogSnapshot = languageProviderCatalogSource.load()
+        let languageProviderCatalog = languageProviderCatalogSnapshot.catalog
+        let pluginLanguageIDs = Set(installedLanguageSupports.map(\.id))
+        // Build the catalog once so every standard runtime consumes the
+        // language-pack launch metadata instead of maintaining a second map.
+        let languagePackDefinitions = LanguagePackRegistry.standard(
+            catalog: languageProviderCatalog,
+            extensionRequiredProviderIDs: pluginLanguageIDs
+        )
+        let debugLaunches = Dictionary(
+            uniqueKeysWithValues: languagePackDefinitions.packs.compactMap { pack in
+                pack.debugAdapterLaunch.map { (pack.descriptor.id, $0) }
+            }
+        )
+        let languagePackRegistry = languagePackDefinitions
+        let runToolchainRegistry = languagePackRegistry.toolchainRegistry
+        do {
+            try moduleRegistry.register(ModuleFactory(manifest: LanguageIntelligenceModule.moduleManifest, contributions: LanguageIntelligenceModule.moduleContributions) {
+                LanguageIntelligenceModule(makeGraph: {
+                    let tools = LanguageServerToolService(
+                        runtimeService: runtimeService,
+                        commandRunner: processRunner,
+                        settingsStore: MacLanguageToolSettingsStore(store: store)
+                    )
+                    let runtimeFactory = StdioLanguageProviderRuntimeFactory(
+                        runtimeService: runtimeService,
+                        languageServerCore: rustCore,
+                        languageServerExecutableResolver: { tools.executableURL(for: $0) },
+                        languageServerRuntimeResolver: { descriptor in
+                            descriptor.id == "java"
+                                ? runtimeService.configuredJavaExecutableURL(
+                                    overridePath: settings.javaLanguageServerJDKPath
+                                )
+                                : nil
+                        },
+                        languageServerCacheDirectory: fileStorage.cacheDirectory()
+                            .appendingPathComponent("Lithe/language-servers", isDirectory: true),
+                        processRegistry: processRegistry
+                    )
+                    let runtimes = languagePackDefinitions.packs
+                        .filter { !pluginLanguageIDs.contains($0.descriptor.id) }
+                        .compactMap {
+                        runtimeFactory.makeRuntime(for: $0.descriptor)
+                    }
+                    let registry = LanguagePackRegistry.standard(
+                        catalog: languageProviderCatalog,
+                        runtimes: runtimes,
+                        extensionRequiredProviderIDs: pluginLanguageIDs
+                    )
+                    let sessions = LanguageToolingSessionManager(
+                        catalog: registry.catalog,
+                        runtimes: registry.toolingRuntimes,
+                        runtimeFactory: runtimeFactory,
+                        builtinCore: rustCore,
+                        extensionRequiredProviderIDs: pluginLanguageIDs
+                    )
+                    let graph = LanguageIntelligenceFeatureGraph(
+                        sessions: sessions,
+                        tools: tools
+                    )
+                    return graph
+                })
+            })
+        } catch {
+            preconditionFailure("Invalid language module graph: \(error.localizedDescription)")
+        }
+        do {
+            try moduleRegistry.register(ModuleFactory(manifest: ExecutionModule.moduleManifest, contributions: ExecutionModule.moduleContributions) {
+                ExecutionModule(makeGraph: {
+                    let executableResolver = RunExecutableResolver(
+                        runtimeService: runtimeService,
+                        toolchainRegistry: runToolchainRegistry,
+                        metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+                    )
+                    let graph = ExecutionFeatureGraph(
+                        maven: MavenService(
+                            runtimeService: runtimeService,
+                            process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
+                            mavenOperations: javaMavenOperations
+                        ),
+                        run: RunService(
+                            runtime: runtimeService,
+                            process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
+                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
+                            fileAccess: MacRunFileAccess(storage: fileStorage),
+                            preferences: MacRunPreferenceStore(store: store),
+                            serverPortParser: javaMavenOperations,
+                            runConfigurationOperations: runConfigurationStore,
+                            executableResolver: executableResolver,
+                            languageProviderCatalog: languagePackRegistry.catalog,
+                            languageRunProviders: languagePackRegistry.runProviders,
+                            extensionRequiredLanguageIDs: pluginLanguageIDs
+                        ),
+                        tests: LanguageTestService(
+                            catalog: languagePackRegistry.catalog,
+                            registry: languagePackRegistry.testProviders,
+                            executableResolver: executableResolver,
+                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
+                            extensionRequiredLanguageIDs: pluginLanguageIDs
+                        )
+                    )
+                    return graph
+                })
+            })
+            try moduleRegistry.register(ModuleFactory(manifest: DebugModule.moduleManifest, contributions: DebugModule.moduleContributions) {
+                DebugModule(makeGraph: {
+                    let debugFactories: [String: () -> (any DebugAdapterSession)?] = [
+                        "go": {
+                            guard let executable = runtimeService.executableOnPath("dlv") else { return nil }
+                            return DebugAdapterProtocolSession(
+                                adapterID: "go",
+                                transport: MacDlvDebugAdapterTransport(
+                                    executableURL: executable,
+                                    environment: runtimeService.processEnvironment(),
+                                    process: MacRawProcessSession()
+                                )
+                            )
+                        },
+                        "node": {
+                            guard let executable = runtimeService.executableOnPath("node") else { return nil }
+                            let environment = runtimeService.processEnvironment()
+                            return DebugAdapterProtocolSession(
+                                adapterID: "pwa-node",
+                                transport: MacNodeDebugAdapterTransport(
+                                    nodeExecutableURL: executable,
+                                    locator: MacJavaScriptDebugAdapterLocator(
+                                        environment: environment,
+                                        executableOnPath: { runtimeService.executableOnPath($0) }
+                                    ),
+                                    process: MacRawProcessSession()
+                                )
+                            )
+                        }
+                    ]
+                    let debugRuntimeFactory = DebugAdapterRuntimeFactory(
+                        runtimeService: runtimeService,
+                        transportFactory: { executableURL, arguments, environment in
+                            MacProcessDebugAdapterTransport(
+                                executableURL: executableURL,
+                                arguments: arguments,
+                                environment: environment,
+                                process: MacRawProcessSession()
+                            )
+                        },
+                        launches: debugLaunches,
+                        sessionFactories: debugFactories
+                    )
+                    let adapterSessions = DebugAdapterSessionManager(
+                        providers: languageProviderCatalog.debugProviders,
+                        makeSession: { descriptor, rootURL in
+                            debugRuntimeFactory.makeSession(
+                                for: descriptor,
+                                rootURL: rootURL
+                            )
+                        }
+                    )
+                    let graph = DebugFeatureGraph(
+                        java: JavaDebugService(
+                            runtimeService: runtimeService,
+                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .debug) },
+                            fileStorage: fileStorage,
+                            javaMavenOperations: javaMavenOperations,
+                            runConfigurationOperations: runConfigurationStore
+                        ),
+                        adapterSessions: adapterSessions
+                    )
+                    return graph
+                })
+            })
+        } catch {
+            preconditionFailure("Invalid execution/debug module graph: \(error.localizedDescription)")
+        }
+        let gitOperations = RustGitOperations(core: rustCore)
+        let workspaceOperations = RustWorkspaceOperations(core: rustCore)
+        let localHistoryOperations = RustLocalHistoryOperations(core: rustCore)
+        let markdownRenderer = RustMarkdownRendering(core: rustCore)
+        let markdownImageImporter = MarkdownImageImportService(storage: fileStorage)
+        do {
+            try moduleRegistry.register(ModuleFactory(manifest: GitModule.moduleManifest, contributions: GitModule.moduleContributions) {
+                GitModule(
+                    operations: gitOperations,
+                    shelfStorage: MacGitShelfStorage(storage: fileStorage)
+                )
+            })
+            try moduleRegistry.register(ModuleFactory(manifest: SearchModule.moduleManifest, contributions: SearchModule.moduleContributions) {
+                SearchModule(operations: workspaceOperations)
+            })
+            try moduleRegistry.register(ModuleFactory(manifest: HistoryModule.moduleManifest, contributions: HistoryModule.moduleContributions) {
+                HistoryModule(
+                    workspaceAccess: MacLocalHistoryWorkspaceAccess(workspaceOperations: workspaceOperations, fileOperations: fileOperations),
+                    storage: MacLocalHistoryStorage(storage: fileStorage),
+                    operations: localHistoryOperations
+                )
+            })
+            for pluginID in pluginStartup.factoriesByPlugin.keys.sorted() {
+                for factory in pluginStartup.factoriesByPlugin[pluginID] ?? [] {
+                    try moduleRegistry.register(factory)
+                }
+            }
+            try moduleRegistry.validate()
+        } catch {
+            preconditionFailure("Invalid workspace module graph: \(error.localizedDescription)")
+        }
         // Keep binary formats default-denied. Future format support must be
         // registered explicitly at this composition boundary.
         let binaryFileViewerRegistry = BinaryFileViewerRegistry()
+        let pluginManager = MacPluginManager(
+            packageStore: pluginPackageStore,
+            moduleRuntime: moduleRuntime,
+            configurationStore: moduleStore,
+            launchMode: moduleLaunchMode,
+            startup: pluginStartup
+        )
+        let pluginCatalog: ValidatedPluginCatalog
+        do {
+            pluginCatalog = try ValidatedPluginCatalog(
+                manifests: BuiltInPluginCatalog.manifests + installedPluginManifests,
+                hostVersion: BuiltInPluginCatalog.hostVersion
+            )
+        } catch {
+            preconditionFailure("Invalid installed plugin catalog: \(error.localizedDescription)")
+        }
         services = AppServices(
+            moduleRuntime: moduleRuntime,
+            pluginManager: pluginManager,
+            pluginCatalog: pluginCatalog,
             languageProviderCatalogSource: languageProviderCatalogSource,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
-            languagePacks: languagePackRegistry,
-            runToolchainRegistry: runToolchainRegistry,
-            languageToolingSessions: languageToolingSessions,
-            languageServerTools: languageServerTools,
-            languageTestService: languageTestService,
             workspaceOperations: workspaceOperations,
-            localHistoryOperations: localHistoryOperations,
             javaMavenOperations: javaMavenOperations,
             markdownRenderer: markdownRenderer,
             markdownImageImporter: markdownImageImporter,
@@ -220,14 +392,7 @@ final class MacServiceContainer {
             fileOperations: fileOperations,
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
-            mavenService: mavenService,
-            runService: runService,
-            javaDebugService: javaDebugService,
-            gitService: gitService,
-            databaseOperations: databaseOperations,
-            databaseRecoveryStore: databaseRecoveryStore,
-            shelveService: shelveService,
-            commitMessageGenerator: commitMessageGenerator,
+            gitWatchContextProvider: RustGitWatchContextProvider(core: rustCore),
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,
             credentialResolver: credentialResolver,
@@ -235,11 +400,11 @@ final class MacServiceContainer {
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
-            terminalFactory: { MacTerminalTransport() },
-            shellDiscovery: { MacTerminalTransport.availableShells() },
             directoryWatcherFactory: MacDirectoryWatcherFactory(),
             platformUI: MacPlatformUI(),
             shortcutDetectorFactory: MacShortcutDetectorFactory()
         )
+        moduleLifecycleCoordinator.start()
+        Task { try? await moduleRegistry.startEagerModules() }
     }
 }

@@ -1,7 +1,12 @@
 import AppKit
 import CoreServices
 import Foundation
+@testable import LitheDatabaseModule
+@testable import LitheGitModule
+import LitheLocalHistoryModule
+import LitheSearchModule
 import Testing
+import LitheTerminalModule
 @testable import Lithe
 
 @Suite("Lithe core logic")
@@ -2364,7 +2369,7 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     }
 }
 
-private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
+private final class RecordingProcessRunner: ProcessRunner, DatabaseProcessRunning, @unchecked Sendable {
     private let lock = NSLock()
     private let handler: (ProcessRequest) -> ProcessResult
     private let requestsLock = NSLock()
@@ -2390,6 +2395,16 @@ private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
         requestsLock.unlock()
         return handler(request)
     }
+
+    func runDatabaseProcess(_ request: DatabaseProcessRequest) -> DatabaseProcessResult {
+        let result = run(ProcessRequest(
+            executablePath: request.executablePath,
+            environment: request.environment,
+            standardInput: request.standardInput,
+            timeoutMilliseconds: request.timeoutMilliseconds
+        ))
+        return DatabaseProcessResult(output: result.output, exitCode: result.exitCode)
+    }
 }
 
 private final class TestCounter: @unchecked Sendable {
@@ -2410,7 +2425,7 @@ private final class TestCounter: @unchecked Sendable {
     }
 }
 
-private final class DatabaseTestKeyValueStore: KeyValueStore, @unchecked Sendable {
+private final class DatabaseTestKeyValueStore: KeyValueStore, DatabasePreferenceStore, @unchecked Sendable {
     private var values: [String: Any] = [:]
     func data(forKey key: String) -> Data? { values[key] as? Data }
     func object(forKey key: String) -> Any? { values[key] }
@@ -2419,7 +2434,7 @@ private final class DatabaseTestKeyValueStore: KeyValueStore, @unchecked Sendabl
     func set(_ value: Any?, forKey key: String) { values[key] = value }
 }
 
-private final class DatabaseTestSecureStore: SecureStore, @unchecked Sendable {
+private final class DatabaseTestSecureStore: SecureStore, DatabaseSecureStore, @unchecked Sendable {
     private var values: [String: String] = [:]
     func read(key: String) -> String? { values[key] }
     func write(_ value: String, key: String) throws { values[key] = value }
@@ -2724,7 +2739,7 @@ struct EditorDocumentTests {
             operations: operations,
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
-            gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
             directoryWatcherFactory: TestDirectoryWatcherFactory(),
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
         )
@@ -2862,7 +2877,7 @@ struct EditorDocumentTests {
             operations: EmptyWorkspaceOperations(),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
-            gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
             directoryWatcherFactory: watcherFactory,
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
         )
@@ -3343,7 +3358,7 @@ private final class TestTerminalTransport: TerminalTransport {
     }
 }
 
-private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
+private final class InMemoryFileStorage: FileStorage, GitShelfStorage, DatabaseFileStorage, @unchecked Sendable {
     private let lock = NSLock()
     private let support = URL(fileURLWithPath: "/in-memory-application-support", isDirectory: true)
     private var files: [String: Data] = [:]
@@ -3380,6 +3395,10 @@ private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
         return value
     }
 
+    func readData(from url: URL) throws -> Data {
+        try readData(from: url, options: [])
+    }
+
     func readPrefix(from url: URL, byteCount: Int) throws -> Data {
         try readData(from: url, options: []).prefix(byteCount)
     }
@@ -3390,10 +3409,20 @@ private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
         lock.unlock()
     }
 
+
+    func writeData(_ data: Data, to url: URL) throws {
+        try writeData(data, to: url, options: [])
+    }
+
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
         lock.lock()
         directories.insert(url.path)
         lock.unlock()
+    }
+
+
+    func createDirectory(at url: URL) throws {
+        try createDirectory(at: url, withIntermediateDirectories: true)
     }
 
     func removeItem(at url: URL) throws {

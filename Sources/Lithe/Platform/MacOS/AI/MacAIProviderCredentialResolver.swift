@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 
 final class MacAIProviderCredentialResolver: AIProviderCredentialResolver, @unchecked Sendable {
     private let localStore: any SecureStore

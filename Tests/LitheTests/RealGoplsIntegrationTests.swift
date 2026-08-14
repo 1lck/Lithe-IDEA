@@ -1,4 +1,5 @@
 import Foundation
+import LitheLanguageIntelligenceModule
 import Testing
 @testable import Lithe
 
@@ -60,7 +61,7 @@ struct RealGoplsIntegrationTests {
         let manager = LanguageToolingSessionManager(
             catalog: LanguageProviderCatalog(descriptors: [descriptor]),
             runtimes: [runtime],
-            core: core
+            builtinCore: core
         )
         defer {
             manager.stopAll()
@@ -142,5 +143,4 @@ private final class RealGoplsLanguageRuntime: LanguageProviderRuntime {
     }
 
     func makeLanguageServerSession() -> (any LanguageServerSession)? { session }
-    func makeDebugAdapterSession() -> (any DebugAdapterSession)? { nil }
 }

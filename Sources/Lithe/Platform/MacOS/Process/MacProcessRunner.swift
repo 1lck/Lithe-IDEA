@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 
 final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
     func run(_ request: ProcessRequest) -> ProcessResult {
@@ -60,5 +61,24 @@ final class MacProcessRunner: ProcessRunner, @unchecked Sendable {
             outputPipe.fileHandleForReading.readabilityHandler = nil
             return ProcessResult(output: error.localizedDescription, exitCode: 1)
         }
+    }
+}
+
+extension MacProcessRunner: LanguageToolCommandRunning {
+    func runLanguageToolCommand(
+        operationID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        timeoutMilliseconds: Int
+    ) -> LanguageToolCommandResult {
+        let result = run(ProcessRequest(
+            operationID: operationID,
+            executablePath: executableURL.path,
+            arguments: arguments,
+            environment: environment,
+            timeoutMilliseconds: timeoutMilliseconds
+        ))
+        return LanguageToolCommandResult(output: result.output, exitCode: result.exitCode)
     }
 }

@@ -71,6 +71,7 @@ struct OutputTimestamperTests {
 }
 
 @Suite("Output severity coloring")
+@MainActor
 struct OutputSeverityTests {
     @Test
     func recognizesBracketedMavenLevels() {

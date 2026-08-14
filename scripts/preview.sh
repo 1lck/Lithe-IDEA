@@ -16,8 +16,12 @@ scripts/build-macos.sh --configuration debug --triple "$TRIPLE"
 # 前台应用，窗口能收到鼠标点击但永远拿不到键盘焦点。
 APP_DIR="$ROOT_DIR/.build/preview/Lithe.app"
 rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Contents/Helpers"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources/OfficialPlugins" "$APP_DIR/Contents/Helpers"
 cp ".build/$TRIPLE/debug/Lithe" "$APP_DIR/Contents/MacOS/Lithe"
+plugin_root=$(scripts/build-official-plugins.sh --configuration debug --triple "$TRIPLE")
+for plugin_package in "$plugin_root"/*(/N); do
+    cp -R "$plugin_package" "$APP_DIR/Contents/Resources/OfficialPlugins/${plugin_package:t}"
+done
 case "$TRIPLE" in
     arm64-apple-macosx) RUST_TARGET="aarch64-apple-darwin" ;;
     x86_64-apple-macosx) RUST_TARGET="x86_64-apple-darwin" ;;

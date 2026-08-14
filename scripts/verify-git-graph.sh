@@ -3,16 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
-mkdir -p .build
 
-swiftc \
-  Sources/Lithe/Models/GitModels.swift \
-  Sources/Lithe/Models/GitGraphModels.swift \
-  Sources/Lithe/Services/GitGraphLayoutService.swift \
-  scripts/GitGraphVerification.swift \
-  -o .build/git-graph-verification
-
-./.build/git-graph-verification
+swift run --quiet LitheGitGraphVerifier
 
 FIXTURE_DIR="$(scripts/create-git-graph-fixture.sh)"
 MERGE_LINE="$(git -C "$FIXTURE_DIR" log --all --merges --format='%H %P' -1)"

@@ -1,4 +1,6 @@
 import Foundation
+import LitheCoreContracts
+import LitheLanguageIntelligenceModule
 import Testing
 @testable import Lithe
 
@@ -24,8 +26,8 @@ struct LanguageServerToolServiceTests {
         let descriptor = goDescriptor()
         let service = LanguageServerToolService(
             runtimeService: runtime,
-            processRunner: LanguageServerToolTestProcessRunner(),
-            store: store
+            commandRunner: LanguageServerToolTestProcessRunner(),
+            settingsStore: store
         )
 
         try await service.setCustomExecutablePath(customURL.path, for: descriptor)
@@ -34,8 +36,8 @@ struct LanguageServerToolServiceTests {
 
         let restored = LanguageServerToolService(
             runtimeService: runtime,
-            processRunner: LanguageServerToolTestProcessRunner(),
-            store: store
+            commandRunner: LanguageServerToolTestProcessRunner(),
+            settingsStore: store
         )
         #expect(restored.customExecutablePath(for: descriptor.id) == customURL.path)
         restored.clearCustomExecutablePath(for: descriptor.id)
@@ -47,8 +49,8 @@ struct LanguageServerToolServiceTests {
         let store = LanguageServerToolTestStore()
         let service = LanguageServerToolService(
             runtimeService: makeRuntime(executablePaths: [], candidates: [:], store: store),
-            processRunner: LanguageServerToolTestProcessRunner(),
-            store: store
+            commandRunner: LanguageServerToolTestProcessRunner(),
+            settingsStore: store
         )
 
         await #expect(throws: LanguageServerToolConfigurationError.executableInvalid("/missing/gopls")) {
@@ -87,8 +89,8 @@ struct LanguageServerToolServiceTests {
                 ],
                 store: store
             ),
-            processRunner: runner,
-            store: store
+            commandRunner: runner,
+            settingsStore: store
         )
 
         let candidates = await service.refreshCandidates(for: rustDescriptor())
@@ -112,8 +114,8 @@ struct LanguageServerToolServiceTests {
                 candidates: [:],
                 store: store
             ),
-            processRunner: runner,
-            store: store
+            commandRunner: runner,
+            settingsStore: store
         )
 
         await #expect(throws: LanguageServerToolConfigurationError.executableValidationFailed(
@@ -141,8 +143,8 @@ struct LanguageServerToolServiceTests {
                 ],
                 store: store
             ),
-            processRunner: runner,
-            store: store
+            commandRunner: runner,
+            settingsStore: store
         )
 
         #expect(service.executableVerificationState(for: goDescriptor()) == .foundUnverified)
@@ -168,8 +170,8 @@ struct LanguageServerToolServiceTests {
                 ],
                 store: store
             ),
-            processRunner: runner,
-            store: store
+            commandRunner: runner,
+            settingsStore: store
         )
 
         #expect(service.executableVerificationState(for: rustDescriptor()) == .unavailable)
@@ -199,8 +201,8 @@ struct LanguageServerToolServiceTests {
         )
         let service = LanguageServerToolService(
             runtimeService: runtime,
-            processRunner: runner,
-            store: store
+            commandRunner: runner,
+            settingsStore: store
         )
 
         await service.installWithHomebrew(goDescriptor())
@@ -340,7 +342,7 @@ private struct LanguageServerToolTestDiscovery: RuntimeToolDiscovery {
     }
 }
 
-private final class LanguageServerToolTestProcessRunner: ProcessRunner, @unchecked Sendable {
+private final class LanguageServerToolTestProcessRunner: ProcessRunner, LanguageToolCommandRunning, @unchecked Sendable {
     private let lock = NSLock()
     private let result: ProcessResult
     private let resultsByExecutablePath: [String: ProcessResult]
@@ -366,9 +368,27 @@ private final class LanguageServerToolTestProcessRunner: ProcessRunner, @uncheck
         lock.withLock { recordedRequests.append(request) }
         return resultsByExecutablePath[request.executablePath] ?? result
     }
+
+    func runLanguageToolCommand(
+        operationID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        timeoutMilliseconds: Int
+    ) -> LanguageToolCommandResult {
+        let result = run(ProcessRequest(
+            operationID: operationID,
+            executablePath: executableURL.path,
+            arguments: arguments,
+            environment: environment,
+            timeoutMilliseconds: timeoutMilliseconds
+        ))
+        return LanguageToolCommandResult(output: result.output, exitCode: result.exitCode)
+    }
 }
 
-private final class LanguageServerToolTestStore: KeyValueStore {
+private final class LanguageServerToolTestStore: KeyValueStore, LanguageToolSettingsStoring {
+    private static let languageToolKey = "lithe.language-server-tools.executable-paths"
     private var values: [String: Any] = [:]
 
     func data(forKey key: String) -> Data? { values[key] as? Data }
@@ -376,4 +396,13 @@ private final class LanguageServerToolTestStore: KeyValueStore {
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+
+    func loadLanguageToolExecutablePaths() -> [String: String] {
+        guard let data = data(forKey: Self.languageToolKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+    }
+
+    func saveLanguageToolExecutablePaths(_ paths: [String: String]) {
+        set(try? JSONEncoder().encode(paths), forKey: Self.languageToolKey)
+    }
 }
