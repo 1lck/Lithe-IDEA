@@ -22,6 +22,7 @@ public final class SearchFeatureModel: ObservableObject {
 
     private let operations: any SearchOperations
     private var indexTask: Task<Void, Never>?
+    private var indexTaskGeneration = 0
 
     public var hasActiveModuleWork: Bool {
         isSearching || isSearchingEverywhere || isLoadingProjectReplacement || indexTask != nil
@@ -32,6 +33,7 @@ public final class SearchFeatureModel: ObservableObject {
     }
 
     public func reset() {
+        indexTaskGeneration += 1
         indexTask?.cancel()
         indexTask = nil
         searchResults = []
@@ -76,11 +78,21 @@ public final class SearchFeatureModel: ObservableObject {
         let previousTask = indexTask
         previousTask?.cancel()
         let operations = self.operations
-        indexTask = Task.detached(priority: .utility) { [weak self] in
+        indexTaskGeneration += 1
+        let generation = indexTaskGeneration
+        let worker = Task.detached(priority: .utility) {
             await previousTask?.value
             guard !Task.isCancelled else { return }
             operation(operations)
-            await MainActor.run { self?.indexTask = nil }
+        }
+        indexTask = Task { [weak self] in
+            await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard let self, self.indexTaskGeneration == generation else { return }
+            self.indexTask = nil
         }
     }
 

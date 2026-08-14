@@ -54,6 +54,44 @@ struct SearchModuleTests {
         #expect(recorder.factoryCalls == 2)
     }
 
+    @Test
+    func replacingIndexWorkKeepsTheNewestTaskActiveUntilItFinishes() async throws {
+        let operations = BlockingIndexOperations()
+        defer {
+            operations.finishWarmIndex()
+            operations.finishInvalidation()
+        }
+        let feature = SearchFeatureModel(operations: operations)
+        let workspaceURL = URL(fileURLWithPath: "/test-workspace")
+        let visibilityRules = SearchVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
+
+        feature.warmIndex(at: workspaceURL, visibilityRules: visibilityRules)
+        try #require(await waitUntil { operations.hasStartedWarmIndex })
+
+        feature.invalidateIndex(at: workspaceURL, visibilityRules: visibilityRules)
+        operations.finishWarmIndex()
+        try #require(await waitUntil { operations.hasStartedInvalidation })
+
+        #expect(feature.hasActiveModuleWork)
+
+        operations.finishInvalidation()
+        try #require(await waitUntil { !feature.hasActiveModuleWork })
+        #expect(operations.completedOperations == ["warm", "invalidate"])
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        condition: @MainActor () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
     private func workspaceFactory() -> ModuleFactory {
         ModuleFactory(
             manifest: ModuleManifest(
@@ -83,4 +121,49 @@ private struct TestSearchOperations: SearchOperations {
     func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
     func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
+private final class BlockingIndexOperations: SearchOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let warmIndexGate = DispatchSemaphore(value: 0)
+    private let invalidationGate = DispatchSemaphore(value: 0)
+    private var warmIndexStarted = false
+    private var invalidationStarted = false
+    private var completions: [String] = []
+
+    var hasStartedWarmIndex: Bool { withLock { warmIndexStarted } }
+    var hasStartedInvalidation: Bool { withLock { invalidationStarted } }
+    var completedOperations: [String] { withLock { completions } }
+
+    func warmSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) {
+        withLock { warmIndexStarted = true }
+        warmIndexGate.wait()
+        withLock { completions.append("warm") }
+    }
+
+    func invalidateSearchIndex(at rootURL: URL, visibilityRules: SearchVisibilityRules) {
+        withLock { invalidationStarted = true }
+        invalidationGate.wait()
+        withLock { completions.append("invalidate") }
+    }
+
+    func finishWarmIndex() {
+        warmIndexGate.signal()
+    }
+
+    func finishInvalidation() {
+        invalidationGate.signal()
+    }
+
+    func search(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> [FileSearchResult]? { [] }
+    func searchEverywhere(at rootURL: URL, query: String, options: ProjectSearchOptions, visibilityRules: SearchVisibilityRules) -> SearchEverywhereResults? { SearchEverywhereResults() }
+    func previewReplacement(at rootURL: URL, query: String, replacement: String, options: ProjectSearchOptions, paths: [String], textOverrides: [String: String], visibilityRules: SearchVisibilityRules) -> [ProjectReplacementFile]? { [] }
+    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+
+    private func withLock<T>(_ operation: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return operation()
+    }
 }
