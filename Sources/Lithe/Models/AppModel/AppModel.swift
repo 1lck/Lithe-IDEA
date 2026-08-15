@@ -107,7 +107,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
     @Published var blameVisibleURL: URL?
     @Published var gitLogSearchQuery = ""
-    private var doubleShiftDetector: (any ShortcutDetector)?
+    private var shortcutDetector: (any ShortcutDetector)?
     private var isProjectSessionActive = true
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
@@ -609,10 +609,19 @@ final class AppModel: ObservableObject, Identifiable {
             }
             _ = self.activateLanguageServerIfAvailable(for: document)
         }
-        doubleShiftDetector = services.shortcutDetectorFactory.make { [weak self] in
+        shortcutDetector = services.shortcutDetectorFactory.make { [weak self] commandID in
+            guard commandID == "search-everywhere" else { return }
             self?.toggleSearchEverywhere()
         }
-        doubleShiftDetector?.start()
+        if let searchCommand = LitheCommandCatalog.command(id: "search-everywhere") {
+            shortcutDetector?.update(registrations: [
+                KeyboardShortcutRegistration(
+                    commandID: searchCommand.id,
+                    bindings: searchCommand.defaultBindings
+                )
+            ])
+        }
+        shortcutDetector?.start()
     }
 
     func activateDatabaseModule() async {
@@ -646,7 +655,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     deinit {
-        doubleShiftDetector?.stop()
+        shortcutDetector?.stop()
     }
 
     func configureProjectSession(
@@ -661,15 +670,15 @@ final class AppModel: ObservableObject, Identifiable {
         guard isProjectSessionActive != isActive else { return }
         isProjectSessionActive = isActive
         if isActive {
-            doubleShiftDetector?.start()
+            shortcutDetector?.start()
         } else {
-            doubleShiftDetector?.stop()
+            shortcutDetector?.stop()
             isSearchEverywhereVisible = false
         }
     }
 
     func shutdownProjectSession() {
-        doubleShiftDetector?.stop()
+        shortcutDetector?.stop()
         Task { [weak self] in
             await self?.services.moduleRuntime.shutdownAll()
         }
