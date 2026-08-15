@@ -2594,8 +2594,14 @@ fn created_from_branch(root: &str, branch: &str) -> Option<String> {
     let prefix = "branch: Created from ";
     response.lines().find_map(|line| {
         let source = line.strip_prefix(prefix)?;
-        (!matches!(source, "HEAD" | "FETCH_HEAD" | "ORIG_HEAD"))
-            .then(|| source.trim_start_matches("origin/").to_string())
+        if matches!(source, "HEAD" | "FETCH_HEAD" | "ORIG_HEAD") {
+            // Publishing a detached worktree creates its branch from HEAD.
+            // Preserve the worktree's original branch as the PR base instead
+            // of falling back to origin/HEAD after the branch is published.
+            detached_start_branch(root)
+        } else {
+            Some(source.trim_start_matches("origin/").to_string())
+        }
     })
 }
 

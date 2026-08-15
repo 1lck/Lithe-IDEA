@@ -550,6 +550,10 @@ fn detached_worktree_context_can_publish_a_pull_request_branch() {
     let refreshed: Value = serde_json::from_str(&execute_json(&context_request.to_string()))
         .expect("refreshed context should be JSON");
     assert_eq!(refreshed["data"]["currentBranch"], suggested);
+    assert_eq!(
+        refreshed["data"]["suggestedBaseBranch"], "preview/0.3.0",
+        "publishing must preserve the detached worktree's inferred base: {refreshed:?}"
+    );
     assert_eq!(refreshed["data"]["requiresPublish"], false);
     assert!(run(
         &remote,

@@ -1354,7 +1354,14 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
         }
         .background(LitheTheme.editor)
         .onExitCommand { model.githubFeature.cancelCreatingPullRequest() }
-        .task { await model.githubFeature.loadBranches() }
+        .task {
+            // A newly published branch can take a moment to appear in the
+            // GitHub branches endpoint. Refresh on every composer entry, then
+            // reapply defaults even when the returned array is unchanged.
+            await model.githubFeature.loadBranches(force: true)
+            applyPublicationDefaults()
+            applyDefaultBranches(from: model.githubFeature.branches)
+        }
         .onChange(of: model.githubFeature.branches) { branches in
             applyDefaultBranches(from: branches)
         }
@@ -1362,7 +1369,10 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
             applyPublicationDefaults()
             applyDefaultBranches(from: model.githubFeature.branches)
         }
-        .onAppear { applyPublicationDefaults() }
+        .onAppear {
+            applyPublicationDefaults()
+            applyDefaultBranches(from: model.githubFeature.branches)
+        }
         .confirmationDialog(
             "Apply AI-generated content?",
             isPresented: $isGeneratedContentConfirmationPresented,
