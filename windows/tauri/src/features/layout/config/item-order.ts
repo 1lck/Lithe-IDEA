@@ -1,29 +1,24 @@
-export const HEADER_TRAILING_ITEM_IDS = ["run-actions", "ai-chat", "account"] as const;
+export const HEADER_TRAILING_ITEM_IDS = [] as const;
 export const SIDEBAR_ACTIVITY_ITEM_IDS = [
   "files",
-  "search",
   "git",
-  "github-prs",
-  "docker",
-  "extensions",
+  "search",
+  "database",
+  "settings",
 ] as const;
 export const FOOTER_LEADING_ITEM_IDS = [
   "branch",
   "terminal",
-  "debugger",
   "diagnostics",
-  "extensions",
 ] as const;
 export const FOOTER_TRAILING_ITEM_IDS = [
-  "outline",
   "databases",
-  "collaboration",
   "notifications",
 ] as const;
 
-export type HeaderTrailingItemId = (typeof HEADER_TRAILING_ITEM_IDS)[number];
+export type HeaderTrailingItemId = "account";
 export type SidebarActivityItemId = (typeof SIDEBAR_ACTIVITY_ITEM_IDS)[number];
-export type FooterLeadingItemId = (typeof FOOTER_LEADING_ITEM_IDS)[number];
+export type FooterLeadingItemId = (typeof FOOTER_LEADING_ITEM_IDS)[number] | "debugger";
 export type FooterTrailingItemId = (typeof FOOTER_TRAILING_ITEM_IDS)[number];
 
 export function normalizeItemOrder<T extends string>(

@@ -1,17 +1,13 @@
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { BACKEND_UNAVAILABLE_TOOLTIP } from "@/config/backend-capabilities";
+import { useTranslation } from "@/i18n/locale-provider";
 import { openFolder } from "@/features/file-system/controllers/platform";
-import {
-  BACKEND_UNAVAILABLE_TOOLTIP,
-  isBackendCapabilityAvailable,
-} from "@/config/backend-capabilities";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { AppUpdateControl } from "@/features/layout/components/app-update-control";
-import { GitHubNotificationsMenu } from "@/features/github/components/github-notifications-menu";
 import type { HeaderTrailingItemId } from "@/features/layout/config/item-order";
 import { orderChromeItems, type ChromeItem } from "@/features/layout/utils/chrome-items";
-import RunActionsButton from "@/features/run-actions/components/run-actions-button";
+import { useFooterGitBranchItem } from "@/features/layout/components/footer/footer-git-branch-item";
 import SettingsDialog from "@/features/settings/components/settings-dialog";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -31,8 +27,9 @@ import {
   FilesIcon,
   FolderOpenIcon,
   ListIcon,
+  MagnifyingGlassIcon,
+  PlayIcon,
   SidebarSimpleIcon,
-  SparkleIcon,
   TrashIcon,
   WindowExpandIcon,
 } from "@/ui/icons";
@@ -40,7 +37,6 @@ import { Toggle } from "@/ui/toggle";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
-import { AccountMenu } from "../account-menu";
 import ProjectPicker from "../project-picker";
 import { WindowControls } from "./window-controls";
 import WindowMenuBar from "../window-menu-bar";
@@ -49,29 +45,9 @@ interface TitleBarProps {
   showMinimal?: boolean;
 }
 
-function placeAgentBeforeAccount(items: Array<ChromeItem<HeaderTrailingItemId>>) {
-  const accountIndex = items.findIndex((item) => item.id === "account");
-  if (accountIndex < 0) return items;
-
-  const nextItems = [...items];
-  const itemIndex = nextItems.findIndex((item) => item.id === "ai-chat");
-  const nextAccountIndex = nextItems.findIndex((item) => item.id === "account");
-  if (itemIndex < 0 || nextAccountIndex < 0 || itemIndex === nextAccountIndex - 1) {
-    return nextItems;
-  }
-
-  const [item] = nextItems.splice(itemIndex, 1);
-  const insertionIndex = nextItems.findIndex((candidate) => candidate.id === "account");
-  nextItems.splice(insertionIndex, 0, item);
-
-  return nextItems;
-}
-
 function TitleBarTrailingActions({ items }: { items: Array<ChromeItem<HeaderTrailingItemId>> }) {
   return (
     <ChromeGroup gap="tight">
-      <GitHubNotificationsMenu />
-      <AppUpdateControl />
       {items.map((item) =>
         item.content ? (
           <div key={item.id} className="flex min-h-(--lithe-chrome-control-height) items-center">
@@ -84,9 +60,9 @@ function TitleBarTrailingActions({ items }: { items: Array<ChromeItem<HeaderTrai
 }
 
 const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
+  const { t } = useTranslation();
   const nativeMenuBar = useSettingsStore((state) => state.settings.nativeMenuBar);
   const compactMenuBar = useSettingsStore((state) => state.settings.compactMenuBar);
-  const isAIChatVisible = useSettingsStore((state) => state.settings.isAIChatVisible);
   const activityRailExpanded = useSettingsStore((state) => state.settings.activityRailExpanded);
   const headerTrailingItemsOrder = useSettingsStore(
     (state) => state.settings.headerTrailingItemsOrder,
@@ -96,6 +72,8 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
   const closeProject = useFileSystemStore((state) => state.closeProject);
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
   const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
+  const setIsGlobalSearchVisible = useUIState((state) => state.setIsGlobalSearchVisible);
+  const branchItem = useFooterGitBranchItem();
 
   const [menuBarActiveMenu, setMenuBarActiveMenu] = useState<string | null>(null);
   const [isCompactMenuVisible, setIsCompactMenuVisible] = useState(false);
@@ -286,41 +264,66 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
   );
 
   const headerTrailingItems: Array<ChromeItem<HeaderTrailingItemId>> = [
-    { id: "run-actions", label: "Run actions", content: <RunActionsButton /> },
-    {
-      id: "ai-chat",
-      label: "Agent",
-      content: (
-        <Button
-          type="button"
-          variant="ghost"
-          active={isAIChatVisible}
-          tooltip={
-            isBackendCapabilityAvailable("agent") ? "Toggle Agent" : BACKEND_UNAVAILABLE_TOOLTIP
-          }
-          tooltipSide="bottom"
-          commandId="workbench.toggleAIChat"
-          disabled={!isBackendCapabilityAvailable("agent")}
-          onClick={() => {
-            useSettingsStore.getState().actions.toggleAIChatVisible();
-          }}
-          aria-label={
-            isBackendCapabilityAvailable("agent") ? "Toggle Agent" : BACKEND_UNAVAILABLE_TOOLTIP
-          }
-          size="icon-xs"
-        >
-          <SparkleIcon />
-        </Button>
-      ),
-    },
-    {
-      id: "account",
-      label: "Account",
-      content: <AccountMenu className={!isMacOS ? "mr-1" : undefined} />,
-    },
   ];
-  const orderedTrailingItems = placeAgentBeforeAccount(
-    orderChromeItems(headerTrailingItems, headerTrailingItemsOrder),
+  const orderedTrailingItems = orderChromeItems(headerTrailingItems, headerTrailingItemsOrder);
+
+  const activeProject = projectTabs.find((project) => project.isActive);
+  const projectLabel = activeProject?.name ?? t("workbench.openProject");
+  const macOSAlignedControls = (
+    <ChromeGroup gap="tight" className="pointer-events-auto">
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        className="max-w-56 justify-start gap-2 px-2"
+        onClick={() => setIsProjectPickerVisible(true)}
+      >
+        <FolderOpenIcon />
+        <span className="truncate">{projectLabel}</span>
+      </Button>
+      {branchItem?.content}
+    </ChromeGroup>
+  );
+
+  const workbenchActions = (
+    <ChromeGroup gap="tight" className="pointer-events-auto">
+      <Tooltip content={BACKEND_UNAVAILABLE_TOOLTIP} side="bottom">
+        <span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="min-w-44 justify-start gap-2 px-2"
+            disabled
+          >
+            <PlayIcon />
+            <span className="truncate">{t("workbench.currentFile")}</span>
+          </Button>
+        </span>
+      </Tooltip>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        tooltip={t("workbench.search")}
+        tooltipSide="bottom"
+        onClick={() => setIsGlobalSearchVisible(true)}
+        aria-label={t("workbench.search")}
+      >
+        <MagnifyingGlassIcon />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        tooltip={t("workbench.moreProjectActions")}
+        tooltipSide="bottom"
+        onClick={() => setIsProjectPickerVisible(true)}
+        aria-label={t("workbench.moreProjectActions")}
+      >
+        <ListIcon />
+      </Button>
+    </ChromeGroup>
   );
 
   if (showMinimal) {
@@ -359,9 +362,11 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
           <ChromeGroup className="pointer-events-auto h-full">
             {menuItem}
             {sidebarToggle}
+            {macOSAlignedControls}
           </ChromeGroup>
 
           <ChromeGroup className="h-full">
+            {workbenchActions}
             <TitleBarTrailingActions items={orderedTrailingItems} />
           </ChromeGroup>
         </ContextMenuTrigger>
@@ -382,9 +387,11 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
           <ChromeGroup className="pointer-events-auto">
             {menuItem}
             {sidebarToggle}
+            {macOSAlignedControls}
           </ChromeGroup>
         </ChromeGroup>
         <ChromeGroup className="z-20">
+          {workbenchActions}
           <TitleBarTrailingActions items={orderedTrailingItems} />
 
           {showAppWindowControls && (

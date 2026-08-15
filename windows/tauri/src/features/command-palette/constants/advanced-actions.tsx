@@ -10,7 +10,6 @@ import {
   stopAllLanguageServers,
 } from "@/features/keymaps/commands/lsp-command-actions";
 import { openLitheLogBuffer } from "@/features/settings/services/lithe-log-service";
-import { useUIState } from "@/features/window/stores/ui-state.store";
 import { showAlertDialog } from "@/ui/dialog";
 import type { Action } from "../types/action.types";
 
@@ -36,18 +35,6 @@ export const createAdvancedActions = (params: AdvancedActionsParams): Action[] =
   const { lspStatus, vimMode, vimCommands, setMode, openQuickEdit, showToast, onClose } = params;
 
   const baseActions: Action[] = [
-    {
-      id: "ai-new-agent",
-      label: "AI: New Agent",
-      description: "Open the unified agent launcher",
-      icon: <Sparkles />,
-      category: "AI",
-      commandId: "workbench.agentLauncher",
-      action: () => {
-        useUIState.getState().setIsAgentLauncherVisible(true);
-        onClose();
-      },
-    },
     {
       id: "ai-quick-edit",
       label: "AI: Quick Edit Selection",

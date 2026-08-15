@@ -1,27 +1,19 @@
 import {
   FileTextIcon as FileText,
   FolderOpenIcon as FolderOpen,
-  BugBeetleIcon as BugBeetle,
   GitBranchIcon as GitBranch,
-  GitPullRequestIcon as GitPullRequest,
   HashIcon as Hash,
   ListBulletsIcon as ListBullets,
-  PackageIcon as Package,
   MagnifyingGlassIcon as Search,
 } from "@/ui/icons";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
-import type {
-  BottomPaneTab,
-  SettingsTab,
-} from "@/features/window/stores/ui-state/types/ui-state.types";
+import type { SettingsTab } from "@/features/window/stores/ui-state/types/ui-state.types";
 import type { Action } from "../types/action.types";
 
 interface NavigationActionsParams {
   setIsSidebarVisible: (v: boolean) => void;
   setActiveView: (view: SidebarView) => void;
-  setIsBottomPaneVisible: (v: boolean) => void;
-  setBottomPaneActiveTab: (tab: BottomPaneTab) => void;
   setIsQuickOpenVisible: (v: boolean) => void;
   openCommandPaletteView?: (view: "outline") => void;
   openSettingsDialog: (tab?: SettingsTab) => void;
@@ -33,8 +25,6 @@ export const createNavigationActions = (params: NavigationActionsParams): Action
   const {
     setIsSidebarVisible,
     setActiveView,
-    setIsBottomPaneVisible,
-    setBottomPaneActiveTab,
     setIsQuickOpenVisible,
     openCommandPaletteView,
     coreFeatures,
@@ -68,32 +58,6 @@ export const createNavigationActions = (params: NavigationActionsParams): Action
         onClose();
       },
     },
-    {
-      id: "view-show-github-prs",
-      label: "View: Show Pull Requests",
-      description: "Switch to GitHub Pull Requests view",
-      icon: <GitPullRequest />,
-      category: "Navigation",
-      commandId: "workbench.showGitHub",
-      action: () => {
-        setIsSidebarVisible(true);
-        setActiveView("github-prs");
-        onClose();
-      },
-    },
-    {
-      id: "view-show-debugger",
-      label: "View: Show Run and Debug",
-      description: "Switch to debugger view",
-      icon: <BugBeetle />,
-      category: "Navigation",
-      commandId: "workbench.showDebugger",
-      action: () => {
-        setBottomPaneActiveTab("debugger");
-        setIsBottomPaneVisible(true);
-        onClose();
-      },
-    },
     ...(coreFeatures.outline
       ? [
           {
@@ -121,17 +85,6 @@ export const createNavigationActions = (params: NavigationActionsParams): Action
       action: () => {
         onClose();
         useBufferStore.getState().actions.openGlobalSearchBuffer();
-      },
-    },
-    {
-      id: "view-show-extensions",
-      label: "View: Show Extensions",
-      description: "Open the extensions tab",
-      icon: <Package />,
-      category: "Navigation",
-      action: () => {
-        onClose();
-        useBufferStore.getState().actions.openExtensionsBuffer();
       },
     },
     {

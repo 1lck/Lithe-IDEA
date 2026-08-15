@@ -1,6 +1,7 @@
 import { CaretDownIcon as CaretDown, MagnifyingGlassIcon as Search } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   resolveSettingsAccess,
   resolveVisibleSettingsSection,
@@ -10,24 +11,18 @@ import {
   getSettingSearchTargetKey,
   SETTINGS_SEARCH_TAB_LABELS,
 } from "@/features/settings/lib/settings-search";
-import { useAuthStore } from "@/features/window/stores/auth.store";
 import { type SettingsTab, useUIState } from "@/features/window/stores/ui-state.store";
 import { Card } from "@/ui/card";
 import Dialog from "@/ui/dialog";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import Input from "@/ui/input";
-import { ScrollArea } from "@/ui/scroll-area";
 import type { SearchResult } from "../types/search.types";
 import { SETTINGS_TAB_ITEMS, SettingsVerticalTabs } from "./settings-vertical-tabs";
 
 import { AdvancedSettings } from "./tabs/advanced-settings";
-import { AccountSettings } from "./tabs/account-settings";
-import { AISettings } from "./tabs/ai-settings";
 import { AppearanceSettings } from "./tabs/appearance-settings";
-import { CollaborationSettings } from "./tabs/collaboration-settings";
 import { EditorSettings } from "./tabs/editor-settings";
-import { EnterpriseSettings } from "./tabs/enterprise-settings";
 import { GeneralSettings } from "./tabs/general-settings";
 import { GitSettings } from "./tabs/git-settings";
 import { KeyboardSettings } from "./tabs/keyboard-settings";
@@ -39,13 +34,17 @@ interface SettingsDialogProps {
   onClose: () => void;
 }
 
+function getSettingsTabLabelKey(tab: SettingsTab) {
+  return `settings.tabs.${tab === "file-explorer" ? "files" : tab}`;
+}
+
 const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const { settingsInitialTab, setSettingsInitialTab } = useUIState();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const lastSettingsTab = useSettingsStore((state) => state.settings.lastSettingsTab);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-  const subscription = useAuthStore((state) => state.subscription);
-  const settingsAccess = resolveSettingsAccess(subscription);
+  const settingsAccess = resolveSettingsAccess(null);
   const { canShowEnterpriseSettings, canShowCollaborationSettings } = settingsAccess;
 
   const clearSearch = useSettingsStore((state) => state.actions.clearSearch);
@@ -120,7 +119,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
     const Icon = tab.icon;
     return {
       id: tab.id,
-      label: tab.label,
+      label: t(getSettingsTabLabelKey(tab.id)),
       icon: <Icon className="size-4" weight="duotone" />,
       className: tab.id === activeTab ? "bg-accent text-foreground" : undefined,
       onClick: () => handleTabChange(tab.id),
@@ -194,8 +193,6 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case "account":
-        return <AccountSettings />;
       case "general":
         return <GeneralSettings />;
       case "editor":
@@ -204,14 +201,8 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         return <GitSettings />;
       case "appearance":
         return <AppearanceSettings />;
-      case "ai":
-        return <AISettings />;
       case "keyboard":
         return <KeyboardSettings />;
-      case "collaboration":
-        return canShowCollaborationSettings ? <CollaborationSettings /> : <GeneralSettings />;
-      case "enterprise":
-        return canShowEnterpriseSettings ? <EnterpriseSettings /> : <GeneralSettings />;
       case "advanced":
         return <AdvancedSettings />;
       case "terminal":
@@ -234,7 +225,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
         onClose={onClose}
         title={
           <>
-            <span className="max-[720px]:hidden">Settings</span>
+            <span className="max-[720px]:hidden">{t("workbench.settings")}</span>
             <button
               ref={tabDropdownRef}
               type="button"
@@ -242,7 +233,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
               onClick={() => setIsTabDropdownOpen(true)}
             >
               <ActiveTabIcon className="size-4 shrink-0 text-subtle-foreground" weight="duotone" />
-              <span className="truncate">{activeTabItem.label}</span>
+              <span className="truncate">{t(getSettingsTabLabelKey(activeTabItem.id))}</span>
               <CaretDown className="size-3.5 shrink-0 text-subtle-foreground" />
             </button>
           </>
@@ -251,7 +242,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
           <div ref={searchInputAnchorRef} className="w-64 max-[720px]:w-44 max-[520px]:w-32">
             <Input
               type="text"
-              placeholder="Search settings..."
+              placeholder={t("settings.search")}
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -302,21 +293,17 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
             size="flush"
             className="@container/settings mt-0 mr-2 mb-2 ml-0 min-w-0 flex-1 bg-background max-[720px]:ml-2"
           >
-            <ScrollArea
-              orientation="vertical"
-              className="min-w-0 flex-1"
-              contentClassName="w-full max-w-full overflow-x-hidden p-3 max-[720px]:p-2"
-              viewportProps={{
-                ref: contentRef,
-                id: activePanelId,
-                role: "tabpanel",
-                "aria-labelledby": activeTabId,
-                "data-settings-content": "",
-                tabIndex: -1,
-              }}
+            <div
+              ref={contentRef}
+              id={activePanelId}
+              role="tabpanel"
+              aria-labelledby={activeTabId}
+              data-settings-content=""
+              tabIndex={-1}
+              className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 outline-none max-[720px]:p-2"
             >
               {renderTabContent()}
-            </ScrollArea>
+            </div>
           </Card>
         </div>
       </Dialog>
@@ -362,7 +349,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
             })
           ) : (
             <Empty className="min-h-0 flex-none items-start rounded-none px-3 py-2 text-left">
-              <EmptyDescription>No matching settings</EmptyDescription>
+              <EmptyDescription>{t("settings.noMatching")}</EmptyDescription>
             </Empty>
           )}
         </div>
