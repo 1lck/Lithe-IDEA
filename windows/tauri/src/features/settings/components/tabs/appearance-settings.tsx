@@ -33,8 +33,10 @@ import {
   deleteCustomTheme,
   uploadTheme,
 } from "@/features/settings/utils/theme-upload";
+import { useTranslation } from "@/i18n/locale-provider";
 
 export const AppearanceSettings = () => {
+  const { t } = useTranslation();
   const settings = useSettingsStore(
     useShallow((state) => ({
       autoThemeDark: state.settings.autoThemeDark,
@@ -147,7 +149,7 @@ export const AppearanceSettings = () => {
     chooseThemeFile((file) => {
       void uploadTheme(file).then((result) => {
         if (!result.success || !result.theme) {
-          toast.error(result.error ?? "Failed to import theme", {
+          toast.error(result.error ?? t("settings.appearance.importThemeFailed"), {
             description: result.details?.slice(0, 4).join("\n"),
           });
           return;
@@ -155,8 +157,8 @@ export const AppearanceSettings = () => {
 
         toast.success(
           result.themes?.length === 1
-            ? `Imported ${result.theme.name}`
-            : `Imported ${result.themes?.length ?? 0} theme variants`,
+            ? t("settings.appearance.importedTheme", { theme: result.theme.name })
+            : t("settings.appearance.importedThemeVariants", { count: result.themes?.length ?? 0 }),
         );
         selectImportedTheme(result.theme.id);
       });
@@ -177,9 +179,9 @@ export const AppearanceSettings = () => {
       }
       await Promise.all(fallbackUpdates);
       await deleteCustomTheme(themeId);
-      toast.success("Custom theme removed");
+      toast.success(t("settings.appearance.customThemeRemoved"));
     } catch (error) {
-      toast.error("Failed to remove custom theme", {
+      toast.error(t("settings.appearance.removeCustomThemeFailed"), {
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -191,10 +193,10 @@ export const AppearanceSettings = () => {
 
   return (
     <SettingsView>
-      <Section title="Theme">
+      <Section title={t("settings.appearance.theme")}>
         <SettingRow
-          label="Sync With OS"
-          description="Automatically switch between your preferred light and dark themes"
+          label={t("settings.appearance.syncWithOs")}
+          description={t("settings.appearance.syncWithOsDescription")}
           onReset={() => updateSetting("syncSystemTheme", getDefaultSetting("syncSystemTheme"))}
           canReset={settings.syncSystemTheme !== getDefaultSetting("syncSystemTheme")}
         >
@@ -207,8 +209,8 @@ export const AppearanceSettings = () => {
 
         {!settings.syncSystemTheme ? (
           <SettingRow
-            label="Color Theme"
-            description="Choose your preferred color theme"
+            label={t("settings.appearance.colorTheme")}
+            description={t("settings.appearance.colorThemeDescription")}
             onReset={() => updateSetting("theme", getDefaultSetting("theme"))}
             canReset={settings.theme !== getDefaultSetting("theme")}
           >
@@ -228,8 +230,8 @@ export const AppearanceSettings = () => {
         {settings.syncSystemTheme ? (
           <>
             <SettingRow
-              label="Preferred Light Theme"
-              description="Used when Sync With OS is enabled and the system appearance is light"
+              label={t("settings.appearance.preferredLightTheme")}
+              description={t("settings.appearance.preferredLightThemeDescription")}
               onReset={() => updateSetting("autoThemeLight", getDefaultSetting("autoThemeLight"))}
               canReset={settings.autoThemeLight !== getDefaultSetting("autoThemeLight")}
             >
@@ -246,8 +248,8 @@ export const AppearanceSettings = () => {
             </SettingRow>
 
             <SettingRow
-              label="Preferred Dark Theme"
-              description="Used when Sync With OS is enabled and the system appearance is dark"
+              label={t("settings.appearance.preferredDarkTheme")}
+              description={t("settings.appearance.preferredDarkThemeDescription")}
               onReset={() => updateSetting("autoThemeDark", getDefaultSetting("autoThemeDark"))}
               canReset={settings.autoThemeDark !== getDefaultSetting("autoThemeDark")}
             >
@@ -266,8 +268,8 @@ export const AppearanceSettings = () => {
         ) : null}
 
         <SettingRow
-          label="Icon Theme"
-          description="Icons displayed in the file tree and tabs"
+          label={t("settings.appearance.iconTheme")}
+          description={t("settings.appearance.iconThemeDescription")}
           onReset={() => updateSetting("iconTheme", getDefaultSetting("iconTheme"))}
           canReset={settings.iconTheme !== getDefaultSetting("iconTheme")}
         >
@@ -284,17 +286,17 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Custom Themes"
+          label={t("settings.appearance.customThemes")}
           description={
             <>
-              Import Lithe theme JSON or create one from an installed theme.{" "}
+              {t("settings.appearance.customThemesDescription")} {" "}
               <a
                 href={themeDocsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                Format guide
+                {t("settings.appearance.formatGuide")}
               </a>
             </>
           }
@@ -302,11 +304,11 @@ export const AppearanceSettings = () => {
           <div className="flex items-center gap-2">
             <Button type="button" size="sm" onClick={() => setIsThemeCreatorOpen(true)}>
               <FilePlusIcon />
-              Create
+              {t("settings.appearance.create")}
             </Button>
             <Button type="button" size="sm" onClick={handleUploadTheme}>
               <UploadIcon />
-              Import
+              {t("settings.appearance.import")}
             </Button>
           </div>
         </SettingRow>
@@ -321,7 +323,7 @@ export const AppearanceSettings = () => {
               type="button"
               size="icon-xs"
               variant="danger"
-              tooltip={`Remove ${theme.name}`}
+              tooltip={t("settings.appearance.removeTheme", { theme: theme.name })}
               onClick={() => void handleRemoveCustomTheme(theme.id)}
             >
               <TrashIcon />
@@ -330,10 +332,10 @@ export const AppearanceSettings = () => {
         ))}
       </Section>
 
-      <Section title="Typography">
+      <Section title={t("settings.appearance.typography")}>
         <SettingRow
-          label="UI Font Family"
-          description="Font family for UI elements (file tree, markdown, etc.)"
+          label={t("settings.appearance.uiFontFamily")}
+          description={t("settings.appearance.uiFontFamilyDescription")}
           onReset={() => updateSetting("uiFontFamily", getDefaultSetting("uiFontFamily"))}
           canReset={settings.uiFontFamily !== getDefaultSetting("uiFontFamily")}
         >
@@ -346,8 +348,8 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="UI Font Size"
-          description="Adjust UI text and icon scale in 0.5px steps"
+          label={t("settings.appearance.uiFontSize")}
+          description={t("settings.appearance.uiFontSizeDescription")}
           onReset={() => updateSetting("uiFontSize", getDefaultSetting("uiFontSize"))}
           canReset={settings.uiFontSize !== getDefaultSetting("uiFontSize")}
         >
@@ -359,15 +361,17 @@ export const AppearanceSettings = () => {
             onChange={(value) => updateSetting("uiFontSize", value)}
             className={cn(SETTINGS_CONTROL_WIDTHS.number, "tabular-nums")}
             size="sm"
-            aria-label={`UI font size: ${formatUiFontSize(settings.uiFontSize)} pixels`}
+            aria-label={t("settings.appearance.uiFontSizeAria", {
+              size: formatUiFontSize(settings.uiFontSize),
+            })}
           />
         </SettingRow>
       </Section>
 
-      <Section title="Interface">
+      <Section title={t("settings.appearance.interface")}>
         <SettingRow
-          label="Reduce Motion"
-          description="Reduce non-essential interface animations while keeping state changes visible"
+          label={t("settings.appearance.reduceMotion")}
+          description={t("settings.appearance.reduceMotionDescription")}
           onReset={() => updateSetting("reduceMotion", getDefaultSetting("reduceMotion"))}
           canReset={settings.reduceMotion !== getDefaultSetting("reduceMotion")}
         >
@@ -379,8 +383,8 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Show Status Bar"
-          description="Show app controls and status information along the bottom edge"
+          label={t("settings.appearance.showStatusBar")}
+          description={t("settings.appearance.showStatusBarDescription")}
           onReset={() => updateSetting("showStatusBar", getDefaultSetting("showStatusBar"))}
           canReset={settings.showStatusBar !== getDefaultSetting("showStatusBar")}
         >
@@ -392,8 +396,8 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Show Tab Icons"
-          description="Show file and view icons in editor tabs"
+          label={t("settings.appearance.showTabIcons")}
+          description={t("settings.appearance.showTabIconsDescription")}
           onReset={() => updateSetting("showTabIcons", getDefaultSetting("showTabIcons"))}
           canReset={settings.showTabIcons !== getDefaultSetting("showTabIcons")}
         >
@@ -405,8 +409,8 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Tab Close Buttons"
-          description="Choose when unpinned tabs show their close button"
+          label={t("settings.appearance.tabCloseButtons")}
+          description={t("settings.appearance.tabCloseButtonsDescription")}
           onReset={() =>
             updateSetting("tabCloseButtonVisibility", getDefaultSetting("tabCloseButtonVisibility"))
           }
@@ -417,9 +421,9 @@ export const AppearanceSettings = () => {
           <Select
             value={settings.tabCloseButtonVisibility}
             options={[
-              { value: "active", label: "Active and Hovered" },
-              { value: "hover", label: "Hovered Only" },
-              { value: "always", label: "Always" },
+              { value: "active", label: t("settings.appearance.activeAndHovered") },
+              { value: "hover", label: t("settings.appearance.hoveredOnly") },
+              { value: "always", label: t("settings.appearance.always") },
             ]}
             onChange={(value) =>
               updateSetting("tabCloseButtonVisibility", value as TabCloseButtonVisibility)
@@ -431,10 +435,10 @@ export const AppearanceSettings = () => {
         </SettingRow>
       </Section>
 
-      <Section title="Layout">
+      <Section title={t("settings.appearance.layout")}>
         <SettingRow
-          label="Window Chrome Density"
-          description="Choose a focused or roomier scale for title bars, tabs, sidebars, and the footer"
+          label={t("settings.appearance.windowChromeDensity")}
+          description={t("settings.appearance.windowChromeDensityDescription")}
           onReset={() =>
             updateSetting("windowChromeDensity", getDefaultSetting("windowChromeDensity"))
           }
@@ -443,8 +447,8 @@ export const AppearanceSettings = () => {
           <Select
             value={settings.windowChromeDensity}
             options={[
-              { value: "focused", label: "Focused" },
-              { value: "comfortable", label: "Comfortable" },
+              { value: "focused", label: t("settings.appearance.focused") },
+              { value: "comfortable", label: t("settings.appearance.comfortable") },
             ]}
             onChange={(value) => updateSetting("windowChromeDensity", value as WindowChromeDensity)}
             className={SETTINGS_CONTROL_WIDTHS.wide}
@@ -454,8 +458,8 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Expanded Activity Bar"
-          description="Show labels beside icons in the activity bar"
+          label={t("settings.appearance.expandedActivityBar")}
+          description={t("settings.appearance.expandedActivityBarDescription")}
           onReset={() =>
             updateSetting("activityRailExpanded", getDefaultSetting("activityRailExpanded"))
           }
@@ -469,8 +473,8 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Activity Bar Width"
-          description="Set the width of the expanded activity bar"
+          label={t("settings.appearance.activityBarWidth")}
+          description={t("settings.appearance.activityBarWidthDescription")}
           onReset={() => updateSetting("activityRailWidth", getDefaultSetting("activityRailWidth"))}
           canReset={settings.activityRailWidth !== getDefaultSetting("activityRailWidth")}
         >
@@ -483,13 +487,13 @@ export const AppearanceSettings = () => {
             className={SETTINGS_CONTROL_WIDTHS.number}
             size="sm"
             disabled={!settings.activityRailExpanded}
-            aria-label={`Activity bar width: ${settings.activityRailWidth} pixels`}
+            aria-label={t("settings.appearance.activityBarWidthAria", { size: settings.activityRailWidth })}
           />
         </SettingRow>
 
         <SettingRow
-          label="Sidebar Width"
-          description="Set the default width used by left and right sidebars"
+          label={t("settings.appearance.sidebarWidth")}
+          description={t("settings.appearance.sidebarWidthDescription")}
           onReset={() => updateSetting("sidebarWidth", getDefaultSetting("sidebarWidth"))}
           canReset={settings.sidebarWidth !== getDefaultSetting("sidebarWidth")}
         >
@@ -501,14 +505,14 @@ export const AppearanceSettings = () => {
             onChange={(value) => updateSetting("sidebarWidth", value)}
             className={SETTINGS_CONTROL_WIDTHS.number}
             size="sm"
-            aria-label={`Sidebar width: ${settings.sidebarWidth} pixels`}
+            aria-label={t("settings.appearance.sidebarWidthAria", { size: settings.sidebarWidth })}
           />
         </SettingRow>
 
         {!IS_MAC && !IS_WINDOWS && !IS_LINUX && (
           <SettingRow
-            label="Native Menu Bar"
-            description="Use the native menu bar or a custom UI menu bar"
+            label={t("settings.appearance.nativeMenuBar")}
+            description={t("settings.appearance.nativeMenuBarDescription")}
             onReset={() => updateSetting("nativeMenuBar", getDefaultSetting("nativeMenuBar"))}
             canReset={settings.nativeMenuBar !== getDefaultSetting("nativeMenuBar")}
           >
@@ -525,8 +529,8 @@ export const AppearanceSettings = () => {
 
         {!IS_MAC && (
           <SettingRow
-            label="Compact Menu Bar"
-            description="Requires UI menu bar; compact hamburger or full UI menu"
+            label={t("settings.appearance.compactMenuBar")}
+            description={t("settings.appearance.compactMenuBarDescription")}
             onReset={() => updateSetting("compactMenuBar", getDefaultSetting("compactMenuBar"))}
             canReset={settings.compactMenuBar !== getDefaultSetting("compactMenuBar")}
           >
@@ -540,8 +544,8 @@ export const AppearanceSettings = () => {
         )}
 
         <SettingRow
-          label="Window Transparency"
-          description="Use translucent app chrome and transparent native windows where supported"
+          label={t("settings.appearance.windowTransparency")}
+          description={t("settings.appearance.windowTransparencyDescription")}
           onReset={() =>
             updateSetting("windowTransparency", getDefaultSetting("windowTransparency"))
           }
@@ -555,8 +559,8 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Open Projects In New Window"
-          description="Open each new project in a separate window and disable activity-bar project switching"
+          label={t("settings.appearance.openProjectsNewWindow")}
+          description={t("settings.appearance.openProjectsNewWindowDescription")}
           onReset={() =>
             updateSetting("openFoldersInNewWindow", getDefaultSetting("openFoldersInNewWindow"))
           }

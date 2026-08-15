@@ -734,6 +734,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
 
     private var findMatchRanges: [NSRange] = []
     private var currentFindMatchIndex = 0
+    private var lastReportedFindState: (index: Int, count: Int)?
     private var completionItemsByID: [String: LanguageServerCompletionItem] = [:]
     private var languageHoverPopover: NSPopover?
 
@@ -940,7 +941,10 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         if needsRefresh {
             updateEditorDecorations()
         }
-        onFindStateChange?(findMatchRanges.isEmpty ? -1 : 0, findMatchRanges.count)
+        reportFindState(
+            index: findMatchRanges.isEmpty ? -1 : currentFindMatchIndex,
+            count: findMatchRanges.count
+        )
     }
 
     /// 跳转到下一个/上一个匹配并选中。
@@ -952,7 +956,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let range = findMatchRanges[currentFindMatchIndex]
         scrollRangeToVisible(range)
         setSelectedRange(range)
-        onFindStateChange?(currentFindMatchIndex, total)
+        reportFindState(index: currentFindMatchIndex, count: total)
+    }
+
+    private func reportFindState(index: Int, count: Int) {
+        guard lastReportedFindState?.index != index
+                || lastReportedFindState?.count != count else { return }
+        lastReportedFindState = (index, count)
+        onFindStateChange?(index, count)
     }
 
     /// 清除匹配高亮（Find Bar 关闭时调用）。

@@ -73,36 +73,141 @@ private struct MacReturnKeyMonitor: NSViewRepresentable {
 }
 
 final class MacShortcutDetectorFactory: ShortcutDetectorFactory {
-    func make(onDoubleTap: @escaping @MainActor () -> Void) -> any ShortcutDetector {
-        MacDoubleShiftDetector(onDoubleTap: onDoubleTap)
+    func make(onCommand: @escaping @MainActor (String) -> Void) -> any ShortcutDetector {
+        MacShortcutDetector(onCommand: onCommand)
     }
 }
 
-/// Detects two Shift presses within a short interval for Search Everywhere.
-private final class MacDoubleShiftDetector: ShortcutDetector, @unchecked Sendable {
-    private static let threshold: TimeInterval = 0.35
+enum MacKeyboardShortcutEventMapper {
+    private static let specialKeys: [UInt16: String] = [
+        36: "return",
+        48: "tab",
+        49: "space",
+        51: "delete",
+        64: "f17",
+        79: "f18",
+        80: "f19",
+        90: "f20",
+        96: "f5",
+        97: "f6",
+        98: "f7",
+        99: "f3",
+        100: "f8",
+        101: "f9",
+        103: "f11",
+        105: "f13",
+        106: "f16",
+        107: "f14",
+        109: "f10",
+        111: "f12",
+        113: "f15",
+        118: "f4",
+        120: "f2",
+        122: "f1",
+        123: "left",
+        124: "right",
+        125: "down",
+        126: "up"
+    ]
+
+    static func binding(
+        keyCode: UInt16,
+        charactersIgnoringModifiers: String?,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> KeyboardShortcutBinding? {
+        let key: String
+        if let specialKey = specialKeys[keyCode] {
+            key = specialKey
+        } else if let charactersIgnoringModifiers,
+                  charactersIgnoringModifiers.count == 1 {
+            key = charactersIgnoringModifiers.lowercased()
+        } else {
+            return nil
+        }
+
+        let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
+        var modifiers: KeyboardShortcutModifiers = []
+        if flags.contains(.control) { modifiers.insert(.control) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.command) { modifiers.insert(.command) }
+        return .keyPress(key: key, modifiers: modifiers)
+    }
+}
+
+enum MacKeyboardShortcutMatcher {
+    static func commandID(
+        for binding: KeyboardShortcutBinding,
+        registrations: [KeyboardShortcutRegistration]
+    ) -> String? {
+        registrations.first { $0.bindings.contains(binding) }?.commandID
+    }
+}
+
+/// Matches ordinary key presses and double-modifier taps for application commands.
+private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
+    private static let doubleTapThreshold: TimeInterval = 0.35
+    private var registrations: [KeyboardShortcutRegistration] = []
+    private var isSuspended = false
     private var shiftWasDown = false
     private var lastShiftPress = Date.distantPast
-    private let onDoubleTap: @MainActor () -> Void
-    private var monitor: Any?
+    private let onCommand: @MainActor (String) -> Void
+    private var keyMonitor: Any?
+    private var flagsMonitor: Any?
 
-    init(onDoubleTap: @escaping @MainActor () -> Void) {
-        self.onDoubleTap = onDoubleTap
+    init(onCommand: @escaping @MainActor (String) -> Void) {
+        self.onCommand = onCommand
+    }
+
+    func update(registrations: [KeyboardShortcutRegistration]) {
+        self.registrations = registrations
+    }
+
+    func setSuspended(_ suspended: Bool) {
+        isSuspended = suspended
+        if suspended {
+            shiftWasDown = false
+            lastShiftPress = .distantPast
+        }
     }
 
     func start() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+        guard keyMonitor == nil, flagsMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, !self.isSuspended,
+                  let binding = MacKeyboardShortcutEventMapper.binding(
+                    keyCode: event.keyCode,
+                    charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+                    modifierFlags: event.modifierFlags
+                  ),
+                  let commandID = MacKeyboardShortcutMatcher.commandID(
+                    for: binding,
+                    registrations: self.registrations
+                  ) else {
+                return event
+            }
+            Task { @MainActor in
+                self.onCommand(commandID)
+            }
+            return nil
+        }
+
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             let isShiftDown = event.modifierFlags
                 .intersection(.deviceIndependentFlagsMask)
                 .contains(.shift)
-            guard let self else { return event }
+            guard let self, !self.isSuspended else { return event }
             if isShiftDown && !self.shiftWasDown {
                 let now = Date()
-                if now.timeIntervalSince(self.lastShiftPress) < Self.threshold {
+                if now.timeIntervalSince(self.lastShiftPress) < Self.doubleTapThreshold {
                     self.lastShiftPress = .distantPast
-                    Task { @MainActor in
-                        self.onDoubleTap()
+                    if let commandID = MacKeyboardShortcutMatcher.commandID(
+                        for: .doubleTap(.shift),
+                        registrations: self.registrations
+                    ) {
+                        Task { @MainActor in
+                            self.onCommand(commandID)
+                        }
                     }
                 } else {
                     self.lastShiftPress = now
@@ -114,9 +219,15 @@ private final class MacDoubleShiftDetector: ShortcutDetector, @unchecked Sendabl
     }
 
     func stop() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
         }
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
+            self.flagsMonitor = nil
+        }
+        shiftWasDown = false
+        lastShiftPress = .distantPast
     }
 }

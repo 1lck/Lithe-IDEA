@@ -1,5 +1,4 @@
 import {
-  ArrowSquareUpIcon as ArrowSquareUp,
   CodeBlockIcon as CodeBlock,
   GearIcon as Gear,
   GearSixIcon as GearSix,
@@ -14,13 +13,9 @@ import {
   UsersThreeIcon as UsersThree,
 } from "@/ui/icons";
 import type { ComponentType } from "react";
-import { useUpgradeToPro } from "@/features/settings/hooks/use-upgrade-to-pro";
-import { resolveSettingsAccess } from "@/features/settings/lib/settings-access";
 import { filterVisibleSettingsTabs } from "@/features/settings/lib/settings-tab-visibility";
-import { useAuthStore } from "@/features/window/stores/auth.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { SettingsTab } from "@/features/window/stores/ui-state.store";
-import { useProFeature } from "@/extensions/ui/hooks/use-pro-feature";
-import { Button } from "@/ui/button";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import { ScrollArea } from "@/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
@@ -110,12 +105,10 @@ export const SettingsVerticalTabs = ({
   onTabChange,
   panelIdForTab = (tab) => `settings-panel-${tab}`,
 }: SettingsVerticalTabsProps) => {
-  const subscription = useAuthStore((state) => state.subscription);
-  const { hasSettingsSync } = useProFeature();
-  const { promptUpgrade } = useUpgradeToPro();
-  const settingsAccess = resolveSettingsAccess(subscription);
+  const { t } = useTranslation();
   const visibleTabs = filterVisibleSettingsTabs(SETTINGS_TAB_ITEMS, {
-    ...settingsAccess,
+    canShowCollaborationSettings: false,
+    canShowEnterpriseSettings: false,
     matchingTabs: null,
   });
 
@@ -158,7 +151,13 @@ export const SettingsVerticalTabs = ({
                     )}
                   >
                     <Icon className="size-4.5 shrink-0 text-current" weight="duotone" />
-                    <span className="truncate">{item.label}</span>
+                    <span className="truncate">
+                      {t(
+                        `settings.tabs.${
+                          item.id === "file-explorer" ? "files" : item.id
+                        }`,
+                      )}
+                    </span>
                   </TabsTrigger>
                 );
               })
@@ -170,21 +169,6 @@ export const SettingsVerticalTabs = ({
           </TabsList>
         </ScrollArea>
       </Tabs>
-
-      {!hasSettingsSync ? (
-        <div data-slot="settings-sidebar-footer" className="shrink-0 p-2">
-          <Button
-            type="button"
-            variant="default"
-            onClick={promptUpgrade}
-            className="w-full justify-center"
-            size="sm"
-          >
-            <ArrowSquareUp className="size-4" weight="duotone" />
-            Upgrade to Pro
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 };

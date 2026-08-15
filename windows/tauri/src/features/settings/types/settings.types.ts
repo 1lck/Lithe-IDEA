@@ -1,4 +1,5 @@
 import type { CoreFeaturesState } from "./feature.types";
+import type { DisplayLanguage } from "@/i18n/locale";
 import type { V0DesignSystemProfile } from "@/extensions/v0/types/v0-design-system.types";
 import type { AIChatSkill } from "@/features/ai/types/skills.types";
 import type {
@@ -81,6 +82,7 @@ export interface Settings {
   // UI
   uiFontFamily: string;
   uiFontSize: number;
+  displayLanguage: DisplayLanguage;
   reduceMotion: boolean;
   showStatusBar: boolean;
   showTabIcons: boolean;

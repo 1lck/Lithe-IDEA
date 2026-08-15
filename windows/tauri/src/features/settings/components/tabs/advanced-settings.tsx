@@ -19,12 +19,21 @@ import { Empty, EmptyDescription } from "@/ui/empty";
 import Switch from "@/ui/switch";
 import Section, { SettingsView, SettingRow } from "../settings-section";
 import { getServiceUrls } from "@/config/services";
+import { useTranslation } from "@/i18n/locale-provider";
 
-const telemetryDescription =
-  "Lithe sends anonymous operational metadata for updates and, when enabled, heartbeats, extensions, and crashes; it never sends file paths, project names, prompts, or editor content.";
+const UNSUPPORTED_FEATURE_IDS = new Set([
+  "github",
+  "remote",
+  "debugger",
+  "aiChat",
+  "teamCollaboration",
+  "webViewer",
+]);
+
 const telemetryLearnMoreUrl = getServiceUrls().telemetryDocsUrl;
 
 export const AdvancedSettings = () => {
+  const { t } = useTranslation();
   const coreFeatures = useSettingsStore((state) => state.settings.coreFeatures);
   const telemetry = useSettingsStore((state) => state.settings.telemetry);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
@@ -40,11 +49,11 @@ export const AdvancedSettings = () => {
 
   const handleResetSettings = () => {
     resetToDefaults();
-    showToast({ message: "Settings reset to defaults", type: "success" });
+    showToast({ message: t("settings.advanced.settingsReset"), type: "success" });
   };
   const defaultCoreFeatures = getDefaultSetting("coreFeatures");
   const coreFeaturesList = createCoreFeaturesList(coreFeatures).filter(
-    (feature: CoreFeature) => feature.id !== "git",
+    (feature: CoreFeature) => feature.id !== "git" && !UNSUPPORTED_FEATURE_IDS.has(feature.id),
   );
 
   const handleCoreFeatureToggle = (featureId: string, enabled: boolean) => {
@@ -63,7 +72,7 @@ export const AdvancedSettings = () => {
 
   const handleClearTelemetryLog = async () => {
     await clearTelemetryLogEntries();
-    showToast({ message: "Telemetry log cleared", type: "success" });
+    showToast({ message: t("settings.advanced.telemetryCleared"), type: "success" });
   };
 
   const handleExportSettings = async () => {
@@ -71,8 +80,8 @@ export const AdvancedSettings = () => {
       const targetPath = await save({
         defaultPath: "lithe-settings.json",
         filters: [
-          { name: "JSON", extensions: ["json"] },
-          { name: "All Files", extensions: ["*"] },
+          { name: t("settings.common.json"), extensions: ["json"] },
+          { name: t("settings.common.allFiles"), extensions: ["*"] },
         ],
       });
 
@@ -82,7 +91,7 @@ export const AdvancedSettings = () => {
 
       const payload = createSettingsExportPayload(useSettingsStore.getState().settings);
       await writeTextFile(targetPath, JSON.stringify(payload, null, 2));
-      showToast({ message: "Settings exported", type: "success" });
+      showToast({ message: t("settings.advanced.settingsExported"), type: "success" });
     } catch (error) {
       console.error("Failed to export settings:", error);
       const message =
@@ -93,7 +102,7 @@ export const AdvancedSettings = () => {
             : JSON.stringify(error);
 
       showToast({
-        message: `Failed to export settings: ${message}`,
+        message: t("settings.advanced.exportFailed", { error: message }),
         type: "error",
       });
     }
@@ -115,14 +124,17 @@ export const AdvancedSettings = () => {
         const imported = useSettingsStore.getState().actions.updateSettingsFromJSON(text);
 
         if (!imported) {
-          showToast({ message: "Invalid settings file format", type: "error" });
+          showToast({ message: t("settings.advanced.invalidFile"), type: "error" });
           return;
         }
 
-        showToast({ message: "Settings imported", type: "success" });
+        showToast({ message: t("settings.advanced.settingsImported"), type: "success" });
       } catch (error) {
         console.error("Failed to import settings:", error);
-        showToast({ message: `Failed to import settings: ${error}`, type: "error" });
+        showToast({
+          message: t("settings.advanced.importFailed", { error: String(error) }),
+          type: "error",
+        });
       }
     };
     input.click();
@@ -130,19 +142,22 @@ export const AdvancedSettings = () => {
 
   return (
     <SettingsView>
-      <Section title="Features" description="Toggle application features on or off">
+      <Section
+        title={t("settings.advanced.features")}
+        description={t("settings.advanced.featuresDescription")}
+      >
         {coreFeaturesList.map((feature: CoreFeature) => (
           <SettingRow
             key={feature.id}
-            label={feature.name}
+            label={t(`settings.advanced.feature.${feature.id}.name`)}
             labelAccessory={
               feature.status === "experimental" ? (
                 <Badge variant="accent" size="compact" className="uppercase">
-                  Experimental
+                  {t("settings.advanced.experimental")}
                 </Badge>
               ) : undefined
             }
-            description={feature.description}
+            description={t(`settings.advanced.feature.${feature.id}.description`)}
             onReset={() => handleResetFeature(feature.id)}
             canReset={
               feature.enabled !==
@@ -157,37 +172,43 @@ export const AdvancedSettings = () => {
           </SettingRow>
         ))}
       </Section>
-      <Section title="Data">
-        <SettingRow label="Export Settings" description="Save all app settings to a JSON file.">
+      <Section title={t("settings.advanced.data")}>
+        <SettingRow
+          label={t("settings.advanced.exportSettings")}
+          description={t("settings.advanced.exportSettingsDescription")}
+        >
           <Button variant="default" onClick={() => void handleExportSettings()} size="sm">
-            Export
+            {t("settings.keyboard.export")}
           </Button>
         </SettingRow>
         <SettingRow
-          label="Import Settings"
-          description="Restore app settings from an Lithe settings JSON file."
+          label={t("settings.advanced.importSettings")}
+          description={t("settings.advanced.importSettingsDescription")}
         >
           <Button variant="default" onClick={handleImportSettings} size="sm">
-            Import
+            {t("settings.keyboard.import")}
           </Button>
         </SettingRow>
-        <SettingRow label="Reset Settings" description="Reset all settings to their default values">
-          <TypedConfirmAction actionLabel="Reset" onConfirm={handleResetSettings} />
+        <SettingRow
+          label={t("settings.advanced.resetSettings")}
+          description={t("settings.advanced.resetSettingsDescription")}
+        >
+          <TypedConfirmAction actionLabel={t("settings.advanced.reset")} onConfirm={handleResetSettings} />
         </SettingRow>
       </Section>
-      <Section title="Telemetry">
+      <Section title={t("settings.advanced.telemetry")}>
         <SettingRow
-          label="Anonymous Usage Telemetry"
+          label={t("settings.advanced.anonymousTelemetry")}
           description={
             <>
-              {telemetryDescription}{" "}
+              {t("settings.advanced.telemetryDescription")} {" "}
               <a
                 href={telemetryLearnMoreUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                Learn more
+                {t("settings.advanced.learnMore")}
               </a>
             </>
           }
@@ -199,8 +220,8 @@ export const AdvancedSettings = () => {
           />
         </SettingRow>
         <SettingRow
-          label="Telemetry Log"
-          description="Inspect the local queue and recent telemetry delivery results."
+          label={t("settings.advanced.telemetryLog")}
+          description={t("settings.advanced.telemetryLogDescription")}
         >
           <div className="flex gap-2">
             <Button
@@ -208,10 +229,10 @@ export const AdvancedSettings = () => {
               onClick={() => setShowTelemetryLog((value) => !value)}
               size="sm"
             >
-              {showTelemetryLog ? "Hide Log" : "Open Log"}
+              {showTelemetryLog ? t("settings.advanced.hideLog") : t("settings.advanced.openLog")}
             </Button>
             <Button variant="default" onClick={handleClearTelemetryLog} size="sm">
-              Clear
+              {t("settings.advanced.clear")}
             </Button>
           </div>
         </SettingRow>
@@ -219,7 +240,7 @@ export const AdvancedSettings = () => {
           <div className="rounded-lg border border-border/70 bg-background/50">
             {telemetryLog.length === 0 ? (
               <Empty className="min-h-0 flex-none items-start rounded-none px-3 py-2 text-left">
-                <EmptyDescription>No telemetry entries yet.</EmptyDescription>
+                <EmptyDescription>{t("settings.advanced.noTelemetry")}</EmptyDescription>
               </Empty>
             ) : (
               <div className="max-h-72 overflow-y-auto">

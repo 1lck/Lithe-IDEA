@@ -1,373 +1,134 @@
-import { CaretDownIcon as CaretDown, MagnifyingGlassIcon as Search } from "@/ui/icons";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import type { SettingsTab } from "@/features/window/stores/ui-state.store";
+import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import {
-  resolveSettingsAccess,
-  resolveVisibleSettingsSection,
-} from "@/features/settings/lib/settings-access";
-import { filterVisibleSettingsTabs } from "@/features/settings/lib/settings-tab-visibility";
-import {
-  getSettingSearchTargetKey,
-  SETTINGS_SEARCH_TAB_LABELS,
-} from "@/features/settings/lib/settings-search";
-import { useAuthStore } from "@/features/window/stores/auth.store";
-import { type SettingsTab, useUIState } from "@/features/window/stores/ui-state.store";
-import { Card } from "@/ui/card";
+import { useTranslation } from "@/i18n/locale-provider";
+import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
-import { Dropdown, type MenuItem } from "@/ui/dropdown";
-import { Empty, EmptyDescription } from "@/ui/empty";
-import Input from "@/ui/input";
-import { ScrollArea } from "@/ui/scroll-area";
-import type { SearchResult } from "../types/search.types";
-import { SETTINGS_TAB_ITEMS, SettingsVerticalTabs } from "./settings-vertical-tabs";
-
-import { AdvancedSettings } from "./tabs/advanced-settings";
-import { AccountSettings } from "./tabs/account-settings";
-import { AISettings } from "./tabs/ai-settings";
-import { AppearanceSettings } from "./tabs/appearance-settings";
-import { CollaborationSettings } from "./tabs/collaboration-settings";
-import { EditorSettings } from "./tabs/editor-settings";
-import { EnterpriseSettings } from "./tabs/enterprise-settings";
-import { GeneralSettings } from "./tabs/general-settings";
-import { GitSettings } from "./tabs/git-settings";
-import { KeyboardSettings } from "./tabs/keyboard-settings";
-import { FileTreeSettings } from "./tabs/file-tree-settings";
-import { TerminalSettings } from "./tabs/terminal-settings";
+import {
+  ArrowClockwiseIcon,
+  CodeBlockIcon,
+  DatabaseIcon,
+  GearIcon,
+  GearSixIcon,
+  KeyboardIcon,
+  MagicWandIcon,
+  TerminalWindowIcon,
+  type Icon,
+} from "@/ui/icons";
+import { MacSettingsPanel, type MacSettingsCategory } from "./macos-settings-panels";
 
 interface SettingsDialogProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+interface CategoryItem {
+  id: MacSettingsCategory;
+  labelKey: string;
+  icon: Icon;
+}
+
+const categories: CategoryItem[] = [
+  { id: "general", labelKey: "settings.tabs.general", icon: GearSixIcon },
+  { id: "editor", labelKey: "settings.tabs.editor", icon: CodeBlockIcon },
+  { id: "keyboard", labelKey: "settings.tabs.keyboard", icon: KeyboardIcon },
+  { id: "terminal", labelKey: "settings.tabs.terminal", icon: TerminalWindowIcon },
+  { id: "lsp", labelKey: "settings.tabs.lsp", icon: DatabaseIcon },
+  { id: "ai", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
+  { id: "updates", labelKey: "settings.tabs.updates", icon: ArrowClockwiseIcon },
+];
+
+function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory {
+  switch (tab) {
+    case "editor":
+    case "keyboard":
+    case "terminal":
+    case "ai":
+      return tab;
+    case "language":
+      return "lsp";
+    default:
+      return "general";
+  }
+}
+
 const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
-  const { settingsInitialTab, setSettingsInitialTab } = useUIState();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
-  const lastSettingsTab = useSettingsStore((state) => state.settings.lastSettingsTab);
-  const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-  const subscription = useAuthStore((state) => state.subscription);
-  const settingsAccess = resolveSettingsAccess(subscription);
-  const { canShowEnterpriseSettings, canShowCollaborationSettings } = settingsAccess;
-
-  const clearSearch = useSettingsStore((state) => state.actions.clearSearch);
-  const searchQuery = useSettingsStore((state) => state.search.query);
-  const searchResults = useSettingsStore((state) => state.search.results);
-  const selectedResultId = useSettingsStore((state) => state.search.selectedResultId);
-  const selectSearchResult = useSettingsStore((state) => state.actions.selectSearchResult);
-  const setSearchQuery = useSettingsStore((state) => state.actions.setSearchQuery);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const searchInputAnchorRef = useRef<HTMLDivElement>(null);
-  const tabDropdownRef = useRef<HTMLButtonElement>(null);
-  const [isTabDropdownOpen, setIsTabDropdownOpen] = useState(false);
-  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
-  const resolveVisibleTab = useCallback(
-    (tab: SettingsTab) =>
-      resolveVisibleSettingsSection(tab, {
-        canShowCollaborationSettings,
-        canShowEnterpriseSettings,
-      }),
-    [canShowCollaborationSettings, canShowEnterpriseSettings],
-  );
-  const visibleSearchResults = useMemo(
-    () => searchResults.filter((result) => resolveVisibleTab(result.tab) === result.tab),
-    [resolveVisibleTab, searchResults],
-  );
-  const visibleSearchDropdownResults = visibleSearchResults.slice(0, 12);
-  const visibleTabs = filterVisibleSettingsTabs(SETTINGS_TAB_ITEMS, {
-    ...settingsAccess,
-    matchingTabs: null,
-  });
-  const activeTabItem =
-    visibleTabs.find((tab) => tab.id === activeTab) ??
-    SETTINGS_TAB_ITEMS.find((tab) => tab.id === activeTab) ??
-    SETTINGS_TAB_ITEMS[0];
-  const ActiveTabIcon = activeTabItem.icon;
-  // Sync active tab with explicit requests, or fall back to the persisted last section.
-  useEffect(() => {
-    if (isOpen) {
-      const requestedTab = settingsInitialTab ?? lastSettingsTab;
-      const nextTab = resolveVisibleTab(requestedTab);
-      setActiveTab(nextTab);
-      void updateSetting("lastSettingsTab", nextTab);
-    }
-  }, [
-    settingsInitialTab,
-    lastSettingsTab,
-    isOpen,
-    canShowEnterpriseSettings,
-    canShowCollaborationSettings,
-    updateSetting,
-  ]);
-
-  const handleTabChange = (tab: SettingsTab) => {
-    const nextTab = resolveVisibleTab(tab);
-    setActiveTab(nextTab);
-    setSettingsInitialTab(nextTab);
-    void updateSetting("lastSettingsTab", nextTab);
-  };
-
-  const navigateToSearchResult = useCallback(
-    (result: SearchResult) => {
-      const nextTab = resolveVisibleTab(result.tab);
-      if (nextTab !== result.tab) return;
-
-      setActiveTab(nextTab);
-      selectSearchResult(result.id);
-      setIsSearchDropdownOpen(false);
-    },
-    [resolveVisibleTab, selectSearchResult],
-  );
-  const tabMenuItems: MenuItem[] = visibleTabs.map((tab) => {
-    const Icon = tab.icon;
-    return {
-      id: tab.id,
-      label: tab.label,
-      icon: <Icon className="size-4" weight="duotone" />,
-      className: tab.id === activeTab ? "bg-accent text-foreground" : undefined,
-      onClick: () => handleTabChange(tab.id),
-    };
-  });
-
-  // Clear search when dialog closes
-  useEffect(() => {
-    if (!isOpen) {
-      clearSearch();
-      setIsSearchDropdownOpen(false);
-    }
-  }, [isOpen, clearSearch]);
+  const { t } = useTranslation();
+  const settingsInitialTab = useUIState((state) => state.settingsInitialTab);
+  const [activeCategory, setActiveCategory] = useState<MacSettingsCategory>("general");
+  const resetToDefaults = useSettingsStore((state) => state.actions.resetToDefaults);
 
   useEffect(() => {
     if (!isOpen) return;
-
-    const clearSearchHighlights = () => {
-      const content = contentRef.current;
-      if (!content) return;
-
-      content
-        .querySelectorAll<HTMLElement>("[data-settings-search-active='true']")
-        .forEach((element) => element.removeAttribute("data-settings-search-active"));
-      content
-        .querySelectorAll<HTMLElement>("[data-settings-search-section-active='true']")
-        .forEach((element) => element.removeAttribute("data-settings-search-section-active"));
-    };
-
-    if (!selectedResultId) {
-      clearSearchHighlights();
-      return;
-    }
-
-    const result = visibleSearchResults.find((item) => item.id === selectedResultId);
-    if (!result || result.tab !== activeTab) {
-      clearSearchHighlights();
-      return;
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      const content = contentRef.current;
-      if (!content) return;
-
-      const sectionKey = getSettingSearchTargetKey(result.section);
-      const rowKey = getSettingSearchTargetKey(result.label);
-      const section = content.querySelector<HTMLElement>(
-        `[data-settings-section-key="${sectionKey}"]`,
-      );
-      const target =
-        section?.querySelector<HTMLElement>(`[data-setting-row-key="${rowKey}"]`) ?? section;
-
-      if (!target) return;
-
-      clearSearchHighlights();
-      section?.setAttribute("data-settings-search-section-active", "true");
-      target.setAttribute("data-settings-search-active", "true");
-      target.scrollIntoView({ block: "center", inline: "nearest" });
-      target.focus({ preventScroll: true });
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [activeTab, isOpen, selectedResultId, visibleSearchResults]);
-
-  useEffect(() => {
-    if (!isOpen || !contentRef.current) return;
-    contentRef.current.scrollLeft = 0;
-  }, [activeTab, isOpen]);
-
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case "account":
-        return <AccountSettings />;
-      case "general":
-        return <GeneralSettings />;
-      case "editor":
-        return <EditorSettings />;
-      case "git":
-        return <GitSettings />;
-      case "appearance":
-        return <AppearanceSettings />;
-      case "ai":
-        return <AISettings />;
-      case "keyboard":
-        return <KeyboardSettings />;
-      case "collaboration":
-        return canShowCollaborationSettings ? <CollaborationSettings /> : <GeneralSettings />;
-      case "enterprise":
-        return canShowEnterpriseSettings ? <EnterpriseSettings /> : <GeneralSettings />;
-      case "advanced":
-        return <AdvancedSettings />;
-      case "terminal":
-        return <TerminalSettings />;
-      case "file-explorer":
-        return <FileTreeSettings />;
-      default:
-        return <GeneralSettings />;
-    }
-  };
+    setActiveCategory(categoryFromRequestedTab(settingsInitialTab));
+  }, [isOpen, settingsInitialTab]);
 
   if (!isOpen) return null;
 
-  const activePanelId = `settings-panel-${activeTab}`;
-  const activeTabId = `settings-tab-${activeTab}`;
+  const activeItem = categories.find((category) => category.id === activeCategory) ?? categories[0];
 
   return (
-    <>
-      <Dialog
-        onClose={onClose}
-        title={
-          <>
-            <span className="max-[720px]:hidden">Settings</span>
-            <button
-              ref={tabDropdownRef}
-              type="button"
-              className="hidden h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-md border border-border/70 bg-surface/50 px-2 text-left text-foreground transition-colors hover:bg-accent max-[720px]:inline-flex"
-              onClick={() => setIsTabDropdownOpen(true)}
-            >
-              <ActiveTabIcon className="size-4 shrink-0 text-subtle-foreground" weight="duotone" />
-              <span className="truncate">{activeTabItem.label}</span>
-              <CaretDown className="size-3.5 shrink-0 text-subtle-foreground" />
-            </button>
-          </>
-        }
-        headerActions={
-          <div ref={searchInputAnchorRef} className="w-64 max-[720px]:w-44 max-[520px]:w-32">
-            <Input
-              type="text"
-              placeholder="Search settings..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setIsSearchDropdownOpen(e.target.value.trim().length > 0);
-              }}
-              onFocus={() => {
-                if (searchQuery.trim()) setIsSearchDropdownOpen(true);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setIsSearchDropdownOpen(false);
-                  return;
-                }
-
-                if (event.key !== "Enter") return;
-                const firstResult = visibleSearchResults[0];
-                if (!firstResult) return;
-                event.preventDefault();
-                navigateToSearchResult(firstResult);
-              }}
-              leftIcon={Search}
-              size="md"
-              className="w-full"
-            />
-          </div>
-        }
-        classNames={{
-          modal:
-            "h-[74vh] max-h-205 w-[90vw] max-w-280 min-w-0 border-0 bg-surface max-[720px]:h-[86vh] max-[720px]:w-[calc(100vw-32px)] [&>div:first-child]:border-b-0",
-          header:
-            "bg-surface max-[720px]:grid max-[720px]:grid-cols-[minmax(0,1fr)_auto] max-[720px]:gap-2",
-          title: "max-[720px]:min-w-0",
-          headerActions: "max-[720px]:min-w-0",
-          content: "flex h-full p-0",
-        }}
-      >
-        <div className="flex size-full min-w-0 overflow-hidden">
-          <div className="h-full w-52 shrink-0 max-[720px]:hidden">
-            <SettingsVerticalTabs
-              activeTab={activeTab}
-              onTabChange={handleTabChange}
-              panelIdForTab={(tab) => `settings-panel-${tab}`}
-            />
-          </div>
-
-          <Card
-            variant="elevated"
-            size="flush"
-            className="@container/settings mt-0 mr-2 mb-2 ml-0 min-w-0 flex-1 bg-background max-[720px]:ml-2"
+    <Dialog
+      onClose={onClose}
+      title={t("workbench.settings")}
+      icon={GearIcon}
+      footer={
+        <div className="flex w-full items-center justify-between">
+          <Button
+            type="button"
+            variant="ghost"
+            className="text-subtle-foreground"
+            onClick={() => void resetToDefaults()}
           >
-            <ScrollArea
-              orientation="vertical"
-              className="min-w-0 flex-1"
-              contentClassName="w-full max-w-full overflow-x-hidden p-3 max-[720px]:p-2"
-              viewportProps={{
-                ref: contentRef,
-                id: activePanelId,
-                role: "tabpanel",
-                "aria-labelledby": activeTabId,
-                "data-settings-content": "",
-                tabIndex: -1,
-              }}
-            >
-              {renderTabContent()}
-            </ScrollArea>
-          </Card>
+            {t("settings.mac.restoreDefaults")}
+          </Button>
+          <Button type="button" variant="accent" onClick={onClose}>
+            {t("settings.mac.done")}
+          </Button>
         </div>
-      </Dialog>
-      <Dropdown
-        isOpen={isTabDropdownOpen}
-        anchorRef={tabDropdownRef}
-        anchorSide="bottom"
-        anchorAlign="start"
-        items={tabMenuItems}
-        onClose={() => setIsTabDropdownOpen(false)}
-        className="w-fit min-w-0"
-      />
-      <Dropdown
-        isOpen={isSearchDropdownOpen && searchQuery.trim().length > 0}
-        anchorRef={searchInputAnchorRef}
-        anchorSide="bottom"
-        anchorAlign="end"
-        onClose={() => setIsSearchDropdownOpen(false)}
-        matchAnchorWidth
-        className="min-w-0"
-      >
-        <div className="max-h-80 overflow-y-auto p-1">
-          {visibleSearchDropdownResults.length > 0 ? (
-            visibleSearchDropdownResults.map((result) => {
-              const isSelected = selectedResultId === result.id;
+      }
+      classNames={{
+        backdrop: "bg-black/55",
+        modal:
+          "h-[620px] w-[820px] max-h-[calc(100vh-32px)] max-w-[calc(100vw-32px)] border-border bg-background",
+        header: "h-11 border-border border-b bg-surface px-3 py-0",
+        content: "flex h-full p-0",
+      }}
+    >
+      <div className="flex size-full min-h-0 min-w-0">
+        <nav
+          className="flex w-47.5 shrink-0 flex-col gap-0.5 border-border border-r bg-surface p-2"
+          aria-label={t("settings.mac.categories")}
+        >
+          {categories.map((category) => {
+            const CategoryIcon = category.icon;
+            const selected = category.id === activeCategory;
+            return (
+              <button
+                key={category.id}
+                type="button"
+                onClick={() => setActiveCategory(category.id)}
+                className={`flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left ui-text-sm transition-colors ${
+                  selected
+                    ? "bg-primary/65 font-medium text-white"
+                    : "text-foreground hover:bg-accent"
+                }`}
+                aria-current={selected ? "page" : undefined}
+              >
+                <CategoryIcon className="size-4 shrink-0" />
+                <span className="truncate">{t(category.labelKey)}</span>
+              </button>
+            );
+          })}
+        </nav>
 
-              return (
-                <button
-                  key={result.id}
-                  type="button"
-                  onClick={() => navigateToSearchResult(result)}
-                  className={[
-                    "font-sans flex w-full flex-col items-start rounded-lg px-2.5 py-2 text-left transition-colors",
-                    isSelected ? "bg-primary/10 text-primary" : "text-foreground hover:bg-accent",
-                  ].join(" ")}
-                >
-                  <span className="ui-text-base w-full truncate font-medium">{result.label}</span>
-                  <span className="ui-text-base w-full truncate text-subtle-foreground">
-                    {SETTINGS_SEARCH_TAB_LABELS[result.tab]} / {result.section}
-                  </span>
-                </button>
-              );
-            })
-          ) : (
-            <Empty className="min-h-0 flex-none items-start rounded-none px-3 py-2 text-left">
-              <EmptyDescription>No matching settings</EmptyDescription>
-            </Empty>
-          )}
-        </div>
-      </Dropdown>
-    </>
+        <section className="min-w-0 flex-1 overflow-y-auto bg-background p-6">
+          <h2 className="mb-5 text-xl font-semibold text-foreground">{t(activeItem.labelKey)}</h2>
+          <MacSettingsPanel category={activeCategory} />
+        </section>
+      </div>
+    </Dialog>
   );
 };
 
