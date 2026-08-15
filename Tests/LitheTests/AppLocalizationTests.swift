@@ -52,6 +52,10 @@ struct AppLocalizationTests {
         )
         #expect(translations["Conflicts with %@"] == "与 %@ 冲突")
         #expect(translations["No matching commands"] == "没有匹配的命令")
+        for command in LitheCommandCatalog.commands {
+            #expect(translations[command.title] != nil, "Missing title: \(command.title)")
+            #expect(translations[command.subtitle] != nil, "Missing subtitle: \(command.subtitle)")
+        }
     }
 
     private func simplifiedChineseTranslations() throws -> [String: String] {

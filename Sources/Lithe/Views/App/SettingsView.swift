@@ -108,7 +108,10 @@ struct SettingsView: View {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if selection == .keymap {
-            KeyboardShortcutSettingsView(feature: model.keyboardShortcutFeature)
+            KeyboardShortcutSettingsView(
+                feature: model.keyboardShortcutFeature,
+                language: settings.language
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {

@@ -129,6 +129,11 @@ struct KeyboardShortcutTests {
         #expect(feature.filteredCommands(query: "find usages").map(\.id) == ["find-usages"])
         #expect(feature.filteredCommands(query: "window").allSatisfy { $0.group == .window })
         #expect(feature.filteredCommands(query: "⌃R").map(\.id).contains("run"))
+        #expect(
+            feature.filteredCommands(query: "全局搜索") { command in
+                command.id == "search-everywhere" ? "全局搜索 查找文件和操作" : ""
+            }.map(\.id) == ["search-everywhere"]
+        )
         #expect(feature.groupedCommands(query: "history").allSatisfy { !$0.commands.isEmpty })
     }
 

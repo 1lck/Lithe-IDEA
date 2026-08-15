@@ -44,7 +44,10 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
         }
     }
 
-    func filteredCommands(query: String) -> [LitheCommandDefinition] {
+    func filteredCommands(
+        query: String,
+        additionalSearchText: (LitheCommandDefinition) -> String = { _ in "" }
+    ) -> [LitheCommandDefinition] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalizedQuery.isEmpty else { return commands }
         return commands.filter { command in
@@ -53,14 +56,18 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
                 command.subtitle,
                 command.id,
                 command.group.rawValue,
-                displayText(for: command.id) ?? ""
+                displayText(for: command.id) ?? "",
+                additionalSearchText(command)
             ].joined(separator: " ").lowercased()
             return searchText.contains(normalizedQuery)
         }
     }
 
-    func groupedCommands(query: String) -> [KeyboardShortcutCommandSection] {
-        let filtered = filteredCommands(query: query)
+    func groupedCommands(
+        query: String,
+        additionalSearchText: (LitheCommandDefinition) -> String = { _ in "" }
+    ) -> [KeyboardShortcutCommandSection] {
+        let filtered = filteredCommands(query: query, additionalSearchText: additionalSearchText)
         return LitheActionGroup.allCases.compactMap { group in
             let groupCommands = filtered.filter { $0.group == group }
             guard !groupCommands.isEmpty else { return nil }

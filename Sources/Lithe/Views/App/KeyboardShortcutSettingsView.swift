@@ -2,13 +2,20 @@ import SwiftUI
 
 struct KeyboardShortcutSettingsView: View {
     @ObservedObject var feature: KeyboardShortcutFeatureModel
+    let language: AppLanguage
     @State private var query = ""
     @State private var editingTarget: EditingTarget?
-    @State private var validationMessage: String?
+    @State private var validationIssue: ValidationIssue?
 
     private struct EditingTarget: Equatable {
         let commandID: String
         let bindingIndex: Int?
+    }
+
+    private enum ValidationIssue: Equatable {
+        case needsActionModifier
+        case duplicateBinding
+        case conflict(commandTitle: String)
     }
 
     var body: some View {
@@ -16,7 +23,13 @@ struct KeyboardShortcutSettingsView: View {
             header
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    let sections = feature.groupedCommands(query: query)
+                    let sections = feature.groupedCommands(query: query) { command in
+                        [
+                            localizedString(command.title),
+                            localizedString(command.subtitle),
+                            localizedString(command.group.rawValue)
+                        ].joined(separator: " ")
+                    }
                     if sections.isEmpty {
                         emptyState
                     } else {
@@ -45,7 +58,7 @@ struct KeyboardShortcutSettingsView: View {
                 Spacer()
                 Button("Restore All Defaults") {
                     editingTarget = nil
-                    validationMessage = nil
+                    validationIssue = nil
                     feature.resetAll()
                 }
                 .buttonStyle(.bordered)
@@ -56,7 +69,7 @@ struct KeyboardShortcutSettingsView: View {
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: query) { _ in
                     editingTarget = nil
-                    validationMessage = nil
+                    validationIssue = nil
                 }
         }
         .foregroundStyle(LitheTheme.primaryText)
@@ -117,17 +130,18 @@ struct KeyboardShortcutSettingsView: View {
                     commandID: command.id,
                     onRecorded: { binding in save(binding, for: command) },
                     onInvalid: {
-                        validationMessage = NSLocalizedString(
-                            "Shortcut needs Command, Control, or Option",
-                            comment: "Invalid shortcut"
-                        )
+                        validationIssue = .needsActionModifier
                     },
                     onCancel: cancelEditing
                 )
                 .id("\(command.id)-\(editingTarget?.bindingIndex ?? -1)")
 
-                if let validationMessage {
-                    Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
+                if let validationIssue {
+                    Label {
+                        validationMessage(for: validationIssue)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
                         .font(.system(size: 11))
                         .foregroundStyle(LitheTheme.warning)
                 }
@@ -210,13 +224,13 @@ struct KeyboardShortcutSettingsView: View {
     }
 
     private func beginEditing(commandID: String, bindingIndex: Int?) {
-        validationMessage = nil
+        validationIssue = nil
         editingTarget = EditingTarget(commandID: commandID, bindingIndex: bindingIndex)
     }
 
     private func cancelEditing() {
         editingTarget = nil
-        validationMessage = nil
+        validationIssue = nil
     }
 
     private func save(_ binding: KeyboardShortcutBinding, for command: LitheCommandDefinition) {
@@ -233,20 +247,23 @@ struct KeyboardShortcutSettingsView: View {
             cancelEditing()
         } catch KeyboardShortcutUpdateError.conflict(let commandID) {
             let title = LitheCommandCatalog.command(id: commandID)?.title ?? commandID
-            validationMessage = String(
-                format: NSLocalizedString("Conflicts with %@", comment: "Shortcut conflict"),
-                NSLocalizedString(title, comment: "Command title")
-            )
+            validationIssue = .conflict(commandTitle: title)
         } catch KeyboardShortcutUpdateError.duplicateBinding {
-            validationMessage = NSLocalizedString(
-                "Shortcut is already assigned to this command",
-                comment: "Duplicate shortcut"
-            )
+            validationIssue = .duplicateBinding
         } catch {
-            validationMessage = NSLocalizedString(
-                "Shortcut needs Command, Control, or Option",
-                comment: "Invalid shortcut"
-            )
+            validationIssue = .needsActionModifier
+        }
+    }
+
+    @ViewBuilder
+    private func validationMessage(for issue: ValidationIssue) -> some View {
+        switch issue {
+        case .needsActionModifier:
+            Text("Shortcut needs Command, Control, or Option")
+        case .duplicateBinding:
+            Text("Shortcut is already assigned to this command")
+        case .conflict(let commandTitle):
+            Text("Conflicts with \(Text(LocalizedStringKey(commandTitle)))")
         }
     }
 
@@ -256,5 +273,13 @@ struct KeyboardShortcutSettingsView: View {
         guard bindings.indices.contains(index) else { return }
         bindings.remove(at: index)
         try? feature.replaceBindings(for: commandID, with: bindings)
+    }
+
+    private func localizedString(_ key: String) -> String {
+        guard let resourceURL = Bundle.main.resourceURL,
+              let localizationBundle = Bundle(
+                url: resourceURL.appendingPathComponent("\(language.rawValue).lproj", isDirectory: true)
+              ) else { return key }
+        return localizationBundle.localizedString(forKey: key, value: key, table: nil)
     }
 }
