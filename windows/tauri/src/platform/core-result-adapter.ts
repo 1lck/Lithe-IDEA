@@ -146,6 +146,17 @@ export function adaptCoreResult<T>(
         };
       }) as T;
     }
+    case "git_checkout": {
+      const exitCode = typeof data.exitCode === "number" ? data.exitCode : 0;
+      const output = typeof data.output === "string" ? data.output.trim() : "";
+      return { success: exitCode === 0, hasChanges: false, message: output } as T;
+    }
+    case "git_checkout_preflight": {
+      const blockingPaths = Array.isArray(data.blockingPaths)
+        ? data.blockingPaths.map((path: unknown) => String(path))
+        : [];
+      return { blocked: blockingPaths.length > 0, blockingPaths } as T;
+    }
     case "git_checkout_tag":
       return { success: true, hasChanges: false, message: "" } as T;
     default:
