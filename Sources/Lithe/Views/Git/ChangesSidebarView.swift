@@ -499,7 +499,7 @@ struct ChangesSidebarView: View {
                             )
                             changeSection(
                                 "Unversioned Files",
-                                changes: untrackedChanges,
+                                changes: addedChanges,
                                 expanded: $untrackedExpanded,
                                 showsParentPaths: geometry.size.width >= 300
                             )
@@ -522,33 +522,55 @@ struct ChangesSidebarView: View {
         showsParentPaths: Bool
     ) -> some View {
         if !changes.isEmpty {
-            Button {
-                expanded.wrappedValue.toggle()
-            } label: {
-                HStack(spacing: 7) {
+            HStack(spacing: 7) {
+                Button {
+                    expanded.wrappedValue.toggle()
+                } label: {
                     Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right")
                         .font(.system(size: 8, weight: .bold))
-                        .frame(width: 10)
-                    Image(systemName: "square")
-                        .font(.system(size: 16))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Text(LocalizedStringKey(title))
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                    Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
-                        .font(.system(size: 11))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Spacer()
+                        .frame(width: 10, height: 24)
+                        .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 7)
-                .frame(maxWidth: .infinity)
-                .frame(height: 30)
-                .background(LitheTheme.subtleSelection.opacity(0.72))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help(LocalizedStringKey(expanded.wrappedValue ? "Collapse section" : "Expand section"))
+
+                Button {
+                    model.setStaging(changes, staged: !allChangesStaged(changes))
+                } label: {
+                    Image(systemName: stagingSymbol(for: changes))
+                        .font(.system(size: 16))
+                        .foregroundStyle(changes.contains(where: isEffectivelyStaged) ? LitheTheme.accent : LitheTheme.secondaryText)
+                        .frame(width: 18, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .help(LocalizedStringKey(allChangesStaged(changes) ? "Unstage all files" : "Stage all files"))
+
+                Button {
+                    expanded.wrappedValue.toggle()
+                } label: {
+                    HStack(spacing: 7) {
+                        Text(LocalizedStringKey(title))
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(LitheTheme.primaryText)
+                        Text(changes.count == 1 ? "1 file" : "\(changes.count) files")
+                            .font(.system(size: 11))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 24)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
             }
-            .buttonStyle(.plain)
-            .lithePointer()
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .background(LitheTheme.subtleSelection.opacity(0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
 
             if expanded.wrappedValue {
                 ForEach(changes) { change in
@@ -561,14 +583,14 @@ struct ChangesSidebarView: View {
     private func changeRow(_ change: GitChange, showsParentPath: Bool) -> some View {
         HStack(spacing: 6) {
             Button {
-                Task { await model.toggleStaging(change) }
+                model.toggleStaging(change)
             } label: {
-                Image(systemName: change.isStaged ? "checkmark.square.fill" : "square")
+                Image(systemName: isEffectivelyStaged(change) ? "checkmark.square.fill" : "square")
                     .font(.system(size: 16))
-                    .foregroundStyle(change.isStaged ? LitheTheme.accent : LitheTheme.secondaryText)
+                    .foregroundStyle(isEffectivelyStaged(change) ? LitheTheme.accent : LitheTheme.secondaryText)
             }
             .litheIconButton()
-            .help(LocalizedStringKey(change.isStaged ? "Unstage file" : "Stage file"))
+            .help(LocalizedStringKey(isEffectivelyStaged(change) ? "Unstage file" : "Stage file"))
 
             Button {
                 model.selectChange(change)
@@ -630,11 +652,11 @@ struct ChangesSidebarView: View {
 
         if change.isStaged {
             Button("Unstage") {
-                Task { await model.toggleStaging(change) }
+                model.toggleStaging(change)
             }
         } else {
             Button("Stage File") {
-                Task { await model.toggleStaging(change) }
+                model.toggleStaging(change)
             }
         }
 
@@ -795,16 +817,29 @@ struct ChangesSidebarView: View {
     }
 
     private var trackedChanges: [GitChange] {
-        displayedChanges.filter { !$0.isUntracked }
+        displayedChanges.filter { $0.kind != .added }
     }
 
-    private var untrackedChanges: [GitChange] {
-        displayedChanges.filter(\.isUntracked)
+    private var addedChanges: [GitChange] {
+        displayedChanges.filter { $0.kind == .added }
     }
 
     private var displayedChanges: [GitChange] {
         guard !model.gitConflictFilterPaths.isEmpty else { return model.gitChanges }
         return model.gitChanges.filter { model.gitConflictFilterPaths.contains($0.path) }
+    }
+
+    private func isEffectivelyStaged(_ change: GitChange) -> Bool {
+        model.effectiveStagingState(for: change)
+    }
+
+    private func allChangesStaged(_ changes: [GitChange]) -> Bool {
+        changes.allSatisfy(isEffectivelyStaged)
+    }
+
+    private func stagingSymbol(for changes: [GitChange]) -> String {
+        if allChangesStaged(changes) { return "checkmark.square.fill" }
+        return changes.contains(where: isEffectivelyStaged) ? "minus.square.fill" : "square"
     }
 
     private var stagedChanges: [GitChange] {
