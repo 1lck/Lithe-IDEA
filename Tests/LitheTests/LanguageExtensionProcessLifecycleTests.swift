@@ -25,6 +25,7 @@ struct LanguageExtensionProcessLifecycleTests {
         try runtime.register(ModuleFactory(manifest: GoExecutionModule.moduleManifest) {
             GoExecutionModule(executionHost: executionHost)
         })
+        try await runtime.setEnabled(true, for: .languageExecutionExtension("go"))
 
         let capability = try #require(
             try await runtime.activateCapability(.languageExecutionExtension("go"))

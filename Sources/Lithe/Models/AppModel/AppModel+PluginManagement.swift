@@ -10,15 +10,30 @@ extension AppModel {
         services.pluginManager.issues
     }
 
-    func setPluginEnabled(_ enabled: Bool, pluginID: PluginID) {
-        Task { @MainActor in
+    func applyPluginEnabledChanges(_ changes: [PluginID: Bool]) async -> Set<PluginID> {
+        let snapshotsByID = Dictionary(uniqueKeysWithValues: pluginSnapshots.map { ($0.id, $0) })
+        let closesDatabase = changes.contains { pluginID, enabled in
+            !enabled && snapshotsByID[pluginID]?.manifest.modules.contains {
+                $0.manifest.id == .database
+            } == true
+        }
+        if closesDatabase, selectedSidebar == .database {
+            selectedSidebar = .project
+            await Task.yield()
+        }
+
+        var appliedPluginIDs: Set<PluginID> = []
+        for pluginID in changes.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard let enabled = changes[pluginID] else { continue }
             do {
                 try await services.pluginManager.setEnabled(enabled, for: pluginID)
-                objectWillChange.send()
+                appliedPluginIDs.insert(pluginID)
             } catch {
                 showNotification(error.localizedDescription)
             }
         }
+        objectWillChange.send()
+        return appliedPluginIDs
     }
 
     func installPluginPackage() {
