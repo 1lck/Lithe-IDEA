@@ -111,7 +111,7 @@ export const defaultSettings: Settings = {
   showActivityRailWorktrees: false,
   showActivityRailProjectIcons: false,
   collapsedActivityRailSections: [],
-  sidebarWidth: 220,
+  sidebarWidth: 320,
   showGitHubPullRequests: true,
   showGitHubIssues: true,
   showGitHubActions: true,

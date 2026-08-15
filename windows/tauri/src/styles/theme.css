@@ -103,8 +103,8 @@
     --ui-text-chrome: 13px;
     --ui-text-sm: var(--app-ui-font-size);
     --ui-text-base: var(--app-ui-font-size);
-    --lithe-title-bar-height: 2rem;
-    --lithe-footer-height: 1.75rem;
+    --lithe-title-bar-height: 2.5rem;
+    --lithe-footer-height: 1.5rem;
     --lithe-pane-header-height: 2.75rem;
     --lithe-tab-bar-height: var(--lithe-pane-header-height);
     --lithe-tab-height: 1.75rem;

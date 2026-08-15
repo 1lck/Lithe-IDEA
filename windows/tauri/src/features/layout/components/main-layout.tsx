@@ -30,6 +30,7 @@ import {
   MainSidebar,
   SidebarActivityRail,
 } from "./sidebar/main-sidebar";
+import { PluginActivityRail } from "./plugin-activity-rail";
 import { WelcomeScreen } from "./welcome-screen";
 
 const CommandPalette = lazy(() => import("@/features/command-palette/components/command-palette"));
@@ -75,19 +76,14 @@ export function MainLayout() {
   usePaneKeyboard();
 
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
-  const activityRailExpanded = useSettingsStore((state) => state.settings.activityRailExpanded);
-  const activityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const sidebarWidth = useSettingsStore((state) => state.settings.sidebarWidth);
   const showStatusBar = useSettingsStore((state) => state.settings.showStatusBar);
   const isDatabaseConnectionVisible = useUIState((state) => state.isDatabaseConnectionVisible);
   const setIsDatabaseConnectionVisible = useUIState(
     (state) => state.setIsDatabaseConnectionVisible,
   );
-  const renderedActivityRailWidth = activityRailExpanded
-    ? activityRailWidth
-    : COLLAPSED_ACTIVITY_RAIL_WIDTH;
   const leftPaneReservedWidth =
-    renderedActivityRailWidth + (isSidebarVisible ? sidebarWidth : 0);
+    COLLAPSED_ACTIVITY_RAIL_WIDTH + (isSidebarVisible ? sidebarWidth : 0);
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
   const relativeLineNumbers = useVimStore.use.relativeLineNumbers();
   const { setRelativeLineNumbers } = useVimStore.use.actions();
@@ -271,7 +267,7 @@ export function MainLayout() {
               className="flex flex-1 flex-row overflow-hidden pr-(--lithe-workbench-gap)"
               style={{ minHeight: 0 }}
             >
-              <SidebarActivityRail expanded={activityRailExpanded} />
+              <SidebarActivityRail expanded={false} />
               <ResizablePane
                 position="left"
                 widthKey="sidebarWidth"
@@ -298,6 +294,7 @@ export function MainLayout() {
                 )}
               </div>
 
+              <PluginActivityRail />
             </div>
 
             {terminalWidthMode === "full" && deferredSurfacesReady && (
