@@ -75,6 +75,17 @@ private struct GitHubGitStub: GitHubGitOperations {
 
 @Suite("GitHub service")
 struct GitHubServiceTests {
+    @Test("Swift bridge encodes the GitHub remote URL using the shared contract")
+    func productionBridgeParsesGitHubRemote() throws {
+        let bridge = RustCoreBridge()
+        guard bridge.isAvailable else { return }
+        let repository = try RustGitHubCore(bridge: bridge)
+            .parseRemote("https://github.com/example/lithe.git")
+
+        #expect(repository.owner == "example")
+        #expect(repository.name == "lithe")
+    }
+
     @Test("Product configuration includes the public GitHub OAuth client ID")
     func productClientConfiguration() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)

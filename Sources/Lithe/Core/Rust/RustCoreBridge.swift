@@ -88,6 +88,10 @@ struct RustCoreBridge: Sendable {
 
     private struct GitHubParseRemoteRequest: Encodable {
         let remoteURL: String
+
+        private enum CodingKeys: String, CodingKey {
+            case remoteURL = "remoteUrl"
+        }
     }
 
     private struct GitHubNormalizeResponseRequest: Encodable {
