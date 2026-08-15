@@ -227,7 +227,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> 提供大模型服务支持，并助力 Lithe 的开发。感谢 FastAI 对本项目的支持！
+      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> 提供多款主流大模型的便捷中转服务，让开发者可以更轻松地把 AI 能力接入日常开发流程。其支持也帮助 Lithe 持续完善 AI 辅助体验。感谢 FastAI 对本项目的支持！
     </td>
   </tr>
   <tr>
@@ -237,7 +237,27 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com"><strong>CodeZ</strong></a> 提供 GPT 系列模型的中转支持，并支持 Lithe 的开发。感谢 CodeZ 对本项目的支持！
+      <a href="https://codezsy.com"><strong>CodeZ</strong></a> 专注于 GPT 系列模型的稳定中转，为开发者在工具和项目中集成模型 API 提供简单直接的选择。其赞助为 Lithe 的持续开发与维护提供了助力。感谢 CodeZ 对本项目的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH">
+        <img src="./docs/assets/sponsors/yuanliu-token.png" width="64" alt="元流 Token">
+      </a>
+    </td>
+    <td>
+      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH"><strong>元流 Token</strong></a> 提供多种大语言模型 API 的中转接入，为开发者体验不同模型、构建 AI 应用提供灵活入口。其赞助支持 Lithe 持续拓展并优化 AI 相关功能。感谢元流 Token 对本项目的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://torchai.ai">
+        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      </a>
+    </td>
+    <td>
+      <a href="https://torchai.ai"><strong>TorchAI</strong></a> 面向开发者提供大模型中转服务，便于在编程、内容生成和自动化等不同场景中调用模型 API。其支持帮助 Lithe 保持持续开发，并探索更实用的 AI 工具体验。感谢 TorchAI 对本项目的支持！
     </td>
   </tr>
   <tr>
@@ -247,7 +267,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> 提供 Claude 系列模型的中转支持，并支持 Lithe 的开发。感谢 Code GO 对本项目的支持！
+      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> 主要提供 Claude 系列模型的中转服务，帮助用户以更低的接入成本使用擅长编程与推理的模型。其支持让 Lithe 能够继续打磨模型集成和开发者工作流。感谢 Code GO 对本项目的支持！
     </td>
   </tr>
 </table>
