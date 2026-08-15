@@ -1,5 +1,6 @@
 mod detectors;
 mod git;
+mod github;
 mod languages;
 mod plugins;
 mod project;

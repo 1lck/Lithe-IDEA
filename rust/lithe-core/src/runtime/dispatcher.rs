@@ -4,9 +4,10 @@ use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitStashesRequest, GitStatusRequest, GitWatchContextRequest,
-    GitWriteRequest,
+    GitPullPreflightRequest, GitPullRequestContextRequest, GitStashesRequest, GitStatusRequest,
+    GitWatchContextRequest, GitWriteRequest,
 };
+use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
     JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
     JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest,
@@ -767,6 +768,25 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
 
+        CoreCommand::GitPullRequestContext => {
+            match serde_json::from_value::<GitPullRequestContextRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git pull request context request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::pull_request_context)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git pull request context should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+
         CoreCommand::GitCommand => {
             match serde_json::from_value::<GitCommandRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1004,6 +1024,48 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitHubParseRemote => {
+            match serde_json::from_value::<ParseRemoteRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid GitHub remote request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::github::parse_remote)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("GitHub repository should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubRequestPlan => {
+            match serde_json::from_value::<RequestPlanRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid GitHub request plan")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::github::request_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("GitHub request plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubNormalizeResponse => {
+            match serde_json::from_value::<NormalizeResponseRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid GitHub response")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::github::normalize_response)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
     };
     if response.is_success() {
         match crate::protocol::cancellation::check() {

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "repository": {
+    "name": "codex",
+    "owner": "openai"
+  },
+  "pullRequest": {
+    "assignees": [
+      {
+        "avatarUrl": null,
+        "login": "amy",
+        "url": "https://github.com/amy"
+      },
+      {
+        "avatarUrl": null,
+        "login": "zoe",
+        "url": "https://github.com/zoe"
+      }
+    ],
+    "baseRef": "main",
+    "baseRepository": "openai/codex",
+    "body": "Ready for review",
+    "commentsCount": 1,
+    "createdAt": "2026-01-01T00:00:00Z",
+    "headRef": "feature/github",
+    "headRepository": "octocat/codex",
+    "isDraft": false,
+    "isMerged": false,
+    "labels": [
+      {
+        "color": "000000",
+        "name": "alpha"
+      },
+      {
+        "color": "ffffff",
+        "name": "zeta"
+      }
+    ],
+    "number": 7,
+    "state": "open",
+    "title": "GitHub integration",
+    "updatedAt": "2026-01-02T00:00:00Z",
+    "url": "https://github.com/openai/codex/pull/7"
+  }
+}

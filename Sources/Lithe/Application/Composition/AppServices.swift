@@ -30,6 +30,7 @@ final class AppServices {
     let binaryFileViewerRegistry: BinaryFileViewerRegistry
     let projectRuntimeService: ProjectRuntimeService
     let gitWatchContextProvider: any GitWatchContextProviding
+    let githubService: GitHubService
     let secureStore: any SecureStore
     let databaseSecureStore: any SecureStore
     let credentialResolver: any AIProviderCredentialResolver
@@ -58,6 +59,7 @@ final class AppServices {
         binaryFileViewerRegistry: BinaryFileViewerRegistry,
         projectRuntimeService: ProjectRuntimeService,
         gitWatchContextProvider: any GitWatchContextProviding,
+        githubService: GitHubService,
         secureStore: any SecureStore,
         databaseSecureStore: any SecureStore,
         credentialResolver: any AIProviderCredentialResolver,
@@ -90,6 +92,7 @@ final class AppServices {
         self.binaryFileViewerRegistry = binaryFileViewerRegistry
         self.projectRuntimeService = projectRuntimeService
         self.gitWatchContextProvider = gitWatchContextProvider
+        self.githubService = githubService
         self.secureStore = secureStore
         self.databaseSecureStore = databaseSecureStore
         self.credentialResolver = credentialResolver

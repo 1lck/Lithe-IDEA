@@ -17,15 +17,11 @@ struct WorkbenchView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var memoryUsageMonitor: MemoryUsageMonitor
     @State private var sidebarWidth: CGFloat = 320
-    @State private var sidebarDragStart: CGFloat = 320
     @State private var topPaneHeight: CGFloat?
-    @State private var topPaneDragStart: CGFloat = 0
     @State private var isBranchSwitcherPresented = false
     @State private var newBranchReference: GitReference?
     @State private var isCheckoutRevisionPresented = false
     @State private var pendingTopBarPushReference: GitReference?
-    @State private var isRunConfigurationPickerPresented = false
-    @State private var isNewRunConfigurationPresented = false
     @State private var isProjectSwitcherPresented = false
     @State private var isMemoryUsagePopoverPresented = false
     @State private var isPluginPanelPresented = false
@@ -62,13 +58,6 @@ struct WorkbenchView: View {
         .sheet(isPresented: $isCheckoutRevisionPresented) {
             CheckoutRevisionDialog { revision in
                 Task { await model.checkoutRevision(revision) }
-            }
-        }
-        .sheet(isPresented: $isNewRunConfigurationPresented) {
-            if let runFeature = model.runFeatureIfActive {
-                NewRunConfigurationView(feature: runFeature) {
-                    isNewRunConfigurationPresented = false
-                }
             }
         }
         .confirmationDialog(
@@ -236,12 +225,6 @@ struct WorkbenchView: View {
         }
         .onAppear {
             restoreLayout()
-        }
-        .onChange(of: sidebarWidth) { _ in
-            saveLayout()
-        }
-        .onChange(of: topPaneHeight) { _ in
-            saveLayout()
         }
         .onChange(of: model.workspaceURL?.standardizedFileURL.path) { _ in
             didRestoreLayout = false
@@ -481,29 +464,6 @@ struct WorkbenchView: View {
 
             Spacer(minLength: 22)
 
-            runControls
-
-            Button {
-                model.selectedSidebar = .search
-            } label: {
-                LitheIDEAIcon(resourcePath: "actions/search.svg", size: 16, fallbackSystemImage: "magnifyingglass")
-            }
-            .litheIconButton()
-            .help("Search")
-
-            Menu {
-                Button("Open Project…", action: model.chooseProject)
-                Button("Close Project", action: model.closeProject)
-            } label: {
-                LitheIDEAIcon(resourcePath: "actions/more.svg", size: 16, fallbackSystemImage: "ellipsis")
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .lithePointer()
-            .frame(width: 28, height: 28)
-            .help("More actions")
         }
         .padding(.leading, 76)
         .padding(.trailing, 10)
@@ -530,11 +490,18 @@ struct WorkbenchView: View {
                                 model.selectedSidebar = destination
                             }
                         } label: {
-                            LitheIDEAIcon(
-                                resourcePath: destination.ideaAssetPath,
-                                size: 18,
-                                fallbackSystemImage: destination.systemImage
-                            )
+                            Group {
+                                if let ideaAssetPath = destination.ideaAssetPath {
+                                    LitheIDEAIcon(
+                                        resourcePath: ideaAssetPath,
+                                        size: 18,
+                                        fallbackSystemImage: destination.systemImage
+                                    )
+                                } else {
+                                    Image(systemName: destination.systemImage)
+                                        .font(.system(size: 16, weight: .medium))
+                                }
+                            }
                                 .frame(
                                     width: ActivityBarMetrics.buttonWidth,
                                     height: ActivityBarMetrics.buttonHeight
@@ -606,80 +573,6 @@ struct WorkbenchView: View {
         .padding(.top, ActivityBarMetrics.edgeInset)
         .frame(width: ActivityBarMetrics.width)
         .background(LitheTheme.titlebar)
-    }
-
-    private var runControls: some View {
-        HStack(spacing: 3) {
-            Button {
-                if model.runFeatureIfActive?.configurationStatus == .ready {
-                    isRunConfigurationPickerPresented.toggle()
-                } else {
-                    Task {
-                        let feature = await model.activateExecutionModule()?.runFeature
-                        feature?.requestRunConfigurationGeneration()
-                    }
-                }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: model.runFeatureIfActive?.selectedConfiguration?.systemImage ?? "play.fill")
-                        .font(.system(size: 13))
-                        .frame(width: 17)
-                    Text(LocalizedStringKey(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File"))
-                        .lineLimit(1)
-                    Spacer(minLength: 5)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .padding(.horizontal, 8)
-                .frame(width: 230, height: 28, alignment: .leading)
-                .contentShape(Rectangle())
-                .litheRowHover(
-                    isActive: isRunConfigurationPickerPresented,
-                    cornerRadius: 5,
-                    activeBackground: LitheTheme.subtleSelection
-                )
-            }
-            .buttonStyle(.plain)
-            .lithePointer()
-            .help("Select run configuration")
-            .disabled(model.runFeatureIfActive?.isLoadingProject ?? false)
-            .popover(isPresented: $isRunConfigurationPickerPresented, arrowEdge: .top) {
-                RunConfigurationPickerPopover(
-                    configurations: model.runFeatureIfActive?.configurations ?? [],
-                    selectedConfigurationID: Binding(
-                        get: { model.runFeatureIfActive?.selectedConfigurationID ?? "" },
-                        set: { model.runFeatureIfActive?.selectedConfigurationID = $0 }
-                    ),
-                    isPresented: $isRunConfigurationPickerPresented,
-                    onCreate: {
-                        isRunConfigurationPickerPresented = false
-                        isNewRunConfigurationPresented = true
-                    }
-                )
-            }
-
-            Button {
-                if model.runFeatureIfActive?.isRunning == true {
-                    model.stopSelectedRun()
-                } else {
-                    model.runSelectedConfiguration()
-                }
-            } label: {
-                if model.runFeatureIfActive?.isRunning == true {
-                    Image(systemName: "stop.fill")
-                        .foregroundStyle(LitheTheme.warning)
-                } else {
-                    LitheIDEAIcon(resourcePath: "actions/execute.svg", size: 16, fallbackSystemImage: "play.fill")
-                }
-            }
-            .litheIconButton()
-            .help(LocalizedStringKey(
-                model.runFeatureIfActive?.isRunning == true ? "Stop current run" : "Run selected configuration"
-            ))
-            .disabled(model.runFeatureIfActive?.isLoadingProject ?? false)
-        }
     }
 
     private var runConfigurationSetupTitle: String {
@@ -756,103 +649,46 @@ struct WorkbenchView: View {
     }
 
     private var workspaceArea: some View {
-        GeometryReader { geometry in
-            let horizontalPadding: CGFloat = 6
-            let availableTopWidth = max(0, geometry.size.width - (horizontalPadding * 2))
-            let minimumSidebarWidth: CGFloat = 220
-            let minimumEditorWidth: CGFloat = 400
-            let maximumSidebarWidth = max(
-                minimumSidebarWidth,
-                min(520, availableTopWidth - SplitHandleView.thickness - minimumEditorWidth)
-            )
-            let resolvedSidebarWidth = constrained(
-                sidebarWidth,
-                minimum: minimumSidebarWidth,
-                maximum: maximumSidebarWidth
-            )
-
-            let minimumTopPaneHeight: CGFloat = 220
-            let minimumGitPaneHeight: CGFloat = 260
-            let maximumTopPaneHeight = max(
-                minimumTopPaneHeight,
-                geometry.size.height - SplitHandleView.thickness - minimumGitPaneHeight
-            )
-            let resolvedTopPaneHeight = constrained(
-                topPaneHeight ?? max(255, geometry.size.height * 0.40),
-                minimum: minimumTopPaneHeight,
-                maximum: maximumTopPaneHeight
-            )
-
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    activeSidebar
-                        .frame(width: resolvedSidebarWidth)
-
-                    SplitHandleView(
-                        axis: .horizontal,
-                        onDragStarted: {
-                            sidebarDragStart = resolvedSidebarWidth
-                        },
-                        onDragChanged: { translation in
-                            sidebarWidth = constrained(
-                                sidebarDragStart + translation,
-                                minimum: minimumSidebarWidth,
-                                maximum: maximumSidebarWidth
-                            )
-                        },
-                        onDragEnded: {}
-                    )
-
-                    Group {
-                        if isPluginPanelPresented {
-                            PluginManagementView()
-                                .environmentObject(model)
-                        } else {
-                            EditorAreaView()
-                        }
+        WorkbenchWorkspaceSplitView(
+            sidebarWidth: sidebarWidth,
+            topPaneHeight: topPaneHeight,
+            isBottomToolVisible: isBottomToolVisible,
+            onSidebarWidthCommitted: { width in
+                sidebarWidth = width
+                saveLayout(sidebarWidth: width, topPaneHeight: topPaneHeight)
+            },
+            onTopPaneHeightCommitted: { height in
+                topPaneHeight = height
+                saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: height)
+            },
+            sidebar: {
+                activeSidebar
+            },
+            editor: {
+                Group {
+                    if isPluginPanelPresented {
+                        PluginManagementView()
+                            .environmentObject(model)
+                    } else if model.selectedSidebar == .pullRequests {
+                        GitHubPullRequestDetailView()
+                    } else {
+                        EditorAreaView()
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .padding(.top, 6)
-                .padding(.horizontal, 6)
-                .padding(.bottom, isBottomToolVisible ? 0 : 6)
-                .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
-
-                if isBottomToolVisible {
-                    SplitHandleView(
-                        axis: .vertical,
-                        onDragStarted: {
-                            topPaneDragStart = resolvedTopPaneHeight
-                        },
-                        onDragChanged: { translation in
-                            topPaneHeight = constrained(
-                                topPaneDragStart + translation,
-                                minimum: minimumTopPaneHeight,
-                                maximum: maximumTopPaneHeight
-                            )
-                        },
-                        onDragEnded: {}
-                    )
-                    .padding(.horizontal, 6)
-
-                    Group {
-                        if model.isReferencesVisible {
-                            LanguageReferencesView()
-                        } else {
-                            moduleUIRegistry.selectedToolContent(
-                                from: model.activityBarContributions,
-                                model: model
-                            )
-                        }
+            },
+            bottomTool: {
+                Group {
+                    if model.isReferencesVisible {
+                        LanguageReferencesView()
+                    } else {
+                        moduleUIRegistry.selectedToolContent(
+                            from: model.activityBarContributions,
+                            model: model
+                        )
                     }
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .padding(.horizontal, 6)
-                        .padding(.bottom, 6)
-                        .frame(maxHeight: .infinity)
                 }
             }
-            .background(LitheTheme.titlebar)
-        }
+        )
     }
 
     @ViewBuilder
@@ -863,6 +699,8 @@ struct WorkbenchView: View {
                 ProjectSidebarView()
             case .changes:
                 ChangesSidebarView()
+            case .pullRequests:
+                GitHubPullRequestsSidebarView()
             case .search:
                 SearchSidebarView()
             case .database:
@@ -877,10 +715,6 @@ struct WorkbenchView: View {
         }
         .background(LitheTheme.sidebar)
         .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
-        min(max(value, minimum), maximum)
     }
 
     private var isBottomToolVisible: Bool {
@@ -1130,7 +964,7 @@ struct WorkbenchView: View {
         didRestoreLayout = true
     }
 
-    private func saveLayout() {
+    private func saveLayout(sidebarWidth: CGFloat, topPaneHeight: CGFloat?) {
         guard didRestoreLayout, let workspaceURL = model.workspaceURL else { return }
         model.saveWorkbenchLayout(
             WorkbenchLayout(
@@ -1142,147 +976,141 @@ struct WorkbenchView: View {
     }
 }
 
-private struct RunConfigurationPickerPopover: View {
-    let configurations: [RunConfiguration]
-    @Binding var selectedConfigurationID: String
-    @Binding var isPresented: Bool
-    let onCreate: () -> Void
+private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View>: View {
+    let sidebarWidth: CGFloat
+    let topPaneHeight: CGFloat?
+    let isBottomToolVisible: Bool
+    let onSidebarWidthCommitted: (CGFloat) -> Void
+    let onTopPaneHeightCommitted: (CGFloat) -> Void
+    let sidebar: Sidebar
+    let editor: Editor
+    let bottomTool: BottomTool
+
+    @State private var liveSidebarWidth: CGFloat
+    @State private var sidebarDragStart: CGFloat
+    @State private var liveTopPaneHeight: CGFloat?
+    @State private var topPaneDragStart: CGFloat = 0
+
+    init(
+        sidebarWidth: CGFloat,
+        topPaneHeight: CGFloat?,
+        isBottomToolVisible: Bool,
+        onSidebarWidthCommitted: @escaping (CGFloat) -> Void,
+        onTopPaneHeightCommitted: @escaping (CGFloat) -> Void,
+        @ViewBuilder sidebar: () -> Sidebar,
+        @ViewBuilder editor: () -> Editor,
+        @ViewBuilder bottomTool: () -> BottomTool
+    ) {
+        self.sidebarWidth = sidebarWidth
+        self.topPaneHeight = topPaneHeight
+        self.isBottomToolVisible = isBottomToolVisible
+        self.onSidebarWidthCommitted = onSidebarWidthCommitted
+        self.onTopPaneHeightCommitted = onTopPaneHeightCommitted
+        self.sidebar = sidebar()
+        self.editor = editor()
+        self.bottomTool = bottomTool()
+        _liveSidebarWidth = State(initialValue: sidebarWidth)
+        _sidebarDragStart = State(initialValue: sidebarWidth)
+        _liveTopPaneHeight = State(initialValue: topPaneHeight)
+    }
 
     var body: some View {
-        VStack(spacing: 2) {
-            ForEach(configurations) { configuration in
-                Button {
-                    selectedConfigurationID = configuration.id
-                    isPresented = false
-                } label: {
-                    HStack(spacing: 9) {
-                        RunConfigurationIcon(kind: configuration.kind, size: 16)
-                            .frame(width: 18)
+        GeometryReader { geometry in
+            let horizontalPadding: CGFloat = 6
+            let availableTopWidth = max(0, geometry.size.width - (horizontalPadding * 2))
+            let minimumSidebarWidth: CGFloat = 220
+            let minimumEditorWidth: CGFloat = 400
+            let maximumSidebarWidth = max(
+                minimumSidebarWidth,
+                min(520, availableTopWidth - SplitHandleView.thickness - minimumEditorWidth)
+            )
+            let resolvedSidebarWidth = constrained(
+                liveSidebarWidth,
+                minimum: minimumSidebarWidth,
+                maximum: maximumSidebarWidth
+            )
 
-                        Text(LocalizedStringKey(configuration.name))
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .lineLimit(1)
+            let minimumTopPaneHeight: CGFloat = 220
+            let minimumGitPaneHeight: CGFloat = 260
+            let maximumTopPaneHeight = max(
+                minimumTopPaneHeight,
+                geometry.size.height - SplitHandleView.thickness - minimumGitPaneHeight
+            )
+            let resolvedTopPaneHeight = constrained(
+                liveTopPaneHeight ?? max(255, geometry.size.height * 0.40),
+                minimum: minimumTopPaneHeight,
+                maximum: maximumTopPaneHeight
+            )
 
-                        Spacer(minLength: 12)
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    sidebar
+                        .frame(width: resolvedSidebarWidth)
 
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(LitheTheme.accent)
-                            .opacity(configuration.id == selectedConfigurationID ? 1 : 0)
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: 32)
-                    .contentShape(Rectangle())
-                    .litheRowHover(
-                        isActive: configuration.id == selectedConfigurationID,
-                        cornerRadius: 5,
-                        activeBackground: LitheTheme.subtleSelection
+                    SplitHandleView(
+                        axis: .horizontal,
+                        onDragStarted: {
+                            sidebarDragStart = resolvedSidebarWidth
+                        },
+                        onDragChanged: { translation in
+                            liveSidebarWidth = constrained(
+                                sidebarDragStart + translation,
+                                minimum: minimumSidebarWidth,
+                                maximum: maximumSidebarWidth
+                            )
+                        },
+                        onDragEnded: {
+                            liveSidebarWidth = resolvedSidebarWidth
+                            onSidebarWidthCommitted(resolvedSidebarWidth)
+                        }
                     )
+
+                    editor
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .buttonStyle(.plain)
-                .lithePointer()
+                .padding(.top, 6)
+                .padding(.horizontal, 6)
+                .padding(.bottom, isBottomToolVisible ? 0 : 6)
+                .frame(height: isBottomToolVisible ? resolvedTopPaneHeight : geometry.size.height)
+
+                if isBottomToolVisible {
+                    SplitHandleView(
+                        axis: .vertical,
+                        onDragStarted: {
+                            topPaneDragStart = resolvedTopPaneHeight
+                        },
+                        onDragChanged: { translation in
+                            liveTopPaneHeight = constrained(
+                                topPaneDragStart + translation,
+                                minimum: minimumTopPaneHeight,
+                                maximum: maximumTopPaneHeight
+                            )
+                        },
+                        onDragEnded: {
+                            liveTopPaneHeight = resolvedTopPaneHeight
+                            onTopPaneHeightCommitted(resolvedTopPaneHeight)
+                        }
+                    )
+                    .padding(.horizontal, 6)
+
+                    bottomTool
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, 6)
+                        .frame(maxHeight: .infinity)
+                }
             }
-            Rectangle().fill(LitheTheme.divider).frame(height: 1).padding(.vertical, 4)
-            Button(action: onCreate) {
-                Label("New Configuration", systemImage: "plus")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .frame(height: 32)
-            }
-            .buttonStyle(.plain)
-            .litheRowHover(cornerRadius: 5, activeBackground: LitheTheme.subtleSelection)
-            .lithePointer()
+            .background(LitheTheme.titlebar)
         }
-        .padding(6)
-        .frame(width: 270)
-        .background(LitheTheme.popupBackground)
-    }
-}
-
-private struct NewRunConfigurationView: View {
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject var feature: RunFeatureModel
-    let onCreated: () -> Void
-    @State private var name = ""
-    @State private var kind: RunConfigurationKind = .springBoot
-    @State private var modulePath = "."
-    @State private var mainClass = ""
-    @State private var scope: RunConfigurationSaveScope = .local
-    @State private var error: String?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("New Run Configuration").font(.system(size: 14, weight: .semibold))
-                    Text("Create a shared project configuration or a local override.")
-                        .font(.system(size: 11.5)).foregroundStyle(LitheTheme.secondaryText)
-                }
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }
-                    .litheIconButton().help("Close")
-            }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 16).frame(height: 54)
-            .background(LitheTheme.toolHeader)
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-
-            Form {
-                TextField("Name", text: $name)
-                Picker("Type", selection: $kind) {
-                    ForEach(MavenFrameworkKind.allCases, id: \.self) { framework in
-                        Text(framework.title).tag(RunConfigurationKind.mavenFramework(framework))
-                    }
-                    Text("Maven Module").tag(RunConfigurationKind.mavenModule)
-                }
-                TextField("Module path", text: $modulePath)
-                // Quarkus and Micronaut resolve the main class from the build, so
-                // their goals would ignore one named here.
-                if kind.mavenFramework?.namesMainClass == true {
-                    TextField("Main class", text: $mainClass)
-                }
-                Picker("Save scope", selection: $scope) {
-                    Text("This Mac only").tag(RunConfigurationSaveScope.local)
-                    Text("Shared with project").tag(RunConfigurationSaveScope.project)
-                }
-                .pickerStyle(.segmented)
-                if let error {
-                    Text(error).foregroundStyle(LitheTheme.error).font(.system(size: 11))
-                }
-            }
-            .formStyle(.grouped)
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Create") { create() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .padding(14).background(LitheTheme.toolHeader)
+        .onChange(of: sidebarWidth) { newWidth in
+            liveSidebarWidth = newWidth
         }
-        .frame(width: 440, height: 360)
-        .background(LitheTheme.window)
-        .preferredColorScheme(.dark)
+        .onChange(of: topPaneHeight) { newHeight in
+            liveTopPaneHeight = newHeight
+        }
     }
 
-    private func create() {
-        let draft = RunConfigurationDraft(
-            name: name,
-            kind: kind,
-            modulePath: modulePath,
-            mainClass: mainClass,
-            scope: scope
-        )
-        if feature.createConfiguration(draft) {
-            onCreated()
-        } else {
-            error = feature.configurationSaveError
-        }
+    private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
+        min(max(value, minimum), maximum)
     }
 }

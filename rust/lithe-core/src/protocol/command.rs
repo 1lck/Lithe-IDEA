@@ -121,6 +121,8 @@ pub enum CoreCommand {
     GitStatus,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
+    /// Describes the checked-out branch or detached worktree for PR creation (`git.pullRequestContext`).
+    GitPullRequestContext,
     /// Executes a caller-supplied argument vector without a shell (`git.command`).
     GitCommand,
     /// Performs one supported Git mutation (`git.write`).
@@ -151,6 +153,12 @@ pub enum CoreCommand {
     GitOperationState,
     /// Returns normalized line attribution (`git.blame`).
     GitBlame,
+    /// Parses a GitHub repository identity from a Git remote URL (`github.parseRemote`).
+    GitHubParseRemote,
+    /// Builds a platform-executable GitHub HTTP request (`github.requestPlan`).
+    GitHubRequestPlan,
+    /// Normalizes a GitHub HTTP response into the shared contract (`github.normalizeResponse`).
+    GitHubNormalizeResponse,
 }
 
 impl CoreCommand {
@@ -204,6 +212,7 @@ impl CoreCommand {
             "java.structure" => Some(Self::JavaStructure),
             "git.status" => Some(Self::GitStatus),
             "git.watchContext" => Some(Self::GitWatchContext),
+            "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
             "git.diff" => Some(Self::GitDiff),
@@ -219,6 +228,9 @@ impl CoreCommand {
             "git.conflictMarkers" => Some(Self::GitConflictMarkers),
             "git.operationState" => Some(Self::GitOperationState),
             "git.blame" => Some(Self::GitBlame),
+            "github.parseRemote" => Some(Self::GitHubParseRemote),
+            "github.requestPlan" => Some(Self::GitHubRequestPlan),
+            "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
             _ => None,
         }
     }

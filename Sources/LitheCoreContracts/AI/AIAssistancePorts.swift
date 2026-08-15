@@ -8,6 +8,14 @@ public protocol AICommitMessageGenerating: AnyObject {
     ) async throws -> String
 }
 
+@MainActor
+public protocol AIPullRequestDescriptionGenerating: AnyObject {
+    func generatePullRequestDescription(
+        input: PullRequestDescriptionInput,
+        settings: CommitMessageAISettings
+    ) async throws -> PullRequestDescriptionOutput
+}
+
 public protocol AIProviderCredentialResolver: Sendable {
     func readAPIKey(for provider: AIProviderProfile) -> String?
 }
@@ -69,23 +77,23 @@ public enum CommitMessageGenerationError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .noProviderConfigured:
-            return "Configure an AI provider in Settings first."
+            return String(localized: "Configure an AI provider in Settings first.")
         case .invalidProvider:
-            return "The selected AI provider has an invalid API URL or model."
+            return String(localized: "The selected AI provider has an invalid API URL or model.")
         case .insecureEndpoint:
             return String(localized: "HTTP is disabled for this provider. Enable the insecure HTTP option or use HTTPS.")
         case .missingAPIKey:
-            return "The selected AI provider has no API key."
+            return String(localized: "The selected AI provider has no API key.")
         case .emptyDiff:
             return String(localized: "The staged changes have no textual diff to summarize.")
         case .sensitiveFileExcluded:
-            return "Sensitive files are not sent to an AI provider."
+            return String(localized: "Sensitive files are not sent to an AI provider.")
         case .httpFailure(let statusCode):
-            return "The AI provider returned HTTP \(statusCode)."
+            return "\(String(localized: "The AI provider returned an HTTP error.")) (\(statusCode))"
         case .invalidResponse:
-            return "The AI provider returned an unexpected response."
+            return String(localized: "The AI provider returned an unexpected response.")
         case .emptyResponse:
-            return "The AI provider returned an empty commit message."
+            return String(localized: "The AI provider returned an empty commit message.")
         }
     }
 }

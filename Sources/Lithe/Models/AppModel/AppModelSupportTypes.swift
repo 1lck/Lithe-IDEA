@@ -4,6 +4,7 @@ import LitheCoreContracts
 enum SidebarDestination: String, CaseIterable, Identifiable {
     case project
     case changes
+    case pullRequests
     case search
     case database
 
@@ -12,6 +13,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         switch self {
         case .project: "Project"
         case .changes: "Changes"
+        case .pullRequests: "Pull Requests"
         case .search: "Search"
         case .database: "Database"
         }
@@ -20,14 +22,16 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         switch self {
         case .project: "folder"
         case .changes: "slider.horizontal.3"
+        case .pullRequests: "arrow.triangle.pull"
         case .search: "magnifyingglass"
         case .database: "cylinder.split.1x2"
         }
     }
-    var ideaAssetPath: String {
+    var ideaAssetPath: String? {
         switch self {
         case .project: "toolwindows/toolWindowProject.svg"
         case .changes: "toolwindows/toolWindowCommit.svg"
+        case .pullRequests: nil
         case .search: "toolwindows/toolWindowFind.svg"
         case .database: "toolwindows/toolWindowDatabase.svg"
         }
