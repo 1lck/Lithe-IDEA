@@ -40,4 +40,71 @@ struct KeyboardShortcutTests {
         #expect(KeyboardShortcutBinding.keyPress(key: "a", modifiers: [.command]).isAssignable)
         #expect(KeyboardShortcutBinding.keyPress(key: "f5", modifiers: []).isAssignable)
     }
+
+    @Test
+    func overridesPersistDisableAndResetWithoutChangingOtherSettings() throws {
+        let store = KeyboardShortcutTestStore()
+        let settings = AppSettings(store: store)
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let replacement = KeyboardShortcutBinding.keyPress(
+            key: "k",
+            modifiers: [.command, .option]
+        )
+
+        try feature.replaceBindings(for: "run", with: [replacement])
+        #expect(feature.effectiveBindings(for: "run") == [replacement])
+        #expect(AppSettings(store: store).keyboardShortcutOverrides["run"] == [replacement])
+
+        try feature.replaceBindings(for: "run", with: [])
+        #expect(feature.effectiveBindings(for: "run").isEmpty)
+
+        feature.resetCommand("run")
+        #expect(
+            feature.effectiveBindings(for: "run")
+                == LitheCommandCatalog.command(id: "run")?.defaultBindings
+        )
+
+        settings.editorFontSize = 17
+        try feature.replaceBindings(for: "debug", with: [replacement])
+        feature.resetAll()
+        #expect(settings.editorFontSize == 17)
+        #expect(settings.keyboardShortcutOverrides.isEmpty)
+    }
+
+    @Test
+    func conflictReportsTheOwningCommandAndDoesNotPersist() throws {
+        let settings = AppSettings(store: KeyboardShortcutTestStore())
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let findShortcut = try #require(feature.effectiveBindings(for: "find-in-file").first)
+
+        #expect(throws: KeyboardShortcutUpdateError.conflict(commandID: "find-in-file")) {
+            try feature.replaceBindings(for: "run", with: [findShortcut])
+        }
+        #expect(settings.keyboardShortcutOverrides["run"] == nil)
+    }
+
+    @Test
+    func corruptPersistenceFallsBackToDefaults() {
+        let store = KeyboardShortcutTestStore()
+        store.set(Data("not-json".utf8), forKey: "settings.keyboardShortcutOverrides")
+
+        let settings = AppSettings(store: store)
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+
+        #expect(settings.keyboardShortcutOverrides.isEmpty)
+        #expect(
+            feature.effectiveBindings(for: "run")
+                == LitheCommandCatalog.command(id: "run")?.defaultBindings
+        )
+    }
+}
+
+private final class KeyboardShortcutTestStore: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }
