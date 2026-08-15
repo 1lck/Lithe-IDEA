@@ -75,7 +75,25 @@ private struct GitHubGitStub: GitHubGitOperations {
 
 @Suite("GitHub service")
 struct GitHubServiceTests {
-    @Test("Development configuration can supply a GitHub OAuth client ID without hardcoding it")
+    @Test("Product configuration includes the public GitHub OAuth client ID")
+    func productClientConfiguration() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("Resources/Info.plist"))
+        let propertyList = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        )
+        let values = try #require(propertyList as? [String: Any])
+        let clientID = try #require(values["LitheGitHubOAuthClientID"] as? String)
+
+        #expect(!clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    @Test("Development configuration can override the product GitHub OAuth client ID")
     func developmentClientConfiguration() {
         let configuration = MacGitHubConfiguration(
             bundle: .main,

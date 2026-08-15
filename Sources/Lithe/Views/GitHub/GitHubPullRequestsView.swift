@@ -61,9 +61,7 @@ private enum GitHubMergeChoice: String, Identifiable {
 
 struct GitHubPullRequestsSidebarView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var personalAccessToken = ""
     @State private var isCreatePresented = false
-    @State private var isTokenEntryPresented = false
     @State private var searchQuery = ""
 
     var body: some View {
@@ -86,16 +84,6 @@ struct GitHubPullRequestsSidebarView: View {
         .sheet(isPresented: $isCreatePresented) {
             GitHubCreatePullRequestView(isPresented: $isCreatePresented)
                 .environmentObject(model)
-        }
-        .sheet(isPresented: $isTokenEntryPresented) {
-            GitHubTokenConnectionView(
-                personalAccessToken: $personalAccessToken,
-                isPresented: $isTokenEntryPresented
-            ) {
-                let token = trimmedToken
-                personalAccessToken = ""
-                Task { await model.connectGitHub(personalAccessToken: token) }
-            }
         }
     }
 
@@ -138,7 +126,7 @@ struct GitHubPullRequestsSidebarView: View {
                 }
 
                 Button("Sign in to GitHub") {
-                    signInToGitHub()
+                    Task { await model.connectGitHubWithDeviceFlow() }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -155,15 +143,6 @@ struct GitHubPullRequestsSidebarView: View {
             .padding(.horizontal, 24)
 
             Spacer(minLength: 24)
-        }
-    }
-
-    private func signInToGitHub() {
-        if model.githubFeature.canUseDeviceFlow {
-            Task { await model.connectGitHubWithDeviceFlow() }
-        } else {
-            personalAccessToken = ""
-            isTokenEntryPresented = true
         }
     }
 
@@ -386,64 +365,6 @@ struct GitHubPullRequestsSidebarView: View {
         return false
     }
 
-    private var trimmedToken: String {
-        personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-private struct GitHubTokenConnectionView: View {
-    @Binding var personalAccessToken: String
-    @Binding var isPresented: Bool
-    @FocusState private var isTokenFieldFocused: Bool
-    let connect: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Use an access token")
-                    .font(.system(size: 17, weight: .semibold))
-                Text("Paste a GitHub access token to sign in.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-
-            VStack(alignment: .leading, spacing: 7) {
-                SecureField("Access token", text: $personalAccessToken)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isTokenFieldFocused)
-                    .onSubmit(submit)
-                Label("The token is stored securely in macOS Keychain.", systemImage: "lock")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-
-            HStack(spacing: 8) {
-                Spacer()
-                Button("Cancel", role: .cancel) {
-                    personalAccessToken = ""
-                    isPresented = false
-                }
-                .keyboardShortcut(.cancelAction)
-                Button("Sign In", action: submit)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(trimmedToken.isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 360)
-        .onAppear { isTokenFieldFocused = true }
-    }
-
-    private var trimmedToken: String {
-        personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func submit() {
-        guard !trimmedToken.isEmpty else { return }
-        isPresented = false
-        connect()
-    }
 }
 
 struct GitHubPullRequestDetailView: View {

@@ -43,7 +43,7 @@ struct AppLocalizationTests {
 
         #expect(translations["Pull Requests"] == "拉取请求")
         #expect(translations["Sign in to GitHub"] == "登录 GitHub")
-        #expect(translations["Use an access token"] == "使用访问令牌")
+        #expect(translations["Authorize in your browser"] == "在浏览器中授权")
         #expect(translations["Select a pull request"] == "选择一个拉取请求")
         #expect(translations["Request changes"] == "请求修改")
         #expect(translations["Create Pull Request"] == "创建拉取请求")

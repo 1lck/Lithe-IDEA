@@ -327,11 +327,6 @@
 "Sign in to GitHub" = "登录 GitHub";
 "Sign in to view and manage pull requests." = "登录后即可查看和管理拉取请求。";
 "Unable to sign in. Please try again." = "登录失败，请重试。";
-"Use an access token" = "使用访问令牌";
-"Paste a GitHub access token to sign in." = "粘贴 GitHub 访问令牌以登录。";
-"Access token" = "访问令牌";
-"The token is stored securely in macOS Keychain." = "令牌会安全保存在 macOS 钥匙串中。";
-"Sign In" = "登录";
 "Authorize in your browser" = "在浏览器中授权";
 "The verification page is open and the code is already on your clipboard." = "验证页面已打开，一次性代码也已复制到剪贴板。";
 "ONE-TIME CODE" = "一次性代码";
@@ -445,7 +440,7 @@
 "Metadata updated" = "元数据已更新";
 "Checking out pull request…" = "正在检出拉取请求…";
 "Pull request checked out as a local branch" = "拉取请求已检出为本地分支";
-"GitHub Device Flow is not configured. Add a fine-grained token or configure LitheGitHubOAuthClientID." = "尚未配置 GitHub 设备授权流程。请添加细粒度 Token，或配置 LitheGitHubOAuthClientID。";
+"GitHub sign-in is unavailable in this build." = "此版本暂时无法登录 GitHub。";
 "The GitHub authorization code expired. Start again." = "GitHub 授权码已过期，请重新开始。";
 "GitHub authorization was cancelled." = "GitHub 授权已取消。";
 "GitHub authorization failed:" = "GitHub 授权失败：";

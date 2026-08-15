@@ -31,16 +31,15 @@ The preferred flow is GitHub OAuth Device Flow:
 4. The platform stores an authorized token in Keychain or Credential Manager.
 5. `currentUser` validates the token before connected state is published.
 
-An OAuth client secret and GitHub password are never requested or stored.
-Development builds may use a manually supplied fine-grained personal access
-token when no product OAuth client ID is configured. Tokens are never placed
-in Rust requests, logs, fixtures, user defaults, or error details.
+An OAuth client secret, personal access token, and GitHub password are never
+requested from the user. Tokens are never placed in Rust requests, logs,
+fixtures, user defaults, or error details.
 
 The macOS product reads `LitheGitHubOAuthClientID` from `Resources/Info.plist`.
-Its checked-in value is intentionally empty until the product's GitHub OAuth
-App is provisioned. Development runs may override it with
-`LITHE_GITHUB_CLIENT_ID`; an empty configuration keeps Device Flow disabled and
-leaves the manual-token connection available.
+The checked-in public client ID identifies Lithe's product-owned GitHub OAuth
+App for every installation. It is not a credential or secret. Development runs
+may override it with `LITHE_GITHUB_CLIENT_ID`; an empty configuration leaves
+GitHub sign-in unavailable rather than asking the user for a personal token.
 
 ## Rust Commands
 

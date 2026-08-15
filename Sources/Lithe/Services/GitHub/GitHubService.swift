@@ -15,7 +15,7 @@ actor GitHubService {
         var errorDescription: String? {
             switch self {
             case .oauthClientNotConfigured:
-                "GitHub Device Flow is not configured. Add a fine-grained token or configure LitheGitHubOAuthClientID."
+                "GitHub sign-in is unavailable in this build."
             case .authorizationExpired: "The GitHub authorization code expired. Start again."
             case .authorizationDenied: "GitHub authorization was cancelled."
             case .authorizationFailed(let message): "GitHub authorization failed: \(message)"
