@@ -214,8 +214,7 @@ struct ChangesSidebarView: View {
                     .font(.system(size: 11.5))
                     .padding(.horizontal, 7)
                     .frame(height: 27)
-                    .background(LitheTheme.inputBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .litheRoundedControlBackground(LitheTheme.inputBackground, cornerRadius: 4)
 
                 Toggle("Untracked", isOn: $includeUntracked)
                     .toggleStyle(.checkbox)
@@ -748,8 +747,7 @@ struct ChangesSidebarView: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 50, maxHeight: .infinity, alignment: .topLeading)
-            .background(LitheTheme.editor)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .litheRoundedControlBackground(LitheTheme.editor, cornerRadius: 4)
             .overlay {
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(LitheTheme.divider, lineWidth: 1)

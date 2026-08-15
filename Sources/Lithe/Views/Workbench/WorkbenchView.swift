@@ -16,7 +16,13 @@ struct WorkbenchView: View {
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var memoryUsageMonitor: MemoryUsageMonitor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var linuxDoWebSession = LinuxDoAnonymousWebSession()
     @State private var sidebarWidth: CGFloat = 320
+    @State private var rightSidebarWidth: CGFloat = 380
+    @State private var hoveredRightSidebarContributionID: String?
+    @State private var isRightSidebarPanelHovered = false
+    @State private var rightSidebarDismissTask: Task<Void, Never>?
     @State private var topPaneHeight: CGFloat?
     @State private var isBranchSwitcherPresented = false
     @State private var newBranchReference: GitReference?
@@ -41,9 +47,12 @@ struct WorkbenchView: View {
             HStack(spacing: 0) {
                 activityBar
                 workspaceArea
-                pluginActivityBar
+                Color.clear.frame(width: ActivityBarMetrics.width)
             }
             .frame(maxHeight: .infinity)
+            .overlay(alignment: .trailing) {
+                rightHoverRegion
+            }
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             statusBar
@@ -559,6 +568,37 @@ struct WorkbenchView: View {
 
     private var pluginActivityBar: some View {
         VStack {
+            ForEach(model.rightSidebarContributions) { contribution in
+                if let renderer = moduleUIRegistry.renderer(for: contribution),
+                   renderer.isVisible(model) {
+                    Button { moduleUIRegistry.perform(contribution, model: model) } label: {
+                        Image(systemName: contribution.icon ?? "rectangle.rightthird.inset.filled")
+                            .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
+                            .litheRowHover(
+                                isActive: renderer.isSelected(model),
+                                cornerRadius: 4,
+                                activeBackground: LitheTheme.subtleSelection
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .lithePointer()
+                    .foregroundStyle(renderer.isSelected(model) ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                    .help(contribution.title)
+                    .accessibilityLabel(contribution.title)
+                    .onHover { isHovering in
+                        if isHovering {
+                            rightSidebarDismissTask?.cancel()
+                            hoveredRightSidebarContributionID = contribution.id
+                            if !renderer.isSelected(model) {
+                                moduleUIRegistry.perform(contribution, model: model)
+                            }
+                        } else {
+                            hoveredRightSidebarContributionID = nil
+                            scheduleRightSidebarDismissal()
+                        }
+                    }
+                }
+            }
             Button { isPluginPanelPresented.toggle() } label: {
                 Image(systemName: "puzzlepiece.extension")
                     .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
@@ -573,6 +613,62 @@ struct WorkbenchView: View {
         .padding(.top, ActivityBarMetrics.edgeInset)
         .frame(width: ActivityBarMetrics.width)
         .background(LitheTheme.titlebar)
+    }
+
+    private var rightHoverRegion: some View {
+        HStack(spacing: 0) {
+            if isRightSidebarVisible {
+                moduleUIRegistry.selectedToolContent(
+                    from: model.rightSidebarContributions,
+                    model: model
+                )
+                .environmentObject(linuxDoWebSession)
+                .frame(width: rightSidebarWidth)
+                .background(LitheTheme.sidebar)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(LitheTheme.panelBorder).frame(width: 1)
+                }
+                .shadow(color: LitheTheme.popupShadow, radius: 14, x: -5, y: 0)
+                .transition(
+                    reduceMotion
+                        ? .opacity
+                        : .move(edge: .trailing).combined(with: .opacity)
+                )
+                .onHover { isHovering in
+                    isRightSidebarPanelHovered = isHovering
+                    if isHovering {
+                        rightSidebarDismissTask?.cancel()
+                    } else {
+                        scheduleRightSidebarDismissal()
+                    }
+                }
+            }
+            pluginActivityBar
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.14),
+            value: isRightSidebarVisible
+        )
+    }
+
+    private func scheduleRightSidebarDismissal() {
+        rightSidebarDismissTask?.cancel()
+        rightSidebarDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            guard !Task.isCancelled,
+                  hoveredRightSidebarContributionID == nil,
+                  !isRightSidebarPanelHovered else { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.10)) {
+                model.isDiscourseCommunityVisible = false
+            }
+        }
+    }
+
+    private var isRightSidebarVisible: Bool {
+        model.rightSidebarContributions.contains { contribution in
+            moduleUIRegistry.renderer(for: contribution)?.isSelected(model) == true
+        }
     }
 
     private var runConfigurationSetupTitle: String {
@@ -713,8 +809,10 @@ struct WorkbenchView: View {
                 }
             }
         }
-        .background(LitheTheme.sidebar)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        // Do not clip this container: Changes, Search, and Database sidebars
+        // contain AppKit-backed controls that SwiftUI cannot composite through
+        // a mask without showing its yellow unavailable placeholder.
+        .litheRoundedControlBackground(LitheTheme.sidebar, cornerRadius: 10)
     }
 
     private var isBottomToolVisible: Bool {
@@ -1066,7 +1164,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     )
 
                     editor
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .padding(.top, 6)
                 .padding(.horizontal, 6)
@@ -1094,13 +1191,16 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     .padding(.horizontal, 6)
 
                     bottomTool
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
                         .padding(.horizontal, 6)
                         .padding(.bottom, 6)
                         .frame(maxHeight: .infinity)
                 }
             }
             .background(LitheTheme.titlebar)
+            // Keep the workspace as a live view hierarchy. `drawingGroup()`
+            // cannot composite AppKit-backed editors, fields, checkboxes, or
+            // terminals and replaces them with unavailable placeholders. It
+            // also rasterizes vector activity-bar icons at inconsistent sizes.
         }
         .onChange(of: sidebarWidth) { newWidth in
             liveSidebarWidth = newWidth

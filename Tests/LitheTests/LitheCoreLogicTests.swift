@@ -42,6 +42,19 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func workbenchKeepsAppKitBackedControlsOutOfDrawingGroups() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repositoryRoot
+            .appendingPathComponent("Sources/Lithe/Views/Workbench/WorkbenchView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(!source.contains(".drawingGroup()"))
+    }
+
+    @Test
     @MainActor
     func welcomeAndWorkspaceUseDistinctWindowSizes() {
         let sessions = TestProjectWindowSessions(hasActiveProject: false)

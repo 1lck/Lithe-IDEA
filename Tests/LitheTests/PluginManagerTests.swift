@@ -20,7 +20,16 @@ struct PluginManagerTests {
         #expect(BundledLanguagePluginCatalog.manifests.flatMap(\.modules).allSatisfy {
             $0.manifest.defaultState == .disabled
         })
-        #expect(OfficialPluginCatalog.manifests.flatMap(\.modules).allSatisfy {
+        let officialLanguagePlugins = OfficialPluginCatalog.manifests.filter {
+            !($0.languageSupports ?? []).isEmpty
+        }
+        #expect(officialLanguagePlugins.flatMap(\.modules).allSatisfy {
+            $0.manifest.defaultState == .disabled
+        })
+        let linuxDoPlugin = try #require(OfficialPluginCatalog.manifest(
+            forModule: OfficialPluginCatalog.linuxDoSupportModuleID
+        ))
+        #expect(linuxDoPlugin.modules.allSatisfy {
             $0.manifest.defaultState == .disabled
         })
         _ = try ValidatedPluginCatalog(
