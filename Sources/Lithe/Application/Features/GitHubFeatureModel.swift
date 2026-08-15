@@ -4,6 +4,10 @@ import LitheCoreContracts
 
 @MainActor
 final class GitHubFeatureModel: ObservableObject {
+    private enum Constants {
+        static let branchCacheLifetime: TimeInterval = 60
+    }
+
     enum ConnectionState: Equatable {
         case disconnected
         case restoring
@@ -32,6 +36,7 @@ final class GitHubFeatureModel: ObservableObject {
     @Published private(set) var pullRequests: [GitHubPullRequest] = []
     @Published private(set) var branches: [GitHubBranch] = []
     @Published private(set) var branchContentState: ContentState = .idle
+    @Published private(set) var branchRefreshError: String?
     @Published private(set) var pullRequestBranchDefaults = GitHubPullRequestBranchDefaults(
         head: nil,
         base: nil
@@ -46,10 +51,20 @@ final class GitHubFeatureModel: ObservableObject {
     @Published private(set) var canUseDeviceFlow = false
     @Published var listState = "open"
     private let service: GitHubService
+    private let branchCacheLifetime: TimeInterval
+    private let currentDate: () -> Date
     private var authorizationTask: Task<Void, Never>?
+    private var branchLoadTask: (id: UUID, task: Task<[GitHubBranch], Error>)?
+    private var branchesLoadedAt: Date?
 
-    init(service: GitHubService) {
+    init(
+        service: GitHubService,
+        branchCacheLifetime: TimeInterval = Constants.branchCacheLifetime,
+        currentDate: @escaping () -> Date = Date.init
+    ) {
         self.service = service
+        self.branchCacheLifetime = branchCacheLifetime
+        self.currentDate = currentDate
     }
 
     func restore(workspaceURL: URL?) async {
@@ -115,6 +130,7 @@ final class GitHubFeatureModel: ObservableObject {
             pullRequests = []
             branches = []
             branchContentState = .idle
+            invalidateBranchCache()
             pullRequestBranchDefaults = GitHubPullRequestBranchDefaults(head: nil, base: nil)
             selectedPullRequest = nil
             files = []
@@ -142,6 +158,7 @@ final class GitHubFeatureModel: ObservableObject {
             if self.repository != repository {
                 branches = []
                 branchContentState = .idle
+                invalidateBranchCache()
             }
             self.repository = repository
             pullRequestBranchDefaults = branchDefaults
@@ -162,17 +179,53 @@ final class GitHubFeatureModel: ObservableObject {
 
     func loadBranches(force: Bool = false) async {
         guard let repository else { return }
-        if !force, branchContentState == .ready { return }
-        branchContentState = .loading
+        if !force, isBranchCacheFresh { return }
+        if branches.isEmpty {
+            branchContentState = .loading
+        }
+        branchRefreshError = nil
+
+        let load: (id: UUID, task: Task<[GitHubBranch], Error>)
+        if let branchLoadTask {
+            load = branchLoadTask
+        } else {
+            load = (
+                UUID(),
+                Task { try await service.listBranches(repository: repository) }
+            )
+            branchLoadTask = load
+        }
+        defer {
+            if branchLoadTask?.id == load.id {
+                branchLoadTask = nil
+            }
+        }
+
         do {
-            let loadedBranches = try await service.listBranches(repository: repository)
+            let loadedBranches = try await load.task.value
             guard self.repository == repository else { return }
             branches = loadedBranches
+            branchesLoadedAt = currentDate()
             branchContentState = .ready
         } catch {
             guard self.repository == repository else { return }
-            branchContentState = .failed(error.localizedDescription)
+            branchRefreshError = error.localizedDescription
+            branchContentState = branches.isEmpty
+                ? .failed(error.localizedDescription)
+                : .ready
         }
+    }
+
+    private var isBranchCacheFresh: Bool {
+        guard branchContentState == .ready, let branchesLoadedAt else { return false }
+        return currentDate().timeIntervalSince(branchesLoadedAt) < branchCacheLifetime
+    }
+
+    private func invalidateBranchCache() {
+        branchLoadTask?.task.cancel()
+        branchLoadTask = nil
+        branchesLoadedAt = nil
+        branchRefreshError = nil
     }
 
     func pullRequestDescriptionInput(

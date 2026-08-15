@@ -1355,10 +1355,9 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
         .background(LitheTheme.editor)
         .onExitCommand { model.githubFeature.cancelCreatingPullRequest() }
         .task {
-            // A newly published branch can take a moment to appear in the
-            // GitHub branches endpoint. Refresh on every composer entry, then
-            // reapply defaults even when the returned array is unchanged.
-            await model.githubFeature.loadBranches(force: true)
+            // The feature model immediately reuses a fresh branch cache and
+            // refreshes stale data without hiding the existing choices.
+            await model.githubFeature.loadBranches()
             applyPublicationDefaults()
             applyDefaultBranches(from: model.githubFeature.branches)
         }

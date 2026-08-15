@@ -78,9 +78,21 @@ private struct GitHubCoreStub: GitHubCorePlanning {
 
 private actor GitHubTransportStub: GitHubHTTPTransport {
     private(set) var receivedToken: String?
+    private(set) var branchRequestCount = 0
+    private let branchRequestDelay: Duration?
+
+    init(branchRequestDelay: Duration? = nil) {
+        self.branchRequestDelay = branchRequestDelay
+    }
 
     func execute(plan: GitHubRequestPlan, token: String?) async throws -> GitHubHTTPResponse {
         receivedToken = token
+        if plan.path.hasSuffix("/branches") {
+            branchRequestCount += 1
+            if let branchRequestDelay {
+                try await Task.sleep(for: branchRequestDelay)
+            }
+        }
         return GitHubHTTPResponse(status: 200, body: "user-response")
     }
 }
@@ -164,6 +176,53 @@ struct GitHubServiceTests {
         )
 
         #expect(branches.map(\.name) == ["alpha", "main"])
+    }
+
+    @Test("Branch choices reuse fresh cached results")
+    @MainActor
+    func branchCache() async throws {
+        let transport = GitHubTransportStub()
+        var now = Date(timeIntervalSince1970: 1_000)
+        let service = GitHubService(
+            core: GitHubCoreStub(),
+            transport: transport,
+            configuration: GitHubConfigurationStub(),
+            secureStore: GitHubSecureStoreStub(),
+            git: GitHubGitStub()
+        )
+        _ = try await service.connect(personalAccessToken: "fake-test-token")
+        let model = GitHubFeatureModel(service: service, currentDate: { now })
+        await model.restore(workspaceURL: URL(fileURLWithPath: "/tmp/lithe-github-fixture"))
+
+        await model.loadBranches()
+        await model.loadBranches()
+        #expect(await transport.branchRequestCount == 1)
+
+        now.addTimeInterval(61)
+        await model.loadBranches()
+        #expect(await transport.branchRequestCount == 2)
+    }
+
+    @Test("Concurrent branch loads share one request")
+    @MainActor
+    func concurrentBranchLoads() async throws {
+        let transport = GitHubTransportStub(branchRequestDelay: .milliseconds(50))
+        let service = GitHubService(
+            core: GitHubCoreStub(),
+            transport: transport,
+            configuration: GitHubConfigurationStub(),
+            secureStore: GitHubSecureStoreStub(),
+            git: GitHubGitStub()
+        )
+        _ = try await service.connect(personalAccessToken: "fake-test-token")
+        let model = GitHubFeatureModel(service: service)
+        await model.restore(workspaceURL: URL(fileURLWithPath: "/tmp/lithe-github-fixture"))
+
+        async let first: Void = model.loadBranches(force: true)
+        async let second: Void = model.loadBranches(force: true)
+        _ = await (first, second)
+
+        #expect(await transport.branchRequestCount == 1)
     }
 
     @Test("Creating a pull request uses the GitHub workspace instead of a modal")
