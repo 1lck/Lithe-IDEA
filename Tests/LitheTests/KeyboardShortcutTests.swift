@@ -22,6 +22,31 @@ struct KeyboardShortcutTests {
     }
 
     @Test
+    @MainActor
+    func actionRegistryCoversEveryCatalogCommand() {
+        let store = KeyboardShortcutTestStore()
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(
+            store: store,
+            settings: settings,
+            moduleLaunchMode: .safeMode
+        ).services
+        let model = AppModel(settings: settings, services: services)
+        let actions = LitheActionRegistry.actions(for: model)
+        let actionIDs = Set(actions.map(\.id))
+        let commandIDs = Set(LitheCommandCatalog.commands.map(\.id))
+
+        #expect(actions.count == LitheCommandCatalog.commands.count)
+        #expect(actionIDs.count == actions.count)
+        #expect(actionIDs == commandIDs)
+        #expect(actionIDs.contains("save"))
+        #expect(actionIDs.contains("search-everywhere"))
+        #expect(actionIDs.contains("find-next"))
+        #expect(actionIDs.contains("find-previous"))
+        #expect(actionIDs.contains("go-to-implementation"))
+    }
+
+    @Test
     func bindingsUseCanonicalDisplayOrderAndRoundTripThroughJSON() throws {
         let binding = KeyboardShortcutBinding.keyPress(
             key: "u",
