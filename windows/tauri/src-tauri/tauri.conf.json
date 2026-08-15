@@ -25,5 +25,11 @@
       "../src/extensions/bundled/**/*": "extensions/bundled/"
     },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": []
+    }
   }
 }
