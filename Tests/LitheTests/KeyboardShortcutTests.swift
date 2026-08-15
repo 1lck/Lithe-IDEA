@@ -97,6 +97,28 @@ struct KeyboardShortcutTests {
                 == LitheCommandCatalog.command(id: "run")?.defaultBindings
         )
     }
+
+    @Test
+    func featureProjectsCurrentDisplayPrimaryKeyPressAndRegistrations() throws {
+        let settings = AppSettings(store: KeyboardShortcutTestStore())
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let replacement = KeyboardShortcutBinding.keyPress(
+            key: "p",
+            modifiers: [.command, .option]
+        )
+        try feature.replaceBindings(for: "find-in-file", with: [replacement])
+
+        #expect(feature.displayText(for: "find-in-file") == "⌥⌘P")
+        #expect(feature.primaryKeyPress(for: "find-in-file") == replacement)
+        #expect(
+            feature.registrations.first { $0.commandID == "find-in-file" }?.bindings
+                == [replacement]
+        )
+        #expect(
+            feature.primaryKeyPress(for: "search-everywhere")
+                == .keyPress(key: "o", modifiers: [.shift, .command])
+        )
+    }
 }
 
 private final class KeyboardShortcutTestStore: KeyValueStore, @unchecked Sendable {

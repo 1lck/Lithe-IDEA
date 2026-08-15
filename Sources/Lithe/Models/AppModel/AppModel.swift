@@ -108,6 +108,8 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var blameVisibleURL: URL?
     @Published var gitLogSearchQuery = ""
     private var shortcutDetector: (any ShortcutDetector)?
+    private var shortcutSettingsObservation: AnyCancellable?
+    private var shortcutRecordingObservation: AnyCancellable?
     private var isProjectSessionActive = true
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
@@ -116,6 +118,7 @@ final class AppModel: ObservableObject, Identifiable {
     let services: AppServices
     let platformUI: any PlatformUI
     let settings: AppSettings
+    let keyboardShortcutFeature: KeyboardShortcutFeatureModel
     let runtimeFeature: RuntimeSettingsFeatureModel
     let languageToolingFeature: LanguageToolingFeatureModel
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
@@ -365,6 +368,7 @@ final class AppModel: ObservableObject, Identifiable {
         self.settings = settings
         self.services = services
         platformUI = services.platformUI
+        keyboardShortcutFeature = KeyboardShortcutFeatureModel(settings: settings)
         workspaceFeature = WorkspaceFeatureModel(
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
@@ -610,18 +614,26 @@ final class AppModel: ObservableObject, Identifiable {
             _ = self.activateLanguageServerIfAvailable(for: document)
         }
         shortcutDetector = services.shortcutDetectorFactory.make { [weak self] commandID in
-            guard commandID == "search-everywhere" else { return }
-            self?.toggleSearchEverywhere()
+            self?.performShortcutCommand(id: commandID)
         }
-        if let searchCommand = LitheCommandCatalog.command(id: "search-everywhere") {
-            shortcutDetector?.update(registrations: [
-                KeyboardShortcutRegistration(
-                    commandID: searchCommand.id,
-                    bindings: searchCommand.defaultBindings
-                )
-            ])
-        }
+        refreshShortcutDetector()
+        shortcutSettingsObservation = settings.$keyboardShortcutOverrides
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshShortcutDetector()
+                    self?.scheduleObjectWillChangeRelay()
+                }
+            }
+        shortcutRecordingObservation = keyboardShortcutFeature.$recordingCommandID
+            .sink { [weak self] commandID in
+                self?.shortcutDetector?.setSuspended(commandID != nil)
+            }
         shortcutDetector?.start()
+    }
+
+    private func refreshShortcutDetector() {
+        shortcutDetector?.update(registrations: keyboardShortcutFeature.registrations)
     }
 
     func activateDatabaseModule() async {

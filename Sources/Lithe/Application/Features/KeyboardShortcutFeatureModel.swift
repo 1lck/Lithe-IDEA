@@ -28,11 +28,32 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
         LitheCommandCatalog.commands
     }
 
+    var registrations: [KeyboardShortcutRegistration] {
+        commands.map { command in
+            KeyboardShortcutRegistration(
+                commandID: command.id,
+                bindings: effectiveBindings(for: command.id)
+            )
+        }
+    }
+
     func effectiveBindings(for commandID: String) -> [KeyboardShortcutBinding] {
         if let override = settings.keyboardShortcutOverrides[commandID] {
             return override
         }
         return LitheCommandCatalog.command(id: commandID)?.defaultBindings ?? []
+    }
+
+    func displayText(for commandID: String) -> String? {
+        let values = effectiveBindings(for: commandID).map(\.displayText)
+        return values.isEmpty ? nil : values.joined(separator: "  ")
+    }
+
+    func primaryKeyPress(for commandID: String) -> KeyboardShortcutBinding? {
+        effectiveBindings(for: commandID).first { binding in
+            if case .keyPress = binding { return true }
+            return false
+        }
     }
 
     func replaceBindings(
