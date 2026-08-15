@@ -63,6 +63,7 @@ struct GitHubPullRequestsSidebarView: View {
     @EnvironmentObject private var model: AppModel
     @State private var personalAccessToken = ""
     @State private var isCreatePresented = false
+    @State private var isTokenEntryPresented = false
     @State private var searchQuery = ""
 
     var body: some View {
@@ -86,6 +87,16 @@ struct GitHubPullRequestsSidebarView: View {
             GitHubCreatePullRequestView(isPresented: $isCreatePresented)
                 .environmentObject(model)
         }
+        .sheet(isPresented: $isTokenEntryPresented) {
+            GitHubTokenConnectionView(
+                personalAccessToken: $personalAccessToken,
+                isPresented: $isTokenEntryPresented
+            ) {
+                let token = trimmedToken
+                personalAccessToken = ""
+                Task { await model.connectGitHub(personalAccessToken: token) }
+            }
+        }
     }
 
     @ViewBuilder
@@ -108,91 +119,51 @@ struct GitHubPullRequestsSidebarView: View {
     }
 
     private func connectionForm(message: String?) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Image(systemName: "arrow.triangle.pull")
-                        .font(.system(size: 32, weight: .light))
-                        .foregroundStyle(LitheTheme.accent)
-                    Text("Connect GitHub")
-                        .font(.system(size: 19, weight: .semibold))
-                    Text("Review and manage pull requests without creating a Lithe account.")
-                        .font(.system(size: 12.5))
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+
+            VStack(spacing: 12) {
+                Image(systemName: "arrow.triangle.pull")
+                    .font(.system(size: 29, weight: .light))
+                    .foregroundStyle(LitheTheme.accent)
+
+                VStack(spacing: 5) {
+                    Text("Sign in to GitHub")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text("Sign in to view and manage pull requests.")
+                        .font(.system(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
+                        .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                securityNote
-
-                if let message {
-                    GitHubInlineNotice(
-                        icon: "exclamationmark.triangle.fill",
-                        color: LitheTheme.error,
-                        title: "Connection failed",
-                        message: message
-                    ) {
-                        Button("Forget saved connection") {
-                            Task { await model.disconnectGitHub() }
-                        }
-                        .controlSize(.small)
-                    }
+                Button("Sign in to GitHub") {
+                    signInToGitHub()
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(maxWidth: 220)
 
-                if model.githubFeature.canUseDeviceFlow {
-                    Button {
-                        Task { await model.connectGitHubWithDeviceFlow() }
-                    } label: {
-                        Label("Continue with GitHub", systemImage: "safari")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                } else {
-                    GitHubInlineNotice(
-                        icon: "info.circle",
-                        color: LitheTheme.secondaryText,
-                        title: "Device Flow is not configured",
-                        message: "Add LitheGitHubOAuthClientID to the product configuration to enable browser authorization."
-                    )
+                if message != nil {
+                    Text("Unable to sign in. Please try again.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(LitheTheme.error)
+                        .multilineTextAlignment(.center)
                 }
-
-                Divider()
-
-                DisclosureGroup("Use a fine-grained token") {
-                    VStack(alignment: .leading, spacing: 9) {
-                        Text("Use a token with Pull requests and Issues read/write access. It will be validated before Lithe saves it to Keychain.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                        SecureField("github_pat_…", text: $personalAccessToken)
-                            .textFieldStyle(.roundedBorder)
-                        Button("Connect with Token") {
-                            let token = personalAccessToken
-                            personalAccessToken = ""
-                            Task { await model.connectGitHub(personalAccessToken: token) }
-                        }
-                        .disabled(trimmedToken.isEmpty)
-                    }
-                    .padding(.top, 10)
-                }
-                .font(.system(size: 12, weight: .medium))
             }
-            .padding(20)
+            .frame(maxWidth: 300)
+            .padding(.horizontal, 24)
+
+            Spacer(minLength: 24)
         }
     }
 
-    private var securityNote: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: "lock.shield")
-                .foregroundStyle(LitheTheme.success)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Stored in macOS Keychain")
-                    .font(.system(size: 11.5, weight: .semibold))
-                Text("Lithe never asks for your GitHub password or stores the token in project files.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    private func signInToGitHub() {
+        if model.githubFeature.canUseDeviceFlow {
+            Task { await model.connectGitHubWithDeviceFlow() }
+        } else {
+            personalAccessToken = ""
+            isTokenEntryPresented = true
         }
     }
 
@@ -417,6 +388,61 @@ struct GitHubPullRequestsSidebarView: View {
 
     private var trimmedToken: String {
         personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private struct GitHubTokenConnectionView: View {
+    @Binding var personalAccessToken: String
+    @Binding var isPresented: Bool
+    @FocusState private var isTokenFieldFocused: Bool
+    let connect: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Use an access token")
+                    .font(.system(size: 17, weight: .semibold))
+                Text("Paste a GitHub access token to sign in.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            VStack(alignment: .leading, spacing: 7) {
+                SecureField("Access token", text: $personalAccessToken)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($isTokenFieldFocused)
+                    .onSubmit(submit)
+                Label("The token is stored securely in macOS Keychain.", systemImage: "lock")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    personalAccessToken = ""
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Sign In", action: submit)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmedToken.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+        .onAppear { isTokenFieldFocused = true }
+    }
+
+    private var trimmedToken: String {
+        personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func submit() {
+        guard !trimmedToken.isEmpty else { return }
+        isPresented = false
+        connect()
     }
 }
 

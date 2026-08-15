@@ -42,8 +42,8 @@ struct AppLocalizationTests {
         let translations = try simplifiedChineseTranslations()
 
         #expect(translations["Pull Requests"] == "拉取请求")
-        #expect(translations["Connect GitHub"] == "连接 GitHub")
-        #expect(translations["Stored in macOS Keychain"] == "安全存储在 macOS 钥匙串")
+        #expect(translations["Sign in to GitHub"] == "登录 GitHub")
+        #expect(translations["Use an access token"] == "使用访问令牌")
         #expect(translations["Select a pull request"] == "选择一个拉取请求")
         #expect(translations["Request changes"] == "请求修改")
         #expect(translations["Create Pull Request"] == "创建拉取请求")
