@@ -7,6 +7,7 @@ private enum GitHubDetailSection: String, CaseIterable, Identifiable {
     case conversation = "Conversation"
 
     var id: String { rawValue }
+    var title: LocalizedStringKey { LocalizedStringKey(rawValue) }
 }
 
 private enum GitHubReviewAction: String, CaseIterable, Identifiable {
@@ -15,6 +16,7 @@ private enum GitHubReviewAction: String, CaseIterable, Identifiable {
     case requestChanges = "Request changes"
 
     var id: String { rawValue }
+    var title: LocalizedStringKey { LocalizedStringKey(rawValue) }
 
     var event: String? {
         switch self {
@@ -24,7 +26,7 @@ private enum GitHubReviewAction: String, CaseIterable, Identifiable {
         }
     }
 
-    var buttonTitle: String {
+    var buttonTitle: LocalizedStringKey {
         switch self {
         case .comment: "Comment"
         case .approve: "Approve pull request"
@@ -40,7 +42,7 @@ private enum GitHubMergeChoice: String, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    var title: LocalizedStringKey {
         switch self {
         case .merge: "Create a merge commit"
         case .squash: "Squash and merge"
@@ -48,7 +50,7 @@ private enum GitHubMergeChoice: String, Identifiable {
         }
     }
 
-    var explanation: String {
+    var explanation: LocalizedStringKey {
         switch self {
         case .merge: "Preserves every commit and adds a merge commit to the base branch."
         case .squash: "Combines the pull request into one commit on the base branch."
@@ -270,9 +272,15 @@ struct GitHubPullRequestsSidebarView: View {
         HStack(spacing: 9) {
             GitHubIdentityMark(login: user.login, size: 28)
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.githubFeature.repository?.fullName ?? "No GitHub origin")
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .lineLimit(1)
+                Group {
+                    if let repository = model.githubFeature.repository {
+                        Text(repository.fullName)
+                    } else {
+                        Text("No GitHub origin")
+                    }
+                }
+                .font(.system(size: 11.5, weight: .semibold))
+                .lineLimit(1)
                 Text("Connected as @\(user.login)")
                     .font(.system(size: 9.5))
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -461,18 +469,27 @@ struct GitHubPullRequestDetailView: View {
                 .environmentObject(model)
         }
         .confirmationDialog(
-            request.state == "open" ? "Close pull request #\(request.number)?" : "Reopen pull request #\(request.number)?",
+            LocalizedStringKey(
+                request.state == "open"
+                    ? "Close pull request?"
+                    : "Reopen pull request?"
+            ),
             isPresented: $shouldConfirmClose,
             titleVisibility: .visible
         ) {
-            Button(request.state == "open" ? "Close Pull Request" : "Reopen Pull Request", role: request.state == "open" ? .destructive : nil) {
+            Button(
+                LocalizedStringKey(request.state == "open" ? "Close Pull Request" : "Reopen Pull Request"),
+                role: request.state == "open" ? .destructive : nil
+            ) {
                 Task { await model.githubFeature.setOpen(request.state != "open") }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(request.state == "open"
-                ? "This does not delete the branch or commits. The pull request can be reopened later."
-                : "The pull request will return to the open list and can receive new reviews.")
+            Text(LocalizedStringKey(
+                request.state == "open"
+                    ? "This does not delete the branch or commits. The pull request can be reopened later."
+                    : "The pull request will return to the open list and can receive new reviews."
+            ))
         }
         .confirmationDialog(
             pendingMergeChoice?.title ?? "Merge pull request?",
@@ -489,7 +506,10 @@ struct GitHubPullRequestDetailView: View {
             }
             Button("Cancel", role: .cancel) { pendingMergeChoice = nil }
         } message: {
-            Text("\(pendingMergeChoice?.explanation ?? "") This updates \(request.baseRef) on GitHub and cannot be undone from Lithe.")
+            if let choice = pendingMergeChoice {
+                Text(choice.explanation)
+                    + Text(" This updates \(request.baseRef) on GitHub and cannot be undone from Lithe.")
+            }
         }
     }
 
@@ -528,7 +548,7 @@ struct GitHubPullRequestDetailView: View {
             Menu {
                 Button("Edit title and description") { isEditPresented = true }
                 if !request.isMerged {
-                    Button(request.state == "open" ? "Close pull request" : "Reopen pull request") {
+                    Button(LocalizedStringKey(request.state == "open" ? "Close pull request" : "Reopen pull request")) {
                         shouldConfirmClose = true
                     }
                 }
@@ -557,7 +577,7 @@ struct GitHubPullRequestDetailView: View {
                     withAnimation(.easeOut(duration: 0.14)) { selectedSection = section }
                 } label: {
                     HStack(spacing: 5) {
-                        Text(section.rawValue)
+                        Text(section.title)
                         if section == .files {
                             Text("\(model.githubFeature.files.count)")
                                 .font(.system(size: 9, weight: .semibold))
@@ -722,7 +742,7 @@ struct GitHubPullRequestDetailView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Picker("Review action", selection: $composerAction) {
                             ForEach(GitHubReviewAction.allCases) { action in
-                                Text(action.rawValue).tag(action)
+                                Text(action.title).tag(action)
                             }
                         }
                         .pickerStyle(.segmented)
@@ -735,9 +755,11 @@ struct GitHubPullRequestDetailView: View {
                                 .padding(5)
                                 .frame(minHeight: 112)
                             if composerBody.isEmpty {
-                                Text(composerAction == .approve
-                                    ? "Optional approval summary"
-                                    : "Write a clear, actionable comment…")
+                                Text(LocalizedStringKey(
+                                    composerAction == .approve
+                                        ? "Optional approval summary"
+                                        : "Write a clear, actionable comment…"
+                                ))
                                     .font(.system(size: 12))
                                     .foregroundStyle(LitheTheme.tertiaryText)
                                     .padding(.horizontal, 10)
@@ -879,7 +901,7 @@ private struct GitHubStateMark: View {
             .font(.system(size: compact ? 12 : 16, weight: .semibold))
             .foregroundStyle(color)
             .frame(width: compact ? 15 : 24, height: compact ? 15 : 24)
-            .help(statusText)
+            .help(Text(LocalizedStringKey(statusText)))
     }
 
     private var symbol: String {
@@ -908,7 +930,7 @@ private struct GitHubMetricsStrip: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            metric(title: "Status", value: status)
+            metric(title: "Status", value: status, localizesValue: true)
             divider
             metric(title: "Files", value: request.changedFiles.map(String.init) ?? "—")
             divider
@@ -923,14 +945,26 @@ private struct GitHubMetricsStrip: View {
         .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 
-    private func metric(title: String, value: String, color: Color = LitheTheme.primaryText) -> some View {
+    private func metric(
+        title: String,
+        value: String,
+        color: Color = LitheTheme.primaryText,
+        localizesValue: Bool = false
+    ) -> some View {
         VStack(spacing: 3) {
-            Text(value)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(color)
-            Text(title.uppercased())
+            Group {
+                if localizesValue {
+                    Text(LocalizedStringKey(value))
+                } else {
+                    Text(value)
+                }
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(color)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(LitheTheme.tertiaryText)
+                .textCase(.uppercase)
         }
         .frame(maxWidth: .infinity)
     }
@@ -960,9 +994,9 @@ private struct GitHubSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 13, weight: .semibold))
+                Text(LocalizedStringKey(title)).font(.system(size: 13, weight: .semibold))
                 if let detail {
-                    Text(detail)
+                    Text(LocalizedStringKey(detail))
                         .font(.system(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
@@ -979,11 +1013,11 @@ private struct GitHubLabeledField: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 72, alignment: .trailing)
-            TextField(placeholder, text: $text)
+            TextField(LocalizedStringKey(placeholder), text: $text)
                 .textFieldStyle(.roundedBorder)
         }
     }
@@ -1008,7 +1042,7 @@ private struct GitHubFileRow: View {
                         .font(.system(size: 11.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
-                    GitHubPill(text: file.status, color: statusColor)
+                    GitHubPill(text: file.status.capitalized, color: statusColor, localizesText: true)
                     Spacer()
                     Text("+\(file.additions)").foregroundStyle(LitheTheme.success)
                     Text("−\(file.deletions)").foregroundStyle(LitheTheme.error)
@@ -1109,9 +1143,16 @@ private struct GitHubIdentityMark: View {
 private struct GitHubPill: View {
     let text: String
     let color: Color
+    var localizesText = false
 
     var body: some View {
-        Text(text)
+        Group {
+            if localizesText {
+                Text(LocalizedStringKey(text))
+            } else {
+                Text(text)
+            }
+        }
             .font(.system(size: 8.5, weight: .semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 5)
@@ -1123,6 +1164,7 @@ private struct GitHubPill: View {
 }
 
 private struct GitHubRelativeDate: View {
+    @Environment(\.locale) private var locale
     let value: String
 
     var body: some View {
@@ -1133,6 +1175,7 @@ private struct GitHubRelativeDate: View {
     private var relativeText: String {
         guard let date = ISO8601DateFormatter().date(from: value) else { return value }
         let formatter = RelativeDateTimeFormatter()
+        formatter.locale = locale
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
     }
@@ -1152,7 +1195,7 @@ private struct GitHubOperationBanner: View {
             } else if let icon {
                 Image(systemName: icon).foregroundStyle(color)
             }
-            Text(message)
+            Text(LocalizedStringKey(message))
                 .font(.system(size: 11.5, weight: .medium))
                 .lineLimit(2)
             Spacer()
@@ -1195,8 +1238,8 @@ private struct GitHubInlineNotice<Actions: View>: View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: icon).foregroundStyle(color)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 11.5, weight: .semibold))
-                Text(message)
+                Text(LocalizedStringKey(title)).font(.system(size: 11.5, weight: .semibold))
+                localizedMessage
                     .font(.system(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1209,6 +1252,18 @@ private struct GitHubInlineNotice<Actions: View>: View {
         .background(color.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
+
+    @ViewBuilder
+    private var localizedMessage: some View {
+        let authorizationFailurePrefix = "GitHub authorization failed: "
+        if message.hasPrefix(authorizationFailurePrefix) {
+            Text("GitHub authorization failed:")
+                + Text(" ")
+                + Text(message.dropFirst(authorizationFailurePrefix.count))
+        } else {
+            Text(LocalizedStringKey(message))
+        }
+    }
 }
 
 private struct GitHubAuthorizationStep: View {
@@ -1220,7 +1275,7 @@ private struct GitHubAuthorizationStep: View {
         HStack(spacing: 8) {
             Image(systemName: isComplete ? "checkmark.circle.fill" : "\(number).circle")
                 .foregroundStyle(isComplete ? LitheTheme.success : LitheTheme.secondaryText)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(.system(size: 11.5, weight: isComplete ? .medium : .regular))
                 .foregroundStyle(isComplete ? LitheTheme.primaryText : LitheTheme.secondaryText)
         }
@@ -1234,9 +1289,9 @@ private struct GitHubCenteredProgress: View {
     var body: some View {
         VStack(spacing: 10) {
             ProgressView()
-            Text(title).font(.system(size: 12, weight: .semibold))
+            Text(LocalizedStringKey(title)).font(.system(size: 12, weight: .semibold))
             if let detail {
-                Text(detail)
+                Text(LocalizedStringKey(detail))
                     .font(.system(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .multilineTextAlignment(.center)
@@ -1259,14 +1314,14 @@ private struct GitHubEmptyState: View {
             Image(systemName: icon)
                 .font(.system(size: 27, weight: .light))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Text(title).font(.system(size: 13, weight: .semibold))
-            Text(message)
+            Text(LocalizedStringKey(title)).font(.system(size: 13, weight: .semibold))
+            Text(LocalizedStringKey(message))
                 .font(.system(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             if let actionTitle, let action {
-                Button(actionTitle, action: action).padding(.top, 3)
+                Button(LocalizedStringKey(actionTitle), action: action).padding(.top, 3)
             }
         }
         .padding(28)
@@ -1379,7 +1434,7 @@ private struct GitHubPullRequestForm: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(heading).font(.system(size: 17, weight: .semibold))
+                    Text(LocalizedStringKey(heading)).font(.system(size: 17, weight: .semibold))
                     Text(caption)
                         .font(.system(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
@@ -1439,7 +1494,7 @@ private struct GitHubPullRequestForm: View {
                     .foregroundStyle(LitheTheme.tertiaryText)
                 Spacer()
                 Button("Cancel", action: cancel)
-                Button(primaryTitle, action: submit)
+                Button(LocalizedStringKey(primaryTitle), action: submit)
                     .buttonStyle(.borderedProminent)
                     .disabled(isPrimaryDisabled)
             }
@@ -1457,9 +1512,12 @@ private struct GitHubPullRequestForm: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(required ? "\(label) *" : label)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
+            HStack(spacing: 0) {
+                Text(LocalizedStringKey(label))
+                if required { Text(" *") }
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(LitheTheme.secondaryText)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -174,7 +174,7 @@ final class GitHubFeatureModel: ObservableObject {
                 draft: draft
             )
             await refreshAfterMutation(selecting: request.number)
-            operationState = .succeeded("Pull request #\(request.number) created")
+            operationState = .succeeded("Pull request created")
             return true
         } catch {
             operationState = .failed(error.localizedDescription)
@@ -298,7 +298,7 @@ final class GitHubFeatureModel: ObservableObject {
         operationState = .running("Checking out pull request…")
         do {
             try await service.checkout(request, at: workspaceURL)
-            operationState = .succeeded("Checked out #\(request.number) as a local branch")
+            operationState = .succeeded("Pull request checked out as a local branch")
             return true
         } catch {
             operationState = .failed(error.localizedDescription)

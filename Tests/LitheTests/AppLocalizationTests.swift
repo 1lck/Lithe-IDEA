@@ -37,6 +37,18 @@ struct AppLocalizationTests {
         )
     }
 
+    @Test
+    func simplifiedChineseResourcesCoverGitHubPullRequests() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        #expect(translations["Pull Requests"] == "拉取请求")
+        #expect(translations["Connect GitHub"] == "连接 GitHub")
+        #expect(translations["Stored in macOS Keychain"] == "安全存储在 macOS 钥匙串")
+        #expect(translations["Select a pull request"] == "选择一个拉取请求")
+        #expect(translations["Request changes"] == "请求修改")
+        #expect(translations["Create Pull Request"] == "创建拉取请求")
+    }
+
     private func simplifiedChineseTranslations() throws -> [String: String] {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
