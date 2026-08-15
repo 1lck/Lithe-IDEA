@@ -45,6 +45,7 @@ import { quickTransition } from "@/utils/motion";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { TypedConfirmAction } from "../typed-confirm-action";
 import { SettingsView, SettingRow } from "../settings-section";
+import { useTranslation } from "@/i18n/locale-provider";
 
 type FilterType = "all" | "user" | "default" | "preset" | "preset-changes" | "extension";
 
@@ -63,6 +64,7 @@ const summaryStepTransition = {
 };
 
 export const KeyboardSettings = () => {
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [isEditingKeybindings, setIsEditingKeybindings] = useState(false);
@@ -140,7 +142,7 @@ export const KeyboardSettings = () => {
 
   const handleResetAll = () => {
     resetToDefaults();
-    showToast({ message: "Keybindings reset to defaults", type: "success" });
+    showToast({ message: t("settings.keyboard.keybindingsReset"), type: "success" });
   };
 
   const handleExport = async () => {
@@ -150,8 +152,8 @@ export const KeyboardSettings = () => {
       const targetPath = await save({
         defaultPath: "keybindings.json",
         filters: [
-          { name: "JSON", extensions: ["json"] },
-          { name: "All Files", extensions: ["*"] },
+          { name: t("settings.common.json"), extensions: ["json"] },
+          { name: t("settings.common.allFiles"), extensions: ["*"] },
         ],
       });
 
@@ -165,7 +167,7 @@ export const KeyboardSettings = () => {
       });
 
       await writeTextFile(targetPath, JSON.stringify(payload, null, 2));
-      showToast({ message: "Keybindings exported", type: "success" });
+      showToast({ message: t("settings.keyboard.keybindingsExported"), type: "success" });
     } catch (error) {
       console.error("Failed to export keybindings:", error);
       const message =
@@ -176,7 +178,7 @@ export const KeyboardSettings = () => {
             : JSON.stringify(error);
 
       showToast({
-        message: `Failed to export keybindings: ${message}`,
+        message: t("settings.keyboard.exportFailed", { error: message }),
         type: "error",
       });
     }
@@ -195,7 +197,7 @@ export const KeyboardSettings = () => {
         const imported = parseKeybindingsImportJson(text);
 
         if (!imported) {
-          showToast({ message: "Invalid keybindings file format", type: "error" });
+          showToast({ message: t("settings.keyboard.invalidFile"), type: "error" });
           return;
         }
 
@@ -209,13 +211,17 @@ export const KeyboardSettings = () => {
         }
 
         showToast({
-          message: `Imported ${imported.keybindings.length} keybindings${
-            imported.keybindingPreset ? " and preset" : ""
-          }`,
+          message: t("settings.keyboard.keybindingsImported", {
+            count: imported.keybindings.length,
+            preset: imported.keybindingPreset ? t("settings.keyboard.andPreset") : "",
+          }),
           type: "success",
         });
       } catch (error) {
-        showToast({ message: `Failed to import keybindings: ${error}`, type: "error" });
+        showToast({
+          message: t("settings.keyboard.importFailed", { error: String(error) }),
+          type: "error",
+        });
       }
     };
     input.click();
@@ -238,22 +244,25 @@ export const KeyboardSettings = () => {
                 size="sm"
               >
                 <ArrowLeft size={14} weight="duotone" />
-                Back
+                {t("settings.keyboard.back")}
               </Button>
               <div className="flex items-center gap-2">
-                <TypedConfirmAction actionLabel="Reset to Defaults" onConfirm={handleResetAll} />
+                <TypedConfirmAction
+                  actionLabel={t("settings.keyboard.resetToDefaults")}
+                  onConfirm={handleResetAll}
+                />
                 <Button variant="default" onClick={handleImport} size="sm">
-                  Import
+                  {t("settings.keyboard.import")}
                 </Button>
                 <Button variant="default" onClick={() => void handleExport()} size="sm">
-                  Export
+                  {t("settings.keyboard.export")}
                 </Button>
               </div>
             </div>
 
             <div className="mb-3 flex items-center gap-2">
               <Input
-                placeholder="Search keybindings..."
+                placeholder={t("settings.keyboard.search")}
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 leftIcon={Search}
@@ -266,36 +275,36 @@ export const KeyboardSettings = () => {
               <ToggleGroup
                 value={filterType}
                 onValueChange={setFilterType}
-                ariaLabel="Keybinding filter"
+                ariaLabel={t("settings.keyboard.filter")}
                 options={[
                   {
                     value: "all",
-                    label: "All",
+                    label: t("settings.keyboard.all"),
                     icon: <CirclesThree size={14} weight="duotone" />,
                   },
                   {
                     value: "user",
-                    label: "User",
+                    label: t("settings.keyboard.user"),
                     icon: <User size={14} weight="duotone" />,
                   },
                   {
                     value: "default",
-                    label: "Default",
+                    label: t("settings.keyboard.default"),
                     icon: <Sliders size={14} weight="duotone" />,
                   },
                   {
                     value: "preset",
-                    label: "Preset",
+                    label: t("settings.keyboard.preset"),
                     icon: <DownloadSimple size={14} weight="fill" />,
                   },
                   {
                     value: "preset-changes",
-                    label: "Preset Changes",
+                    label: t("settings.keyboard.presetChanges"),
                     icon: <DownloadSimple size={14} weight="fill" />,
                   },
                   {
                     value: "extension",
-                    label: "Extension",
+                    label: t("settings.keyboard.extension"),
                     icon: <Cube size={14} weight="duotone" />,
                   },
                 ]}
@@ -314,11 +323,11 @@ export const KeyboardSettings = () => {
                   </colgroup>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Command</TableHead>
-                      <TableHead>Keybinding</TableHead>
-                      <TableHead>When</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead>{t("settings.keyboard.command")}</TableHead>
+                      <TableHead>{t("settings.keyboard.keybinding")}</TableHead>
+                      <TableHead>{t("settings.keyboard.when")}</TableHead>
+                      <TableHead>{t("settings.keyboard.source")}</TableHead>
+                      <TableHead>{t("settings.keyboard.actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -326,7 +335,7 @@ export const KeyboardSettings = () => {
                       <TableRow className="hover:bg-transparent">
                         <TableCell colSpan={5} className="p-0">
                           <Empty className="min-h-36 py-8">
-                            <EmptyDescription>No keybindings found</EmptyDescription>
+                            <EmptyDescription>{t("settings.keyboard.noKeybindings")}</EmptyDescription>
                           </Empty>
                         </TableCell>
                       </TableRow>
@@ -346,8 +355,8 @@ export const KeyboardSettings = () => {
         ) : (
           <motion.div key="keyboard-summary" className="space-y-4" {...summaryStepTransition}>
             <SettingRow
-              label="Vim Mode"
-              description="Enable vim keybindings and commands"
+              label={t("settings.keyboard.vimMode")}
+              description={t("settings.keyboard.vimModeDescription")}
               onReset={() => updateSetting("vimMode", getDefaultSetting("vimMode"))}
               canReset={vimMode !== getDefaultSetting("vimMode")}
             >
@@ -359,8 +368,8 @@ export const KeyboardSettings = () => {
             </SettingRow>
 
             <SettingRow
-              label="Keybinding Preset"
-              description="Apply a base shortcut style before your custom overrides."
+              label={t("settings.keyboard.presetLabel")}
+              description={t("settings.keyboard.presetDescription")}
               onReset={() =>
                 updateSetting("keybindingPreset", getDefaultSetting("keybindingPreset"))
               }
@@ -369,12 +378,16 @@ export const KeyboardSettings = () => {
               <Select
                 value={keybindingPreset}
                 onChange={(value) => updateSetting("keybindingPreset", value as KeybindingPreset)}
-                options={keybindingPresetOptions}
+                options={keybindingPresetOptions.map((option) =>
+                  option.value === "none"
+                    ? { ...option, label: t("settings.keyboard.none") }
+                    : option,
+                )}
                 size="md"
                 variant="default"
                 searchable
                 searchableTrigger="input"
-                aria-label="Keybinding preset"
+                aria-label={t("settings.keyboard.presetAria")}
               />
             </SettingRow>
 
@@ -382,23 +395,31 @@ export const KeyboardSettings = () => {
               <Alert tone="warning">
                 <WarningCircle />
                 <AlertDescription>
-                  This preset is incomplete. {selectedPresetCoverage.missingCommandIds.length}{" "}
-                  built-in command
-                  {selectedPresetCoverage.missingCommandIds.length === 1 ? " is" : "s are"} still
-                  missing preset coverage.
+                  {t("settings.keyboard.presetIncomplete", {
+                    count: selectedPresetCoverage.missingCommandIds.length,
+                    suffix:
+                      selectedPresetCoverage.missingCommandIds.length === 1
+                        ? t("settings.keyboard.presetSingularSuffix")
+                        : t("settings.keyboard.presetPluralSuffix"),
+                  })}
                 </AlertDescription>
               </Alert>
             ) : null}
 
-            <SettingRow label="Edit Keybindings" description="Customize shortcuts individually.">
+            <SettingRow
+              label={t("settings.keyboard.editKeybindings")}
+              description={t("settings.keyboard.editKeybindingsDescription")}
+            >
               <Button variant="default" onClick={() => setIsEditingKeybindings(true)} size="sm">
-                Open Editor
+                {t("settings.keyboard.openEditor")}
               </Button>
             </SettingRow>
             {userOverrideCount > 0 ? (
               <div className="font-sans ui-text-base px-1 text-subtle-foreground">
-                {userOverrideCount} user override{userOverrideCount === 1 ? "" : "s"} currently
-                saved.
+                {t("settings.keyboard.userOverrides", {
+                  count: userOverrideCount,
+                  suffix: userOverrideCount === 1 ? "" : t("settings.keyboard.pluralSuffix"),
+                })}
               </div>
             ) : null}
           </motion.div>
