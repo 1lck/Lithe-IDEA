@@ -8,6 +8,13 @@ enum KeyboardShortcutUpdateError: Error, Equatable {
     case conflict(commandID: String)
 }
 
+struct KeyboardShortcutCommandSection: Identifiable, Equatable, Sendable {
+    let group: LitheActionGroup
+    let commands: [LitheCommandDefinition]
+
+    var id: LitheActionGroup { group }
+}
+
 @MainActor
 final class KeyboardShortcutFeatureModel: ObservableObject {
     @Published private(set) var recordingCommandID: String?
@@ -34,6 +41,30 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
                 commandID: command.id,
                 bindings: effectiveBindings(for: command.id)
             )
+        }
+    }
+
+    func filteredCommands(query: String) -> [LitheCommandDefinition] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedQuery.isEmpty else { return commands }
+        return commands.filter { command in
+            let searchText = [
+                command.title,
+                command.subtitle,
+                command.id,
+                command.group.rawValue,
+                displayText(for: command.id) ?? ""
+            ].joined(separator: " ").lowercased()
+            return searchText.contains(normalizedQuery)
+        }
+    }
+
+    func groupedCommands(query: String) -> [KeyboardShortcutCommandSection] {
+        let filtered = filteredCommands(query: query)
+        return LitheActionGroup.allCases.compactMap { group in
+            let groupCommands = filtered.filter { $0.group == group }
+            guard !groupCommands.isEmpty else { return nil }
+            return KeyboardShortcutCommandSection(group: group, commands: groupCommands)
         }
     }
 
@@ -90,11 +121,16 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
         settings.setKeyboardShortcutOverrides([:])
     }
 
+    func isCustomized(_ commandID: String) -> Bool {
+        settings.keyboardShortcutOverrides[commandID] != nil
+    }
+
     func beginRecording(commandID: String) {
         recordingCommandID = commandID
     }
 
-    func endRecording() {
+    func endRecording(commandID: String? = nil) {
+        guard commandID == nil || recordingCommandID == commandID else { return }
         recordingCommandID = nil
     }
 

@@ -119,6 +119,18 @@ struct KeyboardShortcutTests {
                 == .keyPress(key: "o", modifiers: [.shift, .command])
         )
     }
+
+    @Test
+    func filteringMatchesTitleIDGroupAndShortcutText() {
+        let feature = KeyboardShortcutFeatureModel(
+            settings: AppSettings(store: KeyboardShortcutTestStore())
+        )
+
+        #expect(feature.filteredCommands(query: "find usages").map(\.id) == ["find-usages"])
+        #expect(feature.filteredCommands(query: "window").allSatisfy { $0.group == .window })
+        #expect(feature.filteredCommands(query: "⌃R").map(\.id).contains("run"))
+        #expect(feature.groupedCommands(query: "history").allSatisfy { !$0.commands.isEmpty })
+    }
 }
 
 private final class KeyboardShortcutTestStore: KeyValueStore, @unchecked Sendable {

@@ -107,6 +107,9 @@ struct SettingsView: View {
         if selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if selection == .keymap {
+            KeyboardShortcutSettingsView(feature: model.keyboardShortcutFeature)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -117,6 +120,7 @@ struct SettingsView: View {
                     switch selection {
                     case .general: generalSettings
                     case .editor: editorSettings
+                    case .keymap: EmptyView()
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
                     case .ai: aiSettings

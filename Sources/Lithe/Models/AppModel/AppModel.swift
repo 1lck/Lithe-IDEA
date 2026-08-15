@@ -15,6 +15,7 @@ import LitheCoreContracts
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case general = "General"
     case editor = "Editor"
+    case keymap = "Keymap"
     case terminal = "Terminal"
     case lsp = "LSP"
     case ai = "AI & Commit"
@@ -26,6 +27,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .editor: "textformat"
+        case .keymap: "keyboard"
         case .terminal: "terminal"
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
