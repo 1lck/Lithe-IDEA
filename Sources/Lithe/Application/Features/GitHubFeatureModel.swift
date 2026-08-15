@@ -30,10 +30,19 @@ final class GitHubFeatureModel: ObservableObject {
     @Published private(set) var contentState: ContentState = .idle
     @Published private(set) var repository: GitHubRepository?
     @Published private(set) var pullRequests: [GitHubPullRequest] = []
+    @Published private(set) var branches: [GitHubBranch] = []
+    @Published private(set) var branchContentState: ContentState = .idle
+    @Published private(set) var pullRequestBranchDefaults = GitHubPullRequestBranchDefaults(
+        head: nil,
+        base: nil
+    )
     @Published private(set) var selectedPullRequest: GitHubPullRequest?
     @Published private(set) var files: [GitHubPullRequestFile] = []
     @Published private(set) var comments: [GitHubComment] = []
     @Published private(set) var operationState: OperationState = .idle
+    @Published private(set) var isCreatingPullRequest = false
+    @Published private(set) var isPublishingPullRequestBranch = false
+    @Published private(set) var branchPublicationError: String?
     @Published private(set) var canUseDeviceFlow = false
     @Published var listState = "open"
     private let service: GitHubService
@@ -104,11 +113,17 @@ final class GitHubFeatureModel: ObservableObject {
             connectionState = .disconnected
             repository = nil
             pullRequests = []
+            branches = []
+            branchContentState = .idle
+            pullRequestBranchDefaults = GitHubPullRequestBranchDefaults(head: nil, base: nil)
             selectedPullRequest = nil
             files = []
             comments = []
             contentState = .idle
             operationState = .idle
+            isCreatingPullRequest = false
+            isPublishingPullRequestBranch = false
+            branchPublicationError = nil
         } catch {
             connectionState = .failed(error.localizedDescription)
         }
@@ -119,11 +134,17 @@ final class GitHubFeatureModel: ObservableObject {
         contentState = .loading
         do {
             let repository = try await service.resolveRepository(at: workspaceURL)
+            let branchDefaults = try await service.resolvePullRequestBranchDefaults(at: workspaceURL)
             let pullRequests = try await service.listPullRequests(
                 repository: repository,
                 state: listState
             )
+            if self.repository != repository {
+                branches = []
+                branchContentState = .idle
+            }
             self.repository = repository
+            pullRequestBranchDefaults = branchDefaults
             self.pullRequests = pullRequests
             if let selectedNumber = selectedPullRequest?.number,
                pullRequests.contains(where: { $0.number == selectedNumber }) {
@@ -139,8 +160,78 @@ final class GitHubFeatureModel: ObservableObject {
         }
     }
 
+    func loadBranches(force: Bool = false) async {
+        guard let repository else { return }
+        if !force, branchContentState == .ready { return }
+        branchContentState = .loading
+        do {
+            let loadedBranches = try await service.listBranches(repository: repository)
+            guard self.repository == repository else { return }
+            branches = loadedBranches
+            branchContentState = .ready
+        } catch {
+            guard self.repository == repository else { return }
+            branchContentState = .failed(error.localizedDescription)
+        }
+    }
+
+    func pullRequestDescriptionInput(
+        base: String,
+        head: String
+    ) async throws -> PullRequestDescriptionInput {
+        guard let repository else { throw GitHubService.ServiceError.noWorkspace }
+        let comparison = try await service.compareBranches(
+            repository: repository,
+            base: base,
+            head: head
+        )
+        return PullRequestDescriptionInput(
+            repository: repository.fullName,
+            base: base,
+            head: head,
+            commitMessages: comparison.commits.map(\.message),
+            files: comparison.files.compactMap { file in
+                guard let patch = file.patch,
+                      !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return nil
+                }
+                return PullRequestDescriptionFileInput(
+                    path: file.path,
+                    changeKind: file.pullRequestDescriptionChangeKind,
+                    patch: patch
+                )
+            }
+        )
+    }
+
+    func publishPullRequestBranch(
+        named name: String,
+        workspaceURL: URL?
+    ) async -> String? {
+        let branch = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !branch.isEmpty else {
+            branchPublicationError = String(localized: "Enter a branch name before publishing.")
+            return nil
+        }
+        isPublishingPullRequestBranch = true
+        branchPublicationError = nil
+        defer { isPublishingPullRequestBranch = false }
+        do {
+            try await service.publishPullRequestBranch(named: branch, at: workspaceURL)
+            let defaults = try await service.resolvePullRequestBranchDefaults(at: workspaceURL)
+            pullRequestBranchDefaults = defaults
+            await loadBranches(force: true)
+            operationState = .succeeded("Branch published to GitHub")
+            return defaults.head ?? branch
+        } catch {
+            branchPublicationError = error.localizedDescription
+            return nil
+        }
+    }
+
     func selectPullRequest(number: UInt64) async {
         guard let repository else { return }
+        isCreatingPullRequest = false
         contentState = .loading
         do {
             async let request = service.pullRequest(repository: repository, number: number)
@@ -175,6 +266,7 @@ final class GitHubFeatureModel: ObservableObject {
             )
             await refreshAfterMutation(selecting: request.number)
             operationState = .succeeded("Pull request created")
+            isCreatingPullRequest = false
             return true
         } catch {
             operationState = .failed(error.localizedDescription)
@@ -311,6 +403,22 @@ final class GitHubFeatureModel: ObservableObject {
         operationState = .idle
     }
 
+    func beginCreatingPullRequest() {
+        clearOperationStatus()
+        isCreatingPullRequest = true
+    }
+
+    func cancelCreatingPullRequest() {
+        guard !isOperationRunning else { return }
+        clearOperationStatus()
+        isCreatingPullRequest = false
+    }
+
+    private var isOperationRunning: Bool {
+        if case .running = operationState { return true }
+        return false
+    }
+
     private func refreshAfterMutation(selecting number: UInt64) async {
         guard let repository else { return }
         do {
@@ -326,6 +434,18 @@ final class GitHubFeatureModel: ObservableObject {
         case "APPROVE": "Review approved"
         case "REQUEST_CHANGES": "Changes requested"
         default: "Review comment submitted"
+        }
+    }
+}
+
+private extension GitHubPullRequestFile {
+    var pullRequestDescriptionChangeKind: CommitMessageChangeKind {
+        switch status {
+        case "added": .added
+        case "removed": .deleted
+        case "renamed": .renamed
+        case "copied": .copied
+        default: .modified
         }
     }
 }

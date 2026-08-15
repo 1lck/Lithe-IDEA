@@ -31,4 +31,15 @@ extension AppModel {
             showNotification("Pull request branch checked out")
         }
     }
+
+    func publishGitHubPullRequestBranch(named name: String) async -> String? {
+        let branch = await githubFeature.publishPullRequestBranch(
+            named: name,
+            workspaceURL: workspaceURL
+        )
+        if branch != nil {
+            await refreshGit()
+        }
+        return branch
+    }
 }

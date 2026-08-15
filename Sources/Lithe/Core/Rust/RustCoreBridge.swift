@@ -972,6 +972,15 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct GitPullRequestContextPayload: Decodable, Sendable {
+        let currentBranch: String?
+        let suggestedBaseBranch: String?
+        let suggestedPublishBranch: String?
+        let requiresPublish: Bool
+        let detached: Bool
+        let hasUncommittedChanges: Bool
+    }
+
 
     private struct EmptyPayload: Encodable {
         let value = 0
@@ -1443,6 +1452,10 @@ struct RustCoreBridge: Sendable {
     }
 
     private struct GitWatchContextRequest: Encodable {
+        let root: String
+    }
+
+    private struct GitPullRequestContextRequest: Encodable {
         let root: String
     }
 
@@ -1990,6 +2003,15 @@ struct RustCoreBridge: Sendable {
             payload: GitWatchContextRequest(root: rootURL.standardizedFileURL.path)
         )
         return try? result.get()
+    }
+
+    func gitPullRequestContext(
+        at rootURL: URL
+    ) -> Result<GitPullRequestContextPayload, CoreCallError> {
+        executeResult(
+            command: "git.pullRequestContext",
+            payload: GitPullRequestContextRequest(root: rootURL.standardizedFileURL.path)
+        )
     }
 
 
@@ -2754,6 +2776,18 @@ struct RustCoreBridge: Sendable {
                 payload: payload
             )
             return result.map(GitHubNormalizedResponse.user)
+        case "listBranches":
+            let result: Result<[GitHubBranch], CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.branches)
+        case "compareBranches":
+            let result: Result<GitHubComparison, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.comparison)
         case "listPullRequests":
             let result: Result<[GitHubPullRequest], CoreCallError> = executeResult(
                 command: "github.normalizeResponse",

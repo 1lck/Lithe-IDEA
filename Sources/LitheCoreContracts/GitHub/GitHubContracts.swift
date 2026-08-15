@@ -39,6 +39,15 @@ public struct GitHubLabel: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public struct GitHubBranch: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public var id: String { name }
+    public let name: String
+
+    public init(name: String) {
+        self.name = name
+    }
+}
+
 public struct GitHubPullRequest: Codable, Equatable, Identifiable, Sendable {
     public var id: UInt64 { number }
     public let number: UInt64
@@ -80,6 +89,40 @@ public struct GitHubPullRequestFile: Codable, Equatable, Identifiable, Sendable 
     public let additions: UInt64
     public let deletions: UInt64
     public let patch: String?
+
+    public init(
+        path: String,
+        status: String,
+        additions: UInt64,
+        deletions: UInt64,
+        patch: String?
+    ) {
+        self.path = path
+        self.status = status
+        self.additions = additions
+        self.deletions = deletions
+        self.patch = patch
+    }
+}
+
+public struct GitHubComparisonCommit: Codable, Equatable, Sendable {
+    public let sha: String
+    public let message: String
+
+    public init(sha: String, message: String) {
+        self.sha = sha
+        self.message = message
+    }
+}
+
+public struct GitHubComparison: Codable, Equatable, Sendable {
+    public let commits: [GitHubComparisonCommit]
+    public let files: [GitHubPullRequestFile]
+
+    public init(commits: [GitHubComparisonCommit], files: [GitHubPullRequestFile]) {
+        self.commits = commits
+        self.files = files
+    }
 }
 
 public struct GitHubDeviceAuthorization: Codable, Equatable, Sendable {
@@ -203,6 +246,8 @@ public enum GitHubNormalizedResponse: Sendable {
     case deviceAuthorization(GitHubDeviceAuthorization)
     case deviceToken(GitHubDeviceTokenResponse)
     case user(GitHubUser)
+    case branches([GitHubBranch])
+    case comparison(GitHubComparison)
     case pullRequests([GitHubPullRequest])
     case pullRequest(GitHubPullRequest)
     case files([GitHubPullRequestFile])

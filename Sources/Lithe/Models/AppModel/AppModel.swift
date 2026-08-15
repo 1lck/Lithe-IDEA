@@ -1495,6 +1495,26 @@ final class AppModel: ObservableObject, Identifiable {
         }
     }
 
+    func generatePullRequestDescription(
+        base: String,
+        head: String
+    ) async throws -> PullRequestDescriptionOutput {
+        refreshAIConfigurations()
+        let input = try await githubFeature.pullRequestDescriptionInput(base: base, head: head)
+        let value = try await services.moduleRuntime.activateCapability(.aiPullRequestDescription)
+        guard let capability = value as? any AIPullRequestDescriptionGenerating else {
+            throw ModuleRuntimeError.missingCapabilityDependency(
+                module: .aiAssistance,
+                capability: .aiPullRequestDescription
+            )
+        }
+        defer { try? services.moduleRuntime.markIdle(.aiAssistance) }
+        return try await capability.generatePullRequestDescription(
+            input: input,
+            settings: settings.commitMessageAI
+        )
+    }
+
     func applyPendingGeneratedCommitMessage() {
         guard let pendingGeneratedCommitMessage else { return }
         commitMessage = pendingGeneratedCommitMessage

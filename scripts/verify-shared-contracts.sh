@@ -70,7 +70,10 @@ fi
       contribution_ids << contribution.fetch("id")
     end
   end
-  abort "capabilities must have one provider" unless modules.flat_map { |m| m.fetch("capabilities") }.uniq.length == modules.length
+  capability_provider_counts = modules
+    .flat_map { |m| m.fetch("capabilities") }
+    .each_with_object(Hash.new(0)) { |capability, counts| counts[capability] += 1 }
+  abort "capabilities must have one provider" unless capability_provider_counts.values.all? { |count| count == 1 }
   abort "contribution IDs must be globally unique" unless contribution_ids.uniq.length == contribution_ids.length
 ' "$module_fixture"
 

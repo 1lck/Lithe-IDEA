@@ -3,7 +3,9 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 @MainActor
-public final class AIAssistanceCapability: NSObject, AICommitMessageGenerating {
+public final class AIAssistanceCapability: NSObject,
+    AICommitMessageGenerating,
+    AIPullRequestDescriptionGenerating {
     private let service: CommitMessageGenerationService
     private weak var resources: (any ModuleResourceManaging)?
     private weak var leases: (any ModuleLeaseManaging)?
@@ -20,6 +22,25 @@ public final class AIAssistanceCapability: NSObject, AICommitMessageGenerating {
         let resource = AIRequestResource(task: task)
         let resourceID = resources.register(resource)
         let lease = leases.acquireLease(reason: "Generating an AI commit message")
+        defer {
+            lease.release()
+            resource.markCompleted()
+            resources.unregisterResource(id: resourceID)
+        }
+        return try await task.value
+    }
+
+    public func generatePullRequestDescription(
+        input: PullRequestDescriptionInput,
+        settings: CommitMessageAISettings
+    ) async throws -> PullRequestDescriptionOutput {
+        guard let resources, let leases else { throw CancellationError() }
+        let task = Task {
+            try await service.generatePullRequestDescription(input: input, settings: settings)
+        }
+        let resource = AIRequestResource(task: task)
+        let resourceID = resources.register(resource)
+        let lease = leases.acquireLease(reason: "Generating an AI pull request description")
         defer {
             lease.release()
             resource.markCompleted()
@@ -62,7 +83,10 @@ public final class AIAssistanceModule: LitheModule {
 
     public func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] {
         guard let capability else { return [:] }
-        return [.aiCommitMessage: capability]
+        return [
+            .aiCommitMessage: capability,
+            .aiPullRequestDescription: capability
+        ]
     }
 
     public func contributions() -> [ModuleContribution] {
@@ -71,10 +95,10 @@ public final class AIAssistanceModule: LitheModule {
 }
 
 @MainActor
-private final class AIRequestResource: ModuleResource {
-    let task: Task<String, Error>
+private final class AIRequestResource<Output: Sendable>: ModuleResource {
+    let task: Task<Output, Error>
     private var isActive = true
-    init(task: Task<String, Error>) { self.task = task }
+    init(task: Task<Output, Error>) { self.task = task }
     var moduleResourceKind: String { "ai-http-request" }
     var isModuleResourceActive: Bool { isActive }
     func markCompleted() { isActive = false }

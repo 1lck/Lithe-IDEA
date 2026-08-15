@@ -547,6 +547,57 @@ struct SettingsView: View {
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
             }
+
+            group("Pull request description generation") {
+                Picker("Description format", selection: $settings.commitMessageAI.pullRequestFormat) {
+                    ForEach(PullRequestDescriptionFormat.allCases) { format in
+                        Text(LocalizedStringKey(format.title)).tag(format)
+                    }
+                }
+                .frame(maxWidth: 260, alignment: .leading)
+                .lithePointer()
+
+                if settings.commitMessageAI.pullRequestFormat == .custom {
+                    HStack {
+                        Text("Markdown template")
+                            .font(.system(size: 11.5, weight: .medium))
+                        Spacer()
+                        Button("Restore Default Template") {
+                            settings.commitMessageAI.pullRequestCustomTemplate =
+                                CommitMessageAISettings.defaultPullRequestTemplate
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .lithePointer()
+                    }
+
+                    TextEditor(text: $settings.commitMessageAI.pullRequestCustomTemplate)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(height: 150)
+                        .padding(5)
+                        .background(LitheTheme.inputBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                        }
+
+                    Text("Supported placeholders: {summary}, {changes}, {testing}, {risks}.")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+
+                Text("Pull request generation uses the selected provider, language, reasoning effort, and diff limit above.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+
+                Label(
+                    "The selected branch diff is sent to the active AI provider when you generate.",
+                    systemImage: "lock.shield"
+                )
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+            }
         }
     }
 

@@ -2,6 +2,7 @@ use super::support::temporary_root;
 use crate::execute_json;
 use serde_json::Value;
 use std::fs::{self, FileTimes, OpenOptions};
+use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -447,6 +448,119 @@ fn git_write_validates_and_executes_shared_mutations() {
     assert_eq!(invalid["error"]["code"], "invalid_request");
 
     fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
+fn detached_worktree_context_can_publish_a_pull_request_branch() {
+    let repository = temporary_root("detached-pr-repository");
+    let root = temporary_root("detached-pr-worktree");
+    let remote = temporary_root("detached-pr-remote");
+    fs::create_dir_all(&repository).expect("temporary repository should be creatable");
+    fs::create_dir_all(&remote).expect("temporary remote should be creatable");
+    let run = |directory: &Path, arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(directory)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&remote, &["init", "--bare", "-q"]).status.success());
+    assert!(run(&repository, &["init", "-q"]).status.success());
+    assert!(
+        run(&repository, &["config", "user.email", "test@example.com"])
+            .status
+            .success()
+    );
+    assert!(run(&repository, &["config", "user.name", "Lithe Test"])
+        .status
+        .success());
+    fs::write(repository.join("example.txt"), "initial\n").expect("file should be writable");
+    assert!(run(&repository, &["add", "example.txt"]).status.success());
+    assert!(run(&repository, &["commit", "-qm", "initial"])
+        .status
+        .success());
+    assert!(run(&repository, &["branch", "-M", "preview/0.3.0"])
+        .status
+        .success());
+    assert!(run(
+        &repository,
+        &["remote", "add", "origin", remote.to_string_lossy().as_ref(),],
+    )
+    .status
+    .success());
+    assert!(
+        run(&repository, &["push", "-qu", "origin", "preview/0.3.0"],)
+            .status
+            .success()
+    );
+    assert!(run(
+        &repository,
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            "-q",
+            root.to_string_lossy().as_ref(),
+            "preview/0.3.0",
+        ],
+    )
+    .status
+    .success());
+    fs::write(root.join("example.txt"), "published from detached\n")
+        .expect("file should be writable");
+    assert!(run(&root, &["add", "example.txt"]).status.success());
+    assert!(run(&root, &["commit", "-qm", "detached change"])
+        .status
+        .success());
+
+    let context_request = serde_json::json!({
+        "id": "context",
+        "command": "git.pullRequestContext",
+        "payload": { "root": root }
+    });
+    let context: Value = serde_json::from_str(&execute_json(&context_request.to_string()))
+        .expect("context response should be JSON");
+    assert_eq!(context["ok"], true, "{context:?}");
+    assert_eq!(context["data"]["detached"], true);
+    assert_eq!(
+        context["data"]["suggestedBaseBranch"], "preview/0.3.0",
+        "{context:?}"
+    );
+    assert_eq!(context["data"]["requiresPublish"], true);
+    let suggested = context["data"]["suggestedPublishBranch"]
+        .as_str()
+        .expect("detached context should suggest a branch")
+        .to_string();
+    assert!(suggested.starts_with("codex/pr-"));
+
+    let publish_request = serde_json::json!({
+        "id": "publish",
+        "command": "git.write",
+        "payload": {
+            "root": root,
+            "operation": "publishBranch",
+            "name": suggested
+        }
+    });
+    let published: Value = serde_json::from_str(&execute_json(&publish_request.to_string()))
+        .expect("publish response should be JSON");
+    assert_eq!(published["ok"], true, "{published:?}");
+    assert_eq!(published["data"]["exitCode"], 0, "{published:?}");
+
+    let refreshed: Value = serde_json::from_str(&execute_json(&context_request.to_string()))
+        .expect("refreshed context should be JSON");
+    assert_eq!(refreshed["data"]["currentBranch"], suggested);
+    assert_eq!(refreshed["data"]["requiresPublish"], false);
+    assert!(run(
+        &remote,
+        &["show-ref", "--verify", &format!("refs/heads/{suggested}")],
+    )
+    .status
+    .success());
+
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+    fs::remove_dir_all(repository).expect("temporary repository should be removable");
+    fs::remove_dir_all(remote).expect("temporary remote should be removable");
 }
 
 #[test]

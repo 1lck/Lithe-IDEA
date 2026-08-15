@@ -59,6 +59,43 @@ fn request_plan_keeps_network_and_credentials_platform_owned() {
 }
 
 #[test]
+fn request_plan_lists_repository_branches() {
+    let response = execute(
+        "github.requestPlan",
+        json!({
+            "operation": "listBranches",
+            "repository": {"owner": "openai", "name": "codex"}
+        }),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["host"], "api");
+    assert_eq!(response["data"]["method"], "GET");
+    assert_eq!(response["data"]["path"], "/repos/openai/codex/branches");
+    assert_eq!(response["data"]["query"]["per_page"], "100");
+    assert_eq!(response["data"]["requiresAuthentication"], true);
+}
+
+#[test]
+fn request_plan_compares_encoded_branch_names() {
+    let response = execute(
+        "github.requestPlan",
+        json!({
+            "operation": "compareBranches",
+            "repository": {"owner": "openai", "name": "codex"},
+            "base": "release/2026.08",
+            "head": "feature/中文"
+        }),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["method"], "GET");
+    assert_eq!(
+        response["data"]["path"],
+        "/repos/openai/codex/compare/release%2F2026.08...feature%2F%E4%B8%AD%E6%96%87"
+    );
+    assert_eq!(response["data"]["requiresAuthentication"], true);
+}
+
+#[test]
 fn device_flow_requests_the_scope_needed_for_pull_request_mutations() {
     let response = execute(
         "github.requestPlan",
@@ -98,6 +135,59 @@ fn normalizes_pull_requests_with_deterministic_labels_and_assignees() {
     assert_eq!(response["data"][0]["body"], "");
     assert_eq!(response["data"][0]["labels"][0]["name"], "alpha");
     assert_eq!(response["data"][0]["assignees"][0]["login"], "amy");
+}
+
+#[test]
+fn normalizes_branch_list_deterministically() {
+    let raw = json!([
+        {"name": "zeta"},
+        {"name": "alpha"},
+        {"name": "alpha"}
+    ]);
+    let response = execute(
+        "github.normalizeResponse",
+        json!({"operation": "listBranches", "status": 200, "body": raw.to_string()}),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(
+        response["data"],
+        json!([{"name": "alpha"}, {"name": "zeta"}])
+    );
+}
+
+#[test]
+fn normalizes_branch_comparison_for_ai_generation() {
+    let raw = json!({
+        "commits": [
+            {"sha": "abc123", "commit": {"message": "Add PR generation\n\nWith tests"}}
+        ],
+        "files": [
+            {
+                "filename": "Sources/Z.swift",
+                "status": "modified",
+                "additions": 2,
+                "deletions": 1,
+                "patch": "@@ -1 +1 @@\n-old\n+new"
+            },
+            {
+                "filename": "Sources/A.swift",
+                "status": "added",
+                "additions": 3,
+                "deletions": 0
+            }
+        ]
+    });
+    let response = execute(
+        "github.normalizeResponse",
+        json!({"operation": "compareBranches", "status": 200, "body": raw.to_string()}),
+    );
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["commits"][0]["sha"], "abc123");
+    assert_eq!(response["data"]["files"][0]["path"], "Sources/A.swift");
+    assert_eq!(
+        response["data"]["files"][1]["patch"],
+        "@@ -1 +1 @@\n-old\n+new"
+    );
 }
 
 #[test]

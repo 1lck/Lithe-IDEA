@@ -10,7 +10,27 @@ private struct GitHubCoreStub: GitHubCorePlanning {
     }
 
     func requestPlan(_ request: GitHubRequest) throws -> GitHubRequestPlan {
-        GitHubRequestPlan(
+        if request.operation == "listBranches" {
+            return GitHubRequestPlan(
+                host: .api,
+                method: "GET",
+                path: "/repos/openai/codex/branches",
+                query: ["per_page": "100"],
+                body: nil,
+                requiresAuthentication: true
+            )
+        }
+        if request.operation == "compareBranches" {
+            return GitHubRequestPlan(
+                host: .api,
+                method: "GET",
+                path: "/repos/openai/codex/compare/main...feature%2Fcurrent",
+                query: [:],
+                body: nil,
+                requiresAuthentication: true
+            )
+        }
+        return GitHubRequestPlan(
             host: .api,
             method: "GET",
             path: "/user",
@@ -27,6 +47,27 @@ private struct GitHubCoreStub: GitHubCorePlanning {
     ) throws -> GitHubNormalizedResponse {
         #expect(status == 200)
         #expect(body == "user-response")
+        if operation == "listBranches" {
+            return .branches([
+                GitHubBranch(name: "alpha"),
+                GitHubBranch(name: "main")
+            ])
+        }
+        if operation == "compareBranches" {
+            return .comparison(GitHubComparison(
+                commits: [GitHubComparisonCommit(sha: "abc123", message: "Add PR generation")],
+                files: [GitHubPullRequestFile(
+                    path: "Sources/PullRequest.swift",
+                    status: "modified",
+                    additions: 2,
+                    deletions: 1,
+                    patch: "@@ -1 +1 @@\n-old\n+new"
+                )]
+            ))
+        }
+        if operation == "listPullRequests" {
+            return .pullRequests([])
+        }
         return .user(GitHubUser(
             login: "octocat",
             url: "https://github.com/octocat",
@@ -70,11 +111,79 @@ private struct GitHubGitStub: GitHubGitOperations {
         "git@github.com:openai/codex.git"
     }
 
+    func pullRequestBranchDefaults(at workspaceURL: URL) throws -> GitHubPullRequestBranchDefaults {
+        GitHubPullRequestBranchDefaults(head: "feature/current", base: "develop")
+    }
+
+    func publishPullRequestBranch(named name: String, at workspaceURL: URL) throws {}
+
     func checkoutPullRequest(_ pullRequest: GitHubPullRequest, at workspaceURL: URL) throws {}
 }
 
 @Suite("GitHub service")
 struct GitHubServiceTests {
+    @Test("Branch comparison provides grounded AI generation input")
+    @MainActor
+    func pullRequestDescriptionInput() async throws {
+        let service = GitHubService(
+            core: GitHubCoreStub(),
+            transport: GitHubTransportStub(),
+            configuration: GitHubConfigurationStub(),
+            secureStore: GitHubSecureStoreStub(),
+            git: GitHubGitStub()
+        )
+        _ = try await service.connect(personalAccessToken: "fake-test-token")
+        let model = GitHubFeatureModel(service: service)
+        await model.restore(workspaceURL: URL(fileURLWithPath: "/tmp/lithe-github-fixture"))
+
+        let input = try await model.pullRequestDescriptionInput(
+            base: "main",
+            head: "feature/current"
+        )
+
+        #expect(input.repository == "openai/codex")
+        #expect(input.base == "main")
+        #expect(input.head == "feature/current")
+        #expect(input.commitMessages == ["Add PR generation"])
+        #expect(input.files.first?.path == "Sources/PullRequest.swift")
+    }
+
+    @Test("Branch choices are loaded through the GitHub service")
+    func branchResolution() async throws {
+        let service = GitHubService(
+            core: GitHubCoreStub(),
+            transport: GitHubTransportStub(),
+            configuration: GitHubConfigurationStub(),
+            secureStore: GitHubSecureStoreStub(),
+            git: GitHubGitStub()
+        )
+        _ = try await service.connect(personalAccessToken: "fake-test-token")
+
+        let branches = try await service.listBranches(
+            repository: GitHubRepository(owner: "openai", name: "codex")
+        )
+
+        #expect(branches.map(\.name) == ["alpha", "main"])
+    }
+
+    @Test("Creating a pull request uses the GitHub workspace instead of a modal")
+    @MainActor
+    func createWorkspacePresentationState() {
+        let model = GitHubFeatureModel(service: GitHubService(
+            core: GitHubCoreStub(),
+            transport: GitHubTransportStub(),
+            configuration: GitHubConfigurationStub(),
+            secureStore: GitHubSecureStoreStub(),
+            git: GitHubGitStub()
+        ))
+
+        model.beginCreatingPullRequest()
+        #expect(model.isCreatingPullRequest)
+
+        model.cancelCreatingPullRequest()
+        #expect(!model.isCreatingPullRequest)
+    }
+
     @Test("Swift bridge encodes the GitHub remote URL using the shared contract")
     func productionBridgeParsesGitHubRemote() throws {
         let bridge = RustCoreBridge()
@@ -148,5 +257,23 @@ struct GitHubServiceTests {
         )
 
         #expect(repository.fullName == "openai/codex")
+    }
+
+    @Test("Pull request branch defaults come from the checked-out Git workspace")
+    func pullRequestBranchDefaults() async throws {
+        let service = GitHubService(
+            core: GitHubCoreStub(),
+            transport: GitHubTransportStub(),
+            configuration: GitHubConfigurationStub(),
+            secureStore: GitHubSecureStoreStub(),
+            git: GitHubGitStub()
+        )
+
+        let defaults = try await service.resolvePullRequestBranchDefaults(
+            at: URL(fileURLWithPath: "/tmp/lithe-github-fixture")
+        )
+
+        #expect(defaults.head == "feature/current")
+        #expect(defaults.base == "develop")
     }
 }

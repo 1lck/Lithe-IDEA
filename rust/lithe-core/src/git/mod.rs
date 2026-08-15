@@ -31,6 +31,31 @@ pub struct GitWatchContextRequest {
     pub root: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request for branch and publication state used by pull request creation.
+pub struct GitPullRequestContextRequest {
+    pub root: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Worktree-aware branch defaults and publication requirements for a pull request.
+pub struct GitPullRequestContextResponse {
+    /// Checked-out local branch, or `None` when HEAD is detached.
+    pub current_branch: Option<String>,
+    /// Best-effort branch that should receive the pull request.
+    pub suggested_base_branch: Option<String>,
+    /// Branch name shown when the current commit must be published first.
+    pub suggested_publish_branch: Option<String>,
+    /// Whether GitHub cannot yet see the current local HEAD.
+    pub requires_publish: bool,
+    /// Whether the worktree has no checked-out local branch.
+    pub detached: bool,
+    /// Whether tracked or untracked working-tree changes are not part of HEAD.
+    pub has_uncommitted_changes: bool,
+}
+
 /// Executes one Git operation without invoking a shell.
 ///
 /// The command boundary is intentionally argument-based. This keeps command
@@ -356,6 +381,9 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
             } else {
                 vec!["branch".into(), name, reference]
             };
+        }
+        "publishBranch" => {
+            return publish_branch(&root, request.name.as_deref());
         }
         "renameBranch" => {
             let name = validated_branch_name(&root, request.name.as_deref())?;
@@ -1617,6 +1645,21 @@ fn current_branch(root: &str) -> Result<String, CoreError> {
     Ok(branch.to_string())
 }
 
+fn optional_current_branch(root: &str) -> Result<Option<String>, CoreError> {
+    let response = execute_git_readonly(root, &["branch".into(), "--show-current".into()], None)?;
+    if response.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not determine current branch",
+        )
+        .with_details(response.output));
+    }
+    Ok(match response.output.trim() {
+        "" => None,
+        branch => Some(branch.to_string()),
+    })
+}
+
 fn is_current_reference(root: &str, reference: &str) -> Result<bool, CoreError> {
     let current = current_branch(root)?;
     Ok(reference == current || reference == format!("refs/heads/{current}"))
@@ -1835,6 +1878,39 @@ fn push(root: &str, reference: Option<&str>) -> Result<GitCommandResponse, CoreE
         ),
         None => Ok(failed_git_result("No Git remote is configured")),
     }
+}
+
+fn publish_branch(root: &str, name: Option<&str>) -> Result<GitCommandResponse, CoreError> {
+    let name = validated_branch_name(root, name)?;
+    match optional_current_branch(root)? {
+        Some(current) if current != name => {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Publish the currently checked out branch",
+            ));
+        }
+        Some(_) => {}
+        None => {
+            let created = execute_git(
+                root,
+                &["switch".into(), "-c".into(), name.clone(), "HEAD".into()],
+                None,
+            )?;
+            if created.exit_code != 0 {
+                return Ok(created);
+            }
+        }
+    }
+    execute_git(
+        root,
+        &[
+            "push".into(),
+            "--set-upstream".into(),
+            "origin".into(),
+            name,
+        ],
+        None,
+    )
 }
 
 /// Checks out `request.reference`, honouring the conflict-resolution strategy the user
@@ -2450,6 +2526,121 @@ fn canonical_git_output(output: std::process::Output, label: &str) -> Result<Str
             )
             .with_details(error.to_string())
         })
+}
+
+/// Returns the checked-out branch and whether its HEAD must be pushed before a PR.
+pub fn pull_request_context(
+    request: GitPullRequestContextRequest,
+) -> Result<GitPullRequestContextResponse, CoreError> {
+    let root = validate_root(&request.root)?;
+    let current_branch = optional_current_branch(&root)?;
+    let detached = current_branch.is_none();
+    let remote_default = command_value(
+        &root,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
+    )
+    .map(|value| value.trim_start_matches("origin/").to_string());
+
+    let suggested_base_branch = if let Some(branch) = current_branch.as_deref() {
+        created_from_branch(&root, branch).or(remote_default)
+    } else {
+        detached_start_branch(&root).or(remote_default)
+    };
+    let requires_publish = current_branch
+        .as_deref()
+        .map_or(true, |branch| branch_requires_publish(&root, branch));
+    let suggested_publish_branch = if requires_publish {
+        current_branch.clone().or_else(|| {
+            command_value(&root, &["rev-parse", "--short=8", "HEAD"])
+                .map(|short_hash| format!("codex/pr-{short_hash}"))
+        })
+    } else {
+        None
+    };
+    let has_uncommitted_changes = command_value(
+        &root,
+        &["status", "--porcelain", "--untracked-files=normal"],
+    )
+    .is_some();
+
+    Ok(GitPullRequestContextResponse {
+        current_branch,
+        suggested_base_branch,
+        suggested_publish_branch,
+        requires_publish,
+        detached,
+        has_uncommitted_changes,
+    })
+}
+
+fn command_value(root: &str, arguments: &[&str]) -> Option<String> {
+    let arguments = arguments
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    let response = execute_git_readonly(root, &arguments, None).ok()?;
+    let value = response.output.trim();
+    (response.exit_code == 0 && !value.is_empty()).then(|| value.to_string())
+}
+
+fn created_from_branch(root: &str, branch: &str) -> Option<String> {
+    let reference = format!("refs/heads/{branch}");
+    let response = command_value(root, &["reflog", "show", "--format=%gs", &reference])?;
+    let prefix = "branch: Created from ";
+    response.lines().find_map(|line| {
+        let source = line.strip_prefix(prefix)?;
+        (!matches!(source, "HEAD" | "FETCH_HEAD" | "ORIG_HEAD"))
+            .then(|| source.trim_start_matches("origin/").to_string())
+    })
+}
+
+fn detached_start_branch(root: &str) -> Option<String> {
+    let reflog = command_value(root, &["reflog", "show", "--format=%H", "HEAD"])?;
+    // Reflog output is newest-first; the final entry is the commit at which
+    // this worktree's HEAD was initialized.
+    let starting_commit = reflog.lines().last()?.trim();
+    let references = command_value(
+        root,
+        &[
+            "for-each-ref",
+            "--sort=refname",
+            "--format=%(refname)",
+            "--points-at",
+            starting_commit,
+            "refs/heads",
+            "refs/remotes/origin",
+        ],
+    )?;
+    references
+        .lines()
+        .find_map(|reference| reference.strip_prefix("refs/heads/").map(str::to_string))
+        .or_else(|| {
+            references.lines().find_map(|reference| {
+                reference
+                    .strip_prefix("refs/remotes/origin/")
+                    .filter(|branch| *branch != "HEAD")
+                    .map(str::to_string)
+            })
+        })
+}
+
+fn branch_requires_publish(root: &str, branch: &str) -> bool {
+    let origin_branch = format!("refs/remotes/origin/{branch}");
+    if command_value(root, &["rev-parse", "--verify", &origin_branch]).is_none() {
+        return true;
+    }
+    let comparison = format!("{origin_branch}..HEAD");
+    match command_value(root, &["rev-list", "--count", &comparison])
+        .and_then(|count| count.parse::<usize>().ok())
+    {
+        Some(0) => false,
+        Some(_) | None => true,
+    }
 }
 
 /// Returns the normalized repository status and branch context.

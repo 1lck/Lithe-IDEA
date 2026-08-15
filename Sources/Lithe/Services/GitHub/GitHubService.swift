@@ -145,12 +145,49 @@ actor GitHubService {
         return try core.parseRemote(git.originRemote(at: workspaceURL))
     }
 
+    func resolvePullRequestBranchDefaults(
+        at workspaceURL: URL?
+    ) throws -> GitHubPullRequestBranchDefaults {
+        guard let workspaceURL else { throw ServiceError.noWorkspace }
+        return try git.pullRequestBranchDefaults(at: workspaceURL)
+    }
+
+    func publishPullRequestBranch(named name: String, at workspaceURL: URL?) throws {
+        guard let workspaceURL else { throw ServiceError.noWorkspace }
+        try git.publishPullRequestBranch(named: name, at: workspaceURL)
+    }
+
     func listPullRequests(repository: GitHubRepository, state: String = "open") async throws -> [GitHubPullRequest] {
         let response = try await perform(
             GitHubRequest(operation: "listPullRequests", repository: repository, state: state)
         )
         guard case .pullRequests(let requests) = response else { throw ServiceError.invalidResponse }
         return requests
+    }
+
+    func listBranches(repository: GitHubRepository) async throws -> [GitHubBranch] {
+        let response = try await perform(
+            GitHubRequest(operation: "listBranches", repository: repository)
+        )
+        guard case .branches(let branches) = response else { throw ServiceError.invalidResponse }
+        return branches
+    }
+
+    func compareBranches(
+        repository: GitHubRepository,
+        base: String,
+        head: String
+    ) async throws -> GitHubComparison {
+        let response = try await perform(GitHubRequest(
+            operation: "compareBranches",
+            repository: repository,
+            head: head,
+            base: base
+        ))
+        guard case .comparison(let comparison) = response else {
+            throw ServiceError.invalidResponse
+        }
+        return comparison
     }
 
     func pullRequest(repository: GitHubRepository, number: UInt64) async throws -> GitHubPullRequest {

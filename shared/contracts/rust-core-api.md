@@ -102,6 +102,7 @@ stable error code and a user-facing message:
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
+| `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
@@ -137,6 +138,15 @@ Git repository, it returns `null`. Otherwise it returns
 `{ "repositoryRoot": string, "gitDirectory": string, "gitCommonDirectory": string }`;
 all three fields are absolute filesystem paths.
 
+`git.pullRequestContext` accepts `{ "root": string }` and returns
+`currentBranch`, `suggestedBaseBranch`, `suggestedPublishBranch`,
+`requiresPublish`, `detached`, and `hasUncommittedChanges`. For detached
+worktrees, Core uses the worktree HEAD reflog's oldest commit and refs pointing
+at that commit to suggest the branch from which the worktree started. For a
+named branch, `requiresPublish` remains true until its current HEAD is present
+on the same branch under `origin`, because GitHub repository identity is also
+resolved from `origin`.
+
 `git.command` accepts `{ "root": string, "arguments": string[], "input": string? }`.
 Arguments are passed directly to the Git executable without a shell. A
 successful process launch returns `{ "output": string, "exitCode": number }`
@@ -145,7 +155,7 @@ standard error envelope.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
-`reset`, `createBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
+`reset`, `createBranch`, `publishBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, and `stashDrop`. Optional fields are `paths`,
 `reference`, `referenceKind`, `revision`, `name`, `message`, `remote`,
@@ -157,7 +167,10 @@ Successful process launch returns `{ "output": string, "exitCode": number }`
 even when Git exits non-zero. Invalid arguments use the standard
 `invalid_request` error envelope. `checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and
-`destination` as its target path.
+`destination` as its target path. `publishBranch` validates `name`, creates
+and checks out that branch at a detached HEAD when needed, then pushes it with
+an upstream. If the push fails, the local branch is intentionally retained so
+the user can fix credentials or connectivity and retry without losing commits.
 
 `git.diff` accepts `root`, `pathspecs`, optional `reference` or `commit`,
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],

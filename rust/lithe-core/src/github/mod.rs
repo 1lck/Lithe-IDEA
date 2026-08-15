@@ -126,7 +126,7 @@ pub struct NormalizeResponseRequest {
     pub body: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Normalized GitHub user identity.
 pub struct GitHubUser {
@@ -214,7 +214,7 @@ pub struct GitHubComment {
     pub url: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Normalized file summary for one pull request.
 pub struct GitHubPullRequestFile {
@@ -228,6 +228,34 @@ pub struct GitHubPullRequestFile {
     pub deletions: u64,
     /// Unified patch when GitHub supplies one.
     pub patch: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Normalized GitHub branch offered by pull-request creation surfaces.
+pub struct GitHubBranch {
+    /// Full branch name without the `refs/heads/` prefix.
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Normalized commit metadata included in a branch comparison.
+pub struct GitHubComparisonCommit {
+    /// Full Git commit identifier.
+    pub sha: String,
+    /// Complete commit subject and body returned by GitHub.
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Normalized branch comparison used by pull-request generation workflows.
+pub struct GitHubComparison {
+    /// Commits in GitHub comparison order.
+    pub commits: Vec<GitHubComparisonCommit>,
+    /// Changed files sorted by repository-relative path.
+    pub files: Vec<GitHubPullRequestFile>,
 }
 
 /// Parses one supported GitHub remote URL.
@@ -299,6 +327,33 @@ pub fn request_plan(request: RequestPlanRequest) -> Result<GitHubRequestPlan, Co
             )
         }
         "currentUser" => (GitHubHost::Api, "GET", "/user".to_string(), None, true),
+        "listBranches" => {
+            let repository = repository_path(&request)?;
+            query.insert("per_page".to_string(), "100".to_string());
+            (
+                GitHubHost::Api,
+                "GET",
+                format!("/repos/{repository}/branches"),
+                None,
+                true,
+            )
+        }
+        "compareBranches" => {
+            let repository = repository_path(&request)?;
+            let base = required_text(request.base.as_deref(), "base")?;
+            let head = required_text(request.head.as_deref(), "head")?;
+            (
+                GitHubHost::Api,
+                "GET",
+                format!(
+                    "/repos/{repository}/compare/{}...{}",
+                    encode_path_component(base),
+                    encode_path_component(head)
+                ),
+                None,
+                true,
+            )
+        }
         "listPullRequests" => {
             let repository = repository_path(&request)?;
             let state = request.state.as_deref().unwrap_or("open");
@@ -458,6 +513,8 @@ pub fn normalize_response(request: NormalizeResponseRequest) -> Result<Value, Co
         "deviceCode" => normalize_device_code(value),
         "deviceToken" => normalize_device_token(value),
         "currentUser" => Ok(serde_json::to_value(normalize_user(&value)?).expect("user encodes")),
+        "listBranches" => normalize_branch_list(value),
+        "compareBranches" => normalize_comparison(value),
         "listPullRequests" => normalize_pull_request_list(value),
         "getPullRequest" | "createPullRequest" | "updatePullRequest" => Ok(serde_json::to_value(
             normalize_pull_request(&value)?,
@@ -582,6 +639,22 @@ fn normalize_pull_request_list(value: Value) -> Result<Value, CoreError> {
         .collect::<Result<Vec<_>, _>>()?;
     requests.sort_by(|left, right| right.number.cmp(&left.number));
     Ok(serde_json::to_value(requests).expect("pull request list encodes"))
+}
+
+fn normalize_branch_list(value: Value) -> Result<Value, CoreError> {
+    let array = value.as_array().ok_or_else(parse_shape_error)?;
+    let mut branches = array
+        .iter()
+        .map(|value| {
+            let object = object(value)?;
+            Ok(GitHubBranch {
+                name: text(object, "name")?.to_string(),
+            })
+        })
+        .collect::<Result<Vec<_>, CoreError>>()?;
+    branches.sort_by(|left, right| left.name.cmp(&right.name));
+    branches.dedup_by(|left, right| left.name == right.name);
+    Ok(serde_json::to_value(branches).expect("branch list encodes"))
 }
 
 fn normalize_pull_request(value: &Value) -> Result<GitHubPullRequest, CoreError> {
@@ -726,6 +799,54 @@ fn normalize_file_list(value: Value) -> Result<Value, CoreError> {
         .collect::<Result<Vec<_>, CoreError>>()?;
     files.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(serde_json::to_value(files).expect("file list encodes"))
+}
+
+fn normalize_comparison(value: Value) -> Result<Value, CoreError> {
+    let comparison = object(&value)?;
+    let commits = comparison
+        .get("commits")
+        .and_then(Value::as_array)
+        .ok_or_else(parse_shape_error)?
+        .iter()
+        .map(|value| {
+            let object = object(value)?;
+            let commit = object
+                .get("commit")
+                .and_then(Value::as_object)
+                .ok_or_else(parse_shape_error)?;
+            Ok(GitHubComparisonCommit {
+                sha: text(object, "sha")?.to_string(),
+                message: text(commit, "message")?.to_string(),
+            })
+        })
+        .collect::<Result<Vec<_>, CoreError>>()?;
+    let files_value = comparison
+        .get("files")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(Vec::new()));
+    let files =
+        serde_json::from_value::<Vec<GitHubPullRequestFile>>(normalize_file_list(files_value)?)
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::ParseFailed,
+                    "GitHub returned an unexpected response",
+                )
+                .with_details(error.to_string())
+            })?;
+    Ok(serde_json::to_value(GitHubComparison { commits, files })
+        .expect("comparison response encodes"))
+}
+
+fn encode_path_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 fn normalize_merge(value: Value) -> Result<Value, CoreError> {

@@ -27,6 +27,32 @@ struct MacGitHubGitOperations: GitHubGitOperations, Sendable {
         return remote
     }
 
+    func pullRequestBranchDefaults(at workspaceURL: URL) throws -> GitHubPullRequestBranchDefaults {
+        let context = try core.gitPullRequestContext(at: workspaceURL).get()
+        return GitHubPullRequestBranchDefaults(
+            head: context.currentBranch,
+            base: context.suggestedBaseBranch,
+            requiresPublish: context.requiresPublish,
+            isDetached: context.detached,
+            suggestedPublishBranch: context.suggestedPublishBranch,
+            hasUncommittedChanges: context.hasUncommittedChanges
+        )
+    }
+
+    func publishPullRequestBranch(named name: String, at workspaceURL: URL) throws {
+        let result = try core.gitWriteResult(
+            at: workspaceURL,
+            operation: "publishBranch",
+            name: name
+        ).get()
+        guard result.exitCode == 0 else {
+            let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw GitError.commandFailed(
+                message.isEmpty ? String(localized: "The branch could not be published") : message
+            )
+        }
+    }
+
     func checkoutPullRequest(_ pullRequest: GitHubPullRequest, at workspaceURL: URL) throws {
         let remoteReference = "refs/remotes/origin/pr/\(pullRequest.number)"
         let fetch = try core.gitCommandResult(
@@ -52,4 +78,5 @@ struct MacGitHubGitOperations: GitHubGitOperations, Sendable {
         let branch = String(result).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return branch.isEmpty ? "head" : branch
     }
+
 }

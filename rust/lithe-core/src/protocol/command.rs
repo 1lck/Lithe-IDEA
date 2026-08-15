@@ -121,6 +121,8 @@ pub enum CoreCommand {
     GitStatus,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
+    /// Describes the checked-out branch or detached worktree for PR creation (`git.pullRequestContext`).
+    GitPullRequestContext,
     /// Executes a caller-supplied argument vector without a shell (`git.command`).
     GitCommand,
     /// Performs one supported Git mutation (`git.write`).
@@ -210,6 +212,7 @@ impl CoreCommand {
             "java.structure" => Some(Self::JavaStructure),
             "git.status" => Some(Self::GitStatus),
             "git.watchContext" => Some(Self::GitWatchContext),
+            "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
             "git.diff" => Some(Self::GitDiff),

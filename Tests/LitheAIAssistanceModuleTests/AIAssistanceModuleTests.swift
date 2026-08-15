@@ -57,12 +57,14 @@ struct AIAssistanceModuleTests {
         try await runtime.sleep(.aiAssistance)
         #expect(releasedCapability == nil)
         #expect(runtime.capability(.aiCommitMessage) == nil)
+        #expect(runtime.capability(.aiPullRequestDescription) == nil)
         #expect(try runtime.snapshot(for: .aiAssistance).activity.activeResourceCount == 0)
 
         let second = try #require(
             try await runtime.activateCapability(.aiCommitMessage) as? AIAssistanceCapability
         )
         #expect(second !== releasedCapability)
+        #expect(runtime.capability(.aiPullRequestDescription) === second)
         #expect(recorder.moduleFactoryCalls == 2)
         #expect(recorder.transportFactoryCalls == 2)
     }

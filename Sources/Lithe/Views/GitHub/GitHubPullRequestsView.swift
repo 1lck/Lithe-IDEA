@@ -61,7 +61,6 @@ private enum GitHubMergeChoice: String, Identifiable {
 
 struct GitHubPullRequestsSidebarView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var isCreatePresented = false
     @State private var searchQuery = ""
 
     var body: some View {
@@ -80,10 +79,6 @@ struct GitHubPullRequestsSidebarView: View {
             }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             content
-        }
-        .sheet(isPresented: $isCreatePresented) {
-            GitHubCreatePullRequestView(isPresented: $isCreatePresented)
-                .environmentObject(model)
         }
     }
 
@@ -272,10 +267,11 @@ struct GitHubPullRequestsSidebarView: View {
                 .labelsHidden()
                 .pickerStyle(.segmented)
 
-                Button { isCreatePresented = true } label: {
-                    Image(systemName: "plus")
+                Button { model.githubFeature.beginCreatingPullRequest() } label: {
+                    Label("Create pull request", systemImage: "plus")
                 }
-                .litheIconButton()
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
                 .disabled(model.githubFeature.repository == nil)
                 .help("Create pull request")
             }
@@ -380,7 +376,9 @@ struct GitHubPullRequestDetailView: View {
 
     var body: some View {
         Group {
-            if let request = model.githubFeature.selectedPullRequest {
+            if model.githubFeature.isCreatingPullRequest {
+                GitHubCreatePullRequestWorkspaceView()
+            } else if let request = model.githubFeature.selectedPullRequest {
                 detail(request)
             } else {
                 GitHubEmptyState(
@@ -391,6 +389,7 @@ struct GitHubPullRequestDetailView: View {
             }
         }
         .background(LitheTheme.editor)
+        .animation(.easeOut(duration: 0.16), value: model.githubFeature.isCreatingPullRequest)
         .animation(.easeOut(duration: 0.16), value: model.githubFeature.selectedPullRequest?.number)
     }
 
@@ -1322,46 +1321,647 @@ private struct GitHubEditPullRequestView: View {
     private var trimmedBase: String { base.trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
-private struct GitHubCreatePullRequestView: View {
+private struct GitHubCreatePullRequestWorkspaceView: View {
     @EnvironmentObject private var model: AppModel
-    @Binding var isPresented: Bool
     @State private var title = ""
     @State private var descriptionText = ""
     @State private var head = ""
-    @State private var base = "main"
+    @State private var base = ""
     @State private var draft = false
+    @State private var isGeneratingDescription = false
+    @State private var generationError: String?
+    @State private var pendingGeneratedContent: PullRequestDescriptionOutput?
+    @State private var isGeneratedContentConfirmationPresented = false
+    @State private var publishBranchName = ""
+    @FocusState private var focusedField: Field?
+
+    private enum Field {
+        case title
+        case description
+    }
 
     var body: some View {
-        GitHubPullRequestForm(
-            heading: "Create pull request",
-            caption: model.githubFeature.repository?.fullName ?? "Current GitHub repository",
-            title: $title,
-            descriptionText: $descriptionText,
-            head: $head,
-            base: $base,
-            draft: $draft,
-            primaryTitle: draft ? "Create Draft" : "Create Pull Request",
-            isPrimaryDisabled: trimmedTitle.isEmpty || trimmedHead.isEmpty || trimmedBase.isEmpty,
-            cancel: { isPresented = false },
-            submit: {
-                Task {
-                    if await model.githubFeature.createPullRequest(
-                        title: trimmedTitle,
-                        body: descriptionText,
-                        head: trimmedHead,
-                        base: trimmedBase,
-                        draft: draft
-                    ) {
-                        isPresented = false
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                pageHeading
+                comparisonCard
+                creationCard
+            }
+            .frame(maxWidth: 980, alignment: .leading)
+            .padding(.horizontal, 34)
+            .padding(.vertical, 28)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .background(LitheTheme.editor)
+        .onExitCommand { model.githubFeature.cancelCreatingPullRequest() }
+        .task { await model.githubFeature.loadBranches() }
+        .onChange(of: model.githubFeature.branches) { branches in
+            applyDefaultBranches(from: branches)
+        }
+        .onChange(of: model.githubFeature.pullRequestBranchDefaults) { _ in
+            applyPublicationDefaults()
+            applyDefaultBranches(from: model.githubFeature.branches)
+        }
+        .onAppear { applyPublicationDefaults() }
+        .confirmationDialog(
+            "Apply AI-generated content?",
+            isPresented: $isGeneratedContentConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Replace existing content") {
+                applyGeneratedContent(replacingExisting: true)
+            }
+            Button("Keep existing content") {
+                applyGeneratedContent(replacingExisting: false)
+            }
+            Button("Cancel", role: .cancel) {
+                pendingGeneratedContent = nil
+            }
+        } message: {
+            Text("The generated title or description would replace text you already entered.")
+        }
+    }
+
+    private var pageHeading: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Comparing changes")
+                .font(.system(size: 24, weight: .semibold))
+            Text("Choose a base and compare branch, then describe the pull request.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+        }
+    }
+
+    private var comparisonCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if model.githubFeature.pullRequestBranchDefaults.requiresPublish {
+                branchPublicationPanel
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    branchPicker(label: "Base", selection: $base)
+                    Image(systemName: "arrow.left")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                    branchPicker(label: "Compare", selection: $head)
+                    Spacer(minLength: 12)
+                    comparisonStatus
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    branchPicker(label: "Base", selection: $base)
+                    branchPicker(label: "Compare", selection: $head)
+                    comparisonStatus
                 }
             }
+
+            Text("Changes from the compare branch will be proposed for the base branch.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.tertiaryText)
+        }
+        .padding(16)
+        .background(LitheTheme.toolHeader)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(LitheTheme.inputBorder))
+    }
+
+    private var branchPublicationPanel: some View {
+        let defaults = model.githubFeature.pullRequestBranchDefaults
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: defaults.isDetached ? "arrow.triangle.branch" : "icloud.and.arrow.up")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(LitheTheme.accent)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(defaults.isDetached ? "Publish this worktree" : "Push this branch to GitHub")
+                        .font(.system(size: 12.5, weight: .semibold))
+                    Text(
+                        defaults.isDetached
+                            ? "This worktree has a detached HEAD. Publish it as a branch before creating a pull request."
+                            : "Push the latest commits before comparing or creating a pull request."
+                    )
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+            }
+
+            HStack(spacing: 9) {
+                TextField("Branch name", text: $publishBranchName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .background(LitheTheme.inputBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                    }
+                    .disabled(!defaults.isDetached || model.githubFeature.isPublishingPullRequestBranch)
+
+                Button {
+                    publishPullRequestBranch()
+                } label: {
+                    HStack(spacing: 6) {
+                        if model.githubFeature.isPublishingPullRequestBranch {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(model.githubFeature.isPublishingPullRequestBranch ? "Publishing…" : "Publish Branch")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(
+                    publishBranchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || model.githubFeature.isPublishingPullRequestBranch
+                )
+                .lithePointer()
+            }
+
+            if defaults.hasUncommittedChanges {
+                Label(
+                    "Uncommitted changes stay in this worktree and are not included in the pull request.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.system(size: 10.5))
+                .foregroundStyle(LitheTheme.warning)
+            }
+
+            if let error = model.githubFeature.branchPublicationError {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .background(LitheTheme.accent.opacity(0.055))
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+    }
+
+    private func branchPicker(
+        label: LocalizedStringKey,
+        selection: Binding<String>
+    ) -> some View {
+        GitHubBranchPicker(
+            label: label,
+            selection: selection,
+            branches: model.githubFeature.branches,
+            contentState: model.githubFeature.branchContentState,
+            retry: {
+                Task { await model.githubFeature.loadBranches(force: true) }
+            }
         )
+    }
+
+    private func applyDefaultBranches(from branches: [GitHubBranch]) {
+        guard !branches.isEmpty else { return }
+        let branchNames = Set(branches.map(\.name))
+        let defaults = model.githubFeature.pullRequestBranchDefaults
+
+        if !defaults.requiresPublish, head.isEmpty, let suggestedHead = defaults.head,
+           branchNames.contains(suggestedHead) {
+            head = suggestedHead
+        }
+
+        guard base.isEmpty || !branchNames.contains(base) else { return }
+        let candidates = [defaults.base, "main", "master"]
+            .compactMap { $0 }
+        base = candidates.first { branchNames.contains($0) && $0 != head }
+            ?? branches.first(where: { $0.name != head })?.name
+            ?? ""
+    }
+
+    private func applyPublicationDefaults() {
+        let defaults = model.githubFeature.pullRequestBranchDefaults
+        guard defaults.requiresPublish,
+              let suggestion = defaults.suggestedPublishBranch,
+              publishBranchName.isEmpty || !defaults.isDetached else { return }
+        publishBranchName = suggestion
+    }
+
+    private func publishPullRequestBranch() {
+        let name = publishBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        Task {
+            if let published = await model.publishGitHubPullRequestBranch(named: name) {
+                head = published
+                publishBranchName = published
+                applyDefaultBranches(from: model.githubFeature.branches)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var comparisonStatus: some View {
+        HStack(spacing: 6) {
+            Image(systemName: comparisonStatusIcon)
+            Text(comparisonStatusTitle)
+        }
+        .font(.system(size: 11.5, weight: .semibold))
+        .foregroundStyle(comparisonStatusColor)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var creationCard: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                if case .connected(let user) = model.githubFeature.connectionState {
+                    GitHubIdentityMark(login: user.login, size: 30)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Create pull request")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(model.githubFeature.repository?.fullName ?? "Current GitHub repository")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer()
+            }
+            .padding(16)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            VStack(alignment: .leading, spacing: 15) {
+                workspaceFormField("Title", required: true) {
+                    TextField("What does this pull request change?", text: $title)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .focused($focusedField, equals: .title)
+                        .padding(.horizontal, 11)
+                        .frame(height: 36)
+                        .background(LitheTheme.inputBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(focusedField == .title ? LitheTheme.accent : LitheTheme.inputBorder)
+                        )
+                }
+
+                pullRequestDescriptionField
+
+                operationMessage
+
+                HStack {
+                    Toggle("Create as draft", isOn: $draft)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .toggleStyle(.checkbox)
+                    Spacer()
+                    Button("Cancel") { model.githubFeature.cancelCreatingPullRequest() }
+                        .keyboardShortcut(.cancelAction)
+                        .disabled(isOperationRunning)
+                    Button {
+                        submit()
+                    } label: {
+                        HStack(spacing: 7) {
+                            if isOperationRunning {
+                                ProgressView().controlSize(.small)
+                            }
+                            Text(draft ? "Create Draft" : "Create Pull Request")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(isSubmitDisabled)
+                }
+            }
+            .padding(16)
+        }
+        .background(LitheTheme.sidebar)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(LitheTheme.inputBorder))
+    }
+
+    private var pullRequestDescriptionField: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                Text("Description")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Spacer()
+                Button {
+                    generatePullRequestDescription()
+                } label: {
+                    HStack(spacing: 6) {
+                        if isGeneratingDescription {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "wand.and.stars")
+                        }
+                        Text(isGeneratingDescription ? "Generating…" : "Generate with AI")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isGenerateDescriptionDisabled)
+                .help("Generate a title and description from the selected branch changes")
+            }
+
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $descriptionText)
+                    .scrollContentBackground(.hidden)
+                    .font(.system(size: 12.5))
+                    .focused($focusedField, equals: .description)
+                    .padding(7)
+                    .frame(minHeight: 210)
+                if descriptionText.isEmpty {
+                    Text("Explain the intent, testing, and anything reviewers should know…")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .padding(13)
+                        .allowsHitTesting(false)
+                }
+            }
+            .background(LitheTheme.inputBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(focusedField == .description ? LitheTheme.accent : LitheTheme.inputBorder)
+            )
+
+            if let generationError {
+                Label(generationError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.error)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var operationMessage: some View {
+        switch model.githubFeature.operationState {
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.error)
+        case .running(let message):
+            Text(LocalizedStringKey(message))
+                .font(.system(size: 11))
+                .foregroundStyle(LitheTheme.secondaryText)
+        case .idle, .succeeded:
+            EmptyView()
+        }
+    }
+
+    private func workspaceFormField<Content: View>(
+        _ label: String,
+        required: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 0) {
+                Text(LocalizedStringKey(label))
+                if required { Text(" *") }
+            }
+            .font(.system(size: 11.5, weight: .semibold))
+            .foregroundStyle(LitheTheme.secondaryText)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func submit() {
+        focusedField = nil
+        Task {
+            _ = await model.githubFeature.createPullRequest(
+                title: trimmedTitle,
+                body: descriptionText,
+                head: trimmedHead,
+                base: trimmedBase,
+                draft: draft
+            )
+        }
+    }
+
+    private func generatePullRequestDescription() {
+        guard !isGenerateDescriptionDisabled else { return }
+        focusedField = nil
+        generationError = nil
+        isGeneratingDescription = true
+        Task {
+            defer { isGeneratingDescription = false }
+            do {
+                let output = try await model.generatePullRequestDescription(
+                    base: trimmedBase,
+                    head: trimmedHead
+                )
+                if trimmedTitle.isEmpty && descriptionText.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty {
+                    title = output.title
+                    descriptionText = output.description
+                } else {
+                    pendingGeneratedContent = output
+                    isGeneratedContentConfirmationPresented = true
+                }
+            } catch {
+                generationError = error.localizedDescription
+            }
+        }
+    }
+
+    private func applyGeneratedContent(replacingExisting: Bool) {
+        guard let output = pendingGeneratedContent else { return }
+        if replacingExisting || trimmedTitle.isEmpty {
+            title = output.title
+        }
+        if replacingExisting || descriptionText.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty {
+            descriptionText = output.description
+        }
+        pendingGeneratedContent = nil
+    }
+
+    private var comparisonStatusIcon: String {
+        if model.githubFeature.pullRequestBranchDefaults.requiresPublish { return "icloud.and.arrow.up" }
+        if trimmedHead.isEmpty || trimmedBase.isEmpty { return "circle.dashed" }
+        if branchesAreEqual { return "exclamationmark.triangle.fill" }
+        return "checkmark.circle.fill"
+    }
+
+    private var comparisonStatusTitle: LocalizedStringKey {
+        if model.githubFeature.pullRequestBranchDefaults.requiresPublish { return "Publish branch first" }
+        if trimmedHead.isEmpty || trimmedBase.isEmpty { return "Choose two branches" }
+        if branchesAreEqual { return "Branches must be different" }
+        return "Ready to create"
+    }
+
+    private var comparisonStatusColor: Color {
+        if model.githubFeature.pullRequestBranchDefaults.requiresPublish { return LitheTheme.accent }
+        if trimmedHead.isEmpty || trimmedBase.isEmpty { return LitheTheme.tertiaryText }
+        if branchesAreEqual { return .orange }
+        return LitheTheme.success
+    }
+
+    private var isSubmitDisabled: Bool {
+        trimmedTitle.isEmpty || trimmedHead.isEmpty || trimmedBase.isEmpty || branchesAreEqual
+            || model.githubFeature.pullRequestBranchDefaults.requiresPublish
+            || isOperationRunning
+    }
+
+    private var isGenerateDescriptionDisabled: Bool {
+        trimmedHead.isEmpty || trimmedBase.isEmpty || branchesAreEqual
+            || model.githubFeature.pullRequestBranchDefaults.requiresPublish
+            || isGeneratingDescription || isOperationRunning
+    }
+
+    private var isOperationRunning: Bool {
+        if case .running = model.githubFeature.operationState { return true }
+        return false
+    }
+
+    private var branchesAreEqual: Bool {
+        trimmedHead.caseInsensitiveCompare(trimmedBase) == .orderedSame
     }
 
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var trimmedHead: String { head.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var trimmedBase: String { base.trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
+private struct GitHubBranchPicker: View {
+    let label: LocalizedStringKey
+    @Binding var selection: String
+    let branches: [GitHubBranch]
+    let contentState: GitHubFeatureModel.ContentState
+    let retry: () -> Void
+    @State private var isPresented = false
+    @State private var query = ""
+
+    var body: some View {
+        Button {
+            query = ""
+            isPresented = true
+        } label: {
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Text(selection.isEmpty ? "Select branch" : selection)
+                    .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(selection.isEmpty ? LitheTheme.tertiaryText : LitheTheme.primaryText)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+            }
+            .padding(.horizontal, 10)
+            .frame(minWidth: 170, idealWidth: 205, maxWidth: 240, minHeight: 32)
+            .background(LitheTheme.inputBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isPresented ? LitheTheme.accent : LitheTheme.inputBorder)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityValue(selection.isEmpty ? Text("Select branch") : Text(selection))
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            popoverContent
+        }
+    }
+
+    private var popoverContent: some View {
+        VStack(spacing: 10) {
+            TextField("Search branches", text: $query)
+                .textFieldStyle(.roundedBorder)
+
+            branchContent
+        }
+        .padding(12)
+        .frame(width: 300, height: 340)
+        .background(LitheTheme.sidebar)
+    }
+
+    @ViewBuilder
+    private var branchContent: some View {
+        switch contentState {
+        case .idle, .loading:
+            Spacer()
+            ProgressView("Loading branches")
+                .controlSize(.small)
+                .foregroundStyle(LitheTheme.secondaryText)
+            Spacer()
+        case .failed(let message):
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                Text("Branches unavailable")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(message)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                Button("Retry", action: retry)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+            Spacer()
+        case .ready:
+            if filteredBranches.isEmpty {
+                Spacer()
+                Text("No branches found")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(filteredBranches) { branch in
+                            branchRow(branch)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func branchRow(_ branch: GitHubBranch) -> some View {
+        Button {
+            selection = branch.name
+            isPresented = false
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 10))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Text(branch.name)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .lineLimit(1)
+                Spacer()
+                if selection == branch.name {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(LitheTheme.accent)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var filteredBranches: [GitHubBranch] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return branches }
+        return branches.filter { $0.name.localizedCaseInsensitiveContains(trimmedQuery) }
+    }
 }
 
 private struct GitHubPullRequestForm: View {

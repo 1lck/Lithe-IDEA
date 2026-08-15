@@ -47,6 +47,23 @@ struct AppLocalizationTests {
         #expect(translations["Select a pull request"] == "选择一个拉取请求")
         #expect(translations["Request changes"] == "请求修改")
         #expect(translations["Create Pull Request"] == "创建拉取请求")
+        #expect(translations["Comparing changes"] == "比较更改")
+        #expect(translations["Ready to create"] == "可以创建拉取请求")
+        #expect(translations["Select branch"] == "选择分支")
+        #expect(translations["Search branches"] == "搜索分支")
+        #expect(translations["Generate with AI"] == "AI 生成")
+        #expect(translations["Pull request description generation"] == "拉取请求描述生成")
+        #expect(translations["Custom template"] == "自定义模板")
+        #expect(translations["Publish this worktree"] == "发布当前工作树")
+        #expect(translations["Publish Branch"] == "发布分支")
+        #expect(
+            translations["Uncommitted changes stay in this worktree and are not included in the pull request."]
+                == "未提交的更改会保留在当前工作树中，不会包含在拉取请求里。"
+        )
+        #expect(
+            translations["The selected branch diff is sent to the active AI provider when you generate."]
+                == "生成时，所选分支的差异内容会发送给当前 AI 服务商。"
+        )
     }
 
     private func simplifiedChineseTranslations() throws -> [String: String] {

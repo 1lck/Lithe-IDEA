@@ -52,7 +52,7 @@ GitHub sign-in unavailable rather than asking the user for a personal token.
   JSON `body`. It returns a normalized value or the standard Core error.
 
 Supported operations are `deviceCode`, `deviceToken`, `currentUser`,
-`listPullRequests`, `getPullRequest`, `createPullRequest`, `updatePullRequest`,
+`listBranches`, `compareBranches`, `listPullRequests`, `getPullRequest`, `createPullRequest`, `updatePullRequest`,
 `listPullRequestFiles`, `listPullRequestComments`,
 `createPullRequestComment`, `createPullRequestReview`, `mergePullRequest`, and
 `updatePullRequestMetadata`.
@@ -60,6 +60,12 @@ Supported operations are `deviceCode`, `deviceToken`, `currentUser`,
 PR lists are sorted by descending number. Labels, assignees, comments, and
 files are deterministically ordered as demonstrated by
 `shared/fixtures/github/pull-request-v1.json`.
+Branch lists are sorted by branch name and duplicate names are removed before
+they cross the Rust boundary. The first page is capped at 100 branches, which
+matches the current creation workflow's bounded picker.
+Branch comparisons preserve GitHub's commit order and sort changed files by
+repository-relative path. Branch names are percent-encoded by Rust Core before
+they enter the trusted compare request path.
 
 ## Product Scope
 
@@ -67,5 +73,16 @@ The first macOS surface supports connect/disconnect, repository resolution
 from `origin`, PR list/detail/create/update, files, conversation comments,
 comment creation, review submission, merge/squash/rebase, close/reopen,
 labels/assignees, and argument-based checkout of the PR head branch.
+Pull-request creation can send the normalized comparison's textual patches and
+commit messages to the user's configured AI provider to draft an editable title
+and Markdown description. Sensitive-file filtering and the configured diff
+character limit are shared with commit-message generation. AI output never
+creates or submits a pull request without the user's explicit action.
+When the opened workspace has a detached HEAD or commits not present on its
+upstream, creation is blocked until the user explicitly publishes the branch.
+Rust Core suggests a branch name and likely base branch, validates the name,
+and performs the branch creation/push mutation; the platform UI reports that
+uncommitted working-tree changes are retained locally and are not part of the
+pull request. A failed push retains the new local branch for a safe retry.
 Line-level review threads, merge queues, and auto-merge are outside this
 contract version.
