@@ -1,3 +1,5 @@
+//! Rendering and sanitization for the Markdown dialect shared by every frontend.
+
 use ammonia::Builder;
 use comrak::{markdown_to_html, Options};
 use serde::{Deserialize, Serialize};
@@ -5,12 +7,14 @@ use std::collections::HashSet;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Markdown source to render with the shared dialect.
 pub struct MarkdownRenderRequest {
     pub source: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Sanitized HTML safe for embedding in host previews.
 pub struct MarkdownRenderResponse {
     pub html: String,
 }

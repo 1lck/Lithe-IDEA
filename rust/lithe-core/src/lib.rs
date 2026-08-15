@@ -1,3 +1,5 @@
+//! Deterministic application services shared by the macOS and Windows hosts.
+
 mod execution;
 mod git;
 mod languages;

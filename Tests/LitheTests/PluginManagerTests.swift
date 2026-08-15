@@ -7,6 +7,31 @@ import Testing
 @MainActor
 struct PluginManagerTests {
     @Test
+    func bundledLanguagePluginsCoverEveryNonJavaNonGoProvider() throws {
+        let expectedIDs: Set<String> = [
+            "python", "node", "rust", "clangd", "csharp", "fsharp", "swift", "kotlin", "scala", "groovy",
+            "ruby", "php", "dart", "lua", "shell", "powershell", "html", "css", "vue", "svelte", "astro",
+            "json", "yaml", "xml", "markdown", "sql", "terraform", "dockerfile", "cmake", "make", "toml",
+            "graphql", "protobuf", "prisma", "elixir", "erlang", "haskell", "ocaml", "clojure", "julia",
+            "r", "perl", "zig", "solidity"
+        ]
+        #expect(Set(BundledLanguagePluginCatalog.specifications.map(\.id)) == expectedIDs)
+        #expect(BundledLanguagePluginCatalog.manifests.count == expectedIDs.count)
+        #expect(BundledLanguagePluginCatalog.manifests.flatMap(\.modules).allSatisfy {
+            $0.manifest.defaultState == .disabled
+        })
+        #expect(OfficialPluginCatalog.manifests.flatMap(\.modules).allSatisfy {
+            $0.manifest.defaultState == .disabled
+        })
+        _ = try ValidatedPluginCatalog(
+            manifests: BuiltInPluginCatalog.manifests
+                + BundledLanguagePluginCatalog.manifests
+                + OfficialPluginCatalog.manifests,
+            hostVersion: BuiltInPluginCatalog.hostVersion
+        )
+    }
+
+    @Test
     func internalLifecycleModulesAreNotShownAsInstalledPlugins() {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -26,6 +51,38 @@ struct PluginManagerTests {
         )
 
         #expect(manager.snapshots.isEmpty)
+    }
+
+    @Test
+    func selectedBuiltInModuleIsShownAsBundledPluginAndCanBeEnabled() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let preferences = PluginManagerKeyValueStore()
+        let configuration = MacModuleConfigurationStore(store: preferences)
+        let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
+        let manifest = try #require(BuiltInPluginCatalog.manifest(forModule: .database))
+        let manager = MacPluginManager(
+            packageStore: MacPluginPackageStore(rootURL: root),
+            moduleRuntime: runtime,
+            configurationStore: configuration,
+            launchMode: .normal,
+            startup: MacPluginStartupResult(
+                installedPlugins: [],
+                activeNativeManifests: [],
+                factoriesByPlugin: [:],
+                issues: []
+            ),
+            managedBuiltInPlugins: [manifest]
+        )
+
+        let initial = try #require(manager.snapshots.first)
+        #expect(initial.origin == .bundled)
+        #expect(!initial.isEnabled)
+
+        try await manager.setEnabled(true, for: manifest.id)
+
+        #expect(configuration.enabledState(for: .database) == true)
+        #expect(try #require(manager.snapshots.first).isEnabled)
     }
 
     @Test

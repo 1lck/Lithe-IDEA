@@ -24,7 +24,7 @@
       "id": "dev.lithe.language.go.execution",
       "displayName": "Go Execution",
       "scope": "workspace",
-      "defaultState": "enabled",
+      "defaultState": "disabled",
       "activationPolicy": "onDemand",
       "sleepPolicy": {
         "kind": "whenIdle",
@@ -43,7 +43,7 @@
       "id": "dev.lithe.language.go.language-server",
       "displayName": "Go Language Server",
       "scope": "workspace",
-      "defaultState": "enabled",
+      "defaultState": "disabled",
       "activationPolicy": "onDemand",
       "sleepPolicy": {
         "kind": "whenIdle",

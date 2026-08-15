@@ -1,3 +1,5 @@
+//! Gradle service discovery without starting Gradle or evaluating build scripts.
+
 use super::super::types::Confidence;
 use super::{Detected, DirectoryContext};
 

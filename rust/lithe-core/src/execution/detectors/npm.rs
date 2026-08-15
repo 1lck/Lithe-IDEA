@@ -1,3 +1,5 @@
+//! JavaScript package-script discovery and framework classification.
+
 use super::super::types::Confidence;
 use super::{Detected, DirectoryContext};
 use serde_json::Value;
@@ -87,6 +89,7 @@ const MANAGERS: &[(&str, &str)] = &[
     ("package-lock.json", "npm"),
 ];
 
+/// Classifies runnable package scripts using declared dependencies and commands.
 pub fn detect(ctx: &DirectoryContext) -> Vec<Detected> {
     let Some(text) = ctx.read("package.json") else {
         return Vec::new();

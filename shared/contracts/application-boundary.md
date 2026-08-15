@@ -71,6 +71,10 @@ contract must preserve these invariants:
   composition root or the application executable.
 - AI Assistance, Terminal, Git, Search, Local History, Debug, and Java/Maven
   execution are built-in lifecycle modules. They are not marketplace plugins.
+- Java language tooling remains part of the built-in product. Every other
+  language provider is represented by an independently configurable bundled
+  language-support plugin; Go uses the signed native-package path while the
+  remaining providers share the host's generic language-server module.
 - A downloadable language support package may declare language-server,
   execution, testing, and debug module IDs under one language ID. All referenced
   modules must be owned by the same package. Execution and testing may share a

@@ -23,6 +23,8 @@ struct GoSupportModuleTests {
             GoExecutionModule(executionHost: executionHost)
         })
         try runtime.validateGraph()
+        try await runtime.setEnabled(true, for: .languageServerExtension("go"))
+        try await runtime.setEnabled(true, for: .languageExecutionExtension("go"))
 
         let lsp = try await runtime.activateCapability(.languageServerExtension("go"))
         let execution = try await runtime.activateCapability(.languageExecutionExtension("go"))
@@ -81,6 +83,7 @@ struct GoSupportModuleTests {
         try runtime.register(ModuleFactory(manifest: GoExecutionModule.moduleManifest) {
             GoExecutionModule(executionHost: GoStuckExecutionHost())
         })
+        try await runtime.setEnabled(true, for: .languageExecutionExtension("go"))
 
         let capability = try #require(
             try await runtime.activateCapability(.languageExecutionExtension("go"))
@@ -113,6 +116,7 @@ struct GoSupportModuleTests {
         try runtime.register(ModuleFactory(manifest: GoExecutionModule.moduleManifest) {
             GoExecutionModule(executionHost: GoTestExecutionHost())
         })
+        try await runtime.setEnabled(true, for: .languageExecutionExtension("go"))
 
         let capability = try #require(
             try await runtime.activateCapability(.languageExecutionExtension("go"))
@@ -214,6 +218,7 @@ struct GoSupportModuleTests {
         try runtime.register(ModuleFactory(manifest: GoLanguageServerModule.moduleManifest) {
             GoLanguageServerModule()
         })
+        try await runtime.setEnabled(true, for: .languageServerExtension("go"))
 
         let processRegistry = GoTestLanguageServerProcessRegistry()
         let core = GoTestLanguageServerRuntimeCore(processID: 7_311)
@@ -272,6 +277,7 @@ struct GoSupportModuleTests {
         try runtime.register(ModuleFactory(manifest: GoLanguageServerModule.moduleManifest) {
             GoLanguageServerModule()
         })
+        try await runtime.setEnabled(true, for: .languageServerExtension("go"))
 
         let processRegistry = GoTestLanguageServerProcessRegistry()
         let core = GoTestLanguageServerRuntimeCore(processID: 7_312)

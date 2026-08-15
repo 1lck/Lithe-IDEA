@@ -1,3 +1,5 @@
+//! Stateful language-server sessions coordinating client state and child processes.
+
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
     client_apply_server_message, client_change_document, client_close_document,
@@ -32,18 +34,27 @@ static ENGINE: OnceLock<LspEngine> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Observable lifecycle of one managed language-server session.
 pub enum LspLifecycleState {
+    /// Session state exists, but the child process has not started.
     Created,
+    /// The child process and its standard streams are being created.
     ProcessStarting,
+    /// The process is running and the initialize handshake is pending.
     Initializing,
+    /// Initialization completed and semantic requests may be sent.
     Ready,
+    /// A graceful shutdown is pending or the process is being terminated.
     Stopping,
+    /// The session ended normally and will produce no further events.
     Stopped,
+    /// Startup, protocol handling, or the child process failed terminally.
     Failed,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Validated process, workspace, initialization, and timeout settings for a server.
 pub struct StartServerRequest {
     pub provider_id: String,
     pub executable_path: String,
@@ -69,6 +80,7 @@ pub struct StartServerRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Identity and initial lifecycle state of a newly created session.
 pub struct StartServerResponse {
     pub session_id: String,
     pub state: LspLifecycleState,
@@ -77,12 +89,14 @@ pub struct StartServerResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Request targeting one existing server session.
 pub struct SessionRequest {
     pub session_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Complete document contents to open or update in a session.
 pub struct SyncDocumentRequest {
     pub session_id: String,
     pub uri: String,
@@ -92,6 +106,7 @@ pub struct SyncDocumentRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Request to remove a document from a session's synchronized state.
 pub struct CloseDocumentRequest {
     pub session_id: String,
     pub uri: String,
@@ -99,28 +114,47 @@ pub struct CloseDocumentRequest {
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Semantic operation normalized across provider-specific LSP capabilities.
 pub enum LspSemanticOperation {
+    /// `textDocument/completion`.
     Completion,
+    /// `textDocument/hover`.
     Hover,
+    /// `textDocument/definition`.
     Definition,
+    /// `textDocument/declaration`.
     Declaration,
+    /// `textDocument/typeDefinition`.
     TypeDefinition,
+    /// `textDocument/references`.
     References,
+    /// `textDocument/implementation`.
     Implementation,
+    /// `textDocument/rename`.
     Rename,
+    /// `textDocument/formatting`.
     Formatting,
+    /// `textDocument/codeAction`.
     CodeActions,
+    /// `completionItem/resolve` for a previously returned completion item.
     ResolveCompletion,
+    /// `codeAction/resolve` for a previously returned action.
     ResolveCodeAction,
+    /// `workspace/executeCommand` using a server-provided command payload.
     ExecuteCommand,
+    /// `textDocument/inlayHint`.
     InlayHints,
+    /// `textDocument/foldingRange`.
     FoldingRanges,
+    /// `textDocument/codeLens`.
     CodeLens,
+    /// Provider-specific retrieval of a read-only virtual document.
     VirtualDocument,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Inputs for one asynchronous semantic language-server operation.
 pub struct SemanticRequest {
     pub session_id: String,
     #[serde(default)]
@@ -148,12 +182,14 @@ pub struct SemanticRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Correlation identifier used to receive or cancel an asynchronous result.
 pub struct OperationResponse {
     pub operation_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Request to cancel a pending operation in one session.
 pub struct CancelOperationRequest {
     pub session_id: String,
     pub operation_id: String,
@@ -161,13 +197,16 @@ pub struct CancelOperationRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Ordered events drained from a session since the previous poll.
 pub struct PollEventsResponse {
     pub events: Vec<LspRuntimeEvent>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Sequenced lifecycle, diagnostic, result, or log event from a server session.
 pub struct LspRuntimeEvent {
+    /// Event discriminator such as `stateChanged`, `requestCompleted`, or `diagnostics`.
     #[serde(rename = "type")]
     pub kind: String,
     pub sequence: u64,
@@ -203,6 +242,7 @@ pub struct LspRuntimeEvent {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Server identity reported by the LSP initialize response.
 pub struct LspServerInfo {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -211,10 +251,12 @@ pub struct LspServerInfo {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Structured runtime failure with session and protocol-stage context.
 pub struct LspRuntimeError {
     pub code: String,
     pub provider_id: String,
     pub session_id: String,
+    /// Lifecycle or protocol phase in which the error occurred.
     pub stage: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
@@ -245,10 +287,15 @@ pub struct EngineSnapshot {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+/// Response handling path required by one pending JSON-RPC request.
 enum PendingKind {
+    /// Initial handshake whose result transitions the session to ready.
     Initialize,
+    /// Ordinary semantic feature whose result becomes an operation event.
     Feature,
+    /// Provider-specific source retrieval normalized as a virtual document.
     VirtualDocument,
+    /// Shutdown handshake after which the engine sends `exit`.
     Shutdown,
 }
 
@@ -308,26 +355,31 @@ fn default_shutdown_timeout() -> u64 {
     DEFAULT_SHUTDOWN_TIMEOUT_MS
 }
 
+/// Starts a managed language-server process and begins LSP initialization.
 pub fn start_server(request: StartServerRequest) -> Result<StartServerResponse, CoreError> {
     engine().start_server(request)
 }
 
+/// Performs a bounded graceful shutdown while retaining the session record.
 pub fn stop_server(request: SessionRequest) -> Result<(), CoreError> {
     engine().session(&request.session_id)?.stop()
 }
 
+/// Opens or replaces the synchronized contents of one document.
 pub fn sync_document(request: SyncDocumentRequest) -> Result<(), CoreError> {
     engine()
         .session(&request.session_id)?
         .sync_document(request)
 }
 
+/// Notifies the server that a synchronized document has closed.
 pub fn close_document(request: CloseDocumentRequest) -> Result<(), CoreError> {
     engine()
         .session(&request.session_id)?
         .close_document(&request.uri)
 }
 
+/// Queues a semantic request and returns its operation identifier immediately.
 pub fn semantic_request(request: SemanticRequest) -> Result<OperationResponse, CoreError> {
     let operation_id = request
         .operation_id
@@ -339,18 +391,21 @@ pub fn semantic_request(request: SemanticRequest) -> Result<OperationResponse, C
     Ok(OperationResponse { operation_id })
 }
 
+/// Cancels a pending semantic request in both client state and the server.
 pub fn cancel_operation(request: CancelOperationRequest) -> Result<(), CoreError> {
     engine()
         .session(&request.session_id)?
         .cancel_operation(&request.operation_id)
 }
 
+/// Drains all currently queued events in deterministic sequence order.
 pub fn poll_events(request: SessionRequest) -> Result<PollEventsResponse, CoreError> {
     Ok(PollEventsResponse {
         events: engine().session(&request.session_id)?.poll_events()?,
     })
 }
 
+/// Stops a session if necessary and removes all state owned by it.
 pub fn destroy_server(request: SessionRequest) -> Result<(), CoreError> {
     engine().destroy(&request.session_id)
 }

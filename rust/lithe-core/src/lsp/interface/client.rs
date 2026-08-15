@@ -1,7 +1,10 @@
+//! Pure LSP client-state transitions and JSON-RPC message construction.
+
 use super::types::*;
 use crate::protocol::{CoreError, ErrorCode};
 use serde_json::{json, Value};
 
+/// Creates an initialize request and records it as pending client state.
 pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientResponse, CoreError> {
     validate_uri(&request.root_uri)?;
     let workspace_name = workspace_name_from_uri(&request.root_uri);
@@ -109,6 +112,7 @@ pub fn client_initialize(request: ClientInitializeRequest) -> Result<LspClientRe
     Ok(client_response(state, vec![message], Vec::new()))
 }
 
+/// Opens a document and emits the corresponding LSP notification.
 pub fn client_open_document(
     request: ClientOpenDocumentRequest,
 ) -> Result<LspClientResponse, CoreError> {
@@ -137,6 +141,7 @@ pub fn client_open_document(
     Ok(client_response(state, vec![message], Vec::new()))
 }
 
+/// Replaces a document and emits a monotonically versioned change notification.
 pub fn client_change_document(
     request: ClientChangeDocumentRequest,
 ) -> Result<LspClientResponse, CoreError> {
@@ -165,6 +170,7 @@ pub fn client_change_document(
     Ok(client_response(state, vec![message], Vec::new()))
 }
 
+/// Closes a document and clears diagnostics owned by its URI.
 pub fn client_close_document(
     request: ClientCloseDocumentRequest,
 ) -> Result<LspClientResponse, CoreError> {
@@ -189,6 +195,7 @@ pub fn client_close_document(
     Ok(client_response(state, vec![message], Vec::new()))
 }
 
+/// Begins the two-step LSP shutdown and exit handshake.
 pub fn client_shutdown(request: ClientShutdownRequest) -> Result<LspClientResponse, CoreError> {
     let mut state = request.state;
     if state.shutdown_requested {
@@ -223,6 +230,7 @@ pub(crate) fn client_feature_request_canonical(
     Ok(client_response(state, vec![message], Vec::new()))
 }
 
+/// Reduces one server JSON-RPC message into state changes and host events.
 pub fn client_apply_server_message(
     request: ClientApplyServerMessageRequest,
 ) -> Result<LspClientResponse, CoreError> {

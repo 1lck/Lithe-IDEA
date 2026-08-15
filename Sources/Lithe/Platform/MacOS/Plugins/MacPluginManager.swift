@@ -8,6 +8,7 @@ final class MacPluginManager: PluginManaging {
     private let moduleRuntime: ModuleRuntime
     private let configurationStore: MacModuleConfigurationStore
     private let launchMode: ModuleLaunchMode
+    private let managedBuiltInPlugins: [PluginManifest]
     private let activeNativePluginIDs: Set<PluginID>
     private var installedPlugins: [PluginID: InstalledPluginPackage]
     private var restartRequiredPluginIDs: Set<PluginID> = []
@@ -18,12 +19,14 @@ final class MacPluginManager: PluginManaging {
         moduleRuntime: ModuleRuntime,
         configurationStore: MacModuleConfigurationStore,
         launchMode: ModuleLaunchMode,
-        startup: MacPluginStartupResult
+        startup: MacPluginStartupResult,
+        managedBuiltInPlugins: [PluginManifest] = []
     ) {
         self.packageStore = packageStore
         self.moduleRuntime = moduleRuntime
         self.configurationStore = configurationStore
         self.launchMode = launchMode
+        self.managedBuiltInPlugins = managedBuiltInPlugins.sorted { $0.id < $1.id }
         activeNativePluginIDs = Set(startup.activeNativeManifests.map(\.id))
         installedPlugins = Dictionary(
             uniqueKeysWithValues: startup.installedPlugins.map { ($0.manifest.id, $0) }
@@ -47,7 +50,16 @@ final class MacPluginManager: PluginManaging {
                     runtimeSnapshots: runtimeSnapshots
                 )
             }
-        return native.sorted { $0.manifest.displayName < $1.manifest.displayName }
+        let builtIn = managedBuiltInPlugins.map {
+            snapshot(
+                manifest: $0,
+                origin: .bundled,
+                installationStatus: .installed,
+                previousVersion: nil,
+                runtimeSnapshots: runtimeSnapshots
+            )
+        }
+        return (builtIn + native).sorted { $0.manifest.displayName < $1.manifest.displayName }
     }
 
     func setEnabled(_ enabled: Bool, for pluginID: PluginID) async throws {
@@ -126,6 +138,7 @@ final class MacPluginManager: PluginManaging {
 
     private func manifest(for pluginID: PluginID) -> PluginManifest? {
         installedPlugins[pluginID]?.manifest
+            ?? managedBuiltInPlugins.first { $0.id == pluginID }
     }
 
     private func refreshInstalledPlugins() throws {

@@ -1,3 +1,5 @@
+//! Run-configuration schemas, layered overrides, and deterministic generation.
+
 use super::types::{Confidence, Execution};
 use crate::languages::JavaRunConfigurationsRequest;
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
@@ -17,12 +19,14 @@ const SIDECAR_VERSION: u32 = 1;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to validate the layered configuration documents for a workspace.
 pub struct InspectRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to regenerate detected configurations from the current project tree.
 pub struct GenerateRequest {
     pub root: String,
     #[serde(default)]
@@ -33,6 +37,7 @@ pub struct GenerateRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to merge configuration layers and resolve host toolchains.
 pub struct ResolveRequest {
     pub root: String,
     #[serde(default)]
@@ -41,8 +46,11 @@ pub struct ResolveRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Host-discovered executable that may satisfy a configuration requirement.
 pub struct ToolchainCandidate {
+    /// Host-stable candidate identifier referenced by resolved configurations.
     pub id: String,
+    /// Toolchain role such as `java` or `maven`, not a display label.
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(default)]
@@ -53,6 +61,7 @@ pub struct ToolchainCandidate {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to turn one resolved configuration into a process launch plan.
 pub struct LaunchPlanRequest {
     pub root: String,
     pub configuration_id: String,
@@ -66,8 +75,10 @@ pub struct LaunchPlanRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Editable options applied to a team or machine-local configuration layer.
 pub struct UpdateOptionsRequest {
     pub root: String,
+    /// Persistence layer: `project` for shared configuration or `local` for this host.
     pub scope: String,
     pub configuration_id: String,
     #[serde(default)]
@@ -92,10 +103,13 @@ pub struct UpdateOptionsRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to add an explicitly user-authored run configuration.
 pub struct CreateUserConfigurationRequest {
     pub root: String,
+    /// Persistence layer: `project` for shared configuration or `local` for this host.
     pub scope: String,
     pub name: String,
+    /// UI configuration kind mapped to a namespaced provider during creation.
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(default)]
@@ -106,6 +120,7 @@ pub struct CreateUserConfigurationRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+/// Versioned run-configuration document stored below `.lithe/run`.
 pub struct RunConfigurationDocument {
     pub version: u32,
     #[serde(default)]
@@ -188,6 +203,7 @@ fn migrate_configuration_value(item: &mut Value) {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Fingerprint and inputs used to decide whether generated output is stale.
 pub struct GeneratorMetadata {
     pub fingerprint: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -196,12 +212,15 @@ pub struct GeneratorMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Debug adapter supported by a runnable configuration.
 pub struct DebugCapability {
+    /// Stable adapter identifier, currently `jdwp` for JVM configurations.
     pub adapter: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Ecosystem-neutral command, identity, and launch metadata for one runnable item.
 pub struct RunConfiguration {
     pub id: String,
     pub name: String,
@@ -231,6 +250,7 @@ pub struct RunConfiguration {
     pub extensions: BTreeMap<String, Value>,
     #[serde(default)]
     pub disabled: bool,
+    /// Workspace-relative manifest or source file that produced the configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
@@ -261,6 +281,7 @@ impl RunConfiguration {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Versioned requirements written separately from run configurations.
 pub struct ToolchainRequirementsDocument {
     pub version: u32,
     #[serde(default)]
@@ -269,7 +290,9 @@ pub struct ToolchainRequirementsDocument {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Constraints the host uses when selecting one toolchain candidate.
 pub struct ToolchainRequirement {
+    /// Toolchain role matched against [`ToolchainCandidate::kind`].
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(default)]
@@ -284,6 +307,7 @@ pub struct ToolchainRequirement {
     pub java: Option<String>,
 }
 
+/// Validates configuration and sidecar documents without mutating the workspace.
 pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
     let generated = read_document(&root, "run/generated.json")?;
@@ -347,6 +371,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
     }))
 }
 
+/// Detects runnable project entries and writes a deterministic generated layer.
 pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
     let mut paths = request
@@ -729,6 +754,7 @@ fn is_nested_checkout_path(value: &str) -> bool {
     })
 }
 
+/// Merges generated, team, and local layers and selects compatible toolchains.
 pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
     let generated = read_document_value(&root, "run/generated.json")?.ok_or_else(|| {
@@ -831,6 +857,7 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     }))
 }
 
+/// Persists editable configuration options in the requested ownership layer.
 pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
     let relative = scope_document(&request.scope)?;
@@ -921,6 +948,7 @@ pub fn update_options(request: UpdateOptionsRequest) -> Result<Value, CoreError>
     }))
 }
 
+/// Creates a user configuration while preserving stable IDs in existing layers.
 pub fn create_user_configuration(
     request: CreateUserConfigurationRequest,
 ) -> Result<Value, CoreError> {
@@ -1023,6 +1051,7 @@ pub fn create_user_configuration(
     }))
 }
 
+/// Resolves one configuration into the exact executable, arguments, and environment.
 pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError> {
     let resolved = resolve(ResolveRequest {
         root: request.root,
@@ -2147,8 +2176,7 @@ fn declared_go_version(root: &Path) -> Option<String> {
 
 fn declared_python_version(root: &Path) -> Option<String> {
     let expression =
-        regex::Regex::new(r#"(?m)^\s*(?:requires-python|python)\s*=\s*[\"']([^\"']+)[\"']"#)
-            .ok()?;
+        regex::Regex::new(r#"(?m)^\s*(?:requires-python|python)\s*=\s*["']([^"']+)["']"#).ok()?;
     highest_version(
         project_manifest_paths(root, &["pyproject.toml"])
             .into_iter()
@@ -2263,7 +2291,7 @@ fn declared_java_version(root: &Path) -> Option<(String, Option<String>)> {
         }
     }
     if let Ok(text) = fs::read_to_string(root.join("mise.toml")) {
-        let expression = regex::Regex::new(r#"(?m)^\s*java\s*=\s*[\"']([^\"']+)[\"']"#).ok()?;
+        let expression = regex::Regex::new(r#"(?m)^\s*java\s*=\s*["']([^"']+)["']"#).ok()?;
         if let Some(value) = expression
             .captures(&text)
             .and_then(|capture| capture.get(1))

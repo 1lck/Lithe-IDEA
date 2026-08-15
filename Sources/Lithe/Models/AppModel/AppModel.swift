@@ -18,7 +18,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case terminal = "Terminal"
     case lsp = "LSP"
     case ai = "AI & Commit"
-    case plugins = "Plugins"
     case updates = "Updates"
 
     var id: String { rawValue }
@@ -30,7 +29,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .terminal: "terminal"
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
-        case .plugins: "puzzlepiece.extension"
         case .updates: "arrow.down.circle"
         }
     }
@@ -406,6 +404,9 @@ final class AppModel: ObservableObject, Identifiable {
         moduleRuntimeObservationID = services.moduleRuntime.observeEvents { [weak self] event in
             guard let self else { return }
             if event.name == "module.sleeping" || event.name == "module.shutdown" {
+                if event.source == .database, selectedSidebar == .database {
+                    selectedSidebar = .project
+                }
                 clearModuleBindings(for: event.source)
             }
             if event.name == ModuleEvent.stateChangedName

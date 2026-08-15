@@ -56,7 +56,9 @@ pub struct LspProcessStreams {
     pub errors: Box<dyn Read + Send>,
 }
 
+/// Factory boundary used by the engine to start real or scripted servers.
 pub trait LspProcessLauncher: Send + Sync {
+    /// Starts one process and transfers ownership of its handle and output streams.
     fn launch(&self, spec: LspProcessSpec) -> Result<LspProcessStreams, CoreError>;
 }
 

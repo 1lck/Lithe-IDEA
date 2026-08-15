@@ -1,3 +1,5 @@
+//! Maven reactor inspection, profile discovery, and source diagnostics.
+
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     MavenDiagnosticResponse, MavenDiagnosticsResponse, MavenModuleResponse, MavenProfileResponse,
@@ -13,6 +15,7 @@ use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Workspace paths used to locate and inspect the owning Maven reactor.
 pub struct MavenScanRequest {
     pub root: String,
     #[serde(default)]
@@ -21,12 +24,14 @@ pub struct MavenScanRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Maven process output to normalize into workspace diagnostics.
 pub struct MavenDiagnosticsRequest {
     pub root: String,
     pub output: String,
 }
 
 #[derive(Debug, Default)]
+/// Parsed POM fields needed by reactor discovery and run-configuration detection.
 struct Descriptor {
     group_id: Option<String>,
     artifact_id: Option<String>,
@@ -55,6 +60,7 @@ pub struct DeclaredModule {
 }
 
 impl DeclaredModule {
+    /// Reports whether this module applies a build plugin directly.
     pub fn applies_plugin(&self, artifact_id: &str) -> bool {
         self.plugins.iter().any(|value| value == artifact_id)
     }
@@ -123,6 +129,7 @@ fn collect_modules(
     }
 }
 
+/// Reads a Maven reactor and returns its nested module, profile, and identity data.
 pub fn scan(request: MavenScanRequest) -> Result<Option<MavenScanResponse>, CoreError> {
     let workspace_root = existing_root(&request.root)?;
     let Some((root, relative_path)) = maven_root(&workspace_root, &request.paths)? else {
@@ -223,11 +230,12 @@ pub(crate) fn maven_root(
     }
 }
 
+/// Parses Maven compiler output into stable workspace-relative diagnostics.
 pub fn diagnostics(
     request: MavenDiagnosticsRequest,
 ) -> Result<MavenDiagnosticsResponse, CoreError> {
     let _ = existing_root(&request.root)?;
-    let expression = Regex::new(r"\[(ERROR|WARNING)\]\s+(.*?):\[(\d+)(?:,(\d+))?\]\s+(.*)")
+    let expression = Regex::new(r"\[(ERROR|WARNING)]\s+(.*?):\[(\d+)(?:,(\d+))?]\s+(.*)")
         .expect("static Maven diagnostic expression is valid");
     let mut seen = HashSet::new();
     let issues = request

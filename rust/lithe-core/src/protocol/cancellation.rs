@@ -1,3 +1,5 @@
+//! Cooperative operation cancellation and per-thread deadline tracking.
+
 use crate::protocol::{CoreError, ErrorCode};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -6,6 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 #[derive(Clone)]
+/// Cancellation flag and absolute deadline installed for the current command.
 struct State {
     cancelled: Arc<AtomicBool>,
     deadline: Option<Instant>,
@@ -17,11 +20,16 @@ thread_local! {
     static CURRENT: RefCell<Option<State>> = const { RefCell::new(None) };
 }
 
+/// Guard that installs cancellation and timeout state for the current thread.
+///
+/// Dropping the scope unregisters the operation and restores the previous
+/// thread-local state, including when a command exits through an error path.
 pub struct Scope {
     operation_id: Option<String>,
 }
 
 impl Scope {
+    /// Begins a cancellable operation with an optional relative timeout.
     pub fn begin(operation_id: Option<String>, timeout_milliseconds: Option<u64>) -> Self {
         let cancelled = Arc::new(AtomicBool::new(false));
         if let Some(operation_id) = operation_id.as_deref() {
