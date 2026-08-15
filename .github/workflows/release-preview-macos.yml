@@ -1,0 +1,178 @@
+name: Release macOS Preview
+
+on:
+  schedule:
+    # GitHub Actions schedules are approximate and may be delayed by queueing.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "Preview branch to build"
+        required: true
+        default: "preview/0.3.0"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-preview-macos
+  cancel-in-progress: false
+
+env:
+  PREVIEW_BRANCH: preview/0.3.0
+  PREVIEW_VERSION: 0.3.0
+  PREVIEW_TAG: preview-0.3.0
+
+jobs:
+  build:
+    name: Build ${{ matrix.architecture }} preview
+    if: github.actor == github.repository_owner || github.event_name == 'schedule'
+    runs-on: macos-14
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture:
+          - arm64
+          - x86_64
+
+    steps:
+      - name: Check out preview source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+
+      - name: Record source revision
+        id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Set up Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+
+      - name: Restore SwiftPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            .build/checkouts
+            .build/repositories
+            ~/.cache/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
+
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+
+      - name: Build and package the preview app
+        env:
+          LITHE_ARCH: ${{ matrix.architecture }}
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+          LITHE_BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          ./scripts/package-app.sh
+          ./scripts/create-dmg.sh
+          dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
+          (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
+
+      - name: Verify the preview bundle and disk image
+        env:
+          LITHE_ARCH: ${{ matrix.architecture }}
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+        run: |
+          app_path="dist/Lithe-${LITHE_ARCH}.app"
+          dmg_path="dist/Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
+          codesign --verify --deep --strict "$app_path"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$app_path/Contents/Info.plist"
+          lipo "$app_path/Contents/MacOS/Lithe" -verify_arch "$LITHE_ARCH"
+          hdiutil imageinfo "$dmg_path" > /dev/null
+          test -s "$dmg_path"
+          (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg.sha256")
+
+      - name: Upload preview artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-preview-${{ matrix.architecture }}
+          path: |
+            dist/Lithe-${{ env.PREVIEW_VERSION }}-${{ matrix.architecture }}.dmg
+            dist/Lithe-${{ env.PREVIEW_VERSION }}-${{ matrix.architecture }}.dmg.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish rolling macOS preview
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out preview source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+
+      - name: Record source revision
+        id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Download preview artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: macos-preview-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify downloaded preview artifacts
+        env:
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+        shell: bash
+        run: |
+          for architecture in arm64 x86_64; do
+            (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${architecture}.dmg.sha256")
+          done
+
+      - name: Create or update rolling preview Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ env.PREVIEW_TAG }}
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
+              --title "Lithe ${LITHE_VERSION} Preview" \
+              --notes "Rolling Preview build from ${SOURCE_SHA}. This release is replaced by the next scheduled build." \
+              --prerelease
+          else
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
+              --title "Lithe ${LITHE_VERSION} Preview" \
+              --notes "Rolling Preview build from ${SOURCE_SHA}. This release is replaced by the next scheduled build." \
+              --prerelease
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            "dist/Lithe-${LITHE_VERSION}-arm64.dmg" \
+            "dist/Lithe-${LITHE_VERSION}-arm64.dmg.sha256" \
+            "dist/Lithe-${LITHE_VERSION}-x86_64.dmg" \
+            "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
