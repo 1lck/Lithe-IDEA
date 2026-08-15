@@ -117,7 +117,10 @@ struct KeyboardShortcutSettingsView: View {
                     commandID: command.id,
                     onRecorded: { binding in save(binding, for: command) },
                     onInvalid: {
-                        validationMessage = "Shortcut needs Command, Control, or Option"
+                        validationMessage = NSLocalizedString(
+                            "Shortcut needs Command, Control, or Option",
+                            comment: "Invalid shortcut"
+                        )
                     },
                     onCancel: cancelEditing
                 )
@@ -232,12 +235,18 @@ struct KeyboardShortcutSettingsView: View {
             let title = LitheCommandCatalog.command(id: commandID)?.title ?? commandID
             validationMessage = String(
                 format: NSLocalizedString("Conflicts with %@", comment: "Shortcut conflict"),
-                title
+                NSLocalizedString(title, comment: "Command title")
             )
         } catch KeyboardShortcutUpdateError.duplicateBinding {
-            validationMessage = "Shortcut is already assigned to this command"
+            validationMessage = NSLocalizedString(
+                "Shortcut is already assigned to this command",
+                comment: "Duplicate shortcut"
+            )
         } catch {
-            validationMessage = "Shortcut needs Command, Control, or Option"
+            validationMessage = NSLocalizedString(
+                "Shortcut needs Command, Control, or Option",
+                comment: "Invalid shortcut"
+            )
         }
     }
 

@@ -131,6 +131,27 @@ struct KeyboardShortcutTests {
         #expect(feature.filteredCommands(query: "⌃R").map(\.id).contains("run"))
         #expect(feature.groupedCommands(query: "history").allSatisfy { !$0.commands.isEmpty })
     }
+
+    @Test
+    func applicationRestoreDefaultsAlsoClearsShortcutOverrides() throws {
+        let settings = AppSettings(store: KeyboardShortcutTestStore())
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let replacement = KeyboardShortcutBinding.keyPress(
+            key: "k",
+            modifiers: [.command, .option]
+        )
+        settings.editorFontSize = 18
+        try feature.replaceBindings(for: "run", with: [replacement])
+
+        settings.restoreDefaults()
+
+        #expect(settings.editorFontSize == 13)
+        #expect(settings.keyboardShortcutOverrides.isEmpty)
+        #expect(
+            feature.effectiveBindings(for: "run")
+                == LitheCommandCatalog.command(id: "run")?.defaultBindings
+        )
+    }
 }
 
 private final class KeyboardShortcutTestStore: KeyValueStore, @unchecked Sendable {
