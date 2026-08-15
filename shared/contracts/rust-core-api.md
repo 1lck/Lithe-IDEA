@@ -112,6 +112,9 @@ stable error code and a user-facing message:
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
 | `git.blame` | Return structured line blame metadata |
+| `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
+| `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
+| `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
 
 Workspace paths in responses are relative and use `/` separators. Line numbers
 are one-based. `git.status.repositoryRoot` may be an absolute path when the
@@ -124,6 +127,10 @@ Java processes, and runtime discovery remain platform adapters.
 
 The protocol version is currently `1`. Add a fixture under `shared/fixtures/`
 before changing a response shape or search rule.
+
+GitHub command shapes, authorization behavior, and supported pull-request
+operations are documented in [`github.md`](github.md). Rust Core performs no
+network or credential I/O for these commands.
 
 `git.watchContext` accepts `{ "root": string }`. When `root` is not inside a
 Git repository, it returns `null`. Otherwise it returns

@@ -2,6 +2,7 @@
 
 mod execution;
 mod git;
+mod github;
 mod languages;
 mod lsp;
 pub mod plugins;

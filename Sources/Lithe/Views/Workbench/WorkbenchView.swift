@@ -490,11 +490,18 @@ struct WorkbenchView: View {
                                 model.selectedSidebar = destination
                             }
                         } label: {
-                            LitheIDEAIcon(
-                                resourcePath: destination.ideaAssetPath,
-                                size: 18,
-                                fallbackSystemImage: destination.systemImage
-                            )
+                            Group {
+                                if let ideaAssetPath = destination.ideaAssetPath {
+                                    LitheIDEAIcon(
+                                        resourcePath: ideaAssetPath,
+                                        size: 18,
+                                        fallbackSystemImage: destination.systemImage
+                                    )
+                                } else {
+                                    Image(systemName: destination.systemImage)
+                                        .font(.system(size: 16, weight: .medium))
+                                }
+                            }
                                 .frame(
                                     width: ActivityBarMetrics.buttonWidth,
                                     height: ActivityBarMetrics.buttonHeight
@@ -662,6 +669,8 @@ struct WorkbenchView: View {
                     if isPluginPanelPresented {
                         PluginManagementView()
                             .environmentObject(model)
+                    } else if model.selectedSidebar == .pullRequests {
+                        GitHubPullRequestDetailView()
                     } else {
                         EditorAreaView()
                     }
@@ -690,6 +699,8 @@ struct WorkbenchView: View {
                 ProjectSidebarView()
             case .changes:
                 ChangesSidebarView()
+            case .pullRequests:
+                GitHubPullRequestsSidebarView()
             case .search:
                 SearchSidebarView()
             case .database:
@@ -1090,7 +1101,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 }
             }
             .background(LitheTheme.titlebar)
-            .drawingGroup() // Composite the split view as a single layer during drag
         }
         .onChange(of: sidebarWidth) { newWidth in
             liveSidebarWidth = newWidth

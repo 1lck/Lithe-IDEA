@@ -86,6 +86,16 @@ struct RustCoreBridge: Sendable {
 
     private struct EmptyResponsePayload: Decodable {}
 
+    private struct GitHubParseRemoteRequest: Encodable {
+        let remoteURL: String
+    }
+
+    private struct GitHubNormalizeResponseRequest: Encodable {
+        let operation: String
+        let status: Int
+        let body: String
+    }
+
     struct SearchMatchPayload: Decodable, Sendable {
         let kind: String
         let path: String
@@ -2698,6 +2708,103 @@ struct RustCoreBridge: Sendable {
     @discardableResult
     func cancel(operationID: String) -> Bool {
         operationID.withCString { lithe_bridge_cancel($0) != 0 }
+    }
+
+    func githubParseRemote(_ remoteURL: String) -> Result<GitHubRepository, CoreCallError> {
+        executeResult(
+            command: "github.parseRemote",
+            payload: GitHubParseRemoteRequest(remoteURL: remoteURL)
+        )
+    }
+
+    func githubRequestPlan(_ request: GitHubRequest) -> Result<GitHubRequestPlan, CoreCallError> {
+        executeResult(command: "github.requestPlan", payload: request)
+    }
+
+    func githubNormalizeResponse(
+        operation: String,
+        status: Int,
+        body: String
+    ) -> Result<GitHubNormalizedResponse, CoreCallError> {
+        let payload = GitHubNormalizeResponseRequest(
+            operation: operation,
+            status: status,
+            body: body
+        )
+        switch operation {
+        case "deviceCode":
+            let result: Result<GitHubDeviceAuthorization, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.deviceAuthorization)
+        case "deviceToken":
+            let result: Result<GitHubDeviceTokenResponse, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.deviceToken)
+        case "currentUser":
+            let result: Result<GitHubUser, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.user)
+        case "listPullRequests":
+            let result: Result<[GitHubPullRequest], CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.pullRequests)
+        case "getPullRequest", "createPullRequest", "updatePullRequest":
+            let result: Result<GitHubPullRequest, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.pullRequest)
+        case "listPullRequestFiles":
+            let result: Result<[GitHubPullRequestFile], CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.files)
+        case "listPullRequestComments":
+            let result: Result<[GitHubComment], CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.comments)
+        case "createPullRequestComment":
+            let result: Result<GitHubComment, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.comment)
+        case "createPullRequestReview":
+            let result: Result<EmptyResponsePayload, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map { _ in GitHubNormalizedResponse.review }
+        case "updatePullRequestMetadata":
+            let result: Result<EmptyResponsePayload, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map { _ in GitHubNormalizedResponse.metadata }
+        case "mergePullRequest":
+            let result: Result<GitHubMergeResult, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.merge)
+        default:
+            return .failure(CoreCallError(
+                code: "not_supported",
+                message: "Unsupported GitHub response operation",
+                details: operation
+            ))
+        }
     }
 }
 

@@ -26,6 +26,7 @@ verification scripts are the executable source of boundary checks.
 | Documents | relative-path validation, UTF-8 read/write results, dirty/save state | native file integration and external-change notifications |
 | Search | query matching, deterministic result ordering, symbols, and replacement preview | workspace lifecycle and optional index persistence |
 | Git | changes, commits, branches, diffs, history, validation, and mutation results | Git executable discovery, credentials, process environment |
+| GitHub | remote parsing, trusted request plans, normalized pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
 | Java/Maven | deterministic Maven-root selection, project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, and JDTLS adapter policy | JDK/Maven discovery, Java/Maven child processes, sockets, and JDB transport |
@@ -135,6 +136,11 @@ Use stable categories rather than platform error strings:
 - `cancelled`
 - `timed_out`
 - `unknown`
+
+GitHub authorization is independent of a Lithe account. Device Flow is the
+preferred path, and its token is stored only in the platform credential store.
+The application boundary never exposes that token to a view or persistence
+fixture. See [`github.md`](github.md).
 
 ## UI Boundary
 

@@ -62,6 +62,13 @@ final class MacServiceContainer {
             service: "app.lithe.desktop.database",
             legacyStore: secureStore
         )
+        let githubService = GitHubService(
+            core: RustGitHubCore(bridge: rustCore),
+            transport: MacGitHubHTTPTransport(),
+            configuration: MacGitHubConfiguration(),
+            secureStore: MacKeychainSecureStore(service: "app.lithe.desktop.github"),
+            git: MacGitHubGitOperations(core: rustCore)
+        )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
         let aiConfigurationSources: [any AIConfigurationSource] = [
@@ -415,6 +422,7 @@ final class MacServiceContainer {
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
             gitWatchContextProvider: RustGitWatchContextProvider(core: rustCore),
+            githubService: githubService,
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,
             credentialResolver: credentialResolver,

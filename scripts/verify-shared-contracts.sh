@@ -10,6 +10,7 @@ done
 
 module_fixture="shared/fixtures/modules/built-in-v1.json"
 plugin_fixture="shared/fixtures/plugins/official-v1.json"
+github_fixture="shared/fixtures/github/pull-request-v1.json"
 fixture_ids=$(/usr/bin/ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0))).fetch("modules").map { |m| m.fetch("id") }.sort' "$module_fixture")
 swift_ids=$(rg '^[[:space:]]*static let .* = ModuleID\("dev\.lithe\.[^"]+"\)' Sources/LitheModuleAPI/Lifecycle/ModuleTypes.swift \
     | sed -E 's/.*ModuleID\("([^"]+)"\).*/\1/' \
@@ -88,5 +89,16 @@ fi
     abort "plugin module IDs must be sorted" unless plugin.fetch("moduleIDs") == plugin.fetch("moduleIDs").sort
   end
 ' "$plugin_fixture"
+
+/usr/bin/ruby -rjson -e '
+  data = JSON.parse(File.read(ARGV.fetch(0)))
+  abort "GitHub fixture schema must be 1" unless data.fetch("schemaVersion") == 1
+  pull = data.fetch("pullRequest")
+  labels = pull.fetch("labels").map { |label| label.fetch("name") }
+  assignees = pull.fetch("assignees").map { |user| user.fetch("login") }
+  abort "GitHub labels must be sorted" unless labels == labels.sort
+  abort "GitHub assignees must be sorted" unless assignees == assignees.sort
+  abort "GitHub fixture must not contain a credential" if File.read(ARGV.fetch(0)).match?(/accessToken|clientSecret|password/)
+' "$github_fixture"
 
 print "Shared contract verification passed: JSON fixtures are valid"

@@ -40,8 +40,15 @@ final class AppModel: ObservableObject, Identifiable {
     @Published private(set) var workspaceURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project {
         didSet {
-            guard selectedSidebar == .changes, oldValue != .changes else { return }
-            Task { [weak self] in await self?.refreshGit() }
+            if selectedSidebar == .changes, oldValue != .changes {
+                Task { [weak self] in await self?.refreshGit() }
+            }
+            if selectedSidebar == .pullRequests, oldValue != .pullRequests {
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.githubFeature.refresh(workspaceURL: self.workspaceURL)
+                }
+            }
         }
     }
     @Published var isRunVisible = false
@@ -120,6 +127,7 @@ final class AppModel: ObservableObject, Identifiable {
     let languageToolingFeature: LanguageToolingFeatureModel
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let workspaceFeature: WorkspaceFeatureModel
+    let githubFeature: GitHubFeatureModel
     private struct CachedModuleCapability {
         let moduleID: ModuleID
         let value: AnyObject
@@ -186,6 +194,7 @@ final class AppModel: ObservableObject, Identifiable {
             switch destination {
             case .project: moduleID = nil
             case .changes: moduleID = .git
+            case .pullRequests: moduleID = nil
             case .search: moduleID = .search
             case .database: moduleID = .database
             }
@@ -220,6 +229,7 @@ final class AppModel: ObservableObject, Identifiable {
         EditorDiagnostic.fromLanguageServerDiagnostics(languageDiagnostics)
     }
     private var workspaceFeatureObservation: AnyCancellable?
+    private var githubFeatureObservation: AnyCancellable?
     private var runtimeFeatureObservation: AnyCancellable?
     private var moduleRuntimeObservationID: UUID?
 
@@ -372,6 +382,7 @@ final class AppModel: ObservableObject, Identifiable {
             directoryWatcherFactory: services.directoryWatcherFactory,
             workspaceSessionStore: services.workspaceSessionStore
         )
+        githubFeature = GitHubFeatureModel(service: services.githubService)
         Task { @MainActor [workspaceFeature, moduleRuntime = services.moduleRuntime] in
             guard let capability = try? await moduleRuntime.activateCapability(.workspaceFoundation),
                   let capability = capability as? LitheWorkspaceModule.WorkspaceFoundationCapability else { return }
@@ -418,8 +429,15 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeatureObservation = workspaceFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
+        githubFeatureObservation = githubFeature.objectWillChange.sink { [weak self] _ in
+            self?.scheduleObjectWillChangeRelay()
+        }
         runtimeFeatureObservation = runtimeFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.githubFeature.restore(workspaceURL: self.workspaceURL)
         }
         workspaceFeature.configureProjection(
             documentsProvider: { [weak self] in

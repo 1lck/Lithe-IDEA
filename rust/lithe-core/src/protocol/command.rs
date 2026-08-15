@@ -151,6 +151,12 @@ pub enum CoreCommand {
     GitOperationState,
     /// Returns normalized line attribution (`git.blame`).
     GitBlame,
+    /// Parses a GitHub repository identity from a Git remote URL (`github.parseRemote`).
+    GitHubParseRemote,
+    /// Builds a platform-executable GitHub HTTP request (`github.requestPlan`).
+    GitHubRequestPlan,
+    /// Normalizes a GitHub HTTP response into the shared contract (`github.normalizeResponse`).
+    GitHubNormalizeResponse,
 }
 
 impl CoreCommand {
@@ -219,6 +225,9 @@ impl CoreCommand {
             "git.conflictMarkers" => Some(Self::GitConflictMarkers),
             "git.operationState" => Some(Self::GitOperationState),
             "git.blame" => Some(Self::GitBlame),
+            "github.parseRemote" => Some(Self::GitHubParseRemote),
+            "github.requestPlan" => Some(Self::GitHubRequestPlan),
+            "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
             _ => None,
         }
     }
