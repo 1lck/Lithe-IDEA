@@ -29,11 +29,9 @@ import {
   ListIcon,
   MagnifyingGlassIcon,
   PlayIcon,
-  SidebarSimpleIcon,
   TrashIcon,
   WindowExpandIcon,
 } from "@/ui/icons";
-import { Toggle } from "@/ui/toggle";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
@@ -63,11 +61,9 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
   const { t } = useTranslation();
   const nativeMenuBar = useSettingsStore((state) => state.settings.nativeMenuBar);
   const compactMenuBar = useSettingsStore((state) => state.settings.compactMenuBar);
-  const activityRailExpanded = useSettingsStore((state) => state.settings.activityRailExpanded);
   const headerTrailingItemsOrder = useSettingsStore(
     (state) => state.settings.headerTrailingItemsOrder,
   );
-  const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder);
   const closeProject = useFileSystemStore((state) => state.closeProject);
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
@@ -249,22 +245,7 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
       )
     ) : null;
 
-  const sidebarToggle = (
-    <Toggle
-      type="button"
-      pressed={activityRailExpanded}
-      tooltip={activityRailExpanded ? "Collapse Activity Bar" : "Expand Activity Bar"}
-      tooltipSide="bottom"
-      onPressedChange={(pressed) => void updateSetting("activityRailExpanded", pressed)}
-      aria-label={activityRailExpanded ? "Collapse activity bar" : "Expand activity bar"}
-      size="xs"
-    >
-      <SidebarSimpleIcon />
-    </Toggle>
-  );
-
-  const headerTrailingItems: Array<ChromeItem<HeaderTrailingItemId>> = [
-  ];
+  const headerTrailingItems: Array<ChromeItem<HeaderTrailingItemId>> = [];
   const orderedTrailingItems = orderChromeItems(headerTrailingItems, headerTrailingItemsOrder);
 
   const activeProject = projectTabs.find((project) => project.isActive);
@@ -278,7 +259,7 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
         className="max-w-56 justify-start gap-2 px-2"
         onClick={() => setIsProjectPickerVisible(true)}
       >
-        <FolderOpenIcon />
+        <img src="/logo.png" alt="" className="size-5 rounded-md" />
         <span className="truncate">{projectLabel}</span>
       </Button>
       {branchItem?.content}
@@ -361,7 +342,6 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
         >
           <ChromeGroup className="pointer-events-auto h-full">
             {menuItem}
-            {sidebarToggle}
             {macOSAlignedControls}
           </ChromeGroup>
 
@@ -384,14 +364,9 @@ const TitleBar = ({ showMinimal = false }: TitleBarProps) => {
         className="lithe-title-bar font-sans ui-text-chrome relative z-50 flex h-(--lithe-title-bar-height) items-center justify-between gap-(--lithe-chrome-gap) bg-transparent px-(--lithe-chrome-padding-inline) text-subtle-foreground"
       >
         <ChromeGroup data-tauri-drag-region grow>
-          <ChromeGroup className="pointer-events-auto">
-            {menuItem}
-            {sidebarToggle}
-            {macOSAlignedControls}
-          </ChromeGroup>
+          <ChromeGroup className="pointer-events-auto">{macOSAlignedControls}</ChromeGroup>
         </ChromeGroup>
         <ChromeGroup className="z-20">
-          {workbenchActions}
           <TitleBarTrailingActions items={orderedTrailingItems} />
 
           {showAppWindowControls && (

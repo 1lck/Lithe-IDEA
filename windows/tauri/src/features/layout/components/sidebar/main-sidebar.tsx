@@ -35,8 +35,7 @@ import {
   useWorkspaceTabsStore,
   type ProjectTab,
 } from "@/features/window/stores/workspace-tabs.store";
-import { SidebarListItem, SidebarPanel } from "@/ui/sidebar";
-import Tooltip from "@/ui/tooltip";
+import { SidebarPanel } from "@/ui/sidebar";
 import { cn } from "@/utils/cn";
 import {
   ContextMenu,
@@ -77,7 +76,7 @@ interface SidebarActivityRailProps {
   expanded?: boolean;
 }
 
-export const COLLAPSED_ACTIVITY_RAIL_WIDTH = 40;
+export const COLLAPSED_ACTIVITY_RAIL_WIDTH = 38;
 const DEFAULT_ACTIVITY_RAIL_WIDTH = 160;
 const MIN_ACTIVITY_RAIL_WIDTH = 140;
 const MAX_ACTIVITY_RAIL_WIDTH = 320;
@@ -197,10 +196,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         icon: <GearIcon />,
       },
     ],
-    [
-      coreFeatures.git,
-      coreFeatures.search,
-    ],
+    [coreFeatures.git, coreFeatures.search],
   );
 
   const setActivityRailItemVisible = useCallback(
@@ -761,53 +757,49 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   );
 });
 
-export const MainSidebar = memo(
-  ({ activeView, isGitActive }: MainSidebarProps) => {
-    const uiGitViewActive = useUIState((state) => state.isGitViewActive);
-    const uiActiveSidebarView = useUIState((state) => state.activeSidebarView);
-    const isGitViewActive = isGitActive ?? uiGitViewActive;
-    const activeSidebarView = activeView ?? uiActiveSidebarView;
+export const MainSidebar = memo(({ activeView, isGitActive }: MainSidebarProps) => {
+  const uiGitViewActive = useUIState((state) => state.isGitViewActive);
+  const uiActiveSidebarView = useUIState((state) => state.activeSidebarView);
+  const isGitViewActive = isGitActive ?? uiGitViewActive;
+  const activeSidebarView = activeView ?? uiActiveSidebarView;
 
-    const handleFileSelect = useFileSystemStore.use.handleFileSelect?.();
-    const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
+  const handleFileSelect = useFileSystemStore.use.handleFileSelect?.();
+  const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
 
-    const coreFeatures = useSettingsStore((state) => state.settings.coreFeatures);
-    const activePaneId: SidebarView = isGitViewActive
-      ? "git"
-      : activeSidebarView;
-    const allPaneEntries: SidebarPaneEntry[] = [
-      ...(coreFeatures.git
-        ? [
-            {
-              id: "git" as const,
-              content: (
-                <GitView
-                  repoPath={rootFolderPath}
-                  onFileSelect={handleFileSelect}
-                  isActive={isGitViewActive}
-                />
-              ),
-            },
-          ]
-        : []),
-      {
-        id: "files",
-        content: <FileExplorerPane />,
-      },
-    ];
-    const paneEntries = allPaneEntries;
-    const activePane = (() => {
-      const requestedIndex = paneEntries.findIndex((pane) => pane.id === activePaneId);
-      if (requestedIndex >= 0) return paneEntries[requestedIndex];
+  const coreFeatures = useSettingsStore((state) => state.settings.coreFeatures);
+  const activePaneId: SidebarView = isGitViewActive ? "git" : activeSidebarView;
+  const allPaneEntries: SidebarPaneEntry[] = [
+    ...(coreFeatures.git
+      ? [
+          {
+            id: "git" as const,
+            content: (
+              <GitView
+                repoPath={rootFolderPath}
+                onFileSelect={handleFileSelect}
+                isActive={isGitViewActive}
+              />
+            ),
+          },
+        ]
+      : []),
+    {
+      id: "files",
+      content: <FileExplorerPane />,
+    },
+  ];
+  const paneEntries = allPaneEntries;
+  const activePane = (() => {
+    const requestedIndex = paneEntries.findIndex((pane) => pane.id === activePaneId);
+    if (requestedIndex >= 0) return paneEntries[requestedIndex];
 
-      return paneEntries[0] ?? null;
-    })();
-    return (
-      <div className="flex h-full min-h-0" data-external-file-drop-scope="sidebar">
-        <SidebarPanel className={cn("min-w-0 flex-1 overflow-hidden bg-transparent")}>
-          <div className="h-full min-h-0 overflow-hidden">{activePane?.content ?? null}</div>
-        </SidebarPanel>
-      </div>
-    );
-  },
-);
+    return paneEntries[0] ?? null;
+  })();
+  return (
+    <div className="flex h-full min-h-0" data-external-file-drop-scope="sidebar">
+      <SidebarPanel className={cn("min-w-0 flex-1 overflow-hidden bg-transparent")}>
+        <div className="h-full min-h-0 overflow-hidden">{activePane?.content ?? null}</div>
+      </SidebarPanel>
+    </div>
+  );
+});
