@@ -274,6 +274,40 @@ struct GitStatusObservationTests {
         #expect(refreshed, "Creating .git must re-resolve the watch context and refresh Git")
         #expect(recorder.externalChangeBatches.isEmpty)
     }
+    @Test
+    @MainActor
+    func staleSnapshotDoesNotClearOptimisticStagingState() {
+        let repository = URL(fileURLWithPath: "/tmp/lithe-staging-state-test", isDirectory: true)
+        let unstaged = GitChange(
+            repositoryRoot: repository,
+            path: "new-file.txt",
+            originalPath: nil,
+            indexStatus: "?",
+            workTreeStatus: "?"
+        )
+        let staged = GitChange(
+            repositoryRoot: repository,
+            path: "new-file.txt",
+            originalPath: nil,
+            indexStatus: "A",
+            workTreeStatus: " "
+        )
+        let model = GitFeatureModel(
+            service: GitService(operations: RustGitOperations(core: RustCoreBridge()))
+        )
+
+        #expect(model.selectedChange == nil)
+        #expect(model.beginToggleStaging(unstaged) == true)
+        #expect(model.selectedChange == nil)
+        model.reconcilePendingStagingStates(with: [unstaged])
+        #expect(model.effectiveStagingState(for: unstaged))
+
+        model.reconcilePendingStagingStates(with: [staged])
+        #expect(model.effectiveStagingState(for: staged))
+        model.selectedChange = unstaged
+        #expect(model.beginToggleStaging(staged) == false)
+        #expect(model.selectedChange == unstaged)
+    }
 }
 
 @MainActor

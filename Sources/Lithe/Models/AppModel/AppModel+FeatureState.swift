@@ -46,6 +46,9 @@ extension AppModel {
     var isPendingProjectClose: Bool { documentFeature.isPendingProjectClose }
 
     var gitChanges: [GitChange] { gitFeatureIfActive?.gitChanges ?? [] }
+    func effectiveStagingState(for change: GitChange) -> Bool {
+        gitFeatureIfActive?.effectiveStagingState(for: change) ?? change.isStaged
+    }
     var gitStashes: [GitStash] { gitFeatureIfActive?.gitStashes ?? [] }
     var gitShelves: [GitShelfEntry] { gitFeatureIfActive?.gitShelves ?? [] }
     var gitSaveChangesPolicy: GitSaveChangesPolicy { settings.gitSaveChangesPolicy }
