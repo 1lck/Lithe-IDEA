@@ -195,4 +195,45 @@ extension AppModel {
     var isLoadingProjectLocalHistory: Bool {
         projectHistoryFeatureIfActive?.isLoadingProjectLocalHistory ?? false
     }
+
+    func performShortcutCommand(id: String) {
+        guard canPerformShortcutCommand(id: id) else { return }
+        switch id {
+        case "save":
+            saveActiveDocument()
+        case "search-everywhere":
+            toggleSearchEverywhere()
+        case "find-next":
+            navigateFind(offset: 1)
+        case "find-previous":
+            navigateFind(offset: -1)
+        case "go-to-implementation":
+            goToImplementation()
+        default:
+            LitheActionRegistry.actions(for: self).first { $0.id == id }?.perform()
+        }
+    }
+
+    func canPerformShortcutCommand(id: String) -> Bool {
+        switch id {
+        case "open-project", "settings":
+            true
+        case "save", "find-in-file", "local-history", "reveal-in-finder":
+            activeDocument != nil
+        case "find-next", "find-previous":
+            isFindBarVisible && findMatchCount > 0
+        case "go-to-usage", "find-usages":
+            supportsLanguageServerFeature(.references)
+        case "go-to-implementation":
+            supportsLanguageServerFeature(.implementation)
+        case "close-project", "search-everywhere", "search-in-project",
+             "replace-in-project", "project-local-history", "run", "debug",
+             "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",
+             "toggle-maven", "toggle-git-log", "toggle-run", "toggle-tests",
+             "toggle-debug":
+            workspaceURL != nil
+        default:
+            false
+        }
+    }
 }

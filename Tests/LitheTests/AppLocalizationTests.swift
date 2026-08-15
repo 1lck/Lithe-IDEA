@@ -37,6 +37,27 @@ struct AppLocalizationTests {
         )
     }
 
+    @Test
+    func simplifiedChineseResourcesCoverKeymapControls() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        #expect(translations["Keymap"] == "快捷键")
+        #expect(translations["Search actions or shortcuts"] == "搜索操作或快捷键")
+        #expect(translations["Restore All Defaults"] == "全部恢复默认")
+        #expect(translations["Not Assigned"] == "未分配")
+        #expect(translations["Press shortcut…"] == "请按下快捷键…")
+        #expect(
+            translations["Shortcut needs Command, Control, or Option"]
+                == "快捷键需要包含 Command、Control 或 Option"
+        )
+        #expect(translations["Conflicts with %@"] == "与 %@ 冲突")
+        #expect(translations["No matching commands"] == "没有匹配的命令")
+        for command in LitheCommandCatalog.commands {
+            #expect(translations[command.title] != nil, "Missing title: \(command.title)")
+            #expect(translations[command.subtitle] != nil, "Missing subtitle: \(command.subtitle)")
+        }
+    }
+
     private func simplifiedChineseTranslations() throws -> [String: String] {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

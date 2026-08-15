@@ -2089,6 +2089,24 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    @MainActor
+    func codeEditorDoesNotRepublishUnchangedFindState() {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "sample"
+        var updates: [(index: Int, count: Int)] = []
+        textView.onFindStateChange = { index, count in
+            updates.append((index, count))
+        }
+
+        textView.syncFindState(isVisible: true, query: "")
+        textView.syncFindState(isVisible: true, query: "")
+
+        #expect(updates.count == 1)
+        #expect(updates.first?.index == -1)
+        #expect(updates.first?.count == 0)
+    }
+
+    @Test
     func markdownImageInsertionSeparatesTheReferenceFromRawHTML() {
         let source = "<table>\n</table>\n"
         let reference = "![pasted image](assets/pasted-image.png)"
