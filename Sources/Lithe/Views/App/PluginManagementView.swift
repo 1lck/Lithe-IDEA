@@ -8,6 +8,7 @@ struct PluginManagementView: View {
     @State private var hoveredPluginID: PluginID?
     @State private var pendingEnabledStates: [PluginID: Bool] = [:]
     @State private var isApplyingChanges = false
+    @State private var isLanguageExtensionsExpanded = false
 
     private var filteredPlugins: [PluginManagementSnapshot] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -20,6 +21,18 @@ struct PluginManagementView: View {
 
     private var selectedPlugin: PluginManagementSnapshot? {
         filteredPlugins.first { $0.id == selectedPluginID } ?? filteredPlugins.first
+    }
+
+    private var listContent: PluginManagementListContent {
+        PluginManagementListContent(plugins: filteredPlugins)
+    }
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var showsLanguageExtensions: Bool {
+        isLanguageExtensionsExpanded || isSearching
     }
 
     private var enabledPluginCount: Int {
@@ -39,7 +52,14 @@ struct PluginManagementView: View {
         .frame(minWidth: 820, minHeight: 560)
         .background(LitheTheme.window)
         .onAppear {
-            selectedPluginID = model.pluginSnapshots.first?.id
+            let initialContent = PluginManagementListContent(plugins: model.pluginSnapshots)
+            selectedPluginID = initialContent.standalonePlugins.first?.id
+                ?? initialContent.languageExtensions.first?.id
+        }
+        .onChange(of: searchText) { newValue in
+            if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                isLanguageExtensionsExpanded = true
+            }
         }
     }
 
@@ -86,8 +106,16 @@ struct PluginManagementView: View {
             .padding(.horizontal, 14).frame(height: 38).background(LitheTheme.raised)
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(filteredPlugins) { plugin in
+                    ForEach(listContent.standalonePlugins) { plugin in
                         pluginRow(plugin)
+                    }
+                    if !listContent.languageExtensions.isEmpty {
+                        languageExtensionsDisclosure
+                        if showsLanguageExtensions {
+                            ForEach(listContent.languageExtensions) { plugin in
+                                pluginRow(plugin, isNested: true)
+                            }
+                        }
                     }
                 }
             }
@@ -96,7 +124,58 @@ struct PluginManagementView: View {
         .background(LitheTheme.sidebar)
     }
 
-    private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
+    private var languageExtensionsDisclosure: some View {
+        let plugins = listContent.languageExtensions
+        let enabledCount = plugins.filter { effectiveEnabledState(for: $0) }.count
+        return Button {
+            toggleLanguageExtensions()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: showsLanguageExtensions ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .frame(width: 14)
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(LitheTheme.accent)
+                    .frame(width: 30, height: 30)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(LocalizedStringKey("More Language Support"))
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(LocalizedStringKey("\(plugins.count) languages · \(enabledCount) enabled"))
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                Spacer()
+                Text("\(plugins.count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(LitheTheme.raised)
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(showsLanguageExtensions ? Text("Expanded") : Text("Collapsed"))
+        .lithePointer()
+    }
+
+    private func toggleLanguageExtensions() {
+        guard !isSearching else { return }
+        if isLanguageExtensionsExpanded,
+           let selectedPluginID,
+           listContent.languageExtensions.contains(where: { $0.id == selectedPluginID }) {
+            self.selectedPluginID = listContent.standalonePlugins.first?.id
+        }
+        isLanguageExtensionsExpanded.toggle()
+    }
+
+    private func pluginRow(_ plugin: PluginManagementSnapshot, isNested: Bool = false) -> some View {
         let presentation = presentation(for: plugin)
         let isSelected = selectedPlugin?.id == plugin.id
         let isHovered = hoveredPluginID == plugin.id
@@ -115,7 +194,9 @@ struct PluginManagementView: View {
             Image(systemName: effectiveEnabledState(for: plugin) ? "checkmark.square.fill" : "square")
                 .foregroundStyle(effectiveEnabledState(for: plugin) ? LitheTheme.accent : LitheTheme.secondaryText)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
+        .padding(.leading, isNested ? 32 : 14)
+        .padding(.trailing, 14)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             isSelected
@@ -298,6 +379,20 @@ struct PluginManagementView: View {
         case "shell", "powershell", "make", "cmake":
             return .init(systemImage: "terminal.fill", tint: LitheTheme.secondaryText, summary: summary)
         default: return .init(systemImage: "puzzlepiece.extension.fill", tint: LitheTheme.accent, summary: summary)
+        }
+    }
+}
+
+struct PluginManagementListContent {
+    let standalonePlugins: [PluginManagementSnapshot]
+    let languageExtensions: [PluginManagementSnapshot]
+
+    init(plugins: [PluginManagementSnapshot]) {
+        standalonePlugins = plugins.filter { plugin in
+            plugin.manifest.languageSupports?.isEmpty != false
+        }
+        languageExtensions = plugins.filter { plugin in
+            plugin.manifest.languageSupports?.isEmpty == false
         }
     }
 }

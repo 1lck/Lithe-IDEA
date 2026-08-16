@@ -149,6 +149,23 @@ package struct GitService: Sendable {
         } ?? DiffDocument(rows: [], hunks: [])
     }
 
+    func diffDocumentAgainstHead(
+        for change: GitChange,
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) async -> DiffDocument {
+        if change.isUntracked {
+            return await diffDocument(for: change, whitespace: whitespace)
+        }
+        return await read {
+            $0.comparisonDiffDocument(
+                at: change.repositoryRoot,
+                reference: "HEAD",
+                pathspecs: change.pathspecs,
+                whitespace: whitespace
+            )
+        } ?? DiffDocument(rows: [], hunks: [])
+    }
+
     func diffPatch(
         for change: GitChange,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
@@ -320,9 +337,49 @@ package struct GitService: Sendable {
         for reference: GitReference,
         at repositoryRoot: URL
     ) async -> GitBranchComparison {
-        await read(priority: .utility) {
+        async let trackedComparison: GitBranchComparison? = read(priority: .utility) {
             $0.comparison(for: reference, at: repositoryRoot)
-        } ?? GitBranchComparison(reference: reference, files: [])
+        }
+        async let workingTreeSnapshot: GitSnapshot? = read(priority: .utility) {
+            $0.snapshot(at: repositoryRoot)
+        }
+
+        let (comparison, snapshot) = await (trackedComparison, workingTreeSnapshot)
+        var filesByPath: [String: GitBranchComparisonFile] = [:]
+        for file in comparison?.files ?? [] {
+            filesByPath[file.path] = file
+        }
+        for change in snapshot?.changes ?? [] where change.isUntracked {
+            if filesByPath[change.path] == nil {
+                filesByPath[change.path] = GitBranchComparisonFile(
+                    status: "A",
+                    path: change.path,
+                    isUntracked: true
+                )
+            }
+        }
+
+        let files = filesByPath.values.sorted { lhs, rhs in
+            if lhs.path == rhs.path { return lhs.status < rhs.status }
+            return lhs.path < rhs.path
+        }
+        return GitBranchComparison(reference: reference, files: files)
+    }
+
+    func comparison(
+        from reference: GitReference,
+        to target: GitReference,
+        at repositoryRoot: URL
+    ) async -> GitBranchComparison {
+        let range = comparisonRange(from: reference, to: target)
+        let payload = await read(priority: .utility) {
+            $0.comparison(for: range, at: repositoryRoot)
+        }
+        return GitBranchComparison(
+            reference: reference,
+            targetReference: target,
+            files: payload?.files ?? []
+        )
     }
 
     func diff(
@@ -331,7 +388,18 @@ package struct GitService: Sendable {
         at repositoryRoot: URL,
         whitespace: GitDiffWhitespaceMode = .doNotIgnore
     ) async -> [DiffRow] {
-        await read {
+        if file.isUntracked {
+            return await read {
+                $0.diffDocument(
+                    at: repositoryRoot,
+                    pathspecs: [file.path],
+                    staged: false,
+                    untracked: true,
+                    whitespace: whitespace
+                )
+            }?.rows ?? []
+        }
+        return await read {
             $0.comparisonDiffDocument(
                 at: repositoryRoot,
                 reference: reference.fullName,
@@ -339,6 +407,37 @@ package struct GitService: Sendable {
                 whitespace: whitespace
             )
         }?.rows ?? []
+    }
+
+    func diff(
+        for file: GitBranchComparisonFile,
+        from reference: GitReference,
+        to target: GitReference,
+        at repositoryRoot: URL,
+        whitespace: GitDiffWhitespaceMode = .doNotIgnore
+    ) async -> [DiffRow] {
+        let range = comparisonRange(from: reference, to: target)
+        return await read {
+            $0.comparisonDiffDocument(
+                at: repositoryRoot,
+                reference: range.fullName,
+                pathspecs: [file.path],
+                whitespace: whitespace
+            )
+        }?.rows ?? []
+    }
+
+    private func comparisonRange(
+        from reference: GitReference,
+        to target: GitReference
+    ) -> GitReference {
+        GitReference(
+            fullName: "\(reference.fullName)..\(target.fullName)",
+            shortName: "\(reference.shortName)..\(target.shortName)",
+            kind: reference.kind,
+            isCurrent: false,
+            upstreamShortName: nil
+        )
     }
 
     func createBranch(

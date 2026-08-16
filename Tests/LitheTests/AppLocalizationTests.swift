@@ -87,6 +87,19 @@ struct AppLocalizationTests {
         }
     }
 
+    @Test
+    func simplifiedChineseResourcesCoverPluginLanguageGrouping() throws {
+        let translations = try simplifiedChineseTranslations()
+
+        #expect(translations["More Language Support"] == "扩展更多语言")
+        #expect(
+            translations["%lld languages · %lld enabled"]
+                == "%lld 种语言 · 已启用 %lld 个"
+        )
+        #expect(translations["Expanded"] == "已展开")
+        #expect(translations["Collapsed"] == "已收起")
+    }
+
     private func simplifiedChineseTranslations() throws -> [String: String] {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

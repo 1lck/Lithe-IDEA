@@ -733,6 +733,8 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
 pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreError> {
     let limit = request.limit.clamp(1, 5_000);
     let root = validate_root(&request.root)?;
+    let user_name = git_config_value(&root, "user.name");
+    let user_email = git_config_value(&root, "user.email");
     let reference_output = readonly_command(GitCommandRequest {
         root: root.clone(),
         arguments: vec![
@@ -800,7 +802,25 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         references,
         commits: all_commits.into_iter().take(limit).collect(),
         has_more,
+        user_name,
+        user_email,
     })
+}
+
+/// Reads one effective repository configuration value without making a missing
+/// optional value fail the surrounding history request.
+fn git_config_value(root: &str, key: &str) -> Option<String> {
+    let response = readonly_command(GitCommandRequest {
+        root: root.to_string(),
+        arguments: vec!["config".to_string(), "--get".to_string(), key.to_string()],
+        input: None,
+    })
+    .ok()?;
+    if response.exit_code != 0 {
+        return None;
+    }
+    let value = response.output.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 /// Resolves one commit and its parent metadata.

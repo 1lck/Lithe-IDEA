@@ -29,7 +29,7 @@ verification scripts are the executable source of boundary checks.
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
-| Java/Maven | deterministic Maven-root selection, project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, and JDTLS adapter policy | JDK/Maven discovery, Java/Maven child processes, sockets, and JDB transport |
+| Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, sockets, and JDB transport |
 | Run/Debug | versioned configuration documents, three-layer resolution, diagnostics, and platform-neutral launch plans | project file persistence, child processes, sockets, and JDB transport |
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |

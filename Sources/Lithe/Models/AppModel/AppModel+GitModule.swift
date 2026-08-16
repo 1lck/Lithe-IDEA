@@ -21,6 +21,7 @@ extension AppModel {
                 onStateRefreshed: { [weak self] in
                     guard let self, let document = self.activeDocument else { return }
                     await self.refreshCodeVision(for: document.url)
+                    await self.loadGitLineChanges(for: document.url)
                 },
                 saveChangesPolicy: { [weak self] in self?.settings.gitSaveChangesPolicy ?? .stash },
                 onGitOperationBegan: { [weak self] in

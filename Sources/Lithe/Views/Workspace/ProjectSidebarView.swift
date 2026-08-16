@@ -41,6 +41,7 @@ struct ProjectSidebarView: View {
                         guard expandedTreeRootPath != root.url.path else { return }
                         expandedTreeRootPath = root.url.path
                         expandedDirectoryPaths = [root.url.path]
+                        await model.refreshGit()
                     }
                     .contextMenu {
                         Button("New File…") {
@@ -209,7 +210,7 @@ private struct FileNodeRow: View {
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
                     .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
-                    .foregroundStyle(LitheTheme.primaryText)
+                    .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .layoutPriority(1)
@@ -242,11 +243,17 @@ private struct FileNodeRow: View {
                     .frame(width: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
                     .font(.system(size: LitheTheme.Metrics.treeFontSize))
-                    .foregroundStyle(LitheTheme.primaryText)
+                    .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .layoutPriority(1)
                 Spacer(minLength: 4)
+                if let status = model.gitChange(for: node.url) {
+                    Text(status.displayStatus)
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(gitStatusColor ?? LitheTheme.secondaryText)
+                        .accessibilityLabel(status.kind.title)
+                }
             }
             .padding(.leading, CGFloat(depth * 14 + 8))
             .padding(.trailing, 8)
@@ -273,6 +280,13 @@ private struct FileNodeRow: View {
 
     @ViewBuilder
     private var directoryContextMenu: some View {
+        if model.gitTreeStatus(for: node.url, isDirectory: true) != nil {
+            Button("Show Git Diff") {
+                Task { await model.showGitDirectoryDiff(for: node.url) }
+            }
+            Divider()
+        }
+
         Button("New File…") {
             model.requestCreateFile(in: node.url)
         }
@@ -319,6 +333,12 @@ private struct FileNodeRow: View {
             model.openFile(node.url)
         }
 
+        if let change = model.gitChange(for: node.url) {
+            Button("Show Git Diff") {
+                model.selectChange(change)
+            }
+        }
+
         Divider()
 
         Button("Duplicate") {
@@ -344,6 +364,19 @@ private struct FileNodeRow: View {
         }
         Button("Copy Relative Path") {
             model.copyProjectItemPath(node.url, relative: true)
+        }
+    }
+
+    private var gitStatusColor: Color? {
+        guard let kind = model.gitTreeStatus(for: node.url, isDirectory: node.isDirectory) else {
+            return nil
+        }
+        switch kind {
+        case .modified: return LitheTheme.accent
+        case .added, .copied: return LitheTheme.success
+        case .deleted: return LitheTheme.error
+        case .moved: return LitheTheme.skill
+        case .conflicted: return LitheTheme.warning
         }
     }
 

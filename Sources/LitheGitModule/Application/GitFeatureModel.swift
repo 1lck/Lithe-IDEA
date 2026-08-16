@@ -37,8 +37,11 @@ package final class GitFeatureModel: ObservableObject {
     @Published package var isResolvingGitOperation = false
     @Published package private(set) var isCommitting = false
     @Published package private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
+    @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
     @Published package private(set) var gitReferences: [GitReference] = []
     @Published package private(set) var gitCommits: [GitCommit] = []
+    @Published package private(set) var gitLogMatchedCommitHashes: Set<String>?
+    @Published package private(set) var isFilteringGitLog = false
     @Published package var selectedGitReference: GitReference?
     @Published package var selectedGitCommit: GitCommit?
     @Published package private(set) var selectedGitCommitFiles: [GitCommitFile] = []
@@ -55,6 +58,9 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isCloningRepository = false
 
     private let service: GitService
+    private var gitIdentity: GitIdentity?
+    private var commitPathsByHash: [String: Set<String>] = [:]
+    private var gitLogFilterGeneration = UUID()
     private let shelveService: ShelveService?
     private let snapshotProvider: @Sendable (URL) async -> GitSnapshot?
     private let stashesProvider: @Sendable (URL) async -> [GitStash]
@@ -71,6 +77,8 @@ package final class GitFeatureModel: ObservableObject {
     private var gitHistoryLimit = 300
     private var deferredSavedChanges: GitDeferredSavedChanges?
     private var refreshRequestedWhileRunning = false
+    private var loadingLineChangeURLs: Set<URL> = []
+    private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
 
 
     package init(
@@ -163,8 +171,16 @@ package final class GitFeatureModel: ObservableObject {
         pendingDiscardHunk = nil
         isCommitting = false
         gitBlameLines = [:]
+        gitLineChangeMarkers = [:]
+        loadingLineChangeURLs = []
+        lineChangeHunks = [:]
         gitReferences = []
         gitCommits = []
+        gitIdentity = nil
+        gitLogMatchedCommitHashes = nil
+        isFilteringGitLog = false
+        commitPathsByHash = [:]
+        gitLogFilterGeneration = UUID()
         gitHistoryLimit = 300
         isLoadingGitHistory = false
         isLoadingMoreGitHistory = false
@@ -216,6 +232,8 @@ package final class GitFeatureModel: ObservableObject {
             }
             if changesChanged {
                 gitChanges = snapshot.changes
+                gitLineChangeMarkers = [:]
+                lineChangeHunks = [:]
                 didChange = true
             }
             reconcilePendingStagingStates(with: snapshot.changes)
@@ -309,9 +327,116 @@ package final class GitFeatureModel: ObservableObject {
         isLoadingDiff = false
     }
 
+    package func showDirectoryDiff(at directoryURL: URL) async {
+        guard let repositoryRoot = gitRepositoryRoot else { return }
+        let rootPath = repositoryRoot.standardizedFileURL.path
+        let directoryPath = directoryURL.standardizedFileURL.path
+        guard directoryPath == rootPath || directoryPath.hasPrefix(rootPath + "/") else { return }
+        let relativePath = directoryPath == rootPath
+            ? ""
+            : String(directoryPath.dropFirst(rootPath.count + 1))
+        let prefix = relativePath.isEmpty ? "" : relativePath + "/"
+        let changes = gitChanges.filter {
+            relativePath.isEmpty || $0.path == relativePath || $0.path.hasPrefix(prefix)
+        }.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        guard !changes.isEmpty else { return }
+
+        let hasWorkingTreeChange = changes.contains(where: \.hasWorkingTreeChange)
+        let isEntirelyUntracked = changes.allSatisfy(\.isUntracked)
+        let summary = GitChange(
+            repositoryRoot: repositoryRoot,
+            path: relativePath.isEmpty ? "." : relativePath,
+            originalPath: nil,
+            indexStatus: isEntirelyUntracked ? "?" : (hasWorkingTreeChange ? " " : "M"),
+            workTreeStatus: isEntirelyUntracked ? "?" : (hasWorkingTreeChange ? "M" : " ")
+        )
+
+        closeBranchComparison()
+        selectedGitCommitDiffContext = nil
+        selectedChange = summary
+        selectedDiffPatch = ""
+        diffRows = []
+        diffHunks = []
+        isLoadingDiff = true
+        var documents: [DiffDocument] = []
+        for change in changes {
+            documents.append(
+                await service.diffDocumentAgainstHead(
+                    for: change,
+                    whitespace: gitDiffWhitespaceMode
+                )
+            )
+        }
+        guard selectedChange?.id == summary.id else { return }
+        selectedDiffPatch = documents.map(\.patch).filter { !$0.isEmpty }.joined(separator: "\n")
+        diffRows = documents.flatMap(\.rows)
+        diffHunks = documents.flatMap(\.hunks)
+        isLoadingDiff = false
+    }
+
     package func selectConflictPath(_ path: String) async {
         guard let change = gitChanges.first(where: { $0.path == path }) else { return }
         await selectChange(change)
+    }
+
+    package func loadLineChanges(for fileURL: URL) async {
+        let normalizedURL = fileURL.standardizedFileURL
+        guard !loadingLineChangeURLs.contains(normalizedURL) else { return }
+        guard let change = gitChanges.first(where: {
+            $0.url.standardizedFileURL == normalizedURL
+        }) else {
+            gitLineChangeMarkers[normalizedURL] = []
+            lineChangeHunks[normalizedURL] = [:]
+            return
+        }
+        loadingLineChangeURLs.insert(normalizedURL)
+        defer { loadingLineChangeURLs.remove(normalizedURL) }
+
+        let document = await service.diffDocument(for: change)
+        guard gitChanges.contains(change) else { return }
+        gitLineChangeMarkers[normalizedURL] = GitLineChangeProjection.markers(from: document.rows)
+        lineChangeHunks[normalizedURL] = Dictionary(
+            uniqueKeysWithValues: document.hunks.map { ($0.id, $0) }
+        )
+    }
+
+    package func showLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
+        guard let change = gitChanges.first(where: {
+            $0.url.standardizedFileURL == fileURL.standardizedFileURL
+        }) else { return }
+        await selectChange(change)
+        _ = marker
+    }
+
+    package func stageLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
+        guard let (change, hunk) = lineChangeContext(marker, fileURL: fileURL),
+              change.hasWorkingTreeChange else { return }
+        await stageDiffHunk(hunk, in: change)
+    }
+
+    package func unstageLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
+        guard let (change, hunk) = lineChangeContext(marker, fileURL: fileURL),
+              change.isStaged, !change.hasWorkingTreeChange else { return }
+        await unstageDiffHunk(hunk, in: change)
+    }
+
+    package func requestDiscardLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) {
+        guard let (change, hunk) = lineChangeContext(marker, fileURL: fileURL),
+              change.hasWorkingTreeChange else { return }
+        requestDiscardHunk(hunk, in: change)
+    }
+
+    private func lineChangeContext(
+        _ marker: GitLineChangeMarker,
+        fileURL: URL
+    ) -> (GitChange, DiffHunk)? {
+        let normalizedURL = fileURL.standardizedFileURL
+        guard let hunkID = marker.hunkID,
+              let hunk = lineChangeHunks[normalizedURL]?[hunkID],
+              let change = gitChanges.first(where: {
+                  $0.url.standardizedFileURL == normalizedURL
+              }) else { return nil }
+        return (change, hunk)
     }
 
     private var selectedSaveChangesPolicy: GitSaveChangesPolicy {
@@ -962,6 +1087,7 @@ package final class GitFeatureModel: ObservableObject {
         )
         gitReferences = snapshot.references
         gitCommits = snapshot.commits
+        gitIdentity = snapshot.identity
         canLoadMoreGitHistory = snapshot.hasMore
 
         let nextCommit = snapshot.commits.first(where: { $0.hash == previousCommitHash })
@@ -979,6 +1105,62 @@ package final class GitFeatureModel: ObservableObject {
             selectedGitCommitFile = nil
             selectedGitCommitDiffContext = nil
         }
+    }
+
+    package func applyGitLogFilter(_ rawQuery: String) async {
+        let query = GitLogQuery.parse(rawQuery)
+        gitLogFilterGeneration = UUID()
+        let generation = gitLogFilterGeneration
+        guard !query.isEmpty else {
+            gitLogMatchedCommitHashes = nil
+            isFilteringGitLog = false
+            return
+        }
+
+        isFilteringGitLog = true
+        var candidates = gitCommits.filter { query.matchesMetadata($0, identity: gitIdentity) }
+
+        for branchFilter in query.branches {
+            guard let repositoryRoot = gitRepositoryRoot else {
+                candidates = []
+                break
+            }
+            let references = gitReferences.filter {
+                $0.shortName.localizedCaseInsensitiveContains(branchFilter)
+                    || $0.fullName.localizedCaseInsensitiveContains(branchFilter)
+            }
+            var hashes: Set<String> = []
+            for reference in references {
+                let snapshot = await service.history(
+                    at: repositoryRoot,
+                    reference: reference,
+                    limit: 5_000
+                )
+                guard gitLogFilterGeneration == generation else { return }
+                hashes.formUnion(snapshot.commits.map(\.hash))
+            }
+            candidates.removeAll { !hashes.contains($0.hash) }
+        }
+
+        if !query.paths.isEmpty, let repositoryRoot = gitRepositoryRoot {
+            var pathMatched: [GitCommit] = []
+            for commit in candidates {
+                let paths: Set<String>
+                if let cached = commitPathsByHash[commit.hash] {
+                    paths = cached
+                } else {
+                    paths = Set(await service.files(in: commit, at: repositoryRoot).map(\.path))
+                    guard gitLogFilterGeneration == generation else { return }
+                    commitPathsByHash[commit.hash] = paths
+                }
+                if query.matchesPaths(paths) { pathMatched.append(commit) }
+            }
+            candidates = pathMatched
+        }
+
+        guard gitLogFilterGeneration == generation else { return }
+        gitLogMatchedCommitHashes = Set(candidates.map(\.hash))
+        isFilteringGitLog = false
     }
 
     package func loadMoreGitHistory() async {
@@ -1085,17 +1267,54 @@ package final class GitFeatureModel: ObservableObject {
         isLoadingBranchComparison = false
     }
 
+    package func showComparison(from reference: GitReference, to target: GitReference) async {
+        guard let gitRepositoryRoot, reference.id != target.id else { return }
+        selectedGitCommitDiffContext = nil
+        selectedChange = nil
+        selectedDiffPatch = ""
+        isLoadingBranchComparison = true
+        branchComparisonRows = []
+        let comparison = await service.comparison(
+            from: reference,
+            to: target,
+            at: gitRepositoryRoot
+        )
+        branchComparison = comparison
+        selectedBranchComparisonFile = comparison.files.first
+        if let firstFile = comparison.files.first {
+            branchComparisonRows = await service.diff(
+                for: firstFile,
+                from: reference,
+                to: target,
+                at: gitRepositoryRoot,
+                whitespace: gitDiffWhitespaceMode
+            )
+        }
+        isLoadingBranchComparison = false
+    }
+
     package func selectBranchComparisonFile(_ file: GitBranchComparisonFile) async {
         guard let gitRepositoryRoot, let comparison = branchComparison else { return }
         selectedBranchComparisonFile = file
         branchComparisonRows = []
         isLoadingBranchComparison = true
-        let rows = await service.diff(
-            for: file,
-            against: comparison.reference,
-            at: gitRepositoryRoot,
-            whitespace: gitDiffWhitespaceMode
-        )
+        let rows: [DiffRow]
+        if let target = comparison.targetReference {
+            rows = await service.diff(
+                for: file,
+                from: comparison.reference,
+                to: target,
+                at: gitRepositoryRoot,
+                whitespace: gitDiffWhitespaceMode
+            )
+        } else {
+            rows = await service.diff(
+                for: file,
+                against: comparison.reference,
+                at: gitRepositoryRoot,
+                whitespace: gitDiffWhitespaceMode
+            )
+        }
         guard selectedBranchComparisonFile?.id == file.id else { return }
         branchComparisonRows = rows
         isLoadingBranchComparison = false

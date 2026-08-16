@@ -1,0 +1,45 @@
+{
+  "name": "Spring workspace semantic index",
+  "request": {
+    "command": "spring.index",
+    "payload": {
+      "root": "/fixture/workspace",
+      "paths": [
+        "src/main/java/example/DemoProperties.java",
+        "src/main/java/example/GreetingController.java",
+        "src/main/resources/application-dev.yml"
+      ],
+      "metadataRepositories": [
+        "/fixture/gradle-repository",
+        "/fixture/maven-repository"
+      ],
+      "refreshDependencyMetadata": true,
+      "textOverrides": {
+        "src/main/resources/application-dev.yml": "demo:\n  enabled: true\n"
+      }
+    }
+  },
+  "expected": {
+    "property": {
+      "name": "demo.enabled",
+      "sourcePath": "src/main/java/example/DemoProperties.java",
+      "sourceLine": 5
+    },
+    "value": {
+      "path": "src/main/resources/application-dev.yml",
+      "profile": "dev",
+      "overridesBaseValue": false
+    },
+    "propertyReference": {
+      "key": "demo.enabled"
+    },
+    "injection": {
+      "typeName": "GreetingService",
+      "qualifier": "primaryGreeting"
+    },
+    "endpoint": {
+      "httpMethods": ["GET"],
+      "route": "/api/greeting"
+    }
+  }
+}

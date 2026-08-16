@@ -2120,6 +2120,106 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    @MainActor
+    func codeEditorReportsEachFindStateOnlyOnce() {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "alpha beta alpha"
+        var reportedStates: [String] = []
+        textView.onFindStateChange = { index, count in
+            reportedStates.append("\(index):\(count)")
+        }
+
+        textView.syncFindState(isVisible: true, query: "")
+        textView.syncFindState(isVisible: true, query: "alpha")
+        textView.syncFindState(isVisible: true, query: "alpha")
+
+        #expect(reportedStates == ["-1:0", "0:2"])
+    }
+
+    @Test
+    func doubleShiftRecognizerRequiresTwoStandaloneTaps() {
+        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
+
+        var triggered = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.00
+        )
+        #expect(!triggered)
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.05
+        )
+        #expect(!triggered)
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.20
+        )
+        #expect(!triggered)
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.25
+        )
+        #expect(triggered)
+    }
+
+    @Test
+    func doubleShiftRecognizerRejectsUppercaseTypingAndInterveningKeys() {
+        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
+
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.00
+        )
+        recognizer.handleKeyDown()
+        var triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.05
+        )
+        #expect(!triggered)
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.20
+        )
+        recognizer.handleKeyDown()
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.25
+        )
+        #expect(!triggered)
+
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 2.00
+        )
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 2.05
+        )
+        recognizer.handleKeyDown()
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 2.20
+        )
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 2.25
+        )
+        #expect(!triggered)
+    }
+
+    @Test
     func markdownImageInsertionSeparatesTheReferenceFromRawHTML() {
         let source = "<table>\n</table>\n"
         let reference = "![pasted image](assets/pasted-image.png)"

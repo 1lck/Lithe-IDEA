@@ -128,6 +128,7 @@ fi
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"
+"$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R "$ROOT_DIR/Resources/IDEAIcons" "$APP_DIR/Contents/Resources/IDEAIcons"
 cp -R "$ROOT_DIR/Resources/DatabaseIcons" "$APP_DIR/Contents/Resources/DatabaseIcons"

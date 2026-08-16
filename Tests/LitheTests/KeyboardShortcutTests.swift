@@ -8,7 +8,7 @@ struct KeyboardShortcutTests {
     @Test
     func catalogHasStableUniqueCommandsAndConflictFreeDefaults() {
         let commands = LitheCommandCatalog.commands
-        #expect(commands.count == 27)
+        #expect(commands.count == 30)
         #expect(Set(commands.map(\.id)).count == commands.count)
 
         let owners = commands.flatMap { command in
@@ -43,7 +43,11 @@ struct KeyboardShortcutTests {
         #expect(actionIDs.contains("search-everywhere"))
         #expect(actionIDs.contains("find-next"))
         #expect(actionIDs.contains("find-previous"))
+        #expect(actionIDs.contains("navigate-back"))
+        #expect(actionIDs.contains("navigate-forward"))
+        #expect(actionIDs.contains("go-to-definition"))
         #expect(actionIDs.contains("go-to-implementation"))
+        #expect(actionIDs.contains("spring-endpoints"))
     }
 
     @Test

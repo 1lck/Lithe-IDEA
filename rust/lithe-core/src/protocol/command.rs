@@ -131,6 +131,8 @@ pub enum CoreCommand {
     JavaServerPort,
     /// Computes lightweight Java structure features (`java.structure`).
     JavaStructure,
+    /// Builds Spring configuration, bean, injection, and endpoint indexes (`spring.index`).
+    SpringIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
@@ -231,6 +233,7 @@ impl CoreCommand {
             "java.sourceDefinition" => Some(Self::JavaSourceDefinition),
             "java.serverPort" => Some(Self::JavaServerPort),
             "java.structure" => Some(Self::JavaStructure),
+            "spring.index" => Some(Self::SpringIndex),
             "git.status" => Some(Self::GitStatus),
             "git.watchContext" => Some(Self::GitWatchContext),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),

@@ -316,6 +316,78 @@ struct RustCoreBridge: Sendable {
         let configurations: [Configuration]
     }
 
+    struct SpringIndexPayload: Decodable, Sendable {
+        struct Property: Decodable, Sendable {
+            let name: String
+            let typeName: String?
+            let description: String?
+            let defaultValue: String?
+            let sourcePath: String?
+            let sourceLine: Int?
+            let sourceColumn: Int?
+        }
+        struct ConfigurationValue: Decodable, Sendable {
+            let key: String
+            let value: String
+            let path: String
+            let line: Int
+            let column: Int
+            let profile: String?
+            let overridesBaseValue: Bool
+            let targetPath: String?
+            let targetLine: Int?
+            let targetColumn: Int?
+        }
+        struct PropertyReference: Decodable, Sendable {
+            let key: String
+            let path: String
+            let line: Int
+            let column: Int
+        }
+        struct Diagnostic: Decodable, Sendable {
+            let path: String
+            let line: Int
+            let column: Int
+            let severity: String
+            let message: String
+        }
+        struct Bean: Decodable, Sendable {
+            let id: String
+            let name: String
+            let typeName: String
+            let path: String
+            let line: Int
+            let column: Int
+            let kind: String
+        }
+        struct Injection: Decodable, Sendable {
+            let path: String
+            let line: Int
+            let column: Int
+            let typeName: String
+            let qualifier: String?
+            let beanIds: [String]
+        }
+        struct Endpoint: Decodable, Sendable {
+            let id: String
+            let httpMethods: [String]
+            let route: String
+            let controller: String
+            let method: String
+            let path: String
+            let line: Int
+            let column: Int
+        }
+
+        let properties: [Property]
+        let values: [ConfigurationValue]
+        let propertyReferences: [PropertyReference]
+        let diagnostics: [Diagnostic]
+        let beans: [Bean]
+        let injections: [Injection]
+        let endpoints: [Endpoint]
+    }
+
     struct RunConfigurationPayload: Codable, Sendable {
         struct Generator: Codable, Sendable {
             let fingerprint: String
@@ -796,6 +868,8 @@ struct RustCoreBridge: Sendable {
         let references: [Reference]
         let commits: [Commit]
         let hasMore: Bool
+        let userName: String?
+        let userEmail: String?
 
         func makeSnapshot() -> GitHistorySnapshot {
             GitHistorySnapshot(
@@ -821,7 +895,10 @@ struct RustCoreBridge: Sendable {
                         decorations: commit.decorations
                     )
                 },
-                hasMore: hasMore
+                hasMore: hasMore,
+                identity: (userName == nil && userEmail == nil)
+                    ? nil
+                    : GitIdentity(name: userName, email: userEmail)
             )
         }
     }
@@ -1423,6 +1500,14 @@ struct RustCoreBridge: Sendable {
     private struct JavaStructureRequest: Encodable {
         let source: String
         let declarationSources: [String]
+    }
+
+    private struct SpringIndexRequest: Encodable {
+        let root: String
+        let paths: [String]
+        let metadataRepositories: [String]
+        let refreshDependencyMetadata: Bool
+        let textOverrides: [String: String]
     }
 
     private struct JavaCodeVisionRequest: Encodable {
@@ -2219,6 +2304,27 @@ struct RustCoreBridge: Sendable {
         execute(
             command: "java.structure",
             payload: JavaStructureRequest(source: source, declarationSources: declarationSources)
+        )
+    }
+
+    func springIndex(
+        at rootURL: URL,
+        paths: [String],
+        metadataRepositoryURLs: [URL] = [],
+        refreshDependencyMetadata: Bool = false,
+        textOverrides: [String: String] = [:]
+    ) -> SpringIndexPayload? {
+        execute(
+            command: "spring.index",
+            payload: SpringIndexRequest(
+                root: rootURL.standardizedFileURL.path,
+                paths: paths,
+                metadataRepositories: metadataRepositoryURLs.map {
+                    $0.standardizedFileURL.path
+                },
+                refreshDependencyMetadata: refreshDependencyMetadata,
+                textOverrides: textOverrides
+            )
         )
     }
 

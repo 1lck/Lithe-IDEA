@@ -1096,6 +1096,8 @@ fn git_history_returns_references_and_commit_graph_fields() {
     .expect("history response should be JSON");
     assert_eq!(response["ok"], true);
     assert_eq!(response["data"]["commits"][0]["subject"], "initial");
+    assert_eq!(response["data"]["userName"], "Lithe Test");
+    assert_eq!(response["data"]["userEmail"], "test@example.com");
     assert!(
         response["data"]["commits"][0]["hash"]
             .as_str()
