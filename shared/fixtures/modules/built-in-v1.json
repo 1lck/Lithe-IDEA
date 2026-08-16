@@ -9,9 +9,13 @@
       "activationPolicy": "onDemand",
       "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 300 },
       "dependencies": [],
-      "capabilities": ["dev.lithe.capability.ai-commit-message"],
+      "capabilities": [
+        "dev.lithe.capability.ai-commit-message",
+        "dev.lithe.capability.ai-pull-request-description"
+      ],
       "contributions": [
         { "id": "ai.commit-message", "kind": "command" },
+        { "id": "ai.pull-request-description", "kind": "command" },
         { "id": "ai.settings", "kind": "settings" }
       ],
       "required": false

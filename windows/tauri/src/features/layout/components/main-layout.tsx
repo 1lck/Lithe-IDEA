@@ -1,20 +1,15 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { useChatInitialization } from "@/features/ai/hooks/use-chat-initialization";
-import { useCollaborationPresence } from "@/features/collaboration/hooks/use-collaboration-presence";
 import { initializeDebuggerEventBridge } from "@/features/debugger/services/debug-adapter-events";
-import { useBufferStore } from "@/features/editor/stores/buffer.store";
-import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { getSymlinkInfo } from "@/features/file-system/controllers/platform";
-import type { FileEntry } from "@/features/file-system/types/app.types";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useFileSystemFolderDrop } from "@/features/file-system/hooks/use-file-system-folder-drop";
 import { openDroppedWorkspacePaths } from "@/features/file-system/utils/open-dropped-workspace-paths";
 import { useGitStore } from "@/features/git/stores/git.store";
 import { isGitChangeRelevant, subscribeToGitChanges } from "@/features/git/events/git-events";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { CachedWorkspaceSplitViews } from "@/features/panes/components/split-view-root";
 import { usePaneKeyboard } from "@/features/panes/hooks/use-pane-keyboard";
-import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useVimStore } from "@/features/vim/stores/vim.store";
 import { isWslPath } from "@/features/wsl/utils/wsl-path";
@@ -35,13 +30,9 @@ import {
   MainSidebar,
   SidebarActivityRail,
 } from "./sidebar/main-sidebar";
+import { PluginActivityRail } from "./plugin-activity-rail";
+import { WelcomeScreen } from "./welcome-screen";
 
-const AIChat = lazy(() => import("@/features/ai/components/chat/ai-chat"));
-const AgentLauncher = lazy(() =>
-  import("@/features/ai/components/agent-launcher").then((module) => ({
-    default: module.AgentLauncher,
-  })),
-);
 const CommandPalette = lazy(() => import("@/features/command-palette/components/command-palette"));
 const ConnectionDialog = lazy(() =>
   import("@/features/database/components/connection/connection-dialog").then((module) => ({
@@ -79,58 +70,26 @@ const TerminalHost = lazy(() =>
 );
 const BottomPane = lazy(() => import("./bottom-pane/bottom-pane"));
 
-const EMPTY_PROJECT_FILES: FileEntry[] = [];
-const EMPTY_BUFFERS: PaneContent[] = [];
 export function MainLayout() {
   const [deferredSurfacesReady, setDeferredSurfacesReady] = useState(false);
 
-  useChatInitialization();
   usePaneKeyboard();
-  useCollaborationPresence();
 
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
-  const activityRailExpanded = useSettingsStore((state) => state.settings.activityRailExpanded);
-  const activityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const sidebarWidth = useSettingsStore((state) => state.settings.sidebarWidth);
-  const aiChatWidth = useSettingsStore((state) => state.settings.aiChatWidth);
   const showStatusBar = useSettingsStore((state) => state.settings.showStatusBar);
-  const isRightSidebarVisible = useUIState((state) => state.isRightSidebarVisible);
-  const activeRightSidebarView = useUIState((state) => state.activeRightSidebarView);
   const isDatabaseConnectionVisible = useUIState((state) => state.isDatabaseConnectionVisible);
   const setIsDatabaseConnectionVisible = useUIState(
     (state) => state.setIsDatabaseConnectionVisible,
   );
-  const showInlineAiChat = useSettingsStore((state) => state.settings.isAIChatVisible);
-  const renderedActivityRailWidth = activityRailExpanded
-    ? activityRailWidth
-    : COLLAPSED_ACTIVITY_RAIL_WIDTH;
-  const visibleInlineAiChat = showInlineAiChat && deferredSurfacesReady;
   const leftPaneReservedWidth =
-    renderedActivityRailWidth +
-    (isRightSidebarVisible ? sidebarWidth : 0) +
-    (visibleInlineAiChat ? aiChatWidth : 0);
-  const aiPaneReservedWidth =
-    renderedActivityRailWidth +
-    (isSidebarVisible ? sidebarWidth : 0) +
-    (isRightSidebarVisible ? sidebarWidth : 0);
-  const rightPaneReservedWidth =
-    renderedActivityRailWidth +
-    (isSidebarVisible ? sidebarWidth : 0) +
-    (visibleInlineAiChat ? aiChatWidth : 0);
+    COLLAPSED_ACTIVITY_RAIL_WIDTH + (isSidebarVisible ? sidebarWidth : 0);
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
   const relativeLineNumbers = useVimStore.use.relativeLineNumbers();
   const { setRelativeLineNumbers } = useVimStore.use.actions();
-  const buffers = useBufferStore((state) => (showInlineAiChat ? state.buffers : EMPTY_BUFFERS));
-  const activeBuffer = useBufferStore((state) => {
-    if (!showInlineAiChat || !state.activeBufferId) return null;
-    return getBufferById(state.buffers, state.activeBufferId);
-  });
   const handleOpenFolderByPath = useFileSystemStore.use.handleOpenFolderByPath?.();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
-  const allProjectFiles = useFileSystemStore(
-    (state) => state.projectFilesCache?.files ?? EMPTY_PROJECT_FILES,
-  );
   const switchToProject = useFileSystemStore.use.switchToProject?.();
   const setIsSwitchingProject = useFileSystemStore.use.setIsSwitchingProject?.();
   const refreshWorkspaceGitStatus = useGitStore((state) => state.actions.refreshWorkspaceGitStatus);
@@ -301,83 +260,57 @@ export function MainLayout() {
 
       <TitleBarWithSettings />
 
-      <div className="lithe-workbench-glass relative z-10 flex flex-1 flex-col overflow-hidden">
-        <div
-          className="flex flex-1 flex-row overflow-hidden pr-(--lithe-workbench-gap)"
-          style={{ minHeight: 0 }}
-        >
-          <SidebarActivityRail expanded={activityRailExpanded} />
-          <ResizablePane
-            position="left"
-            widthKey="sidebarWidth"
-            hidden={!isSidebarVisible}
-            reservedWidth={leftPaneReservedWidth}
-          >
-            <MainSidebar paneLevel="primary" />
-          </ResizablePane>
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {rootFolderPath ? (
+        <>
+          <div className="lithe-workbench-glass relative z-10 flex flex-1 flex-col overflow-hidden">
             <div
-              className={cn(
-                "lithe-glass-island relative min-h-0 flex-1 overflow-hidden border-border/70 border-y border-r bg-background",
-                !isSidebarVisible && "rounded-l-xl border-l",
-                !visibleInlineAiChat && !isRightSidebarVisible && "rounded-r-xl",
-              )}
+              className="flex flex-1 flex-row overflow-hidden pr-(--lithe-workbench-gap)"
+              style={{ minHeight: 0 }}
             >
-              <CachedWorkspaceSplitViews />
+              <SidebarActivityRail expanded={false} />
+              <ResizablePane
+                position="left"
+                widthKey="sidebarWidth"
+                hidden={!isSidebarVisible}
+                reservedWidth={leftPaneReservedWidth}
+              >
+                <MainSidebar />
+              </ResizablePane>
+
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <div
+                  className={cn(
+                    "lithe-glass-island relative min-h-0 flex-1 overflow-hidden border-border/70 border-y border-r bg-background",
+                    !isSidebarVisible && "rounded-l-xl border-l",
+                    "rounded-r-xl",
+                  )}
+                >
+                  <CachedWorkspaceSplitViews />
+                </div>
+                {terminalWidthMode === "editor" && deferredSurfacesReady && (
+                  <Suspense fallback={null}>
+                    <BottomPane />
+                  </Suspense>
+                )}
+              </div>
+
+              <PluginActivityRail />
             </div>
-            {terminalWidthMode === "editor" && deferredSurfacesReady && (
-              <Suspense fallback={null}>
-                <BottomPane />
-              </Suspense>
+
+            {terminalWidthMode === "full" && deferredSurfacesReady && (
+              <div className="px-(--lithe-workbench-gap)">
+                <Suspense fallback={null}>
+                  <BottomPane />
+                </Suspense>
+              </div>
             )}
           </div>
 
-          {/* Right side panes are ordered from inner to edge. */}
-          {visibleInlineAiChat ? (
-            <ResizablePane
-              position="right"
-              widthKey="aiChatWidth"
-              outerEdge={!isRightSidebarVisible}
-              reservedWidth={aiPaneReservedWidth}
-            >
-              <Suspense fallback={null}>
-                <AIChat
-                  mode="chat"
-                  surfaceId="activity-sidebar"
-                  activeBuffer={activeBuffer}
-                  buffers={buffers}
-                  allProjectFiles={allProjectFiles}
-                />
-              </Suspense>
-            </ResizablePane>
-          ) : null}
-
-          <ResizablePane
-            position="right"
-            widthKey="sidebarWidth"
-            hidden={!isRightSidebarVisible}
-            reservedWidth={rightPaneReservedWidth}
-          >
-            <MainSidebar
-              paneLevel="edge"
-              activeView={activeRightSidebarView}
-              isGitActive={false}
-              isGitHubPRsActive={false}
-            />
-          </ResizablePane>
-        </div>
-
-        {terminalWidthMode === "full" && deferredSurfacesReady && (
-          <div className="px-(--lithe-workbench-gap)">
-            <Suspense fallback={null}>
-              <BottomPane />
-            </Suspense>
-          </div>
-        )}
-      </div>
-
-      {showStatusBar ? <Footer /> : null}
+          {showStatusBar ? <Footer /> : null}
+        </>
+      ) : (
+        <WelcomeScreen />
+      )}
 
       {/* Global modals and overlays */}
       {deferredSurfacesReady ? (
@@ -385,7 +318,6 @@ export function MainLayout() {
           <QuickOpen />
           <CommandPalette />
           <ExtensionGenerationCommand />
-          <AgentLauncher />
           <ProjectNameMenu />
 
           <ConnectionDialog

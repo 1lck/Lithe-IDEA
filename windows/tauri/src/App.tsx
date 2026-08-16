@@ -6,6 +6,7 @@ import {
   traceWindowOpen,
   traceWindowOpenAfterFrame,
 } from "@/features/window/utils/window-open-diagnostics";
+import { LocaleProvider } from "./i18n/locale-provider";
 
 const WorkbenchApp = lazy(() => import("./workbench-app"));
 
@@ -92,7 +93,9 @@ function App() {
 
   return (
     <Suspense fallback={<InitialWindowShell />}>
-      <WorkbenchApp />
+      <LocaleProvider>
+        <WorkbenchApp />
+      </LocaleProvider>
     </Suspense>
   );
 }

@@ -86,6 +86,20 @@ struct RustCoreBridge: Sendable {
 
     private struct EmptyResponsePayload: Decodable {}
 
+    private struct GitHubParseRemoteRequest: Encodable {
+        let remoteURL: String
+
+        private enum CodingKeys: String, CodingKey {
+            case remoteURL = "remoteUrl"
+        }
+    }
+
+    private struct GitHubNormalizeResponseRequest: Encodable {
+        let operation: String
+        let status: Int
+        let body: String
+    }
+
     struct SearchMatchPayload: Decodable, Sendable {
         let kind: String
         let path: String
@@ -1035,6 +1049,15 @@ struct RustCoreBridge: Sendable {
         }
     }
 
+    struct GitPullRequestContextPayload: Decodable, Sendable {
+        let currentBranch: String?
+        let suggestedBaseBranch: String?
+        let suggestedPublishBranch: String?
+        let requiresPublish: Bool
+        let detached: Bool
+        let hasUncommittedChanges: Bool
+    }
+
 
     private struct EmptyPayload: Encodable {
         let value = 0
@@ -1517,6 +1540,10 @@ struct RustCoreBridge: Sendable {
         let root: String
     }
 
+    private struct GitPullRequestContextRequest: Encodable {
+        let root: String
+    }
+
 
     private struct GitCommandRequest: Encodable {
         let root: String
@@ -1613,6 +1640,119 @@ struct RustCoreBridge: Sendable {
         let path: String
     }
 
+    struct DiscourseAuthorizationStart: Decodable, Sendable {
+        let flowId: String
+        let authorizationUrl: String
+        let expiresAt: UInt64
+    }
+
+    struct DiscourseAuthorizationCredential: Decodable, Sendable {
+        let userApiKey: String
+        let apiVersion: UInt64
+    }
+
+    struct DiscourseTopicSummary: Decodable, Identifiable, Sendable {
+        let id: UInt64
+        let slug: String
+        let title: String
+        let postsCount: UInt64
+        let replyCount: UInt64
+        let views: UInt64
+        let likeCount: UInt64
+        let categoryId: UInt64?
+        let createdAt: String?
+        let lastPostedAt: String?
+        let lastPosterUsername: String?
+        let pinned: Bool
+        let closed: Bool
+        let archived: Bool
+    }
+
+    struct DiscoursePost: Decodable, Identifiable, Sendable {
+        let id: UInt64
+        let postNumber: UInt64
+        let username: String
+        let name: String?
+        let cooked: String
+        let createdAt: String?
+        let updatedAt: String?
+        let replyCount: UInt64
+        let reads: UInt64
+    }
+
+    struct DiscourseTopicsResponse: Decodable, Sendable {
+        let topics: [DiscourseTopicSummary]
+        let moreTopicsUrl: String?
+    }
+
+    struct DiscourseTopicResponse: Decodable, Sendable {
+        let id: UInt64
+        let title: String
+        let slug: String
+        let posts: [DiscoursePost]
+    }
+
+    struct DiscourseCategory: Decodable, Identifiable, Sendable {
+        let id: UInt64
+        let name: String
+        let slug: String
+        let color: String?
+        let topicCount: UInt64
+        let descriptionText: String?
+    }
+
+    struct DiscourseCategoriesResponse: Decodable, Sendable {
+        let categories: [DiscourseCategory]
+    }
+
+    struct DiscourseSearchResponse: Decodable, Sendable {
+        let topics: [DiscourseTopicSummary]
+        let posts: [DiscoursePost]
+    }
+
+    private struct DiscourseAuthorizationBeginRequest: Encodable {
+        let origin: String
+        let clientId: String
+        let applicationName: String
+        let authRedirect: String
+        let scopes: [String]
+    }
+
+    private struct DiscourseAuthorizationCompleteRequest: Encodable {
+        let flowId: String
+        let callbackUrl: String
+    }
+
+    private struct DiscourseAPIRequest: Encodable {
+        let origin: String
+        let userApiKey: String
+        let clientId: String
+    }
+
+    private struct DiscourseTopicsRequest: Encodable {
+        let origin: String
+        let userApiKey: String
+        let clientId: String
+        let feed: String
+        let period: String?
+        let page: UInt32?
+    }
+
+    private struct DiscourseTopicRequest: Encodable {
+        let origin: String
+        let userApiKey: String
+        let clientId: String
+        let topicId: UInt64
+    }
+
+    private struct DiscourseSearchRequest: Encodable {
+        let origin: String
+        let userApiKey: String
+        let clientId: String
+        let query: String
+        let page: UInt32?
+    }
+
     var isAvailable: Bool {
         String(cString: lithe_bridge_version()) != "unlinked"
     }
@@ -1620,6 +1760,125 @@ struct RustCoreBridge: Sendable {
     func version() -> String? {
         guard isAvailable else { return nil }
         return String(cString: lithe_bridge_version())
+    }
+
+    func beginDiscourseAuthorization(
+        origin: String,
+        clientID: String,
+        applicationName: String,
+        authRedirect: String,
+        scopes: [String]
+    ) -> Result<DiscourseAuthorizationStart, CoreCallError> {
+        executeResult(
+            command: "community.discourse.auth.begin",
+            payload: DiscourseAuthorizationBeginRequest(
+                origin: origin,
+                clientId: clientID,
+                applicationName: applicationName,
+                authRedirect: authRedirect,
+                scopes: scopes
+            )
+        )
+    }
+
+    func completeDiscourseAuthorization(
+        flowID: String,
+        callbackURL: String
+    ) -> Result<DiscourseAuthorizationCredential, CoreCallError> {
+        executeResult(
+            command: "community.discourse.auth.complete",
+            payload: DiscourseAuthorizationCompleteRequest(
+                flowId: flowID,
+                callbackUrl: callbackURL
+            )
+        )
+    }
+
+    func discourseTopics(
+        origin: String,
+        userAPIKey: String,
+        clientID: String,
+        feed: String,
+        period: String? = nil,
+        page: UInt32? = nil
+    ) -> Result<DiscourseTopicsResponse, CoreCallError> {
+        executeResult(
+            command: "community.discourse.topics",
+            payload: DiscourseTopicsRequest(
+                origin: origin,
+                userApiKey: userAPIKey,
+                clientId: clientID,
+                feed: feed,
+                period: period,
+                page: page
+            )
+        )
+    }
+
+    func discourseTopic(
+        origin: String,
+        userAPIKey: String,
+        clientID: String,
+        topicID: UInt64
+    ) -> Result<DiscourseTopicResponse, CoreCallError> {
+        executeResult(
+            command: "community.discourse.topic",
+            payload: DiscourseTopicRequest(
+                origin: origin,
+                userApiKey: userAPIKey,
+                clientId: clientID,
+                topicId: topicID
+            )
+        )
+    }
+
+    func discourseCategories(
+        origin: String,
+        userAPIKey: String,
+        clientID: String
+    ) -> Result<DiscourseCategoriesResponse, CoreCallError> {
+        executeResult(
+            command: "community.discourse.categories",
+            payload: DiscourseAPIRequest(
+                origin: origin,
+                userApiKey: userAPIKey,
+                clientId: clientID
+            )
+        )
+    }
+
+    func searchDiscourse(
+        origin: String,
+        userAPIKey: String,
+        clientID: String,
+        query: String,
+        page: UInt32? = nil
+    ) -> Result<DiscourseSearchResponse, CoreCallError> {
+        executeResult(
+            command: "community.discourse.search",
+            payload: DiscourseSearchRequest(
+                origin: origin,
+                userApiKey: userAPIKey,
+                clientId: clientID,
+                query: query,
+                page: page
+            )
+        )
+    }
+
+    func revokeDiscourseAuthorization(
+        origin: String,
+        userAPIKey: String,
+        clientID: String
+    ) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "community.discourse.auth.revoke",
+            payload: DiscourseAPIRequest(
+                origin: origin,
+                userApiKey: userAPIKey,
+                clientId: clientID
+            )
+        )
     }
 
     func snapshot(
@@ -2082,6 +2341,15 @@ struct RustCoreBridge: Sendable {
             payload: GitWatchContextRequest(root: rootURL.standardizedFileURL.path)
         )
         return try? result.get()
+    }
+
+    func gitPullRequestContext(
+        at rootURL: URL
+    ) -> Result<GitPullRequestContextPayload, CoreCallError> {
+        executeResult(
+            command: "git.pullRequestContext",
+            payload: GitPullRequestContextRequest(root: rootURL.standardizedFileURL.path)
+        )
     }
 
 
@@ -2804,6 +3072,115 @@ struct RustCoreBridge: Sendable {
     @discardableResult
     func cancel(operationID: String) -> Bool {
         operationID.withCString { lithe_bridge_cancel($0) != 0 }
+    }
+
+    func githubParseRemote(_ remoteURL: String) -> Result<GitHubRepository, CoreCallError> {
+        executeResult(
+            command: "github.parseRemote",
+            payload: GitHubParseRemoteRequest(remoteURL: remoteURL)
+        )
+    }
+
+    func githubRequestPlan(_ request: GitHubRequest) -> Result<GitHubRequestPlan, CoreCallError> {
+        executeResult(command: "github.requestPlan", payload: request)
+    }
+
+    func githubNormalizeResponse(
+        operation: String,
+        status: Int,
+        body: String
+    ) -> Result<GitHubNormalizedResponse, CoreCallError> {
+        let payload = GitHubNormalizeResponseRequest(
+            operation: operation,
+            status: status,
+            body: body
+        )
+        switch operation {
+        case "deviceCode":
+            let result: Result<GitHubDeviceAuthorization, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.deviceAuthorization)
+        case "deviceToken":
+            let result: Result<GitHubDeviceTokenResponse, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.deviceToken)
+        case "currentUser":
+            let result: Result<GitHubUser, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.user)
+        case "listBranches":
+            let result: Result<[GitHubBranch], CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.branches)
+        case "compareBranches":
+            let result: Result<GitHubComparison, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.comparison)
+        case "listPullRequests":
+            let result: Result<[GitHubPullRequest], CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.pullRequests)
+        case "getPullRequest", "createPullRequest", "updatePullRequest":
+            let result: Result<GitHubPullRequest, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.pullRequest)
+        case "listPullRequestFiles":
+            let result: Result<[GitHubPullRequestFile], CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.files)
+        case "listPullRequestComments":
+            let result: Result<[GitHubComment], CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.comments)
+        case "createPullRequestComment":
+            let result: Result<GitHubComment, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.comment)
+        case "createPullRequestReview":
+            let result: Result<EmptyResponsePayload, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map { _ in GitHubNormalizedResponse.review }
+        case "updatePullRequestMetadata":
+            let result: Result<EmptyResponsePayload, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map { _ in GitHubNormalizedResponse.metadata }
+        case "mergePullRequest":
+            let result: Result<GitHubMergeResult, CoreCallError> = executeResult(
+                command: "github.normalizeResponse",
+                payload: payload
+            )
+            return result.map(GitHubNormalizedResponse.merge)
+        default:
+            return .failure(CoreCallError(
+                code: "not_supported",
+                message: "Unsupported GitHub response operation",
+                details: operation
+            ))
+        }
     }
 }
 

@@ -42,7 +42,9 @@ export function eventToKey(event: KeyboardEvent): ParsedKey {
   // where the character at that physical position differs from the US layout.
   let key = event.key;
   const hasModifier = event.metaKey || event.ctrlKey || event.altKey;
-  if (key === "Dead" || key === "Unidentified" || (hasModifier && CODE_TO_KEY[event.code])) {
+  if (hasModifier && /^Key[A-Z]$/.test(event.code)) {
+    key = event.code.slice(3).toLowerCase();
+  } else if (key === "Dead" || key === "Unidentified" || (hasModifier && CODE_TO_KEY[event.code])) {
     key = CODE_TO_KEY[event.code] || event.code;
   }
 

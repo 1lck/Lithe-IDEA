@@ -983,7 +983,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
             updateEditorDecorations()
         }
         reportFindState(
-            index: findMatchRanges.isEmpty ? -1 : 0,
+            index: findMatchRanges.isEmpty ? -1 : currentFindMatchIndex,
             count: findMatchRanges.count
         )
     }

@@ -1,11 +1,9 @@
 import { appDataDir } from "@tauri-apps/api/path";
-import { ClockCounterClockwiseIcon as History, PuzzlePieceIcon as Puzzle } from "@/ui/icons";
+import { ClockCounterClockwiseIcon as History } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useUIExtensionStore } from "@/extensions/ui/stores/ui-extension-store";
 import { IconThemeSelectorContent } from "@/features/command-palette/components/icon-theme-selector";
 import { ThemeSelectorContent } from "@/features/command-palette/components/theme-selector";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings.store";
-import { DatabaseCommandContent } from "@/features/database/components/database-sidebar";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { isMarkdownFile } from "@/features/editor/utils/lines";
@@ -20,7 +18,6 @@ import {
   unstageAllFiles,
 } from "@/features/git/api/git-status-api";
 import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
-import { useGitHubStore } from "@/features/github/stores/github.store";
 import { useToast } from "@/features/layout/contexts/toast-context";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -42,11 +39,9 @@ import Command, {
 import Keybinding from "@/features/keymaps/components/keybinding";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { createAdvancedActions } from "../constants/advanced-actions";
-import { createDatabaseActions } from "../constants/database-actions";
 import { createFileActions } from "../constants/file-actions";
 import { createGenerateActions } from "../constants/generate-actions";
 import { createGitActions } from "../constants/git-actions";
-import { createGitHubActions } from "../constants/github-actions";
 import { createMarkdownActions } from "../constants/markdown-actions";
 import { createNavigationActions } from "../constants/navigation-actions";
 import { createPaneActions } from "../constants/pane-actions";
@@ -154,8 +149,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
   const lspStatus = useLspStore.use.lspStatus();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
-  const { checkAuth: checkGitHubAuth } = useGitHubStore.use.actions();
-  const extensionCommands = useUIExtensionStore.use.commands();
   const extensionViews = useCommandPaletteViews();
   const { showToast } = useToast();
   const openWhatsNew = useWhatsNewStore((state) => state.actions.open);
@@ -170,7 +163,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
     switchToPreviousBuffer,
     reopenClosedTab,
     openWebViewerBuffer,
-    openGitHubFormBuffer,
     openContent,
   } = useBufferStore.use.actions();
   const { zoomIn, zoomOut, resetZoom } = useZoomStore.use.actions();
@@ -289,8 +281,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
     ...createNavigationActions({
       setIsSidebarVisible,
       setActiveView,
-      setIsBottomPaneVisible,
-      setBottomPaneActiveTab,
       setIsQuickOpenVisible,
       openCommandPaletteView,
       openSettingsDialog,
@@ -314,26 +304,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
     ...createGenerateActions({
       onClose,
     }),
-    ...Array.from(extensionCommands.values()).map(
-      (command): Action => ({
-        id: `extension-command:${command.id}`,
-        label: command.title,
-        description: command.category
-          ? `${command.category} extension command`
-          : "Installed extension command",
-        icon: <Puzzle />,
-        category: command.category ?? "Extensions",
-        action: () => {
-          onClose();
-          void Promise.resolve(command.execute()).catch((error) => {
-            showToast({
-              message: error instanceof Error ? error.message : "Extension command failed",
-              type: "error",
-            });
-          });
-        },
-      }),
-    ),
     ...createWindowActions({
       onClose,
     }),
@@ -353,27 +323,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
         discardAllChanges,
       },
       onClose,
-    }),
-    ...createGitHubActions({
-      repoPath: activeRepoPath ?? rootFolderPath ?? null,
-      setIsSidebarVisible,
-      setActiveView,
-      settings: {
-        showGitHubPullRequests: commandSettings.showGitHubPullRequests,
-        showGitHubIssues: commandSettings.showGitHubIssues,
-        showGitHubActions: commandSettings.showGitHubActions,
-      },
-      updateSetting: useSettingsStore.getState().actions.updateSetting as (
-        key: string,
-        value: any,
-      ) => void | Promise<void>,
-      checkAuth: checkGitHubAuth,
-      showToast,
-      openGitHubFormBuffer,
-      onClose,
-    }),
-    ...createDatabaseActions({
-      openDatabaseCommand: () => pushView("databases"),
     }),
     ...createAdvancedActions({
       lspStatus,
@@ -478,12 +427,6 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
       ) : currentView === "outline" ? (
         <OutlineCommandContent
           isActive={currentView === "outline"}
-          onBack={popView}
-          onClose={onClose}
-        />
-      ) : currentView === "databases" ? (
-        <DatabaseCommandContent
-          isActive={currentView === "databases"}
           onBack={popView}
           onClose={onClose}
         />

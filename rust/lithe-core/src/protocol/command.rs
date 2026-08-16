@@ -31,6 +31,20 @@ pub struct CoreRequest {
 pub enum CoreCommand {
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
+    /// Starts a Discourse user API key authorization (`community.discourse.auth.begin`).
+    CommunityDiscourseAuthBegin,
+    /// Decrypts and verifies a Discourse authorization callback (`community.discourse.auth.complete`).
+    CommunityDiscourseAuthComplete,
+    /// Lists normalized latest or top Discourse topics (`community.discourse.topics`).
+    CommunityDiscourseTopics,
+    /// Reads one normalized Discourse topic (`community.discourse.topic`).
+    CommunityDiscourseTopic,
+    /// Lists normalized Discourse categories (`community.discourse.categories`).
+    CommunityDiscourseCategories,
+    /// Searches Discourse topics and posts (`community.discourse.search`).
+    CommunityDiscourseSearch,
+    /// Revokes the current Discourse user API key (`community.discourse.auth.revoke`).
+    CommunityDiscourseAuthRevoke,
     /// Builds the visible project tree (`workspace.snapshot`).
     WorkspaceSnapshot,
     /// Builds or reuses the workspace search index (`workspace.searchIndex.warm`).
@@ -123,6 +137,8 @@ pub enum CoreCommand {
     GitStatus,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
+    /// Describes the checked-out branch or detached worktree for PR creation (`git.pullRequestContext`).
+    GitPullRequestContext,
     /// Executes a caller-supplied argument vector without a shell (`git.command`).
     GitCommand,
     /// Performs one supported Git mutation (`git.write`).
@@ -153,6 +169,12 @@ pub enum CoreCommand {
     GitOperationState,
     /// Returns normalized line attribution (`git.blame`).
     GitBlame,
+    /// Parses a GitHub repository identity from a Git remote URL (`github.parseRemote`).
+    GitHubParseRemote,
+    /// Builds a platform-executable GitHub HTTP request (`github.requestPlan`).
+    GitHubRequestPlan,
+    /// Normalizes a GitHub HTTP response into the shared contract (`github.normalizeResponse`).
+    GitHubNormalizeResponse,
 }
 
 impl CoreCommand {
@@ -161,6 +183,13 @@ impl CoreCommand {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "core.ping" => Some(Self::Ping),
+            "community.discourse.auth.begin" => Some(Self::CommunityDiscourseAuthBegin),
+            "community.discourse.auth.complete" => Some(Self::CommunityDiscourseAuthComplete),
+            "community.discourse.topics" => Some(Self::CommunityDiscourseTopics),
+            "community.discourse.topic" => Some(Self::CommunityDiscourseTopic),
+            "community.discourse.categories" => Some(Self::CommunityDiscourseCategories),
+            "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
+            "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
             "workspace.searchIndex.update" => Some(Self::WorkspaceSearchIndexUpdate),
@@ -207,6 +236,7 @@ impl CoreCommand {
             "spring.index" => Some(Self::SpringIndex),
             "git.status" => Some(Self::GitStatus),
             "git.watchContext" => Some(Self::GitWatchContext),
+            "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
             "git.write" => Some(Self::GitWrite),
             "git.diff" => Some(Self::GitDiff),
@@ -222,6 +252,9 @@ impl CoreCommand {
             "git.conflictMarkers" => Some(Self::GitConflictMarkers),
             "git.operationState" => Some(Self::GitOperationState),
             "git.blame" => Some(Self::GitBlame),
+            "github.parseRemote" => Some(Self::GitHubParseRemote),
+            "github.requestPlan" => Some(Self::GitHubRequestPlan),
+            "github.normalizeResponse" => Some(Self::GitHubNormalizeResponse),
             _ => None,
         }
     }
@@ -242,6 +275,21 @@ mod tests {
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.destroyServer",
+        ] {
+            assert!(CoreCommand::parse(command).is_some(), "missing {command}");
+        }
+    }
+
+    #[test]
+    fn parses_discourse_authorization_commands() {
+        for command in [
+            "community.discourse.auth.begin",
+            "community.discourse.auth.complete",
+            "community.discourse.auth.revoke",
+            "community.discourse.categories",
+            "community.discourse.search",
+            "community.discourse.topic",
+            "community.discourse.topics",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }

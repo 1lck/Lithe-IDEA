@@ -55,157 +55,58 @@ struct LitheAction: Identifiable, @unchecked Sendable {
 enum LitheActionRegistry {
     static func actions(for model: AppModel) -> [LitheAction] {
         [
-            LitheAction(
-                id: "run",
-                title: "Run",
-                subtitle: "Run selected configuration",
-                group: .run,
-                keyEquivalent: "⌃R"
-            ) { model.runSelectedConfiguration() },
-            LitheAction(
-                id: "debug",
-                title: "Debug",
-                subtitle: "Start debugging",
-                group: .run,
-                keyEquivalent: "⌃D"
-            ) { model.startDebugging() },
-            LitheAction(
-                id: "stop-run",
-                title: "Stop Run",
-                subtitle: "Stop the current run",
-                group: .run
-            ) { model.stopSelectedRun() },
-            LitheAction(
-                id: "stop-debug",
-                title: "Stop Debug",
-                subtitle: "Stop the current debug session",
-                group: .run
-            ) { model.stopDebugging() },
-            LitheAction(
-                id: "open-project",
-                title: "Open Project",
-                subtitle: "Open a local project folder",
-                group: .project,
-                keyEquivalent: "⌘O"
-            ) { model.chooseProject() },
-            LitheAction(
-                id: "close-project",
-                title: "Close Project",
-                subtitle: "Return to the Welcome screen",
-                group: .project
-            ) { model.closeProject() },
-            LitheAction(
-                id: "settings",
-                title: "Settings",
-                subtitle: "Configure editor and project behavior",
-                group: .project,
-                keyEquivalent: "⌘,"
-            ) { model.showSettings() },
-            LitheAction(
-                id: "toggle-terminal",
-                title: "Toggle Terminal",
-                subtitle: "Show or hide the Terminal tool window",
-                group: .window
-            ) { model.toggleTerminal() },
-            LitheAction(
-                id: "toggle-problems",
-                title: "Toggle Problems",
-                subtitle: "Show or hide language diagnostics",
-                group: .window
-            ) { model.toggleProblems() },
-            LitheAction(
-                id: "toggle-maven",
-                title: "Toggle Maven",
-                subtitle: "Show or hide the Maven tool window",
-                group: .window
-            ) { model.toggleMaven() },
-            LitheAction(
-                id: "spring-endpoints",
-                title: "Spring Endpoints",
-                subtitle: "Show indexed Spring MVC routes",
-                group: .navigation
-            ) { model.toggleSpringEndpoints() },
-            LitheAction(
-                id: "toggle-git-log",
-                title: "Toggle Git Log",
-                subtitle: "Show or hide Git history",
-                group: .window
-            ) { Task { await model.toggleGitLog() } },
-            LitheAction(
-                id: "toggle-run",
-                title: "Toggle Run",
-                subtitle: "Show or hide run output",
-                group: .window
-            ) { model.isRunVisible.toggle() },
-            LitheAction(
-                id: "toggle-tests",
-                title: "Toggle Tests",
-                subtitle: "Show or hide language-neutral test runners",
-                group: .window
-            ) { model.toggleTests() },
-            LitheAction(
-                id: "toggle-debug",
-                title: "Toggle Debug",
-                subtitle: "Show or hide the Debug tool window",
-                group: .window
-            ) { model.toggleDebug() },
-            LitheAction(
-                id: "search-in-project",
-                title: "Find in Files",
-                subtitle: "Search text across the workspace",
-                group: .navigation,
-                keyEquivalent: "⇧⌘F"
-            ) { model.openProjectSearch() },
-            LitheAction(
-                id: "replace-in-project",
-                title: "Replace in Files",
-                subtitle: "Replace text across the workspace",
-                group: .navigation,
-                keyEquivalent: "⇧⌘R"
-            ) { model.openProjectReplace() },
-            LitheAction(
-                id: "find-in-file",
-                title: "Find in File",
-                subtitle: "Search within the active editor",
-                group: .navigation,
-                keyEquivalent: "⌘F"
-            ) { model.showFindBar() },
-            LitheAction(
-                id: "go-to-definition",
-                title: "Go to Definition",
-                subtitle: "Navigate to the declaration of the selected symbol",
-                group: .navigation,
-                keyEquivalent: "⌘B"
-            ) { model.goToDefinition() },
-            LitheAction(
-                id: "find-usages",
-                title: "Find Usages",
-                subtitle: "Find references to the selected symbol",
-                group: .navigation,
-                keyEquivalent: "⌥⌘U"
-            ) { model.findReferences() },
-            LitheAction(
-                id: "local-history",
-                title: "Local History",
-                subtitle: "Open history for the active file",
-                group: .history
-            ) {
+            action("run", model: model) { model.runSelectedConfiguration() },
+            action("debug", model: model) { model.startDebugging() },
+            action("stop-run", model: model) { model.stopSelectedRun() },
+            action("stop-debug", model: model) { model.stopDebugging() },
+            action("open-project", model: model) { model.chooseProject() },
+            action("close-project", model: model) { model.closeProject() },
+            action("settings", model: model) { model.showSettings() },
+            action("save", model: model) { model.saveActiveDocument() },
+            action("search-everywhere", model: model) { model.toggleSearchEverywhere() },
+            action("navigate-back", model: model) { model.navigateBack() },
+            action("navigate-forward", model: model) { model.navigateForward() },
+            action("find-next", model: model) { model.navigateFind(offset: 1) },
+            action("find-previous", model: model) { model.navigateFind(offset: -1) },
+            action("go-to-implementation", model: model) { model.goToImplementation() },
+            action("toggle-terminal", model: model) { model.toggleTerminal() },
+            action("toggle-problems", model: model) { model.toggleProblems() },
+            action("toggle-maven", model: model) { model.toggleMaven() },
+            action("toggle-git-log", model: model) { Task { await model.toggleGitLog() } },
+            action("toggle-run", model: model) { model.isRunVisible.toggle() },
+            action("toggle-tests", model: model) { model.toggleTests() },
+            action("toggle-debug", model: model) { model.toggleDebug() },
+            action("search-in-project", model: model) { model.openProjectSearch() },
+            action("replace-in-project", model: model) { model.openProjectReplace() },
+            action("find-in-file", model: model) { model.showFindBar() },
+            action("go-to-definition", model: model) { model.goToDefinition() },
+            action("find-usages", model: model) { model.findReferences() },
+            action("spring-endpoints", model: model) { model.toggleSpringEndpoints() },
+            action("local-history", model: model) {
                 if let url = model.activeDocument?.url { model.showLocalHistory(for: url) }
             },
-            LitheAction(
-                id: "project-local-history",
-                title: "Project Local History",
-                subtitle: "Open project-wide local history",
-                group: .history
-            ) { model.showProjectLocalHistory() },
-            LitheAction(
-                id: "reveal-in-finder",
-                title: "Reveal in Finder",
-                subtitle: "Show the active file in Finder",
-                group: .project
-            ) {
+            action("project-local-history", model: model) { model.showProjectLocalHistory() },
+            action("reveal-in-finder", model: model) {
                 if let url = model.activeDocument?.url { model.revealProjectItemInFinder(url) }
             }
         ]
+    }
+
+    private static func action(
+        _ id: String,
+        model: AppModel,
+        perform: @escaping @MainActor @Sendable () -> Void
+    ) -> LitheAction {
+        guard let definition = LitheCommandCatalog.command(id: id) else {
+            preconditionFailure("Missing Lithe command definition for \(id)")
+        }
+        return LitheAction(
+            id: definition.id,
+            title: definition.title,
+            subtitle: definition.subtitle,
+            group: definition.group,
+            keyEquivalent: model.keyboardShortcutFeature.displayText(for: id),
+            perform: perform
+        )
     }
 }

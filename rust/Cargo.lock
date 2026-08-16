@@ -1571,14 +1571,20 @@ name = "lithe-core"
 version = "0.1.0"
 dependencies = [
  "ammonia",
+ "base64 0.22.1",
  "comrak",
  "quick-xml",
+ "rand 0.8.7",
  "regex",
+ "reqwest",
+ "rsa",
  "serde",
  "serde_json",
  "serde_yaml_ng",
+ "sha1",
  "sha2",
  "toml",
+ "url",
  "zip",
 ]
 
@@ -2395,7 +2401,9 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",

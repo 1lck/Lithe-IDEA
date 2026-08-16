@@ -15,6 +15,7 @@ import LitheCoreContracts
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case general = "General"
     case editor = "Editor"
+    case keymap = "Keymap"
     case terminal = "Terminal"
     case lsp = "LSP"
     case ai = "AI & Commit"
@@ -26,6 +27,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .editor: "textformat"
+        case .keymap: "keyboard"
         case .terminal: "terminal"
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
@@ -40,8 +42,15 @@ final class AppModel: ObservableObject, Identifiable {
     @Published private(set) var workspaceURL: URL?
     @Published var selectedSidebar: SidebarDestination = .project {
         didSet {
-            guard selectedSidebar == .changes, oldValue != .changes else { return }
-            Task { [weak self] in await self?.refreshGit() }
+            if selectedSidebar == .changes, oldValue != .changes {
+                Task { [weak self] in await self?.refreshGit() }
+            }
+            if selectedSidebar == .pullRequests, oldValue != .pullRequests {
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.githubFeature.refresh(workspaceURL: self.workspaceURL)
+                }
+            }
         }
     }
     @Published var isRunVisible = false
@@ -91,6 +100,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isMavenVisible = false
     @Published var isSpringVisible = false
     @Published var isDebugVisible = false
+    @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
     var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot { languageToolingFeature.catalogSnapshot }
@@ -110,7 +120,9 @@ final class AppModel: ObservableObject, Identifiable {
     }
     @Published var blameVisibleURL: URL?
     @Published var gitLogSearchQuery = ""
-    private var doubleShiftDetector: (any ShortcutDetector)?
+    private var shortcutDetector: (any ShortcutDetector)?
+    private var shortcutSettingsObservation: AnyCancellable?
+    private var shortcutRecordingObservation: AnyCancellable?
     private var isProjectSessionActive = true
     private var fileVisibilityRulesObserverID: UUID?
     private var requestProjectOpen: ((URL) -> Void)?
@@ -119,10 +131,13 @@ final class AppModel: ObservableObject, Identifiable {
     let services: AppServices
     let platformUI: any PlatformUI
     let settings: AppSettings
+    let keyboardShortcutFeature: KeyboardShortcutFeatureModel
     let runtimeFeature: RuntimeSettingsFeatureModel
     let languageToolingFeature: LanguageToolingFeatureModel
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let workspaceFeature: WorkspaceFeatureModel
+    let githubFeature: GitHubFeatureModel
+    let discourseCommunityFeature: DiscourseCommunityFeatureModel
     private struct CachedModuleCapability {
         let moduleID: ModuleID
         let value: AnyObject
@@ -190,6 +205,7 @@ final class AppModel: ObservableObject, Identifiable {
             switch destination {
             case .project: moduleID = nil
             case .changes: moduleID = .git
+            case .pullRequests: moduleID = nil
             case .search: moduleID = .search
             case .database: moduleID = .database
             }
@@ -205,6 +221,9 @@ final class AppModel: ObservableObject, Identifiable {
     }
     var activityBarContributions: [ModuleContribution] {
         activeModuleContributions.filter { $0.placement == .activityBar }
+    }
+    var rightSidebarContributions: [ModuleContribution] {
+        activeModuleContributions.filter { $0.placement == .rightSidebar }
     }
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
     func fileExists(at url: URL) -> Bool { services.fileStorage.fileExists(at: url) }
@@ -228,6 +247,7 @@ final class AppModel: ObservableObject, Identifiable {
         EditorDiagnostic.fromLanguageServerDiagnostics(languageDiagnostics)
     }
     private var workspaceFeatureObservation: AnyCancellable?
+    private var githubFeatureObservation: AnyCancellable?
     private var runtimeFeatureObservation: AnyCancellable?
     private var moduleRuntimeObservationID: UUID?
 
@@ -375,6 +395,8 @@ final class AppModel: ObservableObject, Identifiable {
         self.settings = settings
         self.services = services
         platformUI = services.platformUI
+        keyboardShortcutFeature = KeyboardShortcutFeatureModel(settings: settings)
+        discourseCommunityFeature = DiscourseCommunityFeatureModel(service: services.discourseCommunityService)
         workspaceFeature = WorkspaceFeatureModel(
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
@@ -382,6 +404,7 @@ final class AppModel: ObservableObject, Identifiable {
             directoryWatcherFactory: services.directoryWatcherFactory,
             workspaceSessionStore: services.workspaceSessionStore
         )
+        githubFeature = GitHubFeatureModel(service: services.githubService)
         Task { @MainActor [workspaceFeature, moduleRuntime = services.moduleRuntime] in
             guard let capability = try? await moduleRuntime.activateCapability(.workspaceFoundation),
                   let capability = capability as? LitheWorkspaceModule.WorkspaceFoundationCapability else { return }
@@ -430,11 +453,18 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeatureObservation = workspaceFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
+        githubFeatureObservation = githubFeature.objectWillChange.sink { [weak self] _ in
+            self?.scheduleObjectWillChangeRelay()
+        }
         runtimeFeatureObservation = runtimeFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
         navigationHistoryFeatureObservation = navigationHistoryFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.githubFeature.restore(workspaceURL: self.workspaceURL)
         }
         workspaceFeature.configureProjection(
             documentsProvider: { [weak self] in
@@ -627,10 +657,27 @@ final class AppModel: ObservableObject, Identifiable {
             }
             _ = self.activateLanguageServerIfAvailable(for: document)
         }
-        doubleShiftDetector = services.shortcutDetectorFactory.make { [weak self] in
-            self?.toggleSearchEverywhere()
+        shortcutDetector = services.shortcutDetectorFactory.make { [weak self] commandID in
+            self?.performShortcutCommand(id: commandID)
         }
-        doubleShiftDetector?.start()
+        refreshShortcutDetector()
+        shortcutSettingsObservation = settings.$keyboardShortcutOverrides
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshShortcutDetector()
+                    self?.scheduleObjectWillChangeRelay()
+                }
+            }
+        shortcutRecordingObservation = keyboardShortcutFeature.$recordingCommandID
+            .sink { [weak self] commandID in
+                self?.shortcutDetector?.setSuspended(commandID != nil)
+            }
+        shortcutDetector?.start()
+    }
+
+    private func refreshShortcutDetector() {
+        shortcutDetector?.update(registrations: keyboardShortcutFeature.registrations)
     }
 
     func activateDatabaseModule() async {
@@ -664,7 +711,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     deinit {
-        doubleShiftDetector?.stop()
+        shortcutDetector?.stop()
     }
 
     func configureProjectSession(
@@ -679,15 +726,15 @@ final class AppModel: ObservableObject, Identifiable {
         guard isProjectSessionActive != isActive else { return }
         isProjectSessionActive = isActive
         if isActive {
-            doubleShiftDetector?.start()
+            shortcutDetector?.start()
         } else {
-            doubleShiftDetector?.stop()
+            shortcutDetector?.stop()
             isSearchEverywhereVisible = false
         }
     }
 
     func shutdownProjectSession() {
-        doubleShiftDetector?.stop()
+        shortcutDetector?.stop()
         Task { [weak self] in
             await self?.services.moduleRuntime.shutdownAll()
         }
@@ -1386,74 +1433,6 @@ final class AppModel: ObservableObject, Identifiable {
         currentFindMatchIndex = currentIndex
     }
 
-    func selectChange(_ change: GitChange) {
-        activeDocumentID = nil
-        Task { [weak self] in
-            guard let gitFeature = await self?.activateGitModule() else { return }
-            await gitFeature.selectChange(change)
-        }
-    }
-
-    func reloadSelectedChangeDiff(whitespace: GitDiffWhitespaceMode) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.reloadSelectedChangeDiff(whitespace: whitespace)
-    }
-
-    func refreshGit() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.refreshGit()
-    }
-
-    func stageSelectedChange() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.stageSelectedChange()
-    }
-
-    func unstageSelectedChange() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.unstageSelectedChange()
-    }
-
-    func stageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.stageDiffHunk(hunk, in: change)
-    }
-
-    func unstageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.unstageDiffHunk(hunk, in: change)
-    }
-
-    func requestDiscardHunk(_ hunk: DiffHunk, in change: GitChange) {
-        gitFeatureIfActive?.requestDiscardHunk(hunk, in: change)
-    }
-
-    func confirmDiscardHunk() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.confirmDiscardHunk()
-    }
-
-    func cancelDiscardHunk() {
-        gitFeatureIfActive?.cancelDiscardHunk()
-    }
-
-    func requestDiscardSelectedChange() {
-        gitFeatureIfActive?.requestDiscardSelectedChange()
-    }
-
-    func requestDiscardChange(_ change: GitChange) {
-        gitFeatureIfActive?.requestDiscardChange(change)
-    }
-
-    func confirmDiscardChange() async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.confirmDiscardChange()
-    }
-
-    func cancelDiscardChange() {
-        gitFeatureIfActive?.cancelDiscardChange()
-    }
-
     func commitStagedChanges() async {
         guard let gitFeature = await activateGitModule() else { return }
         if await gitFeature.commitStagedChanges(message: commitMessage, amend: amendCommit) {
@@ -1518,6 +1497,26 @@ final class AppModel: ObservableObject, Identifiable {
         } catch {
             showNotification(error.localizedDescription)
         }
+    }
+
+    func generatePullRequestDescription(
+        base: String,
+        head: String
+    ) async throws -> PullRequestDescriptionOutput {
+        refreshAIConfigurations()
+        let input = try await githubFeature.pullRequestDescriptionInput(base: base, head: head)
+        let value = try await services.moduleRuntime.activateCapability(.aiPullRequestDescription)
+        guard let capability = value as? any AIPullRequestDescriptionGenerating else {
+            throw ModuleRuntimeError.missingCapabilityDependency(
+                module: .aiAssistance,
+                capability: .aiPullRequestDescription
+            )
+        }
+        defer { try? services.moduleRuntime.markIdle(.aiAssistance) }
+        return try await capability.generatePullRequestDescription(
+            input: input,
+            settings: settings.commitMessageAI
+        )
     }
 
     func applyPendingGeneratedCommitMessage() {

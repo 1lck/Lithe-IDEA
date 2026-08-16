@@ -353,6 +353,8 @@ public struct CommitMessageAISettings: Codable, Equatable, Sendable {
     public var includeBody: Bool
     public var subjectMaximumLength: Int
     public var maximumDiffCharacters: Int
+    public var pullRequestFormat: PullRequestDescriptionFormat
+    public var pullRequestCustomTemplate: String
     public var codexImportCompleted: Bool
 
     public static var `default`: Self {
@@ -366,8 +368,83 @@ public struct CommitMessageAISettings: Codable, Equatable, Sendable {
             includeBody: false,
             subjectMaximumLength: 72,
             maximumDiffCharacters: 32_000,
+            pullRequestFormat: .standard,
+            pullRequestCustomTemplate: Self.defaultPullRequestTemplate,
             codexImportCompleted: false
         )
+    }
+
+    public static let defaultPullRequestTemplate = """
+    ## Summary
+
+    {summary}
+
+    ## Changes
+
+    {changes}
+
+    ## Testing
+
+    {testing}
+    """
+
+    public init(
+        providers: [AIProviderProfile],
+        activeProviderID: UUID?,
+        reasoningEffort: CommitMessageReasoningEffort,
+        language: CommitMessageLanguage,
+        format: CommitMessageFormat,
+        customInstructions: String,
+        includeBody: Bool,
+        subjectMaximumLength: Int,
+        maximumDiffCharacters: Int,
+        pullRequestFormat: PullRequestDescriptionFormat = .standard,
+        pullRequestCustomTemplate: String = CommitMessageAISettings.defaultPullRequestTemplate,
+        codexImportCompleted: Bool
+    ) {
+        self.providers = providers
+        self.activeProviderID = activeProviderID
+        self.reasoningEffort = reasoningEffort
+        self.language = language
+        self.format = format
+        self.customInstructions = customInstructions
+        self.includeBody = includeBody
+        self.subjectMaximumLength = subjectMaximumLength
+        self.maximumDiffCharacters = maximumDiffCharacters
+        self.pullRequestFormat = pullRequestFormat
+        self.pullRequestCustomTemplate = pullRequestCustomTemplate
+        self.codexImportCompleted = codexImportCompleted
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case providers, activeProviderID, reasoningEffort, language, format
+        case customInstructions, includeBody, subjectMaximumLength, maximumDiffCharacters
+        case pullRequestFormat, pullRequestCustomTemplate, codexImportCompleted
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        providers = try container.decode([AIProviderProfile].self, forKey: .providers)
+        activeProviderID = try container.decodeIfPresent(UUID.self, forKey: .activeProviderID)
+        reasoningEffort = try container.decode(
+            CommitMessageReasoningEffort.self,
+            forKey: .reasoningEffort
+        )
+        language = try container.decode(CommitMessageLanguage.self, forKey: .language)
+        format = try container.decode(CommitMessageFormat.self, forKey: .format)
+        customInstructions = try container.decode(String.self, forKey: .customInstructions)
+        includeBody = try container.decode(Bool.self, forKey: .includeBody)
+        subjectMaximumLength = try container.decode(Int.self, forKey: .subjectMaximumLength)
+        maximumDiffCharacters = try container.decode(Int.self, forKey: .maximumDiffCharacters)
+        pullRequestFormat = try container.decodeIfPresent(
+            PullRequestDescriptionFormat.self,
+            forKey: .pullRequestFormat
+        ) ?? .standard
+        pullRequestCustomTemplate = try container.decodeIfPresent(
+            String.self,
+            forKey: .pullRequestCustomTemplate
+        ) ?? Self.defaultPullRequestTemplate
+        codexImportCompleted = try container.decode(Bool.self, forKey: .codexImportCompleted)
     }
 
     public var activeProvider: AIProviderProfile? {

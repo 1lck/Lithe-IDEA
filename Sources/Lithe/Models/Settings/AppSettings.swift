@@ -21,6 +21,14 @@ final class AppSettings: ObservableObject {
         static let projectOpenBehavior = "settings.projectOpenBehavior"
         static let javaLanguageServerJDKPath = "settings.javaLanguageServerJDKPath"
         static let commitMessageAI = "settings.commitMessageAI"
+        static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
+    }
+
+    private struct KeyboardShortcutOverridesPayload: Codable {
+        static let currentVersion = 1
+
+        let version: Int
+        let commands: [String: [KeyboardShortcutBinding]]
     }
 
     private let defaults: any KeyValueStore
@@ -68,6 +76,7 @@ final class AppSettings: ObservableObject {
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
     }
+    @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
 
     private var fileVisibilityRulesObservers: [UUID: () -> Void] = [:]
 
@@ -100,6 +109,7 @@ final class AppSettings: ObservableObject {
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
         javaLanguageServerJDKPath = defaults.string(forKey: Key.javaLanguageServerJDKPath) ?? ""
+        keyboardShortcutOverrides = Self.loadKeyboardShortcutOverrides(from: defaults)
         if let data = defaults.data(forKey: Key.commitMessageAI),
            let saved = try? JSONDecoder().decode(CommitMessageAISettings.self, from: data) {
             commitMessageAI = saved
@@ -152,6 +162,12 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = .ask
         javaLanguageServerJDKPath = ""
         commitMessageAI = .default
+        setKeyboardShortcutOverrides([:])
+    }
+
+    func setKeyboardShortcutOverrides(_ value: [String: [KeyboardShortcutBinding]]) {
+        keyboardShortcutOverrides = value
+        saveKeyboardShortcutOverrides()
     }
 
     var activeCommitMessageProvider: AIProviderProfile? {
@@ -237,6 +253,32 @@ final class AppSettings: ObservableObject {
     private func saveCommitMessageAI() {
         guard let data = try? JSONEncoder().encode(commitMessageAI) else { return }
         defaults.set(data, forKey: Key.commitMessageAI)
+    }
+
+    private func saveKeyboardShortcutOverrides() {
+        let payload = KeyboardShortcutOverridesPayload(
+            version: KeyboardShortcutOverridesPayload.currentVersion,
+            commands: keyboardShortcutOverrides
+        )
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        defaults.set(data, forKey: Key.keyboardShortcutOverrides)
+    }
+
+    private static func loadKeyboardShortcutOverrides(
+        from defaults: any KeyValueStore
+    ) -> [String: [KeyboardShortcutBinding]] {
+        guard let data = defaults.data(forKey: Key.keyboardShortcutOverrides),
+              let payload = try? JSONDecoder().decode(KeyboardShortcutOverridesPayload.self, from: data),
+              payload.version == KeyboardShortcutOverridesPayload.currentVersion else {
+            return [:]
+        }
+
+        let knownCommandIDs = Set(LitheCommandCatalog.commands.map(\.id))
+        return payload.commands.filter { commandID, bindings in
+            knownCommandIDs.contains(commandID)
+                && bindings.allSatisfy(\.isAssignable)
+                && Set(bindings).count == bindings.count
+        }
     }
 }
 

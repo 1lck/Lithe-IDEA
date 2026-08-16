@@ -117,4 +117,72 @@ extension AppModel {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.dropShelf(shelf)
     }
+
+    func selectChange(_ change: GitChange) {
+        activeDocumentID = nil
+        Task { [weak self] in
+            guard let gitFeature = await self?.activateGitModule() else { return }
+            await gitFeature.selectChange(change)
+        }
+    }
+
+    func reloadSelectedChangeDiff(whitespace: GitDiffWhitespaceMode) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.reloadSelectedChangeDiff(whitespace: whitespace)
+    }
+
+    func refreshGit() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.refreshGit()
+    }
+
+    func stageSelectedChange() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.stageSelectedChange()
+    }
+
+    func unstageSelectedChange() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.unstageSelectedChange()
+    }
+
+    func stageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.stageDiffHunk(hunk, in: change)
+    }
+
+    func unstageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.unstageDiffHunk(hunk, in: change)
+    }
+
+    func requestDiscardHunk(_ hunk: DiffHunk, in change: GitChange) {
+        gitFeatureIfActive?.requestDiscardHunk(hunk, in: change)
+    }
+
+    func confirmDiscardHunk() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.confirmDiscardHunk()
+    }
+
+    func cancelDiscardHunk() {
+        gitFeatureIfActive?.cancelDiscardHunk()
+    }
+
+    func requestDiscardSelectedChange() {
+        gitFeatureIfActive?.requestDiscardSelectedChange()
+    }
+
+    func requestDiscardChange(_ change: GitChange) {
+        gitFeatureIfActive?.requestDiscardChange(change)
+    }
+
+    func confirmDiscardChange() async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.confirmDiscardChange()
+    }
+
+    func cancelDiscardChange() {
+        gitFeatureIfActive?.cancelDiscardChange()
+    }
 }

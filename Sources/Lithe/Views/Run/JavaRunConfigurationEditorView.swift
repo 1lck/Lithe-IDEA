@@ -213,8 +213,7 @@ struct RunConfigurationEditorView: View {
                 .font(.system(size: 11.5, design: .monospaced))
                 .frame(minHeight: 72)
                 .padding(5)
-                .background(LitheTheme.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .litheRoundedControlBackground(LitheTheme.inputBackground, cornerRadius: 5)
                 .overlay {
                     RoundedRectangle(cornerRadius: 5)
                         .stroke(LitheTheme.divider, lineWidth: 1)

@@ -44,8 +44,11 @@ final class MacServiceContainer {
         processRegistry: ManagedProcessRegistry = ManagedProcessRegistry(),
         moduleLaunchMode: ModuleLaunchMode = .normal,
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
-        pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil
+        pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
+        authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil
     ) {
+        let authorizationCallbackRouter = providedAuthorizationCallbackRouter
+            ?? MacExternalAuthorizationCallbackRouter()
         let rustCore = RustCoreBridge()
         let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".m2/repository", isDirectory: true)
@@ -68,6 +71,20 @@ final class MacServiceContainer {
         let databaseSecureStore = MacKeychainSecureStore(
             service: "app.lithe.desktop.database",
             legacyStore: secureStore
+        )
+        let githubService = GitHubService(
+            core: RustGitHubCore(bridge: rustCore),
+            transport: MacGitHubHTTPTransport(),
+            configuration: MacGitHubConfiguration(),
+            secureStore: MacKeychainSecureStore(service: "app.lithe.desktop.github"),
+            git: MacGitHubGitOperations(core: rustCore)
+        )
+        let platformUI = MacPlatformUI()
+        let discourseCommunityService = DiscourseCommunityService(
+            core: rustCore,
+            credentialStore: MacKeychainSecureStore(service: "app.lithe.desktop.linux-do"),
+            platformUI: platformUI,
+            callbackRouter: authorizationCallbackRouter
         )
         let codexConfigurationSource = MacCodexConfigurationSource()
         let claudeConfigurationSource = MacClaudeConfigurationSource()
@@ -422,15 +439,17 @@ final class MacServiceContainer {
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
             gitWatchContextProvider: RustGitWatchContextProvider(core: rustCore),
+            githubService: githubService,
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,
+            discourseCommunityService: discourseCommunityService,
             credentialResolver: credentialResolver,
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             workbenchLayoutStore: WorkbenchLayoutStore(store: store),
             directoryWatcherFactory: MacDirectoryWatcherFactory(),
-            platformUI: MacPlatformUI(),
+            platformUI: platformUI,
             shortcutDetectorFactory: MacShortcutDetectorFactory()
         )
         moduleLifecycleCoordinator.start()

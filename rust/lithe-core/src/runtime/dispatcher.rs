@@ -1,12 +1,18 @@
 //! Validation and routing from versioned command names to their owning domains.
 
+use crate::community::{
+    self, DiscourseAuthorizationBeginRequest, DiscourseAuthorizationCompleteRequest,
+    DiscourseCategoriesRequest, DiscourseRevokeRequest, DiscourseSearchRequest,
+    DiscourseTopicRequest, DiscourseTopicsRequest,
+};
 use crate::git::{
     self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
     GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
     GitDiffRequest, GitHistoryRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
-    GitPullPreflightRequest, GitStashesRequest, GitStatusRequest, GitWatchContextRequest,
-    GitWriteRequest,
+    GitPullPreflightRequest, GitPullRequestContextRequest, GitStashesRequest, GitStatusRequest,
+    GitWatchContextRequest, GitWriteRequest,
 };
+use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
     JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
     JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest, SpringIndexRequest,
@@ -71,6 +77,128 @@ fn execute(request: &str) -> CoreResponse {
                 "coreVersion": env!("CARGO_PKG_VERSION")
             }),
         ),
+        CoreCommand::CommunityDiscourseAuthBegin => {
+            match serde_json::from_value::<DiscourseAuthorizationBeginRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Discourse authorization request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(community::begin_authorization)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Discourse authorization response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::CommunityDiscourseAuthComplete => {
+            match serde_json::from_value::<DiscourseAuthorizationCompleteRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Discourse authorization callback",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(community::complete_authorization)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Discourse authorization credential should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::CommunityDiscourseTopics => {
+            match serde_json::from_value::<DiscourseTopicsRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Discourse topics request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(community::topics)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Discourse topics should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::CommunityDiscourseTopic => {
+            match serde_json::from_value::<DiscourseTopicRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Discourse topic request")
+                        .with_details(error.to_string())
+                })
+                .and_then(community::topic)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Discourse topic should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::CommunityDiscourseCategories => {
+            match serde_json::from_value::<DiscourseCategoriesRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Discourse categories request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(community::categories)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Discourse categories should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::CommunityDiscourseSearch => {
+            match serde_json::from_value::<DiscourseSearchRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Discourse search request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(community::search)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Discourse search should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::CommunityDiscourseAuthRevoke => {
+            match serde_json::from_value::<DiscourseRevokeRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Discourse revoke request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(community::revoke)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::WorkspaceSnapshot => {
             match serde_json::from_value::<WorkspaceSnapshotRequest>(parsed.payload)
                 .map_err(|error| {
@@ -782,6 +910,25 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
 
+        CoreCommand::GitPullRequestContext => {
+            match serde_json::from_value::<GitPullRequestContextRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git pull request context request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::pull_request_context)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git pull request context should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+
         CoreCommand::GitCommand => {
             match serde_json::from_value::<GitCommandRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1019,6 +1166,48 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitHubParseRemote => {
+            match serde_json::from_value::<ParseRemoteRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid GitHub remote request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::github::parse_remote)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("GitHub repository should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubRequestPlan => {
+            match serde_json::from_value::<RequestPlanRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid GitHub request plan")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::github::request_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("GitHub request plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubNormalizeResponse => {
+            match serde_json::from_value::<NormalizeResponseRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid GitHub response")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::github::normalize_response)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
     };
     if response.is_success() {
         match crate::protocol::cancellation::check() {

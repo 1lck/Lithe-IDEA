@@ -107,6 +107,12 @@ struct SettingsView: View {
         if selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if selection == .keymap {
+            KeyboardShortcutSettingsView(
+                feature: model.keyboardShortcutFeature,
+                language: settings.language
+            )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -117,6 +123,7 @@ struct SettingsView: View {
                     switch selection {
                     case .general: generalSettings
                     case .editor: editorSettings
+                    case .keymap: EmptyView()
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
                     case .ai: aiSettings
@@ -232,8 +239,7 @@ struct SettingsView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .frame(height: 66)
                     .padding(5)
-                    .background(LitheTheme.inputBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .litheRoundedControlBackground(LitheTheme.inputBackground)
                     .overlay {
                         RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                             .stroke(LitheTheme.inputBorder, lineWidth: 1)
@@ -245,8 +251,7 @@ struct SettingsView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .frame(height: 52)
                     .padding(5)
-                    .background(LitheTheme.inputBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .litheRoundedControlBackground(LitheTheme.inputBackground)
                     .overlay {
                         RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                             .stroke(LitheTheme.inputBorder, lineWidth: 1)
@@ -535,8 +540,7 @@ struct SettingsView: View {
                         .font(.system(size: 12, design: .monospaced))
                         .frame(height: 92)
                         .padding(5)
-                        .background(LitheTheme.inputBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                        .litheRoundedControlBackground(LitheTheme.inputBackground)
                         .overlay {
                             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                                 .stroke(LitheTheme.inputBorder, lineWidth: 1)
@@ -546,6 +550,57 @@ struct SettingsView: View {
                 Text("Low effort and a small output limit are recommended for fast commit-message generation.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
+            }
+
+            group("Pull request description generation") {
+                Picker("Description format", selection: $settings.commitMessageAI.pullRequestFormat) {
+                    ForEach(PullRequestDescriptionFormat.allCases) { format in
+                        Text(LocalizedStringKey(format.title)).tag(format)
+                    }
+                }
+                .frame(maxWidth: 260, alignment: .leading)
+                .lithePointer()
+
+                if settings.commitMessageAI.pullRequestFormat == .custom {
+                    HStack {
+                        Text("Markdown template")
+                            .font(.system(size: 11.5, weight: .medium))
+                        Spacer()
+                        Button("Restore Default Template") {
+                            settings.commitMessageAI.pullRequestCustomTemplate =
+                                CommitMessageAISettings.defaultPullRequestTemplate
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .lithePointer()
+                    }
+
+                    TextEditor(text: $settings.commitMessageAI.pullRequestCustomTemplate)
+                        .font(.system(size: 12, design: .monospaced))
+                        .frame(height: 150)
+                        .padding(5)
+                        .background(LitheTheme.inputBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                        }
+
+                    Text("Supported placeholders: {summary}, {changes}, {testing}, {risks}.")
+                        .font(LitheTheme.smallFont)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+
+                Text("Pull request generation uses the selected provider, language, reasoning effort, and diff limit above.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+
+                Label(
+                    "The selected branch diff is sent to the active AI provider when you generate.",
+                    systemImage: "lock.shield"
+                )
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.secondaryText)
             }
         }
     }

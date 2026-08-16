@@ -1,21 +1,16 @@
 import { useMemo, type ReactNode } from "react";
-import {
-  BACKEND_UNAVAILABLE_TOOLTIP,
-  isBackendCapabilityAvailable,
-} from "@/config/backend-capabilities";
+import { BACKEND_UNAVAILABLE_TOOLTIP } from "@/config/backend-capabilities";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { CoreFeaturesState } from "@/features/settings/types/feature.types";
-import { useExtensionViews } from "@/extensions/ui/hooks/use-extension-views";
-import { DynamicIcon } from "@/extensions/ui/components/dynamic-icon";
 import { normalizeItemOrder } from "@/features/layout/config/item-order";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { SidebarListItem } from "@/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import {
-  BoxIcon,
+  DatabaseIcon,
+  GearIcon,
   GitBranchIcon,
-  ExtensionsIcon,
   FilesIcon,
-  GitPullRequestIcon,
   MagnifyingGlassIcon,
 } from "@/ui/icons";
 import Tooltip from "@/ui/tooltip";
@@ -52,14 +47,12 @@ function orderItems<T extends { id: string }>(items: T[], orderedIds: string[]) 
 interface SidebarPaneSelectorProps {
   activeSidebarView: SidebarView;
   isGitViewActive: boolean;
-  isGitHubPRsViewActive: boolean;
   isSidebarVisible?: boolean;
   coreFeatures: CoreFeaturesState;
   onViewChange: (view: SidebarView) => void;
   onSearchClick?: () => void;
-  onExtensionsClick?: () => void;
   isSearchActive?: boolean;
-  isExtensionsActive?: boolean;
+  onSettingsClick?: () => void;
   compact?: boolean;
   showLabels?: boolean;
   orientation?: "horizontal" | "vertical";
@@ -68,29 +61,26 @@ interface SidebarPaneSelectorProps {
 export const SidebarPaneSelector = ({
   activeSidebarView,
   isGitViewActive,
-  isGitHubPRsViewActive,
   isSidebarVisible = true,
   coreFeatures,
   onViewChange,
   onSearchClick,
-  onExtensionsClick,
   isSearchActive = false,
-  isExtensionsActive = false,
+  onSettingsClick,
   compact = false,
   showLabels = false,
   orientation = "horizontal",
 }: SidebarPaneSelectorProps) => {
+  const { t } = useTranslation();
   const isVertical = orientation === "vertical";
   const tooltipSide = isVertical ? "right" : "bottom";
   const iconClassName = compact || isVertical ? "size-4" : undefined;
-  const isBufferOwnedSurfaceActive = isSearchActive || isExtensionsActive;
+  const isBufferOwnedSurfaceActive = isSearchActive;
   const isPrimarySidebarItemActive = isSidebarVisible && !isBufferOwnedSurfaceActive;
   const isFilesActive =
     isPrimarySidebarItemActive &&
     !isGitViewActive &&
-    !isGitHubPRsViewActive &&
     activeSidebarView === "files";
-  const extensionViews = useExtensionViews();
   const sidebarActivityItemsOrder = useSettingsStore(
     (state) => state.settings.sidebarActivityItemsOrder,
   );
@@ -102,13 +92,13 @@ export const SidebarPaneSelector = ({
     () => [
       {
         id: "files",
-        label: showLabels ? "Files" : undefined,
+        label: showLabels ? t("workbench.project") : undefined,
         icon: <FilesIcon className={iconClassName} />,
         isActive: isFilesActive,
         onClick: () => onViewChange("files"),
-        ariaLabel: "Files",
+        ariaLabel: t("workbench.project"),
         tooltip: {
-          content: "Files",
+          content: t("workbench.project"),
           shortcut: "Mod+Shift+E",
           side: tooltipSide,
         },
@@ -117,13 +107,13 @@ export const SidebarPaneSelector = ({
         ? [
             {
               id: "search",
-              label: showLabels ? "Search" : undefined,
+              label: showLabels ? t("workbench.search") : undefined,
               icon: <MagnifyingGlassIcon className={iconClassName} />,
               isActive: isSearchActive,
               onClick: onSearchClick,
-              ariaLabel: "Search",
+              ariaLabel: t("workbench.search"),
               tooltip: {
-                content: "Search",
+                content: t("workbench.search"),
                 shortcut: "Mod+Shift+F",
                 side: tooltipSide,
               },
@@ -134,113 +124,59 @@ export const SidebarPaneSelector = ({
         ? [
             {
               id: "git",
-              label: showLabels ? "Source Control" : undefined,
+              label: showLabels ? t("workbench.changes") : undefined,
               icon: <GitBranchIcon className={iconClassName} />,
               isActive: isPrimarySidebarItemActive && isGitViewActive,
               onClick: () => onViewChange("git"),
-              disabled: !isBackendCapabilityAvailable("git"),
-              ariaLabel: "Git Source Control",
+              ariaLabel: t("workbench.changes"),
               tooltip: {
-                content: isBackendCapabilityAvailable("git")
-                  ? "Source Control"
-                  : BACKEND_UNAVAILABLE_TOOLTIP,
+                content: t("workbench.changes"),
                 shortcut: "Mod+Shift+G",
                 side: tooltipSide,
               },
             } satisfies SidebarPaneItem,
           ]
         : []),
-      ...(coreFeatures.github
-        ? [
-            {
-              id: "github-prs",
-              label: showLabels ? "Pull Requests" : undefined,
-              icon: <GitPullRequestIcon className={iconClassName} />,
-              isActive: isPrimarySidebarItemActive && isGitHubPRsViewActive,
-              onClick: () => onViewChange("github-prs"),
-              disabled: !isBackendCapabilityAvailable("github"),
-              ariaLabel: "GitHub Pull Requests",
-              tooltip: {
-                content: isBackendCapabilityAvailable("github")
-                  ? "Pull Requests"
-                  : BACKEND_UNAVAILABLE_TOOLTIP,
-                side: tooltipSide,
-              },
-            } satisfies SidebarPaneItem,
-          ]
-        : []),
-      ...(coreFeatures.docker
-        ? [
-            {
-              id: "docker",
-              label: showLabels ? "Docker" : undefined,
-              icon: <BoxIcon className={iconClassName} />,
-              isActive: isPrimarySidebarItemActive && activeSidebarView === "docker",
-              onClick: () => onViewChange("docker"),
-              disabled: !isBackendCapabilityAvailable("docker"),
-              ariaLabel: "Docker",
-              tooltip: {
-                content: isBackendCapabilityAvailable("docker")
-                  ? "Docker"
-                  : BACKEND_UNAVAILABLE_TOOLTIP,
-                side: tooltipSide,
-              },
-            } satisfies SidebarPaneItem,
-          ]
-        : []),
       {
-        id: "extensions",
-        label: showLabels ? "Extensions" : undefined,
-        icon: <ExtensionsIcon className={iconClassName} />,
-        isActive: isExtensionsActive,
-        onClick: onExtensionsClick ?? (() => onViewChange("extensions")),
-        disabled: !isBackendCapabilityAvailable("extensions"),
-        ariaLabel: "Extensions",
+        id: "database",
+        label: showLabels ? t("workbench.database") : undefined,
+        icon: <DatabaseIcon className={iconClassName} />,
+        disabled: true,
+        ariaLabel: t("workbench.database"),
         tooltip: {
-          content: isBackendCapabilityAvailable("extensions")
-            ? "Extensions"
-            : BACKEND_UNAVAILABLE_TOOLTIP,
+          content: BACKEND_UNAVAILABLE_TOOLTIP,
           side: tooltipSide,
         },
       },
-      ...Array.from(extensionViews.values()).map(
-        (view) =>
-          ({
-            id: view.id,
-            label: showLabels ? view.title : undefined,
-            icon: <DynamicIcon name={view.icon} className={iconClassName} />,
-            isActive: isPrimarySidebarItemActive && activeSidebarView === view.id,
-            onClick: () => onViewChange(view.id),
-            disabled: !isBackendCapabilityAvailable("extensions"),
-            ariaLabel: view.title,
-            tooltip: {
-              content: isBackendCapabilityAvailable("extensions")
-                ? view.title
-                : BACKEND_UNAVAILABLE_TOOLTIP,
-              side: tooltipSide,
-            },
-          }) satisfies SidebarPaneItem,
-      ),
+      ...(onSettingsClick
+        ? [
+            {
+              id: "settings",
+              label: showLabels ? t("workbench.settings") : undefined,
+              icon: <GearIcon className={iconClassName} />,
+              onClick: onSettingsClick,
+              ariaLabel: t("workbench.settings"),
+              tooltip: {
+                content: t("workbench.settings"),
+                side: tooltipSide,
+              },
+            } satisfies SidebarPaneItem,
+          ]
+        : []),
     ],
     [
-      activeSidebarView,
       coreFeatures.git,
-      coreFeatures.github,
-      coreFeatures.docker,
       coreFeatures.search,
-      extensionViews,
       iconClassName,
       isFilesActive,
       isPrimarySidebarItemActive,
-      isGitHubPRsViewActive,
       isGitViewActive,
       isSearchActive,
-      isExtensionsActive,
-      isSidebarVisible,
-      onExtensionsClick,
       onSearchClick,
+      onSettingsClick,
       onViewChange,
       showLabels,
+      t,
       tooltipSide,
     ],
   );
@@ -263,6 +199,7 @@ export const SidebarPaneSelector = ({
         {visibleItems.map((item) => {
           const itemNode = (
             <SidebarListItem
+              key={item.id}
               active={!!item.isActive}
               leading={item.icon}
               iconOnly={!showLabels}
@@ -300,6 +237,7 @@ export const SidebarPaneSelector = ({
   const renderedItems = visibleItems.map((item) => {
     const tabNode = (
       <TabsTrigger
+        key={item.id}
         value={item.id}
         aria-label={item.ariaLabel}
         disabled={item.disabled}
@@ -320,6 +258,7 @@ export const SidebarPaneSelector = ({
     const content =
       item.tooltip && (!showLabels || item.disabled) ? (
         <Tooltip
+          key={item.id}
           content={item.tooltip.content}
           shortcut={item.disabled ? undefined : item.tooltip.shortcut}
           side={item.tooltip.side}
