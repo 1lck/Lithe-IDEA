@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getGitHistory } from "../api/git-commits-api";
+import { subscribeToGitChanges } from "../events/git-events";
 import type { GitHistorySnapshot, GitReference } from "../types/git.types";
+import { shouldRefreshGitLogForChange } from "../utils/git-log-refresh";
 
 type GitLogLoadState = "idle" | "loading" | "ready" | "failed";
 
@@ -94,6 +96,22 @@ export function useGitLogController(repoPath: string | null) {
     const limit = Math.max(COMMITS_PER_PAGE, historyRef.current.commits.length);
     return load({ reference: selectedReferenceRef.current, limit });
   }, [load]);
+
+  useEffect(() => {
+    if (!repoPath) return;
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = subscribeToGitChanges((change) => {
+      if (!shouldRefreshGitLogForChange(change, repoPath)) return;
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => void refresh(), 100);
+    });
+
+    return () => {
+      unsubscribe();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [refresh, repoPath]);
 
   const loadMore = useCallback(() => {
     const currentHistory = historyRef.current;
