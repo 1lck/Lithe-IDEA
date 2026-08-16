@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { getBranches } from "../api/git-branches-api";
 import { getGitHistory } from "../api/git-commits-api";
+import { getOperationState } from "../api/git-integration-api";
 import { getStashes } from "../api/git-stash-api";
 import { getGitStatus } from "../api/git-status-api";
 import {
@@ -40,11 +41,12 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     gitActions.setIsLoadingGitData(true);
 
     try {
-      const [status, history, branches, stashes] = await Promise.all([
+      const [status, history, branches, stashes, operationState] = await Promise.all([
         getGitStatus(repoPath),
         getGitHistory(repoPath, 50),
         getBranches(repoPath),
         getStashes(repoPath),
+        getOperationState(repoPath),
       ]);
 
       if (
@@ -60,6 +62,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         hasMoreCommits: history?.hasMore ?? false,
         branches,
         stashes,
+        operationState,
         repoPath,
       });
     } catch (error) {
@@ -91,11 +94,14 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
             refreshAll || scopes.includes("refs") || scopes.includes("repository");
           const shouldRefreshStashes =
             refreshAll || scopes.includes("stashes") || scopes.includes("repository");
-          const [status, branches, stashes, history] = await Promise.all([
+          const [status, branches, stashes, history, operationState] = await Promise.all([
             getGitStatus(repoPath),
             shouldRefreshRefs ? getBranches(repoPath) : Promise.resolve(undefined),
             shouldRefreshStashes ? getStashes(repoPath) : Promise.resolve(undefined),
             shouldRefreshHistory ? getGitHistory(repoPath, 50) : Promise.resolve(undefined),
+            // Operation state rides along on every refresh: staging a file or
+            // an external Git command can end a conflict at any moment.
+            getOperationState(repoPath),
           ]);
 
           if (
@@ -110,6 +116,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
             branches,
             commits: history?.commits,
             hasMoreCommits: history?.hasMore,
+            operationState,
             repoPath,
           });
 

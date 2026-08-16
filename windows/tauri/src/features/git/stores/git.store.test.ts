@@ -31,6 +31,7 @@ const loadInitialHistory = (
     hasMoreCommits: true,
     branches: [],
     stashes: [],
+    operationState: null,
     repoPath,
   });
 };

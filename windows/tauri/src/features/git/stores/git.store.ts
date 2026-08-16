@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { getGitHistory } from "../api/git-commits-api";
 import { getGitStatus } from "../api/git-status-api";
-import type { GitCommit, GitStash, GitStatus } from "../types/git.types";
+import type { GitCommit, GitOperationState, GitStash, GitStatus } from "../types/git.types";
 
 interface GitState {
   gitStatus: GitStatus | null;
@@ -10,6 +10,7 @@ interface GitState {
   commits: GitCommit[];
   branches: string[];
   stashes: GitStash[];
+  operationState: GitOperationState | null;
   hasMoreCommits: boolean;
   isLoadingMoreCommits: boolean;
   isLoadingGitData: boolean;
@@ -26,6 +27,7 @@ interface GitState {
       hasMoreCommits: boolean;
       branches: string[];
       stashes: GitStash[];
+      operationState: GitOperationState | null;
       repoPath: string;
     }) => void;
     refreshGitData: (data: {
@@ -33,6 +35,7 @@ interface GitState {
       branches?: string[];
       commits?: GitCommit[];
       hasMoreCommits?: boolean;
+      operationState: GitOperationState | null;
       repoPath: string;
     }) => void;
     refreshWorkspaceGitStatus: (repoPath: string) => Promise<void>;
@@ -58,6 +61,7 @@ export const createGitStore = () =>
     commits: [],
     branches: [],
     stashes: [],
+    operationState: null,
     hasMoreCommits: true,
     isLoadingMoreCommits: false,
     isLoadingGitData: false,
@@ -76,6 +80,7 @@ export const createGitStore = () =>
           commits: [],
           branches: [],
           stashes: [],
+          operationState: null,
           hasMoreCommits: true,
           isLoadingMoreCommits: false,
           currentRepoPath: repoPath,
@@ -88,6 +93,7 @@ export const createGitStore = () =>
         hasMoreCommits,
         branches,
         stashes,
+        operationState,
         repoPath,
       }) => {
         if (get().currentRepoPath !== repoPath) {
@@ -99,18 +105,20 @@ export const createGitStore = () =>
           commits,
           branches,
           stashes,
+          operationState,
           hasMoreCommits,
           currentRepoPath: repoPath,
         });
       },
 
-      refreshGitData: ({ gitStatus, branches, commits, hasMoreCommits, repoPath }) => {
+      refreshGitData: ({ gitStatus, branches, commits, hasMoreCommits, operationState, repoPath }) => {
         if (get().currentRepoPath !== repoPath) {
           return;
         }
 
         set({
           gitStatus,
+          operationState,
           ...(branches ? { branches } : {}),
           ...(commits
             ? {
@@ -183,6 +191,7 @@ export const createGitStore = () =>
           commits: [],
           branches: [],
           stashes: [],
+          operationState: null,
           hasMoreCommits: true,
           isLoadingMoreCommits: false,
           isLoadingGitData: false,
