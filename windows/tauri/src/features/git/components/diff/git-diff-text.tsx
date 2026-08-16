@@ -10,8 +10,14 @@ import type {
   ParsedHunk,
   TextDiffViewerProps,
 } from "../../types/git-diff.types";
+import type { GitDiffSplitRow } from "../../types/git.types";
 import { DIFF_HIGHLIGHT_LINE_THRESHOLD } from "../../utils/diff-viewer-scale";
-import { getSkippedUnchangedLineCount, groupLinesIntoHunks } from "../../utils/git-diff-helpers";
+import {
+  createFallbackSplitRows,
+  countSplitDiffStats,
+  getSkippedUnchangedLineCount,
+  groupLinesIntoHunks,
+} from "../../utils/git-diff-helpers";
 import DiffHunkHeader from "./git-diff-hunk-header";
 import DiffLine, {
   getContentColor,
@@ -19,13 +25,13 @@ import DiffLine, {
   getGutterTextColor,
   getLineBackground,
   getRailClassName,
-  getSplitLineMeta,
   renderDiffLineContent,
 } from "./git-diff-line";
 
 function SplitDiffCodePanel({
   side,
-  lines,
+  rows,
+  sourceLines,
   tokenMap,
   showWhitespace,
   fontSize,
@@ -34,7 +40,8 @@ function SplitDiffCodePanel({
   searchHighlights,
 }: {
   side: "left" | "right";
-  lines: ParsedHunk["lines"];
+  rows: GitDiffSplitRow[];
+  sourceLines: ParsedHunk["lines"];
   tokenMap: ReturnType<typeof useDiffHighlighting>;
   showWhitespace: boolean;
   fontSize: number;
@@ -42,6 +49,15 @@ function SplitDiffCodePanel({
   tabSize: number;
   searchHighlights?: Map<number, DiffSearchHighlight[]>;
 }) {
+  const sourceLinesByNumber = useMemo(() => {
+    const entries = sourceLines.flatMap((line) => {
+      const lineNumber = side === "left" ? line.old_line_number : line.new_line_number;
+      const visible = side === "left" ? line.line_type !== "added" : line.line_type !== "removed";
+      return visible && lineNumber !== undefined ? [[lineNumber, line] as const] : [];
+    });
+    return new Map(entries);
+  }, [side, sourceLines]);
+
   const contentStyle = {
     fontSize: `${fontSize}px`,
     lineHeight: `${lineHeight}px`,
@@ -54,19 +70,28 @@ function SplitDiffCodePanel({
   return (
     <div className="flex min-w-0 flex-1">
       <div className="w-11 shrink-0 border-border border-r bg-background">
-        {lines.map((line, index) => {
-          const meta = getSplitLineMeta(line, side);
+        {rows.map((row, index) => {
+          const lineNumber = side === "left" ? row.old_line_number : row.new_line_number;
+          const content = side === "left" ? row.old_content : row.new_content;
+          const isVisible = content !== undefined;
+          const diffType = isVisible
+            ? side === "left" && (row.kind === "changed" || row.kind === "removal")
+              ? "removed"
+              : side === "right" && (row.kind === "changed" || row.kind === "addition")
+                ? "added"
+                : "context"
+            : "context";
           return (
             <div
               key={`${side}-gutter-${index}`}
-              className={`select-none px-2 py-0.5 text-right tabular-nums ${getGutterBackground(meta.diffType)} ${getRailClassName(meta.diffType)} ${getGutterTextColor(meta.diffType)}`}
+              className={`select-none px-2 py-0.5 text-right tabular-nums ${getGutterBackground(diffType)} ${getRailClassName(diffType)} ${getGutterTextColor(diffType)}`}
               style={{
                 fontSize: `${fontSize}px`,
                 lineHeight: `${lineHeight}px`,
               }}
               data-selection-scope-exclude="true"
             >
-              {meta.isVisible ? meta.gutterNumber : ""}
+              {isVisible ? lineNumber : ""}
             </div>
           );
         })}
@@ -74,23 +99,33 @@ function SplitDiffCodePanel({
 
       <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
         <div className="min-w-max">
-          {lines.map((line, index) => {
-            const meta = getSplitLineMeta(line, side);
-            const tokens = tokenMap.get(line.diffIndex);
+          {rows.map((row, index) => {
+            const lineNumber = side === "left" ? row.old_line_number : row.new_line_number;
+            const content = side === "left" ? row.old_content : row.new_content;
+            const sourceLine = lineNumber === undefined ? undefined : sourceLinesByNumber.get(lineNumber);
+            const isVisible = content !== undefined;
+            const diffType = isVisible
+              ? side === "left" && (row.kind === "changed" || row.kind === "removal")
+                ? "removed"
+                : side === "right" && (row.kind === "changed" || row.kind === "addition")
+                  ? "added"
+                  : "context"
+              : "context";
+            const tokens = sourceLine ? tokenMap.get(sourceLine.diffIndex) : undefined;
             return (
               <div
                 key={`${side}-code-${index}`}
-                className={`px-2.5 py-0.5 ${getLineBackground(meta.diffType)}`}
+                className={`px-2.5 py-0.5 ${getLineBackground(diffType)}`}
                 style={contentStyle}
-                data-diff-search-line={line.diffIndex}
+                data-diff-search-line={sourceLine?.diffIndex}
               >
-                <span className={meta.isVisible ? getContentColor(meta.diffType) : undefined}>
-                  {meta.isVisible
+                <span className={isVisible ? getContentColor(diffType) : undefined}>
+                  {isVisible
                     ? renderDiffLineContent(
-                        line.content,
+                        content,
                         tokens,
                         showWhitespace,
-                        searchHighlights?.get(line.diffIndex),
+                        sourceLine ? searchHighlights?.get(sourceLine.diffIndex) : undefined,
                       )
                     : ""}
                 </span>
@@ -169,10 +204,12 @@ const TextDiffViewer = memo(
           {hunks.map((hunk, hunkIndex) => {
             const isCollapsed = collapsedHunks.has(hunk.id);
             const hiddenLineCount = getSkippedUnchangedLineCount(hunks[hunkIndex - 1], hunk);
+            const splitRows = diff.split_hunks?.[hunkIndex] ?? createFallbackSplitRows(hunk.lines);
             return (
               <div key={`split-${hunk.id}`}>
                 <DiffHunkHeader
                   hunk={hunk}
+                  stats={countSplitDiffStats([splitRows])}
                   hiddenLineCount={hiddenLineCount}
                   isCollapsed={isCollapsed}
                   onToggleCollapse={() => toggleHunkCollapse(hunk.id)}
@@ -187,7 +224,8 @@ const TextDiffViewer = memo(
                     <div className="min-w-0 flex-1 border-border border-r">
                       <SplitDiffCodePanel
                         side="left"
-                        lines={hunk.lines}
+                        rows={splitRows}
+                        sourceLines={hunk.lines}
                         tokenMap={tokenMap}
                         showWhitespace={showWhitespace}
                         fontSize={fontSize}
@@ -199,7 +237,8 @@ const TextDiffViewer = memo(
                     <div className="min-w-0 flex-1">
                       <SplitDiffCodePanel
                         side="right"
-                        lines={hunk.lines}
+                        rows={splitRows}
+                        sourceLines={hunk.lines}
                         tokenMap={tokenMap}
                         showWhitespace={showWhitespace}
                         fontSize={fontSize}
@@ -244,10 +283,12 @@ const TextDiffViewer = memo(
           {hunks.map((hunk, hunkIndex) => {
             const isCollapsed = collapsedHunks.has(hunk.id);
             const hiddenLineCount = getSkippedUnchangedLineCount(hunks[hunkIndex - 1], hunk);
+            const splitRows = diff.split_hunks?.[hunkIndex] ?? createFallbackSplitRows(hunk.lines);
             return (
               <div key={hunk.id}>
                 <DiffHunkHeader
                   hunk={hunk}
+                  stats={countSplitDiffStats([splitRows])}
                   hiddenLineCount={hiddenLineCount}
                   isCollapsed={isCollapsed}
                   onToggleCollapse={() => toggleHunkCollapse(hunk.id)}

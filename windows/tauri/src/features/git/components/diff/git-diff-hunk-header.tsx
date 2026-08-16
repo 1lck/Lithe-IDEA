@@ -18,6 +18,7 @@ import { createGitHunk, parseDiffHunkRange } from "../../utils/git-diff-helpers"
 const DiffHunkHeader = memo(
   ({
     hunk,
+    stats,
     hiddenLineCount,
     isCollapsed,
     onToggleCollapse,
@@ -66,11 +67,13 @@ const DiffHunkHeader = memo(
       [rootFolderPath, filePath, hunk, isStaged, onStageHunk, onUnstageHunk],
     );
 
-    let additions = 0;
-    let deletions = 0;
-    for (const l of hunk.lines) {
-      if (l.line_type === "added") additions++;
-      else if (l.line_type === "removed") deletions++;
+    let additions = stats?.additions ?? 0;
+    let deletions = stats?.deletions ?? 0;
+    if (!stats) {
+      for (const l of hunk.lines) {
+        if (l.line_type === "added") additions++;
+        else if (l.line_type === "removed") deletions++;
+      }
     }
 
     const headerInfo = parseDiffHunkRange(hunk.header.content);

@@ -14,7 +14,7 @@ import Breadcrumb, {
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { cn } from "@/utils/cn";
 import type { DiffHeaderProps } from "../../types/git-diff.types";
-import { getFileStatus } from "../../utils/git-diff-helpers";
+import { countDiffStats, getFileStatus } from "../../utils/git-diff-helpers";
 
 const DiffHeader = memo(
   ({
@@ -45,12 +45,7 @@ const DiffHeader = memo(
     const renderStats = () => {
       if (!diff) return null;
 
-      let additions = 0;
-      let deletions = 0;
-      for (const l of diff.lines) {
-        if (l.line_type === "added") additions++;
-        else if (l.line_type === "removed") deletions++;
-      }
+      const { additions, deletions } = countDiffStats([diff]);
 
       return (
         <>

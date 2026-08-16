@@ -90,8 +90,13 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             "git.write"
         }
         "git_diff_file" | "git_status_diff_stats" => {
-            paths_from_file(&mut payload);
-            payload.entry("pathspecs").or_insert_with(|| json!([]));
+            if let Some(path) = payload.remove("filePath") {
+                payload.insert("pathspecs".into(), Value::Array(vec![path]));
+            } else {
+                // The shared core rejects empty pathspecs; a request without a
+                // file scope means the whole tree, which git spells as `.`.
+                payload.insert("pathspecs".into(), json!(["."]));
+            }
             "git.diff"
         }
         "git_ref_diff" => {
@@ -534,7 +539,41 @@ mod tests {
             translate("git_diff_file", json!({ "repoPath": "C:/work" })).unwrap();
 
         assert_eq!(command, "git.diff");
-        assert_eq!(payload, json!({ "root": "C:/work", "pathspecs": [] }));
+        assert_eq!(payload, json!({ "root": "C:/work", "pathspecs": ["."] }));
+    }
+
+    #[test]
+    fn translates_diff_file_pathspec() {
+        let (command, payload) = translate(
+            "git_diff_file",
+            json!({ "repoPath": "C:/work", "filePath": "src/main.rs", "staged": true }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "pathspecs": ["src/main.rs"],
+                "staged": true
+            })
+        );
+    }
+
+    #[test]
+    fn translates_status_diff_stats_whole_tree() {
+        let (command, payload) = translate(
+            "git_status_diff_stats",
+            json!({ "repoPath": "C:/work", "staged": true }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({ "root": "C:/work", "pathspecs": ["."], "staged": true })
+        );
     }
 
     #[test]

@@ -20,11 +20,24 @@ export interface GitCommit {
   date: string;
 }
 
+export interface GitHistorySnapshot {
+  commits: GitCommit[];
+  hasMore: boolean;
+}
+
 export interface GitDiffLine {
   line_type: "added" | "removed" | "context" | "header";
   content: string;
   old_line_number?: number;
   new_line_number?: number;
+}
+
+export interface GitDiffSplitRow {
+  kind: "context" | "changed" | "addition" | "removal";
+  old_line_number?: number;
+  new_line_number?: number;
+  old_content?: string;
+  new_content?: string;
 }
 
 export interface GitDiff {
@@ -43,6 +56,7 @@ export interface GitDiff {
   additions?: number;
   deletions?: number;
   is_truncated?: boolean;
+  split_hunks?: GitDiffSplitRow[][];
 }
 
 export interface GitDiffStat {
