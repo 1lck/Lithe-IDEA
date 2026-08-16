@@ -39,6 +39,7 @@ import { ItemGroup } from "@/ui/item";
 import Tooltip from "@/ui/tooltip";
 import { writeClipboardText } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface NotificationsCommandProps {
   isVisible: boolean;
@@ -46,6 +47,7 @@ interface NotificationsCommandProps {
 }
 
 export function NotificationsCommand({ isVisible, onClose }: NotificationsCommandProps) {
+  const { t } = useTranslation();
   const notifications = useNotificationsStore.use.notifications();
   const markAllNotificationsRead = useNotificationsStore((state) => state.actions.markAllRead);
   const removeNotification = useNotificationsStore((state) => state.actions.remove);
@@ -107,7 +109,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
     return [
       {
         id: "copy-message",
-        label: "Copy Message",
+        label: t("notifications.copyMessage"),
         icon: <Copy />,
         onClick: () => void copyText(notification.message),
       },
@@ -115,7 +117,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
         ? [
             {
               id: "copy-details",
-              label: "Copy Details",
+              label: t("notifications.copyDetails"),
               icon: <ClipboardText />,
               onClick: () => void copyText(notification.description || ""),
             },
@@ -123,54 +125,54 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
         : []),
       {
         id: "copy-notification",
-        label: "Copy Notification",
+        label: t("notifications.copyNotification"),
         icon: <ClipboardText />,
         onClick: () => void copyText(formatNotificationText(notification)),
       },
       { id: "sep-delete", label: "", separator: true, onClick: () => {} },
       {
         id: "delete-notification",
-        label: "Delete",
+        label: t("notifications.delete"),
         icon: <Trash />,
         onClick: () => removeNotification(notification.id),
       },
       {
         id: "clear-all",
-        label: "Clear All",
+        label: t("notifications.clearAll"),
         icon: <Trash />,
         onClick: () => clearNotifications(),
       },
     ];
-  }, [clearNotifications, notificationContextMenu.data, removeNotification]);
+  }, [clearNotifications, notificationContextMenu.data, removeNotification, t]);
 
   const panelContextMenuItems = useMemo<MenuItem[]>(
     () => [
       {
         id: "copy-all",
-        label: "Copy All",
+        label: t("notifications.copyAll"),
         icon: <ClipboardText />,
         disabled: notifications.length === 0,
         onClick: () => void copyText(notifications.map(formatNotificationText).join("\n\n---\n\n")),
       },
       {
         id: "clear-all",
-        label: "Clear All",
+        label: t("notifications.clearAll"),
         icon: <Trash />,
         disabled: notifications.length === 0,
         onClick: () => clearNotifications(),
       },
     ],
-    [clearNotifications, notifications],
+    [clearNotifications, notifications, t],
   );
 
   const filterMenuItems = useMemo<MenuItem[]>(
     () =>
       [
-        { id: "all", label: "All", icon: <Funnel />, value: "all" },
-        { id: "info", label: "Info", icon: <Info />, value: "info" },
-        { id: "success", label: "Success", icon: <Check />, value: "success" },
-        { id: "warning", label: "Warnings", icon: <WarningCircle />, value: "warning" },
-        { id: "error", label: "Errors", icon: <XCircle />, value: "error" },
+        { id: "all", label: t("notifications.filterAll"), icon: <Funnel />, value: "all" },
+        { id: "info", label: t("notifications.filterInfo"), icon: <Info />, value: "info" },
+        { id: "success", label: t("notifications.filterSuccess"), icon: <Check />, value: "success" },
+        { id: "warning", label: t("notifications.filterWarnings"), icon: <WarningCircle />, value: "warning" },
+        { id: "error", label: t("notifications.filterErrors"), icon: <XCircle />, value: "error" },
       ].map((item) => ({
         id: item.id,
         label: item.label,
@@ -178,7 +180,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
         onClick: () => setNotificationFilter(item.value as NotificationFilter),
         className: notificationFilter === item.value ? "bg-accent text-foreground" : undefined,
       })),
-    [notificationFilter],
+    [notificationFilter, t],
   );
 
   const filteredNotifications = useMemo(() => {
@@ -326,7 +328,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
 
   return (
     <>
-      <Command isVisible={isVisible} onClose={onClose} title="Notifications">
+      <Command isVisible={isVisible} onClose={onClose} title={t("notifications.title")}>
         <div
           className="flex h-full min-h-0 flex-col"
           onKeyDownCapture={handleNotificationsKeyDown}
@@ -342,7 +344,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
                 ref={searchInputRef}
                 value={searchQuery}
                 onChange={setSearchQuery}
-                placeholder="Search notifications"
+                placeholder={t("notifications.search")}
                 onKeyDown={(event) => {
                   if (event.key === "ArrowDown" && visibleNotifications.length > 0) {
                     event.preventDefault();
@@ -351,12 +353,12 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
                 }}
               />
             </div>
-            <Tooltip content="Filter Notifications" side="bottom" triggerClassName="size-7">
+            <Tooltip content={t("notifications.filter")} side="bottom" triggerClassName="size-7">
               <CommandHeaderAction
                 ref={filterButtonRef}
                 type="button"
                 active={notificationFilter !== "all"}
-                aria-label="Filter Notifications"
+                aria-label={t("notifications.filter")}
                 onClick={() => setIsFilterMenuOpen(true)}
               >
                 <Funnel />
@@ -364,9 +366,9 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
             </Tooltip>
           </CommandHeader>
           {notifications.length === 0 ? (
-            <CommandEmpty>No notifications yet.</CommandEmpty>
+            <CommandEmpty>{t("notifications.empty")}</CommandEmpty>
           ) : filteredNotifications.length === 0 ? (
-            <CommandEmpty>No matching notifications.</CommandEmpty>
+            <CommandEmpty>{t("notifications.noMatch")}</CommandEmpty>
           ) : (
             <CommandList>
               <div className="flex min-h-0 flex-1 flex-col gap-1.5">
@@ -410,7 +412,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
                             actions={[
                               {
                                 id: "delete-notification",
-                                label: "Delete Notification",
+                                label: t("notifications.deleteNotification"),
                                 icon: <Trash className="size-3.5" />,
                                 onSelect: () => removeNotification(notification.id),
                                 variant: "danger",
@@ -470,7 +472,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
           setActiveNotification(null);
           setCopiedNotificationId(null);
         }}
-        title="Notification details"
+        title={t("notifications.details")}
       >
         {activeNotification ? (
           <>
@@ -513,7 +515,9 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
                   onClick={() => void copyActiveNotification(activeNotification)}
                 >
                   <Copy className="size-3.5" />
-                  {copiedNotificationId === activeNotification.id ? "Copied" : "Copy"}
+                  {copiedNotificationId === activeNotification.id
+                    ? t("notifications.copied")
+                    : t("notifications.copy")}
                 </Button>
                 <Button
                   type="button"
@@ -526,7 +530,7 @@ export function NotificationsCommand({ isVisible, onClose }: NotificationsComman
                   }}
                 >
                   <Trash className="size-3.5" />
-                  Delete
+                  {t("notifications.delete")}
                 </Button>
               </div>
             </CommandList>

@@ -8,6 +8,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/ui/empty";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { ContentSearchAvailability } from "../hooks/use-content-search";
 
 interface GlobalSearchStateProps {
@@ -45,11 +46,13 @@ export function GlobalSearchState({
   hasFileFilters,
   onRetry,
 }: GlobalSearchStateProps) {
+  const { t } = useTranslation();
+
   if (availability === "no-workspace") {
     return (
       <SearchIntroduction
-        title="Open a project to search"
-        description="Global search needs an open project folder."
+        title={t("search.openProjectTitle")}
+        description={t("search.openProjectDescription")}
       />
     );
   }
@@ -57,9 +60,7 @@ export function GlobalSearchState({
   if (availability === "unsupported") {
     return (
       <Empty className="min-h-60 px-6">
-        <EmptyDescription className="ui-text-base">
-          Global search is not available for this workspace type.
-        </EmptyDescription>
+        <EmptyDescription className="ui-text-base">{t("search.unsupported")}</EmptyDescription>
       </Empty>
     );
   }
@@ -67,8 +68,8 @@ export function GlobalSearchState({
   if (!query.trim()) {
     return (
       <SearchIntroduction
-        title="Search across your project"
-        description="Type a query to see matching files and lines in a project-wide result buffer."
+        title={t("search.emptyTitle")}
+        description={t("search.emptyDescription")}
       />
     );
   }
@@ -85,12 +86,12 @@ export function GlobalSearchState({
     return (
       <Empty className="min-h-60 px-6" role="alert">
         <EmptyHeader>
-          <EmptyTitle>Search failed</EmptyTitle>
+          <EmptyTitle>{t("search.failed")}</EmptyTitle>
           <EmptyDescription className="ui-text-base text-destructive">{error}</EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
           <Button type="button" variant="default" onClick={onRetry}>
-            Try again
+            {t("search.retry")}
           </Button>
         </EmptyContent>
       </Empty>
@@ -101,10 +102,11 @@ export function GlobalSearchState({
     return (
       <Empty className="min-h-60" role="status">
         <EmptyHeader>
-          <EmptyTitle>No results found</EmptyTitle>
+          <EmptyTitle>{t("search.noResults")}</EmptyTitle>
           <EmptyDescription className="ui-text-base">
-            No results found for "{debouncedQuery}"
-            {hasFileFilters ? " with the current file filters" : ""}
+            {t(hasFileFilters ? "search.noResultsForWithFilters" : "search.noResultsFor", {
+              query: debouncedQuery,
+            })}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>

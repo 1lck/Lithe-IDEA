@@ -5,16 +5,26 @@ export const SIDEBAR_ACTIVITY_ITEM_IDS = [
   "search",
   "database",
   "run",
-  "settings",
-] as const;
-export const FOOTER_LEADING_ITEM_IDS = [
-  "branch",
-  "gitLog",
   "terminal",
   "diagnostics",
+  "gitLog",
+  "settings",
 ] as const;
+export const SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS = [
+  "run",
+  "terminal",
+  "diagnostics",
+  "gitLog",
+  "settings",
+] as const;
+export const FOOTER_LEADING_ITEM_IDS = ["filePath", "branch"] as const;
 export const FOOTER_TRAILING_ITEM_IDS = [
-  "databases",
+  "cursor",
+  "encoding",
+  "indent",
+  "readOnly",
+  "memory",
+  "gitChanges",
   "notifications",
 ] as const;
 

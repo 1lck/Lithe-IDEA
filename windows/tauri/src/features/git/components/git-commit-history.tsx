@@ -17,6 +17,7 @@ import type { AuthUser } from "@/features/window/services/auth-api";
 import { formatRelativeDate } from "@/utils/date";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { GitCommit } from "../types/git.types";
 import { useGitStore } from "../stores/git.store";
 import { getGitAuthorAvatarUrl } from "../utils/git-author-avatar";
@@ -39,11 +40,11 @@ interface CommitItemProps {
 
 type HistorySearchScope = "all" | "message" | "author" | "hash";
 
-const HISTORY_SEARCH_SCOPE_LABELS: Record<HistorySearchScope, string> = {
-  all: "All Fields",
-  message: "Message",
-  author: "Author",
-  hash: "Hash",
+const HISTORY_SEARCH_SCOPE_KEYS: Record<HistorySearchScope, string> = {
+  all: "git.historyFilterAll",
+  message: "git.historyFilterMessage",
+  author: "git.historyFilterAuthor",
+  hash: "git.historyFilterHash",
 };
 
 function getCommitSearchFields(commit: GitCommit, scope: HistorySearchScope) {
@@ -126,6 +127,7 @@ const GitCommitHistory = ({
   ahead = 0,
   behind = 0,
 }: GitCommitHistoryProps) => {
+  const { t } = useTranslation();
   const commits = useGitStore((state) => state.commits);
   const hasMoreCommits = useGitStore((state) => state.hasMoreCommits);
   const isLoadingMoreCommits = useGitStore((state) => state.isLoadingMoreCommits);
@@ -253,17 +255,17 @@ const GitCommitHistory = ({
         <SidebarSearchPopover
           value={historySearchQuery}
           onChange={setHistorySearchQuery}
-          placeholder="Search history"
-          aria-label="Search history"
+          placeholder={t("git.historySearch")}
+          aria-label={t("git.historySearch")}
         />
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <SidebarHeaderIconButton
                 active={hasHistoryFilter}
-                tooltip={`Filter: ${HISTORY_SEARCH_SCOPE_LABELS[historySearchScope]}`}
+                tooltip={t("git.historyFilter")}
                 tooltipSide="bottom"
-                aria-label="Filter history"
+                aria-label={t("git.historyFilter")}
               />
             }
           >
@@ -274,9 +276,9 @@ const GitCommitHistory = ({
               value={historySearchScope}
               onValueChange={(scope) => setHistorySearchScope(scope as HistorySearchScope)}
             >
-              {(Object.keys(HISTORY_SEARCH_SCOPE_LABELS) as HistorySearchScope[]).map((scope) => (
+              {(Object.keys(HISTORY_SEARCH_SCOPE_KEYS) as HistorySearchScope[]).map((scope) => (
                 <DropdownMenuRadioItem key={scope} value={scope} closeOnClick>
-                  {HISTORY_SEARCH_SCOPE_LABELS[scope]}
+                  {t(HISTORY_SEARCH_SCOPE_KEYS[scope])}
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
@@ -306,9 +308,9 @@ const GitCommitHistory = ({
         ref={scrollContainerRef}
       >
         {!hasHistoryRows ? (
-          <EmptyState message="No commits" />
+          <EmptyState message={t("git.historyNoCommits")} />
         ) : filteredCommits.length === 0 ? (
-          <EmptyState message="No commits match the current filters" />
+          <EmptyState message={t("git.historyNoMatch")} />
         ) : (
           <>
             {filteredCommits.map((commit) => (
@@ -325,13 +327,13 @@ const GitCommitHistory = ({
 
             {isLoadingMoreCommits && (
               <div className="flex justify-center px-3 py-1.5 text-subtle-foreground">
-                <Spinner label="Loading commits" showLabel compact />
+                <Spinner label={t("git.log.loadingCommits")} showLabel compact />
               </div>
             )}
 
             {!hasMoreCommits && commits.length > 0 && (
               <div className="ui-text-sm px-3 py-1.5 text-center text-subtle-foreground">
-                end of history
+                {t("git.historyEnd")}
               </div>
             )}
           </>

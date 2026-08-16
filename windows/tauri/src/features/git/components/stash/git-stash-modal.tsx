@@ -3,6 +3,7 @@ import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog";
 import Input from "@/ui/input";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface StashMessageModalProps {
   isOpen: boolean;
@@ -44,6 +45,7 @@ const StashMessageModalContent = ({
   title,
   placeholder,
 }: Omit<StashMessageModalProps, "isOpen">) => {
+  const { t } = useTranslation();
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -89,7 +91,7 @@ const StashMessageModalContent = ({
           className="text-subtle-foreground ui-text-sm hover:text-foreground"
           size="xs"
         >
-          Cancel
+          {t("files.cancel")}
         </Button>
         <Button
           onClick={() => void handleConfirm()}
@@ -98,7 +100,7 @@ const StashMessageModalContent = ({
           className="ui-text-sm disabled:opacity-50"
           size="xs"
         >
-          {isLoading ? "Stashing..." : "Stash"}
+          {isLoading ? t("git.stashing") : t("git.stash")}
         </Button>
       </DialogFooter>
     </DialogContent>

@@ -23,12 +23,14 @@ interface DirectoryEntry {
 interface FilePathBreadcrumbProps {
   filePath: string;
   interactive?: boolean;
+  menuSide?: "top" | "bottom";
   className?: string;
 }
 
 export function FilePathBreadcrumb({
   filePath,
   interactive = true,
+  menuSide = "bottom",
   className,
 }: FilePathBreadcrumbProps) {
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
@@ -162,7 +164,7 @@ export function FilePathBreadcrumb({
       setDropdown({
         segmentIndex,
         x: rect.left,
-        y: rect.bottom + 2,
+        y: menuSide === "top" ? rect.top : rect.bottom + 2,
         items,
         currentPath: dirPath,
         navigationStack: [],
@@ -186,6 +188,13 @@ export function FilePathBreadcrumb({
                 buttonRefs.current[index] = element;
               }
             : undefined
+        }
+        lastSegmentLeading={
+          <ThemedFileIcon
+            fileName={segments[segments.length - 1] ?? ""}
+            isDir={false}
+            className="size-3.5 shrink-0 text-subtle-foreground"
+          />
         }
         className={className}
       />
