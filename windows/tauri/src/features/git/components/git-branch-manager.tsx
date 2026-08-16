@@ -32,7 +32,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/ui/dropdown-menu";
+} from "@/ui/dropdown";
 import { resolveRepositoryPath } from "../api/git-repo-api";
 import { createStash } from "../api/git-stash-api";
 import { addWorktree, getWorktrees } from "../api/git-worktrees-api";
@@ -880,7 +880,6 @@ function BranchRow({
           <div
             className="flex items-center"
             onPointerDown={(event) => {
-              event.preventDefault();
               event.stopPropagation();
             }}
             onClick={(event) => event.stopPropagation()}
@@ -899,7 +898,7 @@ function BranchRow({
               >
                 <DotsThreeIcon />
               </DropdownMenuTrigger>
-              <DropdownMenuContent>
+              <DropdownMenuContent className="min-w-64">
                 <DropdownMenuItem onClick={onMerge}>
                   <GitMergeIcon className="size-3.5" />
                   Merge into Current Branch
