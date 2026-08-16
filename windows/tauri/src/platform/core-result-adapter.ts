@@ -120,13 +120,25 @@ export function adaptCoreResult<T>(
       } as T;
     case "git_log":
       return {
+        references: Array.isArray(data.references)
+          ? data.references.map((reference: JsonRecord) => ({
+              fullName: reference.fullName,
+              shortName: reference.shortName,
+              kind: reference.kind,
+              isCurrent: Boolean(reference.isCurrent),
+              upstreamShortName: reference.upstreamShortName ?? undefined,
+            }))
+          : [],
         commits: Array.isArray(data.commits)
           ? data.commits.map((commit: JsonRecord) => ({
               hash: commit.hash,
+              shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
+              parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
               message: commit.subject,
               author: commit.authorName,
               email: commit.authorEmail,
               date: commit.date,
+              decorations: commit.decorations ?? "",
             }))
           : [],
         hasMore: Boolean(data.hasMore),

@@ -19,6 +19,8 @@ interface GitActionsParams {
   activeRepoPath?: string | null;
   setIsSidebarVisible: (v: boolean) => void;
   setActiveView: (view: "files" | "git" | "github-prs") => void;
+  setIsBottomPaneVisible: (visible: boolean) => void;
+  setBottomPaneActiveTab: (tab: "gitLog") => void;
   showToast: (params: { message: string; type: "success" | "error" | "info" }) => void;
   gitOperations: {
     stageAllFiles: (path: string) => Promise<boolean>;
@@ -38,6 +40,8 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
     activeRepoPath,
     setIsSidebarVisible,
     setActiveView,
+    setIsBottomPaneVisible,
+    setBottomPaneActiveTab,
     showToast,
     gitOperations,
     onClose,
@@ -154,6 +158,18 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       icon: <ClockCounterClockwise />,
       category: "Git",
       action: () => openGitAction({ type: "show-tab", tab: "history" }),
+    },
+    {
+      id: "git-open-log",
+      label: "Git: Open Log",
+      description: "Open the full Git Log tool window",
+      icon: <ClockCounterClockwise />,
+      category: "Git",
+      action: () => {
+        setBottomPaneActiveTab("gitLog");
+        setIsBottomPaneVisible(true);
+        onClose();
+      },
     },
     {
       id: "git-manage-remotes",
