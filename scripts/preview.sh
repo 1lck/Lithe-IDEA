@@ -35,6 +35,7 @@ MACOSX_DEPLOYMENT_TARGET=13.0 \
     cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-db-mcp --target "$RUST_TARGET"
 cp "rust/target/macos/$RUST_TARGET/debug/lithe-db-mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
 cp Resources/Info.plist "$APP_DIR/Contents/Info.plist"
+"$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
 cp -R Resources/DatabaseIcons "$APP_DIR/Contents/Resources/DatabaseIcons"
