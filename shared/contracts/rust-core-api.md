@@ -94,6 +94,7 @@ stable error code and a user-facing message:
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
 | `java.structure` | Parse Java editor structure, implementation candidates, and inlay hints |
+| `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
@@ -172,9 +173,11 @@ worktree. Pathspecs must be workspace-relative and must not contain absolute
 paths or `..` components.
 
 `git.history` accepts `root`, an optional full `reference`, and `limit` (the
-core clamps it to `1...5000`). It returns `references`, `commits`, and
-`hasMore`; commit parents are explicit so clients can render merge topology
-without re-parsing Git output.
+core clamps it to `1...5000`). It returns `references`, `commits`, `hasMore`,
+and the optional effective `userName` and `userEmail` from repository Git
+configuration. Commit parents are explicit so clients can render merge
+topology without re-parsing Git output. The identity fields let clients
+implement a stable `me` filter without guessing from recent commits.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
@@ -334,3 +337,27 @@ returns `foldRegions`, `implementationMarkers`, and `inlayHints`. Line numbers
 are zero-based because these values are editor offsets; UTF-16 columns and
 hidden ranges match the native text editor coordinate system. The parser is
 platform-independent and does not start a Java process or contact JDT.
+
+`spring.index` accepts `root`, workspace-relative `paths`, optional trusted
+absolute `metadataRepositories` (and the legacy singular `metadataRepository`),
+optional `textOverrides` keyed by relative path, and
+`refreshDependencyMetadata`. The command reads Spring configuration
+metadata from workspace JSON files and dependency JARs, indexes application
+configuration documents and Java source, and returns deterministically ordered
+`properties`, `values`, `propertyReferences`, `diagnostics`, `beans`,
+`injections`, and `endpoints` collections. Locations use relative paths and
+one-based lines and columns.
+
+`properties` include type, documentation, default value, and an optional Java
+declaration. `values` include profile/override state and an optional declaration
+target. `propertyReferences` represent Java `@Value` uses. Bean resolution
+accounts for component names, `@Bean` aliases, interfaces, `@Qualifier`,
+`@Resource`, `@Primary`, field injection, and constructor injection. Endpoint
+entries expand multiple controller/method paths and retain the exact declared
+HTTP method set.
+
+Dependency metadata is cached in the Rust process. Project-open indexing sets
+`refreshDependencyMetadata` to `true`; debounced unsaved-buffer indexing leaves
+it `false`, so editing Java or configuration files does not repeatedly traverse
+and open the local dependency repository. The repository path is selected by
+the platform composition layer and is never persisted in shared results.

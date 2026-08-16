@@ -89,6 +89,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isReferencesVisible = false
     @Published var isProblemsVisible = false
     @Published var isMavenVisible = false
+    @Published var isSpringVisible = false
     @Published var isDebugVisible = false
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
@@ -99,6 +100,8 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isLoadingLanguageNavigation = false
     @Published var editorCaret: EditorCaret?
     @Published var editorNavigationTarget: EditorNavigationTarget?
+    let navigationHistoryFeature: NavigationHistoryFeatureModel
+    var virtualDocumentProviderIDs: [URL: String] = [:]
     var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] {
         javaFeature.javaCodeVisionHints
     }
@@ -168,6 +171,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
     let documentFeature: DocumentFeatureModel
     let javaFeature: JavaFeatureModel
+    let springFeature: SpringFeatureModel
     private var activeDatabaseFeature: DatabaseFeatureModel? {
         let capability: LitheDatabaseModule.DatabaseModuleCapability? = cachedModuleCapability(.databaseWorkspace)
         return capability?.feature
@@ -214,7 +218,11 @@ final class AppModel: ObservableObject, Identifiable {
         executionCapability?.testService as? LanguageTestService
     }
     var languageDiagnostics: [URL: [LanguageServerDiagnostic]] {
-        languageToolingSessionsIfActive?.diagnostics ?? [:]
+        var combined = languageToolingSessionsIfActive?.diagnostics ?? [:]
+        for (url, diagnostics) in springFeature.languageDiagnostics {
+            combined[url, default: []].append(contentsOf: diagnostics)
+        }
+        return combined
     }
     var editorDiagnostics: [URL: [EditorDiagnostic]] {
         EditorDiagnostic.fromLanguageServerDiagnostics(languageDiagnostics)
@@ -305,6 +313,8 @@ final class AppModel: ObservableObject, Identifiable {
 
     private var documentFeatureObservation: AnyCancellable?
     private var javaFeatureObservation: AnyCancellable?
+    private var springFeatureObservation: AnyCancellable?
+    private var navigationHistoryFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
     private var recentProjectsStore: RecentProjectsStore { services.recentProjectsStore }
@@ -393,10 +403,12 @@ final class AppModel: ObservableObject, Identifiable {
             fileStorage: services.fileStorage,
             binaryFileViewerRegistry: services.binaryFileViewerRegistry
         )
+        navigationHistoryFeature = NavigationHistoryFeatureModel()
         javaFeature = JavaFeatureModel(
             operations: services.javaMavenOperations,
             workspaceOperations: services.workspaceOperations
         )
+        springFeature = SpringFeatureModel(operations: services.javaMavenOperations)
         recentProjects = services.recentProjectsStore.load()
         languageToolingFeature.configureSessions { [weak self] in
             self?.languageToolingSessionsIfActive
@@ -419,6 +431,9 @@ final class AppModel: ObservableObject, Identifiable {
             self?.scheduleObjectWillChangeRelay()
         }
         runtimeFeatureObservation = runtimeFeature.objectWillChange.sink { [weak self] _ in
+            self?.scheduleObjectWillChangeRelay()
+        }
+        navigationHistoryFeatureObservation = navigationHistoryFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
         workspaceFeature.configureProjection(
@@ -577,6 +592,9 @@ final class AppModel: ObservableObject, Identifiable {
         javaFeatureObservation = javaFeature.objectWillChange.sink { [weak self] _ in
             self?.scheduleObjectWillChangeRelay()
         }
+        springFeatureObservation = springFeature.objectWillChange.sink { [weak self] _ in
+            self?.scheduleObjectWillChangeRelay()
+        }
         fileVisibilityRulesObserverID = settings.addFileVisibilityRulesObserver { [weak self] in
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
@@ -688,6 +706,7 @@ final class AppModel: ObservableObject, Identifiable {
         mavenFeatureIfActive?.stop()
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
         javaFeature.stop()
+        springFeature.reset()
         if let workspaceURL {
             if let document = activeDocument,
                document.url.pathExtension.lowercased() == "java" {
@@ -703,6 +722,13 @@ final class AppModel: ObservableObject, Identifiable {
     /// Loads build-system and run state at the workspace boundary. The generic
     /// run lifecycle is intentionally not owned by JavaFeatureModel.
     func loadProjectServices(at workspaceURL: URL, files: [URL]) async {
+        await springFeature.load(
+            workspaceURL: workspaceURL,
+            files: files,
+            textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
+                ($0.url.standardizedFileURL, $0.text)
+            })
+        )
         guard let execution = await activateExecutionModule() else { return }
         execution.tests.discover(workspaceURL: workspaceURL, files: files)
         await execution.projectDevelopment.loadProject(at: workspaceURL, files: files)
@@ -875,17 +901,21 @@ final class AppModel: ObservableObject, Identifiable {
         genericDebugFeatureIfActive?.reset()
         clearLanguageNavigationProjection()
         javaFeature.stop()
+        springFeature.reset()
         workspaceFeature.reset()
         searchFeatureIfActive?.reset()
         isTerminalVisible = false
         isReferencesVisible = false
         isProblemsVisible = false
         isMavenVisible = false
+        isSpringVisible = false
         isRunVisible = false
         isTestsVisible = false
         isDebugVisible = false
         editorCaret = nil
         editorNavigationTarget = nil
+        navigationHistoryFeature.reset()
+        virtualDocumentProviderIDs.removeAll()
         blameVisibleURL = nil
         gitFeatureIfActive?.reset()
         documentFeature.reset()
@@ -957,6 +987,7 @@ final class AppModel: ObservableObject, Identifiable {
         isReferencesVisible = false
         isProblemsVisible = false
         isMavenVisible = false
+        isSpringVisible = false
         isRunVisible = false
         isTestsVisible = false
         isDebugVisible = false
@@ -969,8 +1000,11 @@ final class AppModel: ObservableObject, Identifiable {
         debugFeatureIfActive?.reset()
         genericDebugFeatureIfActive?.reset()
         javaFeature.stop()
+        springFeature.reset()
         editorCaret = nil
         editorNavigationTarget = nil
+        navigationHistoryFeature.reset()
+        virtualDocumentProviderIDs.removeAll()
         blameVisibleURL = nil
         gitLogSearchQuery = ""
         projectItemEditRequest = nil
@@ -1179,6 +1213,14 @@ final class AppModel: ObservableObject, Identifiable {
 
     private func handleDocumentChanged(_ document: EditorDocument) {
         activateLanguageServerIfAvailable(for: document)
+        if let workspaceURL {
+            springFeature.scheduleReload(
+                changedDocument: document,
+                workspaceURL: workspaceURL,
+                files: projectFiles,
+                openDocuments: openDocuments
+            )
+        }
         Task { @MainActor [weak self, weak document] in
             try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled, let self, let document else { return }
@@ -1339,6 +1381,7 @@ final class AppModel: ObservableObject, Identifiable {
     }
 
     func updateFindState(currentIndex: Int, count: Int) {
+        guard currentFindMatchIndex != currentIndex || findMatchCount != count else { return }
         findMatchCount = count
         currentFindMatchIndex = currentIndex
     }
@@ -1545,6 +1588,11 @@ final class AppModel: ObservableObject, Identifiable {
         await gitFeature.selectGitCommit(commit)
     }
 
+    func applyGitLogFilter(_ query: String) async {
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.applyGitLogFilter(query)
+    }
+
     func showGitCommitDiff(for file: GitCommitFile) {
         activeDocumentID = nil
         Task { [weak self] in
@@ -1576,6 +1624,12 @@ final class AppModel: ObservableObject, Identifiable {
         activeDocumentID = nil
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.showComparisonWithWorkingTree(for: reference)
+    }
+
+    func showComparison(from reference: GitReference, to target: GitReference) async {
+        activeDocumentID = nil
+        guard let gitFeature = await activateGitModule() else { return }
+        await gitFeature.showComparison(from: reference, to: target)
     }
 
     func selectBranchComparisonFile(_ file: GitBranchComparisonFile) async {

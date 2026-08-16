@@ -5,6 +5,27 @@ import LitheModuleAPI
 
 @MainActor
 extension AppModel {
+    func toggleSpringEndpoints() {
+        isSpringVisible.toggle()
+        guard isSpringVisible else { return }
+        isTestsVisible = false
+        isGitLogVisible = false
+        isTerminalVisible = false
+        isReferencesVisible = false
+        isProblemsVisible = false
+        isMavenVisible = false
+        isRunVisible = false
+        isDebugVisible = false
+    }
+
+    func openSpringEndpoint(_ endpoint: SpringEndpoint) {
+        navigateToEditorLocation(
+            url: endpoint.url,
+            line: max(0, endpoint.line - 1),
+            utf16Column: max(0, endpoint.column - 1)
+        )
+    }
+
     func toggleRun() {
         isRunVisible.toggle()
         guard isRunVisible else { return }
@@ -79,8 +100,7 @@ extension AppModel {
     func openMavenIssue(_ issue: MavenBuildIssue) {
         guard let fileURL = issue.fileURL,
               workspaceFeature.fileExists(at: fileURL) else { return }
-        openFile(fileURL)
-        editorNavigationTarget = EditorNavigationTarget(
+        navigateToEditorLocation(
             url: fileURL.standardizedFileURL,
             line: max(0, (issue.line ?? 1) - 1),
             utf16Column: max(0, (issue.column ?? 1) - 1)
@@ -90,8 +110,7 @@ extension AppModel {
     /// 打开源码文件并定位到指定行/列(供构建输出、运行堆栈等可点击文本跳转)。
     func openSourceLocation(url: URL, line: Int, column: Int?) {
         guard workspaceFeature.fileExists(at: url) else { return }
-        openFile(url)
-        editorNavigationTarget = EditorNavigationTarget(
+        navigateToEditorLocation(
             url: url.standardizedFileURL,
             line: max(0, line - 1),
             utf16Column: max(0, (column ?? 1) - 1)
@@ -112,8 +131,7 @@ extension AppModel {
 
     func openDiagnostic(_ diagnostic: EditorDiagnostic) {
         guard workspaceFeature.fileExists(at: diagnostic.fileURL) else { return }
-        openFile(diagnostic.fileURL)
-        editorNavigationTarget = EditorNavigationTarget(
+        navigateToEditorLocation(
             url: diagnostic.fileURL.standardizedFileURL,
             line: diagnostic.line,
             utf16Column: diagnostic.utf16Column
@@ -569,6 +587,20 @@ extension AppModel {
     }
 
     func goToDefinition() {
+        if let document = activeDocument, let caret = editorCaret {
+            let springLocations = springFeature.navigationLocations(
+                for: document.url,
+                line: caret.line
+            )
+            if !springLocations.isEmpty {
+                presentGenericNavigationValues(
+                    springLocations,
+                    kind: .definitions,
+                    navigateToSingleResult: true
+                )
+                return
+            }
+        }
         guard supportsLanguageServerFeature(.definition) else {
             showNotification("Definition navigation is not supported by this language server")
             return
@@ -645,14 +677,96 @@ extension AppModel {
 
     func navigate(to location: LanguageNavigationLocation) {
         isImplementationChooserVisible = false
+        navigate(
+            to: EditorNavigationLocation(
+                url: location.url,
+                line: location.line,
+                utf16Column: location.utf16Column,
+                isReadOnly: location.isReadOnly,
+                displayPath: location.displayPath,
+                virtualProviderID: location.url.isFileURL ? nil : languageNavigationProviderID
+            ),
+            recordsHistory: true
+        )
+    }
+
+    var canNavigateBack: Bool { navigationHistoryFeature.canNavigateBack }
+    var canNavigateForward: Bool { navigationHistoryFeature.canNavigateForward }
+
+    func navigateBack() {
+        let historySnapshot = navigationHistoryFeature.snapshot()
+        guard let location = navigationHistoryFeature.navigateBack(
+            from: currentEditorNavigationLocation()
+        ) else { return }
+        navigate(to: location, recordsHistory: false) { [weak self] in
+            self?.navigationHistoryFeature.restore(historySnapshot)
+        }
+    }
+
+    func navigateForward() {
+        let historySnapshot = navigationHistoryFeature.snapshot()
+        guard let location = navigationHistoryFeature.navigateForward(
+            from: currentEditorNavigationLocation()
+        ) else { return }
+        navigate(to: location, recordsHistory: false) { [weak self] in
+            self?.navigationHistoryFeature.restore(historySnapshot)
+        }
+    }
+
+    func navigateToEditorLocation(
+        url: URL,
+        line: Int,
+        utf16Column: Int,
+        isReadOnly: Bool = false,
+        displayPath: String? = nil
+    ) {
+        navigate(
+            to: EditorNavigationLocation(
+                url: url,
+                line: line,
+                utf16Column: utf16Column,
+                isReadOnly: isReadOnly,
+                displayPath: displayPath,
+                virtualProviderID: nil
+            ),
+            recordsHistory: true
+        )
+    }
+
+    private func navigate(
+        to location: EditorNavigationLocation,
+        recordsHistory: Bool,
+        onFailure: (() -> Void)? = nil
+    ) {
+        let departure = recordsHistory ? currentEditorNavigationLocation() : nil
         guard location.url.isFileURL else {
-            guard let providerID = languageNavigationProviderID else {
+            if let existing = openDocuments.first(where: { $0.url == location.url }) {
+                activeDocumentID = existing.id
+                if recordsHistory {
+                    navigationHistoryFeature.recordJump(from: departure, to: location)
+                }
+                editorNavigationTarget = EditorNavigationTarget(
+                    url: location.url,
+                    line: location.line,
+                    utf16Column: location.utf16Column
+                )
+                return
+            }
+            guard let providerID = location.virtualProviderID
+                ?? virtualDocumentProviderIDs[location.url]
+                ?? languageNavigationProviderID else {
                 showNotification("The virtual source provider is no longer available")
+                onFailure?()
+                return
+            }
+            guard let languageToolingSessions = languageToolingSessionsIfActive else {
+                showNotification("The language source provider is not running")
+                onFailure?()
                 return
             }
             isLoadingLanguageNavigation = true
             do {
-                try languageToolingSessionsIfActive?.resolveVirtualDocument(
+                try languageToolingSessions.resolveVirtualDocument(
                     providerID: providerID,
                     uri: location.url
                 ) { [weak self] result in
@@ -660,6 +774,10 @@ extension AppModel {
                     self.isLoadingLanguageNavigation = false
                     switch result {
                     case .success(let text):
+                        self.virtualDocumentProviderIDs[location.url] = providerID
+                        if recordsHistory {
+                            self.navigationHistoryFeature.recordJump(from: departure, to: location)
+                        }
                         self.documentFeature.openVirtualDocument(
                             location.url,
                             text: text,
@@ -671,14 +789,19 @@ extension AppModel {
                             utf16Column: location.utf16Column
                         )
                     case .failure(let error):
+                        onFailure?()
                         self.showNotification(error.localizedDescription)
                     }
                 }
             } catch {
                 isLoadingLanguageNavigation = false
+                onFailure?()
                 showNotification(error.localizedDescription)
             }
             return
+        }
+        if recordsHistory {
+            navigationHistoryFeature.recordJump(from: departure, to: location)
         }
         openFile(
             location.url,
@@ -689,6 +812,23 @@ extension AppModel {
             url: location.url.standardizedFileURL,
             line: location.line,
             utf16Column: location.utf16Column
+        )
+    }
+
+    private func currentEditorNavigationLocation() -> EditorNavigationLocation? {
+        guard let document = activeDocument else { return nil }
+        let documentURL = document.url.isFileURL ? document.url.standardizedFileURL : document.url
+        let caret = editorCaret.flatMap { caret -> EditorCaret? in
+            let caretURL = caret.url.isFileURL ? caret.url.standardizedFileURL : caret.url
+            return caretURL == documentURL ? caret : nil
+        }
+        return EditorNavigationLocation(
+            url: documentURL,
+            line: caret?.line ?? 0,
+            utf16Column: caret?.utf16Column ?? 0,
+            isReadOnly: document.isReadOnly,
+            displayPath: document.displayPath,
+            virtualProviderID: virtualDocumentProviderIDs[documentURL]
         )
     }
 
@@ -709,6 +849,11 @@ extension AppModel {
         utf16Column: Int,
         completion: @escaping (LanguageServerHover?) -> Void
     ) {
+        if let document = activeDocument,
+           let hover = springFeature.hover(for: document.url, line: line) {
+            completion(hover)
+            return
+        }
         guard let document = activeDocument,
               (languageToolingSessionsIfActive?.features(for: document.url).contains(.hover) == true),
               let workspaceURL else {
@@ -743,10 +888,19 @@ extension AppModel {
         utf16Column: Int,
         completion: @escaping ([LanguageServerCompletionItem]) -> Void
     ) {
-        guard let document = activeDocument,
+        guard let document = activeDocument else {
+            completion([])
+            return
+        }
+        let springCompletions = springFeature.completions(
+            document: document,
+            line: line,
+            utf16Column: utf16Column
+        )
+        guard
               (languageToolingSessionsIfActive?.features(for: document.url).contains(.completion) == true),
               let workspaceURL else {
-            completion([])
+            completion(springCompletions)
             return
         }
         do {
@@ -760,15 +914,17 @@ extension AppModel {
                 rootURL: workspaceURL
             ) { [weak self] result in
                 switch result {
-                case .success(let values): completion(values)
+                case .success(let values):
+                    var seen = Set<String>()
+                    completion((springCompletions + values).filter { seen.insert($0.label).inserted })
                 case .failure(let error):
                     self?.showNotification(error.localizedDescription)
-                    completion([])
+                    completion(springCompletions)
                 }
             }
         } catch {
             showNotification(error.localizedDescription)
-            completion([])
+            completion(springCompletions)
         }
     }
 

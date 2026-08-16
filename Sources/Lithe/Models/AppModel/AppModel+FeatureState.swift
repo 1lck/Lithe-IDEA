@@ -4,6 +4,9 @@ import LitheLocalHistoryModule
 import LitheSearchModule
 
 extension AppModel {
+    var springEndpoints: [SpringEndpoint] { springFeature.endpoints }
+    var springBeans: [SpringBean] { springFeature.beans }
+    var isIndexingSpring: Bool { springFeature.isIndexing }
     var rootNode: FileNode? { workspaceFeature.rootNode }
     var projectFiles: [URL] { workspaceFeature.projectFiles }
     var javaEnvironmentReport: JavaEnvironmentReport? {
@@ -46,6 +49,23 @@ extension AppModel {
     var isPendingProjectClose: Bool { documentFeature.isPendingProjectClose }
 
     var gitChanges: [GitChange] { gitFeatureIfActive?.gitChanges ?? [] }
+    func gitChange(for url: URL) -> GitChange? {
+        guard let root = gitRepositoryRoot,
+              let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
+        return GitTreeStatusProjection(changes: gitChanges).change(relativePath: relativePath)
+    }
+
+    func gitTreeStatus(for url: URL, isDirectory: Bool) -> GitChangeKind? {
+        guard let root = gitRepositoryRoot,
+              let relativePath = workspaceRelativePath(for: url, root: root) else { return nil }
+        return GitTreeStatusProjection(changes: gitChanges).kind(
+            relativePath: relativePath,
+            isDirectory: isDirectory
+        )
+    }
+    func gitLineChangeMarkers(for url: URL) -> [GitLineChangeMarker]? {
+        gitFeatureIfActive?.gitLineChangeMarkers[url.standardizedFileURL]
+    }
     func effectiveStagingState(for change: GitChange) -> Bool {
         gitFeatureIfActive?.effectiveStagingState(for: change) ?? change.isStaged
     }
@@ -112,6 +132,10 @@ extension AppModel {
     var gitBlameLines: [URL: [GitBlameLine]] { gitFeatureIfActive?.gitBlameLines ?? [:] }
     var gitReferences: [GitReference] { gitFeatureIfActive?.gitReferences ?? [] }
     var gitCommits: [GitCommit] { gitFeatureIfActive?.gitCommits ?? [] }
+    var gitLogMatchedCommitHashes: Set<String>? {
+        gitFeatureIfActive?.gitLogMatchedCommitHashes
+    }
+    var isFilteringGitLog: Bool { gitFeatureIfActive?.isFilteringGitLog ?? false }
     var selectedGitReference: GitReference? {
         get { gitFeatureIfActive?.selectedGitReference }
         set { gitFeatureIfActive?.selectedGitReference = newValue }

@@ -9,7 +9,7 @@ use crate::git::{
 };
 use crate::languages::{
     JavaClassNameRequest, JavaCodeVisionRequest, JavaRunConfigurationsRequest,
-    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest,
+    JavaServerPortRequest, JavaSourceDefinitionRequest, JavaStructureRequest, SpringIndexRequest,
 };
 use crate::project::{
     self, FileReadRequest, FileWriteRequest, ReplacementPreviewRequest, SearchIndexRequest,
@@ -731,6 +731,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Java structure response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::SpringIndex => {
+            match serde_json::from_value::<SpringIndexRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Spring index request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::languages::spring_index)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Spring index response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

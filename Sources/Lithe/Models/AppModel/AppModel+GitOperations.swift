@@ -2,6 +2,37 @@ import Foundation
 import LitheGitModule
 
 extension AppModel {
+    func showGitDirectoryDiff(for directoryURL: URL) async {
+        activeDocumentID = nil
+        guard let feature = await activateGitModule() else { return }
+        await feature.showDirectoryDiff(at: directoryURL)
+    }
+
+    func loadGitLineChanges(for fileURL: URL) async {
+        guard let feature = await activateGitModule() else { return }
+        await feature.loadLineChanges(for: fileURL)
+    }
+
+    func showGitLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
+        guard let feature = await activateGitModule() else { return }
+        await feature.showLineChange(marker, for: fileURL)
+    }
+
+    func stageGitLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
+        guard let feature = await activateGitModule() else { return }
+        await feature.stageLineChange(marker, for: fileURL)
+    }
+
+    func unstageGitLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
+        guard let feature = await activateGitModule() else { return }
+        await feature.unstageLineChange(marker, for: fileURL)
+    }
+
+    func requestDiscardGitLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
+        guard let feature = await activateGitModule() else { return }
+        feature.requestDiscardLineChange(marker, for: fileURL)
+    }
+
     func stashWorkingTree(message: String, includeUntracked: Bool) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.stashWorkingTree(message: message, includeUntracked: includeUntracked)

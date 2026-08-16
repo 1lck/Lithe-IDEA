@@ -120,6 +120,12 @@ enum LitheActionRegistry {
                 group: .window
             ) { model.toggleMaven() },
             LitheAction(
+                id: "spring-endpoints",
+                title: "Spring Endpoints",
+                subtitle: "Show indexed Spring MVC routes",
+                group: .navigation
+            ) { model.toggleSpringEndpoints() },
+            LitheAction(
                 id: "toggle-git-log",
                 title: "Toggle Git Log",
                 subtitle: "Show or hide Git history",
@@ -165,12 +171,12 @@ enum LitheActionRegistry {
                 keyEquivalent: "⌘F"
             ) { model.showFindBar() },
             LitheAction(
-                id: "go-to-usage",
-                title: "Go to Usage",
-                subtitle: "Navigate to a call site of the selected symbol",
+                id: "go-to-definition",
+                title: "Go to Definition",
+                subtitle: "Navigate to the declaration of the selected symbol",
                 group: .navigation,
                 keyEquivalent: "⌘B"
-            ) { model.goToUsages() },
+            ) { model.goToDefinition() },
             LitheAction(
                 id: "find-usages",
                 title: "Find Usages",

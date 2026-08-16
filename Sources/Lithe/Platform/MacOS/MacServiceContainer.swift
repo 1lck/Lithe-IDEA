@@ -47,7 +47,14 @@ final class MacServiceContainer {
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil
     ) {
         let rustCore = RustCoreBridge()
-        let javaMavenOperations = RustJavaMavenOperations(core: rustCore)
+        let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".m2/repository", isDirectory: true)
+        let gradleRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".gradle/caches/modules-2/files-2.1", isDirectory: true)
+        let javaMavenOperations = RustJavaMavenOperations(
+            core: rustCore,
+            metadataRepositoryURLs: [mavenRepositoryURL, gradleRepositoryURL]
+        )
         let fileStorage = MacFileStorage()
         let runConfigurationStore = MacRunConfigurationStore(
             core: rustCore,

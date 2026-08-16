@@ -206,6 +206,12 @@ fn without_jdt_owned_arguments(arguments: &[String]) -> Vec<String> {
 fn java_settings() -> Value {
     json!({
         "java": {
+            "eclipse": {
+                "downloadSources": true
+            },
+            "maven": {
+                "downloadSources": true
+            },
             "inlayHints": {
                 "parameterNames": {
                     "enabled": "all"
@@ -218,6 +224,12 @@ fn java_settings() -> Value {
 fn java_configuration_for_section(section: Option<&str>) -> Value {
     match section {
         Some("java") => json!({
+            "eclipse": {
+                "downloadSources": true
+            },
+            "maven": {
+                "downloadSources": true
+            },
             "inlayHints": {
                 "parameterNames": {
                     "enabled": "all"
@@ -231,6 +243,10 @@ fn java_configuration_for_section(section: Option<&str>) -> Value {
         }),
         Some("java.inlayHints.parameterNames") => json!({ "enabled": "all" }),
         Some("java.inlayHints.parameterNames.enabled") => json!("all"),
+        Some("java.eclipse") => json!({ "downloadSources": true }),
+        Some("java.eclipse.downloadSources") => json!(true),
+        Some("java.maven") => json!({ "downloadSources": true }),
+        Some("java.maven.downloadSources") => json!(true),
         _ => Value::Null,
     }
 }
@@ -467,6 +483,8 @@ mod tests {
     fn java_workspace_configuration_matches_each_section_shape() {
         let items = [
             "java",
+            "java.eclipse.downloadSources",
+            "java.maven.downloadSources",
             "java.inlayHints",
             "java.inlayHints.parameterNames",
             "java.inlayHints.parameterNames.enabled",
@@ -479,10 +497,14 @@ mod tests {
         let values = workspace_configuration("java", &items).unwrap();
 
         assert_eq!(values[0]["inlayHints"]["parameterNames"]["enabled"], "all");
-        assert_eq!(values[1]["parameterNames"]["enabled"], "all");
-        assert_eq!(values[2]["enabled"], "all");
-        assert_eq!(values[3], "all");
-        assert_eq!(values[4], Value::Null);
+        assert_eq!(values[0]["eclipse"]["downloadSources"], true);
+        assert_eq!(values[0]["maven"]["downloadSources"], true);
+        assert_eq!(values[1], true);
+        assert_eq!(values[2], true);
+        assert_eq!(values[3]["parameterNames"]["enabled"], "all");
+        assert_eq!(values[4]["enabled"], "all");
+        assert_eq!(values[5], "all");
+        assert_eq!(values[6], Value::Null);
     }
 
     #[test]
@@ -493,6 +515,14 @@ mod tests {
         assert_eq!(
             notification.params["settings"]["java"]["inlayHints"]["parameterNames"]["enabled"],
             "all"
+        );
+        assert_eq!(
+            notification.params["settings"]["java"]["eclipse"]["downloadSources"],
+            true
+        );
+        assert_eq!(
+            notification.params["settings"]["java"]["maven"]["downloadSources"],
+            true
         );
     }
 

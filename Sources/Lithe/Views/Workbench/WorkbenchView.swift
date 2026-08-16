@@ -671,6 +671,8 @@ struct WorkbenchView: View {
                 Group {
                     if model.isReferencesVisible {
                         LanguageReferencesView()
+                    } else if model.isSpringVisible {
+                        SpringEndpointsView()
                     } else {
                         moduleUIRegistry.selectedToolContent(
                             from: model.activityBarContributions,
@@ -707,7 +709,7 @@ struct WorkbenchView: View {
     }
 
     private var isBottomToolVisible: Bool {
-        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible || model.isProblemsVisible || model.isMavenVisible || model.isDebugVisible || model.isRunVisible || model.isTestsVisible
+        model.isGitLogVisible || model.isTerminalVisible || model.isReferencesVisible || model.isProblemsVisible || model.isMavenVisible || model.isSpringVisible || model.isDebugVisible || model.isRunVisible || model.isTestsVisible
     }
 
     private var statusBar: some View {
@@ -1090,7 +1092,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 }
             }
             .background(LitheTheme.titlebar)
-            .drawingGroup() // Composite the split view as a single layer during drag
         }
         .onChange(of: sidebarWidth) { newWidth in
             liveSidebarWidth = newWidth

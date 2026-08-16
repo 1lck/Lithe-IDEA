@@ -186,24 +186,168 @@ package struct GitBlameLine: Identifiable, Hashable, Sendable {
 package struct GitBranchComparisonFile: Identifiable, Hashable, Sendable {
     package let status: String
     package let path: String
-    package init(status: String, path: String) { self.status = status; self.path = path }
+    package let isUntracked: Bool
+    package init(status: String, path: String, isUntracked: Bool = false) {
+        self.status = status
+        self.path = path
+        self.isUntracked = isUntracked
+    }
 
-    package var id: String { "\(status):\(path)" }
+    package var id: String { "\(status):\(path):\(isUntracked)" }
 }
 
 package struct GitBranchComparison: Identifiable, Sendable {
     package let reference: GitReference
+    package let targetReference: GitReference?
     package let files: [GitBranchComparisonFile]
-    package init(reference: GitReference, files: [GitBranchComparisonFile]) { self.reference = reference; self.files = files }
+    package init(
+        reference: GitReference,
+        targetReference: GitReference? = nil,
+        files: [GitBranchComparisonFile]
+    ) {
+        self.reference = reference
+        self.targetReference = targetReference
+        self.files = files
+    }
 
-    package var id: String { reference.id }
+    package var id: String { "\(reference.id)..\(targetReference?.id ?? "working-tree")" }
+    package var targetTitle: String { targetReference?.shortName ?? "Working Tree" }
 }
 
 package struct GitHistorySnapshot: Sendable {
     package let references: [GitReference]
     package let commits: [GitCommit]
     package let hasMore: Bool
-    package init(references: [GitReference], commits: [GitCommit], hasMore: Bool) { self.references = references; self.commits = commits; self.hasMore = hasMore }
+    package let identity: GitIdentity?
+    package init(
+        references: [GitReference],
+        commits: [GitCommit],
+        hasMore: Bool,
+        identity: GitIdentity? = nil
+    ) {
+        self.references = references
+        self.commits = commits
+        self.hasMore = hasMore
+        self.identity = identity
+    }
+}
+
+package struct GitIdentity: Hashable, Sendable {
+    package let name: String?
+    package let email: String?
+
+    package init(name: String?, email: String?) {
+        self.name = name?.nilIfBlank
+        self.email = email?.nilIfBlank
+    }
+
+    package var isEmpty: Bool { name == nil && email == nil }
+}
+
+package struct GitLogQuery: Equatable, Sendable {
+    package let textTerms: [String]
+    package let authors: [String]
+    package let branches: [String]
+    package let paths: [String]
+    package let currentUserOnly: Bool
+
+    package var isEmpty: Bool {
+        textTerms.isEmpty && authors.isEmpty && branches.isEmpty && paths.isEmpty && !currentUserOnly
+    }
+
+    package static func parse(_ rawValue: String) -> GitLogQuery {
+        var textTerms: [String] = []
+        var authors: [String] = []
+        var branches: [String] = []
+        var paths: [String] = []
+        var currentUserOnly = false
+
+        for token in tokenize(rawValue) {
+            if token.caseInsensitiveCompare("me") == .orderedSame {
+                currentUserOnly = true
+                continue
+            }
+            let pieces = token.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pieces.count == 2, !pieces[1].isEmpty else {
+                textTerms.append(token)
+                continue
+            }
+            let value = String(pieces[1])
+            switch pieces[0].lowercased() {
+            case "author": authors.append(value)
+            case "branch": branches.append(value)
+            case "path": paths.append(value.replacingOccurrences(of: "\\", with: "/"))
+            default: textTerms.append(token)
+            }
+        }
+        return GitLogQuery(
+            textTerms: textTerms,
+            authors: authors,
+            branches: branches,
+            paths: paths,
+            currentUserOnly: currentUserOnly
+        )
+    }
+
+    package func matchesMetadata(_ commit: GitCommit, identity: GitIdentity?) -> Bool {
+        if currentUserOnly {
+            guard let identity, !identity.isEmpty else { return false }
+            let matchesName = identity.name.map {
+                commit.authorName.caseInsensitiveCompare($0) == .orderedSame
+            } ?? false
+            let matchesEmail = identity.email.map {
+                commit.authorEmail.caseInsensitiveCompare($0) == .orderedSame
+            } ?? false
+            guard matchesName || matchesEmail else { return false }
+        }
+        if !authors.isEmpty {
+            guard authors.contains(where: { author in
+                commit.authorName.localizedCaseInsensitiveContains(author)
+                    || commit.authorEmail.localizedCaseInsensitiveContains(author)
+            }) else { return false }
+        }
+        let searchable = [
+            commit.subject, commit.hash, commit.shortHash,
+            commit.authorName, commit.authorEmail, commit.decorations
+        ]
+        return textTerms.allSatisfy { term in
+            searchable.contains { $0.localizedCaseInsensitiveContains(term) }
+        }
+    }
+
+    package func matchesPaths(_ changedPaths: Set<String>) -> Bool {
+        paths.allSatisfy { filter in
+            changedPaths.contains { path in
+                path.localizedCaseInsensitiveContains(filter)
+            }
+        }
+    }
+
+    private static func tokenize(_ rawValue: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        for character in rawValue {
+            if character == "\"" || character == "'" {
+                if quote == character { quote = nil }
+                else if quote == nil { quote = character }
+                else { current.append(character) }
+            } else if character.isWhitespace, quote == nil {
+                if !current.isEmpty { tokens.append(current); current = "" }
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        return tokens
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
 }
 
 package struct GitChange: Identifiable, Hashable, Sendable {
@@ -281,6 +425,51 @@ package enum GitChangeKind: String, Sendable {
         case .copied: "doc.on.doc"
         case .conflicted: "exclamationmark.triangle"
         }
+    }
+}
+
+/// Projects repository-relative Git changes onto file and directory rows.
+/// Directory status uses the most urgent descendant state so conflicts and
+/// deletions are never hidden behind a lower-priority modification.
+package struct GitTreeStatusProjection: Sendable {
+    private let changes: [GitChange]
+
+    package init(changes: [GitChange]) {
+        self.changes = changes
+    }
+
+    package func change(relativePath: String) -> GitChange? {
+        let normalized = Self.normalized(relativePath)
+        return changes.first { Self.normalized($0.path) == normalized }
+    }
+
+    package func kind(relativePath: String, isDirectory: Bool) -> GitChangeKind? {
+        let normalized = Self.normalized(relativePath)
+        if !isDirectory {
+            return change(relativePath: normalized)?.kind
+        }
+        let prefix = normalized.isEmpty ? "" : normalized + "/"
+        return changes
+            .filter { normalized.isEmpty || Self.normalized($0.path).hasPrefix(prefix) }
+            .map(\.kind)
+            .max { priority($0) < priority($1) }
+    }
+
+    private func priority(_ kind: GitChangeKind) -> Int {
+        switch kind {
+        case .modified: 0
+        case .copied: 1
+        case .moved: 2
+        case .added: 3
+        case .deleted: 4
+        case .conflicted: 5
+        }
+    }
+
+    private static func normalized(_ path: String) -> String {
+        path
+            .replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 }
 
@@ -401,6 +590,91 @@ package struct DiffDocument: Sendable {
         self.patch = patch
         self.rows = rows
         self.hunks = hunks
+    }
+}
+
+package enum GitLineChangeKind: String, Sendable {
+    case added
+    case modified
+    case deleted
+}
+
+package struct GitLineChangeMarker: Identifiable, Hashable, Sendable {
+    package let line: Int
+    package let kind: GitLineChangeKind
+    package let hunkID: String?
+
+    package var id: String { "\(line):\(kind.rawValue):\(hunkID ?? "")" }
+}
+
+/// Converts right-side diff rows into zero-based editor gutter markers.
+/// Removed rows anchor to the following surviving line, or the final line when
+/// the deletion occurs at end of file, matching conventional IDE gutters.
+package enum GitLineChangeProjection {
+    package static func markers(from rows: [DiffRow]) -> [GitLineChangeMarker] {
+        var markersByLine: [Int: GitLineChangeMarker] = [:]
+        var lastNewLine: Int?
+
+        for (index, row) in rows.enumerated() {
+            switch row.kind {
+            case .addition:
+                if let newLine = row.newLine {
+                    insert(
+                        GitLineChangeMarker(line: max(0, newLine - 1), kind: .added, hunkID: row.hunkID),
+                        into: &markersByLine
+                    )
+                    lastNewLine = newLine
+                }
+            case .changed:
+                if let newLine = row.newLine {
+                    insert(
+                        GitLineChangeMarker(line: max(0, newLine - 1), kind: .modified, hunkID: row.hunkID),
+                        into: &markersByLine
+                    )
+                    lastNewLine = newLine
+                }
+            case .removal:
+                let nextNewLine = rows[(index + 1)...]
+                    .lazy
+                    .compactMap(\.newLine)
+                    .first
+                let anchor = max(0, (nextNewLine ?? lastNewLine ?? 1) - 1)
+                insert(
+                    GitLineChangeMarker(line: anchor, kind: .deleted, hunkID: row.hunkID),
+                    into: &markersByLine
+                )
+            case .context:
+                if let newLine = row.newLine { lastNewLine = newLine }
+            case .information:
+                break
+            }
+        }
+
+        return markersByLine.values.sorted {
+            ($0.line, priority($0.kind), $0.hunkID ?? "")
+                < ($1.line, priority($1.kind), $1.hunkID ?? "")
+        }
+    }
+
+    private static func insert(
+        _ marker: GitLineChangeMarker,
+        into markersByLine: inout [Int: GitLineChangeMarker]
+    ) {
+        guard let current = markersByLine[marker.line] else {
+            markersByLine[marker.line] = marker
+            return
+        }
+        if priority(marker.kind) > priority(current.kind) {
+            markersByLine[marker.line] = marker
+        }
+    }
+
+    private static func priority(_ kind: GitLineChangeKind) -> Int {
+        switch kind {
+        case .added: 0
+        case .deleted: 1
+        case .modified: 2
+        }
     }
 }
 

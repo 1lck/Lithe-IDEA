@@ -168,6 +168,20 @@ struct LitheApp: App {
 
             CommandMenu("Navigate") {
                 Group {
+                    Button("Back") {
+                        model.navigateBack()
+                    }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(!model.canNavigateBack)
+
+                    Button("Forward") {
+                        model.navigateForward()
+                    }
+                    .keyboardShortcut("]", modifiers: .command)
+                    .disabled(!model.canNavigateForward)
+
+                    Divider()
+
                     Button("Search Everywhere…") {
                         model.toggleSearchEverywhere()
                     }
@@ -199,11 +213,11 @@ struct LitheApp: App {
 
                 Divider()
 
-                Button("Go to Usage") {
-                    model.goToUsages()
+                Button("Go to Definition") {
+                    model.goToDefinition()
                 }
                 .keyboardShortcut("b", modifiers: .command)
-                .disabled(!model.supportsLanguageServerFeature(.references))
+                .disabled(!model.supportsLanguageServerFeature(.definition))
 
                 Button("Go to Implementation") {
                     model.goToImplementation()

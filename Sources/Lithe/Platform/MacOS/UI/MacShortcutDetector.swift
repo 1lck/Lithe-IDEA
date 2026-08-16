@@ -81,8 +81,7 @@ final class MacShortcutDetectorFactory: ShortcutDetectorFactory {
 /// Detects two Shift presses within a short interval for Search Everywhere.
 private final class MacDoubleShiftDetector: ShortcutDetector, @unchecked Sendable {
     private static let threshold: TimeInterval = 0.35
-    private var shiftWasDown = false
-    private var lastShiftPress = Date.distantPast
+    private var recognizer = DoubleShiftGestureRecognizer(threshold: threshold)
     private let onDoubleTap: @MainActor () -> Void
     private var monitor: Any?
 
@@ -92,23 +91,30 @@ private final class MacDoubleShiftDetector: ShortcutDetector, @unchecked Sendabl
 
     func start() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            let isShiftDown = event.modifierFlags
-                .intersection(.deviceIndependentFlagsMask)
-                .contains(.shift)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
             guard let self else { return event }
-            if isShiftDown && !self.shiftWasDown {
-                let now = Date()
-                if now.timeIntervalSince(self.lastShiftPress) < Self.threshold {
-                    self.lastShiftPress = .distantPast
-                    Task { @MainActor in
-                        self.onDoubleTap()
-                    }
-                } else {
-                    self.lastShiftPress = now
+            let shouldTrigger: Bool
+            switch event.type {
+            case .keyDown:
+                self.recognizer.handleKeyDown()
+                shouldTrigger = false
+            case .flagsChanged:
+                let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                shouldTrigger = self.recognizer.handleFlagsChanged(
+                    isShiftDown: modifiers.contains(.shift),
+                    hasOtherModifiers: !modifiers.intersection([
+                        .command, .control, .option, .function
+                    ]).isEmpty,
+                    timestamp: event.timestamp
+                )
+            default:
+                shouldTrigger = false
+            }
+            if shouldTrigger {
+                Task { @MainActor in
+                    self.onDoubleTap()
                 }
             }
-            self.shiftWasDown = isShiftDown
             return event
         }
     }
@@ -118,5 +124,64 @@ private final class MacDoubleShiftDetector: ShortcutDetector, @unchecked Sendabl
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
+    }
+}
+
+/// Recognizes two standalone Shift taps while rejecting Shift-modified typing.
+struct DoubleShiftGestureRecognizer {
+    let threshold: TimeInterval
+    private(set) var shiftWasDown = false
+    private var currentPressIsStandalone = false
+    private var lastStandaloneTap: TimeInterval?
+
+    init(threshold: TimeInterval) {
+        self.threshold = threshold
+    }
+
+    mutating func handleKeyDown() {
+        currentPressIsStandalone = false
+        lastStandaloneTap = nil
+    }
+
+    mutating func handleFlagsChanged(
+        isShiftDown: Bool,
+        hasOtherModifiers: Bool,
+        timestamp: TimeInterval
+    ) -> Bool {
+        if isShiftDown, !shiftWasDown {
+            currentPressIsStandalone = !hasOtherModifiers
+            shiftWasDown = true
+            return false
+        }
+
+        if isShiftDown, shiftWasDown {
+            if hasOtherModifiers {
+                currentPressIsStandalone = false
+                lastStandaloneTap = nil
+            }
+            return false
+        }
+
+        if !isShiftDown, shiftWasDown {
+            shiftWasDown = false
+            defer { currentPressIsStandalone = false }
+            guard currentPressIsStandalone, !hasOtherModifiers else {
+                lastStandaloneTap = nil
+                return false
+            }
+            if let lastStandaloneTap,
+               timestamp - lastStandaloneTap >= 0,
+               timestamp - lastStandaloneTap < threshold {
+                self.lastStandaloneTap = nil
+                return true
+            }
+            lastStandaloneTap = timestamp
+            return false
+        }
+
+        if hasOtherModifiers {
+            lastStandaloneTap = nil
+        }
+        return false
     }
 }
