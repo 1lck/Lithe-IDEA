@@ -40,6 +40,10 @@ if [[ -z "$OUTPUT_DIR" ]]; then
     OUTPUT_DIR="$BUILD_DIR/OfficialPlugins"
 fi
 SDK_PATH=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
+if ! SWIFT_COMPILER=$(command -v swiftc); then
+    print -u2 -- "Swift compiler is not available on PATH"
+    exit 1
+fi
 
 mkdir -p "$OUTPUT_DIR"
 for stale_package in "$OUTPUT_DIR"/*(/N); do
@@ -74,7 +78,7 @@ for plugin_source in "$ROOT_DIR"/Plugins/Official/*(/N); do
     cp "$manifest" "$package_dir/plugin.json"
     cp "$info_plist" "$bundle_dir/Contents/Info.plist"
 
-    /usr/bin/xcrun swiftc \
+    "$SWIFT_COMPILER" \
         -emit-library \
         -parse-as-library \
         -module-name "Lithe${module_suffix}Plugin" \
