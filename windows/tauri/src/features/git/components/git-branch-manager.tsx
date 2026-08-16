@@ -892,7 +892,6 @@ function BranchRow({
                     variant="ghost"
                     size="icon-xs"
                     disabled={isLoading}
-                    tooltip={`Actions for ${branch}`}
                     aria-label={`Branch actions for ${branch}`}
                     type="button"
                   />
