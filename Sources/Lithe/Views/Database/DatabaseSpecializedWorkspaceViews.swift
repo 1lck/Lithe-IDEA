@@ -262,8 +262,7 @@ struct RedisWorkspaceView: View {
                 .font(.system(size: 12, design: .monospaced))
                 .scrollContentBackground(.hidden)
                 .padding(7).frame(minHeight: 230)
-                .background(LitheTheme.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                .litheRoundedControlBackground(LitheTheme.inputBackground)
                 .overlay { RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius).stroke(LitheTheme.panelBorder, lineWidth: 1) }
             HStack {
                 Text("Saving preserves the existing TTL unless you set one above.")
@@ -284,8 +283,7 @@ struct RedisWorkspaceView: View {
                 .font(.system(size: 12, design: .monospaced))
                 .scrollContentBackground(.hidden)
                 .padding(7).frame(minHeight: 230)
-                .background(LitheTheme.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                .litheRoundedControlBackground(LitheTheme.inputBackground)
                 .overlay { RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius).stroke(LitheTheme.panelBorder, lineWidth: 1) }
             HStack {
                 Spacer()

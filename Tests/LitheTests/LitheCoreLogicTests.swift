@@ -42,6 +42,19 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    func workbenchKeepsAppKitBackedControlsOutOfDrawingGroups() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repositoryRoot
+            .appendingPathComponent("Sources/Lithe/Views/Workbench/WorkbenchView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(!source.contains(".drawingGroup()"))
+    }
+
+    @Test
     @MainActor
     func welcomeAndWorkspaceUseDistinctWindowSizes() {
         let sessions = TestProjectWindowSessions(hasActiveProject: false)
@@ -3049,8 +3062,9 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
-    func recoveryBatchRebuildsSnapshotReplacesRootsAndRefreshesOnlyGit() async {
-        let repository = URL(fileURLWithPath: "/tmp/lithe-recovery/repository")
+    func recoveryBatchRebuildsSnapshotReplacesRootsAndRefreshesOnlyGit() async throws {
+        let repository = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-recovery-\(UUID().uuidString)/repository")
         let gitDirectory = repository.appendingPathComponent(".git")
         let context = GitWatchContext(
             repositoryRoot: repository,
@@ -3074,14 +3088,15 @@ struct EditorDocumentTests {
         )
         defer { model.reset() }
         model.beginWorkspace(at: repository, visibilityRules: .default)
-        watcherFactory.source?.emit(
+        let source = try #require(watcherFactory.source)
+        source.emit(
             DirectoryChangeBatch(
                 gitStateMayHaveChanged: true,
                 requiresFullRescan: true,
                 watchRootsChanged: true
             )
         )
-        let recovered = await waitForWorkspaceObservation {
+        let recovered = await waitForWorkspaceObservation(timeout: .seconds(15)) {
             model.rootNode != nil && refreshCount == 1
         }
 
@@ -3095,8 +3110,9 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
-    func watchRootsRecoveryRetainsWorkspacePathsAndRefreshesSnapshotAndDocuments() async {
-        let workspace = URL(fileURLWithPath: "/tmp/lithe-watch-roots-recovery/workspace")
+    func watchRootsRecoveryRetainsWorkspacePathsAndRefreshesSnapshotAndDocuments() async throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-watch-roots-recovery-\(UUID().uuidString)/workspace")
         let changedFile = workspace.appendingPathComponent("Sources/App.swift")
         let gitDirectory = workspace.appendingPathComponent(".git")
         let context = GitWatchContext(
@@ -3120,7 +3136,8 @@ struct EditorDocumentTests {
         )
         defer { model.reset() }
         model.beginWorkspace(at: workspace, visibilityRules: .default)
-        watcherFactory.source?.emit(
+        let source = try #require(watcherFactory.source)
+        source.emit(
             DirectoryChangeBatch(
                 workspacePaths: [changedFile.path],
                 gitStateMayHaveChanged: true,
@@ -3128,7 +3145,7 @@ struct EditorDocumentTests {
             )
         )
 
-        let recovered = await waitForWorkspaceObservation {
+        let recovered = await waitForWorkspaceObservation(timeout: .seconds(15)) {
             model.rootNode != nil && processedPaths.map(\.path) == [changedFile.path]
                 && refreshCount == 1
         }

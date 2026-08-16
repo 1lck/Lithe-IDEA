@@ -31,6 +31,20 @@ pub struct CoreRequest {
 pub enum CoreCommand {
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
+    /// Starts a Discourse user API key authorization (`community.discourse.auth.begin`).
+    CommunityDiscourseAuthBegin,
+    /// Decrypts and verifies a Discourse authorization callback (`community.discourse.auth.complete`).
+    CommunityDiscourseAuthComplete,
+    /// Lists normalized latest or top Discourse topics (`community.discourse.topics`).
+    CommunityDiscourseTopics,
+    /// Reads one normalized Discourse topic (`community.discourse.topic`).
+    CommunityDiscourseTopic,
+    /// Lists normalized Discourse categories (`community.discourse.categories`).
+    CommunityDiscourseCategories,
+    /// Searches Discourse topics and posts (`community.discourse.search`).
+    CommunityDiscourseSearch,
+    /// Revokes the current Discourse user API key (`community.discourse.auth.revoke`).
+    CommunityDiscourseAuthRevoke,
     /// Builds the visible project tree (`workspace.snapshot`).
     WorkspaceSnapshot,
     /// Builds or reuses the workspace search index (`workspace.searchIndex.warm`).
@@ -167,6 +181,13 @@ impl CoreCommand {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "core.ping" => Some(Self::Ping),
+            "community.discourse.auth.begin" => Some(Self::CommunityDiscourseAuthBegin),
+            "community.discourse.auth.complete" => Some(Self::CommunityDiscourseAuthComplete),
+            "community.discourse.topics" => Some(Self::CommunityDiscourseTopics),
+            "community.discourse.topic" => Some(Self::CommunityDiscourseTopic),
+            "community.discourse.categories" => Some(Self::CommunityDiscourseCategories),
+            "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
+            "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
             "workspace.searchIndex.update" => Some(Self::WorkspaceSearchIndexUpdate),
@@ -251,6 +272,21 @@ mod tests {
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.destroyServer",
+        ] {
+            assert!(CoreCommand::parse(command).is_some(), "missing {command}");
+        }
+    }
+
+    #[test]
+    fn parses_discourse_authorization_commands() {
+        for command in [
+            "community.discourse.auth.begin",
+            "community.discourse.auth.complete",
+            "community.discourse.auth.revoke",
+            "community.discourse.categories",
+            "community.discourse.search",
+            "community.discourse.topic",
+            "community.discourse.topics",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }
