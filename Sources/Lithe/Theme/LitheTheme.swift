@@ -553,11 +553,29 @@ extension View {
         modifier(LitheSearchFieldStyle(isFocused: isFocused, height: height))
     }
 
+    /// Paints rounded control chrome without clipping AppKit-backed content.
+    ///
+    /// SwiftUI represents controls such as `TextEditor`, `TextField`, and the
+    /// macOS checkbox with native AppKit views. Applying a mask or clip to one
+    /// of their ancestors can replace those views with the yellow unavailable
+    /// placeholder. Keep rounding in the background and border layers instead.
+    func litheRoundedControlBackground(
+        _ color: Color,
+        cornerRadius: CGFloat = LitheTheme.Metrics.controlCornerRadius
+    ) -> some View {
+        background {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(color)
+        }
+    }
+
     /// 浮层统一外观：圆角、背景、1pt 边框和投影。
     func lithePopupChrome(cornerRadius: CGFloat = LitheTheme.Metrics.popupCornerRadius) -> some View {
         self
-            .background(LitheTheme.popupBackground)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .litheRoundedControlBackground(
+                LitheTheme.popupBackground,
+                cornerRadius: cornerRadius
+            )
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .stroke(LitheTheme.panelBorder, lineWidth: 1)

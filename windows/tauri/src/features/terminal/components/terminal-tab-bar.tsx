@@ -1,0 +1,1023 @@
+import { type DragEndEvent, type DragMoveEvent, type DragStartEvent } from "@dnd-kit/core";
+import { restrictToHorizontalAxis, restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
+import {
+  TextAlignCenterIcon as AlignCenter,
+  ArrowDownIcon as ArrowDown,
+  ArrowUpIcon as ArrowUp,
+  CaretDownIcon as ChevronDown,
+  ArrowsOutIcon as Maximize,
+  ArrowsOutIcon as Maximize2,
+  ArrowsInIcon as Minimize2,
+  PlusIcon as Plus,
+  MagnifyingGlassIcon as Search,
+  TerminalWindowIcon as TerminalIcon,
+  SidebarSimpleIcon as PanelLeft,
+  SidebarSimpleIcon as PanelRight,
+  RowsIcon as Rows3,
+} from "@/ui/icons";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useTerminalProfilesStore } from "@/features/terminal/stores/profiles.store";
+import { useTerminalShellsStore } from "@/features/terminal/stores/shells.store";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
+import { getChromeNavigationIndex } from "@/features/layout/utils/chrome-keyboard";
+import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
+import { getOrCreatePaneDropTarget } from "@/features/panes/utils/pane-drop-actions";
+import {
+  type TerminalTabLayout,
+  type TerminalTabSidebarPosition,
+  type TerminalWidthMode,
+  useTerminalStore,
+} from "@/features/terminal/stores/terminal.store";
+import type { Terminal } from "@/features/terminal/types/terminal.types";
+import { getAllTerminalProfiles } from "@/features/terminal/utils/terminal-profiles";
+import { normalizeTerminalTitle } from "@/features/terminal/utils/terminal-title";
+import { Dropdown, MenuItemsList, type MenuItem } from "@/ui/dropdown";
+import { Button } from "@/ui/button";
+import { SortableTab, TabBarSurface, TabDndContext, useTabDragClickGuard } from "@/ui/tab-bar";
+import { cn } from "@/utils/cn";
+import {
+  clearInternalTabDragData,
+  resolveDropTarget,
+  setInternalTabDragHover,
+  setInternalTabDragData,
+} from "@/features/tabs/utils/internal-tab-drag";
+import { useUIState } from "@/features/window/stores/ui-state.store";
+import Tooltip from "../../../ui/tooltip";
+import TerminalTabBarItem from "./terminal-tab-bar-item";
+import TerminalTabContextMenu from "./terminal-tab-context-menu";
+
+interface ToolbarContextMenuProps {
+  isOpen: boolean;
+  position: { x: number; y: number };
+  onClose: () => void;
+  currentMode: TerminalWidthMode;
+  currentLayout: TerminalTabLayout;
+  currentSidebarPosition: TerminalTabSidebarPosition;
+  onModeChange: (mode: TerminalWidthMode) => void;
+  onLayoutChange: (layout: TerminalTabLayout) => void;
+  onSidebarPositionChange: (position: TerminalTabSidebarPosition) => void;
+  onNewTerminal?: () => void;
+  onSearchTerminal?: () => void;
+  onNextTerminal?: () => void;
+  onPrevTerminal?: () => void;
+  onFullScreen?: () => void;
+  isFullScreen?: boolean;
+}
+
+const ToolbarContextMenu = ({
+  isOpen,
+  position,
+  onClose,
+  currentMode,
+  currentLayout,
+  currentSidebarPosition,
+  onModeChange,
+  onLayoutChange,
+  onSidebarPositionChange,
+  onNewTerminal,
+  onSearchTerminal,
+  onNextTerminal,
+  onPrevTerminal,
+  onFullScreen,
+  isFullScreen,
+}: ToolbarContextMenuProps) => {
+  const modes: {
+    value: TerminalWidthMode;
+    label: string;
+    icon: React.ReactNode;
+  }[] = [
+    { value: "full", label: "Full Width", icon: <Maximize /> },
+    { value: "editor", label: "Editor Width", icon: <AlignCenter /> },
+  ];
+  const layouts: {
+    value: TerminalTabLayout;
+    label: string;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      value: "horizontal",
+      label: "Horizontal Tabs",
+      icon: <Rows3 />,
+    },
+    {
+      value: "vertical",
+      label: "Vertical Tabs",
+      icon: <PanelLeft />,
+    },
+  ];
+  const modeItems: MenuItem[] = modes.map((mode) => ({
+    id: `mode-${mode.value}`,
+    label: mode.label,
+    icon: mode.icon,
+    onClick: () => onModeChange(mode.value),
+    className: currentMode === mode.value ? "bg-selected" : undefined,
+  }));
+  const layoutItems: MenuItem[] = layouts.map((layout) => ({
+    id: `layout-${layout.value}`,
+    label: layout.label,
+    icon: layout.icon,
+    onClick: () => onLayoutChange(layout.value),
+    className: currentLayout === layout.value ? "bg-selected" : undefined,
+  }));
+  const sidebarPositions: {
+    value: TerminalTabSidebarPosition;
+    label: string;
+    icon: React.ReactNode;
+  }[] = [
+    { value: "left", label: "Tabs on Left", icon: <PanelLeft /> },
+    { value: "right", label: "Tabs on Right", icon: <PanelRight /> },
+  ];
+  const sidebarPositionItems: MenuItem[] = sidebarPositions.map((pos) => ({
+    id: `sidebar-pos-${pos.value}`,
+    label: pos.label,
+    icon: pos.icon,
+    onClick: () => onSidebarPositionChange(pos.value),
+    className: currentSidebarPosition === pos.value ? "bg-selected" : undefined,
+  }));
+  const actionItems: MenuItem[] = [
+    ...(onNewTerminal
+      ? [
+          {
+            id: "new-terminal",
+            label: "New Terminal",
+            icon: <Plus />,
+            onClick: onNewTerminal,
+          },
+        ]
+      : []),
+    ...(onSearchTerminal
+      ? [
+          {
+            id: "search-terminal",
+            label: "Search",
+            icon: <Search />,
+            onClick: onSearchTerminal,
+          },
+        ]
+      : []),
+    ...(onNextTerminal
+      ? [
+          {
+            id: "next-terminal",
+            label: "Next Tab",
+            icon: <ArrowDown />,
+            onClick: onNextTerminal,
+          },
+        ]
+      : []),
+    ...(onPrevTerminal
+      ? [
+          {
+            id: "previous-terminal",
+            label: "Previous Tab",
+            icon: <ArrowUp />,
+            onClick: onPrevTerminal,
+          },
+        ]
+      : []),
+    ...(onFullScreen
+      ? [
+          {
+            id: "toggle-fullscreen",
+            label: isFullScreen ? "Exit Full Screen" : "Full Screen",
+            icon: isFullScreen ? <Minimize2 /> : <Maximize2 />,
+            onClick: onFullScreen,
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <Dropdown isOpen={isOpen} point={position} onClose={onClose} className="min-w-45">
+      <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">Terminal Width</div>
+      <MenuItemsList items={modeItems} onItemSelect={onClose} />
+      <div className="my-0.5 border-border/70 border-t" />
+      <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">Tab Layout</div>
+      <MenuItemsList items={layoutItems} onItemSelect={onClose} />
+      {currentLayout === "vertical" && (
+        <>
+          <div className="my-0.5 border-border/70 border-t" />
+          <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">
+            Tab Position
+          </div>
+          <MenuItemsList items={sidebarPositionItems} onItemSelect={onClose} />
+        </>
+      )}
+      {actionItems.length > 0 && (
+        <>
+          <div className="my-0.5 border-border/70 border-t" />
+          <MenuItemsList items={actionItems} onItemSelect={onClose} />
+        </>
+      )}
+    </Dropdown>
+  );
+};
+
+interface TerminalTabBarProps {
+  terminals: Terminal[];
+  activeTerminalId: string | null;
+  onTabClick: (terminalId: string) => void;
+  onTabClose: (terminalId: string, event?: React.MouseEvent) => void;
+  onTabReorder?: (fromIndex: number, toIndex: number) => void;
+  onTabPin?: (terminalId: string) => void;
+  onTabRename?: (terminalId: string, name: string) => void;
+  onNewTerminal?: () => void;
+  onNewTerminalWithProfile?: (profileId?: string) => void;
+  onTabCreate?: (directory: string, shell?: string, profileId?: string) => void;
+  onCloseOtherTabs?: (terminalId: string) => void;
+  onCloseAllTabs?: () => void;
+  onCloseTabsToRight?: (terminalId: string) => void;
+  onSearchTerminal?: () => void;
+  onNextTerminal?: () => void;
+  onPrevTerminal?: () => void;
+  onFullScreen?: () => void;
+  isFullScreen?: boolean;
+  orientation?: TerminalTabLayout;
+}
+
+const TerminalTabBar = ({
+  terminals,
+  activeTerminalId,
+  onTabClick,
+  onTabClose,
+  onTabReorder,
+  onTabPin,
+  onTabRename,
+  onNewTerminal,
+  onNewTerminalWithProfile,
+  onTabCreate,
+  onCloseOtherTabs,
+  onCloseAllTabs,
+  onCloseTabsToRight,
+  onSearchTerminal,
+  onNextTerminal,
+  onPrevTerminal,
+  onFullScreen,
+  isFullScreen = false,
+  orientation = "horizontal",
+}: TerminalTabBarProps) => {
+  const [editingTerminalId, setEditingTerminalId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [draggedTerminalId, setDraggedTerminalId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+    terminal: Terminal | null;
+  }>({ isOpen: false, position: { x: 0, y: 0 }, terminal: null });
+
+  const [toolbarContextMenu, setToolbarContextMenu] = useState<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+  }>({ isOpen: false, position: { x: 0, y: 0 } });
+
+  const widthMode = useTerminalStore((state) => state.widthMode);
+  const setWidthMode = useTerminalStore((state) => state.actions.setWidthMode);
+  const tabLayout = useTerminalStore((state) => state.tabLayout);
+  const setTabLayout = useTerminalStore((state) => state.actions.setTabLayout);
+  const tabSidebarWidth = useTerminalStore((state) => state.tabSidebarWidth);
+  const setTabSidebarWidth = useTerminalStore((state) => state.actions.setTabSidebarWidth);
+  const tabSidebarPosition = useTerminalStore((state) => state.tabSidebarPosition);
+  const setTabSidebarPosition = useTerminalStore((state) => state.actions.setTabSidebarPosition);
+  const sessions = useTerminalStore((state) => state.sessions);
+  const customProfiles = useTerminalProfilesStore.use.profiles();
+  const availableShells = useTerminalShellsStore.use.shells();
+  const { openTerminalBuffer } = useBufferStore.use.actions();
+
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const profileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const dragPointRef = useRef<{ x: number; y: number } | null>(null);
+  const pointerPointRef = useRef<{ x: number; y: number } | null>(null);
+  const { getClickCapture, releaseClickSuppression, suppressNextClick } = useTabDragClickGuard();
+  const [profileMenu, setProfileMenu] = useState<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+  }>({ isOpen: false, position: { x: 0, y: 0 } });
+
+  useEffect(() => {
+    void useTerminalShellsStore.getState().actions.loadShells();
+  }, []);
+
+  const handleContextMenu = (e: React.MouseEvent, terminal: Terminal) => {
+    e.preventDefault();
+    setContextMenu({
+      isOpen: true,
+      position: { x: e.clientX, y: e.clientY },
+      terminal,
+    });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, terminalId: string) => {
+    const currentIndex = sortedTerminals.findIndex((terminal) => terminal.id === terminalId);
+    const currentTerminal = sortedTerminals[currentIndex];
+    if (!currentTerminal || currentIndex < 0) return;
+
+    if (e.key === "F2") {
+      e.preventDefault();
+      e.stopPropagation();
+      startRename(terminalId);
+      return;
+    }
+
+    if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      setContextMenu({
+        isOpen: true,
+        position: { x: rect.left + 8, y: rect.bottom + 4 },
+        terminal: currentTerminal,
+      });
+      return;
+    }
+
+    const nextIndex = getChromeNavigationIndex(
+      e.key,
+      currentIndex,
+      sortedTerminals.length,
+      orientation,
+    );
+    if (nextIndex !== null) {
+      const nextTerminal = sortedTerminals[nextIndex];
+      if (!nextTerminal || nextIndex === currentIndex) return;
+
+      e.preventDefault();
+      onTabClick(nextTerminal.id);
+      tabRefs.current[nextIndex]?.focus();
+      return;
+    }
+
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onTabClick(terminalId);
+      return;
+    }
+
+    if ((e.key === "Delete" || e.key === "Backspace") && !currentTerminal.isPinned) {
+      e.preventDefault();
+      onTabClose(terminalId);
+    }
+  };
+
+  const handleTabCloseWrapper = (terminalId: string) => {
+    onTabClose(terminalId);
+  };
+
+  const handleTabPin = (terminalId: string) => {
+    onTabPin?.(terminalId);
+  };
+
+  const startRename = (terminalId: string) => {
+    const terminal = sortedTerminals.find((item) => item.id === terminalId);
+    if (!terminal) return;
+
+    closeContextMenu();
+    requestAnimationFrame(() => {
+      onTabClick(terminalId);
+      setEditingTerminalId(terminalId);
+      setEditingName(getTerminalDisplayName(terminal));
+    });
+  };
+
+  const cancelRename = () => {
+    setEditingTerminalId(null);
+    setEditingName("");
+  };
+
+  const commitRename = (nextName: string) => {
+    if (!editingTerminalId) return;
+
+    const trimmedName = nextName.trim();
+    if (!trimmedName) {
+      cancelRename();
+      return;
+    }
+
+    onTabRename?.(editingTerminalId, trimmedName);
+    cancelRename();
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu({ isOpen: false, position: { x: 0, y: 0 }, terminal: null });
+  };
+
+  const handleToolbarContextMenu = (e: React.MouseEvent) => {
+    // Only open on empty space, not on tabs or buttons
+    if ((e.target as HTMLElement).closest('[role="tab"]')) {
+      return;
+    }
+    e.preventDefault();
+    setToolbarContextMenu({
+      isOpen: true,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  };
+
+  const closeToolbarContextMenu = () => {
+    setToolbarContextMenu({ isOpen: false, position: { x: 0, y: 0 } });
+  };
+
+  const closeProfileMenu = () => {
+    setProfileMenu({ isOpen: false, position: { x: 0, y: 0 } });
+  };
+
+  const openProfileMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    setProfileMenu({
+      isOpen: true,
+      position: { x: rect.right - 220, y: rect.bottom + 8 },
+    });
+  };
+
+  // Sort terminals: pinned tabs first, then regular tabs
+  const sortedTerminals = [...terminals].sort((a, b) => {
+    if (a.isPinned && !b.isPinned) return -1;
+    if (!a.isPinned && b.isPinned) return 1;
+    return 0;
+  });
+  const sortedTerminalIds = sortedTerminals.map((terminal) => terminal.id);
+  const terminalProfiles = getAllTerminalProfiles(availableShells, customProfiles);
+  const terminalToolbarActions = (
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-1",
+        orientation === "vertical" ? "px-1.5 py-1" : "h-8 pl-1",
+      )}
+    >
+      {onSearchTerminal && (
+        <Button
+          onClick={onSearchTerminal}
+          variant="ghost"
+          size="icon-xs"
+          tooltip="Find in Terminal"
+          commandId="terminal.find"
+          tooltipSide="bottom"
+          aria-label="Find in terminal"
+        >
+          <Search />
+        </Button>
+      )}
+      <div className="flex shrink-0 items-center gap-0.5">
+        <Button
+          onClick={onNewTerminal}
+          variant="ghost"
+          size="icon-xs"
+          tooltip="New Terminal"
+          commandId="terminal.new"
+          tooltipSide="bottom"
+          aria-label="New terminal"
+        >
+          <Plus />
+        </Button>
+        {onNewTerminalWithProfile && terminalProfiles.length > 1 && (
+          <Tooltip content="Choose Terminal Profile" side="bottom">
+            <Button
+              ref={profileMenuButtonRef}
+              onClick={openProfileMenu}
+              variant="ghost"
+              size="icon-xs"
+            >
+              <ChevronDown />
+            </Button>
+          </Tooltip>
+        )}
+      </div>
+      {onFullScreen && (
+        <Tooltip content={isFullScreen ? "Exit Full Screen" : "Full Screen Terminal"} side="bottom">
+          <Button onClick={onFullScreen} variant="ghost" size="icon-xs">
+            {isFullScreen ? <Minimize2 /> : <Maximize2 />}
+          </Button>
+        </Tooltip>
+      )}
+    </div>
+  );
+  const sortableStrategy =
+    orientation === "vertical" ? verticalListSortingStrategy : horizontalListSortingStrategy;
+  const pinnedTerminals = sortedTerminals.filter((terminal) => terminal.isPinned);
+  const regularTerminals = sortedTerminals.filter((terminal) => !terminal.isPinned);
+  const getDirectoryLabel = (directory?: string) => {
+    if (!directory) return "";
+    const normalized = directory.replace(/[\\/]+$/, "");
+    return normalized.split(/[\\/]/).pop() || directory;
+  };
+  const getCommandLabel = (command?: string) => {
+    if (!command) return "";
+    const firstSegment = command.trim().split(/\s+/)[0];
+    return firstSegment?.split(/[\\/]/).pop() || "";
+  };
+  const isUsefulTerminalTitle = (title?: string) => {
+    if (!title) return false;
+    if (title === "Default Terminal") return false;
+    if (title.length > 28) return false;
+    if (title.includes("@")) return false;
+    if (title.includes("/") || title.includes("\\")) return false;
+    return true;
+  };
+  const getTerminalDisplayName = (terminal: Terminal) => {
+    if (terminal.customName && terminal.name.trim()) return terminal.name;
+
+    const session = sessions.get(terminal.id);
+    const title = normalizeTerminalTitle(session?.title ?? "");
+    if (title && isUsefulTerminalTitle(title)) return title;
+    const commandLabel = getCommandLabel(terminal.initialCommand);
+    if (commandLabel) return commandLabel;
+    const dirLabel = getDirectoryLabel(session?.currentDirectory || terminal.currentDirectory);
+    if (dirLabel) return dirLabel;
+    return terminal.name;
+  };
+  const profileMenuItems: MenuItem[] = terminalProfiles.map((profile) => ({
+    id: profile.id,
+    label: profile.name,
+    icon: <TerminalIcon className="text-subtle-foreground" />,
+    onClick: () => {
+      onNewTerminalWithProfile?.(profile.id);
+      closeProfileMenu();
+    },
+  }));
+
+  const getClientPoint = (event: Event) => {
+    const candidate = event as Partial<MouseEvent>;
+    if (typeof candidate.clientX === "number" && typeof candidate.clientY === "number") {
+      return { x: candidate.clientX, y: candidate.clientY };
+    }
+    return null;
+  };
+
+  const getDragPoint = (event: DragMoveEvent | DragEndEvent) => {
+    if (pointerPointRef.current) return pointerPointRef.current;
+
+    const rect = event.active.rect.current.translated ?? event.active.rect.current.initial;
+    if (!rect) return dragPointRef.current;
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+  };
+
+  const isPointOutsideTabBar = (point: { x: number; y: number }) => {
+    const rect = tabBarRef.current?.getBoundingClientRect();
+    if (!rect) return false;
+
+    const horizontalSlop = orientation === "vertical" ? 24 : 24;
+    const verticalSlop = orientation === "vertical" ? 24 : 64;
+    return (
+      point.x < rect.left - horizontalSlop ||
+      point.x > rect.right + horizontalSlop ||
+      point.y < rect.top - verticalSlop ||
+      point.y > rect.bottom + verticalSlop
+    );
+  };
+
+  const resetDrag = () => {
+    setDraggedTerminalId(null);
+    dragPointRef.current = null;
+    pointerPointRef.current = null;
+    clearInternalTabDragData();
+    releaseClickSuppression();
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const terminal = sortedTerminals.find((item) => item.id === String(event.active.id));
+    if (!terminal) return;
+
+    setDraggedTerminalId(terminal.id);
+    pointerPointRef.current = getClientPoint(event.activatorEvent);
+    setInternalTabDragData({
+      source: "terminal-panel",
+      terminalId: terminal.id,
+      name: terminal.name,
+      shell: terminal.shell,
+      initialCommand: terminal.initialCommand,
+      currentDirectory: terminal.currentDirectory,
+      remoteConnectionId: terminal.remoteConnectionId,
+    });
+    suppressNextClick(terminal.id);
+  };
+
+  const handleDragMove = (event: DragMoveEvent) => {
+    const point = getDragPoint(event);
+    if (!point) return;
+
+    dragPointRef.current = point;
+    if (isPointOutsideTabBar(point)) {
+      setInternalTabDragHover(point);
+    }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const activeId = String(event.active.id);
+    const terminal = sortedTerminals.find((item) => item.id === activeId);
+    const point = getDragPoint(event);
+    const target = point ? resolveDropTarget(point) : { paneId: null, zone: null };
+    const isOutsideTabBar = point ? isPointOutsideTabBar(point) : false;
+
+    if (terminal && isOutsideTabBar && target.paneId) {
+      const destinationPaneId = getOrCreatePaneDropTarget({
+        paneId: target.paneId,
+        zone: target.zone,
+      });
+      if (!destinationPaneId) {
+        resetDrag();
+        return;
+      }
+
+      const bufferId = openTerminalBuffer({
+        sessionId: terminal.id,
+        name: terminal.name,
+        shell: terminal.shell,
+        command: terminal.initialCommand,
+        workingDirectory: terminal.currentDirectory,
+        remoteConnectionId: terminal.remoteConnectionId,
+      });
+      activateBufferInPaneAndSync(destinationPaneId, bufferId);
+      window.dispatchEvent(
+        new CustomEvent("terminal-detach-to-buffer", {
+          detail: { terminalId: terminal.id },
+        }),
+      );
+      if (destinationPaneId === BOTTOM_PANE_ID) {
+        useUIState.getState().setBottomPaneActiveTab("buffers");
+        useUIState.getState().setIsBottomPaneVisible(true);
+      }
+    } else if (event.over && onTabReorder) {
+      const oldIndex = sortedTerminals.findIndex((item) => item.id === activeId);
+      const newIndex = sortedTerminals.findIndex((item) => item.id === String(event.over?.id));
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+        onTabReorder(oldIndex, newIndex);
+      }
+    }
+
+    resetDrag();
+  };
+
+  useEffect(() => {
+    return () => {
+      document.body.style.userSelect = "";
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!draggedTerminalId) return;
+
+    const updatePointerPoint = (event: PointerEvent) => {
+      pointerPointRef.current = { x: event.clientX, y: event.clientY };
+    };
+
+    window.addEventListener("pointermove", updatePointerPoint, true);
+    return () => window.removeEventListener("pointermove", updatePointerPoint, true);
+  }, [draggedTerminalId]);
+
+  useEffect(() => {
+    if (
+      editingTerminalId &&
+      !sortedTerminals.some((terminal) => terminal.id === editingTerminalId)
+    ) {
+      cancelRename();
+    }
+  }, [editingTerminalId, sortedTerminals]);
+
+  if (terminals.length === 0) {
+    return (
+      <div
+        className={cn(
+          "flex min-h-8 items-center justify-between",
+          "border-border border-b bg-surface px-2 py-1.5",
+        )}
+      >
+        <div className="flex items-center gap-1.5">
+          <TerminalIcon className="text-subtle-foreground" />
+          <span className="font-sans ui-text-sm text-subtle-foreground">No terminals</span>
+        </div>
+        {onNewTerminal && (
+          <div className="flex items-center gap-0.5">
+            <Button
+              onClick={onNewTerminal}
+              variant="ghost"
+              className="rounded-(--lithe-chrome-radius) text-subtle-foreground"
+              size="icon-xs"
+              commandId="terminal.new"
+              tooltip="New Terminal"
+              tooltipSide="bottom"
+              aria-label="New Terminal"
+            >
+              <Plus />
+            </Button>
+            {onNewTerminalWithProfile && terminalProfiles.length > 1 && (
+              <Tooltip content="Choose Terminal Profile" side="bottom">
+                <Button
+                  ref={profileMenuButtonRef}
+                  onClick={openProfileMenu}
+                  variant="ghost"
+                  className="rounded-lg text-subtle-foreground"
+                  size="icon-xs"
+                >
+                  <ChevronDown />
+                </Button>
+              </Tooltip>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <TabDndContext
+        modifiers={[orientation === "vertical" ? restrictToVerticalAxis : restrictToHorizontalAxis]}
+        onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
+        onDragEnd={handleDragEnd}
+        onDragCancel={resetDrag}
+      >
+        <TabBarSurface
+          ref={tabBarRef}
+          orientation={orientation}
+          className={cn(
+            orientation === "vertical" ? "" : "justify-between",
+            "scrollbar-hidden overscroll-x-contain",
+          )}
+          style={orientation === "vertical" ? { width: tabSidebarWidth } : undefined}
+          role="tablist"
+          aria-label="Terminal tabs"
+          onContextMenu={handleToolbarContextMenu}
+        >
+          {orientation === "vertical" && terminalToolbarActions}
+
+          {/* Tab list */}
+          <SortableContext items={sortedTerminalIds} strategy={sortableStrategy}>
+            <div
+              className={cn(
+                "min-w-0 flex-1 overflow-hidden",
+                orientation === "vertical"
+                  ? "flex flex-col gap-0.5 px-1.5 py-1"
+                  : "flex items-center gap-0.5",
+              )}
+            >
+              {pinnedTerminals.length > 0 && (
+                <div
+                  className={cn(
+                    "shrink-0",
+                    orientation === "vertical"
+                      ? "flex flex-col gap-0.5 pb-0.5"
+                      : "flex items-center gap-0.5 pr-0.5",
+                  )}
+                >
+                  {pinnedTerminals.map((terminal) => {
+                    const index = sortedTerminals.findIndex((item) => item.id === terminal.id);
+
+                    return (
+                      <SortableTab
+                        key={terminal.id}
+                        id={terminal.id}
+                        orientation={orientation}
+                        tabRef={(el) => {
+                          tabRefs.current[index] = el;
+                        }}
+                        disabled={editingTerminalId === terminal.id}
+                        onClickCapture={getClickCapture(terminal.id)}
+                      >
+                        {({ isDragging }) => (
+                          <TerminalTabBarItem
+                            terminal={terminal}
+                            displayName={getTerminalDisplayName(terminal)}
+                            orientation={orientation}
+                            isActive={terminal.id === activeTerminalId}
+                            isDraggedTab={isDragging}
+                            showDropIndicatorBefore={false}
+                            tabRef={() => {}}
+                            onClick={() => onTabClick(terminal.id)}
+                            onContextMenu={(e) => handleContextMenu(e, terminal)}
+                            onKeyDown={(event) => handleKeyDown(event, terminal.id)}
+                            handleTabClose={handleTabCloseWrapper}
+                            handleTabPin={handleTabPin}
+                            isEditing={editingTerminalId === terminal.id}
+                            editingName={editingName}
+                            onEditingNameChange={setEditingName}
+                            onRenameSubmit={commitRename}
+                            onRenameCancel={cancelRename}
+                          />
+                        )}
+                      </SortableTab>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div
+                className={cn(
+                  "scrollbar-hidden min-w-0 flex-1",
+                  orientation === "vertical"
+                    ? "flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden"
+                    : "flex items-center gap-0.5 overflow-x-auto overflow-y-hidden",
+                )}
+                data-tab-container
+                onWheel={(e) => {
+                  const container = e.currentTarget;
+                  if (!container) return;
+
+                  if (orientation === "vertical") {
+                    container.scrollTop += e.deltaY !== 0 ? e.deltaY : e.deltaX;
+                  } else {
+                    const deltaX = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+                    container.scrollLeft += deltaX;
+                  }
+                  e.preventDefault();
+                }}
+              >
+                {regularTerminals.map((terminal) => {
+                  const index = sortedTerminals.findIndex((item) => item.id === terminal.id);
+
+                  return (
+                    <SortableTab
+                      key={terminal.id}
+                      id={terminal.id}
+                      orientation={orientation}
+                      tabRef={(el) => {
+                        tabRefs.current[index] = el;
+                      }}
+                      disabled={editingTerminalId === terminal.id}
+                      onClickCapture={getClickCapture(terminal.id)}
+                    >
+                      {({ isDragging }) => (
+                        <TerminalTabBarItem
+                          terminal={terminal}
+                          displayName={getTerminalDisplayName(terminal)}
+                          orientation={orientation}
+                          isActive={terminal.id === activeTerminalId}
+                          isDraggedTab={isDragging}
+                          showDropIndicatorBefore={false}
+                          tabRef={() => {}}
+                          onClick={() => onTabClick(terminal.id)}
+                          onContextMenu={(e) => handleContextMenu(e, terminal)}
+                          onKeyDown={(event) => handleKeyDown(event, terminal.id)}
+                          handleTabClose={handleTabCloseWrapper}
+                          handleTabPin={handleTabPin}
+                          isEditing={editingTerminalId === terminal.id}
+                          editingName={editingName}
+                          onEditingNameChange={setEditingName}
+                          onRenameSubmit={commitRename}
+                          onRenameCancel={cancelRename}
+                        />
+                      )}
+                    </SortableTab>
+                  );
+                })}
+              </div>
+            </div>
+          </SortableContext>
+
+          {/* Horizontal mode - Action buttons on the right */}
+          {orientation === "horizontal" && terminalToolbarActions}
+
+          {/* Resize handle for vertical sidebar */}
+          {orientation === "vertical" && (
+            <div
+              className={cn(
+                "absolute top-0 z-10 h-full w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60",
+                tabSidebarPosition === "right" ? "left-0" : "right-0",
+              )}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startX = e.clientX;
+                const startWidth = tabSidebarWidth;
+                const directionMultiplier = tabSidebarPosition === "right" ? -1 : 1;
+
+                const onMouseMove = (ev: MouseEvent) => {
+                  setTabSidebarWidth(startWidth + (ev.clientX - startX) * directionMultiplier);
+                };
+                const onMouseUp = () => {
+                  document.removeEventListener("mousemove", onMouseMove);
+                  document.removeEventListener("mouseup", onMouseUp);
+                  document.body.style.cursor = "";
+                  document.body.style.userSelect = "";
+                };
+
+                document.body.style.cursor = "col-resize";
+                document.body.style.userSelect = "none";
+                document.addEventListener("mousemove", onMouseMove);
+                document.addEventListener("mouseup", onMouseUp);
+              }}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize terminal sidebar"
+            />
+          )}
+        </TabBarSurface>
+      </TabDndContext>
+
+      {createPortal(
+        <>
+          <TerminalTabContextMenu
+            isOpen={contextMenu.isOpen}
+            position={contextMenu.position}
+            terminal={contextMenu.terminal}
+            onClose={closeContextMenu}
+            onPin={(terminalId) => {
+              onTabPin?.(terminalId);
+            }}
+            onCloseTab={(terminalId) => {
+              onTabClose(terminalId, {} as React.MouseEvent);
+            }}
+            onCloseOthers={onCloseOtherTabs || (() => {})}
+            onCloseAll={onCloseAllTabs || (() => {})}
+            onCloseToRight={onCloseTabsToRight || (() => {})}
+            onClear={(terminalId) => {
+              const session = useTerminalStore.getState().actions.getSession(terminalId);
+              if (session?.ref?.current) {
+                session.ref.current.clear();
+              }
+            }}
+            onDuplicate={(terminalId) => {
+              const terminal = terminals.find((t) => t.id === terminalId);
+              if (terminal) {
+                onTabCreate?.(terminal.currentDirectory, terminal.shell, terminal.profileId);
+              }
+            }}
+            onRename={(terminalId) => {
+              startRename(terminalId);
+            }}
+            onExport={async (terminalId) => {
+              const session = useTerminalStore.getState().actions.getSession(terminalId);
+              const terminal = terminals.find((t) => t.id === terminalId);
+              if (session?.ref?.current && terminal) {
+                try {
+                  const content = session.ref.current.serialize();
+                  if (!content) {
+                    console.warn("No terminal content to export");
+                    return;
+                  }
+
+                  const defaultFileName = `${terminal.name.replace(/[^a-zA-Z0-9]/g, "_")}_${new Date().toISOString().split("T")[0]}.txt`;
+                  const filePath = await save({
+                    defaultPath: defaultFileName,
+                    filters: [
+                      {
+                        name: "Text Files",
+                        extensions: ["txt"],
+                      },
+                      {
+                        name: "All Files",
+                        extensions: ["*"],
+                      },
+                    ],
+                  });
+
+                  if (filePath) {
+                    await writeTextFile(filePath, content);
+                    console.log(`Terminal output exported to: ${filePath}`);
+                  }
+                } catch (error) {
+                  console.error("Failed to export terminal output:", error);
+                }
+              }
+            }}
+          />
+          <ToolbarContextMenu
+            isOpen={toolbarContextMenu.isOpen}
+            position={toolbarContextMenu.position}
+            onClose={closeToolbarContextMenu}
+            currentMode={widthMode}
+            currentLayout={tabLayout}
+            currentSidebarPosition={tabSidebarPosition}
+            onModeChange={setWidthMode}
+            onLayoutChange={setTabLayout}
+            onSidebarPositionChange={setTabSidebarPosition}
+            onNewTerminal={onNewTerminal}
+            onSearchTerminal={onSearchTerminal}
+            onNextTerminal={onNextTerminal}
+            onPrevTerminal={onPrevTerminal}
+            onFullScreen={onFullScreen}
+            isFullScreen={isFullScreen}
+          />
+          <Dropdown
+            isOpen={profileMenu.isOpen}
+            point={profileMenu.position}
+            onClose={closeProfileMenu}
+            className="w-55"
+          >
+            <div className="font-sans ui-text-sm px-2.5 py-1 text-subtle-foreground">
+              New Terminal
+            </div>
+            <div className="my-0.5 border-border/70 border-t" />
+            <MenuItemsList items={profileMenuItems} onItemSelect={closeProfileMenu} />
+          </Dropdown>
+        </>,
+        document.body,
+      )}
+    </>
+  );
+};
+
+export default TerminalTabBar;

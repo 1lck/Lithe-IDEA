@@ -1,3 +1,5 @@
+//! Bounded encoding and incremental parsing of LSP transport frames.
+
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 
@@ -6,18 +8,21 @@ const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// JSON-RPC message to encode with the LSP content-length framing protocol.
 pub struct FrameMessageRequest {
     pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Complete transport frame ready to write to a language server.
 pub struct FrameMessageResponse {
     pub frame: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Previously buffered bytes and the newest process-output chunk.
 pub struct ParseServerMessagesRequest {
     #[serde(default)]
     pub buffer: Vec<u8>,
@@ -27,10 +32,12 @@ pub struct ParseServerMessagesRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Complete JSON-RPC messages plus the unconsumed partial frame.
 pub struct ParseServerMessagesResponse {
     pub buffer: Vec<u8>,
     pub messages: Vec<String>,
 }
+/// Encodes one JSON-RPC message with its UTF-8 byte length.
 pub fn frame_message(request: FrameMessageRequest) -> Result<FrameMessageResponse, CoreError> {
     if request.message.contains('\0') {
         return Err(CoreError::new(
@@ -47,6 +54,7 @@ pub fn frame_message(request: FrameMessageRequest) -> Result<FrameMessageRespons
     })
 }
 
+/// Incrementally extracts bounded, complete LSP messages from process output.
 pub fn parse_server_messages(
     request: ParseServerMessagesRequest,
 ) -> Result<ParseServerMessagesResponse, CoreError> {

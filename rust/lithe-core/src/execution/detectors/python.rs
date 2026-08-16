@@ -1,6 +1,9 @@
+//! Python entry-point and framework discovery from declarations and conventions.
+
 use super::super::types::Confidence;
 use super::{Detected, DirectoryContext};
 
+/// Combines declared Python entry points with framework-based conventions.
 pub fn detect(ctx: &DirectoryContext) -> Vec<Detected> {
     let mut detected = pyproject(ctx);
     detected.extend(frameworks(ctx));

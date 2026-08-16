@@ -20,12 +20,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.classify.outputs.full }}
+      comments: ${{ steps.classify.outputs.comments }}
+      metadata: ${{ steps.classify.outputs.metadata }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Test CI change classifier
+        shell: bash
+        run: ./scripts/test-classify-ci-changes.sh
 
       - name: Classify changed paths
         id: classify
@@ -36,7 +42,11 @@ jobs:
         shell: bash
         run: |
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            echo "full=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "full=true"
+              echo "comments=false"
+              echo "metadata=false"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -45,22 +55,21 @@ jobs:
             base_sha="$PR_BASE_SHA"
           fi
 
-          full=false
-          while IFS= read -r path; do
-            case "$path" in
-              README.md|README.zh-CN.md|docs/*|Casks/*)
-                ;;
-              *)
-                full=true
-                break
-                ;;
-            esac
-          done < <(git diff --name-only "$base_sha" "$GITHUB_SHA")
+          ./scripts/classify-ci-changes.sh "$base_sha" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
-          echo "full=$full" >> "$GITHUB_OUTPUT"
+      - name: Set up Rust for comment verification
+        if: steps.classify.outputs.full == 'false' && steps.classify.outputs.comments == 'true'
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Validate lightweight changes
-        if: steps.classify.outputs.full == 'false'
+      - name: Validate text-only changes
+        if: steps.classify.outputs.full == 'false' && steps.classify.outputs.comments == 'true'
+        shell: bash
+        run: |
+          git diff --check "${{ github.event.pull_request.base.sha || github.event.before }}" "$GITHUB_SHA"
+          ./scripts/verify-rust-core-comments.sh
+
+      - name: Validate lightweight metadata changes
+        if: steps.classify.outputs.full == 'false' && steps.classify.outputs.metadata == 'true'
         shell: bash
         run: |
           git diff --check "${{ github.event.pull_request.base.sha || github.event.before }}" "$GITHUB_SHA"

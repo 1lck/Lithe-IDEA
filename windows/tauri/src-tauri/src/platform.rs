@@ -1,0 +1,502 @@
+use serde_json::{json, Map, Value};
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+
+#[tauri::command]
+pub async fn platform_invoke(command: String, args: Value) -> Result<Value, String> {
+    let (core_command, payload) = translate(&command, args)?;
+    let id = format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed));
+    let request = json!({
+        "id": id,
+        "operationId": id,
+        "timeoutMilliseconds": 30_000,
+        "command": core_command,
+        "payload": payload
+    })
+    .to_string();
+
+    let response = tauri::async_runtime::spawn_blocking(move || lithe_core::execute_json(&request))
+        .await
+        .map_err(|error| format!("Shared core task failed: {error}"))?;
+    let envelope: Value = serde_json::from_str(&response)
+        .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
+
+    if envelope.get("ok").and_then(Value::as_bool) == Some(true) {
+        let data = envelope.get("data").cloned().unwrap_or(Value::Null);
+        if data.get("exitCode").and_then(Value::as_i64).unwrap_or(0) != 0 {
+            return Err(data
+                .get("output")
+                .and_then(Value::as_str)
+                .filter(|output| !output.trim().is_empty())
+                .unwrap_or("Git operation failed")
+                .trim()
+                .to_string());
+        }
+        return Ok(data);
+    }
+
+    let error = envelope.get("error").unwrap_or(&Value::Null);
+    Err(error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("Shared core operation failed")
+        .to_string())
+}
+
+fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
+    let mut payload = args.as_object().cloned().unwrap_or_default();
+    move_field(&mut payload, "repoPath", "root");
+
+    let core_command = match command {
+        "git_status" => "git.status",
+        "git_blame_file" => {
+            move_field(&mut payload, "filePath", "path");
+            "git.blame"
+        }
+        "git_log" | "git_branches" => "git.history",
+        "git_get_stashes" => "git.stashes",
+        "git_commit_diff" => {
+            move_field(&mut payload, "commitHash", "commit");
+            payload.insert("pathspecs".into(), json!(["."]));
+            "git.diff"
+        }
+        "git_add" => {
+            paths_from_file(&mut payload);
+            payload.insert("operation".into(), json!("stage"));
+            "git.write"
+        }
+        "git_add_all" => {
+            payload.insert("operation".into(), json!("stageAll"));
+            "git.write"
+        }
+        "git_reset" => {
+            paths_from_file(&mut payload);
+            payload.insert("operation".into(), json!("unstage"));
+            "git.write"
+        }
+        "git_discard_file_changes" => {
+            paths_from_file(&mut payload);
+            payload.insert("operation".into(), json!("discard"));
+            "git.write"
+        }
+        "git_discard_all_changes" => {
+            payload.insert("operation".into(), json!("discardAll"));
+            "git.write"
+        }
+        "git_commit" => {
+            payload.insert("operation".into(), json!("commit"));
+            "git.write"
+        }
+        "git_diff_file" | "git_status_diff_stats" => {
+            paths_from_file(&mut payload);
+            payload.entry("pathspecs").or_insert_with(|| json!([]));
+            "git.diff"
+        }
+        "git_ref_diff" => {
+            let base = take_text(&mut payload, "baseRef")?;
+            let target = take_text(&mut payload, "targetRef")?;
+            payload.insert("reference".into(), json!(format!("{base}..{target}")));
+            payload.insert("pathspecs".into(), json!(["."]));
+            "git.diff"
+        }
+        "git_stash_diff" => {
+            let index = payload
+                .remove("stashIndex")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
+            payload.insert("reference".into(), json!(format!("stash@{{{index}}}")));
+            payload.insert("pathspecs".into(), json!(["."]));
+            "git.diff"
+        }
+        "git_create_branch" => {
+            move_field(&mut payload, "branchName", "name");
+            payload.insert("operation".into(), json!("createBranch"));
+            payload.entry("reference").or_insert_with(|| json!("HEAD"));
+            "git.write"
+        }
+        "git_delete_branch" => {
+            move_field(&mut payload, "branchName", "reference");
+            payload.insert("operation".into(), json!("deleteBranch"));
+            "git.write"
+        }
+        "git_checkout" => {
+            move_field(&mut payload, "branchName", "reference");
+            payload.insert("operation".into(), json!("checkout"));
+            "git.write"
+        }
+        "git_create_stash" => {
+            payload.insert("operation".into(), json!("stashPush"));
+            "git.write"
+        }
+        "git_apply_stash" | "git_pop_stash" | "git_drop_stash" => {
+            let index = payload
+                .remove("stashIndex")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0);
+            payload.insert("reference".into(), json!(format!("stash@{{{index}}}")));
+            let operation = match command {
+                "git_apply_stash" => "stashApply",
+                "git_pop_stash" => "stashPop",
+                _ => "stashDrop",
+            };
+            payload.insert("operation".into(), json!(operation));
+            "git.write"
+        }
+        "git_discover_repo" => {
+            move_field(&mut payload, "path", "root");
+            payload.insert("arguments".into(), json!(["rev-parse", "--show-toplevel"]));
+            "git.command"
+        }
+        "git_fetch" | "git_pull" | "git_push" => {
+            payload.insert(
+                "operation".into(),
+                json!(command.trim_start_matches("git_")),
+            );
+            "git.write"
+        }
+        "git_get_remotes" => {
+            payload.insert("arguments".into(), json!(["remote", "-v"]));
+            "git.command"
+        }
+        "git_add_remote" => {
+            let name = take_text(&mut payload, "name")?;
+            let url = take_text(&mut payload, "url")?;
+            payload.insert(
+                "arguments".into(),
+                json!(["remote", "add", "--", name, url]),
+            );
+            "git.command"
+        }
+        "git_remove_remote" => {
+            let name = take_text(&mut payload, "name")?;
+            payload.insert("arguments".into(), json!(["remote", "remove", "--", name]));
+            "git.command"
+        }
+        "git_get_tags" => {
+            payload.insert(
+                "arguments".into(),
+                json!([
+                    "for-each-ref",
+                    "--sort=-creatordate",
+                    "--format=%(refname:short)%00%(objectname)%00%(contents:subject)%00%(creatordate:iso-strict)%00%(objecttype)",
+                    "refs/tags"
+                ]),
+            );
+            "git.command"
+        }
+        "git_create_tag" => {
+            let name = take_text(&mut payload, "name")?;
+            let mut arguments = vec!["tag".to_string()];
+            if payload.remove("signed").and_then(|value| value.as_bool()) == Some(true) {
+                arguments.push("-s".into());
+            }
+            if let Some(message) = payload
+                .remove("message")
+                .and_then(|value| value.as_str().map(str::to_string))
+                .filter(|value| !value.trim().is_empty())
+            {
+                arguments.extend(["-a".into(), "-m".into(), message]);
+            }
+            arguments.extend(["--".into(), name]);
+            if let Some(commit) = payload
+                .remove("commit")
+                .and_then(|value| value.as_str().map(str::to_string))
+                .filter(|value| !value.trim().is_empty())
+            {
+                arguments.push(commit);
+            }
+            payload.insert("arguments".into(), json!(arguments));
+            "git.command"
+        }
+        "git_delete_tag" => {
+            let name = take_text(&mut payload, "name")?;
+            payload.insert("arguments".into(), json!(["tag", "-d", "--", name]));
+            "git.command"
+        }
+        "git_push_tag" => {
+            let name = take_text(&mut payload, "name")?;
+            let remote = take_text(&mut payload, "remote")?;
+            payload.insert(
+                "arguments".into(),
+                json!(["push", "--", remote, format!("refs/tags/{name}")]),
+            );
+            "git.command"
+        }
+        "git_delete_remote_tag" => {
+            let name = take_text(&mut payload, "name")?;
+            let remote = take_text(&mut payload, "remote")?;
+            payload.insert(
+                "arguments".into(),
+                json!([
+                    "push",
+                    "--delete",
+                    "--",
+                    remote,
+                    format!("refs/tags/{name}")
+                ]),
+            );
+            "git.command"
+        }
+        "git_checkout_tag" => {
+            move_field(&mut payload, "name", "revision");
+            payload.insert("operation".into(), json!("checkoutRevision"));
+            "git.write"
+        }
+        "git_get_worktrees" => {
+            payload.insert(
+                "arguments".into(),
+                json!(["worktree", "list", "--porcelain"]),
+            );
+            "git.command"
+        }
+        "git_add_worktree" => {
+            let path = take_text(&mut payload, "path")?;
+            let branch = payload
+                .remove("branch")
+                .and_then(|value| value.as_str().map(str::to_string))
+                .filter(|value| !value.trim().is_empty());
+            let create = payload
+                .remove("createBranch")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let mut arguments = vec!["worktree".into(), "add".into()];
+            if create {
+                let branch = branch
+                    .as_deref()
+                    .ok_or_else(|| "Creating a worktree branch requires branch".to_string())?;
+                arguments.extend(["-b".into(), branch.to_string()]);
+            }
+            arguments.push("--".into());
+            arguments.push(path);
+            if !create {
+                if let Some(branch) = branch {
+                    arguments.push(branch);
+                }
+            }
+            payload.insert("arguments".into(), json!(arguments));
+            "git.command"
+        }
+        "git_remove_worktree" => {
+            let path = take_text(&mut payload, "path")?;
+            let force = payload
+                .remove("force")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let mut arguments = vec!["worktree".to_string(), "remove".into()];
+            if force {
+                arguments.push("--force".into());
+            }
+            arguments.extend(["--".into(), path]);
+            payload.insert("arguments".into(), json!(arguments));
+            "git.command"
+        }
+        "git_init" => {
+            payload.insert("arguments".into(), json!(["init"]));
+            "git.command"
+        }
+        "git_clone" => {
+            let remote = take_text(&mut payload, "repositoryUrl")?;
+            let destination = take_text(&mut payload, "destinationPath")?;
+            let destination_path = Path::new(&destination);
+            let parent = destination_path
+                .parent()
+                .ok_or_else(|| "Clone destination requires a parent directory".to_string())?;
+            let name = destination_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .ok_or_else(|| "Clone destination requires a directory name".to_string())?;
+            payload.insert("root".into(), json!(parent.to_string_lossy()));
+            payload.insert("operation".into(), json!("clone"));
+            payload.insert("remote".into(), json!(remote));
+            payload.insert("destination".into(), json!(name));
+            "git.write"
+        }
+        "git_reset_all" => {
+            payload.insert("arguments".into(), json!(["reset", "HEAD"]));
+            "git.command"
+        }
+        "git_stage_hunk" | "git_unstage_hunk" => {
+            let hunk = payload
+                .remove("hunk")
+                .ok_or_else(|| "Hunk payload is required".to_string())?;
+            payload.insert("patch".into(), json!(hunk_patch(&hunk)?));
+            payload.insert(
+                "mode".into(),
+                json!(if command == "git_stage_hunk" {
+                    "stage"
+                } else {
+                    "unstage"
+                }),
+            );
+            "git.apply"
+        }
+        _ if command.contains('.') => {
+            return Ok((command.to_string(), Value::Object(payload)));
+        }
+        _ => {
+            return Err(format!(
+                "Windows platform command is not implemented: {command}"
+            ))
+        }
+    };
+
+    Ok((core_command.to_string(), Value::Object(payload)))
+}
+
+fn hunk_patch(hunk: &Value) -> Result<String, String> {
+    let path = hunk
+        .get("file_path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Hunk requires file_path".to_string())?;
+    let lines = hunk
+        .get("lines")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Hunk requires lines".to_string())?;
+    let mut patch = format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n");
+    for line in lines {
+        let kind = line
+            .get("line_type")
+            .and_then(Value::as_str)
+            .unwrap_or("context");
+        let content = line
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let prefix = match kind {
+            "added" => "+",
+            "removed" => "-",
+            "header" => "",
+            _ => " ",
+        };
+        patch.push_str(prefix);
+        patch.push_str(content);
+        patch.push('\n');
+    }
+    Ok(patch)
+}
+
+fn move_field(payload: &mut Map<String, Value>, from: &str, to: &str) {
+    if let Some(value) = payload.remove(from) {
+        payload.insert(to.to_string(), value);
+    }
+}
+
+fn paths_from_file(payload: &mut Map<String, Value>) {
+    if let Some(path) = payload.remove("filePath") {
+        payload.insert("paths".into(), Value::Array(vec![path]));
+    }
+}
+
+fn take_text(payload: &mut Map<String, Value>, field: &str) -> Result<String, String> {
+    payload
+        .remove(field)
+        .and_then(|value| value.as_str().map(str::to_string))
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("Windows platform command requires {field}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::translate;
+    use serde_json::json;
+
+    #[test]
+    fn translates_git_status_root() {
+        let (command, payload) = translate("git_status", json!({ "repoPath": "C:/work" })).unwrap();
+
+        assert_eq!(command, "git.status");
+        assert_eq!(payload, json!({ "root": "C:/work" }));
+    }
+
+    #[test]
+    fn translates_stage_file_to_git_write() {
+        let (command, payload) = translate(
+            "git_add",
+            json!({ "repoPath": "C:/work", "filePath": "src/main.rs" }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.write");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "operation": "stage",
+                "paths": ["src/main.rs"]
+            })
+        );
+    }
+
+    #[test]
+    fn translates_diff_defaults() {
+        let (command, payload) =
+            translate("git_diff_file", json!({ "repoPath": "C:/work" })).unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(payload, json!({ "root": "C:/work", "pathspecs": [] }));
+    }
+
+    #[test]
+    fn rejects_unknown_platform_command() {
+        let error = translate("missing_command", json!({})).unwrap_err();
+        assert!(error.contains("not implemented"));
+    }
+
+    #[test]
+    fn translates_remote_listing_to_argument_based_git_command() {
+        let (command, payload) =
+            translate("git_get_remotes", json!({ "repoPath": "C:/work" })).unwrap();
+
+        assert_eq!(command, "git.command");
+        assert_eq!(
+            payload,
+            json!({ "root": "C:/work", "arguments": ["remote", "-v"] })
+        );
+    }
+
+    #[test]
+    fn translates_clone_to_parent_root_and_destination_name() {
+        let (command, payload) = translate(
+            "git_clone",
+            json!({
+                "repositoryUrl": "https://example.invalid/team/repo.git",
+                "destinationPath": "C:/projects/repo"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.write");
+        assert_eq!(payload["root"], "C:/projects");
+        assert_eq!(payload["operation"], "clone");
+        assert_eq!(payload["destination"], "repo");
+    }
+
+    #[test]
+    fn translates_hunk_lines_to_apply_patch() {
+        let (command, payload) = translate(
+            "git_stage_hunk",
+            json!({
+                "repoPath": "C:/work",
+                "hunk": {
+                    "file_path": "src/main.rs",
+                    "lines": [
+                        { "line_type": "header", "content": "@@ -1 +1 @@" },
+                        { "line_type": "removed", "content": "old" },
+                        { "line_type": "added", "content": "new" }
+                    ]
+                }
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.apply");
+        assert_eq!(payload["mode"], "stage");
+        assert_eq!(
+            payload["patch"],
+            "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n"
+        );
+    }
+}

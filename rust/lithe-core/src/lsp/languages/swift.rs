@@ -1,3 +1,5 @@
+//! Translation between SourceKit-LSP extensions and the generic LSP model.
+
 use crate::lsp::interface::ClientFeatureRequest;
 use serde_json::{json, Value};
 

@@ -6,6 +6,8 @@ private let litheProcessLaunchDate = Date()
 @MainActor
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     weak var projectSessions: ProjectSessionManager?
+    var recordCleanPluginShutdown: (() -> Void)?
+    var authorizationCallbackRouter: MacExternalAuthorizationCallbackRouter?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
@@ -18,11 +20,16 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         projectSessions?.stopAllSessions()
+        recordCleanPluginShutdown?()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         guard let projectSessions else { return }
         Task { await projectSessions.resumeGitObservationAfterActivation() }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        urls.forEach { authorizationCallbackRouter?.route($0) }
     }
 
     static func confirmUnsavedDocuments(for projectSessions: ProjectSessionManager) -> Bool {
@@ -60,6 +67,10 @@ struct LitheApp: App {
         let store = MacUserDefaultsStore()
         let settings = AppSettings(store: store)
         let processRegistry = ManagedProcessRegistry()
+        let moduleStore = MacModuleConfigurationStore(store: store)
+        let pluginRuntimeRecovery = MacPluginRuntimeRecoveryCoordinator()
+        let authorizationCallbackRouter = MacExternalAuthorizationCallbackRouter()
+        pluginRuntimeRecovery.recoverPreviousSession(using: moduleStore)
         _settings = StateObject(wrappedValue: settings)
         let projectSessions = ProjectSessionManager(
             settings: settings,
@@ -69,7 +80,13 @@ struct LitheApp: App {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        processRegistry: processRegistry
+                        processRegistry: processRegistry,
+                        moduleLaunchMode: CommandLine.arguments.contains("--safe-mode")
+                            ? .safeMode
+                            : .normal,
+                        moduleStore: moduleStore,
+                        pluginRuntimeRecovery: pluginRuntimeRecovery,
+                        authorizationCallbackRouter: authorizationCallbackRouter
                     ).services
                 )
             },
@@ -90,6 +107,10 @@ struct LitheApp: App {
             memorySampler: MacProcessMemorySampler()
         ))
         appDelegate.projectSessions = projectSessions
+        appDelegate.authorizationCallbackRouter = authorizationCallbackRouter
+        appDelegate.recordCleanPluginShutdown = {
+            pluginRuntimeRecovery.recordCleanShutdown(using: moduleStore)
+        }
     }
 
     private var model: AppModel { projectSessions.activeModel }
@@ -123,20 +144,20 @@ struct LitheApp: App {
                 Button("Open Project…") {
                     model.chooseProject()
                 }
-                .keyboardShortcut("o", modifiers: .command)
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "open-project"))
             }
 
             CommandGroup(after: .saveItem) {
                 Button("Save") {
                     model.saveActiveDocument()
                 }
-                .keyboardShortcut("s", modifiers: .command)
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "save"))
                 .disabled(model.activeDocument == nil)
 
                 Button("Close Project") {
                     model.closeProject()
                 }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "close-project"))
                 .disabled(model.workspaceURL == nil)
             }
 
@@ -144,7 +165,7 @@ struct LitheApp: App {
                 Button("Settings…") {
                     model.showSettings()
                 }
-                .keyboardShortcut(",", modifiers: .command)
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "settings"))
             }
 
             CommandGroup(after: .appInfo) {
@@ -156,12 +177,28 @@ struct LitheApp: App {
 
             CommandMenu("Navigate") {
                 Group {
+                    Button("Back") {
+                        model.navigateBack()
+                    }
+                    .litheKeyboardShortcut(
+                        model.keyboardShortcutFeature.primaryKeyPress(for: "navigate-back")
+                    )
+                    .disabled(!model.canNavigateBack)
+
+                    Button("Forward") {
+                        model.navigateForward()
+                    }
+                    .litheKeyboardShortcut(
+                        model.keyboardShortcutFeature.primaryKeyPress(for: "navigate-forward")
+                    )
+                    .disabled(!model.canNavigateForward)
+
+                    Divider()
+
                     Button("Search Everywhere…") {
                         model.toggleSearchEverywhere()
                     }
-                    // 双 Shift 是主入口。IntelliJ 的 ⇧⌘A 是 Find Action，
-                    // 这里不再占用它，改用 ⇧⌘O（Go to File 家族）作为可见的菜单快捷键。
-                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "search-everywhere"))
                     .disabled(model.workspaceURL == nil)
 
                     Divider()
@@ -169,40 +206,42 @@ struct LitheApp: App {
                     Button("Find in File…") {
                         model.showFindBar()
                     }
-                    .keyboardShortcut("f", modifiers: .command)
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-in-file"))
                     .disabled(model.activeDocument == nil)
 
                     Button("Find Next") {
                         model.navigateFind(offset: 1)
                     }
-                    .keyboardShortcut("g", modifiers: .command)
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-next"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
                     Button("Find Previous") {
                         model.navigateFind(offset: -1)
                     }
-                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-previous"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
                 }
 
                 Divider()
 
-                Button("Go to Usage") {
-                    model.goToUsages()
+                Button("Go to Definition") {
+                    model.goToDefinition()
                 }
-                .keyboardShortcut("b", modifiers: .command)
-                .disabled(!model.supportsLanguageServerFeature(.references))
+                .litheKeyboardShortcut(
+                    model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-definition")
+                )
+                .disabled(!model.canPerformShortcutCommand(id: "go-to-definition"))
 
                 Button("Go to Implementation") {
                     model.goToImplementation()
                 }
-                .keyboardShortcut("b", modifiers: [.command, .option])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-implementation"))
                 .disabled(!model.supportsLanguageServerFeature(.implementation))
 
                 Button("Find Usages") {
                     model.findReferences()
                 }
-                .keyboardShortcut("u", modifiers: [.command, .option])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-usages"))
                 .disabled(!model.supportsLanguageServerFeature(.references))
 
                 Divider()
@@ -210,13 +249,13 @@ struct LitheApp: App {
                 Button("Find in Files…") {
                     model.openProjectSearch()
                 }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "search-in-project"))
                 .disabled(model.workspaceURL == nil)
 
                 Button("Replace in Files…") {
                     model.openProjectReplace()
                 }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "replace-in-project"))
                 .disabled(model.workspaceURL == nil)
             }
 

@@ -1,7 +1,10 @@
 mod detectors;
 mod git;
+mod github;
 mod languages;
+mod plugins;
 mod project;
 mod protocol;
 mod run_configuration;
+mod spring;
 mod support;

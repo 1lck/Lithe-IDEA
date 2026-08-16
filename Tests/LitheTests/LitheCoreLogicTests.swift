@@ -1,7 +1,12 @@
 import AppKit
 import CoreServices
 import Foundation
+@testable import LitheDatabaseModule
+@testable import LitheGitModule
+import LitheLocalHistoryModule
+import LitheSearchModule
 import Testing
+import LitheTerminalModule
 @testable import Lithe
 
 @Suite("Lithe core logic")
@@ -34,6 +39,19 @@ struct LitheCoreLogicTests {
         let appDelegate = LitheAppDelegate()
 
         #expect(appDelegate.applicationShouldTerminateAfterLastWindowClosed(NSApplication.shared))
+    }
+
+    @Test
+    func workbenchKeepsAppKitBackedControlsOutOfDrawingGroups() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repositoryRoot
+            .appendingPathComponent("Sources/Lithe/Views/Workbench/WorkbenchView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(!source.contains(".drawingGroup()"))
     }
 
     @Test
@@ -2084,6 +2102,124 @@ struct LitheCoreLogicTests {
     }
 
     @Test
+    @MainActor
+    func codeEditorDoesNotRepublishUnchangedFindState() {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "sample"
+        var updates: [(index: Int, count: Int)] = []
+        textView.onFindStateChange = { index, count in
+            updates.append((index, count))
+        }
+
+        textView.syncFindState(isVisible: true, query: "")
+        textView.syncFindState(isVisible: true, query: "")
+
+        #expect(updates.count == 1)
+        #expect(updates.first?.index == -1)
+        #expect(updates.first?.count == 0)
+    }
+
+    @Test
+    @MainActor
+    func codeEditorReportsEachFindStateOnlyOnce() {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "alpha beta alpha"
+        var reportedStates: [String] = []
+        textView.onFindStateChange = { index, count in
+            reportedStates.append("\(index):\(count)")
+        }
+
+        textView.syncFindState(isVisible: true, query: "")
+        textView.syncFindState(isVisible: true, query: "alpha")
+        textView.syncFindState(isVisible: true, query: "alpha")
+
+        #expect(reportedStates == ["-1:0", "0:2"])
+    }
+
+    @Test
+    func doubleShiftRecognizerRequiresTwoStandaloneTaps() {
+        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
+
+        var triggered = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.00
+        )
+        #expect(!triggered)
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.05
+        )
+        #expect(!triggered)
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.20
+        )
+        #expect(!triggered)
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.25
+        )
+        #expect(triggered)
+    }
+
+    @Test
+    func doubleShiftRecognizerRejectsUppercaseTypingAndInterveningKeys() {
+        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
+
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.00
+        )
+        recognizer.handleKeyDown()
+        var triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.05
+        )
+        #expect(!triggered)
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 1.20
+        )
+        recognizer.handleKeyDown()
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 1.25
+        )
+        #expect(!triggered)
+
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 2.00
+        )
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 2.05
+        )
+        recognizer.handleKeyDown()
+        _ = recognizer.handleFlagsChanged(
+            isShiftDown: true,
+            hasOtherModifiers: false,
+            timestamp: 2.20
+        )
+        triggered = recognizer.handleFlagsChanged(
+            isShiftDown: false,
+            hasOtherModifiers: false,
+            timestamp: 2.25
+        )
+        #expect(!triggered)
+    }
+
+    @Test
     func markdownImageInsertionSeparatesTheReferenceFromRawHTML() {
         let source = "<table>\n</table>\n"
         let reference = "![pasted image](assets/pasted-image.png)"
@@ -2364,7 +2500,7 @@ private final class TestProjectWindowSessions: ProjectWindowSessionHandling {
     }
 }
 
-private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
+private final class RecordingProcessRunner: ProcessRunner, DatabaseProcessRunning, @unchecked Sendable {
     private let lock = NSLock()
     private let handler: (ProcessRequest) -> ProcessResult
     private let requestsLock = NSLock()
@@ -2390,6 +2526,16 @@ private final class RecordingProcessRunner: ProcessRunner, @unchecked Sendable {
         requestsLock.unlock()
         return handler(request)
     }
+
+    func runDatabaseProcess(_ request: DatabaseProcessRequest) -> DatabaseProcessResult {
+        let result = run(ProcessRequest(
+            executablePath: request.executablePath,
+            environment: request.environment,
+            standardInput: request.standardInput,
+            timeoutMilliseconds: request.timeoutMilliseconds
+        ))
+        return DatabaseProcessResult(output: result.output, exitCode: result.exitCode)
+    }
 }
 
 private final class TestCounter: @unchecked Sendable {
@@ -2410,7 +2556,7 @@ private final class TestCounter: @unchecked Sendable {
     }
 }
 
-private final class DatabaseTestKeyValueStore: KeyValueStore, @unchecked Sendable {
+private final class DatabaseTestKeyValueStore: KeyValueStore, DatabasePreferenceStore, @unchecked Sendable {
     private var values: [String: Any] = [:]
     func data(forKey key: String) -> Data? { values[key] as? Data }
     func object(forKey key: String) -> Any? { values[key] }
@@ -2419,7 +2565,7 @@ private final class DatabaseTestKeyValueStore: KeyValueStore, @unchecked Sendabl
     func set(_ value: Any?, forKey key: String) { values[key] = value }
 }
 
-private final class DatabaseTestSecureStore: SecureStore, @unchecked Sendable {
+private final class DatabaseTestSecureStore: SecureStore, DatabaseSecureStore, @unchecked Sendable {
     private var values: [String: String] = [:]
     func read(key: String) -> String? { values[key] }
     func write(_ value: String, key: String) throws { values[key] = value }
@@ -2724,7 +2870,7 @@ struct EditorDocumentTests {
             operations: operations,
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
-            gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
             directoryWatcherFactory: TestDirectoryWatcherFactory(),
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
         )
@@ -2862,7 +3008,7 @@ struct EditorDocumentTests {
             operations: EmptyWorkspaceOperations(),
             fileOperations: EmptyWorkspaceFileOperations(),
             fileStorage: InMemoryFileStorage(),
-            gitWatchContextProvider: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            gitWatchContextProvider: SequencedGitWatchContextProvider([nil]),
             directoryWatcherFactory: watcherFactory,
             workspaceSessionStore: WorkspaceSessionStore(store: EmptyKeyValueStore())
         )
@@ -3016,8 +3162,9 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
-    func recoveryBatchRebuildsSnapshotReplacesRootsAndRefreshesOnlyGit() async {
-        let repository = URL(fileURLWithPath: "/tmp/lithe-recovery/repository")
+    func recoveryBatchRebuildsSnapshotReplacesRootsAndRefreshesOnlyGit() async throws {
+        let repository = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-recovery-\(UUID().uuidString)/repository")
         let gitDirectory = repository.appendingPathComponent(".git")
         let context = GitWatchContext(
             repositoryRoot: repository,
@@ -3041,14 +3188,15 @@ struct EditorDocumentTests {
         )
         defer { model.reset() }
         model.beginWorkspace(at: repository, visibilityRules: .default)
-        watcherFactory.source?.emit(
+        let source = try #require(watcherFactory.source)
+        source.emit(
             DirectoryChangeBatch(
                 gitStateMayHaveChanged: true,
                 requiresFullRescan: true,
                 watchRootsChanged: true
             )
         )
-        let recovered = await waitForWorkspaceObservation {
+        let recovered = await waitForWorkspaceObservation(timeout: .seconds(15)) {
             model.rootNode != nil && refreshCount == 1
         }
 
@@ -3062,8 +3210,9 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
-    func watchRootsRecoveryRetainsWorkspacePathsAndRefreshesSnapshotAndDocuments() async {
-        let workspace = URL(fileURLWithPath: "/tmp/lithe-watch-roots-recovery/workspace")
+    func watchRootsRecoveryRetainsWorkspacePathsAndRefreshesSnapshotAndDocuments() async throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-watch-roots-recovery-\(UUID().uuidString)/workspace")
         let changedFile = workspace.appendingPathComponent("Sources/App.swift")
         let gitDirectory = workspace.appendingPathComponent(".git")
         let context = GitWatchContext(
@@ -3087,7 +3236,8 @@ struct EditorDocumentTests {
         )
         defer { model.reset() }
         model.beginWorkspace(at: workspace, visibilityRules: .default)
-        watcherFactory.source?.emit(
+        let source = try #require(watcherFactory.source)
+        source.emit(
             DirectoryChangeBatch(
                 workspacePaths: [changedFile.path],
                 gitStateMayHaveChanged: true,
@@ -3095,7 +3245,7 @@ struct EditorDocumentTests {
             )
         )
 
-        let recovered = await waitForWorkspaceObservation {
+        let recovered = await waitForWorkspaceObservation(timeout: .seconds(15)) {
             model.rootNode != nil && processedPaths.map(\.path) == [changedFile.path]
                 && refreshCount == 1
         }
@@ -3343,7 +3493,7 @@ private final class TestTerminalTransport: TerminalTransport {
     }
 }
 
-private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
+private final class InMemoryFileStorage: FileStorage, GitShelfStorage, DatabaseFileStorage, @unchecked Sendable {
     private let lock = NSLock()
     private let support = URL(fileURLWithPath: "/in-memory-application-support", isDirectory: true)
     private var files: [String: Data] = [:]
@@ -3380,6 +3530,10 @@ private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
         return value
     }
 
+    func readData(from url: URL) throws -> Data {
+        try readData(from: url, options: [])
+    }
+
     func readPrefix(from url: URL, byteCount: Int) throws -> Data {
         try readData(from: url, options: []).prefix(byteCount)
     }
@@ -3390,10 +3544,20 @@ private final class InMemoryFileStorage: FileStorage, @unchecked Sendable {
         lock.unlock()
     }
 
+
+    func writeData(_ data: Data, to url: URL) throws {
+        try writeData(data, to: url, options: [])
+    }
+
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
         lock.lock()
         directories.insert(url.path)
         lock.unlock()
+    }
+
+
+    func createDirectory(at url: URL) throws {
+        try createDirectory(at: url, withIntermediateDirectories: true)
     }
 
     func removeItem(at url: URL) throws {

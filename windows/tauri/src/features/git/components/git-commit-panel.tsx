@@ -1,0 +1,516 @@
+import {
+  ArrowDownIcon as ArrowDown,
+  ArrowUpIcon as ArrowUp,
+  CheckIcon as Check,
+  CaretDownIcon as ChevronDown,
+  WarningCircleIcon as AlertCircle,
+  SparkleIcon as Sparkles,
+} from "@/ui/icons";
+import type React from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useAuthStore } from "@/features/window/stores/auth.store";
+import { hasProductCapability } from "@/features/window/lib/product-capabilities";
+import { Button } from "@/ui/button";
+import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
+import { Dropdown, type MenuItem } from "@/ui/dropdown";
+import { SidebarComposerBody } from "@/ui/sidebar";
+import Textarea from "@/ui/textarea";
+import { toast } from "sonner";
+import { cn } from "@/utils/cn";
+import {
+  InlineEditError,
+  requestInlineEdit,
+} from "@/features/editor/services/editor-inline-edit-service";
+import { getFileDiff } from "../api/git-diff-api";
+import { commitChanges, getGitLog } from "../api/git-commits-api";
+import { pullChanges, pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
+import { useGitBlameStore } from "../stores/git-blame.store";
+import type { GitDiff, GitFile } from "../types/git.types";
+
+interface GitCommitPanelProps {
+  stagedFilesCount: number;
+  stagedFiles: GitFile[];
+  currentBranch?: string;
+  repoPath?: string;
+  ahead?: number;
+  behind?: number;
+  onCommitSuccess?: () => void;
+}
+
+const MAX_STAGED_FILES_FOR_AI_CONTEXT = 120;
+const MAX_RECENT_COMMITS_FOR_AI_CONTEXT = 24;
+const MAX_DIFF_FILES_FOR_AI_CONTEXT = 10;
+const MAX_DIFF_LINES_PER_FILE_FOR_AI_CONTEXT = 80;
+const MAX_COMMIT_AI_CONTEXT_CHARS = 11_000;
+const COMMIT_TEXTAREA_MIN_HEIGHT = 64;
+const COMMIT_TEXTAREA_MAX_HEIGHT = 128;
+
+type CommitMessageMode = "title" | "body";
+
+const getRepoLabel = (repoPath: string): string => {
+  const normalized = repoPath.replace(/\\/g, "/").replace(/\/$/, "");
+  return normalized.split("/").pop() || "repository";
+};
+
+const countDiffLines = (diff: GitDiff | null) => {
+  if (!diff) return { additions: 0, deletions: 0 };
+
+  return diff.lines.reduce(
+    (totals, line) => {
+      if (line.line_type === "added") totals.additions += 1;
+      if (line.line_type === "removed") totals.deletions += 1;
+      return totals;
+    },
+    { additions: 0, deletions: 0 },
+  );
+};
+
+const formatDiffExcerpt = (file: GitFile, diff: GitDiff | null): string => {
+  if (!diff) return `### ${file.path}\n(no staged text diff available)`;
+  if (diff.is_binary || diff.is_image) return `### ${file.path}\n(binary or image change)`;
+
+  const changedLines: string[] = [];
+  let changedLineCount = 0;
+
+  for (const line of diff.lines) {
+    if (line.line_type !== "added" && line.line_type !== "removed") continue;
+
+    changedLineCount++;
+    if (changedLines.length < MAX_DIFF_LINES_PER_FILE_FOR_AI_CONTEXT) {
+      changedLines.push(`${line.line_type === "added" ? "+" : "-"}${line.content}`);
+    }
+  }
+
+  const omittedCount = Math.max(changedLineCount - MAX_DIFF_LINES_PER_FILE_FOR_AI_CONTEXT, 0);
+
+  return [
+    `### ${file.path}`,
+    changedLines.join("\n") || "(metadata-only change)",
+    omittedCount > 0 ? `... ${omittedCount} more changed lines omitted` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+};
+
+const truncateContext = (context: string): string => {
+  if (context.length <= MAX_COMMIT_AI_CONTEXT_CHARS) return context;
+  return `${context.slice(0, MAX_COMMIT_AI_CONTEXT_CHARS)}\n\n[context truncated]`;
+};
+
+async function buildCommitMessageContext({
+  repoPath,
+  currentBranch,
+  stagedFiles,
+  existingDraftHint,
+}: {
+  repoPath: string;
+  currentBranch?: string;
+  stagedFiles: GitFile[];
+  existingDraftHint: string;
+}): Promise<string> {
+  const stagedFilesForContext = stagedFiles.slice(0, MAX_STAGED_FILES_FOR_AI_CONTEXT);
+  const diffFilesForContext = stagedFiles.slice(0, MAX_DIFF_FILES_FOR_AI_CONTEXT);
+  const [recentCommits, stagedDiffs] = await Promise.all([
+    getGitLog(repoPath, MAX_RECENT_COMMITS_FOR_AI_CONTEXT, 0),
+    Promise.all(diffFilesForContext.map((file) => getFileDiff(repoPath, file.path, true))),
+  ]);
+  const overflowCount = Math.max(stagedFiles.length - stagedFilesForContext.length, 0);
+  const diffOverflowCount = Math.max(stagedFiles.length - diffFilesForContext.length, 0);
+  const totals = stagedDiffs.reduce(
+    (sum, diff) => {
+      const counts = countDiffLines(diff);
+      return {
+        additions: sum.additions + counts.additions,
+        deletions: sum.deletions + counts.deletions,
+      };
+    },
+    { additions: 0, deletions: 0 },
+  );
+
+  const recentCommitLines = recentCommits
+    .map((commit) => commit.message.trim())
+    .filter(Boolean)
+    .slice(0, MAX_RECENT_COMMITS_FOR_AI_CONTEXT)
+    .map((message) => `- ${message}`)
+    .join("\n");
+  const stagedLines = stagedFilesForContext
+    .map((file) => `- ${file.status}${file.staged ? " staged" : ""}: ${file.path}`)
+    .join("\n");
+  const diffExcerpt = diffFilesForContext
+    .map((file, index) => formatDiffExcerpt(file, stagedDiffs[index]))
+    .join("\n\n");
+
+  return truncateContext(
+    [
+      `Repository: ${getRepoLabel(repoPath)}`,
+      `Branch: ${currentBranch || "unknown"}`,
+      "",
+      "Recent commit subjects for style:",
+      recentCommitLines || "- none",
+      "",
+      `Staged files (${stagedFiles.length}):`,
+      stagedLines || "- none",
+      overflowCount > 0 ? `- ...and ${overflowCount} more staged files` : "",
+      "",
+      `Staged diff summary for sampled files: +${totals.additions} -${totals.deletions}`,
+      diffOverflowCount > 0
+        ? `Diff excerpts include ${diffFilesForContext.length} of ${stagedFiles.length} staged files.`
+        : "",
+      diffExcerpt ? `\nStaged patch excerpts:\n${diffExcerpt}` : "",
+      existingDraftHint ? `\nCurrent draft:\n${existingDraftHint}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+}
+
+function normalizeGeneratedCommitMessage(message: string, mode: CommitMessageMode): string {
+  const trimmed = message
+    .replace(/^```[a-zA-Z0-9_-]*\n?/, "")
+    .replace(/\n?```\s*$/, "")
+    .trim();
+  if (mode === "body") return trimmed;
+
+  return (
+    trimmed
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || ""
+  );
+}
+
+const GitCommitPanel = ({
+  stagedFilesCount,
+  stagedFiles,
+  currentBranch,
+  repoPath,
+  ahead = 0,
+  behind = 0,
+  onCommitSuccess,
+}: GitCommitPanelProps) => {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const subscription = useAuthStore((state) => state.subscription);
+  const aiAutocompleteModelId = useSettingsStore((state) => state.settings.aiAutocompleteModelId);
+  const [commitMessage, setCommitMessage] = useState("");
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [commitMessageMode, setCommitMessageMode] = useState<CommitMessageMode>("title");
+  const [isGenerateModeMenuOpen, setIsGenerateModeMenuOpen] = useState(false);
+  const [remoteAction, setRemoteAction] = useState<"push" | "pull" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const generateMenuAnchorRef = useRef<HTMLDivElement>(null);
+  const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const textarea = commitTextareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+    const nextHeight = Math.min(
+      COMMIT_TEXTAREA_MAX_HEIGHT,
+      Math.max(COMMIT_TEXTAREA_MIN_HEIGHT, textarea.scrollHeight),
+    );
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY =
+      textarea.scrollHeight > COMMIT_TEXTAREA_MAX_HEIGHT ? "auto" : "hidden";
+  }, [commitMessage]);
+
+  const handleGenerateCommitMessage = async () => {
+    if (!repoPath || stagedFilesCount === 0) return;
+    setError(null);
+
+    if (!isAuthenticated) {
+      setError("Please sign in to use AI commit message generation.");
+      return;
+    }
+
+    const enterprisePolicy = subscription?.enterprise?.policy;
+    const managedPolicy = enterprisePolicy?.managedMode ? enterprisePolicy : null;
+    const isPro = hasProductCapability(subscription, "hostedAi");
+
+    if (managedPolicy && !managedPolicy.aiCompletionEnabled) {
+      setError("AI commit message generation is disabled by your organization policy.");
+      return;
+    }
+
+    const useByok = managedPolicy ? managedPolicy.allowByok && !isPro : !isPro;
+    if (managedPolicy && useByok && !managedPolicy.allowByok) {
+      setError("BYOK is disabled by your organization policy.");
+      return;
+    }
+
+    const existingDraftHint = commitMessage.trim();
+
+    setIsGenerating(true);
+    try {
+      const selectedText = await buildCommitMessageContext({
+        repoPath,
+        currentBranch,
+        stagedFiles,
+        existingDraftHint,
+      });
+      const { editedText } = await requestInlineEdit(
+        {
+          model: aiAutocompleteModelId,
+          beforeSelection: "",
+          selectedText,
+          afterSelection: "",
+          instruction:
+            commitMessageMode === "title"
+              ? "Generate a concise Git commit subject from the staged changes. Return exactly one subject line and nothing else. Keep it under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it."
+              : "Generate a Git commit message from the staged changes. Return a subject line and a short body only when the body adds useful context. Keep the subject under 72 characters when possible. Infer and match the repository's style from recent commit subjects. Do not force conventional commit format unless the recent commits clearly use it.",
+          filePath: getRepoLabel(repoPath),
+          languageId: "git-commit",
+        },
+        { useByok },
+      );
+
+      const message = normalizeGeneratedCommitMessage(editedText, commitMessageMode);
+      if (!message) {
+        setError("AI returned an empty commit message.");
+        return;
+      }
+
+      setCommitMessage(message);
+    } catch (generationError) {
+      if (generationError instanceof InlineEditError) {
+        setError(generationError.message);
+      } else {
+        setError("Failed to generate commit message.");
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleCommit = async () => {
+    if (!repoPath || !commitMessage.trim() || stagedFilesCount === 0) return;
+
+    setIsCommitting(true);
+    setError(null);
+
+    try {
+      const success = await commitChanges(repoPath, commitMessage.trim());
+      if (success) {
+        useGitBlameStore.getState().actions.clearAllBlame();
+        setCommitMessage("");
+        onCommitSuccess?.();
+      } else {
+        setError("Failed to commit changes");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unknown error occurred");
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  const handleRemoteAction = async (
+    action: "push" | "pull",
+    run: () => Promise<GitRemoteActionResult>,
+  ) => {
+    if (!repoPath) return;
+
+    const label = action === "push" ? "Push" : "Pull";
+    let toastId: string | number | null = null;
+    setRemoteAction(action);
+    setError(null);
+
+    try {
+      toastId = toast.info(`${label}ing changes...`, {
+        duration: 0,
+      });
+
+      const result = await run();
+      if (result.success) {
+        if (action === "pull") {
+          useGitBlameStore.getState().actions.clearAllBlame();
+        }
+        toast.dismiss(toastId);
+        toast.success(
+          action === "push" ? "Changes pushed successfully." : "Changes pulled successfully.",
+        );
+        onCommitSuccess?.();
+        return;
+      }
+
+      const errorMessage = result.error || `Failed to ${action} changes.`;
+      toast.dismiss(toastId);
+      toast.error(errorMessage);
+      setError(errorMessage);
+    } catch (remoteError) {
+      const errorMessage =
+        remoteError instanceof Error ? remoteError.message : `Failed to ${action} changes.`;
+      if (toastId) toast.dismiss(toastId);
+      toast.error(errorMessage);
+      setError(errorMessage);
+    } finally {
+      setRemoteAction(null);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void handleCommit();
+    }
+  };
+
+  const isCommitDisabled =
+    !commitMessage.trim() || stagedFilesCount === 0 || isCommitting || isGenerating;
+  const isGenerateDisabled = stagedFilesCount === 0 || isGenerating || isCommitting;
+  const hasRemoteChanges = ahead > 0 || behind > 0;
+  const isRemoteActionLoading = remoteAction !== null;
+  const composerButtonClassName =
+    "h-6 rounded-md border-transparent bg-transparent px-1.5 ui-text-sm leading-none text-subtle-foreground shadow-none hover:bg-accent/80 hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-strong/35 [&_svg]:size-3";
+  const generateModeItems: MenuItem[] = [
+    {
+      id: "title",
+      label: "Title only",
+      icon: commitMessageMode === "title" ? <Check /> : undefined,
+      onClick: () => setCommitMessageMode("title"),
+    },
+    {
+      id: "body",
+      label: "Title + body",
+      icon: commitMessageMode === "body" ? <Check /> : undefined,
+      onClick: () => setCommitMessageMode("body"),
+    },
+  ];
+
+  return (
+    <>
+      <SidebarComposerBody>
+        {error && (
+          <div
+            className={cn(
+              "mx-2 mt-2 flex items-center gap-2 rounded-md border border-destructive/30",
+              "bg-destructive/20 px-2 py-1 ui-text-sm text-destructive",
+            )}
+          >
+            <AlertCircle />
+            {error}
+          </div>
+        )}
+
+        <Textarea
+          ref={commitTextareaRef}
+          value={commitMessage}
+          onChange={(e) => setCommitMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Commit message..."
+          variant="ghost"
+          className={cn(
+            "max-h-32 min-h-16 w-full resize-none overflow-x-hidden bg-transparent",
+            "font-sans ui-text-sm px-3 pt-3 pb-2 text-foreground placeholder:text-subtle-foreground",
+            "focus:outline-none",
+          )}
+          rows={2}
+          disabled={isCommitting}
+        />
+      </SidebarComposerBody>
+
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 pt-1.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+          <span className="px-1 ui-text-sm text-subtle-foreground">
+            {stagedFilesCount > 0
+              ? `${stagedFilesCount} file${stagedFilesCount !== 1 ? "s" : ""} staged`
+              : "No files staged"}
+          </span>
+
+          {hasRemoteChanges && (
+            <div className="flex items-center gap-1">
+              {ahead > 0 && (
+                <Button
+                  type="button"
+                  onClick={() => void handleRemoteAction("push", () => pushChanges(repoPath!))}
+                  disabled={!repoPath || isRemoteActionLoading}
+                  variant="ghost"
+                  size="xs"
+                  className={cn(composerButtonClassName, "text-git-added hover:text-git-added")}
+                  tooltip={`Push ${ahead} commit${ahead !== 1 ? "s" : ""}`}
+                >
+                  <ArrowUp />
+                  <span>{ahead}</span>
+                </Button>
+              )}
+
+              {behind > 0 && (
+                <Button
+                  type="button"
+                  onClick={() => void handleRemoteAction("pull", () => pullChanges(repoPath!))}
+                  disabled={!repoPath || isRemoteActionLoading}
+                  variant="ghost"
+                  size="xs"
+                  className={cn(composerButtonClassName, "text-git-deleted hover:text-git-deleted")}
+                  tooltip={`Pull ${behind} commit${behind !== 1 ? "s" : ""}`}
+                >
+                  <ArrowDown />
+                  <span>{behind}</span>
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <ButtonGroup ref={generateMenuAnchorRef}>
+            <Button
+              type="button"
+              variant="default"
+              size="xs"
+              onClick={() => void handleGenerateCommitMessage()}
+              disabled={isGenerateDisabled}
+              tooltip="Generate commit message with AI"
+              aria-label="Generate commit message with AI"
+            >
+              <Sparkles />
+            </Button>
+            <ButtonGroupSeparator />
+            <Button
+              type="button"
+              variant="default"
+              size="icon-xs"
+              onClick={() => setIsGenerateModeMenuOpen((open) => !open)}
+              disabled={isGenerating || isCommitting}
+              active={isGenerateModeMenuOpen}
+              tooltip="Commit message format"
+              aria-label="Commit message format"
+              aria-haspopup="menu"
+              aria-expanded={isGenerateModeMenuOpen}
+            >
+              <ChevronDown />
+            </Button>
+          </ButtonGroup>
+          <Dropdown
+            isOpen={isGenerateModeMenuOpen}
+            anchorRef={generateMenuAnchorRef}
+            anchorAlign="end"
+            onClose={() => setIsGenerateModeMenuOpen(false)}
+            items={generateModeItems}
+            className="min-w-37.5"
+          />
+
+          <Button
+            type="button"
+            onClick={() => void handleCommit()}
+            disabled={isCommitDisabled}
+            variant="ghost"
+            size="xs"
+            className={cn(
+              composerButtonClassName,
+              isCommitDisabled
+                ? "cursor-not-allowed text-subtle-foreground opacity-50"
+                : "text-primary hover:bg-primary/8 hover:text-primary/80",
+            )}
+          >
+            {isCommitting ? "Committing..." : "Commit"}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default GitCommitPanel;

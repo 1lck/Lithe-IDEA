@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import LitheAIAssistanceModule
+import LitheCoreContracts
 import Testing
 @testable import Lithe
 
@@ -297,6 +299,70 @@ struct CommitMessageTests {
         #expect(systemPrompt.contains("complete set of staged changes"))
         #expect(systemPrompt.contains("Do not infer a feature from a filename alone"))
     }
+
+    @Test
+    func pullRequestGenerationReturnsStructuredGroundedContent() async throws {
+        let profile = AIProviderProfile(
+            name: "Test provider",
+            endpoint: "https://example.test/api",
+            model: "fast-model",
+            apiProtocol: .chatCompletions,
+            apiKeyIdentifier: "test-key",
+            requiresAPIKey: true
+        )
+        var settings = CommitMessageAISettings.default
+        settings.providers = [profile]
+        settings.activeProviderID = profile.id
+        settings.pullRequestFormat = .custom
+        settings.pullRequestCustomTemplate = "## Summary\n\n{summary}\n\n## Testing\n\n{testing}"
+        let generatedData = try JSONSerialization.data(withJSONObject: [
+            "title": "Add AI PR descriptions",
+            "description": "## Summary\n\nAdds grounded PR descriptions."
+        ])
+        let generated = String(decoding: generatedData, as: UTF8.self)
+        let responseBody = try JSONSerialization.data(withJSONObject: [
+            "choices": [["message": ["content": generated]]]
+        ])
+        let transport = MockAIHTTPTransport(
+            response: AIHTTPResponse(statusCode: 200, body: responseBody)
+        )
+        let service = CommitMessageGenerationService(
+            transport: transport,
+            credentialResolver: InMemoryAIProviderCredentialResolver(
+                values: ["test-key": "test-secret"]
+            )
+        )
+        let input = PullRequestDescriptionInput(
+            repository: "example/lithe",
+            base: "main",
+            head: "feature/ai-pr",
+            commitMessages: ["Add generation"],
+            files: [PullRequestDescriptionFileInput(
+                path: "Sources/PullRequest.swift",
+                changeKind: .modified,
+                patch: "@@ -1 +1 @@\n-old\n+new"
+            )]
+        )
+
+        let output = try await service.generatePullRequestDescription(
+            input: input,
+            settings: settings
+        )
+
+        #expect(output.title == "Add AI PR descriptions")
+        #expect(output.description.contains("Adds grounded PR descriptions"))
+        let body = try #require(await transport.lastRequest?.body)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        let systemPrompt = try #require(messages[0]["content"] as? String)
+        let userPrompt = try #require(messages[1]["content"] as? String)
+        #expect(systemPrompt.contains("Preserve this Markdown template"))
+        #expect(systemPrompt.contains("never claim tests passed"))
+        #expect(userPrompt.contains("Base branch: main"))
+        #expect(userPrompt.contains("Compare branch: feature/ai-pr"))
+        #expect(userPrompt.contains("path: Sources/PullRequest.swift"))
+        #expect(json["max_tokens"] as? Int == 1_600)
+    }
 }
 
 private let testCommitMessageInput = CommitMessageInput(
@@ -308,6 +374,23 @@ private let testCommitMessageInput = CommitMessageInput(
 @Suite("Commit message settings")
 @MainActor
 struct CommitMessageSettingsTests {
+    @Test
+    func legacyAISettingsGainPullRequestDefaults() throws {
+        var object = try #require(
+            JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(CommitMessageAISettings.default)
+            ) as? [String: Any]
+        )
+        object["pullRequestFormat"] = nil
+        object["pullRequestCustomTemplate"] = nil
+        let data = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(CommitMessageAISettings.self, from: data)
+
+        #expect(decoded.pullRequestFormat == .standard)
+        #expect(decoded.pullRequestCustomTemplate == CommitMessageAISettings.defaultPullRequestTemplate)
+    }
+
     @Test
     func themeSettingsPersistAndDefaultToDarkLithe() {
         let store = InMemoryKeyValueStore()

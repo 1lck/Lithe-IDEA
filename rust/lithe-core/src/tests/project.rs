@@ -271,7 +271,7 @@ fn file_mask_limits_search_to_matching_extensions() {
     assert!(java_only.iter().any(|path| path.ends_with("Service.java")));
     assert!(!java_only.iter().any(|path| path.ends_with("notes.txt")));
 
-    // 多个掩码取并集，且容忍逗号后的空格。
+    // Multiple masks form a union, and whitespace after commas is ignored.
     let both = search("*.java, *.txt");
     assert!(both.iter().any(|path| path.ends_with("Service.java")));
     assert!(both.iter().any(|path| path.ends_with("notes.txt")));
@@ -360,6 +360,20 @@ fn local_history_records_deduplicates_lists_and_relocates() {
 
     let second = request("history.record", record_payload("two\n"));
     assert_eq!(second["ok"], true);
+    let second_id = second["data"]["id"]
+        .as_str()
+        .expect("recorded history entry should have an ID");
+    let renamed = request(
+        "history.rename",
+        serde_json::json!({
+            "storageRoot": storage,
+            "path": "src/Main.java",
+            "id": second_id,
+            "label": "before refactor"
+        }),
+    );
+    assert_eq!(renamed["ok"], true, "{renamed}");
+    assert_eq!(renamed["data"]["label"], "before refactor");
     let listed = request(
         "history.entries",
         serde_json::json!({
@@ -370,6 +384,7 @@ fn local_history_records_deduplicates_lists_and_relocates() {
     );
     assert_eq!(listed["ok"], true);
     assert_eq!(listed["data"]["entries"].as_array().unwrap().len(), 2);
+    assert_eq!(listed["data"]["entries"][0]["label"], "before refactor");
     let content_path = listed["data"]["entries"][0]["contentPath"]
         .as_str()
         .unwrap();
@@ -381,6 +396,38 @@ fn local_history_records_deduplicates_lists_and_relocates() {
         }),
     );
     assert_eq!(content["data"]["text"], "two\n");
+
+    let deleted = request(
+        "history.delete",
+        serde_json::json!({
+            "storageRoot": storage,
+            "path": "src/Main.java",
+            "id": second_id
+        }),
+    );
+    assert_eq!(deleted["ok"], true, "{deleted}");
+    let after_delete = request(
+        "history.entries",
+        serde_json::json!({
+            "workspaceRoot": root,
+            "storageRoot": storage,
+            "path": "src/Main.java"
+        }),
+    );
+    assert_eq!(after_delete["data"]["entries"].as_array().unwrap().len(), 1);
+
+    for invalid_id in ["../outside", "entry.json", ""] {
+        let invalid_entry = request(
+            "history.delete",
+            serde_json::json!({
+                "storageRoot": storage,
+                "path": "src/Main.java",
+                "id": invalid_id
+            }),
+        );
+        assert_eq!(invalid_entry["ok"], false, "ID {invalid_id} should fail");
+        assert_eq!(invalid_entry["error"]["code"], "invalid_request");
+    }
 
     let relocated = request(
         "history.relocate",
@@ -404,7 +451,7 @@ fn local_history_records_deduplicates_lists_and_relocates() {
             .as_array()
             .unwrap()
             .len(),
-        2
+        1
     );
 
     let traversal = request(

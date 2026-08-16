@@ -14,10 +14,20 @@ scripts/build-macos.sh --configuration debug --triple "$TRIPLE"
 
 # 必须打成 .app 再启动：裸可执行文件没有 Info.plist，macOS 不会把它当成
 # 前台应用，窗口能收到鼠标点击但永远拿不到键盘焦点。
-APP_DIR="$ROOT_DIR/.build/preview/Lithe.app"
-rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Contents/Helpers"
+PREVIEW_ROOT="$ROOT_DIR/.build/preview"
+mkdir -p "$PREVIEW_ROOT"
+# Every launch owns a separate bundle. AppKit decodes SVG resources lazily, so
+# replacing a fixed bundle while an older preview is still running corrupts
+# that process's cached images and can let missing-image placeholders cover the
+# project tree and tool windows.
+INSTANCE_DIR=$(mktemp -d "$PREVIEW_ROOT/instance.XXXXXX")
+APP_DIR="$INSTANCE_DIR/Lithe.app"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources/OfficialPlugins" "$APP_DIR/Contents/Helpers"
 cp ".build/$TRIPLE/debug/Lithe" "$APP_DIR/Contents/MacOS/Lithe"
+plugin_root=$(scripts/build-official-plugins.sh --configuration debug --triple "$TRIPLE")
+for plugin_package in "$plugin_root"/*(/N); do
+    cp -R "$plugin_package" "$APP_DIR/Contents/Resources/OfficialPlugins/${plugin_package:t}"
+done
 case "$TRIPLE" in
     arm64-apple-macosx) RUST_TARGET="aarch64-apple-darwin" ;;
     x86_64-apple-macosx) RUST_TARGET="x86_64-apple-darwin" ;;
@@ -31,6 +41,7 @@ MACOSX_DEPLOYMENT_TARGET=13.0 \
     cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-db-mcp --target "$RUST_TARGET"
 cp "rust/target/macos/$RUST_TARGET/debug/lithe-db-mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
 cp Resources/Info.plist "$APP_DIR/Contents/Info.plist"
+"$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
 cp -R Resources/DatabaseIcons "$APP_DIR/Contents/Resources/DatabaseIcons"
@@ -42,4 +53,5 @@ for localization in en.lproj zh-Hans.lproj; do
 done
 codesign --force --deep --sign - "$APP_DIR"
 
-exec open -n -W "$APP_DIR"
+open -n -W "$APP_DIR"
+rm -rf "$INSTANCE_DIR"

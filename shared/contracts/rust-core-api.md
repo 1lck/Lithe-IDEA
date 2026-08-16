@@ -1,7 +1,8 @@
 # Rust Core API
 
 The Rust core is the shared application runtime for macOS SwiftUI and Windows
-Qt/C++. Both bindings call the same C ABI:
+React/Tauri. macOS calls the stable C ABI while the Tauri host links the Rust
+crate directly. The C ABI remains:
 
 ```c
 const char *lithe_core_version(void);
@@ -13,8 +14,8 @@ void lithe_core_free_string(char *value);
 
 The macOS package uses the small C bridge in `Sources/LitheRustCore/`. The
 canonical C declarations are in `rust/lithe-core/include/lithe_core.h`.
-Windows can link the same `staticlib` or `cdylib` and call these functions from
-C++.
+Native clients can link the same `staticlib` or `cdylib`; Rust hosts call
+`lithe_core::execute_json` and `lithe_core::cancel_operation` directly.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
@@ -58,6 +59,13 @@ stable error code and a user-facing message:
 | Command | Purpose |
 | --- | --- |
 | `core.ping` | Verify the ABI and protocol version |
+| `community.discourse.auth.begin` | Create an ephemeral RSA-OAEP authorization session and return the Discourse browser URL |
+| `community.discourse.auth.complete` | Decrypt, validate, and consume one Discourse user API key callback |
+| `community.discourse.auth.revoke` | Revoke the current Discourse user API key |
+| `community.discourse.topics` | List normalized latest or top topic summaries |
+| `community.discourse.topic` | Read one topic with ordered, sanitized post HTML |
+| `community.discourse.categories` | List normalized visible categories |
+| `community.discourse.search` | Search normalized topics and sanitized posts |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
@@ -68,6 +76,8 @@ stable error code and a user-facing message:
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
 | `history.relocate` | Move a file's history records after a rename |
+| `history.rename` | Set or clear a user-visible label on a history entry |
+| `history.delete` | Delete one history entry and its snapshot |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `lsp.applyTextEdits` | Apply LSP UTF-16 text edits with range validation |
@@ -91,6 +101,7 @@ stable error code and a user-facing message:
 | `java.sourceDefinition` | Locate a Java type, method, or field declaration in source text |
 | `java.serverPort` | Parse Spring server port settings from properties or YAML text |
 | `java.structure` | Parse Java editor structure, implementation candidates, and inlay hints |
+| `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
@@ -99,6 +110,7 @@ stable error code and a user-facing message:
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
+| `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return combined output plus exit code |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
@@ -109,21 +121,59 @@ stable error code and a user-facing message:
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
 | `git.blame` | Return structured line blame metadata |
+| `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
+| `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
+| `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
 
 Workspace paths in responses are relative and use `/` separators. Line numbers
 are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
-relative to that repository root. The core rejects absolute paths and `..`
+relative to that repository root. `git.status.ahead` and `behind` report the
+current branch's tracking counts and are zero when no upstream is configured.
+The core rejects absolute paths and `..`
 traversal for file commands. Native file dialogs, file watching, PTY/ConPTY,
 Java processes, and runtime discovery remain platform adapters.
 
 The protocol version is currently `1`. Add a fixture under `shared/fixtures/`
 before changing a response shape or search rule.
 
+GitHub command shapes, authorization behavior, and supported pull-request
+operations are documented in [`github.md`](github.md). Rust Core performs no
+network or credential I/O for these commands.
+
+`community.discourse.auth.begin` accepts an HTTPS `origin`, stable `clientId`,
+user-visible `applicationName`, platform-owned `authRedirect`, and a non-empty
+array of supported `scopes`. It returns an opaque `flowId`, an
+`authorizationUrl` that requests RSA-OAEP padding, and an `expiresAt` Unix
+timestamp. The private key and nonce remain in Rust memory and expire after ten
+minutes. `community.discourse.auth.complete` accepts that `flowId` and the full
+`callbackUrl`; it consumes the flow, verifies the callback target, decrypts the
+payload, and checks the nonce before returning `userApiKey` and `apiVersion`.
+Platform hosts open the browser, receive their registered URL scheme, and store
+the returned credential in Keychain or Windows Credential Manager. They do not
+implement Discourse cryptography or callback validation.
+
+The authenticated community commands accept `origin`, `userApiKey`, and
+`clientId` plus their operation-specific fields. Rust owns HTTPS requests,
+authentication headers, a 30-second request timeout, a 5 MB response limit,
+Discourse JSON decoding, deterministic post ordering, and HTML sanitization.
+Platform clients never issue a parallel Discourse request or parse a second
+response shape. Credential vault reads and writes remain native adapters; the
+credential is passed to Core only for the duration of one command.
+
 `git.watchContext` accepts `{ "root": string }`. When `root` is not inside a
 Git repository, it returns `null`. Otherwise it returns
 `{ "repositoryRoot": string, "gitDirectory": string, "gitCommonDirectory": string }`;
 all three fields are absolute filesystem paths.
+
+`git.pullRequestContext` accepts `{ "root": string }` and returns
+`currentBranch`, `suggestedBaseBranch`, `suggestedPublishBranch`,
+`requiresPublish`, `detached`, and `hasUncommittedChanges`. For detached
+worktrees, Core uses the worktree HEAD reflog's oldest commit and refs pointing
+at that commit to suggest the branch from which the worktree started. For a
+named branch, `requiresPublish` remains true until its current HEAD is present
+on the same branch under `origin`, because GitHub repository identity is also
+resolved from `origin`.
 
 `git.command` accepts `{ "root": string, "arguments": string[], "input": string? }`.
 Arguments are passed directly to the Git executable without a shell. A
@@ -133,7 +183,7 @@ standard error envelope.
 
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `cherryPick`, `revert`,
-`reset`, `createBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
+`reset`, `createBranch`, `publishBranch`, `renameBranch`, `deleteBranch`, `merge`, `rebase`,
 `fetch`, `pull`, `push`, `checkout`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, and `stashDrop`. Optional fields are `paths`,
 `reference`, `referenceKind`, `revision`, `name`, `message`, `remote`,
@@ -145,7 +195,10 @@ Successful process launch returns `{ "output": string, "exitCode": number }`
 even when Git exits non-zero. Invalid arguments use the standard
 `invalid_request` error envelope. `checkout` uses `referenceKind` values
 `local`, `remote`, or `tag`; `clone` uses `remote` as its source and
-`destination` as its target path.
+`destination` as its target path. `publishBranch` validates `name`, creates
+and checks out that branch at a detached HEAD when needed, then pushes it with
+an upstream. If the push fails, the local branch is intentionally retained so
+the user can fix credentials or connectivity and retry without losing commits.
 
 `git.diff` accepts `root`, `pathspecs`, optional `reference` or `commit`,
 `staged`, `untracked`, `contextLines`, and `ignoreAllWhitespace`, and returns `{ "patch": string, "rows": [],
@@ -167,9 +220,11 @@ worktree. Pathspecs must be workspace-relative and must not contain absolute
 paths or `..` components.
 
 `git.history` accepts `root`, an optional full `reference`, and `limit` (the
-core clamps it to `1...5000`). It returns `references`, `commits`, and
-`hasMore`; commit parents are explicit so clients can render merge topology
-without re-parsing Git output.
+core clamps it to `1...5000`). It returns `references`, `commits`, `hasMore`,
+and the optional effective `userName` and `userEmail` from repository Git
+configuration. Commit parents are explicit so clients can render merge
+topology without re-parsing Git output. The identity fields let clients
+implement a stable `me` filter without guessing from recent commits.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
@@ -261,8 +316,10 @@ accepts `workspaceRoot`, a relative `path`, a `reason`, and optional UTF-8
 are versioned, de-duplicated against the latest snapshot, capped at 100 entries
 per file, and pruned after 30 days. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
-`contentPath` values. `history.content` rejects traversal, and
-`history.relocate` updates metadata and storage paths at the command boundary.
+`contentPath` values. `history.content` rejects traversal,
+`history.relocate` updates metadata and storage paths, and `history.rename` and
+`history.delete` validate both the relative file path and entry ID before
+changing stored metadata.
 
 `maven.scan` accepts `{ "root": string, "paths"?: string[] }` and returns
 `null` when neither the root nor the supplied visible workspace-relative paths
@@ -327,3 +384,27 @@ returns `foldRegions`, `implementationMarkers`, and `inlayHints`. Line numbers
 are zero-based because these values are editor offsets; UTF-16 columns and
 hidden ranges match the native text editor coordinate system. The parser is
 platform-independent and does not start a Java process or contact JDT.
+
+`spring.index` accepts `root`, workspace-relative `paths`, optional trusted
+absolute `metadataRepositories` (and the legacy singular `metadataRepository`),
+optional `textOverrides` keyed by relative path, and
+`refreshDependencyMetadata`. The command reads Spring configuration
+metadata from workspace JSON files and dependency JARs, indexes application
+configuration documents and Java source, and returns deterministically ordered
+`properties`, `values`, `propertyReferences`, `diagnostics`, `beans`,
+`injections`, and `endpoints` collections. Locations use relative paths and
+one-based lines and columns.
+
+`properties` include type, documentation, default value, and an optional Java
+declaration. `values` include profile/override state and an optional declaration
+target. `propertyReferences` represent Java `@Value` uses. Bean resolution
+accounts for component names, `@Bean` aliases, interfaces, `@Qualifier`,
+`@Resource`, `@Primary`, field injection, and constructor injection. Endpoint
+entries expand multiple controller/method paths and retain the exact declared
+HTTP method set.
+
+Dependency metadata is cached in the Rust process. Project-open indexing sets
+`refreshDependencyMetadata` to `true`; debounced unsaved-buffer indexing leaves
+it `false`, so editing Java or configuration files does not repeatedly traverse
+and open the local dependency repository. The repository path is selected by
+the platform composition layer and is never persisted in shared results.

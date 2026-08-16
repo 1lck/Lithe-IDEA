@@ -1,3 +1,5 @@
+//! Deterministic Git inspection and mutation behind the shared command contract.
+
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     GitBlameLineResponse, GitBlameResponse, GitChange, GitCheckoutPreflightResponse,
@@ -17,14 +19,41 @@ use std::time::Duration;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for a deterministic porcelain status snapshot.
 pub struct GitStatusRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for the directories and files a host watcher should observe.
 pub struct GitWatchContextRequest {
     pub root: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request for branch and publication state used by pull request creation.
+pub struct GitPullRequestContextRequest {
+    pub root: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Worktree-aware branch defaults and publication requirements for a pull request.
+pub struct GitPullRequestContextResponse {
+    /// Checked-out local branch, or `None` when HEAD is detached.
+    pub current_branch: Option<String>,
+    /// Best-effort branch that should receive the pull request.
+    pub suggested_base_branch: Option<String>,
+    /// Branch name shown when the current commit must be published first.
+    pub suggested_publish_branch: Option<String>,
+    /// Whether GitHub cannot yet see the current local HEAD.
+    pub requires_publish: bool,
+    /// Whether the worktree has no checked-out local branch.
+    pub detached: bool,
+    /// Whether tracked or untracked working-tree changes are not part of HEAD.
+    pub has_uncommitted_changes: bool,
 }
 
 /// Executes one Git operation without invoking a shell.
@@ -44,6 +73,7 @@ pub struct GitCommandRequest {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Stable output returned by argument-based Git execution.
 pub struct GitCommandResponse {
     pub output: String,
     pub exit_code: i32,
@@ -57,6 +87,7 @@ pub struct GitCommandResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Recovery context when restoring a stash produces conflicts.
 pub struct GitStashRestoreResponse {
     pub stash_reference: String,
     pub conflicted_paths: Vec<String>,
@@ -64,13 +95,16 @@ pub struct GitStashRestoreResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Typed mutation request translated into a controlled Git invocation.
 pub struct GitWriteRequest {
     pub root: String,
+    /// Stable mutation discriminator interpreted by [`write`].
     pub operation: String,
     #[serde(default)]
     pub paths: Vec<String>,
     #[serde(default)]
     pub reference: Option<String>,
+    /// Reference category used by checkout: `local`, `remote`, or `tag`.
     #[serde(default)]
     pub reference_kind: Option<String>,
     #[serde(default)]
@@ -83,6 +117,7 @@ pub struct GitWriteRequest {
     pub remote: Option<String>,
     #[serde(default)]
     pub destination: Option<String>,
+    /// Operation-specific strategy, such as reset mode or pull reconciliation.
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
@@ -99,6 +134,7 @@ pub struct GitWriteRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for a structured diff suitable for side-by-side rendering.
 pub struct GitDiffRequest {
     pub root: String,
     pub pathspecs: Vec<String>,
@@ -118,14 +154,17 @@ pub struct GitDiffRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to apply a patch to the index or working tree.
 pub struct GitApplyRequest {
     pub root: String,
     pub patch: String,
+    /// Patch target or validation mode, including `stage`, `unstage`, and `worktree`.
     pub mode: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for bounded commit history from an optional reference.
 pub struct GitHistoryRequest {
     pub root: String,
     #[serde(default)]
@@ -136,6 +175,7 @@ pub struct GitHistoryRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for metadata and parent information about one commit.
 pub struct GitCommitRequest {
     pub root: String,
     pub commit: String,
@@ -143,6 +183,7 @@ pub struct GitCommitRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for the paths changed by one commit.
 pub struct GitCommitFilesRequest {
     pub root: String,
     pub commit: String,
@@ -150,6 +191,7 @@ pub struct GitCommitFilesRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to compare a reference with the current checkout.
 pub struct GitComparisonRequest {
     pub root: String,
     pub reference: String,
@@ -157,12 +199,14 @@ pub struct GitComparisonRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for the repository's ordered stash list.
 pub struct GitStashesRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to identify local edits that would block switching references.
 pub struct GitCheckoutPreflightRequest {
     pub root: String,
     pub reference: String,
@@ -170,12 +214,14 @@ pub struct GitCheckoutPreflightRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to find staged files that still contain conflict markers.
 pub struct GitConflictMarkerRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to determine whether a merge or rebase can start safely.
 pub struct GitIntegrationPreflightRequest {
     pub root: String,
     pub reference: String,
@@ -185,18 +231,21 @@ pub struct GitIntegrationPreflightRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to determine whether the tracked branch can fast-forward.
 pub struct GitPullPreflightRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to inspect an interrupted merge, rebase, cherry-pick, or revert.
 pub struct GitOperationStateRequest {
     pub root: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request for line attribution on one workspace-relative file.
 pub struct GitBlameRequest {
     pub root: String,
     pub path: String,
@@ -210,6 +259,7 @@ fn default_history_limit() -> usize {
     300
 }
 
+/// Executes an argument-based Git command after validating the workspace root.
 pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
     execute_git(&root, &request.arguments, request.input)
@@ -220,6 +270,7 @@ fn readonly_command(request: GitCommandRequest) -> Result<GitCommandResponse, Co
     execute_git_readonly(&root, &request.arguments, request.input)
 }
 
+/// Executes one supported repository mutation without invoking a shell.
 pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
     let mut arguments: Vec<String>;
@@ -330,6 +381,9 @@ pub fn write(request: GitWriteRequest) -> Result<GitCommandResponse, CoreError> 
             } else {
                 vec!["branch".into(), name, reference]
             };
+        }
+        "publishBranch" => {
+            return publish_branch(&root, request.name.as_deref());
         }
         "renameBranch" => {
             let name = validated_branch_name(&root, request.name.as_deref())?;
@@ -545,6 +599,7 @@ fn execute_git_with_options(
     })
 }
 
+/// Builds a structured working-tree, staged, untracked, or commit diff.
 pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     if request.pathspecs.is_empty() || request.pathspecs.iter().any(|path| !is_safe_pathspec(path))
     {
@@ -618,6 +673,7 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     })
 }
 
+/// Applies a validated patch using the requested index or working-tree mode.
 pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> {
     let arguments = match request.mode.as_str() {
         "stage" => vec![
@@ -673,9 +729,12 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
     })
 }
 
+/// Returns bounded commit history without relying on localized display output.
 pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreError> {
     let limit = request.limit.clamp(1, 5_000);
     let root = validate_root(&request.root)?;
+    let user_name = git_config_value(&root, "user.name");
+    let user_email = git_config_value(&root, "user.email");
     let reference_output = readonly_command(GitCommandRequest {
         root: root.clone(),
         arguments: vec![
@@ -743,9 +802,28 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         references,
         commits: all_commits.into_iter().take(limit).collect(),
         has_more,
+        user_name,
+        user_email,
     })
 }
 
+/// Reads one effective repository configuration value without making a missing
+/// optional value fail the surrounding history request.
+fn git_config_value(root: &str, key: &str) -> Option<String> {
+    let response = readonly_command(GitCommandRequest {
+        root: root.to_string(),
+        arguments: vec!["config".to_string(), "--get".to_string(), key.to_string()],
+        input: None,
+    })
+    .ok()?;
+    if response.exit_code != 0 {
+        return None;
+    }
+    let value = response.output.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+/// Resolves one commit and its parent metadata.
 pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.commit)?;
@@ -774,6 +852,7 @@ pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, Core
     Ok(GitCommitLookupResponse { commit })
 }
 
+/// Lists workspace-relative files changed by one commit.
 pub fn commit_files(request: GitCommitFilesRequest) -> Result<GitFilesResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.commit)?;
@@ -801,6 +880,7 @@ pub fn commit_files(request: GitCommitFilesRequest) -> Result<GitFilesResponse, 
     })
 }
 
+/// Computes ahead/behind counts and changed files for a reference comparison.
 pub fn comparison(request: GitComparisonRequest) -> Result<GitComparisonResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.reference)?;
@@ -1393,6 +1473,7 @@ fn is_conflicted_status(code: &str) -> bool {
     matches!(code, "UU" | "AA" | "DD" | "DU" | "UD" | "AU" | "UA")
 }
 
+/// Lists stashes with stable references and parsed metadata.
 pub fn stashes(request: GitStashesRequest) -> Result<GitStashesResponse, CoreError> {
     let root = validate_root(&request.root)?;
     let response = readonly_command(GitCommandRequest {
@@ -1416,6 +1497,7 @@ pub fn stashes(request: GitStashesRequest) -> Result<GitStashesResponse, CoreErr
     })
 }
 
+/// Returns line attribution parsed from Git's machine-readable porcelain form.
 pub fn blame(request: GitBlameRequest) -> Result<GitBlameResponse, CoreError> {
     if !is_safe_pathspec(&request.path) {
         return Err(CoreError::new(
@@ -1581,6 +1663,21 @@ fn current_branch(root: &str) -> Result<String, CoreError> {
         ));
     }
     Ok(branch.to_string())
+}
+
+fn optional_current_branch(root: &str) -> Result<Option<String>, CoreError> {
+    let response = execute_git_readonly(root, &["branch".into(), "--show-current".into()], None)?;
+    if response.exit_code != 0 {
+        return Err(CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Could not determine current branch",
+        )
+        .with_details(response.output));
+    }
+    Ok(match response.output.trim() {
+        "" => None,
+        branch => Some(branch.to_string()),
+    })
 }
 
 fn is_current_reference(root: &str, reference: &str) -> Result<bool, CoreError> {
@@ -1801,6 +1898,39 @@ fn push(root: &str, reference: Option<&str>) -> Result<GitCommandResponse, CoreE
         ),
         None => Ok(failed_git_result("No Git remote is configured")),
     }
+}
+
+fn publish_branch(root: &str, name: Option<&str>) -> Result<GitCommandResponse, CoreError> {
+    let name = validated_branch_name(root, name)?;
+    match optional_current_branch(root)? {
+        Some(current) if current != name => {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Publish the currently checked out branch",
+            ));
+        }
+        Some(_) => {}
+        None => {
+            let created = execute_git(
+                root,
+                &["switch".into(), "-c".into(), name.clone(), "HEAD".into()],
+                None,
+            )?;
+            if created.exit_code != 0 {
+                return Ok(created);
+            }
+        }
+    }
+    execute_git(
+        root,
+        &[
+            "push".into(),
+            "--set-upstream".into(),
+            "origin".into(),
+            name,
+        ],
+        None,
+    )
 }
 
 /// Checks out `request.reference`, honouring the conflict-resolution strategy the user
@@ -2055,11 +2185,13 @@ fn null_device() -> &'static str {
     }
 }
 
+/// One removed or added line retained with its original side's line number.
 struct DiffEntry {
     number: usize,
     text: String,
 }
 
+/// Parsed patch hunk before it is aligned into side-by-side rows.
 struct DiffHunkRecord {
     id: String,
     header: String,
@@ -2364,6 +2496,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
     (rows, hunks)
 }
 
+/// Resolves the Git administrative paths and references a watcher must observe.
 pub fn watch_context(
     request: GitWatchContextRequest,
 ) -> Result<Option<GitWatchContextResponse>, CoreError> {
@@ -2415,6 +2548,128 @@ fn canonical_git_output(output: std::process::Output, label: &str) -> Result<Str
         })
 }
 
+/// Returns the checked-out branch and whether its HEAD must be pushed before a PR.
+pub fn pull_request_context(
+    request: GitPullRequestContextRequest,
+) -> Result<GitPullRequestContextResponse, CoreError> {
+    let root = validate_root(&request.root)?;
+    let current_branch = optional_current_branch(&root)?;
+    let detached = current_branch.is_none();
+    let remote_default = command_value(
+        &root,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
+    )
+    .map(|value| value.trim_start_matches("origin/").to_string());
+
+    let suggested_base_branch = if let Some(branch) = current_branch.as_deref() {
+        created_from_branch(&root, branch).or(remote_default)
+    } else {
+        detached_start_branch(&root).or(remote_default)
+    };
+    let requires_publish = current_branch
+        .as_deref()
+        .map_or(true, |branch| branch_requires_publish(&root, branch));
+    let suggested_publish_branch = if requires_publish {
+        current_branch.clone().or_else(|| {
+            command_value(&root, &["rev-parse", "--short=8", "HEAD"])
+                .map(|short_hash| format!("codex/pr-{short_hash}"))
+        })
+    } else {
+        None
+    };
+    let has_uncommitted_changes = command_value(
+        &root,
+        &["status", "--porcelain", "--untracked-files=normal"],
+    )
+    .is_some();
+
+    Ok(GitPullRequestContextResponse {
+        current_branch,
+        suggested_base_branch,
+        suggested_publish_branch,
+        requires_publish,
+        detached,
+        has_uncommitted_changes,
+    })
+}
+
+fn command_value(root: &str, arguments: &[&str]) -> Option<String> {
+    let arguments = arguments
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    let response = execute_git_readonly(root, &arguments, None).ok()?;
+    let value = response.output.trim();
+    (response.exit_code == 0 && !value.is_empty()).then(|| value.to_string())
+}
+
+fn created_from_branch(root: &str, branch: &str) -> Option<String> {
+    let reference = format!("refs/heads/{branch}");
+    let response = command_value(root, &["reflog", "show", "--format=%gs", &reference])?;
+    let prefix = "branch: Created from ";
+    response.lines().find_map(|line| {
+        let source = line.strip_prefix(prefix)?;
+        if matches!(source, "HEAD" | "FETCH_HEAD" | "ORIG_HEAD") {
+            // Publishing a detached worktree creates its branch from HEAD.
+            // Preserve the worktree's original branch as the PR base instead
+            // of falling back to origin/HEAD after the branch is published.
+            detached_start_branch(root)
+        } else {
+            Some(source.trim_start_matches("origin/").to_string())
+        }
+    })
+}
+
+fn detached_start_branch(root: &str) -> Option<String> {
+    let reflog = command_value(root, &["reflog", "show", "--format=%H", "HEAD"])?;
+    // Reflog output is newest-first; the final entry is the commit at which
+    // this worktree's HEAD was initialized.
+    let starting_commit = reflog.lines().last()?.trim();
+    let references = command_value(
+        root,
+        &[
+            "for-each-ref",
+            "--sort=refname",
+            "--format=%(refname)",
+            "--points-at",
+            starting_commit,
+            "refs/heads",
+            "refs/remotes/origin",
+        ],
+    )?;
+    references
+        .lines()
+        .find_map(|reference| reference.strip_prefix("refs/heads/").map(str::to_string))
+        .or_else(|| {
+            references.lines().find_map(|reference| {
+                reference
+                    .strip_prefix("refs/remotes/origin/")
+                    .filter(|branch| *branch != "HEAD")
+                    .map(str::to_string)
+            })
+        })
+}
+
+fn branch_requires_publish(root: &str, branch: &str) -> bool {
+    let origin_branch = format!("refs/remotes/origin/{branch}");
+    if command_value(root, &["rev-parse", "--verify", &origin_branch]).is_none() {
+        return true;
+    }
+    let comparison = format!("{origin_branch}..HEAD");
+    match command_value(root, &["rev-list", "--count", &comparison])
+        .and_then(|count| count.parse::<usize>().ok())
+    {
+        Some(0) => false,
+        Some(_) | None => true,
+    }
+}
+
+/// Returns the normalized repository status and branch context.
 pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError> {
     let root = PathBuf::from(&request.root)
         .canonicalize()
@@ -2430,6 +2685,8 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         return Ok(GitStatusResponse {
             repository_root: None,
             branch: None,
+            ahead: 0,
+            behind: 0,
             changes: Vec::new(),
         });
     }
@@ -2461,11 +2718,33 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         );
     }
     let changes = parse_status(&status_output.stdout);
+    let (ahead, behind) = tracking_counts(&repository_root);
     Ok(GitStatusResponse {
         repository_root: Some(relative_or_absolute(&repository_root, &root)),
         branch,
+        ahead,
+        behind,
         changes,
     })
+}
+
+fn tracking_counts(repository_root: &Path) -> (usize, usize) {
+    let Ok(output) = run_git(
+        repository_root,
+        &["rev-list", "--left-right", "--count", "@{upstream}...HEAD"],
+    ) else {
+        return (0, 0);
+    };
+    if !output.status.success() {
+        return (0, 0);
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut values = text
+        .split_whitespace()
+        .filter_map(|value| value.parse().ok());
+    let behind = values.next().unwrap_or(0);
+    let ahead = values.next().unwrap_or(0);
+    (ahead, behind)
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {

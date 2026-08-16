@@ -1,0 +1,354 @@
+import {
+  WarningCircleIcon as AlertCircle,
+  ColumnsIcon as Columns,
+  GlobeHemisphereWestIcon as Globe,
+  ListIcon as Menu,
+  ChatCircleTextIcon as MessageSquare,
+  RowsIcon as Rows,
+  SidebarSimpleIcon as PanelBottom,
+  SidebarSimpleIcon as PanelLeft,
+  ArrowCounterClockwiseIcon as RotateCcw,
+  MagnifyingGlassIcon as Search,
+  TerminalWindowIcon as Terminal,
+  MagnifyingGlassPlusIcon as ZoomIn,
+  MagnifyingGlassMinusIcon as ZoomOut,
+} from "@/ui/icons";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import type { BottomPaneTab } from "@/features/window/stores/ui-state/types/ui-state.types";
+import { showPromptDialog } from "@/ui/dialog";
+import { keymapRegistry } from "@/features/keymaps/utils/registry";
+import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/utils/platform";
+import type { Action } from "../types/action.types";
+
+interface ViewActionsParams {
+  isSidebarVisible: boolean;
+  setIsSidebarVisible: (v: boolean) => void;
+  isBottomPaneVisible: boolean;
+  setIsBottomPaneVisible: (v: boolean) => void;
+  bottomPaneActiveTab: BottomPaneTab;
+  setBottomPaneActiveTab: (tab: BottomPaneTab) => void;
+  settings: {
+    activityRailExpanded: boolean;
+    isAIChatVisible: boolean;
+    nativeMenuBar: boolean;
+    compactMenuBar: boolean;
+    webViewerEnabled: boolean;
+  };
+  updateSetting: (key: string, value: any) => void | Promise<void>;
+  zoomIn: (target: "editor" | "terminal") => void;
+  zoomOut: (target: "editor" | "terminal") => void;
+  resetZoom: (target: "editor" | "terminal") => void;
+  openWebViewerBuffer: (url: string) => void;
+  onClose: () => void;
+}
+
+export const createViewActions = (params: ViewActionsParams): Action[] => {
+  const {
+    isSidebarVisible,
+    setIsSidebarVisible,
+    isBottomPaneVisible,
+    setIsBottomPaneVisible,
+    bottomPaneActiveTab,
+    setBottomPaneActiveTab,
+    settings,
+    updateSetting,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    openWebViewerBuffer,
+    onClose,
+  } = params;
+
+  return [
+    {
+      id: "toggle-activity-sidebar",
+      label: settings.activityRailExpanded
+        ? "View: Collapse Activity Sidebar"
+        : "View: Expand Activity Sidebar",
+      description: settings.activityRailExpanded
+        ? "Collapse the activity sidebar"
+        : "Expand the activity sidebar",
+      icon: <PanelLeft />,
+      category: "View",
+      commandId: "workbench.toggleActivitySidebar",
+      action: () => {
+        void keymapRegistry.executeCommand("workbench.toggleActivitySidebar");
+        onClose();
+      },
+    },
+    {
+      id: "toggle-sidebar",
+      label: isSidebarVisible ? "View: Hide Secondary Sidebar" : "View: Show Secondary Sidebar",
+      description: isSidebarVisible
+        ? "Hide the secondary sidebar panel"
+        : "Show the secondary sidebar panel",
+      icon: <PanelLeft />,
+      category: "View",
+      commandId: "workbench.toggleSidebar",
+      action: () => {
+        setIsSidebarVisible(!isSidebarVisible);
+        onClose();
+      },
+    },
+    {
+      id: "toggle-bottom-pane",
+      label: isBottomPaneVisible ? "View: Hide Bottom Pane" : "View: Show Bottom Pane",
+      description: isBottomPaneVisible ? "Hide the bottom pane" : "Show the bottom pane",
+      icon: <PanelBottom />,
+      category: "View",
+      action: () => {
+        setIsBottomPaneVisible(!isBottomPaneVisible);
+        onClose();
+      },
+    },
+    {
+      id: "toggle-terminal",
+      label:
+        isBottomPaneVisible && bottomPaneActiveTab === "terminal"
+          ? "View: Hide Terminal"
+          : "View: Show Terminal",
+      description: "Toggle integrated terminal panel",
+      icon: <Terminal />,
+      category: "View",
+      commandId: "workbench.toggleTerminalAlt",
+      action: () => {
+        if (isBottomPaneVisible && bottomPaneActiveTab === "terminal") {
+          setIsBottomPaneVisible(false);
+        } else {
+          setBottomPaneActiveTab("terminal");
+          setIsBottomPaneVisible(true);
+          window.dispatchEvent(new CustomEvent("terminal-ensure-session"));
+        }
+        onClose();
+      },
+    },
+    {
+      id: "toggle-diagnostics-panel",
+      label: "View: Show Diagnostics",
+      description: "Open diagnostics",
+      icon: <AlertCircle />,
+      category: "View",
+      commandId: "workbench.toggleDiagnostics",
+      action: () => {
+        useBufferStore.getState().actions.openDiagnosticsBuffer();
+        onClose();
+      },
+    },
+    {
+      id: "toggle-ai-chat-view",
+      label: settings.isAIChatVisible ? "View: Hide AI Chat" : "View: Show AI Chat",
+      description: settings.isAIChatVisible ? "Hide AI chat panel" : "Show AI chat panel",
+      icon: <MessageSquare />,
+      category: "View",
+      commandId: "workbench.toggleAIChat",
+      action: () => {
+        useSettingsStore.getState().actions.toggleAIChatVisible();
+        onClose();
+      },
+    },
+    {
+      id: "toggle-find-view",
+      label: "View: Find",
+      description: "Find in the active editor",
+      icon: <Search />,
+      category: "View",
+      commandId: "workbench.showFind",
+      action: () => {
+        void keymapRegistry.executeCommand("workbench.showFind");
+        onClose();
+      },
+    },
+    ...(!IS_MAC && !IS_WINDOWS && !IS_LINUX
+      ? [
+          {
+            id: "toggle-native-menu-bar",
+            label: settings.nativeMenuBar
+              ? "View: Disable Native Menu Bar"
+              : "View: Enable Native Menu Bar",
+            description: settings.nativeMenuBar
+              ? "Use custom menu bar"
+              : "Use native operating system menu bar",
+            icon: <Menu />,
+            category: "View",
+            action: async () => {
+              const newValue = !settings.nativeMenuBar;
+              updateSetting("nativeMenuBar", newValue);
+              const { invoke } = await import("@/platform/tauri-core");
+              await invoke("toggle_menu_bar", { toggle: newValue });
+              onClose();
+            },
+          },
+        ]
+      : []),
+    ...(!IS_MAC
+      ? [
+          {
+            id: "toggle-compact-menu-bar",
+            label: settings.compactMenuBar
+              ? "View: Disable Compact Menu Bar"
+              : "View: Enable Compact Menu Bar",
+            description: settings.compactMenuBar
+              ? "Show full menu bar"
+              : "Use compact menu bar with hamburger icon",
+            icon: <Menu />,
+            category: "View",
+            action: () => {
+              updateSetting("compactMenuBar", !settings.compactMenuBar);
+              onClose();
+            },
+          },
+        ]
+      : []),
+    {
+      id: "view-zoom-in",
+      label: "Editor: Zoom In",
+      description: "Increase editor zoom level",
+      icon: <ZoomIn />,
+      category: "View",
+      commandId: "workbench.zoomIn",
+      action: () => {
+        zoomIn("editor");
+        onClose();
+      },
+    },
+    {
+      id: "view-zoom-out",
+      label: "Editor: Zoom Out",
+      description: "Decrease editor zoom level",
+      icon: <ZoomOut />,
+      category: "View",
+      commandId: "workbench.zoomOut",
+      action: () => {
+        zoomOut("editor");
+        onClose();
+      },
+    },
+    {
+      id: "view-reset-zoom",
+      label: "Editor: Reset Zoom",
+      description: "Reset editor zoom to default level",
+      icon: <RotateCcw />,
+      category: "View",
+      commandId: "workbench.zoomReset",
+      action: () => {
+        resetZoom("editor");
+        onClose();
+      },
+    },
+    {
+      id: "terminal-new",
+      label: "Terminal: New Terminal",
+      description: "Create a new integrated terminal",
+      icon: <Terminal />,
+      category: "Terminal",
+      commandId: "terminal.new",
+      action: () => {
+        onClose();
+        void keymapRegistry.executeCommand("terminal.new");
+      },
+    },
+    {
+      id: "terminal-find",
+      label: "Terminal: Find",
+      description: "Search in the active terminal",
+      icon: <Search />,
+      category: "Terminal",
+      commandId: "terminal.find",
+      action: () => {
+        onClose();
+        void keymapRegistry.executeCommand("terminal.find");
+      },
+    },
+    {
+      id: "terminal-split-right",
+      label: "Terminal: Split Right",
+      description: "Open a terminal beside the active terminal",
+      icon: <Columns />,
+      category: "Terminal",
+      commandId: "terminal.split",
+      action: () => {
+        onClose();
+        void keymapRegistry.executeCommand("terminal.split");
+      },
+    },
+    {
+      id: "terminal-split-down",
+      label: "Terminal: Split Down",
+      description: "Open a terminal below the active terminal",
+      icon: <Rows />,
+      category: "Terminal",
+      commandId: "terminal.splitDown",
+      action: () => {
+        onClose();
+        void keymapRegistry.executeCommand("terminal.splitDown");
+      },
+    },
+    {
+      id: "terminal-zoom-in",
+      label: "Terminal: Zoom In",
+      description: "Increase terminal zoom level",
+      icon: <ZoomIn />,
+      category: "Terminal",
+      action: () => {
+        zoomIn("terminal");
+        onClose();
+      },
+    },
+    {
+      id: "terminal-zoom-out",
+      label: "Terminal: Zoom Out",
+      description: "Decrease terminal zoom level",
+      icon: <ZoomOut />,
+      category: "Terminal",
+      action: () => {
+        zoomOut("terminal");
+        onClose();
+      },
+    },
+    {
+      id: "terminal-reset-zoom",
+      label: "Terminal: Reset Zoom",
+      description: "Reset terminal zoom to default level",
+      icon: <RotateCcw />,
+      category: "Terminal",
+      action: () => {
+        resetZoom("terminal");
+        onClose();
+      },
+    },
+    ...(settings.webViewerEnabled
+      ? [
+          {
+            id: "open-web-viewer",
+            label: "View: Open Web Viewer",
+            description: "Open a new web viewer tab",
+            icon: <Globe />,
+            category: "View",
+            action: () => {
+              openWebViewerBuffer("about:blank");
+              onClose();
+            },
+          },
+          {
+            id: "open-url",
+            label: "View: Open URL...",
+            description: "Open a URL in web viewer",
+            icon: <Globe />,
+            category: "View",
+            action: async () => {
+              const url = await showPromptDialog("Enter URL:", {
+                title: "Open URL",
+                defaultValue: "https://",
+                placeholder: "https://",
+              });
+              if (url?.trim()) {
+                openWebViewerBuffer(url.trim());
+              }
+              onClose();
+            },
+          },
+        ]
+      : []),
+  ];
+};

@@ -1,0 +1,15 @@
+import LitheCoreContracts
+
+typealias RunOptions = LitheCoreContracts.RunOptions
+typealias JavaRunOptions = LitheCoreContracts.RunOptions
+typealias RunSession = LitheCoreContracts.RunSession
+typealias RunPortConflict = LitheCoreContracts.RunPortConflict
+typealias RunConfigurationCapabilities = LitheCoreContracts.RunConfigurationCapabilities
+typealias MavenFrameworkKind = LitheCoreContracts.MavenFrameworkKind
+typealias RunConfigurationKind = LitheCoreContracts.RunConfigurationKind
+typealias RunConfigurationExecution = LitheCoreContracts.RunConfigurationExecution
+typealias RunConfiguration = LitheCoreContracts.RunConfiguration
+typealias JavaRunSession = LitheCoreContracts.RunSession
+typealias JavaRunPortConflict = LitheCoreContracts.RunPortConflict
+typealias JavaRunConfigurationKind = LitheCoreContracts.RunConfigurationKind
+typealias JavaRunConfiguration = LitheCoreContracts.RunConfiguration

@@ -1,0 +1,614 @@
+import type React from "react";
+import { invoke } from "@/platform/tauri-core";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { CsvPreview } from "@/extensions/viewers/csv/csv-preview";
+import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
+import { useLspIntegration } from "@/features/editor/hooks/use-lsp-integration";
+import { useEditorScroll } from "@/features/editor/hooks/use-scroll";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { useEditorSettingsStore } from "@/features/editor/stores/settings.store";
+import { useEditorStateStore } from "@/features/editor/stores/state.store";
+import { useEditorViewStore } from "@/features/editor/stores/view.store";
+import { getBufferById } from "@/features/editor/utils/buffer-index";
+import { calculateLineHeight } from "@/features/editor/utils/lines";
+import { resolveGoToLineTarget } from "@/features/editor/utils/go-to-line";
+import type { EditorModelPositionResolver } from "@/features/editor/view-model/view-layout";
+import { hasTextContent } from "@/features/panes/types/pane-content.types";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { toast } from "sonner";
+import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
+import { useZoomStore } from "@/features/window/stores/zoom.store";
+import { editorAPI } from "../extensions/api";
+import CodeLensOverlay from "../lsp/code-lens-overlay";
+import RenameInput from "../lsp/rename-input";
+import { SignatureHelpTooltip } from "../lsp/signature-help-tooltip";
+import type { CodeLensItem } from "../lsp/use-code-lens";
+import { useRename } from "../lsp/use-rename";
+import { MarkdownPreview } from "../markdown/markdown-preview";
+import { NotebookEditor } from "../notebook/notebook-editor";
+import { getPythonScriptCells } from "../notebook/python-script-cells";
+import {
+  applyRMarkdownChunkOptionSemantics,
+  clearRMarkdownChunkOutput,
+  formatRMarkdownChunkOutput,
+  getRMarkdownChunks,
+  rMarkdownChunkShouldEvaluate,
+  rMarkdownChunkShouldPersistOutput,
+  updateRMarkdownChunkOutput,
+} from "../notebook/rmarkdown-chunks";
+import type { EditorContentChangeOptions, Position, Range } from "../types/editor.types";
+import { ScrollDebugOverlay } from "./debug/scroll-debug-overlay";
+import { HtmlPreview } from "./html/html-preview";
+import { MonacoEditor } from "./monaco-editor";
+import { EditorStylesheet } from "./stylesheet";
+import Breadcrumb, { type BreadcrumbProps } from "./toolbar/breadcrumb";
+
+interface CodeEditorProps {
+  onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
+  onCursorPositionChange?: (position: number) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+  paneId?: string;
+  bufferId?: string;
+  isActiveSurface?: boolean;
+  showToolbar?: boolean;
+  readOnly?: boolean;
+  breadcrumbProps?: BreadcrumbProps;
+  scrollable?: boolean;
+  backgroundLayer?: ReactNode;
+  onReadonlySurfaceClick?: (position: { line: number; column: number }) => void;
+  highlightMatches?: Array<{ start: number; end: number }>;
+  currentHighlightIndex?: number;
+  lineNumberStart?: number;
+  lineNumberMap?: Array<number | null>;
+  onContentChange?: (
+    content: string,
+    previousContent?: string,
+    previousCursorPosition?: Position,
+    previousSelection?: Range,
+    options?: EditorContentChangeOptions,
+  ) => void;
+}
+
+export interface CodeEditorRef {
+  editor: HTMLDivElement | null;
+  textarea: HTMLDivElement | null;
+}
+
+interface GoToLineEventDetail {
+  line?: number;
+  column?: number;
+  path?: string;
+}
+
+const PYTHON_SCRIPT_CELL_COMMAND = "lithe.runPythonScriptCell";
+const R_MARKDOWN_CHUNK_COMMAND = "lithe.runRMarkdownChunk";
+
+interface NotebookRunResult {
+  stdout: string;
+  stderr: string;
+  status: number | null;
+  timedOut: boolean;
+  displayData?: Array<unknown>;
+}
+
+function isPythonScriptFile(filePath: string): boolean {
+  const normalized = filePath.toLowerCase();
+  return normalized.endsWith(".py") || normalized.endsWith(".ipy");
+}
+
+function isRMarkdownFile(filePath: string): boolean {
+  return filePath.toLowerCase().endsWith(".rmd");
+}
+
+function editorWorkingDirectory(path: string): string | null {
+  if (!path || path.startsWith("remote://") || path.includes("://")) return null;
+  const lastSlash = path.lastIndexOf("/");
+  if (lastSlash <= 0) return null;
+  return path.slice(0, lastSlash);
+}
+
+function truncateCellOutput(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= 180) return trimmed;
+  return `${trimmed.slice(0, 177)}...`;
+}
+
+const CodeEditor = ({
+  className,
+  paneId,
+  bufferId: propBufferId,
+  isActiveSurface = true,
+  showToolbar = true,
+  readOnly = false,
+  breadcrumbProps,
+  scrollable = true,
+  backgroundLayer,
+  onReadonlySurfaceClick,
+  highlightMatches,
+  currentHighlightIndex,
+  lineNumberStart,
+  lineNumberMap,
+  onContentChange,
+}: CodeEditorProps) => {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const codeLensRef = useRef<HTMLDivElement>(null);
+  const renameInputRef = useRef<HTMLDivElement>(null);
+  const valueRef = useRef("");
+  const editorModelPositionResolverRef = useRef<EditorModelPositionResolver | null>(null);
+  const [codeLensContentLeft, setCodeLensContentLeft] = useState<number>(
+    EDITOR_CONSTANTS.EDITOR_PADDING_LEFT,
+  );
+  const { setRefs, setContent, setFileInfo, setActiveEditorViewKey } =
+    useEditorStateStore.use.actions();
+  const { setDisabled } = useEditorSettingsStore.use.actions();
+
+  const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
+  const zoomLevel = useZoomStore.use.editorZoomLevel();
+  const activeBuffer = useBufferStore(
+    useCallback((state) => getBufferById(state.buffers, activeBufferId), [activeBufferId]),
+  );
+  const editorViewKey = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : activeBufferId;
+  const { handleContentChange } = useEditorAppStore.use.actions();
+  const editorFontSize = useSettingsStore((state) => state.settings.fontSize);
+  const editorLineHeight = useSettingsStore((state) => state.settings.editorLineHeight);
+  const codeLensEnabled = useSettingsStore((state) => state.settings.codeLens);
+
+  // Apply zoom to font size for position calculations (must match editor.tsx)
+  const zoomedFontSize = editorFontSize * zoomLevel;
+  const zoomedLineHeight = calculateLineHeight(zoomedFontSize, editorLineHeight);
+
+  // Extract values from active buffer or use defaults
+  const value = activeBuffer && hasTextContent(activeBuffer) ? activeBuffer.content : "";
+  valueRef.current = value;
+  const filePath = activeBuffer?.path || "";
+  const onChange = activeBuffer
+    ? (onContentChange ?? (isActiveSurface ? handleContentChange : () => {}))
+    : () => {};
+  const isPreviewBuffer = activeBuffer?.isPreview ?? false;
+  const showNotebookEditor =
+    activeBuffer?.type === "editor" && filePath.toLowerCase().endsWith(".ipynb");
+  const enableInteractiveServices =
+    isActiveSurface && !isPreviewBuffer && !readOnly && !showNotebookEditor;
+  const enableRichEditorServices = enableInteractiveServices;
+  const enableCodeLens = enableRichEditorServices && codeLensEnabled;
+
+  const showMarkdownPreview = activeBuffer?.type === "markdownPreview";
+  const showHtmlPreview = activeBuffer?.type === "htmlPreview";
+  const showCsvPreview = activeBuffer?.type === "csvPreview";
+
+  // Initialize refs in store
+  useEffect(() => {
+    if (!isActiveSurface) return;
+    setRefs({
+      editorRef,
+    });
+  }, [isActiveSurface, setRefs]);
+
+  useEffect(() => {
+    if (!isActiveSurface) return;
+    setActiveEditorViewKey(editorViewKey ?? null);
+  }, [editorViewKey, isActiveSurface, setActiveEditorViewKey]);
+
+  // Focus editor when active buffer changes
+  useEffect(() => {
+    if (!enableInteractiveServices) return;
+    if (!activeBufferId || !editorRef.current) return;
+
+    const focusTarget =
+      editorRef.current
+        .querySelector<HTMLElement>("[data-monaco-editor-scroll]")
+        ?.querySelector<HTMLTextAreaElement>("textarea") ??
+      editorRef.current.querySelector<HTMLTextAreaElement>("textarea");
+
+    if (!focusTarget) return;
+
+    // Small delay to ensure the editor surface is mounted.
+    const focusTimer = setTimeout(() => {
+      focusTarget.focus();
+    }, 0);
+
+    return () => clearTimeout(focusTimer);
+  }, [activeBufferId, enableInteractiveServices]);
+
+  // Sync content and file info with editor instance store
+  useEffect(() => {
+    if (!isActiveSurface) return;
+    setContent("", onChange);
+  }, [isActiveSurface, onChange, setContent]);
+
+  useEffect(() => {
+    if (!isActiveSurface) return;
+    setFileInfo(filePath);
+  }, [filePath, isActiveSurface, setFileInfo]);
+
+  // Editor view store automatically syncs with active buffer
+
+  // Set disabled state
+  useEffect(() => {
+    if (!isActiveSurface) return;
+    setDisabled(false);
+  }, [isActiveSurface, setDisabled]);
+
+  const resolveModelPosition = useCallback<EditorModelPositionResolver>(
+    (line, column) => editorModelPositionResolverRef.current?.(line, column) ?? null,
+    [],
+  );
+  const handleModelPositionResolverChange = useCallback(
+    (resolver: EditorModelPositionResolver | null) => {
+      editorModelPositionResolverRef.current = resolver;
+    },
+    [],
+  );
+  const getCodeLensLineText = useCallback((line: number) => {
+    return valueRef.current.split("\n")[line];
+  }, []);
+  const measureCodeLensContentLeft = useCallback(() => {
+    const container = editorRef.current;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const contentContainer = container.querySelector<HTMLElement>(
+      "[data-editor-content-container]",
+    );
+    if (contentContainer) {
+      const contentRect = contentContainer.getBoundingClientRect();
+      setCodeLensContentLeft(Math.max(0, contentRect.left - containerRect.left));
+      return;
+    }
+
+    const monacoContent = container.querySelector<HTMLElement>(".monaco-editor .view-lines");
+    if (monacoContent) {
+      const contentRect = monacoContent.getBoundingClientRect();
+      setCodeLensContentLeft(Math.max(0, contentRect.left - containerRect.left));
+      return;
+    }
+
+    setCodeLensContentLeft(EDITOR_CONSTANTS.EDITOR_PADDING_LEFT);
+  }, []);
+
+  useLayoutEffect(() => {
+    const container = editorRef.current;
+    if (!container) return;
+
+    measureCodeLensContentLeft();
+    const animationFrame = requestAnimationFrame(measureCodeLensContentLeft);
+    const resizeObserver = new ResizeObserver(measureCodeLensContentLeft);
+    resizeObserver.observe(container);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+    };
+  }, [activeBufferId, measureCodeLensContentLeft, showToolbar, zoomedFontSize, zoomedLineHeight]);
+
+  // Consolidated LSP document lifecycle
+  useLspIntegration({
+    enabled: enableRichEditorServices,
+    filePath,
+    value,
+  });
+
+  // Rename symbol support
+  const rename = useRename(enableRichEditorServices ? filePath : undefined);
+
+  const pythonScriptCells = useMemo(
+    () =>
+      enableInteractiveServices && isPythonScriptFile(filePath) ? getPythonScriptCells(value) : [],
+    [enableInteractiveServices, filePath, value],
+  );
+  const pythonScriptCellLenses = useMemo<CodeLensItem[]>(
+    () =>
+      pythonScriptCells.map((cell) => ({
+        line: cell.markerLine,
+        title: "Run cell",
+        command: PYTHON_SCRIPT_CELL_COMMAND,
+        arguments: [cell.index],
+      })),
+    [pythonScriptCells],
+  );
+  const rMarkdownChunks = useMemo(
+    () => (enableInteractiveServices && isRMarkdownFile(filePath) ? getRMarkdownChunks(value) : []),
+    [enableInteractiveServices, filePath, value],
+  );
+  const rMarkdownChunkLenses = useMemo<CodeLensItem[]>(
+    () =>
+      rMarkdownChunks.map((chunk) => ({
+        line: chunk.markerLine,
+        title: "Run chunk",
+        command: R_MARKDOWN_CHUNK_COMMAND,
+        arguments: [chunk.index],
+      })),
+    [rMarkdownChunks],
+  );
+  const inlineCodeLenses = useMemo(
+    () => (codeLensEnabled ? [...pythonScriptCellLenses, ...rMarkdownChunkLenses] : []),
+    [codeLensEnabled, pythonScriptCellLenses, rMarkdownChunkLenses],
+  );
+
+  const handleCodeLensExecute = useCallback(
+    (lens: { title: string; command?: string; arguments?: unknown[] }) => {
+      if (!filePath || !lens.command) return;
+
+      if (lens.command === PYTHON_SCRIPT_CELL_COMMAND) {
+        const cellIndex = typeof lens.arguments?.[0] === "number" ? lens.arguments[0] : -1;
+        const cell = pythonScriptCells[cellIndex];
+        if (!cell) return;
+
+        void invoke<NotebookRunResult>("notebook_run_python_cell", {
+          code: cell.code,
+          setupCode: cell.setupCode,
+          cwd: editorWorkingDirectory(filePath),
+        })
+          .then((result) => {
+            if (result.timedOut) {
+              toast.error("Python cell timed out.");
+              return;
+            }
+            if (result.status !== 0 || result.stderr.trim()) {
+              toast.error(
+                truncateCellOutput(result.stderr || `Python exited with status ${result.status}.`),
+              );
+              return;
+            }
+            const stdout = truncateCellOutput(result.stdout);
+            if (stdout) {
+              toast.success(`Python cell output: ${stdout}`);
+              return;
+            }
+            if (result.displayData?.length) {
+              toast.success(`Python cell produced ${result.displayData.length} display output(s).`);
+              return;
+            }
+            toast.success("Python cell ran.");
+          })
+          .catch((error) => {
+            toast.error(error instanceof Error ? error.message : "Failed to run Python cell");
+          });
+        return;
+      }
+
+      if (lens.command === R_MARKDOWN_CHUNK_COMMAND) {
+        const chunkIndex = typeof lens.arguments?.[0] === "number" ? lens.arguments[0] : -1;
+        const chunk = rMarkdownChunks[chunkIndex];
+        if (!chunk) return;
+
+        if (!rMarkdownChunkShouldEvaluate(chunk)) {
+          onChange(clearRMarkdownChunkOutput(valueRef.current, chunk));
+          toast.success("R chunk skipped because eval=FALSE.");
+          return;
+        }
+
+        void invoke<NotebookRunResult>("notebook_run_r_cell", {
+          code: chunk.code,
+          setupCode: chunk.setupCode,
+          cwd: editorWorkingDirectory(filePath),
+        })
+          .then((result) => {
+            const currentValue = valueRef.current;
+            const currentChunk = getRMarkdownChunks(currentValue)[chunkIndex] ?? chunk;
+            const semanticResult = applyRMarkdownChunkOptionSemantics(result, currentChunk);
+            if (rMarkdownChunkShouldPersistOutput(currentChunk)) {
+              onChange(
+                updateRMarkdownChunkOutput(
+                  currentValue,
+                  currentChunk,
+                  formatRMarkdownChunkOutput(semanticResult),
+                ),
+              );
+            } else {
+              onChange(clearRMarkdownChunkOutput(currentValue, currentChunk));
+            }
+
+            if (result.timedOut) {
+              toast.error("R chunk timed out.");
+              return;
+            }
+            const allowCapturedError = currentChunk.options.error === true;
+            if (
+              !allowCapturedError &&
+              (semanticResult.status !== 0 || semanticResult.stderr.trim())
+            ) {
+              toast.error(
+                truncateCellOutput(
+                  semanticResult.stderr || `R exited with status ${semanticResult.status}.`,
+                ),
+              );
+              return;
+            }
+            const stdout = truncateCellOutput(semanticResult.stdout);
+            if (allowCapturedError && semanticResult.stderr.trim()) {
+              toast.success("R chunk completed with captured error output.");
+              return;
+            }
+            toast.success(stdout ? `R chunk output: ${stdout}` : "R chunk ran.");
+          })
+          .catch((error) => {
+            toast.error(error instanceof Error ? error.message : "Failed to run R chunk");
+          });
+        return;
+      }
+    },
+    [filePath, onChange, pythonScriptCells, rMarkdownChunks],
+  );
+
+  // Keep app-owned overlays aligned with Monaco's scroll position.
+  const syncLspOverlayTransform = useCallback((scrollTop: number, scrollLeft: number) => {
+    const transform = `translate(-${scrollLeft}px, -${scrollTop}px)`;
+    for (const ref of [codeLensRef, renameInputRef]) {
+      if (ref.current) {
+        ref.current.style.transform = transform;
+      }
+    }
+  }, []);
+
+  // Scroll management
+  useEditorScroll(editorRef, null);
+
+  // Handle go-to-line events (from search results, diagnostics, vim, etc.)
+  useEffect(() => {
+    if (!isActiveSurface) return;
+    const goToLine = (lineNumber: number, columnNumber?: number) => {
+      if (!editorRef.current) return false;
+
+      const currentContent = valueRef.current;
+      if (!currentContent) return false;
+
+      const target = resolveGoToLineTarget({
+        content: currentContent,
+        lineNumber,
+        columnNumber,
+        lineCount: useEditorViewStore.getState().actions.getLineCount(),
+      });
+
+      editorAPI.setSelection(undefined);
+      editorAPI.setCursorPosition({
+        line: target.line,
+        column: target.column,
+        offset: target.offset,
+      });
+
+      return true;
+    };
+
+    const handleGoToLine = (event: CustomEvent<GoToLineEventDetail>) => {
+      const lineNumber = event.detail?.line;
+      const columnNumber = event.detail?.column;
+      const targetPath = event.detail?.path;
+      if (targetPath && targetPath !== filePath) return;
+      if (!lineNumber) return;
+
+      // Try immediately, then retry if content not ready yet
+      if (!goToLine(lineNumber, columnNumber)) {
+        setTimeout(() => goToLine(lineNumber, columnNumber), 150);
+      }
+    };
+
+    window.addEventListener("menu-go-to-line", handleGoToLine as EventListener);
+    return () => {
+      window.removeEventListener("menu-go-to-line", handleGoToLine as EventListener);
+    };
+  }, [filePath, isActiveSurface]);
+
+  if (!activeBuffer) {
+    return <div className="flex flex-1 items-center justify-center text-foreground"></div>;
+  }
+
+  return (
+    <>
+      <EditorStylesheet />
+      <div className="absolute inset-0 flex flex-col overflow-hidden">
+        {/* Breadcrumbs */}
+        {showToolbar && (
+          <Breadcrumb
+            {...breadcrumbProps}
+            editorViewKey={editorViewKey}
+            bufferId={activeBufferId ?? undefined}
+            filePathOverride={breadcrumbProps?.filePathOverride ?? filePath}
+          />
+        )}
+
+        <div
+          ref={editorRef}
+          className={`editor-container relative min-h-0 flex-1 overflow-hidden ${className || ""}`}
+          data-zoom-level={zoomLevel}
+          style={{
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+            // Zoom is now applied via font size scaling in Editor component
+            // to avoid subpixel rendering mismatches between text and positioned elements
+          }}
+        >
+          {/* Code Lens */}
+          {enableCodeLens && inlineCodeLenses.length > 0 && (
+            <CodeLensOverlay
+              ref={codeLensRef}
+              lenses={inlineCodeLenses}
+              fontSize={zoomedFontSize}
+              lineHeight={zoomedLineHeight}
+              scrollTop={editorRef.current?.querySelector("textarea")?.scrollTop ?? 0}
+              viewportHeight={editorRef.current?.clientHeight ?? 600}
+              contentLeft={codeLensContentLeft}
+              getLineText={getCodeLensLineText}
+              onExecute={handleCodeLensExecute}
+              resolveModelPosition={resolveModelPosition}
+            />
+          )}
+
+          {/* Signature Help */}
+          {enableRichEditorServices && (
+            <SignatureHelpTooltip
+              editorRef={editorRef}
+              filePath={filePath}
+              resolveModelPosition={resolveModelPosition}
+            />
+          )}
+
+          {/* Rename Input */}
+          {enableRichEditorServices && rename.renameState && (
+            <RenameInput
+              ref={renameInputRef}
+              symbol={rename.renameState.symbol}
+              line={rename.renameState.line}
+              column={rename.renameState.column}
+              fontSize={zoomedFontSize}
+              lineHeight={zoomedLineHeight}
+              charWidth={zoomedFontSize * 0.6}
+              resolveModelPosition={resolveModelPosition}
+              inputRef={rename.inputRef}
+              onSubmit={(newName) => void rename.executeRename(newName)}
+              onCancel={rename.cancelRename}
+            />
+          )}
+
+          {/* Main editor - absolute positioned to fill container */}
+          <div className="absolute inset-0 bg-background">
+            {showMarkdownPreview ? (
+              <MarkdownPreview />
+            ) : showHtmlPreview ? (
+              <HtmlPreview />
+            ) : showCsvPreview ? (
+              <CsvPreview />
+            ) : showNotebookEditor ? (
+              <NotebookEditor />
+            ) : (
+              <MonacoEditor
+                bufferId={activeBufferId ?? undefined}
+                viewStateKey={editorViewKey ?? undefined}
+                isActiveSurface={isActiveSurface}
+                isPreviewMode={isPreviewBuffer}
+                readOnly={readOnly}
+                scrollable={scrollable}
+                backgroundLayer={backgroundLayer}
+                onReadonlySurfaceClick={onReadonlySurfaceClick}
+                highlightMatches={highlightMatches}
+                currentHighlightIndex={currentHighlightIndex}
+                lineNumberStart={lineNumberStart}
+                lineNumberMap={lineNumberMap}
+                onContentChange={onChange}
+                onScrollOffsetChange={syncLspOverlayTransform}
+                onModelPositionResolverChange={handleModelPositionResolverChange}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Debug overlay for scroll monitoring */}
+      {enableInteractiveServices && <ScrollDebugOverlay />}
+    </>
+  );
+};
+
+CodeEditor.displayName = "CodeEditor";
+
+export default CodeEditor;

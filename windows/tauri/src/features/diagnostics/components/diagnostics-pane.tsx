@@ -1,0 +1,1190 @@
+import {
+  WarningCircleIcon as AlertCircle,
+  WarningIcon as AlertTriangle,
+  TextAlignCenterIcon as AlignCenter,
+  CheckIcon as Check,
+  CaretDownIcon as ChevronDown,
+  CaretRightIcon as ChevronRight,
+  CopyIcon as Copy,
+  FunnelIcon as Filter,
+  InfoIcon as Info,
+  ListBulletsIcon as ListBullets,
+  ArrowsOutIcon as Maximize,
+  ArrowsOutIcon as Maximize2,
+  ArrowsInIcon as Minimize2,
+  MagnifyingGlassIcon as Search,
+  MagicWandIcon as WandSparkles,
+  XIcon as X,
+} from "@/ui/icons";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { LspClient } from "@/features/editor/lsp/lsp-client";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import {
+  FileNavigatorSidebar,
+  type FileNavigatorItem,
+  type FileNavigatorViewMode,
+} from "@/features/file-explorer/components/file-navigator-sidebar";
+import { useToast } from "@/features/layout/contexts/toast-context";
+import { writeClipboardText } from "@/utils/clipboard";
+import { ScrollArea } from "@/ui/scroll-area";
+import type { TerminalWidthMode } from "@/features/terminal/stores/terminal.store";
+import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
+import { useProjectStore } from "@/features/window/stores/project.store";
+import Badge from "@/ui/badge";
+import { Button } from "@/ui/button";
+import { Dropdown, useDropdownMenu, type MenuItem } from "@/ui/dropdown";
+import { EmptyState } from "@/ui/empty";
+import {
+  PaneChip,
+  PaneIconButton,
+  paneHeaderClassName,
+} from "@/features/panes/components/pane-chrome";
+import { SearchPopover } from "@/ui/search";
+import { cn } from "@/utils/cn";
+import { getBaseName, getRelativePath, normalizePath } from "@/utils/path-helpers";
+import type { Diagnostic, DiagnosticCodeAction } from "../types/diagnostics.types";
+
+interface DiagnosticsPaneProps {
+  diagnostics: Diagnostic[];
+  isVisible: boolean;
+  onClose: () => void;
+  onDiagnosticClick?: (diagnostic: Diagnostic) => void;
+  isEmbedded?: boolean;
+  onFullScreen?: () => void;
+  isFullScreen?: boolean;
+}
+
+type GroupBy = "severity" | "file" | "none";
+type SortBy = "severity" | "file" | "position";
+
+type FilterMenuType = "filters";
+
+interface PanePreferences {
+  groupBy: GroupBy;
+  sortBy: SortBy;
+  onlyCurrentFile: boolean;
+  wrapMessages: boolean;
+  fileNavigatorViewMode: FileNavigatorViewMode;
+}
+
+interface DiagnosticGroup {
+  id: string;
+  label: string;
+  items: Diagnostic[];
+  severity?: Diagnostic["severity"];
+}
+
+const PREFS_STORAGE_KEY = "diagnostics-pane-prefs";
+
+const DEFAULT_PREFERENCES: PanePreferences = {
+  groupBy: "file",
+  sortBy: "severity",
+  onlyCurrentFile: false,
+  wrapMessages: true,
+  fileNavigatorViewMode: "flat",
+};
+
+const GROUP_OPTIONS: Array<{ value: GroupBy; label: string }> = [
+  { value: "file", label: "File" },
+  { value: "severity", label: "Severity" },
+  { value: "none", label: "None" },
+];
+
+const SORT_OPTIONS: Array<{ value: SortBy; label: string }> = [
+  { value: "severity", label: "Severity" },
+  { value: "file", label: "File" },
+  { value: "position", label: "Position" },
+];
+
+const SEVERITY_ORDER: Record<Diagnostic["severity"], number> = {
+  error: 0,
+  warning: 1,
+  info: 2,
+};
+
+const SEVERITY_LABEL: Record<Diagnostic["severity"], string> = {
+  error: "Errors",
+  warning: "Warnings",
+  info: "Info",
+};
+
+const SEVERITY_TEXT_CLASS: Record<Diagnostic["severity"], string> = {
+  error: "text-destructive",
+  warning: "text-warning",
+  info: "text-info",
+};
+
+const getSeverityIcon = (severity: Diagnostic["severity"], size = 11) => {
+  switch (severity) {
+    case "error":
+      return <AlertCircle size={size} className="text-destructive" />;
+    case "warning":
+      return <AlertTriangle size={size} className="text-warning" />;
+    case "info":
+      return <Info size={size} className="text-info" />;
+    default:
+      return <Info size={size} className="text-subtle-foreground" />;
+  }
+};
+
+const getFileName = (filePath: string) => {
+  const parts = filePath.split(/[\\/]/);
+  return parts[parts.length - 1] || filePath;
+};
+
+const isAbsolutePath = (filePath: string) => {
+  return filePath.startsWith("/") || /^[A-Za-z]:[\\/]/.test(filePath);
+};
+
+const getDiagnosticNavigatorPath = (filePath: string, rootFolderPath: string | undefined) => {
+  const relativePath = getRelativePath(filePath, rootFolderPath);
+  if (relativePath && relativePath !== filePath) return relativePath;
+  if (isAbsolutePath(filePath)) return getBaseName(filePath, filePath);
+  return normalizePath(filePath);
+};
+
+const getHighestSeverity = (
+  counts: Record<Diagnostic["severity"], number>,
+): Diagnostic["severity"] => {
+  if (counts.error > 0) return "error";
+  if (counts.warning > 0) return "warning";
+  return "info";
+};
+
+const buildDiagnosticKey = (diagnostic: Diagnostic) => {
+  return [
+    diagnostic.filePath,
+    diagnostic.line,
+    diagnostic.column,
+    diagnostic.endLine,
+    diagnostic.endColumn,
+    diagnostic.message,
+    diagnostic.code || "",
+    diagnostic.source || "",
+  ].join("::");
+};
+
+const splitDiagnosticMessage = (
+  message: string,
+): { summary: string; description: string | null } => {
+  const normalized = message.replace(/\r\n/g, "\n").trim();
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return { summary: "Diagnostic", description: null };
+  }
+
+  const [summary, ...rest] = lines;
+  const description = rest.join(" ").trim();
+
+  return {
+    summary,
+    description: description.length > 0 ? description : null,
+  };
+};
+
+const loadPreferences = (): PanePreferences => {
+  if (typeof window === "undefined") return DEFAULT_PREFERENCES;
+
+  try {
+    const raw = window.localStorage.getItem(PREFS_STORAGE_KEY);
+    if (!raw) return DEFAULT_PREFERENCES;
+
+    const parsed = JSON.parse(raw) as Partial<PanePreferences>;
+    return {
+      ...DEFAULT_PREFERENCES,
+      ...parsed,
+    };
+  } catch {
+    return DEFAULT_PREFERENCES;
+  }
+};
+
+const copyToClipboard = async (text: string) => {
+  await writeClipboardText(text);
+};
+
+const DiagnosticsPane = ({
+  diagnostics,
+  isVisible,
+  onClose,
+  onDiagnosticClick,
+  isEmbedded = false,
+  onFullScreen,
+  isFullScreen = false,
+}: DiagnosticsPaneProps) => {
+  const { showToast } = useToast();
+  const lspClient = useMemo(() => LspClient.getInstance(), []);
+  const widthMode = useTerminalStore((state) => state.widthMode);
+  const setWidthMode = useTerminalStore((state) => state.actions.setWidthMode);
+  const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
+
+  const diagnosticContextMenu = useDropdownMenu<Diagnostic>();
+  const filterContextMenu = useDropdownMenu<FilterMenuType>();
+  const headerContextMenu = useDropdownMenu<"header">();
+
+  const activeFilePath = useBufferStore((state) => {
+    const activeBuffer = state.activeBufferId
+      ? state.buffers.find((buffer) => buffer.id === state.activeBufferId)
+      : null;
+    if (!activeBuffer) return null;
+
+    if (activeBuffer.type !== "editor" || activeBuffer.isVirtual) {
+      return null;
+    }
+
+    return activeBuffer.path;
+  });
+
+  const [preferences, setPreferences] = useState<PanePreferences>(() => loadPreferences());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [severityFilter, setSeverityFilter] = useState<Record<Diagnostic["severity"], boolean>>({
+    error: true,
+    warning: true,
+    info: true,
+  });
+  const [isFileNavigatorVisible, setIsFileNavigatorVisible] = useState(true);
+  const [selectedDiagnosticFilePath, setSelectedDiagnosticFilePath] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const [codeActionsByDiagnostic, setCodeActionsByDiagnostic] = useState<
+    Record<string, DiagnosticCodeAction[]>
+  >({});
+  const [loadingActionsKey, setLoadingActionsKey] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(preferences));
+  }, [preferences]);
+
+  useEffect(() => {
+    if (!isSearchVisible) return;
+
+    const timeoutId = window.setTimeout(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }, 20);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isSearchVisible]);
+
+  // Fetch quick-fix actions lazily only when a diagnostic is right-clicked.
+  useEffect(() => {
+    if (!diagnosticContextMenu.isOpen || !diagnosticContextMenu.data) return;
+
+    const diagnostic = diagnosticContextMenu.data;
+    const key = buildDiagnosticKey(diagnostic);
+
+    if (codeActionsByDiagnostic[key]) return;
+
+    let cancelled = false;
+    setLoadingActionsKey(key);
+
+    lspClient
+      .getCodeActions(diagnostic.filePath, diagnostic)
+      .then((actions) => {
+        if (cancelled) return;
+        setCodeActionsByDiagnostic((prev) => ({
+          ...prev,
+          [key]: actions,
+        }));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingActionsKey((prev) => (prev === key ? null : prev));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    codeActionsByDiagnostic,
+    diagnosticContextMenu.data,
+    diagnosticContextMenu.isOpen,
+    lspClient,
+  ]);
+
+  const filteredDiagnostics = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const normalizedSourceFilter = sourceFilter?.toLowerCase() ?? null;
+
+    const filtered = diagnostics.filter((diagnostic) => {
+      if (!severityFilter[diagnostic.severity]) return false;
+
+      if (
+        preferences.onlyCurrentFile &&
+        activeFilePath &&
+        diagnostic.filePath.toLowerCase() !== activeFilePath.toLowerCase()
+      ) {
+        return false;
+      }
+
+      if (normalizedSourceFilter) {
+        const source = diagnostic.source?.toLowerCase() || "";
+        if (source !== normalizedSourceFilter) {
+          return false;
+        }
+      }
+
+      if (!normalizedQuery) return true;
+
+      const haystack = [
+        diagnostic.message,
+        diagnostic.source || "",
+        diagnostic.code || "",
+        diagnostic.filePath,
+        `${diagnostic.line + 1}:${diagnostic.column + 1}`,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(normalizedQuery);
+    });
+
+    return filtered.sort((left, right) => {
+      if (preferences.sortBy === "severity") {
+        const severityDiff = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
+        if (severityDiff !== 0) return severityDiff;
+      }
+
+      if (preferences.sortBy === "file" || preferences.sortBy === "severity") {
+        const fileDiff = left.filePath.localeCompare(right.filePath);
+        if (fileDiff !== 0) return fileDiff;
+      }
+
+      const lineDiff = left.line - right.line;
+      if (lineDiff !== 0) return lineDiff;
+
+      return left.column - right.column;
+    });
+  }, [activeFilePath, diagnostics, preferences, searchQuery, severityFilter, sourceFilter]);
+
+  const groupedDiagnostics = useMemo<DiagnosticGroup[]>(() => {
+    if (preferences.groupBy === "none") {
+      return [
+        {
+          id: "all",
+          label: "All Diagnostics",
+          items: filteredDiagnostics,
+        },
+      ];
+    }
+
+    if (preferences.groupBy === "severity") {
+      return ["error", "warning", "info"]
+        .map((severity) => {
+          const items = filteredDiagnostics.filter(
+            (diagnostic) => diagnostic.severity === severity,
+          );
+          return {
+            id: `severity-${severity}`,
+            label: SEVERITY_LABEL[severity as Diagnostic["severity"]],
+            items,
+            severity: severity as Diagnostic["severity"],
+          };
+        })
+        .filter((group) => group.items.length > 0);
+    }
+
+    const byFile = new Map<string, Diagnostic[]>();
+    for (const diagnostic of filteredDiagnostics) {
+      const current = byFile.get(diagnostic.filePath) || [];
+      current.push(diagnostic);
+      byFile.set(diagnostic.filePath, current);
+    }
+
+    return Array.from(byFile.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([filePath, items]) => ({
+        id: `file-${filePath}`,
+        label: filePath,
+        items,
+      }));
+  }, [filteredDiagnostics, preferences.groupBy]);
+
+  const totalBySeverity = useMemo(() => {
+    return diagnostics.reduce(
+      (acc, diagnostic) => {
+        acc[diagnostic.severity] += 1;
+        return acc;
+      },
+      { error: 0, warning: 0, info: 0 },
+    );
+  }, [diagnostics]);
+
+  const visibleBySeverity = useMemo(() => {
+    return filteredDiagnostics.reduce(
+      (acc, diagnostic) => {
+        acc[diagnostic.severity] += 1;
+        return acc;
+      },
+      { error: 0, warning: 0, info: 0 },
+    );
+  }, [filteredDiagnostics]);
+
+  const diagnosticFileItems = useMemo<FileNavigatorItem[]>(() => {
+    const byFile = new Map<
+      string,
+      {
+        total: number;
+        counts: Record<Diagnostic["severity"], number>;
+      }
+    >();
+
+    for (const diagnostic of filteredDiagnostics) {
+      const current =
+        byFile.get(diagnostic.filePath) ??
+        ({
+          total: 0,
+          counts: { error: 0, warning: 0, info: 0 },
+        } satisfies {
+          total: number;
+          counts: Record<Diagnostic["severity"], number>;
+        });
+
+      current.total += 1;
+      current.counts[diagnostic.severity] += 1;
+      byFile.set(diagnostic.filePath, current);
+    }
+
+    return Array.from(byFile.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([filePath, summary]) => {
+        const severity = getHighestSeverity(summary.counts);
+        const navigatorPath = getDiagnosticNavigatorPath(filePath, rootFolderPath);
+
+        return {
+          key: filePath,
+          path: navigatorPath,
+          label: navigatorPath,
+          iconPath: filePath,
+          iconClassName: SEVERITY_TEXT_CLASS[severity],
+          metadata: [
+            {
+              label: summary.total,
+              className: SEVERITY_TEXT_CLASS[severity],
+            },
+          ],
+        };
+      });
+  }, [filteredDiagnostics, rootFolderPath]);
+
+  const selectedFileNavigatorKey = useMemo(() => {
+    if (
+      selectedDiagnosticFilePath &&
+      diagnosticFileItems.some((item) => item.key === selectedDiagnosticFilePath)
+    ) {
+      return selectedDiagnosticFilePath;
+    }
+
+    if (activeFilePath && diagnosticFileItems.some((item) => item.key === activeFilePath)) {
+      return activeFilePath;
+    }
+
+    return null;
+  }, [activeFilePath, diagnosticFileItems, selectedDiagnosticFilePath]);
+
+  const toggleSeverity = useCallback((severity: Diagnostic["severity"]) => {
+    setSeverityFilter((prev) => ({
+      ...prev,
+      [severity]: !prev[severity],
+    }));
+  }, []);
+
+  const togglePreference = useCallback(<K extends keyof PanePreferences>(key: K) => {
+    setPreferences((prev) => ({
+      ...prev,
+      [key]: typeof prev[key] === "boolean" ? !prev[key] : prev[key],
+    }));
+  }, []);
+
+  const resetFilters = useCallback(() => {
+    setSearchQuery("");
+    setSourceFilter(null);
+    setSeverityFilter({
+      error: true,
+      warning: true,
+      info: true,
+    });
+    setPreferences((prev) => ({
+      ...DEFAULT_PREFERENCES,
+      fileNavigatorViewMode: prev.fileNavigatorViewMode,
+    }));
+  }, []);
+
+  const toggleGroupCollapse = useCallback((groupId: string) => {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [groupId]: !prev[groupId],
+    }));
+  }, []);
+
+  const selectDiagnosticFile = useCallback(
+    (filePath: string) => {
+      setSelectedDiagnosticFilePath(filePath);
+      setCollapsedGroups((prev) => ({
+        ...prev,
+        [`file-${filePath}`]: false,
+      }));
+
+      const diagnostic = filteredDiagnostics.find((item) => item.filePath === filePath);
+      if (diagnostic) {
+        onDiagnosticClick?.(diagnostic);
+      }
+    },
+    [filteredDiagnostics, onDiagnosticClick],
+  );
+
+  const applyCodeAction = useCallback(
+    async (diagnostic: Diagnostic, action: DiagnosticCodeAction) => {
+      const result = await lspClient.applyCodeAction(diagnostic.filePath, action.payload);
+
+      if (result.applied) {
+        showToast({
+          message: `Applied: ${action.title}`,
+          type: "success",
+        });
+        return;
+      }
+
+      showToast({
+        message: result.reason || `Unable to apply action: ${action.title}`,
+        type: "warning",
+      });
+    },
+    [lspClient, showToast],
+  );
+
+  const copyDiagnosticMessage = useCallback(
+    async (diagnostic: Diagnostic) => {
+      await copyToClipboard(diagnostic.message);
+      showToast({ message: "Diagnostic message copied", type: "success" });
+    },
+    [showToast],
+  );
+
+  const copyDiagnosticLocation = useCallback(
+    async (diagnostic: Diagnostic) => {
+      const text = `${diagnostic.filePath}:${diagnostic.line + 1}:${diagnostic.column + 1}`;
+      await copyToClipboard(text);
+      showToast({ message: "Diagnostic location copied", type: "success" });
+    },
+    [showToast],
+  );
+
+  const copyDiagnosticDetails = useCallback(
+    async (diagnostic: Diagnostic) => {
+      const details = [
+        `${diagnostic.filePath}:${diagnostic.line + 1}:${diagnostic.column + 1}`,
+        diagnostic.severity.toUpperCase(),
+        diagnostic.message,
+        diagnostic.source ? `source: ${diagnostic.source}` : "",
+        diagnostic.code ? `code: ${diagnostic.code}` : "",
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      await copyToClipboard(details);
+      showToast({ message: "Diagnostic details copied", type: "success" });
+    },
+    [showToast],
+  );
+
+  const diagnosticContextMenuItems = useMemo<MenuItem[]>(() => {
+    const diagnostic = diagnosticContextMenu.data;
+    if (!diagnostic) return [];
+
+    const key = buildDiagnosticKey(diagnostic);
+    const codeActions = codeActionsByDiagnostic[key] || [];
+    const isLoading = loadingActionsKey === key;
+
+    const items: MenuItem[] = [];
+
+    if (isLoading) {
+      items.push({
+        id: "loading-actions",
+        label: "Loading quick fixes...",
+        icon: <WandSparkles />,
+        onClick: () => {},
+        disabled: true,
+      });
+    } else if (codeActions.length > 0) {
+      codeActions.slice(0, 8).forEach((action) => {
+        const unsupportedEditOnly = action.hasEdit && !action.hasCommand;
+        const disabledReason = action.disabledReason || (unsupportedEditOnly ? "Unsupported" : "");
+
+        items.push({
+          id: `quick-fix-${action.id}`,
+          label: action.title,
+          icon: <WandSparkles />,
+          onClick: () => {
+            void applyCodeAction(diagnostic, action);
+          },
+          disabled: Boolean(disabledReason),
+        });
+      });
+    } else {
+      items.push({
+        id: "no-actions",
+        label: "No quick fixes available",
+        icon: <WandSparkles />,
+        onClick: () => {},
+        disabled: true,
+      });
+    }
+
+    items.push({ id: "sep-actions", label: "", separator: true, onClick: () => {} });
+
+    items.push(
+      {
+        id: "go-to-problem",
+        label: "Go to Problem",
+        onClick: () => onDiagnosticClick?.(diagnostic),
+      },
+      {
+        id: "copy-message",
+        label: "Copy Message",
+        icon: <Copy />,
+        onClick: () => {
+          void copyDiagnosticMessage(diagnostic);
+        },
+      },
+      {
+        id: "copy-location",
+        label: "Copy Location",
+        icon: <Copy />,
+        onClick: () => {
+          void copyDiagnosticLocation(diagnostic);
+        },
+      },
+      {
+        id: "copy-details",
+        label: "Copy Full Details",
+        icon: <Copy />,
+        onClick: () => {
+          void copyDiagnosticDetails(diagnostic);
+        },
+      },
+    );
+
+    if (diagnostic.source) {
+      const source = diagnostic.source;
+      if (sourceFilter?.toLowerCase() === source.toLowerCase()) {
+        items.push({
+          id: "clear-source-filter",
+          label: "Clear Source Filter",
+          icon: <Filter />,
+          onClick: () => setSourceFilter(null),
+        });
+      } else {
+        items.push({
+          id: "filter-by-source",
+          label: `Filter by Source: ${source}`,
+          icon: <Filter />,
+          onClick: () => setSourceFilter(source),
+        });
+      }
+    }
+
+    items.push({ id: "sep-view", label: "", separator: true, onClick: () => {} });
+
+    items.push({
+      id: "toggle-wrap",
+      label: preferences.wrapMessages ? "Disable Message Wrap" : "Enable Message Wrap",
+      onClick: () => togglePreference("wrapMessages"),
+    });
+
+    return items;
+  }, [
+    applyCodeAction,
+    codeActionsByDiagnostic,
+    copyDiagnosticDetails,
+    copyDiagnosticLocation,
+    copyDiagnosticMessage,
+    diagnosticContextMenu.data,
+    loadingActionsKey,
+    onDiagnosticClick,
+    preferences.wrapMessages,
+    sourceFilter,
+    togglePreference,
+  ]);
+
+  const hasNonDefaultPreferences =
+    preferences.groupBy !== DEFAULT_PREFERENCES.groupBy ||
+    preferences.sortBy !== DEFAULT_PREFERENCES.sortBy ||
+    preferences.onlyCurrentFile !== DEFAULT_PREFERENCES.onlyCurrentFile;
+
+  const hasFilterSettings =
+    Boolean(sourceFilter) ||
+    !severityFilter.error ||
+    !severityFilter.warning ||
+    !severityFilter.info ||
+    hasNonDefaultPreferences;
+
+  const hasFilters = Boolean(searchQuery.trim()) || hasFilterSettings;
+
+  const activeFilterCount =
+    Number(Boolean(sourceFilter)) +
+    Number(!severityFilter.error) +
+    Number(!severityFilter.warning) +
+    Number(!severityFilter.info) +
+    Number(preferences.groupBy !== DEFAULT_PREFERENCES.groupBy) +
+    Number(preferences.sortBy !== DEFAULT_PREFERENCES.sortBy) +
+    Number(preferences.onlyCurrentFile !== DEFAULT_PREFERENCES.onlyCurrentFile);
+
+  const hasSearch = Boolean(searchQuery.trim());
+  const visibleProblemCount = filteredDiagnostics.length;
+  const hasDiagnosticFiles = diagnosticFileItems.length > 0;
+  const problemSummary = `${visibleProblemCount} problem${visibleProblemCount === 1 ? "" : "s"}`;
+  const problemSummaryTone =
+    visibleBySeverity.error > 0
+      ? "text-destructive"
+      : visibleBySeverity.warning > 0
+        ? "text-warning"
+        : visibleBySeverity.info > 0
+          ? "text-info"
+          : "text-subtle-foreground";
+
+  const filterContextMenuItems = useMemo<MenuItem[]>(() => {
+    if (!filterContextMenu.data) return [];
+
+    const items: MenuItem[] = [];
+
+    items.push(
+      ...GROUP_OPTIONS.map((option) => ({
+        id: `group-${option.value}`,
+        label: `Group by: ${option.label}`,
+        icon: preferences.groupBy === option.value ? <Check /> : undefined,
+        onClick: () => {
+          setPreferences((prev) => ({
+            ...prev,
+            groupBy: option.value,
+          }));
+        },
+      })),
+    );
+
+    items.push({ id: "sep-group", label: "", separator: true, onClick: () => {} });
+
+    items.push(
+      ...SORT_OPTIONS.map((option) => ({
+        id: `sort-${option.value}`,
+        label: `Sort by: ${option.label}`,
+        icon: preferences.sortBy === option.value ? <Check /> : undefined,
+        onClick: () => {
+          setPreferences((prev) => ({
+            ...prev,
+            sortBy: option.value,
+          }));
+        },
+      })),
+    );
+
+    items.push({ id: "sep-sort", label: "", separator: true, onClick: () => {} });
+
+    for (const severity of ["error", "warning", "info"] as Diagnostic["severity"][]) {
+      items.push({
+        id: `severity-${severity}`,
+        label: `${SEVERITY_LABEL[severity]} (${visibleBySeverity[severity]}/${totalBySeverity[severity]})`,
+        icon: severityFilter[severity] ? <Check /> : undefined,
+        onClick: () => toggleSeverity(severity),
+      });
+    }
+
+    if (activeFilePath) {
+      items.push({
+        id: "only-current-file",
+        label: "Only Current File",
+        icon: preferences.onlyCurrentFile ? <Check /> : undefined,
+        onClick: () => togglePreference("onlyCurrentFile"),
+      });
+    }
+
+    if (sourceFilter) {
+      items.push({
+        id: "clear-source-filter",
+        label: `Clear Source Filter (${sourceFilter})`,
+        onClick: () => setSourceFilter(null),
+      });
+    }
+
+    if (hasFilters) {
+      items.push({ id: "sep-reset", label: "", separator: true, onClick: () => {} });
+      items.push({
+        id: "reset-filters",
+        label: "Reset All Filters",
+        onClick: resetFilters,
+      });
+    }
+
+    return items;
+  }, [
+    activeFilePath,
+    hasFilters,
+    preferences.groupBy,
+    preferences.onlyCurrentFile,
+    preferences.sortBy,
+    resetFilters,
+    filterContextMenu.data,
+    severityFilter,
+    sourceFilter,
+    togglePreference,
+    toggleSeverity,
+    totalBySeverity,
+    visibleBySeverity,
+  ]);
+
+  const headerContextMenuItems = useMemo<MenuItem[]>(() => {
+    if (!headerContextMenu.data) return [];
+
+    const widthModes: { value: TerminalWidthMode; label: string; icon: ReactNode }[] = [
+      { value: "full", label: "Full Width", icon: <Maximize /> },
+      { value: "editor", label: "Editor Width", icon: <AlignCenter /> },
+    ];
+
+    const items: MenuItem[] = widthModes.map((mode) => ({
+      id: `width-${mode.value}`,
+      label: mode.label,
+      icon: mode.icon,
+      onClick: () => setWidthMode(mode.value),
+      className: widthMode === mode.value ? "bg-selected" : undefined,
+    }));
+
+    if (onFullScreen) {
+      items.push(
+        { id: "sep-fullscreen", label: "", separator: true, onClick: () => {} },
+        {
+          id: "toggle-fullscreen",
+          label: isFullScreen ? "Exit Full Screen" : "Full Screen",
+          icon: isFullScreen ? <Minimize2 /> : <Maximize2 />,
+          onClick: onFullScreen,
+        },
+      );
+    }
+
+    return items;
+  }, [headerContextMenu.data, widthMode, setWidthMode, onFullScreen, isFullScreen]);
+
+  if (!isVisible) return null;
+
+  const content = (
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div
+        className={paneHeaderClassName()}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          headerContextMenu.open(e, "header");
+        }}
+      >
+        <div className="relative flex min-h-7 w-full items-center gap-1.5">
+          <span className={cn("font-sans ui-text-sm", problemSummaryTone)}>{problemSummary}</span>
+
+          <div className="ml-auto flex items-center gap-1">
+            {hasDiagnosticFiles && (
+              <PaneIconButton
+                type="button"
+                onClick={() => setIsFileNavigatorVisible((visible) => !visible)}
+                className={cn(
+                  isFileNavigatorVisible && "border-border/70 bg-accent text-foreground",
+                )}
+                tooltip={isFileNavigatorVisible ? "Hide files" : "Show files"}
+                aria-label={isFileNavigatorVisible ? "Hide files" : "Show files"}
+              >
+                <ListBullets />
+              </PaneIconButton>
+            )}
+
+            <PaneIconButton
+              type="button"
+              onClick={() => {
+                setIsSearchVisible((visible) => {
+                  if (visible && !searchQuery.trim()) {
+                    return false;
+                  }
+                  return true;
+                });
+              }}
+              className={cn(
+                (isSearchVisible || hasSearch) && "border-border/70 bg-accent text-foreground",
+              )}
+              tooltip="Search problems"
+            >
+              <Search />
+            </PaneIconButton>
+
+            <PaneIconButton
+              type="button"
+              onClick={(event) => {
+                filterContextMenu.open(event, "filters");
+              }}
+              className={cn("relative", hasFilterSettings && "text-primary")}
+              tooltip="Filter problems"
+            >
+              <Filter />
+              {activeFilterCount > 0 && (
+                <Badge
+                  variant="accent"
+                  size="compact"
+                  className="ui-text-sm -top-1 -right-1 absolute min-w-4"
+                >
+                  {activeFilterCount}
+                </Badge>
+              )}
+            </PaneIconButton>
+
+            {isEmbedded && onFullScreen && (
+              <PaneIconButton
+                type="button"
+                onClick={onFullScreen}
+                tooltip={isFullScreen ? "Exit Full Screen" : "Full Screen"}
+                tooltipSide="bottom"
+                aria-label={isFullScreen ? "Exit full screen" : "Full screen"}
+              >
+                {isFullScreen ? <Minimize2 /> : <Maximize2 />}
+              </PaneIconButton>
+            )}
+
+            {!isEmbedded && (
+              <PaneIconButton type="button" onClick={onClose} tooltip="Close problems pane">
+                <X />
+              </PaneIconButton>
+            )}
+          </div>
+
+          {isSearchVisible && (
+            <div className="absolute top-full right-0 z-30 mt-1">
+              <SearchPopover
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onClose={() => {
+                  setIsSearchVisible(false);
+                  if (!searchQuery.trim()) {
+                    setSearchQuery("");
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    if (searchQuery.trim()) {
+                      setSearchQuery("");
+                    } else {
+                      setIsSearchVisible(false);
+                    }
+                  }
+                }}
+                placeholder="Search problems"
+                inputRef={searchInputRef}
+                extraActions={
+                  <PaneIconButton
+                    type="button"
+                    onClick={(event) => {
+                      filterContextMenu.open(event, "filters");
+                    }}
+                    className={cn("relative", hasFilterSettings && "text-primary")}
+                    tooltip="Filter problems"
+                  >
+                    <Filter />
+                    {activeFilterCount > 0 && (
+                      <Badge
+                        variant="accent"
+                        size="compact"
+                        className="ui-text-sm -top-1 -right-1 absolute min-w-4"
+                      >
+                        {activeFilterCount}
+                      </Badge>
+                    )}
+                  </PaneIconButton>
+                }
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {isFileNavigatorVisible && hasDiagnosticFiles ? (
+          <FileNavigatorSidebar
+            items={diagnosticFileItems}
+            selectedKey={selectedFileNavigatorKey}
+            onSelect={selectDiagnosticFile}
+            ariaLabel="Diagnostic files"
+            viewMode={preferences.fileNavigatorViewMode}
+            onViewModeChange={(fileNavigatorViewMode) =>
+              setPreferences((prev) => ({
+                ...prev,
+                fileNavigatorViewMode,
+              }))
+            }
+          />
+        ) : null}
+
+        <ScrollArea className="min-h-0 flex-1" contentClassName="px-1.5 py-1.5">
+          {diagnostics.length === 0 ? (
+            <EmptyState message="No problems detected" />
+          ) : filteredDiagnostics.length === 0 ? (
+            <EmptyState
+              message="No problems match the current filters"
+              action={hasFilters ? { label: "Reset filters", onClick: resetFilters } : undefined}
+            />
+          ) : (
+            <div className="space-y-1.5">
+              {groupedDiagnostics.map((group) => {
+                const isCollapsed = collapsedGroups[group.id] ?? false;
+                const hasGroupHeader = preferences.groupBy !== "none";
+
+                return (
+                  <section
+                    key={group.id}
+                    className="overflow-hidden rounded-xl border border-border/60 bg-surface/40"
+                  >
+                    {hasGroupHeader && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => toggleGroupCollapse(group.id)}
+                        className="h-auto w-full justify-start gap-1.5 rounded-none border-border/60 border-b bg-background/70 px-2 py-1 text-left hover:bg-accent"
+                      >
+                        {isCollapsed ? (
+                          <ChevronRight className="text-subtle-foreground" />
+                        ) : (
+                          <ChevronDown className="text-subtle-foreground" />
+                        )}
+
+                        {group.severity ? (
+                          getSeverityIcon(group.severity)
+                        ) : (
+                          <Info className="text-subtle-foreground" />
+                        )}
+
+                        <span className="font-sans ui-text-sm flex-1 truncate font-medium text-foreground">
+                          {preferences.groupBy === "file" ? getFileName(group.label) : group.label}
+                        </span>
+
+                        <PaneChip>{group.items.length}</PaneChip>
+                      </Button>
+                    )}
+
+                    {!isCollapsed && (
+                      <div className="divide-y divide-border/40">
+                        {group.items.map((diagnostic) => {
+                          const rowKey = buildDiagnosticKey(diagnostic);
+                          const { summary, description } = splitDiagnosticMessage(
+                            diagnostic.message,
+                          );
+
+                          return (
+                            <div
+                              key={rowKey}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => onDiagnosticClick?.(diagnostic)}
+                              onContextMenu={(event) => {
+                                diagnosticContextMenu.open(event, diagnostic);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  onDiagnosticClick?.(diagnostic);
+                                }
+                              }}
+                              className="group cursor-pointer px-2 py-1.5 transition-colors hover:bg-accent"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="shrink-0">
+                                  {getSeverityIcon(diagnostic.severity, 11)}
+                                </span>
+
+                                <span
+                                  className={cn(
+                                    "font-sans ui-text-sm min-w-0 flex-1",
+                                    preferences.wrapMessages
+                                      ? "whitespace-pre-wrap wrap-break-word leading-snug"
+                                      : "truncate",
+                                    diagnostic.severity === "error" && "text-destructive",
+                                    diagnostic.severity === "warning" && "text-warning",
+                                    diagnostic.severity === "info" && "text-info",
+                                  )}
+                                >
+                                  {summary}
+                                </span>
+
+                                <PaneChip>
+                                  {diagnostic.line + 1}:{diagnostic.column + 1}
+                                </PaneChip>
+                              </div>
+
+                              <div className="mt-1 pl-5">
+                                {description && (
+                                  <div
+                                    className={cn(
+                                      "ui-text-sm mb-1 text-subtle-foreground/90 leading-snug",
+                                      preferences.wrapMessages
+                                        ? "whitespace-pre-wrap wrap-break-word"
+                                        : "truncate",
+                                    )}
+                                  >
+                                    {description}
+                                  </div>
+                                )}
+
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="ui-text-sm max-w-105 truncate text-subtle-foreground/75">
+                                    {diagnostic.filePath}
+                                  </span>
+
+                                  {diagnostic.source && <PaneChip>{diagnostic.source}</PaneChip>}
+
+                                  {diagnostic.code && <PaneChip>{diagnostic.code}</PaneChip>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+          )}
+        </ScrollArea>
+      </div>
+
+      <Dropdown
+        isOpen={diagnosticContextMenu.isOpen}
+        point={diagnosticContextMenu.position}
+        items={diagnosticContextMenuItems}
+        onClose={diagnosticContextMenu.close}
+      />
+
+      <Dropdown
+        isOpen={filterContextMenu.isOpen}
+        point={filterContextMenu.position}
+        items={filterContextMenuItems}
+        onClose={filterContextMenu.close}
+      />
+
+      <Dropdown
+        isOpen={headerContextMenu.isOpen}
+        point={headerContextMenu.position}
+        items={headerContextMenuItems}
+        onClose={headerContextMenu.close}
+      />
+    </div>
+  );
+
+  if (isEmbedded) {
+    return content;
+  }
+
+  return <div className="flex h-44 flex-col border-border border-t bg-background">{content}</div>;
+};
+
+export default DiagnosticsPane;

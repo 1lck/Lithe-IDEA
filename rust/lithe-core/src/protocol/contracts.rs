@@ -1,29 +1,40 @@
+//! Serializable response models shared across every host boundary.
+
 use crate::protocol::CoreError;
 use serde::Serialize;
 use serde_json::Value;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Stable success-or-failure envelope returned across the JSON and C boundaries.
 pub struct CoreResponse {
+    /// Correlation identifier copied from the request, when supplied.
     pub id: Option<String>,
+    /// Discriminator that determines whether `data` or `error` is present.
     pub ok: bool,
+    /// Successful command payload. It is omitted for failures.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<ResponseData>,
+    /// Structured failure. It is omitted for successful responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<CoreError>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
+/// Payload wrapper that preserves each command's existing JSON shape.
 pub enum ResponseData {
+    /// A command-specific JSON value serialized without an additional tag.
     Json(Value),
 }
 
 impl CoreResponse {
+    /// Reports whether the response carries successful data.
     pub fn is_success(&self) -> bool {
         self.ok
     }
 
+    /// Builds a successful response while preserving the caller's identifier.
     pub fn success(id: Option<String>, data: impl Into<Value>) -> Self {
         Self {
             id,
@@ -33,6 +44,7 @@ impl CoreResponse {
         }
     }
 
+    /// Builds a failed response with no partially successful data attached.
     pub fn failure(id: Option<String>, error: CoreError) -> Self {
         Self {
             id,
@@ -45,6 +57,7 @@ impl CoreResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One file or directory in a deterministic workspace tree.
 pub struct WorkspaceNode {
     pub path: String,
     pub name: String,
@@ -55,6 +68,7 @@ pub struct WorkspaceNode {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Complete visible workspace tree and its flattened file paths.
 pub struct WorkspaceSnapshotResponse {
     pub root: WorkspaceNode,
     pub files: Vec<String>,
@@ -62,7 +76,9 @@ pub struct WorkspaceSnapshotResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// File, content, or symbol match with optional source location.
 pub struct SearchMatch {
+    /// Result category: file path, file content, or symbol.
     pub kind: String,
     pub path: String,
     pub line: Option<usize>,
@@ -73,12 +89,14 @@ pub struct SearchMatch {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Bounded, deterministically ordered search matches.
 pub struct SearchResponse {
     pub matches: Vec<SearchMatch>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Preview of replacements occurring on one source line.
 pub struct ReplacementMatch {
     pub line: usize,
     pub before: String,
@@ -88,6 +106,7 @@ pub struct ReplacementMatch {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// All preview matches and resulting text for one file.
 pub struct ReplacementFile {
     pub path: String,
     pub matches: Vec<ReplacementMatch>,
@@ -96,12 +115,14 @@ pub struct ReplacementFile {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Non-mutating replacement preview grouped by workspace-relative path.
 pub struct ReplacementPreviewResponse {
     pub files: Vec<ReplacementFile>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// UTF-8 contents read from one workspace-relative path.
 pub struct FileReadResponse {
     pub path: String,
     pub text: String,
@@ -109,6 +130,7 @@ pub struct FileReadResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Path and byte count produced by a successful file write.
 pub struct FileWriteResponse {
     pub path: String,
     pub bytes_written: usize,
@@ -116,6 +138,7 @@ pub struct FileWriteResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Metadata for one retained local-history snapshot.
 pub struct HistoryEntryResponse {
     pub id: String,
     pub timestamp: i64,
@@ -123,16 +146,20 @@ pub struct HistoryEntryResponse {
     pub reason: String,
     pub content_path: String,
     pub byte_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Local-history entries in deterministic newest-first order.
 pub struct HistoryEntriesResponse {
     pub entries: Vec<HistoryEntryResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Maven profile identity and its default activation state.
 pub struct MavenProfileResponse {
     pub id: String,
     pub is_active_by_default: bool,
@@ -140,6 +167,7 @@ pub struct MavenProfileResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One module in the declared Maven reactor hierarchy.
 pub struct MavenModuleResponse {
     pub relative_path: String,
     pub group_id: Option<String>,
@@ -151,6 +179,7 @@ pub struct MavenModuleResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Maven reactor identity, modules, profiles, and wrapper availability.
 pub struct MavenScanResponse {
     pub relative_path: String,
     pub group_id: Option<String>,
@@ -164,6 +193,7 @@ pub struct MavenScanResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One normalized issue parsed from Maven process output.
 pub struct MavenDiagnosticResponse {
     pub path: String,
     pub line: usize,
@@ -174,12 +204,14 @@ pub struct MavenDiagnosticResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Maven diagnostics in stable source order.
 pub struct MavenDiagnosticsResponse {
     pub issues: Vec<MavenDiagnosticResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Java class containing a runnable main method.
 pub struct JavaMainClassResponse {
     pub path: String,
     pub qualified_name: String,
@@ -189,9 +221,11 @@ pub struct JavaMainClassResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// UI-facing Java or Spring Boot run entry.
 pub struct JavaRunConfigurationResponse {
     pub id: String,
     pub name: String,
+    /// UI category such as `javaMain`, `springBoot`, or `mavenModule`.
     pub kind: String,
     pub module_path: Option<String>,
     pub main_class: Option<String>,
@@ -199,6 +233,7 @@ pub struct JavaRunConfigurationResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Discovered Java main classes and their stable run entries.
 pub struct JavaRunConfigurationsResponse {
     pub main_classes: Vec<JavaMainClassResponse>,
     pub configurations: Vec<JavaRunConfigurationResponse>,
@@ -206,6 +241,7 @@ pub struct JavaRunConfigurationsResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Usage count rendered above one Java declaration.
 pub struct JavaCodeVisionHintResponse {
     pub line: usize,
     pub utf16_column: usize,
@@ -215,18 +251,21 @@ pub struct JavaCodeVisionHintResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Code Vision hints in source order.
 pub struct JavaCodeVisionResponse {
     pub hints: Vec<JavaCodeVisionHintResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Package-qualified Java class name.
 pub struct JavaClassNameResponse {
     pub class_name: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Zero-based UTF-16 location of a Java declaration.
 pub struct JavaSourceDefinitionResponse {
     pub line: usize,
     pub utf16_column: usize,
@@ -234,13 +273,16 @@ pub struct JavaSourceDefinitionResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Server port declared by Spring configuration, when one is present.
 pub struct JavaServerPortResponse {
     pub port: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Foldable Java source region and the text span hidden by folding.
 pub struct JavaFoldRegionResponse {
+    /// Fold category such as imports, declaration, or comment.
     pub kind: String,
     pub start_line: usize,
     pub end_line: usize,
@@ -250,15 +292,18 @@ pub struct JavaFoldRegionResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Java gutter marker summarizing implementations of one declaration.
 pub struct JavaImplementationMarkerResponse {
     pub line: usize,
     pub utf16_column: usize,
     pub implementation_count: usize,
+    /// Navigation direction describing implementations below or parents above.
     pub direction: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Lightweight Java parameter-name inlay hint.
 pub struct JavaInlayHintResponse {
     pub line: usize,
     pub utf16_column: usize,
@@ -267,6 +312,7 @@ pub struct JavaInlayHintResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Lightweight structural features derived from one Java source document.
 pub struct JavaStructureResponse {
     pub fold_regions: Vec<JavaFoldRegionResponse>,
     pub implementation_markers: Vec<JavaImplementationMarkerResponse>,
@@ -275,10 +321,12 @@ pub struct JavaStructureResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One normalized index or working-tree change.
 pub struct GitChange {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_path: Option<String>,
+    /// Normalized porcelain status code for the path.
     pub status: String,
     pub staged: bool,
     pub worktree: bool,
@@ -287,14 +335,18 @@ pub struct GitChange {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Repository identity, branch divergence, and normalized file changes.
 pub struct GitStatusResponse {
     pub repository_root: Option<String>,
     pub branch: Option<String>,
+    pub ahead: usize,
+    pub behind: usize,
     pub changes: Vec<GitChange>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Worktree-aware Git paths that a platform watcher should observe.
 pub struct GitWatchContextResponse {
     pub repository_root: String,
     pub git_directory: String,
@@ -303,9 +355,11 @@ pub struct GitWatchContextResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Local or remote Git reference in display-ready form.
 pub struct GitReferenceResponse {
     pub full_name: String,
     pub short_name: String,
+    /// Reference category: local branch, remote branch, or tag.
     pub kind: String,
     pub is_current: bool,
     pub upstream_short_name: Option<String>,
@@ -313,6 +367,7 @@ pub struct GitReferenceResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Commit metadata parsed from a machine-stable field format.
 pub struct GitCommitResponse {
     pub hash: String,
     pub short_hash: String,
@@ -326,39 +381,48 @@ pub struct GitCommitResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// References and a bounded page of commit history.
 pub struct GitHistoryResponse {
     pub references: Vec<GitReferenceResponse>,
     pub commits: Vec<GitCommitResponse>,
     pub has_more: bool,
+    pub user_name: Option<String>,
+    pub user_email: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Exact lookup result for one commit.
 pub struct GitCommitLookupResponse {
     pub commit: GitCommitResponse,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Path and status changed by a commit or comparison.
 pub struct GitFileResponse {
+    /// Normalized name-status code such as `A`, `M`, `D`, or `R`.
     pub status: String,
     pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Deterministically ordered changed paths.
 pub struct GitFilesResponse {
     pub files: Vec<GitFileResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Paths differing between a reference and the current checkout.
 pub struct GitComparisonResponse {
     pub files: Vec<GitFileResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One stash entry with its stable reference and parsed metadata.
 pub struct GitStashResponse {
     pub reference: String,
     pub message: String,
@@ -368,6 +432,7 @@ pub struct GitStashResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Stash entries in Git's native newest-first order.
 pub struct GitStashesResponse {
     pub stashes: Vec<GitStashResponse>,
 }
@@ -428,6 +493,7 @@ pub struct GitPullPreflightResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitOperationStateResponse {
+    /// Active operation name, or an empty string when no operation is in progress.
     pub kind: String,
     pub reference: Option<String>,
     pub step: Option<usize>,
@@ -437,6 +503,7 @@ pub struct GitOperationStateResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Line-level blame attribution normalized for editor gutters.
 pub struct GitBlameLineResponse {
     pub line: usize,
     pub commit_hash: String,
@@ -446,12 +513,14 @@ pub struct GitBlameLineResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Blame attribution ordered by one-based source line.
 pub struct GitBlameResponse {
     pub lines: Vec<GitBlameLineResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// One aligned side-by-side diff row.
 pub struct GitDiffRowResponse {
     pub old_line: Option<usize>,
     pub new_line: Option<usize>,
@@ -460,12 +529,14 @@ pub struct GitDiffRowResponse {
     /// hold identical text; clients fall back to `left` in that case.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub right: Option<String>,
+    /// Rendering category such as context, changed, insertion, deletion, or information.
     pub kind: String,
     pub hunk_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Independently applicable diff hunk and its original patch text.
 pub struct GitDiffHunkResponse {
     pub id: String,
     pub header: String,
@@ -474,8 +545,111 @@ pub struct GitDiffHunkResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Complete patch plus rendering rows and independently applicable hunks.
 pub struct GitDiffResponse {
     pub patch: String,
     pub rows: Vec<GitDiffRowResponse>,
     pub hunks: Vec<GitDiffHunkResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One Spring configuration property and its optional Java declaration.
+pub struct SpringPropertyResponse {
+    pub name: String,
+    pub type_name: Option<String>,
+    pub description: Option<String>,
+    pub default_value: Option<String>,
+    pub source_path: Option<String>,
+    pub source_line: Option<usize>,
+    pub source_column: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One key/value occurrence from a Spring application configuration document.
+pub struct SpringConfigurationValueResponse {
+    pub key: String,
+    pub value: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub profile: Option<String>,
+    pub overrides_base_value: bool,
+    pub target_path: Option<String>,
+    pub target_line: Option<usize>,
+    pub target_column: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Java `@Value` reference to a Spring configuration property.
+pub struct SpringPropertyReferenceResponse {
+    pub key: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Spring configuration problem projected onto one source location.
+pub struct SpringDiagnosticResponse {
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub severity: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Component or `@Bean` declaration available for dependency injection.
+pub struct SpringBeanResponse {
+    pub id: String,
+    pub name: String,
+    pub type_name: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Injection point and the bean declarations that satisfy it.
+pub struct SpringInjectionResponse {
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub type_name: String,
+    pub qualifier: Option<String>,
+    pub bean_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// HTTP endpoint declared by a Spring MVC controller method.
+pub struct SpringEndpointResponse {
+    pub id: String,
+    pub http_methods: Vec<String>,
+    pub route: String,
+    pub controller: String,
+    pub method: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Complete deterministic Spring semantic index for one workspace snapshot.
+pub struct SpringIndexResponse {
+    pub properties: Vec<SpringPropertyResponse>,
+    pub values: Vec<SpringConfigurationValueResponse>,
+    pub property_references: Vec<SpringPropertyReferenceResponse>,
+    pub diagnostics: Vec<SpringDiagnosticResponse>,
+    pub beans: Vec<SpringBeanResponse>,
+    pub injections: Vec<SpringInjectionResponse>,
+    pub endpoints: Vec<SpringEndpointResponse>,
 }

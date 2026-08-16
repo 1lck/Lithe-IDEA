@@ -1,3 +1,5 @@
+//! Procfile process discovery for commands that can be launched without a shell.
+
 use super::super::types::Confidence;
 use super::{Detected, DirectoryContext};
 

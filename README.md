@@ -3,8 +3,8 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>A cross-platform IDE for AI-assisted development</strong></p>
-  <p>Familiar development workflows · multi-language project support · a focused resource footprint</p>
+  <p><strong>A lightweight IDE for the AI era</strong></p>
+  <p>Start tools on demand · keep the workspace responsive · stay focused on the code</p>
   <p><em>AI writes the code. Lithe helps you understand it, run it, and review it.</em></p>
 
   <p>
@@ -45,11 +45,11 @@
 
 ## About Lithe
 
-Lithe is a high-performance, general-purpose IDE for AI-assisted development. It brings project browsing, editing, search, code navigation, Git, run, and debug workflows together for multi-language and multi-type projects, while starting language servers, terminals, build tools, and debug processes only when needed.
+Lithe is a lightweight, general-purpose IDE built for the AI era. It brings project browsing, editing, search, code navigation, Git, run, and debug workflows together for multi-language and multi-type projects, while starting language servers, terminals, build tools, and debug processes only when needed.
 
 When an external AI tool changes a project, Lithe helps you locate the affected code, run the project, review the diff, and decide which changes to stage, undo, or commit.
 
-> **A high-performance general-purpose IDE for modern development.**
+> **A lightweight IDE that starts what you need, when you need it.**
 
 ## Core features
 
@@ -219,7 +219,7 @@ Before submitting a change, run:
 ./scripts/verify-rust-core.sh
 ```
 
-See [Repository layout and shared boundaries](./docs/architecture/repository-layout.md) for directory ownership, cross-platform boundaries, and sharing rules. Include your verification steps and known limitations when submitting a change.
+See [Repository layout and shared boundaries](./docs/architecture/repository-layout.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
 
 ## Project support
 
@@ -233,7 +233,7 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
       </a>
     </td>
     <td>
-      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> provides access to large language models and supports the development of Lithe. Thank you to FastAI for supporting this project!
+      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> provides convenient relay access to a range of leading large language models, making it easier to connect AI capabilities to everyday development workflows. Its support helps Lithe continue improving its AI-assisted experience. Thank you to FastAI for supporting this project!
     </td>
   </tr>
   <tr>
@@ -243,7 +243,27 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com"><strong>CodeZ</strong></a> provides relay access to GPT-family models and supports the development of Lithe. Thank you to CodeZ for supporting this project!
+      <a href="https://codezsy.com"><strong>CodeZ</strong></a> focuses on stable relay access to GPT-family models, offering developers a straightforward way to integrate model APIs into their tools and projects. Its sponsorship contributes to the ongoing development and maintenance of Lithe. Thank you to CodeZ for supporting this project!
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH">
+        <img src="./docs/assets/sponsors/yuanliu-token.png" width="64" alt="Yuanliu Token">
+      </a>
+    </td>
+    <td>
+      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH"><strong>Yuanliu Token</strong></a> offers relay access to multiple large language model APIs, giving developers a flexible entry point for experimenting with different models and building AI applications. Its sponsorship supports Lithe as the project expands and polishes its AI features. Thank you to Yuanliu Token for supporting this project!
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://torchai.ai">
+        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      </a>
+    </td>
+    <td>
+      <a href="https://torchai.ai"><strong>TorchAI</strong></a> provides large language model relay services for developers who need convenient API access across coding, content, and automation scenarios. Its support helps sustain Lithe's development and exploration of practical AI-powered tools. Thank you to TorchAI for supporting this project!
     </td>
   </tr>
   <tr>
@@ -253,7 +273,7 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
       </a>
     </td>
     <td>
-      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> provides relay access to Claude models and supports the development of Lithe. Thank you to Code GO for supporting this project!
+      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> specializes in relay services for Claude models, helping users access capable coding and reasoning models with less setup overhead. Its support gives Lithe more room to refine model integration and developer workflows. Thank you to Code GO for supporting this project!
     </td>
   </tr>
 </table>
@@ -267,7 +287,7 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
 </p>
 
 <p align="center">
-  <strong>For all things AI, head to LINUX DO. Wishing the community ever greater success.</strong>
+  <strong>For all things AI, head to <a href="https://linux.do">LINUX DO</a>. Wishing the community ever greater success.</strong>
 </p>
 
 ### Contributors

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -71,6 +72,7 @@ struct OutputTimestamperTests {
 }
 
 @Suite("Output severity coloring")
+@MainActor
 struct OutputSeverityTests {
     @Test
     func recognizesBracketedMavenLevels() {
@@ -96,6 +98,30 @@ struct OutputSeverityTests {
     @Test
     func reportsNoSeverityForOrdinaryOutput() {
         #expect(OutputTextView.severity(ofLine: "Tomcat started on port 8081") == nil)
+    }
+}
+
+@Suite("ANSI output colors")
+@MainActor
+struct ANSIOutputColorTests {
+    /// Maven commonly emits bold/reset SGR codes without choosing a foreground
+    /// color. The fallback must be resolved for the tool window's appearance;
+    /// leaving it as an adaptive SwiftUI color turns it black when bridged into
+    /// an AppKit text storage under the dark theme.
+    @Test
+    func darkAppearanceResolvesDefaultForegroundBeforeAppKitBridging() throws {
+        let foreground = LitheTheme.nsColor(.primaryText, theme: .lithe, isDark: true)
+        let parsed = ANSIOutputRenderer.parse(
+            "\u{1B}[1m[INFO] Building\u{1B}[0m\n",
+            defaultForeground: foreground
+        )
+        let rendered = ANSIOutputRenderer.render(parsed, fontSize: 11.5)
+        let color = try #require(
+            (rendered.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)?
+                .usingColorSpace(.sRGB)
+        )
+
+        #expect(color.brightnessComponent > 0.75)
     }
 }
 

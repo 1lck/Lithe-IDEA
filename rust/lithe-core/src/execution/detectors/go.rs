@@ -1,3 +1,5 @@
+//! Go application discovery from module roots and conventional command layouts.
+
 use super::super::types::Confidence;
 use super::{Detected, DirectoryContext};
 

@@ -2,24 +2,28 @@
 
 Lithe contains two independent platform applications connected by a small set
 of shared contracts. macOS is the current reference product. Windows is a
-Qt/C++ implementation in progress; it must not import Swift source or depend
-on macOS types.
+React/Tauri implementation; it must not import Swift source or depend on macOS
+types.
 
 ## Top-level layout
 
 ```text
 Lithe-IDEA/
 ├── Sources/Lithe/          # macOS SwiftUI/AppKit application
-│   ├── Application/        # feature models and application service graph
-│   ├── Core/               # ports, Rust operations, and terminal primitives
-│   ├── Models/             # UI-facing models and value types
+│   ├── Application/        # composition, feature models, and lifecycle policy
+│   ├── Core/               # ports, language catalogs, and typed Rust operations
+│   ├── Models/             # UI aggregate, bridges, and domain-grouped value types
 │   ├── Platform/MacOS/     # macOS composition root and adapters
-│   ├── Services/           # workflow orchestration
-│   └── Views/              # SwiftUI/AppKit presentation
+│   ├── Services/           # workflows grouped by product domain
+│   └── Views/              # SwiftUI/AppKit presentation grouped by feature
+├── Sources/Lithe*Module/   # independently owned built-in and plugin modules
+├── Sources/LitheModuleAPI/ # module lifecycle, catalog, and plugin contracts
+├── Sources/LitheCoreContracts/ # platform-neutral feature contracts
 ├── Sources/LitheRustCore/  # Swift Package C bridge declarations
+├── Plugins/Official/       # source manifests and Bundle metadata for official plugins
 ├── Tests/LitheTests/       # Swift Testing unit tests
 ├── rust/lithe-core/        # shared Rust commands, models, and C ABI
-├── windows/                # C++ CoreClient, Win32 adapters, and Qt UI
+├── windows/                # React/Tauri Windows application and Rust adapters
 ├── shared/                 # contracts and cross-platform fixtures
 ├── Fixtures/               # reusable Java, Maven, Spring Boot, and Git data
 ├── scripts/                # build, packaging, fixture, and verification tools
@@ -39,17 +43,64 @@ SwiftUI/AppKit → AppModel → Application Feature Models → AppServices
                                       └── macOS ports and adapters
 ```
 
-The Windows implementation has the corresponding native layers:
+The Windows implementation has the corresponding web/native layers:
 
 ```text
-windows/qt/       Qt Widgets workbench and UI state
-windows/core/     C++ client for the Rust JSON C ABI
-windows/adapters/ Win32 file, watcher, process, terminal, runtime, and storage adapters
+windows/tauri/src/           React workbench, feature stores, and presentation
+windows/tauri/src/platform/  frontend boundary for shared and native commands
+windows/tauri/src-tauri/     Tauri composition and Windows-owned Rust adapters
 ```
 
 Both platforms consume `rust/lithe-core` through the same JSON envelope and
-command names. Shared behavior belongs in `shared/contracts/` and should have
-a fixture under `shared/fixtures/` before the second platform relies on it.
+command names. The Windows Tauri host links the Rust crate directly while
+macOS uses the C ABI. Shared behavior belongs in `shared/contracts/` and should
+have a fixture under `shared/fixtures/` before the second platform relies on it.
+
+## Swift source organization
+
+Directories inside the macOS executable target express ownership rather than
+visibility. SwiftPM discovers them recursively, so moving a file between these
+directories must not require a target or product change:
+
+```text
+Sources/Lithe/
+├── Application/
+│   ├── Composition/  # application service graphs and module resource owners
+│   ├── Features/     # UI-facing state transitions and user actions
+│   └── Lifecycle/    # application-level lifecycle policy and errors
+├── Core/
+│   ├── Language/     # language-provider catalog adapters
+│   ├── Ports/        # platform-neutral interfaces
+│   └── Rust/         # typed Rust JSON/C ABI adapters
+├── Models/
+│   ├── AppModel/     # AppModel aggregate and focused extensions
+│   ├── Bridges/      # executable-target conformance bridges
+│   └── <Domain>/     # editor, diff, Java, runtime, search, and workspace values
+├── Services/<Domain>/ # product workflows grouped by their owning domain
+└── Views/<Feature>/   # presentation grouped by the user-facing feature
+```
+
+Feature module targets use the smallest applicable subset of the following
+convention. A directory should exist only when the target owns that kind of
+code:
+
+```text
+Sources/Lithe<Feature>Module/
+├── Module/       # module entrypoint and feature graph
+├── Application/  # feature state and UI-facing coordination
+├── Models/       # domain and value types
+├── Ports/        # interfaces owned by the feature
+├── Services/     # workflows
+├── Runtime/      # process, protocol, and session implementations
+└── Providers/    # provider implementations
+```
+
+Official language-support plugins additionally use `Capabilities/`, `Plugin/`,
+and `Support/` for exported language abilities, the native plugin entrypoint,
+and shared identifiers. New files should be named after their primary type;
+use `Type+Concern.swift` only for a focused extension or executable-target
+bridge. Do not rename module IDs, capability IDs, JSON fields, C symbols, or
+plugin entrypoint names as part of physical source reorganization.
 
 ## Rust Core packages
 
@@ -71,6 +122,20 @@ The dependency direction is `protocol <- domain packages <- runtime/FFI`. A doma
 
 Moving Rust files must not change JSON command strings, Serde field names, error codes, or the exported C symbols. Directory-sensitive fixtures and embedded resources must use `CARGO_MANIFEST_DIR` instead of paths derived from a module's current depth.
 
+### Rust Core comment standard
+
+First-party production modules under `rust/lithe-core/` start with an English
+`//!` description of their responsibility or boundary. Exported APIs, shared
+request and response structures, core domain types, and C ABI functions use
+`///`; unsafe entry points document pointer ownership and `# Safety`
+requirements. Enums, structs, variants, and fields whose names do not make
+their semantics, allowed values, units, ownership, or protocol role immediately
+clear are documented even when they are internal. Implementation comments explain non-obvious compatibility,
+determinism, ordering, security, performance, or cross-platform constraints.
+They should explain why the code has its shape instead of narrating individual
+statements. Tests document scenarios or regression risks only when their names
+and assertions are not already sufficient.
+
 ## Ownership rules
 
 | Shared Rust Core | Platform-owned adapters |
@@ -83,8 +148,8 @@ Moving Rust files must not change JSON command strings, Serde field names, error
 | Error codes, cancellation, deadlines, and JSON envelope | PTY/ConPTY, signals, handles, and native UI |
 
 The UI must depend on feature models and shared models, not on a concrete
-adapter. Core and Services must remain free of AppKit, SwiftUI, Win32, Qt,
-`Process`, and direct platform file APIs.
+adapter. Core and Services must remain free of AppKit, SwiftUI, Tauri, WebView2,
+Win32, `Process`, and direct platform file APIs.
 
 Language tooling has an additional protocol/application split: Rust owns the
 complete LSP process/session runtime and normalized results, while platform

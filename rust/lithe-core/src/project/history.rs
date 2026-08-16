@@ -1,3 +1,5 @@
+//! Versioned local-history snapshots with bounded retention and storage validation.
+
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use crate::protocol::{HistoryEntriesResponse, HistoryEntryResponse};
 use serde::{Deserialize, Serialize};
@@ -12,6 +14,7 @@ const HISTORY_VERSION: u32 = 2;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Snapshot contents, reason, visibility, and retention policy for one record.
 pub struct HistoryRecordRequest {
     pub workspace_root: String,
     pub storage_root: String,
@@ -29,6 +32,7 @@ pub struct HistoryRecordRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Optional file filter and visibility policy for listing snapshot metadata.
 pub struct HistoryEntriesRequest {
     pub workspace_root: String,
     pub storage_root: String,
@@ -42,6 +46,7 @@ pub struct HistoryEntriesRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Validated storage-relative path of snapshot content to read.
 pub struct HistoryContentRequest {
     pub storage_root: String,
     pub content_path: String,
@@ -49,10 +54,31 @@ pub struct HistoryContentRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to move all history metadata after a workspace path relocation.
 pub struct HistoryRelocateRequest {
     pub storage_root: String,
     pub source_path: String,
     pub destination_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request to assign or clear the user label on one snapshot.
+pub struct HistoryRenameRequest {
+    pub storage_root: String,
+    pub path: String,
+    pub id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request to delete one snapshot and its metadata entry.
+pub struct HistoryDeleteRequest {
+    pub storage_root: String,
+    pub path: String,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,8 +91,11 @@ struct StoredEntry {
     reason: String,
     content_path: String,
     byte_count: usize,
+    #[serde(default)]
+    label: Option<String>,
 }
 
+/// Records a snapshot unless the path is hidden, unchanged, or too large.
 pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryResponse>, CoreError> {
     let workspace = existing_root(&request.workspace_root)?;
     let relative_path = safe_relative_path(&request.path)?;
@@ -142,6 +171,7 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
         reason: request.reason,
         content_path,
         byte_count: content.len(),
+        label: None,
     };
     fs::write(storage.join(&stored.content_path), &content)?;
     fs::write(
@@ -155,6 +185,7 @@ pub fn record(request: HistoryRecordRequest) -> Result<Option<HistoryEntryRespon
     Ok(Some(stored.into_response()))
 }
 
+/// Lists retained entries in newest-first deterministic order.
 pub fn entries(request: HistoryEntriesRequest) -> Result<HistoryEntriesResponse, CoreError> {
     let workspace = existing_root(&request.workspace_root)?;
     let rules = VisibilityRules::new(request.hidden_directory_names, request.hidden_file_patterns);
@@ -193,6 +224,7 @@ pub fn entries(request: HistoryEntriesRequest) -> Result<HistoryEntriesResponse,
     })
 }
 
+/// Reads one validated snapshot content file as UTF-8.
 pub fn content(request: HistoryContentRequest) -> Result<String, CoreError> {
     let storage = storage_root(&request.storage_root)?;
     let relative = safe_relative_path(&request.content_path)?;
@@ -200,6 +232,7 @@ pub fn content(request: HistoryContentRequest) -> Result<String, CoreError> {
     Ok(String::from_utf8_lossy(&data).into_owned())
 }
 
+/// Moves history metadata between workspace-relative paths.
 pub fn relocate(request: HistoryRelocateRequest) -> Result<(), CoreError> {
     let storage = storage_root(&request.storage_root)?;
     let source = safe_relative_path(&request.source_path)?;
@@ -229,6 +262,62 @@ pub fn relocate(request: HistoryRelocateRequest) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// Updates the optional user label for one stored snapshot.
+pub fn rename(request: HistoryRenameRequest) -> Result<HistoryEntryResponse, CoreError> {
+    let storage = storage_root(&request.storage_root)?;
+    let relative = safe_relative_path(&request.path)?;
+    validate_entry_id(&request.id)?;
+    let directory = storage.join(stable_identifier(&relative));
+    let metadata_path = directory.join(format!("{}.json", request.id));
+    let data = fs::read(&metadata_path).map_err(CoreError::from)?;
+    let mut entry: StoredEntry = serde_json::from_slice(&data).map_err(|error| {
+        CoreError::new(ErrorCode::ParseFailed, "Invalid local history metadata")
+            .with_details(error.to_string())
+    })?;
+    if entry.id != request.id || entry.relative_path != relative {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Local history entry does not match the requested path",
+        ));
+    }
+    entry.label = request.label.filter(|label| !label.trim().is_empty());
+    fs::write(
+        metadata_path,
+        serde_json::to_vec(&entry).expect("history metadata should encode"),
+    )?;
+    Ok(entry.into_response())
+}
+
+/// Removes one stored snapshot and its metadata.
+pub fn delete(request: HistoryDeleteRequest) -> Result<(), CoreError> {
+    let storage = storage_root(&request.storage_root)?;
+    let relative = safe_relative_path(&request.path)?;
+    validate_entry_id(&request.id)?;
+    let directory = storage.join(stable_identifier(&relative));
+    let metadata_path = directory.join(format!("{}.json", request.id));
+    let data = fs::read(&metadata_path).map_err(CoreError::from)?;
+    let entry: StoredEntry = serde_json::from_slice(&data).map_err(|error| {
+        CoreError::new(ErrorCode::ParseFailed, "Invalid local history metadata")
+            .with_details(error.to_string())
+    })?;
+    if entry.id != request.id || entry.relative_path != relative {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Local history entry does not match the requested path",
+        ));
+    }
+    fs::remove_file(storage.join(entry.content_path)).map_err(CoreError::from)?;
+    fs::remove_file(metadata_path).map_err(CoreError::from)?;
+    if directory
+        .read_dir()
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(false)
+    {
+        let _ = fs::remove_dir(directory);
+    }
+    Ok(())
+}
+
 impl StoredEntry {
     fn into_response(self) -> HistoryEntryResponse {
         HistoryEntryResponse {
@@ -238,6 +327,7 @@ impl StoredEntry {
             reason: self.reason,
             content_path: self.content_path,
             byte_count: self.byte_count,
+            label: self.label,
         }
     }
 }
@@ -279,6 +369,7 @@ fn read_entries(directory: &Path, storage: &Path) -> Vec<StoredEntry> {
                 reason: legacy.reason,
                 content_path: content,
                 byte_count: legacy.byte_count,
+                label: None,
             })
         })
         .filter(|entry| storage.join(&entry.content_path).is_file())
@@ -290,6 +381,20 @@ fn read_entries(directory: &Path, storage: &Path) -> Vec<StoredEntry> {
             .then_with(|| right.id.cmp(&left.id))
     });
     entries
+}
+
+fn validate_entry_id(id: &str) -> Result<(), CoreError> {
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|character| character.is_ascii_hexdigit() || character == '-')
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid local history entry ID",
+        ));
+    }
+    Ok(())
 }
 
 fn default_prune_expired() -> bool {

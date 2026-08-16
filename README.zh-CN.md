@@ -3,8 +3,8 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>一款面向 AI 辅助开发的跨平台 IDE</strong></p>
-  <p>熟悉的开发工作流 · 支持多语言与多类型项目 · 更专注的资源占用</p>
+  <p><strong>一款面向 AI 时代的轻量 IDE</strong></p>
+  <p>工具按需启动 · 工作区保持流畅 · 让注意力回到代码</p>
   <p><em>AI 负责编写代码，Lithe 负责帮你看懂、跑通并审查修改。</em></p>
 
   <p>
@@ -45,11 +45,11 @@
 
 ## 项目简介
 
-Lithe 是一款面向 AI 辅助开发、追求极致性能的通用型 IDE。它面向多语言和多类型项目，整合项目浏览、编辑、搜索、代码导航、Git、运行和调试工作流，并让语言服务器、终端、构建工具和调试进程只在需要时启动。
+Lithe 是一款面向 AI 时代打造的轻量通用型 IDE。它面向多语言和多类型项目，整合项目浏览、编辑、搜索、代码导航、Git、运行和调试工作流，并让语言服务器、终端、构建工具和调试进程只在需要时启动。
 
 当外部 AI 工具修改项目后，你可以用 Lithe 定位受影响的代码、运行项目、审查 Diff，并决定暂存、撤销或提交哪些修改。
 
-> **一款面向现代开发的极致性能通用型 IDE。**
+> **需要什么就启动什么，让 IDE 始终保持轻量。**
 
 ## 核心功能
 
@@ -213,7 +213,7 @@ open dist/Lithe.app
 ./scripts/verify-rust-core.sh
 ```
 
-目录归属、跨平台边界和共享规则见[仓库目录与共享边界](./docs/architecture/repository-layout.md)。提交功能改动时，请说明验证方式和已知限制。
+目录归属、跨平台边界、共享规则以及 Rust Core 必须遵守的注释规范见[仓库目录与共享边界](./docs/architecture/repository-layout.md)。提交功能改动时，请说明验证方式和已知限制。
 
 ## 项目支持
 
@@ -227,7 +227,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> 提供大模型服务支持，并助力 Lithe 的开发。感谢 FastAI 对本项目的支持！
+      <a href="https://www.fastaitoken.com/"><strong>FastAI</strong></a> 提供多款主流大模型的便捷中转服务，让开发者可以更轻松地把 AI 能力接入日常开发流程。其支持也帮助 Lithe 持续完善 AI 辅助体验。感谢 FastAI 对本项目的支持！
     </td>
   </tr>
   <tr>
@@ -237,7 +237,27 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://codezsy.com"><strong>CodeZ</strong></a> 提供 GPT 系列模型的中转支持，并支持 Lithe 的开发。感谢 CodeZ 对本项目的支持！
+      <a href="https://codezsy.com"><strong>CodeZ</strong></a> 专注于 GPT 系列模型的稳定中转，为开发者在工具和项目中集成模型 API 提供简单直接的选择。其赞助为 Lithe 的持续开发与维护提供了助力。感谢 CodeZ 对本项目的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH">
+        <img src="./docs/assets/sponsors/yuanliu-token.png" width="64" alt="元流 Token">
+      </a>
+    </td>
+    <td>
+      <a href="https://api.axis.fan/register?aff=4EZFN7322WTH"><strong>元流 Token</strong></a> 提供多种大语言模型 API 的中转接入，为开发者体验不同模型、构建 AI 应用提供灵活入口。其赞助支持 Lithe 持续拓展并优化 AI 相关功能。感谢元流 Token 对本项目的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://torchai.ai">
+        <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
+      </a>
+    </td>
+    <td>
+      <a href="https://torchai.ai"><strong>TorchAI</strong></a> 面向开发者提供大模型中转服务，便于在编程、内容生成和自动化等不同场景中调用模型 API。其支持帮助 Lithe 保持持续开发，并探索更实用的 AI 工具体验。感谢 TorchAI 对本项目的支持！
     </td>
   </tr>
   <tr>
@@ -247,7 +267,7 @@ open dist/Lithe.app
       </a>
     </td>
     <td>
-      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> 提供 Claude 系列模型的中转支持，并支持 Lithe 的开发。感谢 Code GO 对本项目的支持！
+      <a href="https://shu26.cfd/"><strong>Code GO</strong></a> 主要提供 Claude 系列模型的中转服务，帮助用户以更低的接入成本使用擅长编程与推理的模型。其支持让 Lithe 能够继续打磨模型集成和开发者工作流。感谢 Code GO 对本项目的支持！
     </td>
   </tr>
 </table>

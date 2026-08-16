@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 
 final class MacClaudeConfigurationSource: ClaudeConfigurationSource, @unchecked Sendable {
     private let fileManager: FileManager

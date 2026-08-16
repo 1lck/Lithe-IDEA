@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "id": "dev.lithe.ai-assistance",
+      "displayName": "AI Assistance",
+      "scope": "application",
+      "defaultState": "disabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 300 },
+      "dependencies": [],
+      "capabilities": [
+        "dev.lithe.capability.ai-commit-message",
+        "dev.lithe.capability.ai-pull-request-description"
+      ],
+      "contributions": [
+        { "id": "ai.commit-message", "kind": "command" },
+        { "id": "ai.pull-request-description", "kind": "command" },
+        { "id": "ai.settings", "kind": "settings" }
+      ],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.database",
+      "displayName": "Database",
+      "scope": "workspace",
+      "defaultState": "disabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 600 },
+      "dependencies": ["dev.lithe.workspace"],
+      "capabilities": ["dev.lithe.capability.database-workspace"],
+      "contributions": [
+        { "id": "database.workspace", "kind": "toolWindow" }
+      ],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.debug",
+      "displayName": "Debug",
+      "scope": "workspace",
+      "defaultState": "enabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 600 },
+      "dependencies": ["dev.lithe.execution", "dev.lithe.language-intelligence", "dev.lithe.workspace"],
+      "capabilities": ["dev.lithe.capability.debug-workspace"],
+      "contributions": [
+        { "id": "debug.session", "kind": "toolWindow", "actionID": "debug.toggle", "rendererID": "debug.session" }
+      ],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.execution",
+      "displayName": "Build / Run / Test",
+      "scope": "workspace",
+      "defaultState": "enabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 600 },
+      "dependencies": ["dev.lithe.workspace"],
+      "capabilities": ["dev.lithe.capability.execution-workspace"],
+      "contributions": [
+        { "id": "execution.maven", "kind": "toolWindow", "actionID": "execution.maven.toggle", "rendererID": "execution.maven" },
+        { "id": "execution.run", "kind": "toolWindow", "actionID": "execution.run.toggle", "rendererID": "execution.run" },
+        { "id": "execution.tests", "kind": "toolWindow", "actionID": "execution.tests.toggle", "rendererID": "execution.tests" }
+      ],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.git",
+      "displayName": "Git Review",
+      "scope": "workspace",
+      "defaultState": "enabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 600 },
+      "dependencies": ["dev.lithe.workspace"],
+      "capabilities": ["dev.lithe.capability.git-workspace"],
+      "contributions": [
+        { "id": "git.changes", "kind": "toolWindow" },
+        { "id": "git.log", "kind": "toolWindow", "actionID": "git.log.toggle", "rendererID": "git.log" }
+      ],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.language-intelligence",
+      "displayName": "Language Intelligence",
+      "scope": "workspace",
+      "defaultState": "enabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 600 },
+      "dependencies": ["dev.lithe.workspace"],
+      "capabilities": ["dev.lithe.capability.language-intelligence"],
+      "contributions": [
+        { "id": "language.problems", "kind": "toolWindow", "actionID": "language.problems.toggle", "rendererID": "language.problems" },
+        { "id": "language.settings", "kind": "settings" }
+      ],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.local-history",
+      "displayName": "Local History",
+      "scope": "workspace",
+      "defaultState": "enabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 600 },
+      "dependencies": ["dev.lithe.workspace"],
+      "capabilities": ["dev.lithe.capability.history-workspace"],
+      "contributions": [
+        { "id": "history.local", "kind": "toolWindow" }
+      ],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.search",
+      "displayName": "Search & Index",
+      "scope": "workspace",
+      "defaultState": "enabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 600 },
+      "dependencies": ["dev.lithe.workspace"],
+      "capabilities": ["dev.lithe.capability.search-workspace"],
+      "contributions": [
+        { "id": "search.workspace", "kind": "toolWindow" }
+      ],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.terminal",
+      "displayName": "Terminal",
+      "scope": "workspace",
+      "defaultState": "enabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 600 },
+      "dependencies": ["dev.lithe.workspace"],
+      "capabilities": ["dev.lithe.capability.terminal-workspace"],
+      "contributions": [
+        { "id": "terminal.sessions", "kind": "toolWindow", "actionID": "terminal.toggle", "rendererID": "terminal.sessions" }
+      ],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.workspace",
+      "displayName": "Workspace Foundation",
+      "scope": "workspace",
+      "defaultState": "enabled",
+      "activationPolicy": "eager",
+      "sleepPolicy": { "kind": "never" },
+      "dependencies": [],
+      "capabilities": ["dev.lithe.capability.workspace-foundation"],
+      "contributions": [],
+      "required": true
+    }
+  ]
+}

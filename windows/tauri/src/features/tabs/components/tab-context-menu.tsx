@@ -1,0 +1,219 @@
+import {
+  ColumnsIcon as Columns2,
+  CopyIcon as Copy,
+  FolderOpenIcon as FolderOpen,
+  LockIcon as Lock,
+  LockOpenIcon as LockOpen,
+  PencilSimpleLineIcon as PencilSimpleLine,
+  PushPinIcon as Pin,
+  PushPinSlashIcon as PinOff,
+  ArrowCounterClockwiseIcon as RotateCcw,
+  RowsIcon as Rows2,
+  TerminalWindowIcon as Terminal,
+  XIcon as X,
+} from "@/ui/icons";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import type { PaneContent } from "@/features/panes/types/pane-content.types";
+import { isVirtualContent } from "@/features/panes/types/pane-content.types";
+import {
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+} from "@/ui/context-menu";
+import type { MenuItem } from "@/ui/dropdown";
+import { writeClipboardText } from "@/utils/clipboard";
+import { getBaseName, getDirName } from "@/utils/path-helpers";
+import Keybinding from "@/features/keymaps/components/keybinding";
+import { IS_MAC } from "@/utils/platform";
+
+interface TabContextMenuProps {
+  buffer: PaneContent;
+  paneId?: string;
+  onPin: (bufferId: string) => void;
+  onRename?: (bufferId: string) => void;
+  onCloseTab: (bufferId: string) => void;
+  onCloseOthers: (bufferId: string) => void;
+  onCloseAll: () => void;
+  onCloseToRight: (bufferId: string) => void;
+  onCopyPath?: (path: string) => void;
+  onCopyRelativePath?: (path: string) => void;
+  onReload?: (bufferId: string) => void;
+  onRevealInFinder?: (path: string) => void;
+  onSplitRight?: (paneId: string, bufferId: string) => void;
+  onSplitDown?: (paneId: string, bufferId: string) => void;
+  isPaneLocked?: boolean;
+  onTogglePaneLocked?: () => void;
+}
+
+const TabContextMenu = ({
+  buffer,
+  paneId,
+  onPin,
+  onRename,
+  onCloseTab,
+  onCloseOthers,
+  onCloseAll,
+  onCloseToRight,
+  onCopyPath,
+  onCopyRelativePath,
+  onReload,
+  onRevealInFinder,
+  onSplitRight,
+  onSplitDown,
+  isPaneLocked = false,
+  onTogglePaneLocked,
+}: TabContextMenuProps) => {
+  const closeKeys = [IS_MAC ? "Cmd" : "Ctrl", "W"];
+  const items: MenuItem[] = [
+    {
+      id: "pin",
+      label: buffer.isPinned ? "Unpin Tab" : "Pin Tab",
+      icon: buffer.isPinned ? <PinOff /> : <Pin />,
+      onClick: () => onPin(buffer.id),
+    },
+    ...(buffer.type === "terminal"
+      ? [
+          {
+            id: "rename-terminal",
+            label: "Rename",
+            icon: <PencilSimpleLine />,
+            onClick: () => onRename?.(buffer.id),
+          },
+        ]
+      : []),
+    { id: "sep-1", label: "", separator: true, onClick: () => {} },
+    ...(paneId && onSplitRight
+      ? [
+          {
+            id: "split-right",
+            label: "Split Right",
+            icon: <Columns2 />,
+            onClick: () => onSplitRight(paneId, buffer.id),
+          },
+        ]
+      : []),
+    ...(paneId && onSplitDown
+      ? [
+          {
+            id: "split-down",
+            label: "Split Down",
+            icon: <Rows2 />,
+            onClick: () => onSplitDown(paneId, buffer.id),
+          },
+        ]
+      : []),
+    ...(paneId && (onSplitRight || onSplitDown)
+      ? [{ id: "sep-2", label: "", separator: true, onClick: () => {} }]
+      : []),
+    ...(onTogglePaneLocked
+      ? [
+          {
+            id: "toggle-editor-group-lock",
+            label: isPaneLocked ? "Unlock Editor Group" : "Lock Editor Group",
+            icon: isPaneLocked ? <LockOpen /> : <Lock />,
+            onClick: onTogglePaneLocked,
+          },
+          { id: "sep-lock", label: "", separator: true, onClick: () => {} },
+        ]
+      : []),
+    {
+      id: "copy-path",
+      label: "Copy Path",
+      icon: <Copy />,
+      onClick: async () => {
+        if (onCopyPath) {
+          onCopyPath(buffer.path);
+          return;
+        }
+
+        try {
+          await writeClipboardText(buffer.path);
+        } catch (error) {
+          console.error("Failed to copy path:", error);
+        }
+      },
+    },
+    {
+      id: "copy-relative-path",
+      label: "Copy Relative Path",
+      icon: <Copy />,
+      onClick: () => onCopyRelativePath?.(buffer.path),
+    },
+    {
+      id: "reveal",
+      label: "Reveal in Finder",
+      icon: <FolderOpen />,
+      onClick: () => onRevealInFinder?.(buffer.path),
+    },
+    ...(!isVirtualContent(buffer) && !buffer.path.includes("://")
+      ? [
+          {
+            id: "terminal",
+            label: "Open in Terminal",
+            icon: <Terminal />,
+            onClick: () => {
+              const dirPath = getDirName(buffer.path);
+              const dirName = getBaseName(dirPath, "terminal");
+              const { openTerminalBuffer } = useBufferStore.getState().actions;
+              openTerminalBuffer({
+                name: dirName,
+                workingDirectory: dirPath,
+              });
+            },
+          },
+        ]
+      : []),
+    ...(buffer.path !== "extensions://marketplace"
+      ? [
+          {
+            id: "reload",
+            label: "Reload",
+            icon: <RotateCcw />,
+            onClick: () => onReload?.(buffer.id),
+          },
+        ]
+      : []),
+    { id: "sep-3", label: "", separator: true, onClick: () => {} },
+    {
+      id: "close",
+      label: "Close",
+      icon: <X />,
+      keybinding: <Keybinding keys={closeKeys} className="opacity-60" />,
+      onClick: () => onCloseTab(buffer.id),
+    },
+    {
+      id: "close-others",
+      label: "Close Others",
+      onClick: () => onCloseOthers(buffer.id),
+    },
+    {
+      id: "close-right",
+      label: "Close to Right",
+      onClick: () => onCloseToRight(buffer.id),
+    },
+    {
+      id: "close-all",
+      label: "Close All",
+      onClick: onCloseAll,
+    },
+  ];
+
+  return (
+    <ContextMenuContent>
+      {items.map((item) =>
+        item.separator ? (
+          <ContextMenuSeparator key={item.id} />
+        ) : (
+          <ContextMenuItem key={item.id} disabled={item.disabled} onClick={item.onClick}>
+            {item.icon}
+            {item.label}
+            {item.keybinding && <ContextMenuShortcut>{item.keybinding}</ContextMenuShortcut>}
+          </ContextMenuItem>
+        ),
+      )}
+    </ContextMenuContent>
+  );
+};
+
+export default TabContextMenu;

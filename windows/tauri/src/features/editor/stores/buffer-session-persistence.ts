@@ -1,0 +1,105 @@
+import type { BufferSession } from "@/features/window/stores/session.store";
+import { workspaceSessionRepository } from "@/features/workspace/persistence/workspace-session-repository";
+import { getEditorWorkspaceScope } from "@/features/file-system/controllers/workspace-session";
+import { createWorkspaceSessionSaveQueue } from "./workspace-session-save-queue";
+import type { PaneContent } from "@/features/panes/types/pane-content.types";
+import { buildPersistedEditorViewState } from "./editor-session-state";
+import { getBufferById } from "../utils/buffer-index";
+
+const SAVE_SESSION_DEBOUNCE_MS = 300;
+
+const serializeBufferForSession = (
+  buffer: PaneContent,
+  workspaceRootPath: string | undefined,
+): BufferSession | null => {
+  if (buffer.type === "editor" && !buffer.isVirtual) {
+    return {
+      type: "editor",
+      path: buffer.path,
+      name: buffer.name,
+      isPinned: buffer.isPinned,
+      isPreview: buffer.isPreview,
+      workspaceScope: getEditorWorkspaceScope(buffer.path, workspaceRootPath),
+      editorState: buildPersistedEditorViewState(buffer),
+    };
+  }
+
+  if (buffer.type === "terminal") {
+    return {
+      type: "terminal",
+      path: buffer.path,
+      name: buffer.name,
+      isPinned: buffer.isPinned,
+      sessionId: buffer.sessionId,
+      shell: buffer.shell,
+      initialCommand: buffer.initialCommand,
+      workingDirectory: buffer.workingDirectory,
+      remoteConnectionId: buffer.remoteConnectionId,
+    };
+  }
+
+  if (buffer.type === "webViewer") {
+    return {
+      type: "webViewer",
+      path: buffer.path,
+      name: buffer.name,
+      isPinned: buffer.isPinned,
+      url: buffer.url,
+      zoomLevel: buffer.zoomLevel,
+      profileKey: buffer.profileKey,
+      history: buffer.history,
+      historyIndex: buffer.historyIndex,
+    };
+  }
+
+  return null;
+};
+
+const saveSessionToStoreImmediate = (
+  projectPath: string,
+  buffers: PaneContent[],
+  activeBufferId: string | null,
+) => {
+  const persistableBuffers = buffers
+    .map((buffer) => serializeBufferForSession(buffer, projectPath))
+    .filter((buffer): buffer is BufferSession => buffer !== null);
+
+  const activeBuffer = getBufferById(buffers, activeBufferId);
+  const activeBufferPath =
+    activeBuffer &&
+    ((activeBuffer.type === "editor" && !activeBuffer.isVirtual) ||
+      activeBuffer.type === "terminal" ||
+      activeBuffer.type === "webViewer")
+      ? activeBuffer.path
+      : null;
+
+  workspaceSessionRepository.save({
+    projectPath,
+    buffers: persistableBuffers,
+    activeBufferPath,
+  });
+};
+
+const sessionSaveQueue = createWorkspaceSessionSaveQueue(
+  (projectPath: string, payload: { buffers: PaneContent[]; activeBufferId: string | null }) => {
+    saveSessionToStoreImmediate(projectPath, payload.buffers, payload.activeBufferId);
+  },
+  SAVE_SESSION_DEBOUNCE_MS,
+);
+
+export const saveSessionToStore = (
+  projectPath: string | undefined,
+  buffers: PaneContent[],
+  activeBufferId: string | null,
+) => {
+  if (!projectPath) return;
+
+  sessionSaveQueue.schedule(projectPath, {
+    buffers,
+    activeBufferId,
+  });
+};
+
+export const clearQueuedWorkspaceSessionSave = (projectPath: string) => {
+  sessionSaveQueue.clear(projectPath);
+};

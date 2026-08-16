@@ -1,0 +1,286 @@
+import { invoke } from "@/platform/tauri-core";
+import { readFile } from "@tauri-apps/plugin-fs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+
+import { openUrl } from "@tauri-apps/plugin-opener"; // Keep for external links
+import { ArrowSquareOutIcon as ExternalLink } from "@/ui/icons";
+// Configure PDF.js worker
+import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useResizeObserver } from "@/features/panes/hooks/use-resize-observer";
+import { ViewerFooter } from "@/features/viewer/components/viewer-footer";
+import { ViewerHeader } from "@/features/viewer/components/viewer-header";
+import { ViewerLayout } from "@/features/viewer/components/viewer-layout";
+import { ViewerErrorState, ViewerLoadingState } from "@/features/viewer/components/viewer-state";
+import { ViewerZoomControls } from "@/features/viewer/components/viewer-zoom-controls";
+import { useViewerZoom } from "@/features/viewer/hooks/use-viewer-zoom";
+import { Button } from "@/ui/button";
+import { Spinner } from "@/ui/spinner";
+import { showConfirmDialog } from "@/ui/dialog";
+import { formatFileSize } from "@/utils/format-file-size";
+import { getRelativePath } from "@/utils/path-helpers";
+
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
+
+interface PdfViewerProps {
+  filePath: string;
+  fileName: string;
+  bufferId: string;
+}
+
+export function PdfViewer({ filePath, fileName }: PdfViewerProps) {
+  const [fileData, setFileData] = useState<Uint8Array | null>(null);
+  const [numPages, setNumPages] = useState<number>(0);
+  const [pageDimensions, setPageDimensions] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const { zoom, zoomIn, zoomOut, resetZoom, handleWheel } = useViewerZoom({
+    initialZoom: 1.0,
+    maxZoom: 3.0,
+    minZoom: 0.5,
+  });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { width: containerWidth } = useResizeObserver(containerRef);
+  const [isFitted, setIsFitted] = useState(true);
+  const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const relativePath = getRelativePath(filePath, rootFolderPath);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+
+  const pdfFile = useMemo(() => {
+    if (!fileData) return null;
+
+    // PDF.js can fail to fetch blob:tauri URLs in the Tauri WebView, so hand
+    // it local bytes directly instead of routing the already-read file through a blob URL.
+    return { data: fileData.slice() };
+  }, [fileData]);
+
+  // Load file content
+  useEffect(() => {
+    const loadFile = async () => {
+      try {
+        setFileData(null);
+        setError(null);
+        const data = await readFile(filePath);
+        setFileData(data);
+      } catch (err) {
+        console.error("Failed to read PDF file:", err);
+        setError("Failed to load PDF file.");
+      }
+    };
+
+    loadFile();
+  }, [filePath]);
+
+  // Handle wheel zoom
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
+
+  const onDocumentLoadSuccess = (pdf: pdfjs.PDFDocumentProxy) => {
+    setNumPages(pdf.numPages);
+  };
+
+  const onDocumentLoadError = (err: Error) => {
+    console.error("PDF load error:", err);
+    setError(err.message || "Failed to load PDF document.");
+  };
+
+  // Track current page via scroll position
+  const handleScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const viewMidpoint = container.scrollTop + container.clientHeight / 2;
+    const pages = container.querySelectorAll<HTMLElement>(".pdf-page-container");
+
+    for (const page of pages) {
+      const pageTop = page.offsetTop;
+      const pageBottom = pageTop + page.offsetHeight;
+
+      if (pageTop <= viewMidpoint && pageBottom > viewMidpoint) {
+        const pageNum = Number(page.getAttribute("data-page-number"));
+        if (!Number.isNaN(pageNum)) {
+          setCurrentPage(pageNum);
+        }
+        break;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener("scroll", handleScroll);
+    // Trigger once on mount/update to set initial page
+    handleScroll();
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, [handleScroll, numPages, zoom]); // Re-bind when layout changes
+
+  // Handle external link clicks in PDF
+  const handleLinkClick = async (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const anchor = target.closest("a");
+    if (anchor?.href) {
+      e.preventDefault();
+      // External links start with http etc.
+      if (anchor.href.startsWith("http")) {
+        const confirmed = await showConfirmDialog(
+          `Do you want to open this external link?\n\n${anchor.href}`,
+          { title: "External Link", confirmLabel: "Open" },
+        );
+        if (confirmed) {
+          await openUrl(anchor.href);
+        }
+      }
+    }
+  };
+
+  const handleOpenExternal = async () => {
+    try {
+      await invoke("open_file_external", { path: filePath });
+    } catch (err) {
+      console.error("Failed to open external viewer (rust):", err);
+      // Fallback to opener plugin just in case
+      await openUrl(filePath).catch((e) => console.error("Fallback open failed:", e));
+    }
+  };
+
+  return (
+    <ViewerLayout>
+      <ViewerHeader
+        className="absolute inset-x-0 top-0 z-10"
+        title={<span title={fileName}>{fileName}</span>}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              onClick={handleOpenExternal}
+              tooltip="Open in external viewer"
+              size="icon-xs"
+            >
+              <ExternalLink className="text-foreground" />
+            </Button>
+            <div className="mx-1 h-4 w-px bg-border" />
+            <ViewerZoomControls
+              zoom={zoom}
+              onZoomIn={() => {
+                setIsFitted(false);
+                zoomIn();
+              }}
+              onZoomOut={() => {
+                setIsFitted(false);
+                zoomOut();
+              }}
+              onResetZoom={() => {
+                setIsFitted(true);
+                // We don't need to reset generic zoom state if we are switching to fitted mode
+                // because fitted mode ignores the zoom number for the 'width' prop in react-pdf
+                resetZoom(); // Reset to 1.0 just for cleanliness
+              }}
+            />
+          </>
+        }
+      />
+
+      {/* Main Content */}
+      <div
+        ref={containerRef}
+        className="absolute inset-x-0 top-10 bottom-9 flex justify-center overflow-auto bg-(--editor-bg) p-8"
+        onClick={handleLinkClick}
+      >
+        {error ? (
+          <ViewerErrorState message={error} />
+        ) : pdfFile ? (
+          <Document
+            file={pdfFile}
+            onLoadSuccess={onDocumentLoadSuccess}
+            onLoadError={onDocumentLoadError}
+            loading={
+              <div className="mt-20 flex flex-col items-center gap-2 text-subtle-foreground">
+                <Spinner label="Loading PDF" showLabel />
+              </div>
+            }
+            error={
+              <div className="mt-20 flex flex-col items-center gap-2 text-destructive">
+                <span>Failed to load PDF document.</span>
+              </div>
+            }
+            className="flex flex-col items-center gap-4"
+          >
+            {Array.from({ length: numPages }, (_el, index) => (
+              <div
+                key={`page_${index + 1}`}
+                className="pdf-page-container bg-white shadow-(--shadow-card)"
+                data-page-number={index + 1}
+              >
+                <Page
+                  pageNumber={index + 1}
+                  scale={isFitted ? undefined : zoom}
+                  width={isFitted && containerWidth ? containerWidth - 64 : undefined}
+                  onLoadSuccess={(page) => {
+                    if (index === 0) {
+                      setPageDimensions({
+                        width: page.originalWidth,
+                        height: page.originalHeight,
+                      });
+                    }
+                  }}
+                  renderTextLayer={true}
+                  renderAnnotationLayer={true}
+                  loading={
+                    <div
+                      className="flex items-center justify-center bg-white"
+                      style={{
+                        width: pageDimensions ? pageDimensions.width * zoom : 600 * zoom,
+                        height: pageDimensions ? pageDimensions.height * zoom : 800 * zoom,
+                      }}
+                    >
+                      <Spinner label="Loading page" compact />
+                    </div>
+                  }
+                />
+              </div>
+            ))}
+          </Document>
+        ) : (
+          <ViewerLoadingState label="Reading file" />
+        )}
+      </div>
+
+      <div className="absolute inset-x-0 bottom-0 z-10 h-9">
+        <ViewerFooter
+          endContent={
+            <>
+              <span className="shrink-0">Size: {formatFileSize(fileData?.byteLength || 0)}</span>
+              <span className="truncate" title={relativePath || filePath}>
+                Path: {relativePath || filePath}
+              </span>
+            </>
+          }
+        >
+          <span>Zoom: {Math.round(zoom * 100)}%</span>
+          <span>
+            Page: {currentPage}/{numPages}
+          </span>
+          {pageDimensions ? (
+            <span>
+              Size: {Math.round(pageDimensions.width)} × {Math.round(pageDimensions.height)}pt
+            </span>
+          ) : null}
+          <span>Type: PDF</span>
+        </ViewerFooter>
+      </div>
+    </ViewerLayout>
+  );
+}

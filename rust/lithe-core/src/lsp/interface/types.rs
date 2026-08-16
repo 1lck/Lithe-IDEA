@@ -1,9 +1,12 @@
+//! Serializable client state and wire models for the generic LSP implementation.
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Half-open document range expressed in zero-based LSP coordinates.
 pub struct LspRange {
     pub start: LspPosition,
     pub end: LspPosition,
@@ -11,6 +14,7 @@ pub struct LspRange {
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Zero-based LSP line and UTF-16 code-unit column.
 pub struct LspPosition {
     pub line: i64,
     pub utf16_column: i64,
@@ -18,6 +22,7 @@ pub struct LspPosition {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Normalized text replacement returned to host applications.
 pub struct LspTextEditResponse {
     pub range: LspRangeResponse,
     pub new_text: String,
@@ -25,9 +30,11 @@ pub struct LspTextEditResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Normalized inlay hint independent of provider-specific extensions.
 pub struct LspInlayHintResponse {
     pub position: LspPositionResponse,
     pub label: String,
+    /// Numeric LSP `InlayHintKind`, when supplied by the server.
     pub kind: Option<i64>,
     pub tooltip: Option<String>,
     pub padding_left: bool,
@@ -38,17 +45,20 @@ pub struct LspInlayHintResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Normalized folding range using UTF-16 columns when supplied by the server.
 pub struct LspFoldingRangeResponse {
     pub start_line: i64,
     pub start_utf16_column: Option<i64>,
     pub end_line: i64,
     pub end_utf16_column: Option<i64>,
+    /// Server-provided LSP fold category such as `comment`, `imports`, or `region`.
     pub kind: Option<String>,
     pub collapsed_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Normalized CodeLens payload awaiting an optional resolve operation.
 pub struct LspCodeLensResponse {
     pub range: LspRangeResponse,
     pub command: Option<Value>,
@@ -57,6 +67,7 @@ pub struct LspCodeLensResponse {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Serializable form of an LSP document range.
 pub struct LspRangeResponse {
     pub start: LspPositionResponse,
     pub end: LspPositionResponse,
@@ -64,6 +75,7 @@ pub struct LspRangeResponse {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Serializable form of a zero-based LSP position.
 pub struct LspPositionResponse {
     pub line: i64,
     pub utf16_column: i64,
@@ -71,6 +83,7 @@ pub struct LspPositionResponse {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Pure client protocol state carried between JSON command invocations.
 pub struct LspClientState {
     #[serde(default = "default_next_request_id")]
     pub next_request_id: u64,
@@ -111,6 +124,7 @@ fn default_next_request_id() -> u64 {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Document version and contents currently synchronized with the server.
 pub struct LspClientDocument {
     pub uri: String,
     pub language_id: String,
@@ -120,6 +134,7 @@ pub struct LspClientDocument {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Diagnostic normalized to fields supported by every frontend.
 pub struct LspClientDiagnostic {
     pub range: LspRangeResponse,
     pub severity: Option<i64>,
@@ -134,6 +149,7 @@ pub struct LspClientDiagnostic {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Related diagnostic message and its source location.
 pub struct LspClientDiagnosticRelatedInformation {
     pub location: LspClientDiagnosticLocation,
     pub message: String,
@@ -141,6 +157,7 @@ pub struct LspClientDiagnosticRelatedInformation {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// URI and range referenced by related diagnostic information.
 pub struct LspClientDiagnosticLocation {
     pub uri: String,
     pub range: LspRangeResponse,
@@ -148,6 +165,7 @@ pub struct LspClientDiagnosticLocation {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Inputs for constructing the LSP initialize request and initial client state.
 pub struct ClientInitializeRequest {
     #[serde(default)]
     pub state: LspClientState,
@@ -160,6 +178,7 @@ pub struct ClientInitializeRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Inputs for opening a complete document in pure client state.
 pub struct ClientOpenDocumentRequest {
     #[serde(default)]
     pub state: LspClientState,
@@ -170,6 +189,7 @@ pub struct ClientOpenDocumentRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Inputs for replacing a synchronized document's complete contents.
 pub struct ClientChangeDocumentRequest {
     #[serde(default)]
     pub state: LspClientState,
@@ -179,6 +199,7 @@ pub struct ClientChangeDocumentRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Inputs for closing a document in pure client state.
 pub struct ClientCloseDocumentRequest {
     #[serde(default)]
     pub state: LspClientState,
@@ -187,6 +208,7 @@ pub struct ClientCloseDocumentRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Inputs for the LSP shutdown handshake.
 pub struct ClientShutdownRequest {
     #[serde(default)]
     pub state: LspClientState,
@@ -194,6 +216,7 @@ pub struct ClientShutdownRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Generic feature request translated into one provider-neutral JSON-RPC call.
 pub struct ClientFeatureRequest {
     #[serde(default)]
     pub state: LspClientState,
@@ -217,6 +240,7 @@ pub struct ClientFeatureRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Server JSON-RPC message to reduce into the current client state.
 pub struct ClientApplyServerMessageRequest {
     #[serde(default)]
     pub state: LspClientState,
@@ -224,6 +248,7 @@ pub struct ClientApplyServerMessageRequest {
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Updated client state, outbound messages, and host-facing events.
 pub struct LspClientResponse {
     pub state: LspClientState,
     pub messages: Vec<String>,
@@ -232,7 +257,9 @@ pub struct LspClientResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Normalized event produced while reducing a server message.
 pub struct LspClientEvent {
+    /// Pure-client event category: `diagnostics`, `notification`, `response`, or `error`.
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
