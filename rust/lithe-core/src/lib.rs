@@ -1,5 +1,6 @@
 //! Deterministic application services shared by the macOS and Windows hosts.
 
+mod community;
 mod execution;
 mod git;
 mod github;

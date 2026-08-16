@@ -239,8 +239,7 @@ struct SettingsView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .frame(height: 66)
                     .padding(5)
-                    .background(LitheTheme.inputBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .litheRoundedControlBackground(LitheTheme.inputBackground)
                     .overlay {
                         RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                             .stroke(LitheTheme.inputBorder, lineWidth: 1)
@@ -252,8 +251,7 @@ struct SettingsView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .frame(height: 52)
                     .padding(5)
-                    .background(LitheTheme.inputBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .litheRoundedControlBackground(LitheTheme.inputBackground)
                     .overlay {
                         RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                             .stroke(LitheTheme.inputBorder, lineWidth: 1)
@@ -542,8 +540,7 @@ struct SettingsView: View {
                         .font(.system(size: 12, design: .monospaced))
                         .frame(height: 92)
                         .padding(5)
-                        .background(LitheTheme.inputBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                        .litheRoundedControlBackground(LitheTheme.inputBackground)
                         .overlay {
                             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                                 .stroke(LitheTheme.inputBorder, lineWidth: 1)

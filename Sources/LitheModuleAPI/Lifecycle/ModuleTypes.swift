@@ -182,6 +182,7 @@ public enum ModuleContributionKind: String, Codable, Sendable {
 
 public enum ModuleContributionPlacement: String, Codable, Sendable {
     case activityBar
+    case rightSidebar
     case toolWindow
     case commandPalette
     case settings
