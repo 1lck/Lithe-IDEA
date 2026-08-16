@@ -287,7 +287,7 @@ See [Repository layout and shared boundaries](./docs/architecture/repository-lay
 </p>
 
 <p align="center">
-  <strong>For all things AI, head to LINUX DO. Wishing the community ever greater success.</strong>
+  <strong>For all things AI, head to <a href="https://linux.do">LINUX DO</a>. Wishing the community ever greater success.</strong>
 </p>
 
 ### Contributors
