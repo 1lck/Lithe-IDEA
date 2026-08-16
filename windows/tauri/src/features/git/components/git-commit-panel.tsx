@@ -112,7 +112,7 @@ async function buildCommitMessageContext({
   const stagedFilesForContext = stagedFiles.slice(0, MAX_STAGED_FILES_FOR_AI_CONTEXT);
   const diffFilesForContext = stagedFiles.slice(0, MAX_DIFF_FILES_FOR_AI_CONTEXT);
   const [recentCommits, stagedDiffs] = await Promise.all([
-    getGitLog(repoPath, MAX_RECENT_COMMITS_FOR_AI_CONTEXT, 0),
+    getGitLog(repoPath, MAX_RECENT_COMMITS_FOR_AI_CONTEXT),
     Promise.all(diffFilesForContext.map((file) => getFileDiff(repoPath, file.path, true))),
   ]);
   const overflowCount = Math.max(stagedFiles.length - stagedFilesForContext.length, 0);

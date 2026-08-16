@@ -25,6 +25,7 @@ import { calculateLineHeight, splitLines } from "@/features/editor/utils/lines";
 import { useZoomStore } from "@/features/window/stores/zoom.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useGitDiffPreferencesStore } from "@/features/git/stores/git-diff-preferences.store";
 import {
   buildSearchRegex,
   findAllMatches,
@@ -650,7 +651,8 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const isFindVisible = useUIState((state) => state.isFindVisible);
   const setIsFindVisible = useUIState((state) => state.setIsFindVisible);
-  const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
+  const viewMode = useGitDiffPreferencesStore.use.viewMode();
+  const setViewMode = useGitDiffPreferencesStore.use.actions().setViewMode;
   const [showWhitespace, setShowWhitespace] = useState(false);
   const [isFileTreeVisible, setIsFileTreeVisible] = useState(true);
   const [fileNavigatorViewMode, setFileNavigatorViewMode] = useState<FileNavigatorViewMode>("tree");
@@ -1034,8 +1036,12 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               {multiDiff.title || "Uncommitted Changes"}
             </span>
             <span className="truncate">{indexedFileLabel}</span>
-            <span className="shrink-0 text-git-added">+{multiDiff.totalAdditions}</span>
-            <span className="shrink-0 text-git-deleted">-{multiDiff.totalDeletions}</span>
+            {multiDiff.totalAdditions > 0 ? (
+              <span className="shrink-0 text-git-added">+{multiDiff.totalAdditions}</span>
+            ) : null}
+            {multiDiff.totalDeletions > 0 ? (
+              <span className="shrink-0 text-git-deleted">-{multiDiff.totalDeletions}</span>
+            ) : null}
             {isIndexingDiffs ? <span>{indexingLabel}</span> : null}
           </div>
         }

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { activateMainEditorPane } from "@/features/editor/stores/buffer-pane-sync";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { showAlertDialog } from "@/ui/dialog";
 import { getCommitDiff, getFileDiff, getRefDiff, getStashDiff } from "../api/git-diff-api";
@@ -29,6 +30,7 @@ function openDiffBuffer(
   displayName: string,
   diffData: GitDiff | MultiFileDiff,
 ) {
+  activateMainEditorPane();
   return useBufferStore
     .getState()
     .actions.openBuffer(virtualPath, displayName, "", false, undefined, true, true, diffData);
@@ -100,6 +102,7 @@ export function useGitDiffActions({
 
       try {
         const actualFilePath = normalizeDisplayedFilePath(filePath, "new");
+        activateMainEditorPane();
         onFileSelect(`${activeRepoPath}/${actualFilePath}`, false);
       } catch (error) {
         console.error("Error opening file:", error);

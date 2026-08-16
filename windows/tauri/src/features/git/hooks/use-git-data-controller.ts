@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { getBranches } from "../api/git-branches-api";
-import { getGitLog } from "../api/git-commits-api";
+import { getGitHistory } from "../api/git-commits-api";
 import { getStashes } from "../api/git-stash-api";
 import { getGitStatus } from "../api/git-status-api";
 import {
@@ -40,9 +40,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     gitActions.setIsLoadingGitData(true);
 
     try {
-      const [status, commits, branches, stashes] = await Promise.all([
+      const [status, history, branches, stashes] = await Promise.all([
         getGitStatus(repoPath),
-        getGitLog(repoPath, 50, 0),
+        getGitHistory(repoPath, 50),
         getBranches(repoPath),
         getStashes(repoPath),
       ]);
@@ -56,7 +56,8 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
       gitActions.loadFreshGitData({
         gitStatus: status,
-        commits,
+        commits: history?.commits ?? [],
+        hasMoreCommits: history?.hasMore ?? false,
         branches,
         stashes,
         repoPath,
@@ -90,11 +91,11 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
             refreshAll || scopes.includes("refs") || scopes.includes("repository");
           const shouldRefreshStashes =
             refreshAll || scopes.includes("stashes") || scopes.includes("repository");
-          const [status, branches, stashes, commits] = await Promise.all([
+          const [status, branches, stashes, history] = await Promise.all([
             getGitStatus(repoPath),
             shouldRefreshRefs ? getBranches(repoPath) : Promise.resolve(undefined),
             shouldRefreshStashes ? getStashes(repoPath) : Promise.resolve(undefined),
-            shouldRefreshHistory ? getGitLog(repoPath, 50, 0) : Promise.resolve(undefined),
+            shouldRefreshHistory ? getGitHistory(repoPath, 50) : Promise.resolve(undefined),
           ]);
 
           if (
@@ -107,7 +108,8 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
           gitActions.refreshGitData({
             gitStatus: status,
             branches,
-            commits,
+            commits: history?.commits,
+            hasMoreCommits: history?.hasMore,
             repoPath,
           });
 

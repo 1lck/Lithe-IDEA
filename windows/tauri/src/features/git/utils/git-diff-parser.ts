@@ -160,6 +160,8 @@ function parseDiffSection(lines: string[], fallbackFilePath: string): GitDiff {
       });
       currentOldLine++;
       currentNewLine++;
+    } else if (line.startsWith("\\ No newline at end of file")) {
+      continue;
     } else if (line.trim()) {
       diffLines.push({
         line_type: "context",

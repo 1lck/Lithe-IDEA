@@ -2,7 +2,10 @@ import { usePaneStore } from "@/features/panes/stores/pane.store";
 import type { PaneGroup } from "@/features/panes/types/pane.types";
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { ensureBufferInPane } from "@/features/panes/utils/pane-buffer-actions";
-import { resolveWritablePaneForBuffer } from "@/features/panes/utils/pane-routing";
+import {
+  resolveMainPaneForExternalOpen,
+  resolveWritablePaneForBuffer,
+} from "@/features/panes/utils/pane-routing";
 import { createPaneBeside } from "@/features/panes/utils/pane-split-actions";
 
 const getPaneState = (workspaceId?: string) =>
@@ -27,6 +30,19 @@ export const getWritablePaneForBuffer = (
 
   const newPaneId = createPaneBeside(activePane.id, "horizontal", "after", undefined, workspaceId);
   return newPaneId ? paneStore.actions.getPaneById(newPaneId) : activePane;
+};
+
+export const activateMainEditorPane = (workspaceId?: string): PaneGroup | null => {
+  const paneStore = getPaneState(workspaceId);
+  const targetPane = resolveMainPaneForExternalOpen({
+    activePaneId: paneStore.activePaneId,
+    mostRecentActivePaneIds: paneStore.mostRecentActivePaneIds,
+    root: paneStore.root,
+  });
+  if (targetPane && targetPane.id !== paneStore.activePaneId) {
+    paneStore.actions.setActivePane(targetPane.id);
+  }
+  return targetPane;
 };
 
 export const syncBufferToPane = (bufferId: string, workspaceId?: string) => {
