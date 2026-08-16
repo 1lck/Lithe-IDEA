@@ -5,12 +5,12 @@ ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
 workbench_path="Sources/Lithe/Views/Workbench/WorkbenchView.swift"
-drawing_group_pattern='\.drawingGroup\b'
+drawing_group_pattern='\.drawingGroup[[:space:]]*\('
 workbench_rasterization_violations=$(
-    rg -n "$drawing_group_pattern" "$workbench_path" || true
+    /usr/bin/grep -En -- "$drawing_group_pattern" "$workbench_path" || true
 )
 
-if ! print -r -- 'content.drawingGroup()' | rg -q "$drawing_group_pattern"; then
+if ! print -r -- 'content.drawingGroup()' | /usr/bin/grep -Eq -- "$drawing_group_pattern"; then
     print -u2 -- "The Workbench drawing-group safety pattern is not detecting the known failure form"
     exit 1
 fi
@@ -23,13 +23,13 @@ if [[ -n "$workbench_rasterization_violations" ]]; then
     exit 1
 fi
 
-if ! rg -q 'verify-macos-app-build-safety\.sh' scripts/build-macos.sh; then
+if ! /usr/bin/grep -Fq -- 'verify-macos-app-build-safety.sh' scripts/build-macos.sh; then
     print -u2 -- "macOS builds must run the rendering safety gate"
     exit 1
 fi
 
 for packaging_script in scripts/package-app.sh scripts/preview.sh; do
-    if ! rg -q 'stamp-macos-app-build-info\.sh' "$packaging_script"; then
+    if ! /usr/bin/grep -Fq -- 'stamp-macos-app-build-info.sh' "$packaging_script"; then
         print -u2 -- "$packaging_script must stamp traceable build metadata"
         exit 1
     fi
