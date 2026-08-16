@@ -1157,6 +1157,10 @@
 "Uninstall" = "卸载";
 "Overview" = "概览";
 "No Plugins" = "暂无插件";
+"More Language Support" = "扩展更多语言";
+"%lld languages · %lld enabled" = "%lld 种语言 · 已启用 %lld 个";
+"Expanded" = "已展开";
+"Collapsed" = "已收起";
 "Database" = "数据库连接";
 "Enabled" = "已启用";
 "Disabled" = "已禁用";
