@@ -18,6 +18,8 @@ if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
 fi
 
 cd "$ROOT_DIR"
+"$ROOT_DIR/scripts/verify-macos-app-build-safety.sh"
+
 RUST_TARGET=""
 if [[ -n "$TRIPLE" ]]; then
     case "$TRIPLE" in

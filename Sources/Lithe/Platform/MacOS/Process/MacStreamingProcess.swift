@@ -1,4 +1,6 @@
+import Darwin
 import Foundation
+import LitheModuleAPI
 
 final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     var isRunning: Bool { process?.isRunning == true }
@@ -13,14 +15,17 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     private var activeOperationID: String?
     private let processRegistry: ManagedProcessRegistry?
     private let category: ManagedProcessCategory
+    private let moduleID: ModuleID?
     private var registeredPID: Int32?
 
     init(
         processRegistry: ManagedProcessRegistry? = nil,
-        category: ManagedProcessCategory = .service
+        category: ManagedProcessCategory = .service,
+        moduleID: ModuleID? = nil
     ) {
         self.processRegistry = processRegistry
         self.category = category
+        self.moduleID = moduleID
     }
 
     func start(_ request: ProcessRequest) throws {
@@ -89,7 +94,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         }
         self.process = process
         registeredPID = process.processIdentifier
-        processRegistry?.register(pid: process.processIdentifier, category: category)
+        processRegistry?.register(pid: process.processIdentifier, category: category, moduleID: moduleID)
         self.inputPipe = inputPipe
         self.outputPipe = outputPipe
         if let input = request.standardInput, let inputPipe {
@@ -133,9 +138,32 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         activeOperationID = nil
     }
 
+    func stopAndWait() async -> Bool {
+        guard let runningProcess = process else {
+            stop()
+            return true
+        }
+        let processID = runningProcess.processIdentifier
+        stop()
+
+        let clock = ContinuousClock()
+        var deadline = clock.now.advanced(by: .seconds(1))
+        while runningProcess.isRunning, clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        if runningProcess.isRunning {
+            _ = Darwin.kill(processID, SIGKILL)
+            deadline = clock.now.advanced(by: .seconds(1))
+            while runningProcess.isRunning, clock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
+        return !runningProcess.isRunning
+    }
+
     private func unregisterProcess() {
         guard let registeredPID else { return }
-        processRegistry?.unregister(pid: registeredPID, category: category)
+        processRegistry?.unregister(pid: registeredPID, category: category, moduleID: moduleID)
         self.registeredPID = nil
     }
 

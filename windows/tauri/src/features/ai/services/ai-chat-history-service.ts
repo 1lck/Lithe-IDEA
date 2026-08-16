@@ -1,0 +1,246 @@
+import { invoke } from "@/platform/tauri-core";
+import type { AgentType, Chat, Message, ToolCall } from "@/features/ai/types/ai-chat.types";
+import { normalizeMessageFollowUpActions } from "@/features/ai/lib/follow-up-actions";
+
+/**
+ * Chat History Database Utilities
+ * TypeScript wrapper for Tauri SQLite backend commands
+ */
+
+// Types matching Rust structs
+interface ChatData {
+  id: string;
+  title: string;
+  created_at: number;
+  last_message_at: number;
+  agent_id: string | null;
+  acp_session_id: string | null;
+  workspace_path: string | null;
+  provider_id: string | null;
+  model_id: string | null;
+  branch: string | null;
+  is_pinned: boolean;
+  archived_at: number | null;
+}
+
+interface MessageData {
+  id: string;
+  chat_id: string;
+  role: string;
+  content: string;
+  timestamp: number;
+  is_streaming: boolean;
+  is_tool_use: boolean;
+  tool_name: string | null;
+}
+
+interface ToolCallData {
+  message_id: string;
+  name: string;
+  input: string | null;
+  output: string | null;
+  error: string | null;
+  timestamp: number;
+  is_complete: boolean;
+}
+
+interface ChatWithMessages {
+  chat: ChatData;
+  messages: MessageData[];
+  tool_calls: ToolCallData[];
+}
+
+/**
+ * Initialize the chat history database
+ * Creates tables and indexes if they don't exist
+ */
+export const initChatDatabase = async (): Promise<void> => {
+  try {
+    await invoke("init_chat_database");
+  } catch (error) {
+    console.error("Error initializing chat database:", error);
+    throw error;
+  }
+};
+
+/**
+ * Convert frontend Chat to backend format
+ */
+function chatToData(chat: Chat): {
+  chat: ChatData;
+  messages: MessageData[];
+  tool_calls: ToolCallData[];
+} {
+  const chatData: ChatData = {
+    id: chat.id,
+    title: chat.title,
+    created_at: chat.createdAt.getTime(),
+    last_message_at: chat.lastMessageAt.getTime(),
+    agent_id: chat.agentId,
+    acp_session_id: chat.acpSessionId || null,
+    workspace_path: chat.workspacePath || null,
+    provider_id: chat.providerId || null,
+    model_id: chat.modelId || null,
+    branch: chat.branch || null,
+    is_pinned: chat.isPinned || false,
+    archived_at: chat.archivedAt?.getTime() ?? null,
+  };
+
+  const messages: MessageData[] = chat.messages.map((msg) => ({
+    id: msg.id,
+    chat_id: chat.id,
+    role: msg.role,
+    content: msg.content,
+    timestamp: msg.timestamp.getTime(),
+    is_streaming: msg.isStreaming || false,
+    is_tool_use: msg.isToolUse || false,
+    tool_name: msg.toolName || null,
+  }));
+
+  const tool_calls: ToolCallData[] = [];
+  for (const msg of chat.messages) {
+    if (msg.toolCalls) {
+      for (const tc of msg.toolCalls) {
+        tool_calls.push({
+          message_id: msg.id,
+          name: tc.name,
+          input: tc.input ? JSON.stringify(tc.input) : null,
+          output: tc.output ? JSON.stringify(tc.output) : null,
+          error: tc.error || null,
+          timestamp: tc.timestamp.getTime(),
+          is_complete: tc.isComplete || false,
+        });
+      }
+    }
+  }
+
+  return { chat: chatData, messages, tool_calls };
+}
+
+/**
+ * Convert backend format to frontend Chat
+ */
+function dataToChat(data: ChatWithMessages): Chat {
+  const toolCallsMap = new Map<string, ToolCall[]>();
+
+  // Group tool calls by message ID
+  for (const tc of data.tool_calls) {
+    if (!toolCallsMap.has(tc.message_id)) {
+      toolCallsMap.set(tc.message_id, []);
+    }
+    toolCallsMap.get(tc.message_id)!.push({
+      name: tc.name,
+      input: tc.input ? JSON.parse(tc.input) : undefined,
+      output: tc.output ? JSON.parse(tc.output) : undefined,
+      error: tc.error || undefined,
+      timestamp: new Date(tc.timestamp),
+      isComplete: tc.is_complete,
+    });
+  }
+
+  const messages: Message[] = data.messages.map((msg) =>
+    normalizeMessageFollowUpActions({
+      id: msg.id,
+      role: msg.role as "user" | "assistant" | "system",
+      content: msg.content,
+      timestamp: new Date(msg.timestamp),
+      isStreaming: msg.is_streaming,
+      isToolUse: msg.is_tool_use,
+      toolName: msg.tool_name || undefined,
+      toolCalls: toolCallsMap.get(msg.id),
+    }),
+  );
+
+  return {
+    id: data.chat.id,
+    title: data.chat.title,
+    messages,
+    createdAt: new Date(data.chat.created_at),
+    lastMessageAt: new Date(data.chat.last_message_at),
+    agentId: (data.chat.agent_id || "custom") as AgentType,
+    acpSessionId: data.chat.acp_session_id,
+    workspacePath: data.chat.workspace_path,
+    providerId: data.chat.provider_id,
+    modelId: data.chat.model_id,
+    branch: data.chat.branch,
+    isPinned: data.chat.is_pinned,
+    archivedAt: data.chat.archived_at ? new Date(data.chat.archived_at) : null,
+  };
+}
+
+/**
+ * Save a chat to the database
+ */
+export const saveChatToDb = async (chat: Chat): Promise<void> => {
+  try {
+    const { chat: chatData, messages, tool_calls } = chatToData(chat);
+    await invoke("save_chat", { chat: chatData, messages, toolCalls: tool_calls });
+  } catch (error) {
+    console.error("Error saving chat to database:", error);
+    throw error;
+  }
+};
+
+export const saveChatMetadataToDb = async (chat: Chat): Promise<void> => {
+  try {
+    const { chat: chatData } = chatToData(chat);
+    await invoke("update_chat_metadata", { chat: chatData });
+  } catch (error) {
+    console.error(`Error updating chat metadata for ${chat.id}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Load all chats (metadata only, no messages)
+ */
+export const loadAllChatsFromDb = async (): Promise<Omit<Chat, "messages">[]> => {
+  try {
+    const chats = (await invoke("load_all_chats")) as ChatData[];
+    return chats.map((chat) => ({
+      id: chat.id,
+      title: chat.title,
+      messages: [], // Messages loaded separately
+      createdAt: new Date(chat.created_at),
+      lastMessageAt: new Date(chat.last_message_at),
+      agentId: (chat.agent_id || "custom") as AgentType,
+      acpSessionId: chat.acp_session_id,
+      workspacePath: chat.workspace_path,
+      providerId: chat.provider_id,
+      modelId: chat.model_id,
+      branch: chat.branch,
+      isPinned: chat.is_pinned,
+      archivedAt: chat.archived_at ? new Date(chat.archived_at) : null,
+    }));
+  } catch (error) {
+    console.error("Error loading chats from database:", error);
+    throw error;
+  }
+};
+
+/**
+ * Load a specific chat with all messages
+ */
+export const loadChatFromDb = async (chatId: string): Promise<Chat> => {
+  try {
+    const data = (await invoke("load_chat", { chatId })) as ChatWithMessages;
+    return dataToChat(data);
+  } catch (error) {
+    if (!String(error).includes("Query returned no rows")) {
+      console.error(`Error loading chat ${chatId} from database:`, error);
+    }
+    throw error;
+  }
+};
+
+/**
+ * Delete a chat from the database
+ */
+export const deleteChatFromDb = async (chatId: string): Promise<void> => {
+  try {
+    await invoke("delete_chat", { chatId });
+  } catch (error) {
+    console.error(`Error deleting chat ${chatId} from database:`, error);
+    throw error;
+  }
+};

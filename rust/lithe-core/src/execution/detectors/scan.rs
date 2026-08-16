@@ -1,3 +1,5 @@
+//! Bounded workspace traversal shared by all run-configuration detectors.
+
 use crate::protocol::{CoreError, ErrorCode};
 use std::collections::BTreeSet;
 use std::fs;
@@ -64,6 +66,7 @@ pub struct DirectoryContext {
 }
 
 impl DirectoryContext {
+    /// Captures the readable non-directory entries immediately below `path`.
     pub fn at(root: &Path, path: &Path) -> Result<Option<Self>, CoreError> {
         let Ok(entries) = fs::read_dir(path) else {
             return Ok(None);
@@ -83,6 +86,7 @@ impl DirectoryContext {
         }))
     }
 
+    /// Reports whether the directory contains an entry with the exact name.
     pub fn has(&self, name: &str) -> bool {
         self.files.contains(name)
     }
@@ -96,6 +100,7 @@ impl DirectoryContext {
             .find(|name| self.files.contains(*name))
     }
 
+    /// Reads a known entry as UTF-8, returning no content for unreadable files.
     pub fn read(&self, name: &str) -> Option<String> {
         if !self.has(name) {
             return None;

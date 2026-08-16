@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 
 final class MacCodexConfigurationSource: CodexConfigurationSource, @unchecked Sendable {
     private let fileManager: FileManager

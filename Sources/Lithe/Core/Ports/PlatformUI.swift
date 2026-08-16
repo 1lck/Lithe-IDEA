@@ -20,9 +20,11 @@ extension PlatformUI {
 protocol ShortcutDetector: AnyObject {
     func start()
     func stop()
+    func update(registrations: [KeyboardShortcutRegistration])
+    func setSuspended(_ suspended: Bool)
 }
 
 @MainActor
 protocol ShortcutDetectorFactory {
-    func make(onDoubleTap: @escaping @MainActor () -> Void) -> any ShortcutDetector
+    func make(onCommand: @escaping @MainActor (String) -> Void) -> any ShortcutDetector
 }

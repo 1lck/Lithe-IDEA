@@ -1,4 +1,5 @@
 import Foundation
+import LitheExecutionModule
 
 struct StdioDebugAdapterLaunch: Sendable, Equatable {
     struct Fallback: Sendable, Equatable {

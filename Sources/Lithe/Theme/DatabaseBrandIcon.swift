@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import LitheDatabaseModule
 
 extension DatabaseKind {
     var brandIconFilename: String {

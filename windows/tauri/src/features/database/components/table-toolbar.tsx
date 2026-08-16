@@ -1,0 +1,237 @@
+import {
+  ArrowClockwiseIcon as ArrowClockwise,
+  ClipboardTextIcon as ClipboardText,
+  CodeIcon as Code,
+  ColumnsIcon as Columns,
+  DatabaseIcon as Database,
+  DownloadIcon as Download,
+  MinusCircleIcon as MinusCircle,
+  PlusCircleIcon as PlusCircle,
+  RadioButtonIcon as RadioButton,
+  TrashIcon as Trash,
+} from "@/ui/icons";
+import { Button } from "@/ui/button";
+import { cn } from "@/utils/cn";
+import { databaseChipClassName } from "./database-surface";
+import { formatQueryResultSummary } from "../lib/query-result-summary";
+import type {
+  DatabaseInfo,
+  DatabaseObjectKind,
+  PostgresSubscriptionInfo,
+  ViewMode,
+} from "../types/common.types";
+
+interface TableToolbarProps {
+  fileName: string;
+  dbInfo: DatabaseInfo | null;
+  selectedObjectKind?: DatabaseObjectKind;
+  subscriptionInfo?: PostgresSubscriptionInfo | null;
+  viewMode: ViewMode;
+  setViewMode: (mode: ViewMode) => void;
+  isCustomQuery: boolean;
+  showColumnTypes: boolean;
+  setShowColumnTypes: (show: boolean) => void;
+  setIsCustomQuery: (is: boolean) => void;
+  hasData: boolean;
+  resultRowCount?: number;
+  currentPage?: number;
+  totalPages?: number;
+  exportAsCSV: () => void;
+  copyAsJSON: () => void;
+  onCreateSubscription?: () => void;
+  onToggleSubscription?: () => void;
+  onRefreshSubscription?: () => void;
+  onDropSubscription?: () => void;
+}
+
+const VIEW_TABS: { mode: ViewMode; label: string }[] = [
+  { mode: "data", label: "Data" },
+  { mode: "schema", label: "Schema" },
+  { mode: "info", label: "Info" },
+];
+
+export default function TableToolbar({
+  fileName,
+  dbInfo,
+  selectedObjectKind = "table",
+  subscriptionInfo,
+  viewMode,
+  setViewMode,
+  isCustomQuery,
+  showColumnTypes,
+  setShowColumnTypes,
+  setIsCustomQuery,
+  hasData,
+  resultRowCount = 0,
+  currentPage,
+  totalPages,
+  exportAsCSV,
+  copyAsJSON,
+  onCreateSubscription,
+  onToggleSubscription,
+  onRefreshSubscription,
+  onDropSubscription,
+}: TableToolbarProps) {
+  const isSubscription = selectedObjectKind === "subscription";
+  const resultSummary =
+    hasData && viewMode === "data"
+      ? formatQueryResultSummary({
+          isCustomQuery,
+          rowCount: resultRowCount,
+          currentPage,
+          totalPages,
+        })
+      : null;
+  const exportTooltip = isCustomQuery
+    ? "Export visible query page as CSV"
+    : "Export visible page as CSV";
+  const jsonTooltip = isCustomQuery
+    ? "Copy visible query page as JSON"
+    : "Copy visible page as JSON";
+  const exportLabel = isCustomQuery ? "Export visible query page as CSV" : "Export as CSV";
+  const jsonLabel = isCustomQuery ? "Copy visible query page as JSON" : "Copy as JSON";
+
+  return (
+    <div className="px-3 py-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Database className="text-subtle-foreground" />
+            <span className="font-sans ui-text-sm min-w-0 truncate text-foreground">
+              {fileName}
+            </span>
+            {dbInfo && (
+              <span className="font-sans ui-text-sm shrink-0 text-subtle-foreground">
+                {dbInfo.tables}t {dbInfo.indexes}i
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface/60 p-0.5">
+            {VIEW_TABS.map(({ mode, label }) => (
+              <Button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                variant={viewMode === mode ? "default" : "ghost"}
+                size="xs"
+                className={cn(
+                  "px-2.5 ui-text-sm text-subtle-foreground",
+                  viewMode === mode ? "text-foreground" : "text-subtle-foreground",
+                )}
+                aria-label={`Switch to ${label} view`}
+                tooltip={`Switch to ${label} view`}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          {viewMode === "data" && !isCustomQuery && !isSubscription && (
+            <Button
+              onClick={() => setShowColumnTypes(!showColumnTypes)}
+              variant="ghost"
+              size="icon-xs"
+              className="text-subtle-foreground"
+              aria-label="Toggle column types"
+              tooltip={showColumnTypes ? "Hide column types" : "Show column types"}
+            >
+              <Columns />
+            </Button>
+          )}
+          {resultSummary && (
+            <span
+              className={databaseChipClassName("px-2 font-sans ui-text-sm text-subtle-foreground")}
+            >
+              {resultSummary}
+            </span>
+          )}
+          {viewMode === "data" && (
+            <Button
+              onClick={() => setIsCustomQuery(true)}
+              variant="ghost"
+              size="icon-xs"
+              className="text-subtle-foreground"
+              disabled={isCustomQuery}
+              aria-label="Open SQL editor"
+              tooltip="Open SQL editor"
+            >
+              <Code />
+            </Button>
+          )}
+          {onCreateSubscription && (
+            <Button
+              onClick={onCreateSubscription}
+              variant="ghost"
+              className="text-subtle-foreground"
+              aria-label="Create subscription"
+              tooltip="Create subscription"
+              size="icon-xs"
+            >
+              <RadioButton />
+            </Button>
+          )}
+          {isSubscription && subscriptionInfo && onToggleSubscription && (
+            <Button
+              onClick={onToggleSubscription}
+              variant="ghost"
+              className="text-subtle-foreground"
+              aria-label={subscriptionInfo.enabled ? "Disable subscription" : "Enable subscription"}
+              tooltip={subscriptionInfo.enabled ? "Disable subscription" : "Enable subscription"}
+              size="icon-xs"
+            >
+              {subscriptionInfo.enabled ? <MinusCircle /> : <PlusCircle />}
+            </Button>
+          )}
+          {isSubscription && onRefreshSubscription && (
+            <Button
+              onClick={onRefreshSubscription}
+              variant="ghost"
+              className="text-subtle-foreground"
+              aria-label="Refresh subscription"
+              tooltip="Refresh subscription"
+              size="icon-xs"
+            >
+              <ArrowClockwise />
+            </Button>
+          )}
+          {isSubscription && onDropSubscription && (
+            <Button
+              onClick={onDropSubscription}
+              variant="ghost"
+              className="text-subtle-foreground"
+              aria-label="Drop subscription"
+              tooltip="Drop subscription"
+              size="icon-xs"
+            >
+              <Trash />
+            </Button>
+          )}
+          {hasData && (
+            <>
+              <Button
+                onClick={exportAsCSV}
+                variant="ghost"
+                className="text-subtle-foreground"
+                aria-label={exportLabel}
+                tooltip={exportTooltip}
+                size="icon-xs"
+              >
+                <Download weight="fill" />
+              </Button>
+              <Button
+                onClick={copyAsJSON}
+                variant="ghost"
+                className="text-subtle-foreground"
+                aria-label={jsonLabel}
+                tooltip={jsonTooltip}
+                size="icon-xs"
+              >
+                <ClipboardText />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -4,8 +4,21 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
-    <key>CFBundleDisplayName</key>
-    <string>Lithe</string>
+	<key>CFBundleDisplayName</key>
+	<string>Lithe</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>app.lithe.desktop.authorization</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>lithe</string>
+			</array>
+		</dict>
+	</array>
     <key>CFBundleExecutable</key>
     <string>Lithe</string>
     <key>CFBundleIconFile</key>
@@ -24,6 +37,8 @@
     <string>3</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
+    <key>LitheGitHubOAuthClientID</key>
+    <string>Ov23li60nlOOHwDY3MO6</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>

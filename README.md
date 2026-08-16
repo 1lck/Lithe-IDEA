@@ -3,8 +3,8 @@
 
   <h1>Lithe</h1>
 
-  <p><strong>A cross-platform IDE for AI-assisted development</strong></p>
-  <p>Familiar development workflows · multi-language project support · a focused resource footprint</p>
+  <p><strong>A lightweight IDE for the AI era</strong></p>
+  <p>Start tools on demand · keep the workspace responsive · stay focused on the code</p>
   <p><em>AI writes the code. Lithe helps you understand it, run it, and review it.</em></p>
 
   <p>
@@ -45,11 +45,11 @@
 
 ## About Lithe
 
-Lithe is a high-performance, general-purpose IDE for AI-assisted development. It brings project browsing, editing, search, code navigation, Git, run, and debug workflows together for multi-language and multi-type projects, while starting language servers, terminals, build tools, and debug processes only when needed.
+Lithe is a lightweight, general-purpose IDE built for the AI era. It brings project browsing, editing, search, code navigation, Git, run, and debug workflows together for multi-language and multi-type projects, while starting language servers, terminals, build tools, and debug processes only when needed.
 
 When an external AI tool changes a project, Lithe helps you locate the affected code, run the project, review the diff, and decide which changes to stage, undo, or commit.
 
-> **A high-performance general-purpose IDE for modern development.**
+> **A lightweight IDE that starts what you need, when you need it.**
 
 ## Core features
 
@@ -219,7 +219,7 @@ Before submitting a change, run:
 ./scripts/verify-rust-core.sh
 ```
 
-See [Repository layout and shared boundaries](./docs/architecture/repository-layout.md) for directory ownership, cross-platform boundaries, and sharing rules. Include your verification steps and known limitations when submitting a change.
+See [Repository layout and shared boundaries](./docs/architecture/repository-layout.md) for directory ownership, cross-platform boundaries, sharing rules, and the required Rust Core comment standard. Include your verification steps and known limitations when submitting a change.
 
 ## Project support
 

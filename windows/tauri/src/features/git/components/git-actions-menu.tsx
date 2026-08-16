@@ -1,0 +1,313 @@
+import {
+  ArchiveIcon as Archive,
+  DownloadIcon as Download,
+  GitBranchIcon as GitBranch,
+  FolderOpenIcon as FolderOpen,
+  GitPullRequestIcon as GitPullRequest,
+  ArrowClockwiseIcon as RefreshCw,
+  ArrowCounterClockwiseIcon as RotateCcw,
+  HardDrivesIcon as Server,
+  GearSixIcon as Settings,
+  TagIcon as Tag,
+  UploadIcon as Upload,
+} from "@/ui/icons";
+import { useState } from "react";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { Dropdown, type MenuItem } from "@/ui/dropdown";
+import { Spinner } from "@/ui/spinner";
+import { showConfirmDialog } from "@/ui/dialog";
+import { toast } from "sonner";
+import {
+  fetchChanges,
+  pullChanges,
+  pushChanges,
+  type GitRemoteActionResult,
+} from "../api/git-remotes-api";
+import { discardAllChanges, initRepository } from "../api/git-status-api";
+import { useGitStore } from "../stores/git.store";
+import { type GitActionsMenuAnchorRect } from "../utils/git-actions-menu-position";
+
+interface GitActionsMenuProps {
+  isOpen: boolean;
+  anchorRect: GitActionsMenuAnchorRect | null;
+  onClose: () => void;
+  hasGitRepo: boolean;
+  repoPath?: string;
+  onRefresh?: () => void;
+  onOpenBranchManager?: () => void;
+  onShowBranchDiff?: () => void;
+  onOpenRemoteManager?: () => void;
+  onOpenTagManager?: () => void;
+  onViewStashes?: () => void;
+  onSelectRepository?: () => Promise<void> | void;
+  isSelectingRepository?: boolean;
+  onInitializeRepository?: () => Promise<void> | void;
+  isInitializingRepository?: boolean;
+}
+
+const GitActionsMenu = ({
+  isOpen,
+  anchorRect,
+  onClose,
+  hasGitRepo,
+  repoPath,
+  onRefresh,
+  onOpenBranchManager,
+  onShowBranchDiff,
+  onOpenRemoteManager,
+  onOpenTagManager,
+  onViewStashes,
+  onSelectRepository,
+  isSelectingRepository,
+  onInitializeRepository,
+  isInitializingRepository,
+}: GitActionsMenuProps) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const isRefreshing = useGitStore((state) => state.isRefreshing);
+  const confirmBeforeDiscard = useSettingsStore((state) => state.settings.confirmBeforeDiscard);
+
+  const handleAction = async (
+    action: () => Promise<boolean | GitRemoteActionResult>,
+    actionName: string,
+    messages?: {
+      loading?: string;
+      success?: string;
+      error?: string;
+    },
+  ) => {
+    if (!repoPath) return;
+
+    let toastId: string | number | null = null;
+    setIsLoading(true);
+    try {
+      if (messages?.loading) {
+        toastId = toast.info(messages.loading, {
+          duration: 0,
+        });
+      }
+
+      const result = await action();
+      const remoteResult =
+        typeof result === "boolean" ? { success: result, error: undefined } : result;
+
+      if (remoteResult.success) {
+        if (toastId) toast.dismiss(toastId);
+        toast.success(messages?.success ?? `${actionName} completed.`);
+        onRefresh?.();
+      } else {
+        const errorMessage = remoteResult.error || messages?.error || `${actionName} failed.`;
+        if (toastId) toast.dismiss(toastId);
+        toast.error(errorMessage);
+        console.error(`${actionName} failed`, remoteResult.error);
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : messages?.error || `${actionName} failed.`;
+      if (toastId) toast.dismiss(toastId);
+      toast.error(errorMessage);
+      console.error(`${actionName} error:`, error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePush = () => {
+    handleAction(() => pushChanges(repoPath!), "Push", {
+      loading: "Pushing changes...",
+      success: "Changes pushed successfully.",
+      error: "Failed to push changes.",
+    });
+  };
+
+  const handlePull = () => {
+    handleAction(() => pullChanges(repoPath!), "Pull", {
+      loading: "Pulling changes...",
+      success: "Changes pulled successfully.",
+      error: "Failed to pull changes.",
+    });
+  };
+
+  const handleFetch = () => {
+    handleAction(() => fetchChanges(repoPath!), "Fetch", {
+      loading: "Fetching changes...",
+      success: "Fetched successfully.",
+      error: "Failed to fetch changes.",
+    });
+  };
+
+  const handleDiscardAllChanges = async () => {
+    if (!repoPath) return;
+    if (
+      confirmBeforeDiscard &&
+      !(await showConfirmDialog("Discard all unstaged changes? This cannot be undone.", {
+        title: "Discard Changes",
+        confirmLabel: "Discard",
+      }))
+    ) {
+      return;
+    }
+    handleAction(() => discardAllChanges(repoPath!), "Discard all changes");
+  };
+
+  const handleInitRepository = () => {
+    if (onInitializeRepository) {
+      void onInitializeRepository();
+      onClose();
+      return;
+    }
+
+    handleAction(() => initRepository(repoPath!), "Initialize repository");
+  };
+
+  const handleRefresh = async () => {
+    await onRefresh?.();
+  };
+
+  const handleRemoteManager = () => {
+    onOpenRemoteManager?.();
+    onClose();
+  };
+
+  const handleBranchManager = () => {
+    onOpenBranchManager?.();
+    onClose();
+  };
+
+  const handleShowBranchDiff = () => {
+    onShowBranchDiff?.();
+    onClose();
+  };
+
+  const handleTagManager = () => {
+    onOpenTagManager?.();
+    onClose();
+  };
+
+  const handleViewStashes = () => {
+    onViewStashes?.();
+    onClose();
+  };
+
+  const handleSelectRepository = async () => {
+    await onSelectRepository?.();
+    onClose();
+  };
+
+  if (!isOpen || !anchorRect) {
+    return null;
+  }
+
+  const items: MenuItem[] = hasGitRepo
+    ? [
+        {
+          id: "select-repository",
+          label: isSelectingRepository ? "Selecting..." : "Select Repository",
+          icon: <FolderOpen />,
+          disabled: isSelectingRepository,
+          onClick: () => void handleSelectRepository(),
+        },
+        { id: "sep-1", label: "", separator: true, onClick: () => {} },
+        {
+          id: "manage-branches",
+          label: "Manage Branches",
+          icon: <GitBranch />,
+          onClick: handleBranchManager,
+        },
+        {
+          id: "show-branch-diff",
+          label: "Show Branch Diff",
+          icon: <GitPullRequest />,
+          onClick: handleShowBranchDiff,
+        },
+        { id: "sep-branches", label: "", separator: true, onClick: () => {} },
+        {
+          id: "push",
+          label: "Push Changes",
+          icon: <Upload />,
+          disabled: isLoading,
+          onClick: handlePush,
+        },
+        { id: "sep-2", label: "", separator: true, onClick: () => {} },
+        {
+          id: "pull",
+          label: "Pull Changes",
+          icon: <Download weight="fill" />,
+          disabled: isLoading,
+          onClick: handlePull,
+        },
+        {
+          id: "fetch",
+          label: "Fetch",
+          icon: <GitPullRequest />,
+          disabled: isLoading,
+          onClick: handleFetch,
+        },
+        { id: "sep-3", label: "", separator: true, onClick: () => {} },
+        {
+          id: "manage-remotes",
+          label: "Manage Remotes",
+          icon: <Server />,
+          onClick: handleRemoteManager,
+        },
+        {
+          id: "manage-tags",
+          label: "Manage Tags",
+          icon: <Tag />,
+          onClick: handleTagManager,
+        },
+        {
+          id: "view-stashes",
+          label: "View Stashes",
+          icon: <Archive />,
+          onClick: handleViewStashes,
+        },
+        { id: "sep-4", label: "", separator: true, onClick: () => {} },
+        {
+          id: "refresh",
+          label: "Refresh Status",
+          icon: isRefreshing ? <Spinner label="Refreshing status" compact /> : <RefreshCw />,
+          disabled: isRefreshing,
+          onClick: () => void handleRefresh(),
+        },
+        { id: "sep-5", label: "", separator: true, onClick: () => {} },
+        {
+          id: "discard-all",
+          label: "Discard All Changes",
+          icon: <RotateCcw />,
+          disabled: isLoading,
+          className: "text-destructive",
+          onClick: () => void handleDiscardAllChanges(),
+        },
+      ]
+    : [
+        {
+          id: "init-repository",
+          label: isInitializingRepository ? "Initializing..." : "Initialize Repository",
+          icon: <Settings />,
+          disabled: isLoading || isInitializingRepository,
+          onClick: handleInitRepository,
+        },
+        { id: "sep-1", label: "", separator: true, onClick: () => {} },
+        {
+          id: "refresh",
+          label: "Refresh Status",
+          icon: isRefreshing ? <Spinner label="Refreshing status" compact /> : <RefreshCw />,
+          disabled: isRefreshing,
+          onClick: () => void handleRefresh(),
+        },
+      ];
+
+  return (
+    <Dropdown
+      isOpen={isOpen}
+      point={{
+        x: anchorRect.right,
+        y: anchorRect.bottom + 6,
+      }}
+      items={items}
+      onClose={onClose}
+    />
+  );
+};
+
+export default GitActionsMenu;

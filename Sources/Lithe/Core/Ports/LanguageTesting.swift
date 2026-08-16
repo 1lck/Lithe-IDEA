@@ -1,0 +1,9 @@
+import Foundation
+import LitheCoreContracts
+
+typealias LanguageTestItemKind = LitheCoreContracts.LanguageTestItemKind
+typealias LanguageTestItem = LitheCoreContracts.LanguageTestItem
+typealias LanguageTestScope = LitheCoreContracts.LanguageTestScope
+typealias LanguageTestContext = LitheCoreContracts.LanguageTestContext
+typealias LanguageTestPlan = LitheCoreContracts.LanguageTestPlan
+typealias LanguageTestProvider = LitheCoreContracts.LanguageTestProvider

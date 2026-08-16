@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import SwiftTerm
+import LitheTerminalModule
 
 /// SwiftTerm's default link handler opens URLs in the system. Lithe needs the
 /// link event so workspace-relative paths can open in its own editor instead.

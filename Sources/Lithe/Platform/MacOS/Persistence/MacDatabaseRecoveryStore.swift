@@ -1,6 +1,7 @@
 import Compression
 import CryptoKit
 import Foundation
+import LitheDatabaseModule
 
 final class MacDatabaseRecoveryStore: DatabaseRecoveryStoring, @unchecked Sendable {
     private static let executionLogLock = NSRecursiveLock()

@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 /// Stores secrets in the current user's macOS Keychain. A legacy store can be
@@ -26,10 +27,16 @@ final class MacKeychainSecureStore: SecureStore, @unchecked Sendable {
     }
 
     func read(key: String) -> String? {
+        let authenticationContext = LAContext()
+        authenticationContext.interactionNotAllowed = true
         var result: CFTypeRef?
         let status = SecItemCopyMatching(baseQuery(key: key).merging([
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            // Credential restoration runs automatically during app startup.
+            // A re-signed development or preview build must fail closed instead
+            // of presenting a login-Keychain password prompt without a user action.
+            kSecUseAuthenticationContext as String: authenticationContext
         ]) { _, new in new } as CFDictionary, &result)
 
         if status == errSecSuccess,

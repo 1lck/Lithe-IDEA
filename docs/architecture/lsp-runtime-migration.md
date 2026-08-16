@@ -118,10 +118,10 @@ Primary files:
 
 Primary files:
 
-- `Sources/Lithe/Services/StdioLanguageServerSession.swift`
-- `Sources/Lithe/Services/StdioLanguageProviderRuntime.swift`
-- `Sources/Lithe/Services/LanguageToolingSessionManager.swift`
-- `Sources/Lithe/Core/RustCoreBridge.swift`
+- `Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`
+- `Sources/LitheLanguageIntelligenceModule/Runtime/LanguageProviderRuntime.swift`
+- `Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift`
+- `Sources/Lithe/Core/Rust/RustCoreBridge.swift`
 - `Sources/Lithe/Core/Ports/LanguageTooling.swift`
 
 ### 4. Provider convergence and legacy deletion
@@ -138,9 +138,9 @@ Primary files:
 Primary files:
 
 - `rust/lithe-core/src/lsp/languages/jdt.rs`
-- `Sources/Lithe/Application/JavaFeatureModel.swift`
-- `Sources/Lithe/Models/JavaDiagnosticModels.swift`
-- `Sources/Lithe/Views/CodeEditorView.swift`
+- `Sources/Lithe/Application/Features/JavaFeatureModel.swift`
+- `Sources/Lithe/Models/Java/JavaDiagnosticModels.swift`
+- `Sources/Lithe/Views/Editor/CodeEditorView.swift`
 
 ## Completion evidence
 

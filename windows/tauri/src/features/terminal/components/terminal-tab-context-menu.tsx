@@ -1,0 +1,111 @@
+import {
+  CopyIcon as Copy,
+  DownloadIcon as Download,
+  PencilSimpleIcon as Edit,
+  PushPinIcon as Pin,
+  PushPinSlashIcon as PinOff,
+  ArrowCounterClockwiseIcon as RotateCcw,
+  XIcon as X,
+} from "@/ui/icons";
+import type { Terminal } from "@/features/terminal/types/terminal.types";
+import { Dropdown, type MenuItem } from "@/ui/dropdown";
+import Keybinding from "@/features/keymaps/components/keybinding";
+import { IS_MAC } from "@/utils/platform";
+
+interface TerminalTabContextMenuProps {
+  isOpen: boolean;
+  position: { x: number; y: number };
+  terminal: Terminal | null;
+  onClose: () => void;
+  onPin: (terminalId: string) => void;
+  onCloseTab: (terminalId: string) => void;
+  onCloseOthers: (terminalId: string) => void;
+  onCloseAll: () => void;
+  onCloseToRight: (terminalId: string) => void;
+  onClear: (terminalId: string) => void;
+  onDuplicate: (terminalId: string) => void;
+  onRename: (terminalId: string) => void;
+  onExport: (terminalId: string) => void;
+}
+
+const TerminalTabContextMenu = ({
+  isOpen,
+  position,
+  terminal,
+  onClose,
+  onPin,
+  onCloseTab,
+  onCloseOthers,
+  onCloseAll,
+  onCloseToRight,
+  onClear,
+  onDuplicate,
+  onRename,
+  onExport,
+}: TerminalTabContextMenuProps) => {
+  const modKey = IS_MAC ? "Cmd" : "Ctrl";
+
+  const items: MenuItem[] = terminal
+    ? [
+        {
+          id: "pin",
+          label: terminal.isPinned ? "Unpin Terminal" : "Pin Terminal",
+          icon: terminal.isPinned ? <PinOff /> : <Pin />,
+          onClick: () => onPin(terminal.id),
+        },
+        { id: "sep-1", label: "", separator: true, onClick: () => {} },
+        {
+          id: "duplicate",
+          label: "Duplicate Terminal",
+          icon: <Copy />,
+          onClick: () => onDuplicate(terminal.id),
+        },
+        {
+          id: "clear",
+          label: "Clear Terminal",
+          icon: <RotateCcw />,
+          onClick: () => onClear(terminal.id),
+        },
+        {
+          id: "rename",
+          label: "Rename Terminal",
+          icon: <Edit />,
+          keybinding: <Keybinding keys={["F2"]} />,
+          onClick: () => onRename(terminal.id),
+        },
+        {
+          id: "export",
+          label: "Export Output",
+          icon: <Download weight="fill" />,
+          onClick: () => onExport(terminal.id),
+        },
+        { id: "sep-2", label: "", separator: true, onClick: () => {} },
+        {
+          id: "close",
+          label: "Close Terminal",
+          icon: <X />,
+          keybinding: <Keybinding keys={[modKey, "W"]} />,
+          onClick: () => onCloseTab(terminal.id),
+        },
+        {
+          id: "close-others",
+          label: "Close Other Terminals",
+          onClick: () => onCloseOthers(terminal.id),
+        },
+        {
+          id: "close-all",
+          label: "Close All Terminals",
+          onClick: onCloseAll,
+        },
+        {
+          id: "close-right",
+          label: "Close Terminals to Right",
+          onClick: () => onCloseToRight(terminal.id),
+        },
+      ]
+    : [];
+
+  return <Dropdown isOpen={isOpen} point={position} items={items} onClose={onClose} />;
+};
+
+export default TerminalTabContextMenu;

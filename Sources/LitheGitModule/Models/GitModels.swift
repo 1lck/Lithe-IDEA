@@ -1,0 +1,1079 @@
+import Foundation
+import LitheCoreContracts
+
+package typealias GitWatchContext = LitheCoreContracts.GitWatchContext
+
+package struct GitSnapshot: Sendable {
+    package let repositoryRoot: URL
+    package let branch: String
+    package let changes: [GitChange]
+    package init(repositoryRoot: URL, branch: String, changes: [GitChange]) { self.repositoryRoot = repositoryRoot; self.branch = branch; self.changes = changes }
+}
+
+package enum GitReferenceKind: String, Sendable {
+    case local
+    case remote
+    case tag
+}
+
+package struct GitReference: Identifiable, Hashable, Sendable {
+    package let fullName: String
+    package let shortName: String
+    package let kind: GitReferenceKind
+    package let isCurrent: Bool
+    package let upstreamShortName: String?
+    package init(fullName: String, shortName: String, kind: GitReferenceKind, isCurrent: Bool, upstreamShortName: String?) { self.fullName = fullName; self.shortName = shortName; self.kind = kind; self.isCurrent = isCurrent; self.upstreamShortName = upstreamShortName }
+
+    package var id: String { fullName }
+}
+
+package struct GitStash: Identifiable, Hashable, Sendable {
+    package let reference: String
+    package let message: String
+    package let branch: String?
+    package let date: String
+    package init(reference: String, message: String, branch: String?, date: String) { self.reference = reference; self.message = message; self.branch = branch; self.date = date }
+
+    package var id: String { reference }
+}
+
+/// Structured information returned when `git stash pop` keeps the entry because
+/// restoring it created unresolved conflicts. The stash is intentionally not
+/// dropped so the user can finish recovery without losing the original patch.
+public struct GitStashRestoreConflict: Hashable, Sendable {
+    public let stashReference: String
+    public let conflictedPaths: [String]
+
+    public init(stashReference: String, conflictedPaths: [String]) {
+        self.stashReference = stashReference
+        self.conflictedPaths = conflictedPaths
+    }
+}
+
+package struct GitCommit: Identifiable, Hashable, Sendable {
+    package let hash: String
+    package let shortHash: String
+    package let parentHashes: [String]
+    package let authorName: String
+    package let authorEmail: String
+    package let date: String
+    package let subject: String
+    package let decorations: String
+    package init(hash: String, shortHash: String, parentHashes: [String], authorName: String, authorEmail: String, date: String, subject: String, decorations: String) { self.hash = hash; self.shortHash = shortHash; self.parentHashes = parentHashes; self.authorName = authorName; self.authorEmail = authorEmail; self.date = date; self.subject = subject; self.decorations = decorations }
+
+    package var id: String { hash }
+}
+
+package struct GitCommitFile: Identifiable, Hashable, Sendable {
+    package let status: String
+    package let path: String
+    package init(status: String, path: String) { self.status = status; self.path = path }
+
+    package var id: String { "\(status):\(path)" }
+}
+
+package struct GitCommitFileTreeNode: Identifiable, Sendable {
+    package let path: String
+    package let name: String
+    package let directories: [GitCommitFileTreeNode]
+    package let files: [GitCommitFile]
+
+    package var id: String { path.isEmpty ? "." : path }
+
+    package var fileCount: Int {
+        files.count + directories.reduce(0) { $0 + $1.fileCount }
+    }
+
+    package static func build(from files: [GitCommitFile], rootName: String) -> GitCommitFileTreeNode {
+        let root = MutableGitCommitFileTreeNode(name: rootName, path: "")
+
+        for file in files {
+            let components = file.path
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .map(String.init)
+            guard !components.isEmpty else {
+                root.files.append(file)
+                continue
+            }
+
+            var node = root
+            var pathComponents: [String] = []
+            for component in components.dropLast() {
+                pathComponents.append(component)
+                let path = pathComponents.joined(separator: "/")
+                if node.directories[component] == nil {
+                    node.directories[component] = MutableGitCommitFileTreeNode(
+                        name: component,
+                        path: path
+                    )
+                }
+                node = node.directories[component]!
+            }
+            node.files.append(file)
+        }
+
+        return makeNode(from: root, isRoot: true)
+    }
+
+    private static func makeNode(
+        from node: MutableGitCommitFileTreeNode,
+        isRoot: Bool = false
+    ) -> GitCommitFileTreeNode {
+        let result = GitCommitFileTreeNode(
+            path: node.path,
+            name: node.name,
+            directories: node.directories.values
+                .map { makeNode(from: $0) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+            files: node.files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        )
+
+        guard !isRoot, result.files.isEmpty, result.directories.count == 1,
+              let child = result.directories.first else {
+            return result
+        }
+
+        return GitCommitFileTreeNode(
+            path: child.path,
+            name: "\(result.name)/\(child.name)",
+            directories: child.directories,
+            files: child.files
+        )
+    }
+}
+
+private final class MutableGitCommitFileTreeNode {
+    package let path: String
+    package let name: String
+    package var directories: [String: MutableGitCommitFileTreeNode] = [:]
+    package var files: [GitCommitFile] = []
+
+    package init(name: String, path: String) {
+        self.name = name
+        self.path = path
+    }
+}
+
+/// Read-only diff context for a file changed by a historical commit.
+package struct GitCommitDiffContext: Identifiable, Hashable, Sendable {
+    package let repositoryRoot: URL
+    package let commit: GitCommit
+    package let file: GitCommitFile
+
+    package var id: String { "\(commit.hash):\(file.id)" }
+    package var path: String { file.path }
+    package var url: URL { repositoryRoot.appendingPathComponent(file.path) }
+
+    package var kind: GitChangeKind {
+        if file.status.hasPrefix("A") { return .added }
+        if file.status.hasPrefix("D") { return .deleted }
+        if file.status.hasPrefix("R") { return .moved }
+        if file.status.hasPrefix("C") { return .copied }
+        return .modified
+    }
+}
+
+package struct GitBlameLine: Identifiable, Hashable, Sendable {
+    package let line: Int
+    package let commitHash: String
+    package let authorName: String
+    package let date: String
+    package init(line: Int, commitHash: String, authorName: String, date: String) { self.line = line; self.commitHash = commitHash; self.authorName = authorName; self.date = date }
+
+    package var id: Int { line }
+}
+
+package struct GitBranchComparisonFile: Identifiable, Hashable, Sendable {
+    package let status: String
+    package let path: String
+    package let isUntracked: Bool
+    package init(status: String, path: String, isUntracked: Bool = false) {
+        self.status = status
+        self.path = path
+        self.isUntracked = isUntracked
+    }
+
+    package var id: String { "\(status):\(path):\(isUntracked)" }
+}
+
+package struct GitBranchComparison: Identifiable, Sendable {
+    package let reference: GitReference
+    package let targetReference: GitReference?
+    package let files: [GitBranchComparisonFile]
+    package init(
+        reference: GitReference,
+        targetReference: GitReference? = nil,
+        files: [GitBranchComparisonFile]
+    ) {
+        self.reference = reference
+        self.targetReference = targetReference
+        self.files = files
+    }
+
+    package var id: String { "\(reference.id)..\(targetReference?.id ?? "working-tree")" }
+    package var targetTitle: String { targetReference?.shortName ?? "Working Tree" }
+}
+
+package struct GitHistorySnapshot: Sendable {
+    package let references: [GitReference]
+    package let commits: [GitCommit]
+    package let hasMore: Bool
+    package let identity: GitIdentity?
+    package init(
+        references: [GitReference],
+        commits: [GitCommit],
+        hasMore: Bool,
+        identity: GitIdentity? = nil
+    ) {
+        self.references = references
+        self.commits = commits
+        self.hasMore = hasMore
+        self.identity = identity
+    }
+}
+
+package struct GitIdentity: Hashable, Sendable {
+    package let name: String?
+    package let email: String?
+
+    package init(name: String?, email: String?) {
+        self.name = name?.nilIfBlank
+        self.email = email?.nilIfBlank
+    }
+
+    package var isEmpty: Bool { name == nil && email == nil }
+}
+
+package struct GitLogQuery: Equatable, Sendable {
+    package let textTerms: [String]
+    package let authors: [String]
+    package let branches: [String]
+    package let paths: [String]
+    package let currentUserOnly: Bool
+
+    package var isEmpty: Bool {
+        textTerms.isEmpty && authors.isEmpty && branches.isEmpty && paths.isEmpty && !currentUserOnly
+    }
+
+    package static func parse(_ rawValue: String) -> GitLogQuery {
+        var textTerms: [String] = []
+        var authors: [String] = []
+        var branches: [String] = []
+        var paths: [String] = []
+        var currentUserOnly = false
+
+        for token in tokenize(rawValue) {
+            if token.caseInsensitiveCompare("me") == .orderedSame {
+                currentUserOnly = true
+                continue
+            }
+            let pieces = token.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pieces.count == 2, !pieces[1].isEmpty else {
+                textTerms.append(token)
+                continue
+            }
+            let value = String(pieces[1])
+            switch pieces[0].lowercased() {
+            case "author": authors.append(value)
+            case "branch": branches.append(value)
+            case "path": paths.append(value.replacingOccurrences(of: "\\", with: "/"))
+            default: textTerms.append(token)
+            }
+        }
+        return GitLogQuery(
+            textTerms: textTerms,
+            authors: authors,
+            branches: branches,
+            paths: paths,
+            currentUserOnly: currentUserOnly
+        )
+    }
+
+    package func matchesMetadata(_ commit: GitCommit, identity: GitIdentity?) -> Bool {
+        if currentUserOnly {
+            guard let identity, !identity.isEmpty else { return false }
+            let matchesName = identity.name.map {
+                commit.authorName.caseInsensitiveCompare($0) == .orderedSame
+            } ?? false
+            let matchesEmail = identity.email.map {
+                commit.authorEmail.caseInsensitiveCompare($0) == .orderedSame
+            } ?? false
+            guard matchesName || matchesEmail else { return false }
+        }
+        if !authors.isEmpty {
+            guard authors.contains(where: { author in
+                commit.authorName.localizedCaseInsensitiveContains(author)
+                    || commit.authorEmail.localizedCaseInsensitiveContains(author)
+            }) else { return false }
+        }
+        let searchable = [
+            commit.subject, commit.hash, commit.shortHash,
+            commit.authorName, commit.authorEmail, commit.decorations
+        ]
+        return textTerms.allSatisfy { term in
+            searchable.contains { $0.localizedCaseInsensitiveContains(term) }
+        }
+    }
+
+    package func matchesPaths(_ changedPaths: Set<String>) -> Bool {
+        paths.allSatisfy { filter in
+            changedPaths.contains { path in
+                path.localizedCaseInsensitiveContains(filter)
+            }
+        }
+    }
+
+    private static func tokenize(_ rawValue: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        for character in rawValue {
+            if character == "\"" || character == "'" {
+                if quote == character { quote = nil }
+                else if quote == nil { quote = character }
+                else { current.append(character) }
+            } else if character.isWhitespace, quote == nil {
+                if !current.isEmpty { tokens.append(current); current = "" }
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        return tokens
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+}
+
+package struct GitChange: Identifiable, Hashable, Sendable {
+    package let repositoryRoot: URL
+    package let path: String
+    package let originalPath: String?
+    package let indexStatus: Character
+    package let workTreeStatus: Character
+    package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character) { self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus }
+
+    package var id: String { "\(originalPath ?? "")->\(path)" }
+    package var url: URL { repositoryRoot.appendingPathComponent(path) }
+    package var isStaged: Bool { indexStatus != " " && indexStatus != "?" }
+    package var hasWorkingTreeChange: Bool { workTreeStatus != " " }
+    package var isUntracked: Bool { indexStatus == "?" && workTreeStatus == "?" }
+
+    /// True while a merge, rebase, cherry-pick, or revert has left this file
+    /// unmerged. Git marks these with a `U` on either side, plus the `AA` and `DD`
+    /// pairs for both-added and both-deleted.
+    package var isConflicted: Bool {
+        if indexStatus == "U" || workTreeStatus == "U" { return true }
+        return (indexStatus == "A" && workTreeStatus == "A")
+            || (indexStatus == "D" && workTreeStatus == "D")
+    }
+
+    package var kind: GitChangeKind {
+        // Checked first: an unmerged pair such as `AA` or `UD` would otherwise
+        // match the plain added/deleted cases below and read as an ordinary edit.
+        if isConflicted { return .conflicted }
+        if isUntracked || indexStatus == "A" || workTreeStatus == "A" { return .added }
+        if indexStatus == "D" || workTreeStatus == "D" { return .deleted }
+        if indexStatus == "R" || workTreeStatus == "R" { return .moved }
+        if indexStatus == "C" || workTreeStatus == "C" { return .copied }
+        return .modified
+    }
+
+    package var pathspecs: [String] {
+        if let originalPath, originalPath != path { return [originalPath, path] }
+        return [path]
+    }
+
+    package var displayStatus: String {
+        if isConflicted { return "!" }
+        if isUntracked { return "A" }
+        if workTreeStatus != " " { return String(workTreeStatus) }
+        return String(indexStatus)
+    }
+}
+
+package enum GitChangeKind: String, Sendable {
+    case added
+    case modified
+    case deleted
+    case moved
+    case copied
+    case conflicted
+
+    package var title: String {
+        switch self {
+        case .added: "Added"
+        case .modified: "Modified"
+        case .deleted: "Deleted"
+        case .moved: "Moved"
+        case .copied: "Copied"
+        case .conflicted: "Conflicted"
+        }
+    }
+
+    package var symbol: String {
+        switch self {
+        case .added: "plus"
+        case .modified: "pencil"
+        case .deleted: "minus"
+        case .moved: "arrow.right"
+        case .copied: "doc.on.doc"
+        case .conflicted: "exclamationmark.triangle"
+        }
+    }
+}
+
+/// Projects repository-relative Git changes onto file and directory rows.
+/// Directory status uses the most urgent descendant state so conflicts and
+/// deletions are never hidden behind a lower-priority modification.
+package struct GitTreeStatusProjection: Sendable {
+    private let changes: [GitChange]
+
+    package init(changes: [GitChange]) {
+        self.changes = changes
+    }
+
+    package func change(relativePath: String) -> GitChange? {
+        let normalized = Self.normalized(relativePath)
+        return changes.first { Self.normalized($0.path) == normalized }
+    }
+
+    package func kind(relativePath: String, isDirectory: Bool) -> GitChangeKind? {
+        let normalized = Self.normalized(relativePath)
+        if !isDirectory {
+            return change(relativePath: normalized)?.kind
+        }
+        let prefix = normalized.isEmpty ? "" : normalized + "/"
+        return changes
+            .filter { normalized.isEmpty || Self.normalized($0.path).hasPrefix(prefix) }
+            .map(\.kind)
+            .max { priority($0) < priority($1) }
+    }
+
+    private func priority(_ kind: GitChangeKind) -> Int {
+        switch kind {
+        case .modified: 0
+        case .copied: 1
+        case .moved: 2
+        case .added: 3
+        case .deleted: 4
+        case .conflicted: 5
+        }
+    }
+
+    private static func normalized(_ path: String) -> String {
+        path
+            .replacingOccurrences(of: "\\", with: "/")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+}
+
+package extension GitChangeKind {
+    var commitMessageKind: CommitMessageChangeKind {
+        switch self {
+        case .added: .added
+        case .modified: .modified
+        case .deleted: .deleted
+        case .moved: .renamed
+        case .copied: .copied
+        case .conflicted: .unmerged
+        }
+    }
+}
+
+
+package enum GitDiffWhitespaceMode: String, CaseIterable, Identifiable, Equatable, Sendable {
+    case doNotIgnore
+    case ignoreAllWhitespace
+
+    package var id: String { rawValue }
+
+    package var title: String {
+        switch self {
+        case .doNotIgnore:
+            return "Do not ignore"
+        case .ignoreAllWhitespace:
+            return "Ignore whitespace"
+        }
+    }
+}
+
+package enum DiffRowKind: Sendable, Equatable {
+    case context
+    case changed
+    case addition
+    case removal
+    case information
+}
+
+package struct DiffRow: Identifiable, Sendable {
+    /// Derived from the row's hunk and line numbers rather than a fresh UUID so
+    /// that re-parsing the same diff keeps scroll position and difference
+    /// selection stable across refreshes.
+    package let id: DiffRowID
+    package let oldLine: Int?
+    package let newLine: Int?
+    /// Text of the left (old) side. For `context` and `information` rows this is
+    /// the text of both sides; see `rightText`.
+    package let left: String?
+    /// Text of the right (new) side, stored only when it differs from `left`.
+    /// Prefer `rightText`, which folds in the shared-text cases.
+    package let storedRight: String?
+    package let kind: DiffRowKind
+    package let hunkID: String?
+
+    /// Right-side text with the shared-text fallback applied. `context` and
+    /// `information` rows hold identical text on both sides, so the parser only
+    /// keeps one copy.
+    package var rightText: String? {
+        switch kind {
+        case .context, .information:
+            return storedRight ?? left
+        case .changed, .addition, .removal:
+            return storedRight
+        }
+    }
+
+    package init(
+        oldLine: Int?,
+        newLine: Int?,
+        left: String?,
+        right: String?,
+        kind: DiffRowKind,
+        hunkID: String? = nil,
+        sequence: Int = 0
+    ) {
+        self.id = DiffRowID(hunkID: hunkID, oldLine: oldLine, newLine: newLine, sequence: sequence)
+        self.oldLine = oldLine
+        self.newLine = newLine
+        self.left = left
+        switch kind {
+        case .context, .information:
+            // Both sides carry the same text; drop the duplicate copy.
+            self.storedRight = nil
+        case .changed, .addition, .removal:
+            self.storedRight = right
+        }
+        self.kind = kind
+        self.hunkID = hunkID
+    }
+}
+
+
+/// Stable, value-derived row identity. `sequence` disambiguates rows that share
+/// a hunk and line numbers, such as consecutive one-sided rows.
+package struct DiffRowID: Hashable, Sendable {
+    package let hunkID: String?
+    package let oldLine: Int?
+    package let newLine: Int?
+    package let sequence: Int
+}
+
+package struct DiffHunk: Identifiable, Sendable {
+    package let id: String
+    package let header: String
+    package let patch: String
+    package init(id: String, header: String, patch: String) { self.id = id; self.header = header; self.patch = patch }
+}
+
+package struct DiffDocument: Sendable {
+    package let patch: String
+    package let rows: [DiffRow]
+    package let hunks: [DiffHunk]
+
+    package init(patch: String = "", rows: [DiffRow], hunks: [DiffHunk]) {
+        self.patch = patch
+        self.rows = rows
+        self.hunks = hunks
+    }
+}
+
+package enum GitLineChangeKind: String, Sendable {
+    case added
+    case modified
+    case deleted
+}
+
+package struct GitLineChangeMarker: Identifiable, Hashable, Sendable {
+    package let line: Int
+    package let kind: GitLineChangeKind
+    package let hunkID: String?
+
+    package var id: String { "\(line):\(kind.rawValue):\(hunkID ?? "")" }
+}
+
+/// Converts right-side diff rows into zero-based editor gutter markers.
+/// Removed rows anchor to the following surviving line, or the final line when
+/// the deletion occurs at end of file, matching conventional IDE gutters.
+package enum GitLineChangeProjection {
+    package static func markers(from rows: [DiffRow]) -> [GitLineChangeMarker] {
+        var markersByLine: [Int: GitLineChangeMarker] = [:]
+        var lastNewLine: Int?
+
+        for (index, row) in rows.enumerated() {
+            switch row.kind {
+            case .addition:
+                if let newLine = row.newLine {
+                    insert(
+                        GitLineChangeMarker(line: max(0, newLine - 1), kind: .added, hunkID: row.hunkID),
+                        into: &markersByLine
+                    )
+                    lastNewLine = newLine
+                }
+            case .changed:
+                if let newLine = row.newLine {
+                    insert(
+                        GitLineChangeMarker(line: max(0, newLine - 1), kind: .modified, hunkID: row.hunkID),
+                        into: &markersByLine
+                    )
+                    lastNewLine = newLine
+                }
+            case .removal:
+                let nextNewLine = rows[(index + 1)...]
+                    .lazy
+                    .compactMap(\.newLine)
+                    .first
+                let anchor = max(0, (nextNewLine ?? lastNewLine ?? 1) - 1)
+                insert(
+                    GitLineChangeMarker(line: anchor, kind: .deleted, hunkID: row.hunkID),
+                    into: &markersByLine
+                )
+            case .context:
+                if let newLine = row.newLine { lastNewLine = newLine }
+            case .information:
+                break
+            }
+        }
+
+        return markersByLine.values.sorted {
+            ($0.line, priority($0.kind), $0.hunkID ?? "")
+                < ($1.line, priority($1.kind), $1.hunkID ?? "")
+        }
+    }
+
+    private static func insert(
+        _ marker: GitLineChangeMarker,
+        into markersByLine: inout [Int: GitLineChangeMarker]
+    ) {
+        guard let current = markersByLine[marker.line] else {
+            markersByLine[marker.line] = marker
+            return
+        }
+        if priority(marker.kind) > priority(current.kind) {
+            markersByLine[marker.line] = marker
+        }
+    }
+
+    private static func priority(_ kind: GitLineChangeKind) -> Int {
+        switch kind {
+        case .added: 0
+        case .deleted: 1
+        case .modified: 2
+        }
+    }
+}
+
+package struct DiffHunkRequest: Identifiable {
+    package let id = UUID()
+    package let change: GitChange
+    package let hunk: DiffHunk
+}
+
+/// A checkout that local changes would overwrite, awaiting the user's resolution choice.
+package struct GitCheckoutConflictRequest: Identifiable {
+    package let id = UUID()
+    package let reference: GitReference
+    package let blockingPaths: [String]
+}
+
+/// The destructive rollback requested from a conflict dialog. The original
+/// operation is retained so a successful rollback can re-run its preflight and
+/// continue automatically when no blocking paths remain.
+package enum GitConflictResume: Sendable {
+    case checkout(GitReference)
+    case integration(target: GitIntegrationTarget, operation: GitIntegrationOperation)
+}
+
+package struct GitConflictRollbackRequest: Identifiable, Sendable {
+    package let id = UUID()
+    package let path: String
+    package let resume: GitConflictResume
+}
+
+/// What stands in the way of starting a merge or rebase.
+package struct GitIntegrationPreflightState: Sendable {
+    package let blockingPaths: [String]
+    /// True for a rebase, which refuses on any uncommitted change rather than
+    /// only those overlapping the incoming commits.
+    package let blocksEntirely: Bool
+    package init(blockingPaths: [String], blocksEntirely: Bool) { self.blockingPaths = blockingPaths; self.blocksEntirely = blocksEntirely }
+
+    package var isClear: Bool { blockingPaths.isEmpty }
+}
+
+/// What an integration replays: a whole branch, or a single commit.
+///
+/// Merge and rebase name a branch while cherry-pick and revert name one commit,
+/// but the preflight only needs a revision to resolve, so they share this.
+package enum GitIntegrationTarget: Sendable {
+    case reference(GitReference)
+    case commit(GitCommit)
+
+    /// The revision handed to Git.
+    package var revision: String {
+        switch self {
+        case .reference(let reference): reference.fullName
+        case .commit(let commit): commit.hash
+        }
+    }
+
+    /// The revision as the user knows it, for messages.
+    package var displayName: String {
+        switch self {
+        case .reference(let reference): reference.shortName
+        case .commit(let commit): commit.shortHash
+        }
+    }
+}
+
+/// An integration blocked by uncommitted changes, awaiting the user's choice.
+package struct GitIntegrationConflictRequest: Identifiable {
+    package let id = UUID()
+    package let target: GitIntegrationTarget
+    package let operation: GitIntegrationOperation
+    package let blockingPaths: [String]
+    package let blocksEntirely: Bool
+}
+
+/// A stash created by Lithe could not be restored cleanly. The entry is kept so
+/// the user can resolve the working tree and drop it explicitly afterwards.
+package struct GitStashRestoreConflictRequest: Identifiable, Sendable {
+    package let id = UUID()
+    package let stashReference: String
+    package let conflictedPaths: [String]
+    package let operationTitle: String
+
+    package var hasConflictPaths: Bool { !conflictedPaths.isEmpty }
+}
+
+package struct GitDeferredSavedChanges: Sendable {
+    package let stashReference: String?
+    package let shelfID: UUID?
+    package let operationTitle: String
+
+    package init(stashReference: String, operationTitle: String) {
+        self.stashReference = stashReference
+        shelfID = nil
+        self.operationTitle = operationTitle
+    }
+
+    package init(shelfID: UUID, operationTitle: String) {
+        stashReference = nil
+        self.shelfID = shelfID
+        self.operationTitle = operationTitle
+    }
+}
+
+package struct GitShelfEntry: Identifiable, Hashable, Sendable {
+    package let id: UUID
+    package let message: String
+    package let createdAt: Date
+    package let paths: [String]
+    package let stagedPatch: String
+    package let workingPatch: String
+}
+
+/// The branch-integration operations that share a preflight.
+package enum GitIntegrationOperation: String, Sendable {
+    case merge
+    case rebase
+    case cherryPick
+    case revert
+
+    package var title: String {
+        switch self {
+        case .merge: "Merge"
+        case .rebase: "Rebase"
+        case .cherryPick: "Cherry-pick"
+        case .revert: "Revert"
+        }
+    }
+}
+
+/// Whether a pull can fast-forward, and how far the two sides have drifted.
+package struct GitPullPreflightState: Sendable {
+    package let upstream: String?
+    package let ahead: Int
+    package let behind: Int
+    package let diverged: Bool
+    package let hasLocalChanges: Bool
+    package init(upstream: String?, ahead: Int, behind: Int, diverged: Bool, hasLocalChanges: Bool) { self.upstream = upstream; self.ahead = ahead; self.behind = behind; self.diverged = diverged; self.hasLocalChanges = hasLocalChanges }
+
+    /// Nothing to pull, so the network call can be skipped entirely.
+    package var isUpToDate: Bool { behind == 0 && !diverged }
+}
+
+/// A pull that cannot fast-forward, awaiting the user's choice of strategy.
+package struct GitPullStrategyRequest: Identifiable {
+    package let id = UUID()
+    package let upstream: String
+    package let ahead: Int
+    package let behind: Int
+    package let hasLocalChanges: Bool
+}
+
+/// How to reconcile a divergent history when pulling.
+package enum GitPullStrategy: String, Sendable {
+    /// Refuse unless the pull can fast-forward. The safe default.
+    case ffOnly
+    /// Join the two histories with a merge commit.
+    case merge
+    /// Replay local commits on top of the upstream, keeping history linear.
+    case rebase
+}
+
+package enum GitOperationKind: String, Equatable, Sendable {
+    case merge
+    case rebase
+    case cherryPick
+    case revert
+
+    package var title: String {
+        switch self {
+        case .merge: "Merging"
+        case .rebase: "Rebasing"
+        case .cherryPick: "Cherry-picking"
+        case .revert: "Reverting"
+        }
+    }
+
+    /// Whole literal keys rather than interpolating `title`, so translators get a
+    /// complete sentence per operation instead of a fragment.
+    package var inProgressTitle: String {
+        switch self {
+        case .merge: "Merge in progress"
+        case .rebase: "Rebase in progress"
+        case .cherryPick: "Cherry-pick in progress"
+        case .revert: "Revert in progress"
+        }
+    }
+
+    package var continueTitle: String {
+        switch self {
+        case .merge: "Continue Merge"
+        case .rebase: "Continue Rebase"
+        case .cherryPick: "Continue Cherry-pick"
+        case .revert: "Continue Revert"
+        }
+    }
+
+    /// Only a rebase replays a sequence of commits, so it alone can skip one.
+    package var canSkip: Bool { self == .rebase }
+}
+
+/// A merge, rebase, cherry-pick, or revert that Git left half-finished, usually
+/// because it hit conflicts. Absent when the repository is in its normal state.
+package struct GitOperationState: Equatable, Sendable {
+    package let kind: GitOperationKind
+    package let reference: String?
+    package let step: Int?
+    package let total: Int?
+    package let conflictedPaths: [String]
+    package init(kind: GitOperationKind, reference: String?, step: Int?, total: Int?, conflictedPaths: [String]) { self.kind = kind; self.reference = reference; self.step = step; self.total = total; self.conflictedPaths = conflictedPaths }
+
+    package var hasConflicts: Bool { !conflictedPaths.isEmpty }
+
+    /// Rebase progress as `3/7`, nil for operations that replay a single commit.
+    package var progress: String? {
+        guard let step, let total, total > 0 else { return nil }
+        return "\(step)/\(total)"
+    }
+}
+
+/// How to resolve a checkout blocked by local changes.
+package enum GitCheckoutConflictStrategy: Sendable {
+    /// Stash the local changes, switch, then restore them.
+    case smart
+    /// Switch and discard the local changes.
+    case force
+}
+
+package enum GitSaveChangesPolicy: String, CaseIterable, Identifiable, Sendable {
+    case stash
+    case shelve
+
+    package var id: String { rawValue }
+
+    package var title: String {
+        switch self {
+        case .stash: "Git stash"
+        case .shelve: "Lithe Shelve"
+        }
+    }
+
+    package var description: String {
+        switch self {
+        case .stash: "Store temporary changes in Git's stash list."
+        case .shelve: "Store patches in Lithe without adding objects to Git."
+        }
+    }
+}
+
+package enum DiffParser {
+    private struct Entry {
+        let number: Int
+        let text: String
+    }
+
+    package static func parse(_ patch: String) -> [DiffRow] {
+        parseDocument(patch).rows
+    }
+
+    package static func parseDocument(_ patch: String) -> DiffDocument {
+        var rows: [DiffRow] = []
+        var oldLine = 0
+        var newLine = 0
+        var removed: [Entry] = []
+        var added: [Entry] = []
+        var currentHunkID: String?
+        var currentHunkHeader = ""
+        var currentHunkLines: [String] = []
+        var fileHeaderLines: [String] = []
+        var hunkRecords: [(id: String, header: String, lines: [String])] = []
+        var hunkIndex = 0
+        // Monotonic per-document counter that keeps DiffRowID unique even when
+        // rows share a hunk and line numbers.
+        var rowSequence = 0
+        let hasTrailingNewline = patch.hasSuffix("\n")
+        var patchLines = patch.components(separatedBy: "\n")
+        if hasTrailingNewline {
+            patchLines.removeLast()
+        }
+
+        func flushChanges() {
+            let count = max(removed.count, added.count)
+            guard count > 0 else { return }
+            for index in 0..<count {
+                let left = index < removed.count ? removed[index] : nil
+                let right = index < added.count ? added[index] : nil
+                let kind: DiffRowKind
+                if left != nil && right != nil {
+                    kind = .changed
+                } else if left != nil {
+                    kind = .removal
+                } else {
+                    kind = .addition
+                }
+                rows.append(DiffRow(
+                    oldLine: left?.number,
+                    newLine: right?.number,
+                    left: left?.text,
+                    right: right?.text,
+                    kind: kind,
+                    hunkID: currentHunkID,
+                    sequence: rowSequence
+                ))
+                rowSequence += 1
+            }
+            removed.removeAll(keepingCapacity: true)
+            added.removeAll(keepingCapacity: true)
+        }
+
+        func finishHunk() {
+            guard let hunkID = currentHunkID else { return }
+            flushChanges()
+            hunkRecords.append((
+                id: hunkID,
+                header: currentHunkHeader,
+                lines: currentHunkLines
+            ))
+            currentHunkID = nil
+            currentHunkHeader = ""
+            currentHunkLines.removeAll(keepingCapacity: true)
+        }
+
+        for line in patchLines {
+            if line.hasPrefix("@@") {
+                finishHunk()
+                let hunkID = "hunk-\(hunkIndex)"
+                hunkIndex += 1
+                currentHunkID = hunkID
+                currentHunkHeader = line
+                currentHunkLines = fileHeaderLines + [line]
+                if let ranges = parseHunkHeader(line) {
+                    oldLine = ranges.old
+                    newLine = ranges.new
+                }
+                rows.append(DiffRow(
+                    oldLine: nil,
+                    newLine: nil,
+                    left: line,
+                    right: nil,
+                    kind: .information,
+                    hunkID: hunkID,
+                    sequence: rowSequence
+                ))
+                rowSequence += 1
+            } else if line.hasPrefix("diff --git"), currentHunkID != nil {
+                finishHunk()
+                fileHeaderLines = [line]
+            } else if currentHunkID == nil {
+                fileHeaderLines.append(line)
+            } else if line.hasPrefix("-") {
+                currentHunkLines.append(line)
+                removed.append(Entry(number: oldLine, text: String(line.dropFirst())))
+                oldLine += 1
+            } else if line.hasPrefix("+") {
+                currentHunkLines.append(line)
+                added.append(Entry(number: newLine, text: String(line.dropFirst())))
+                newLine += 1
+            } else if line.hasPrefix(" ") {
+                flushChanges()
+                currentHunkLines.append(line)
+                rows.append(DiffRow(
+                    oldLine: oldLine,
+                    newLine: newLine,
+                    left: String(line.dropFirst()),
+                    right: nil,
+                    kind: .context,
+                    hunkID: currentHunkID,
+                    sequence: rowSequence
+                ))
+                rowSequence += 1
+                oldLine += 1
+                newLine += 1
+            } else if line.hasPrefix("\\ No newline") {
+                currentHunkLines.append(line)
+            } else {
+                currentHunkLines.append(line)
+            }
+        }
+        finishHunk()
+
+        let hunks = hunkRecords.map { record in
+            let patchText = record.lines.joined(separator: "\n") + (hasTrailingNewline ? "\n" : "")
+            return DiffHunk(
+                id: record.id,
+                header: record.header,
+                patch: patchText
+            )
+        }
+        return DiffDocument(rows: rows, hunks: hunks)
+    }
+
+    private static func parseHunkHeader(_ header: String) -> (old: Int, new: Int)? {
+        let pattern = #"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: header, range: NSRange(header.startIndex..., in: header)),
+              let oldRange = Range(match.range(at: 1), in: header),
+              let newRange = Range(match.range(at: 2), in: header),
+              let old = Int(header[oldRange]),
+              let new = Int(header[newRange]) else { return nil }
+        return (old, new)
+    }
+}

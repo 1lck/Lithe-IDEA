@@ -1,3 +1,5 @@
+//! Runnable Make target discovery with conservative service classification.
+
 use super::super::types::Confidence;
 use super::{Detected, DirectoryContext};
 

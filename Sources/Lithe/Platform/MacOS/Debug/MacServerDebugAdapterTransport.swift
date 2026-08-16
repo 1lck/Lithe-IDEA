@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import Network
 
 struct ServerDebugAdapterProcessLaunch {

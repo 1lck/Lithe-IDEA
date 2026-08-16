@@ -1,0 +1,36 @@
+[package]
+name = "lithe-windows"
+version = "0.3.0"
+description = "Lithe Windows desktop application"
+edition = "2021"
+license = "Apache-2.0"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+lithe-core = { path = "../../../rust/lithe-core" }
+lithe-project = { path = "../crates/project" }
+lithe-terminal = { path = "../crates/terminal" }
+keyring = { version = "3.6.3", features = ["windows-native"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["common-controls-v6", "protocol-asset"] }
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-http = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-os = "2"
+tauri-plugin-process = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-store = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-window-state = "2"
+url = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

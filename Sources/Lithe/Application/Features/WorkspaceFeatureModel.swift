@@ -1,0 +1,72 @@
+import Foundation
+import LitheCoreContracts
+import LitheWorkspaceModule
+
+typealias WorkspaceRebuildResult = LitheWorkspaceModule.WorkspaceRebuildResult
+typealias WorkspaceFeatureModel = LitheWorkspaceModule.WorkspaceFeatureModel
+
+@MainActor
+extension LitheWorkspaceModule.WorkspaceFeatureModel {
+    convenience init(
+        operations: any WorkspaceOperations,
+        fileOperations: any WorkspaceFileOperations,
+        fileStorage: any FileStorage,
+        gitWatchContextProvider: any GitWatchContextProviding,
+        directoryWatcherFactory: any DirectoryWatcherFactory,
+        workspaceSessionStore: any WorkspaceSessionStoring
+    ) {
+        _ = fileStorage
+        self.init(
+            operations: operations,
+            fileOperations: fileOperations,
+            gitWatchContextProvider: gitWatchContextProvider,
+            directoryWatcherFactory: directoryWatcherFactory,
+            workspaceSessionStore: workspaceSessionStore
+        )
+    }
+
+    func configure(
+        documentsProvider: @escaping @MainActor @Sendable () -> [EditorDocument],
+        activeDocumentProvider: @escaping @MainActor @Sendable () -> EditorDocument?,
+        selectedSidebarProvider: @escaping @MainActor @Sendable () -> String,
+        setSelectedSidebar: @escaping @MainActor @Sendable (String) -> Void,
+        restoreSession: @escaping @MainActor @Sendable (WorkspaceSession, [URL]) async -> Void,
+        openFile: @escaping @MainActor @Sendable (URL) -> Void,
+        notify: @escaping @MainActor @Sendable (String) -> Void,
+        recordHistory: @escaping @MainActor @Sendable (URL, LocalHistoryReason) async -> Void,
+        relocateHistory: @escaping @MainActor @Sendable (URL, URL) async -> Void,
+        relocateOpenDocuments: @escaping @MainActor @Sendable (URL, URL) -> Void,
+        closeDocuments: @escaping @MainActor @Sendable (URL) -> Void,
+        processExternalChanges: @escaping @MainActor @Sendable ([URL]) -> Bool,
+        reloadProjectServices: @escaping @MainActor @Sendable () async -> Void,
+        refreshGit: @escaping @MainActor @Sendable () async -> Void,
+        updateHistoryVisibilityRules: @escaping @MainActor @Sendable (FileVisibilityRules) async -> Void,
+        onSnapshotLoaded: @escaping @MainActor @Sendable (WorkspaceSnapshot, Bool) async -> Void
+    ) {
+        configureProjection(
+            documentsProvider: {
+                documentsProvider().map { WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty) }
+            },
+            activeDocumentProvider: {
+                activeDocumentProvider().map { WorkspaceDocumentState(url: $0.url, isDirty: $0.isDirty) }
+            },
+            selectedSidebarProvider: selectedSidebarProvider,
+            setSelectedSidebar: setSelectedSidebar,
+            restoreSession: restoreSession,
+            openFile: openFile,
+            notify: notify,
+            recordHistory: recordHistory,
+            relocateHistory: relocateHistory,
+            relocateOpenDocuments: relocateOpenDocuments,
+            closeDocuments: closeDocuments,
+            processExternalChanges: processExternalChanges,
+            reloadProjectServices: reloadProjectServices,
+            refreshGit: refreshGit,
+            updateHistoryVisibilityRules: updateHistoryVisibilityRules,
+            onSnapshotLoaded: onSnapshotLoaded,
+            warmSearchIndex: { _, _ in },
+            updateSearchIndex: { _, _, _ in },
+            invalidateSearchIndex: { _, _ in }
+        )
+    }
+}

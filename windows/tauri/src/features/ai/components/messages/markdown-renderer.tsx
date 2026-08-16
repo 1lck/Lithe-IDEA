@@ -1,0 +1,893 @@
+import {
+  CaretDownIcon as ChevronDown,
+  CaretRightIcon as ChevronRight,
+  CopyIcon as Copy,
+  TerminalWindowIcon as Terminal,
+  WarningCircleIcon as AlertCircle,
+} from "@/ui/icons";
+import type React from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { getAcpAuthenticationCommand } from "@/features/ai/lib/acp-authentication";
+import { AcpStreamHandler } from "@/features/ai/services/acp-stream-handler";
+import type { MarkdownRendererProps } from "@/features/ai/types/ai-chat.types";
+import {
+  isExternalMarkdownLink,
+  resolveWorkspaceFileLink,
+} from "@/features/ai/lib/workspace-file-links";
+import {
+  normalizeImplicitCodeFences,
+  normalizePlainTextFence,
+} from "@/features/ai/lib/assistant-markdown";
+import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
+import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import {
+  type CodeHighlightSegment,
+  getCodeHighlightSegments,
+} from "@/features/editor/markdown/code-highlight";
+import { normalizeCodeFenceLanguage } from "@/features/editor/markdown/language-map";
+import { Button } from "@/ui/button";
+import { Marker, MarkerContent, MarkerIcon } from "@/ui/marker";
+import { writeClipboardText } from "@/utils/clipboard";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useProjectStore } from "@/features/window/stores/project.store";
+
+function inferCodeLanguage(code: string): string {
+  const trimmed = code.trim();
+
+  if (
+    /\b(fn|let|mut|impl|pub|use|match|enum|struct|trait|crate)\b/.test(trimmed) ||
+    /anyhow::|Result<|Option<|Some\(|None\b/.test(trimmed)
+  ) {
+    return "rust";
+  }
+
+  if (/^\s*#!/m.test(trimmed) || /\bfi\b|\bthen\b|\bdone\b|\$\w+/.test(trimmed)) {
+    return "bash";
+  }
+
+  if (/\b(def|import|from|class)\b/.test(trimmed) && /:\s*$/m.test(trimmed)) {
+    return "python";
+  }
+
+  if (/\b(const|let|function|=>|interface|type)\b/.test(trimmed)) {
+    return "typescript";
+  }
+
+  return "clike";
+}
+
+async function copyTextToClipboard(text: string) {
+  await writeClipboardText(text);
+}
+
+async function openMarkdownLink(href: string, label: string) {
+  if (isExternalMarkdownLink(href)) {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(href);
+    return;
+  }
+
+  const fileSystem = useFileSystemStore.getState();
+  const files = await fileSystem.getAllProjectFiles();
+  const target = resolveWorkspaceFileLink(href, label, files, fileSystem.rootFolderPath);
+
+  if (target) {
+    await fileSystem.handleFileSelect(
+      target.path,
+      false,
+      target.line,
+      target.column,
+      undefined,
+      false,
+    );
+    return;
+  }
+
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(href);
+}
+
+function renderHighlightedCode(code: string, segments: CodeHighlightSegment[]): React.ReactNode {
+  if (segments.length === 0) {
+    return code;
+  }
+
+  const elements: React.ReactNode[] = [];
+  let lastEnd = 0;
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    if (segment.start > lastEnd) {
+      elements.push(<span key={`t-${i}`}>{code.slice(lastEnd, segment.start)}</span>);
+    }
+
+    elements.push(
+      <span key={`k-${i}`} className={segment.className}>
+        {code.slice(segment.start, segment.end)}
+      </span>,
+    );
+    lastEnd = segment.end;
+  }
+
+  if (lastEnd < code.length) {
+    elements.push(<span key="e">{code.slice(lastEnd)}</span>);
+  }
+
+  return <>{elements}</>;
+}
+
+function CodeBlock({
+  code,
+  languageHint,
+  onApplyCode,
+}: {
+  code: string;
+  languageHint: string;
+  onApplyCode?: (code: string, language?: string) => void;
+}) {
+  const explicitLanguage = languageHint ? normalizeCodeFenceLanguage(languageHint) : "";
+  const inferredLanguage = explicitLanguage || inferCodeLanguage(code);
+  const languageLabel = explicitLanguage || (inferredLanguage !== "clike" ? inferredLanguage : "");
+
+  const [segments, setSegments] = useState<CodeHighlightSegment[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSegments(null);
+
+    const loadHighlighting = async () => {
+      const nextSegments = await getCodeHighlightSegments(code, inferredLanguage);
+      if (!cancelled) {
+        setSegments(nextSegments);
+      }
+    };
+
+    loadHighlighting();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code, inferredLanguage]);
+
+  const renderedCode = useMemo(() => renderHighlightedCode(code, segments || []), [code, segments]);
+
+  return (
+    <div className="group relative my-2">
+      <pre className="font-mono max-w-full overflow-x-auto rounded border border-border bg-surface p-2">
+        <div className="mb-1 flex items-center justify-between">
+          {languageLabel && (
+            <div className="font-mono text-subtle-foreground ui-text-sm">{languageLabel}</div>
+          )}
+          {code.trim() && (
+            <div className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded"
+                onClick={() => void copyTextToClipboard(code)}
+                tooltip="Copy code"
+                size="icon"
+              >
+                <Copy className="text-subtle-foreground" size={12} />
+              </Button>
+              {onApplyCode && (
+                <Button
+                  type="button"
+                  variant="default"
+                  onClick={() => onApplyCode(code)}
+                  className="h-5 px-1.5 ui-text-sm"
+                  tooltip="Apply this code to current buffer"
+                >
+                  Apply
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+        <code className="font-mono block whitespace-pre-wrap break-all text-foreground ui-text-sm">
+          {renderedCode}
+        </code>
+      </pre>
+    </div>
+  );
+}
+
+// Error Block Component
+function ErrorBlock({ errorData, chatId }: { errorData: string; chatId?: string | null }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isRestartingSession, setIsRestartingSession] = useState(false);
+  const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
+  const openTerminalBuffer = useBufferStore((state) => state.actions.openTerminalBuffer);
+  const setActiveBuffer = useBufferStore((state) => state.actions.setActiveBuffer);
+  const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
+  const agentId = useAIChatStore((state) => {
+    const chatAgentId = chatId
+      ? state.chats.find((chat) => chat.id === chatId)?.agentId
+      : undefined;
+    return chatAgentId ?? state.selectedAgentId;
+  });
+
+  const lines = errorData.split("\n");
+  const title =
+    lines
+      .find((l) => l.startsWith("title:"))
+      ?.replace("title:", "")
+      .trim() || "";
+  const code =
+    lines
+      .find((l) => l.startsWith("code:"))
+      ?.replace("code:", "")
+      .trim() || "";
+  const message =
+    lines
+      .find((l) => l.startsWith("message:"))
+      ?.replace("message:", "")
+      .trim() || "";
+  const details =
+    lines
+      .find((l) => l.startsWith("details:"))
+      ?.replace("details:", "")
+      .trim() || "";
+  const summary = title || message || "Error";
+  const normalizedDetails = details && details !== message ? details : "";
+  const isAuthRequired = code === "AUTH_REQUIRED";
+  const isConfigurationRequired = code === "CONFIG_REQUIRED";
+  const canRecoverAgent = isAuthRequired || isConfigurationRequired;
+
+  const handleRestartAgentSession = async () => {
+    setIsRestartingSession(true);
+    try {
+      await AcpStreamHandler.restartAgent(agentId, chatId);
+      toast.success("Agent session restarted");
+    } catch (error) {
+      console.error("Failed to restart ACP agent session:", error);
+      toast.error("Couldn't restart the agent session", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsRestartingSession(false);
+    }
+  };
+
+  const handleOpenAuthenticationTerminal = async () => {
+    setIsOpeningTerminal(true);
+    try {
+      const agents = await AcpStreamHandler.getAvailableAgents().catch(() => []);
+      const command = getAcpAuthenticationCommand(agentId, agents);
+      const bufferId = openTerminalBuffer({
+        command: command ?? undefined,
+        name: command ?? "Agent setup",
+        workingDirectory: rootFolderPath ?? undefined,
+      });
+      setActiveBuffer(bufferId);
+    } catch (error) {
+      toast.error("Couldn't open the agent terminal", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsOpeningTerminal(false);
+    }
+  };
+
+  return (
+    <Marker role="alert" tone="error" className="my-1 items-start">
+      <MarkerIcon>
+        <AlertCircle />
+      </MarkerIcon>
+      <MarkerContent className="flex min-w-0 flex-col gap-1">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span className="font-medium">{summary}</span>
+          {code ? <span className="text-destructive/70">({code})</span> : null}
+          {normalizedDetails ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="h-auto px-0 text-destructive/70 hover:bg-transparent hover:text-destructive"
+            >
+              {isExpanded ? <ChevronDown /> : <ChevronRight />}
+              {isExpanded ? "Hide details" : "Details"}
+            </Button>
+          ) : null}
+        </span>
+        {message && message !== summary ? (
+          <span className="text-destructive/80">{message}</span>
+        ) : null}
+        {canRecoverAgent && (
+          <span className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="default"
+              onClick={() => void handleRestartAgentSession()}
+              disabled={isRestartingSession}
+              className="h-auto gap-1.5"
+            >
+              <Terminal size={12} />
+              {isRestartingSession ? "Restarting..." : "Restart Agent Session"}
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              onClick={() => void handleOpenAuthenticationTerminal()}
+              disabled={isOpeningTerminal}
+              className="h-auto gap-1.5"
+            >
+              <Terminal size={12} />
+              {isOpeningTerminal ? "Opening..." : "Open Agent Terminal"}
+            </Button>
+            <span className="text-destructive/70">
+              {isConfigurationRequired
+                ? "Finish the agent setup, then restart the session."
+                : "Complete login in the agent CLI, then restart the session."}
+            </span>
+          </span>
+        )}
+        {normalizedDetails && isExpanded && (
+          <pre className="max-w-full overflow-x-auto rounded-md bg-destructive/8 p-2 font-mono text-destructive/90 ui-text-sm">
+            {(() => {
+              try {
+                const parsed = JSON.parse(normalizedDetails);
+                return JSON.stringify(parsed, null, 2);
+              } catch {
+                return normalizedDetails;
+              }
+            })()}
+          </pre>
+        )}
+      </MarkerContent>
+    </Marker>
+  );
+}
+
+// Header classes scaled for sidebar context
+const headerClasses: Record<number, string> = {
+  1: "mt-3 mb-1.5 font-semibold ui-text-sm text-foreground",
+  2: "ui-text-sm mt-2.5 mb-1 font-semibold text-foreground",
+  3: "mt-2 mb-1 font-semibold text-foreground ui-text-sm",
+  4: "mt-2 mb-0.5 font-medium text-foreground ui-text-sm",
+  5: "mt-1.5 mb-0.5 font-medium text-muted-foreground ui-text-sm",
+  6: "mt-1.5 mb-0.5 font-medium text-subtle-foreground ui-text-sm",
+};
+
+function renderHeader(level: number, text: string, key: string): React.ReactNode {
+  const className = headerClasses[level] || headerClasses[6];
+  const content = renderInlineFormatting(text);
+
+  switch (level) {
+    case 1:
+      return (
+        <h1 key={key} className={className}>
+          {content}
+        </h1>
+      );
+    case 2:
+      return (
+        <h2 key={key} className={className}>
+          {content}
+        </h2>
+      );
+    case 3:
+      return (
+        <h3 key={key} className={className}>
+          {content}
+        </h3>
+      );
+    case 4:
+      return (
+        <h4 key={key} className={className}>
+          {content}
+        </h4>
+      );
+    case 5:
+      return (
+        <h5 key={key} className={className}>
+          {content}
+        </h5>
+      );
+    default:
+      return (
+        <h6 key={key} className={className}>
+          {content}
+        </h6>
+      );
+  }
+}
+
+type TableAlignment = "left" | "center" | "right";
+
+type MarkdownTable = {
+  headers: string[];
+  alignments: TableAlignment[];
+  rows: string[][];
+};
+
+const INLINE_CODE_CLASS_NAME =
+  "font-mono inline whitespace-break-spaces rounded bg-surface/80 px-1 py-0 text-[0.95em] leading-[inherit] text-foreground align-baseline";
+const INLINE_LINK_CLASS_NAME =
+  "inline cursor-pointer wrap-break-word font-[inherit] leading-[inherit] text-primary hover:underline";
+
+function splitMarkdownTableRow(line: string): string[] {
+  let value = line.trim();
+  if (value.startsWith("|")) value = value.slice(1);
+  if (value.endsWith("|")) value = value.slice(0, -1);
+
+  const cells: string[] = [];
+  let current = "";
+
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    const next = value[i + 1];
+
+    if (char === "\\" && next === "|") {
+      current += "|";
+      i += 1;
+      continue;
+    }
+
+    if (char === "|") {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseTableSeparatorCell(cell: string): TableAlignment | null {
+  const normalized = cell.replace(/\s+/g, "");
+  if (!/^:?-{3,}:?$/.test(normalized)) return null;
+
+  const startsWithColon = normalized.startsWith(":");
+  const endsWithColon = normalized.endsWith(":");
+  if (startsWithColon && endsWithColon) return "center";
+  if (endsWithColon) return "right";
+  return "left";
+}
+
+function normalizeTableRow(cells: string[], columnCount: number): string[] {
+  if (cells.length === columnCount) return cells;
+  if (cells.length > columnCount) return cells.slice(0, columnCount);
+  return [...cells, ...Array.from({ length: columnCount - cells.length }, () => "")];
+}
+
+function parseMarkdownTable(
+  lines: string[],
+  startIndex: number,
+): { table: MarkdownTable; endIndex: number } | null {
+  const headerLine = lines[startIndex] ?? "";
+  const separatorLine = lines[startIndex + 1] ?? "";
+
+  if (!headerLine?.includes("|") || !separatorLine?.includes("|")) return null;
+
+  const headers = splitMarkdownTableRow(headerLine);
+  const separatorCells = splitMarkdownTableRow(separatorLine);
+  if (headers.length < 2 || separatorCells.length !== headers.length) return null;
+
+  const alignments = separatorCells.map(parseTableSeparatorCell);
+  if (alignments.some((alignment) => alignment === null)) return null;
+
+  const rows: string[][] = [];
+  let endIndex = startIndex + 2;
+
+  while (endIndex < lines.length) {
+    const rowLine = lines[endIndex] ?? "";
+    const trimmedLine = rowLine.trim();
+    if (!trimmedLine || trimmedLine.startsWith("```") || !rowLine.includes("|")) break;
+
+    rows.push(normalizeTableRow(splitMarkdownTableRow(rowLine), headers.length));
+    endIndex += 1;
+  }
+
+  return {
+    table: {
+      headers,
+      alignments: alignments as TableAlignment[],
+      rows,
+    },
+    endIndex,
+  };
+}
+
+function getTableAlignmentClass(alignment: TableAlignment): string {
+  switch (alignment) {
+    case "center":
+      return "text-center";
+    case "right":
+      return "text-right";
+    default:
+      return "text-left";
+  }
+}
+
+function renderTable(table: MarkdownTable, key: string): React.ReactNode {
+  return (
+    <div key={key} className="my-2 max-w-full overflow-x-auto">
+      <table className="w-full min-w-max border-collapse ui-text-sm">
+        <thead>
+          <tr className="border-border border-b">
+            {table.headers.map((header, index) => (
+              <th
+                key={index}
+                className={`bg-surface px-2 py-1.5 font-medium text-foreground ${getTableAlignmentClass(table.alignments[index])}`}
+              >
+                {renderInlineFormatting(header)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, rowIndex) => (
+            <tr key={rowIndex} className="border-border/70 border-b last:border-b-0">
+              {row.map((cell, cellIndex) => (
+                <td
+                  key={cellIndex}
+                  className={`px-2 py-1.5 text-muted-foreground align-top ${getTableAlignmentClass(table.alignments[cellIndex])}`}
+                >
+                  {renderInlineFormatting(cell)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Cursor-based inline formatting parser
+function renderInlineFormatting(text: string): React.ReactNode {
+  const elements: React.ReactNode[] = [];
+  let remaining = text;
+  const getInlineKey = (kind: string, value: string) => {
+    const offset = text.length - remaining.length;
+    return `${kind}-${offset}-${value.length}`;
+  };
+
+  while (remaining.length > 0) {
+    // Inline code
+    const codeMatch = remaining.match(/^`([^`]+)`/);
+    if (codeMatch) {
+      elements.push(
+        <code key={getInlineKey("code", codeMatch[0])} className={INLINE_CODE_CLASS_NAME}>
+          {codeMatch[1]}
+        </code>,
+      );
+      remaining = remaining.slice(codeMatch[0].length);
+      continue;
+    }
+
+    const pendingCodeMatch = remaining.match(/^`([^`]*)$/);
+    if (pendingCodeMatch) {
+      elements.push(
+        <code
+          key={getInlineKey("pending-code", pendingCodeMatch[0])}
+          className={INLINE_CODE_CLASS_NAME}
+        >
+          {pendingCodeMatch[1]}
+        </code>,
+      );
+      break;
+    }
+
+    // Strikethrough
+    const strikeMatch = remaining.match(/^~~([^~]+)~~/);
+    if (strikeMatch) {
+      elements.push(
+        <del
+          key={getInlineKey("strike", strikeMatch[0])}
+          className="text-subtle-foreground line-through"
+        >
+          {strikeMatch[1]}
+        </del>,
+      );
+      remaining = remaining.slice(strikeMatch[0].length);
+      continue;
+    }
+
+    // Bold
+    const boldMatch = remaining.match(/^\*\*([^*]+)\*\*/);
+    if (boldMatch) {
+      elements.push(
+        <strong key={getInlineKey("bold", boldMatch[0])} className="font-semibold">
+          {boldMatch[1]}
+        </strong>,
+      );
+      remaining = remaining.slice(boldMatch[0].length);
+      continue;
+    }
+
+    // Italic
+    const italicMatch = remaining.match(/^\*([^*]+)\*/);
+    if (italicMatch) {
+      elements.push(
+        <em key={getInlineKey("italic", italicMatch[0])} className="italic">
+          {italicMatch[1]}
+        </em>,
+      );
+      remaining = remaining.slice(italicMatch[0].length);
+      continue;
+    }
+
+    // Links [text](url)
+    const linkMatch = remaining.match(/^\[([^\]]+)\]\(([^)]+)\)/);
+    if (linkMatch) {
+      const url = linkMatch[2];
+      const label = linkMatch[1];
+      elements.push(
+        <a
+          key={getInlineKey("link", linkMatch[0])}
+          href={url}
+          onClick={(e) => {
+            e.preventDefault();
+            void openMarkdownLink(url, label);
+          }}
+          className={INLINE_LINK_CLASS_NAME}
+        >
+          {label}
+        </a>,
+      );
+      remaining = remaining.slice(linkMatch[0].length);
+      continue;
+    }
+
+    // Plain URL
+    const urlMatch = remaining.match(/^(https?:\/\/[^\s<)]+)/);
+    if (urlMatch) {
+      const url = urlMatch[1];
+      elements.push(
+        <a
+          key={getInlineKey("url", urlMatch[0])}
+          href={url}
+          onClick={(e) => {
+            e.preventDefault();
+            import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url));
+          }}
+          className={INLINE_LINK_CLASS_NAME}
+        >
+          {url.length > 60 ? `${url.slice(0, 60)}...` : url}
+        </a>,
+      );
+      remaining = remaining.slice(urlMatch[0].length);
+      continue;
+    }
+
+    // Find next special character or consume all remaining text
+    const nextSpecial = remaining.search(/[`~*[\]]|https?:\/\//);
+    if (nextSpecial === -1) {
+      elements.push(<span key={getInlineKey("text", remaining)}>{remaining}</span>);
+      break;
+    }
+    if (nextSpecial === 0) {
+      // Special char at start didn't match any pattern — treat as plain text
+      elements.push(<span key={getInlineKey("char", remaining[0])}>{remaining[0]}</span>);
+      remaining = remaining.slice(1);
+    } else {
+      const textChunk = remaining.slice(0, nextSpecial);
+      elements.push(<span key={getInlineKey("text", textChunk)}>{textChunk}</span>);
+      remaining = remaining.slice(nextSpecial);
+    }
+  }
+
+  return elements;
+}
+
+// Line-by-line state machine markdown renderer
+function renderContent(
+  text: string,
+  onApplyCode?: (code: string, language?: string) => void,
+): React.ReactNode[] {
+  const lines = normalizeImplicitCodeFences(text).split("\n");
+  const elements: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeBlockLanguage = "";
+  let codeBlockContent: string[] = [];
+  let codeBlockStartLine = 0;
+  let currentList: { type: "ol" | "ul"; items: string[] } | null = null;
+  let currentListStartLine = 0;
+  let currentParagraph: string[] = [];
+  let currentParagraphStartLine = 0;
+
+  const flushCodeBlock = () => {
+    if (codeBlockContent.length > 0) {
+      const code = codeBlockContent.join("\n");
+      elements.push(
+        <CodeBlock
+          key={`code-${codeBlockStartLine}-${code.length}`}
+          code={code}
+          languageHint={codeBlockLanguage}
+          onApplyCode={onApplyCode}
+        />,
+      );
+      codeBlockContent = [];
+      codeBlockLanguage = "";
+    }
+  };
+
+  const flushList = () => {
+    if (currentList && currentList.items.length > 0) {
+      if (currentList.type === "ol") {
+        elements.push(
+          <ol
+            key={`ol-${currentListStartLine}-${currentList.items.length}`}
+            className="my-2 ml-5 list-decimal space-y-0.5"
+          >
+            {currentList.items.map((item, idx) => (
+              <li key={idx} className="pl-1 text-foreground">
+                {renderInlineFormatting(item)}
+              </li>
+            ))}
+          </ol>,
+        );
+      } else {
+        elements.push(
+          <ul
+            key={`ul-${currentListStartLine}-${currentList.items.length}`}
+            className="my-2 ml-5 list-disc space-y-0.5"
+          >
+            {currentList.items.map((item, idx) => (
+              <li key={idx} className="pl-1 text-foreground">
+                {renderInlineFormatting(item)}
+              </li>
+            ))}
+          </ul>,
+        );
+      }
+      currentList = null;
+    }
+  };
+
+  const flushParagraph = () => {
+    if (currentParagraph.length > 0) {
+      const paragraphText = currentParagraph.join(" ").trim();
+      if (paragraphText) {
+        elements.push(
+          <p
+            key={`p-${currentParagraphStartLine}-${paragraphText.length}`}
+            className="my-1.5 leading-[1.6]"
+          >
+            {renderInlineFormatting(paragraphText)}
+          </p>,
+        );
+      }
+      currentParagraph = [];
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    // Code block fence
+    if (line.trimStart().startsWith("```")) {
+      if (inCodeBlock) {
+        flushCodeBlock();
+        inCodeBlock = false;
+      } else {
+        flushList();
+        flushParagraph();
+        inCodeBlock = true;
+        codeBlockStartLine = i;
+        codeBlockLanguage = line.trimStart().slice(3).trim();
+      }
+      continue;
+    }
+
+    // Inside code block — accumulate
+    if (inCodeBlock) {
+      codeBlockContent.push(line);
+      continue;
+    }
+
+    const trimmedLine = line.trim();
+
+    const parsedTable = parseMarkdownTable(lines, i);
+    if (parsedTable) {
+      flushList();
+      flushParagraph();
+      elements.push(renderTable(parsedTable.table, `table-${i}-${parsedTable.endIndex}`));
+      i = parsedTable.endIndex - 1;
+      continue;
+    }
+
+    // Header
+    const headerMatch = trimmedLine.match(/^(#{1,6})\s+(.*)$/);
+    if (headerMatch) {
+      flushList();
+      flushParagraph();
+      const level = headerMatch[1].length;
+      elements.push(renderHeader(level, headerMatch[2], `h${level}-${i}`));
+      continue;
+    }
+
+    // Horizontal rule
+    if (trimmedLine.match(/^[-*_]{3,}$/) && trimmedLine.length >= 3) {
+      flushList();
+      flushParagraph();
+      elements.push(<hr key={`hr-${i}`} className="my-3 border-border" />);
+      continue;
+    }
+
+    // Blockquote
+    if (trimmedLine.startsWith("> ") || trimmedLine === ">") {
+      flushList();
+      flushParagraph();
+      const quoteContent = trimmedLine.startsWith("> ") ? trimmedLine.slice(2) : "";
+      elements.push(
+        <blockquote
+          key={`quote-${i}-${quoteContent.length}`}
+          className="my-2 border-border border-l-2 pl-3 text-muted-foreground italic"
+        >
+          {renderInlineFormatting(quoteContent)}
+        </blockquote>,
+      );
+      continue;
+    }
+
+    // Ordered list
+    const numberedMatch = trimmedLine.match(/^(\d+)\.\s+(.*)$/);
+    if (numberedMatch) {
+      flushParagraph();
+      if (currentList?.type !== "ol") {
+        flushList();
+        currentList = { type: "ol", items: [] };
+        currentListStartLine = i;
+      }
+      currentList.items.push(numberedMatch[2]);
+      continue;
+    }
+
+    // Unordered list
+    const bulletMatch = trimmedLine.match(/^[-*+]\s+(.*)$/);
+    if (bulletMatch) {
+      flushParagraph();
+      if (currentList?.type !== "ul") {
+        flushList();
+        currentList = { type: "ul", items: [] };
+        currentListStartLine = i;
+      }
+      currentList.items.push(bulletMatch[1]);
+      continue;
+    }
+
+    // Empty line
+    if (trimmedLine === "") {
+      flushList();
+      flushParagraph();
+      continue;
+    }
+
+    // Regular text — accumulate into paragraph
+    flushList();
+    if (currentParagraph.length === 0) {
+      currentParagraphStartLine = i;
+    }
+    currentParagraph.push(trimmedLine);
+  }
+
+  // Flush remaining content
+  if (inCodeBlock) {
+    flushCodeBlock();
+  }
+  flushList();
+  flushParagraph();
+
+  return elements;
+}
+
+// Simple markdown renderer for AI responses
+export default function MarkdownRenderer({ content, onApplyCode, chatId }: MarkdownRendererProps) {
+  const normalizedContent = normalizePlainTextFence(content);
+
+  // Check for error blocks first
+  if (normalizedContent.includes("[ERROR_BLOCK]")) {
+    const errorMatch = normalizedContent.match(/\[ERROR_BLOCK\]([\s\S]*?)\[\/ERROR_BLOCK\]/);
+    if (errorMatch) {
+      return <ErrorBlock errorData={errorMatch[1]} chatId={chatId} />;
+    }
+  }
+
+  return <div>{renderContent(normalizedContent, onApplyCode)}</div>;
+}
