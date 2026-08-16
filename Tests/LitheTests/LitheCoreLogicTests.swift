@@ -2959,6 +2959,31 @@ struct EditorDocumentTests {
     }
 
     @Test
+    @MainActor
+    func capturedProjectDeletionSurvivesConfirmationDialogDismissal() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-delete-confirmation")
+        let target = workspace.appendingPathComponent("obsolete.swift")
+        let fileOperations = RecordingTrashWorkspaceFileOperations()
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: fileOperations,
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(),
+            refreshGit: {}
+        )
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItem(at: target, isDirectory: false)
+        let request = try #require(model.pendingProjectItemDeletion)
+
+        // SwiftUI dismisses the confirmation dialog before its asynchronous
+        // action runs, so the captured request must not depend on pending state.
+        model.cancelProjectItemDeletion()
+        await model.confirmProjectItemDeletion(request)
+
+        #expect(model.pendingProjectItemDeletion == nil)
+        #expect(fileOperations.trashedURLs == [target.standardizedFileURL])
+    }
+
+    @Test
     func workspaceFilesystemFallbackBuildsAVisibleTreeAndHonorsHiddenRules() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
@@ -3797,6 +3822,30 @@ private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
     func removeItem(at url: URL) throws {}
     func trashItem(at url: URL) throws {}
+    func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { "" }
+}
+
+private final class RecordingTrashWorkspaceFileOperations: WorkspaceFileOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedTrashedURLs: [URL] = []
+
+    var trashedURLs: [URL] {
+        lock.withLock { recordedTrashedURLs }
+    }
+
+    func fileExists(at url: URL) -> Bool { true }
+    func isDirectory(at url: URL) -> Bool { false }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func removeItem(at url: URL) throws {}
+    func trashItem(at url: URL) throws {
+        lock.withLock {
+            recordedTrashedURLs.append(url.standardizedFileURL)
+        }
+    }
     func writeText(_ text: String, to url: URL) throws {}
     func readText(from url: URL) throws -> String { "" }
 }

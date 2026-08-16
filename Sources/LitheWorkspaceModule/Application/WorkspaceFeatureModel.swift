@@ -528,9 +528,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
         pendingProjectItemDeletion = nil
     }
 
-    package func confirmProjectItemDeletion() async {
-        guard let request = pendingProjectItemDeletion else { return }
-        pendingProjectItemDeletion = nil
+    package func confirmProjectItemDeletion(_ request: ProjectItemDeletionRequest) async {
+        if pendingProjectItemDeletion?.id == request.id {
+            pendingProjectItemDeletion = nil
+        }
+        guard !isPerformingProjectItemOperation,
+              isWorkspaceURL(request.url),
+              request.url.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
         isPerformingProjectItemOperation = true
         await recordHistory?(request.url, .beforeDelete)
         let fileOperations = self.fileOperations
