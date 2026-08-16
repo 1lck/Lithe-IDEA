@@ -225,6 +225,16 @@ function findSegmentForModelPosition(
   return segments[lastViewLine] ?? firstSegment;
 }
 
+function visibleEndColumn(lineText: string, startColumn: number, endColumn: number): number {
+  // A trailing CR is not a visible caret stop. Leaving it in the hit-test range
+  // makes the last rendered character unclickable on CRLF files.
+  let column = endColumn;
+  while (column > startColumn && lineText.charCodeAt(column - 1) === 13) {
+    column--;
+  }
+  return column;
+}
+
 function findColumnForSegmentX(
   lineText: string,
   segment: ViewLineSegment,
@@ -232,12 +242,13 @@ function findColumnForSegmentX(
   measureText: (text: string) => number,
 ): number {
   const localX = Math.max(0, x - EDITOR_CONSTANTS.EDITOR_PADDING_LEFT);
-  if (segment.endColumn <= segment.startColumn || localX <= 0) {
+  const endColumn = visibleEndColumn(lineText, segment.startColumn, segment.endColumn);
+  if (endColumn <= segment.startColumn || localX <= 0) {
     return segment.startColumn;
   }
 
   let low = segment.startColumn;
-  let high = segment.endColumn;
+  let high = endColumn;
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
     const width = measureText(lineText.slice(segment.startColumn, mid));
@@ -250,11 +261,9 @@ function findColumnForSegmentX(
 
   const currentWidth = measureText(lineText.slice(segment.startColumn, low));
   const nextWidth =
-    low < segment.endColumn
-      ? measureText(lineText.slice(segment.startColumn, low + 1))
-      : currentWidth;
+    low < endColumn ? measureText(lineText.slice(segment.startColumn, low + 1)) : currentWidth;
 
-  return nextWidth - localX < localX - currentWidth ? Math.min(segment.endColumn, low + 1) : low;
+  return nextWidth - localX < localX - currentWidth ? Math.min(endColumn, low + 1) : low;
 }
 
 export function buildEditorViewLayout({

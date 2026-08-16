@@ -115,7 +115,7 @@ const CodeLensOverlay = forwardRef(
           return (
             <div
               key={line}
-              className="absolute"
+              className="pointer-events-none absolute"
               style={{
                 top: `${top}px`,
                 left: `${left}px`,

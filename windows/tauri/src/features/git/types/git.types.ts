@@ -135,3 +135,17 @@ export interface GitBlameLine {
   time: number;
   commit: string;
 }
+
+export type GitOperationKind = "merge" | "rebase" | "cherryPick" | "revert";
+
+/**
+ * An in-progress merge/rebase/cherry-pick/revert detected from the repository's
+ * Git marker files, so operations started outside the app are reported too.
+ */
+export interface GitOperationState {
+  kind: GitOperationKind;
+  reference: string | null;
+  step: number | null;
+  total: number | null;
+  conflictedPaths: string[];
+}

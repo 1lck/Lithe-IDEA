@@ -57,6 +57,7 @@ import GitCommitPanel from "./git-commit-panel";
 import GitCommandSurface from "./git-command-surface";
 import GitRemoteManager from "./git-remote-manager";
 import GitTagManager from "./git-tag-manager";
+import GitOperationBanner from "./git-operation-banner";
 import GitStatusPanel from "./status/git-status-panel";
 
 interface GitViewProps {
@@ -834,21 +835,24 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               {
                 id: "changes",
                 content: (
-                  <GitStatusPanel
-                    files={visibleGitFiles}
-                    fileDiffStats={fileDiffStats}
-                    onFileSelect={handleGitFileClick}
-                    onOpenFile={handleOpenOriginalFile}
-                    onViewDiff={(scope) => void handleViewWorkingTreeDiff(scope)}
-                    onShowCommitDiffPicker={handleShowCommitDiffList}
-                    onShowBranchDiffPicker={() => void handleShowBranchDiffList()}
-                    onShowStashDiffPicker={() => {
-                      setShowStashList(true);
-                      setStashSearchQuery("");
-                    }}
-                    onRefresh={refreshAfterAction}
-                    repoPath={activeRepoPath}
-                  />
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <GitOperationBanner repoPath={activeRepoPath} />
+                    <GitStatusPanel
+                      files={visibleGitFiles}
+                      fileDiffStats={fileDiffStats}
+                      onFileSelect={handleGitFileClick}
+                      onOpenFile={handleOpenOriginalFile}
+                      onViewDiff={(scope) => void handleViewWorkingTreeDiff(scope)}
+                      onShowCommitDiffPicker={handleShowCommitDiffList}
+                      onShowBranchDiffPicker={() => void handleShowBranchDiffList()}
+                      onShowStashDiffPicker={() => {
+                        setShowStashList(true);
+                        setStashSearchQuery("");
+                      }}
+                      onRefresh={refreshAfterAction}
+                      repoPath={activeRepoPath}
+                    />
+                  </div>
                 ),
               },
               {
