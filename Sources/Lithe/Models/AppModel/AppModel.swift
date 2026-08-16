@@ -99,6 +99,7 @@ final class AppModel: ObservableObject, Identifiable {
     @Published var isProblemsVisible = false
     @Published var isMavenVisible = false
     @Published var isDebugVisible = false
+    @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
     var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot { languageToolingFeature.catalogSnapshot }
@@ -133,6 +134,7 @@ final class AppModel: ObservableObject, Identifiable {
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let workspaceFeature: WorkspaceFeatureModel
     let githubFeature: GitHubFeatureModel
+    let discourseCommunityFeature: DiscourseCommunityFeatureModel
     private struct CachedModuleCapability {
         let moduleID: ModuleID
         let value: AnyObject
@@ -215,6 +217,9 @@ final class AppModel: ObservableObject, Identifiable {
     }
     var activityBarContributions: [ModuleContribution] {
         activeModuleContributions.filter { $0.placement == .activityBar }
+    }
+    var rightSidebarContributions: [ModuleContribution] {
+        activeModuleContributions.filter { $0.placement == .rightSidebar }
     }
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
     func fileExists(at url: URL) -> Bool { services.fileStorage.fileExists(at: url) }
@@ -381,6 +386,7 @@ final class AppModel: ObservableObject, Identifiable {
         self.services = services
         platformUI = services.platformUI
         keyboardShortcutFeature = KeyboardShortcutFeatureModel(settings: settings)
+        discourseCommunityFeature = DiscourseCommunityFeatureModel(service: services.discourseCommunityService)
         workspaceFeature = WorkspaceFeatureModel(
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,

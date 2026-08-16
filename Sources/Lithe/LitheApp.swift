@@ -7,6 +7,7 @@ private let litheProcessLaunchDate = Date()
 final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     weak var projectSessions: ProjectSessionManager?
     var recordCleanPluginShutdown: (() -> Void)?
+    var authorizationCallbackRouter: MacExternalAuthorizationCallbackRouter?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
@@ -25,6 +26,10 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         guard let projectSessions else { return }
         Task { await projectSessions.resumeGitObservationAfterActivation() }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        urls.forEach { authorizationCallbackRouter?.route($0) }
     }
 
     static func confirmUnsavedDocuments(for projectSessions: ProjectSessionManager) -> Bool {
@@ -63,6 +68,7 @@ struct LitheApp: App {
         let processRegistry = ManagedProcessRegistry()
         let moduleStore = MacModuleConfigurationStore(store: store)
         let pluginRuntimeRecovery = MacPluginRuntimeRecoveryCoordinator()
+        let authorizationCallbackRouter = MacExternalAuthorizationCallbackRouter()
         pluginRuntimeRecovery.recoverPreviousSession(using: moduleStore)
         _settings = StateObject(wrappedValue: settings)
         let projectSessions = ProjectSessionManager(
@@ -78,7 +84,8 @@ struct LitheApp: App {
                             ? .safeMode
                             : .normal,
                         moduleStore: moduleStore,
-                        pluginRuntimeRecovery: pluginRuntimeRecovery
+                        pluginRuntimeRecovery: pluginRuntimeRecovery,
+                        authorizationCallbackRouter: authorizationCallbackRouter
                     ).services
                 )
             },
@@ -99,6 +106,7 @@ struct LitheApp: App {
             memorySampler: MacProcessMemorySampler()
         ))
         appDelegate.projectSessions = projectSessions
+        appDelegate.authorizationCallbackRouter = authorizationCallbackRouter
         appDelegate.recordCleanPluginShutdown = {
             pluginRuntimeRecovery.recordCleanShutdown(using: moduleStore)
         }
