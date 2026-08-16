@@ -9,6 +9,28 @@ export interface WritablePaneRoutingInput {
   root: PaneNode;
 }
 
+export interface MainPaneRoutingInput {
+  activePaneId: string;
+  mostRecentActivePaneIds: string[];
+  root: PaneNode;
+}
+
+export function resolveMainPaneForExternalOpen({
+  activePaneId,
+  mostRecentActivePaneIds,
+  root,
+}: MainPaneRoutingInput): PaneGroup | null {
+  const mainPanes = getAllPaneGroups(root);
+  const paneById = new Map(mainPanes.map((pane) => [pane.id, pane] as const));
+
+  return (
+    paneById.get(activePaneId) ??
+    mostRecentActivePaneIds.map((paneId) => paneById.get(paneId)).find(Boolean) ??
+    mainPanes[0] ??
+    null
+  );
+}
+
 export function getPaneScopeForPaneId(root: PaneNode, bottomRoot: PaneNode, paneId: string) {
   const rootPanes = getAllPaneGroups(root);
   if (rootPanes.some((pane) => pane.id === paneId)) {

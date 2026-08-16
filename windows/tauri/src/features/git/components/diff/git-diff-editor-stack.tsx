@@ -1036,8 +1036,12 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               {multiDiff.title || "Uncommitted Changes"}
             </span>
             <span className="truncate">{indexedFileLabel}</span>
-            <span className="shrink-0 text-git-added">+{multiDiff.totalAdditions}</span>
-            <span className="shrink-0 text-git-deleted">-{multiDiff.totalDeletions}</span>
+            {multiDiff.totalAdditions > 0 ? (
+              <span className="shrink-0 text-git-added">+{multiDiff.totalAdditions}</span>
+            ) : null}
+            {multiDiff.totalDeletions > 0 ? (
+              <span className="shrink-0 text-git-deleted">-{multiDiff.totalDeletions}</span>
+            ) : null}
             {isIndexingDiffs ? <span>{indexingLabel}</span> : null}
           </div>
         }
