@@ -13,6 +13,23 @@ interface CheckoutResult {
   message: string;
 }
 
+interface CheckoutPreflightResult {
+  blocked: boolean;
+  blockingPaths: string[];
+}
+
+const checkoutErrorMessage = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.trim() || "Failed to checkout branch";
+};
+
+const blockingChangesMessage = (blockingPaths: string[]): string => {
+  const listed = blockingPaths.slice(0, 3).join(", ");
+  const remaining = blockingPaths.length - Math.min(blockingPaths.length, 3);
+  const suffix = remaining > 0 ? ` (+${remaining} more)` : "";
+  return `Local changes would be overwritten by switching branches: ${listed}${suffix}`;
+};
+
 export const getBranches = async (repoPath: string): Promise<string[]> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
@@ -37,6 +54,19 @@ export const checkoutBranch = async (
 ): Promise<CheckoutResult> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+
+    const preflight = await tauriInvoke<CheckoutPreflightResult>("git_checkout_preflight", {
+      repoPath: resolvedRepoPath,
+      branchName,
+    });
+    if (preflight.blocked) {
+      return {
+        success: false,
+        hasChanges: true,
+        message: blockingChangesMessage(preflight.blockingPaths),
+      };
+    }
+
     const result = await tauriInvoke<CheckoutResult>("git_checkout", {
       repoPath: resolvedRepoPath,
       branchName,
@@ -54,7 +84,7 @@ export const checkoutBranch = async (
     return {
       success: false,
       hasChanges: false,
-      message: "Failed to checkout branch",
+      message: checkoutErrorMessage(error),
     };
   }
 };

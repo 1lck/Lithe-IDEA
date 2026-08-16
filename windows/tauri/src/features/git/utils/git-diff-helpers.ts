@@ -1,5 +1,5 @@
 import type { DiffLineWithIndex, ParsedHunk } from "../types/git-diff.types";
-import type { GitDiff, GitDiffLine, GitHunk } from "../types/git.types";
+import type { GitDiff, GitDiffLine, GitDiffSplitRow, GitHunk } from "../types/git.types";
 export { getDiffLineVisualState, getDiffLineVisualType } from "./diff-viewer-visuals";
 
 export interface DiffHunkRange {
@@ -102,6 +102,72 @@ export function groupLinesIntoHunks(lines: GitDiffLine[]): ParsedHunk[] {
   }
 
   return hunks;
+}
+
+export function createFallbackSplitRows(lines: DiffLineWithIndex[]): GitDiffSplitRow[] {
+  const rows: GitDiffSplitRow[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line.line_type === "context") {
+      rows.push({
+        kind: "context",
+        old_line_number: line.old_line_number,
+        new_line_number: line.new_line_number,
+        old_content: line.content,
+        new_content: line.content,
+      });
+      index++;
+      continue;
+    }
+
+    const removed: DiffLineWithIndex[] = [];
+    const added: DiffLineWithIndex[] = [];
+    while (index < lines.length && lines[index].line_type !== "context") {
+      const changedLine = lines[index];
+      if (changedLine.line_type === "removed") removed.push(changedLine);
+      if (changedLine.line_type === "added") added.push(changedLine);
+      index++;
+    }
+
+    const rowCount = Math.max(removed.length, added.length);
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+      const oldLine = removed[rowIndex];
+      const newLine = added[rowIndex];
+      rows.push({
+        kind:
+          oldLine && newLine
+            ? oldLine.content === newLine.content
+              ? "context"
+              : "changed"
+            : oldLine
+              ? "removal"
+              : "addition",
+        old_line_number: oldLine?.old_line_number,
+        new_line_number: newLine?.new_line_number,
+        old_content: oldLine?.content,
+        new_content: newLine?.content,
+      });
+    }
+  }
+
+  return rows;
+}
+
+export function countSplitDiffStats(splitHunks: GitDiffSplitRow[][]): {
+  additions: number;
+  deletions: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+
+  for (const row of splitHunks.flat()) {
+    if (row.kind === "addition" || row.kind === "changed") additions++;
+    if (row.kind === "removal" || row.kind === "changed") deletions++;
+  }
+
+  return { additions, deletions };
 }
 
 export function countDiffStats(diffs: GitDiff[]): { additions: number; deletions: number } {

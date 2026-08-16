@@ -18,6 +18,7 @@ import { createGitHunk, parseDiffHunkRange } from "../../utils/git-diff-helpers"
 const DiffHunkHeader = memo(
   ({
     hunk,
+    stats,
     hiddenLineCount,
     isCollapsed,
     onToggleCollapse,
@@ -66,26 +67,29 @@ const DiffHunkHeader = memo(
       [rootFolderPath, filePath, hunk, isStaged, onStageHunk, onUnstageHunk],
     );
 
-    let additions = 0;
-    let deletions = 0;
-    for (const l of hunk.lines) {
-      if (l.line_type === "added") additions++;
-      else if (l.line_type === "removed") deletions++;
+    let additions = stats?.additions ?? 0;
+    let deletions = stats?.deletions ?? 0;
+    if (!stats) {
+      for (const l of hunk.lines) {
+        if (l.line_type === "added") additions++;
+        else if (l.line_type === "removed") deletions++;
+      }
     }
 
     const headerInfo = parseDiffHunkRange(hunk.header.content);
 
     const canStage = !isInMultiFileView && rootFolderPath && filePath;
-    const hiddenLabel =
-      typeof hiddenLineCount === "number"
-        ? `${hiddenLineCount} unchanged line${hiddenLineCount === 1 ? "" : "s"}`
-        : "Changed lines";
+    const isUnchangedGap = typeof hiddenLineCount === "number";
+    const hiddenLabel = isUnchangedGap
+      ? `${hiddenLineCount} unchanged line${hiddenLineCount === 1 ? "" : "s"}`
+      : hunk.header.content;
 
     return (
       <div
         className={cn(
           "group grid cursor-pointer select-none grid-cols-[2.75rem_minmax(0,1fr)] items-center",
-          "font-mono code-editor-font-override border-border/70 border-b bg-background text-subtle-foreground",
+          "font-mono code-editor-font-override border-border/70 border-b text-subtle-foreground",
+          isUnchangedGap ? "bg-background" : "bg-primary/15 text-primary",
         )}
         data-selection-scope-exclude="true"
         style={headerStyle}
@@ -100,10 +104,15 @@ const DiffHunkHeader = memo(
             <span className="flex size-4 items-center justify-center text-subtle-foreground">
               {isCollapsed ? <ChevronRight size={iconSize} /> : <ChevronDown size={iconSize} />}
             </span>
-            <span className="shrink-0 whitespace-nowrap font-medium text-muted-foreground">
+            <span
+              className={cn(
+                "shrink-0 whitespace-nowrap font-medium",
+                isUnchangedGap ? "text-muted-foreground" : "text-primary",
+              )}
+            >
               {hiddenLabel}
             </span>
-            {headerInfo?.context ? (
+            {isUnchangedGap && headerInfo?.context ? (
               <span className="min-w-0 truncate text-subtle-foreground">{headerInfo.context}</span>
             ) : null}
           </div>
@@ -112,8 +121,12 @@ const DiffHunkHeader = memo(
 
           <div className="flex shrink-0 items-center gap-1.5">
             <div className="flex items-center gap-1">
-              {additions > 0 && <span className="text-git-added">+{additions}</span>}
-              {deletions > 0 && <span className="text-git-deleted">-{deletions}</span>}
+              {isUnchangedGap && additions > 0 && (
+                <span className="text-git-added">+{additions}</span>
+              )}
+              {isUnchangedGap && deletions > 0 && (
+                <span className="text-git-deleted">-{deletions}</span>
+              )}
             </div>
 
             {canStage && (

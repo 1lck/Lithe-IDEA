@@ -15,6 +15,10 @@ import {
   clearQueuedWorkspaceSessionSave,
   useBufferStore,
 } from "@/features/editor/stores/buffer.store";
+import {
+  activateMainEditorPane,
+  syncAndFocusBufferInMainPane,
+} from "@/features/editor/stores/buffer-pane-sync";
 import { getBufferById, getBufferByPath } from "@/features/editor/utils/buffer-index";
 import { fileOpenBenchmark } from "@/features/editor/utils/file-open-benchmark";
 import { getLineSlice } from "@/features/editor/utils/large-file";
@@ -1476,6 +1480,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         fileOpenBenchmark.ensureStarted(path, isPreview ? "preview" : "definite");
         fileOpenBenchmark.mark(path, "file-select-handler");
 
+        activateMainEditorPane(workspaceId);
+
         const {
           buffers,
           activeBufferId,
@@ -1486,6 +1492,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const existingBuffer = getBufferByPath(buffers, path);
         if (existingBuffer) {
           const wasAlreadyActive = existingBuffer.id === activeBufferId;
+          syncAndFocusBufferInMainPane(existingBuffer.id, workspaceId);
           setActiveBuffer(existingBuffer.id);
           recordLocalFileAccess(path, fileName, workspaceRootPath, getWorkspaceFolderPaths(get));
 

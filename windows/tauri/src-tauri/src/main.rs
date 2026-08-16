@@ -4,6 +4,7 @@ mod core;
 mod file_events;
 mod host;
 mod platform;
+mod run;
 mod secure_storage;
 mod terminal;
 mod watcher;
@@ -46,6 +47,7 @@ fn main() {
                 std::env::args().skip(1),
             ));
             app.manage(host::FileClipboard::default());
+            app.manage(run::RunProcessManager::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -87,6 +89,13 @@ fn main() {
             host::clipboard_paste,
             host::clipboard_clear,
             host::create_app_window,
+            run::run_list_java_sources,
+            run::run_write_generated,
+            run::run_write_document,
+            run::run_discover_toolchains,
+            run::run_resolve_launch,
+            run::run_start_process,
+            run::run_stop_process,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lithe desktop shell");

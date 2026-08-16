@@ -1,6 +1,8 @@
 import {
   ColumnsIcon as Columns2,
   DotsThreeIcon as MoreHorizontal,
+  FileTextIcon as FileText,
+  LockIcon as Lock,
   ListBulletsIcon as ListBullets,
   MagnifyingGlassIcon as Search,
   RowsIcon as Rows3,
@@ -25,6 +27,7 @@ import { calculateLineHeight, splitLines } from "@/features/editor/utils/lines";
 import { useZoomStore } from "@/features/window/stores/zoom.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useGitDiffPreferencesStore } from "@/features/git/stores/git-diff-preferences.store";
 import {
   buildSearchRegex,
   findAllMatches,
@@ -52,6 +55,7 @@ import type { MultiFileDiff } from "../../types/git-diff.types";
 import type { GitDiff } from "../../types/git.types";
 import { gitDiffCache } from "../../utils/git-diff-cache";
 import { getFileStatus } from "../../utils/git-diff-helpers";
+import { resolveDiffViewMode } from "../../utils/git-diff-split-layout";
 import {
   findMultiDiffMatches,
   getMultiDiffSectionKey,
@@ -505,6 +509,7 @@ const DiffFileBody = memo(function DiffFileBody({
   const fileName = filePath.split("/").pop() || filePath;
   const shouldUseInlineTextDiff =
     !shouldUseScrollableDiffEditor(diff) && diff.lines.length <= DIFF_INLINE_RENDER_LINE_THRESHOLD;
+  const displayViewMode = resolveDiffViewMode(diff, viewMode);
   const searchHighlights = useMemo(() => {
     const highlights = new Map<number, Array<{ start: number; end: number; isCurrent: boolean }>>();
 
@@ -533,7 +538,7 @@ const DiffFileBody = memo(function DiffFileBody({
     <TextDiffViewer
       diff={diff}
       isStaged={sectionKey.startsWith("staged:")}
-      viewMode={viewMode}
+      viewMode={displayViewMode}
       showWhitespace={showWhitespace}
       isEmbeddedInScrollView={true}
       searchHighlights={searchHighlights}
@@ -542,7 +547,7 @@ const DiffFileBody = memo(function DiffFileBody({
     <DiffSectionEditor
       diff={diff}
       cacheKey={sectionKey}
-      viewMode={viewMode}
+      viewMode={displayViewMode}
       searchQuery={searchQuery}
       searchOptions={searchOptions}
       searchMatches={searchMatches}
@@ -650,7 +655,8 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const isFindVisible = useUIState((state) => state.isFindVisible);
   const setIsFindVisible = useUIState((state) => state.setIsFindVisible);
-  const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
+  const viewMode = useGitDiffPreferencesStore.use.viewMode();
+  const setViewMode = useGitDiffPreferencesStore.use.actions().setViewMode;
   const [showWhitespace, setShowWhitespace] = useState(false);
   const [isFileTreeVisible, setIsFileTreeVisible] = useState(true);
   const [fileNavigatorViewMode, setFileNavigatorViewMode] = useState<FileNavigatorViewMode>("tree");
@@ -746,6 +752,30 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       sectionKey: selectedFileKey,
     };
   }, [multiDiff, selectedFileKey]);
+  const selectedDisplayViewMode =
+    isWorkingTree && selectedDiffFile
+      ? resolveDiffViewMode(selectedDiffFile.diff, viewMode)
+      : viewMode;
+  const splitViewDisabled =
+    isWorkingTree &&
+    selectedDiffFile !== null &&
+    (selectedDiffFile.diff.is_new || selectedDiffFile.diff.is_deleted);
+  const selectedFilePath = selectedDiffFile
+    ? selectedDiffFile.diff.new_path ||
+      selectedDiffFile.diff.old_path ||
+      selectedDiffFile.diff.file_path
+    : "";
+  const selectedFileName = selectedFilePath.split("/").pop() || selectedFilePath;
+  const selectedFileStatus = selectedDiffFile ? getFileStatus(selectedDiffFile.diff) : null;
+  const selectedStatusLabel = selectedFileStatus
+    ? selectedFileStatus === "added"
+      ? "ADDED"
+      : selectedFileStatus === "deleted"
+        ? "DELETED"
+        : selectedFileStatus === "renamed"
+          ? "RENAMED"
+          : "MODIFIED"
+    : null;
   const handleToggleSection = useCallback((sectionKey: string) => {
     setExpandedFiles((prev) => {
       const next = new Set(prev);
@@ -1030,12 +1060,39 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
         showDefaultActions={false}
         extraLeftContent={
           <div className="ui-text-sm flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-subtle-foreground">
-            <span className="shrink-0 font-medium text-foreground">
-              {multiDiff.title || "Uncommitted Changes"}
-            </span>
-            <span className="truncate">{indexedFileLabel}</span>
-            <span className="shrink-0 text-git-added">+{multiDiff.totalAdditions}</span>
-            <span className="shrink-0 text-git-deleted">-{multiDiff.totalDeletions}</span>
+            {isWorkingTree && selectedDiffFile ? (
+              <>
+                <FileText className="shrink-0 text-subtle-foreground" />
+                <span className="shrink-0 font-semibold text-foreground">{selectedFileName}</span>
+                <span
+                  className={cn(
+                    "rounded-md px-1.5 py-0.5 font-semibold tracking-wide",
+                    selectedFileStatus === "added" && "bg-git-added/15 text-git-added",
+                    selectedFileStatus === "deleted" && "bg-git-deleted/15 text-git-deleted",
+                    (selectedFileStatus === "modified" || selectedFileStatus === "renamed") &&
+                      "bg-git-modified/15 text-git-modified",
+                  )}
+                >
+                  {selectedStatusLabel}
+                </span>
+                <span className="rounded-md bg-accent/70 px-1.5 py-0.5 font-medium text-muted-foreground">
+                  WORKTREE
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="shrink-0 font-medium text-foreground">
+                  {multiDiff.title || "Uncommitted Changes"}
+                </span>
+                <span className="truncate">{indexedFileLabel}</span>
+              </>
+            )}
+            {multiDiff.totalAdditions > 0 ? (
+              <span className="shrink-0 text-git-added">+{multiDiff.totalAdditions}</span>
+            ) : null}
+            {multiDiff.totalDeletions > 0 ? (
+              <span className="shrink-0 text-git-deleted">-{multiDiff.totalDeletions}</span>
+            ) : null}
             {isIndexingDiffs ? <span>{indexingLabel}</span> : null}
           </div>
         }
@@ -1067,7 +1124,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
             <div className="flex items-center gap-0.5">
               <BreadcrumbActionButton
                 type="button"
-                active={viewMode === "unified"}
+                active={selectedDisplayViewMode === "unified"}
                 onClick={() => setViewMode("unified")}
                 tooltip="Unified view"
                 tooltipSide="bottom"
@@ -1077,11 +1134,16 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               </BreadcrumbActionButton>
               <BreadcrumbActionButton
                 type="button"
-                active={viewMode === "split"}
+                active={selectedDisplayViewMode === "split"}
                 onClick={() => setViewMode("split")}
-                tooltip="Split view"
+                tooltip={
+                  splitViewDisabled
+                    ? "Split view is unavailable for added or deleted files"
+                    : "Split view"
+                }
                 tooltipSide="bottom"
                 aria-label="Split view"
+                disabled={splitViewDisabled}
               >
                 <Columns2 weight="duotone" />
               </BreadcrumbActionButton>
@@ -1115,6 +1177,112 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
           </div>
         }
       />
+
+      {isWorkingTree && selectedDiffFile ? (
+        <>
+          <div className="flex min-h-10 items-center gap-2 border-border/70 border-b bg-surface/40 px-2.5">
+            <button
+              type="button"
+              onClick={() => setIsFindVisible(true)}
+              className={cn(
+                "ui-text-sm flex h-7 min-w-44 items-center gap-2 rounded-md border border-border/70 bg-background px-2.5 text-left text-subtle-foreground",
+                "hover:bg-accent/50 hover:text-foreground",
+              )}
+            >
+              <Search className="shrink-0" />
+              <span className="flex-1">Search Diff</span>
+            </button>
+
+            <div className="h-5 w-px bg-border/70" />
+
+            <div className="flex items-center rounded-md bg-accent/45 p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode("unified")}
+                className={cn(
+                  "ui-text-sm flex h-6 items-center gap-1.5 rounded px-2 text-subtle-foreground",
+                  selectedDisplayViewMode === "unified" && "bg-background text-foreground shadow-sm",
+                )}
+                aria-pressed={selectedDisplayViewMode === "unified"}
+              >
+                <Rows3 weight="duotone" />
+                Unified
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("split")}
+                disabled={splitViewDisabled}
+                className={cn(
+                  "ui-text-sm flex h-6 items-center gap-1.5 rounded px-2 text-subtle-foreground disabled:cursor-not-allowed disabled:opacity-40",
+                  selectedDisplayViewMode === "split" && "bg-background text-foreground shadow-sm",
+                )}
+                aria-pressed={selectedDisplayViewMode === "split"}
+              >
+                <Columns2 weight="duotone" />
+                Side-by-side
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowWhitespace((current) => !current)}
+              className={cn(
+                "ui-text-sm h-7 rounded-md px-2 text-subtle-foreground hover:bg-accent/60 hover:text-foreground",
+                showWhitespace && "bg-accent text-foreground",
+              )}
+              aria-pressed={showWhitespace}
+            >
+              {showWhitespace ? "Hide whitespace" : "Show whitespace"}
+            </button>
+
+            <span className="ml-auto min-w-0 truncate text-right ui-text-sm text-subtle-foreground">
+              {selectedFilePath}
+            </span>
+          </div>
+
+          <div
+            className={cn(
+              "grid min-h-9 border-border/70 border-b bg-background",
+              selectedDisplayViewMode === "split" && !splitViewDisabled
+                ? "grid-cols-[minmax(0,1fr)_28px_minmax(0,1fr)]"
+                : "grid-cols-1",
+            )}
+          >
+            {selectedDisplayViewMode === "split" && !splitViewDisabled ? (
+              <>
+                <div className="ui-text-sm flex min-w-0 items-center gap-2 border-border/70 border-r px-3">
+                  <Lock className="shrink-0 text-subtle-foreground" />
+                  <span className="shrink-0 font-medium text-foreground">Index version</span>
+                  <span className="truncate text-subtle-foreground">{selectedFilePath}</span>
+                </div>
+                <div className="border-border/70 border-r bg-surface/50" />
+                <div className="ui-text-sm flex min-w-0 items-center gap-2 px-3">
+                  <FileText className="shrink-0 text-git-added" />
+                  <span className="shrink-0 font-medium text-foreground">Current version</span>
+                  <span className="truncate text-subtle-foreground">{selectedFilePath}</span>
+                </div>
+              </>
+            ) : (
+              <div className="ui-text-sm flex min-w-0 items-center gap-2 px-3">
+                <FileText
+                  className={cn(
+                    "shrink-0",
+                    selectedFileStatus === "deleted" ? "text-git-deleted" : "text-git-added",
+                  )}
+                />
+                <span className="shrink-0 font-medium text-foreground">
+                  {selectedFileStatus === "added"
+                    ? "Added version"
+                    : selectedFileStatus === "deleted"
+                      ? "Deleted version"
+                      : "Current version"}
+                </span>
+                <span className="truncate text-subtle-foreground">{selectedFilePath}</span>
+              </div>
+            )}
+          </div>
+        </>
+      ) : null}
 
       {isFindVisible && isActiveMultiDiff ? (
         <SearchPopover
@@ -1259,7 +1427,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                   <DiffFileBody
                     diff={selectedDiffFile.diff}
                     sectionKey={selectedDiffFile.sectionKey}
-                    viewMode={viewMode}
+                    viewMode={selectedDisplayViewMode}
                     showWhitespace={showWhitespace}
                     searchMatches={
                       isFindVisible

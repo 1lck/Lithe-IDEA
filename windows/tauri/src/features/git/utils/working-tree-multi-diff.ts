@@ -1,4 +1,4 @@
-import { getFileDiff } from "../api/git-diff-api";
+import { loadWorkingTreeFileDiff } from "../services/working-tree-file-diff";
 import type { MultiFileDiff } from "../types/git-diff.types";
 import type { GitDiff, GitFile, GitStatus } from "../types/git.types";
 import { countDiffStats } from "./git-diff-helpers";
@@ -58,8 +58,6 @@ export const getDiffableWorkingTreeFiles = (status: GitStatus | null): GitFile[]
   const files: GitFile[] = [];
 
   for (const file of status.files) {
-    if (file.status === "untracked") continue;
-
     const fileKey = getWorkingTreeFileKey(file);
     if (seen.has(fileKey)) continue;
 
@@ -124,12 +122,12 @@ export const buildWorkingTreeMultiDiff = async ({
   repoPath,
   status,
   previousFileKeys = [],
-  loadDiff = getFileDiff,
+  loadDiff = loadWorkingTreeFileDiff,
 }: {
   repoPath: string;
   status: GitStatus | null;
   previousFileKeys?: string[];
-  loadDiff?: (repoPath: string, filePath: string, staged?: boolean) => Promise<GitDiff | null>;
+  loadDiff?: (repoPath: string, file: GitFile) => Promise<GitDiff | null>;
 }): Promise<MultiFileDiff> => {
   const statusFiles = getDiffableWorkingTreeFiles(status);
   const orderedFiles = reconcileWorkingTreeFiles(statusFiles, previousFileKeys);
@@ -140,10 +138,17 @@ export const buildWorkingTreeMultiDiff = async ({
     const batch = filesToLoad.slice(index, index + WORKING_TREE_MULTI_DIFF_BATCH_SIZE);
     diffResults.push(
       ...(await Promise.all(
-        batch.map(async (file) => ({
-          fileKey: getWorkingTreeFileKey(file),
-          diff: await loadDiff(repoPath, file.path, file.staged),
-        })),
+        batch.map(async (file) => {
+          try {
+            return {
+              fileKey: getWorkingTreeFileKey(file),
+              diff: await loadDiff(repoPath, file),
+            };
+          } catch (error) {
+            console.error(`Failed to load working-tree diff for ${file.path}:`, error);
+            return { fileKey: getWorkingTreeFileKey(file), diff: null };
+          }
+        }),
       )),
     );
     await yieldToRenderer();

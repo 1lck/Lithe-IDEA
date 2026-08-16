@@ -4,10 +4,12 @@ export const SIDEBAR_ACTIVITY_ITEM_IDS = [
   "git",
   "search",
   "database",
+  "run",
   "settings",
 ] as const;
 export const FOOTER_LEADING_ITEM_IDS = [
   "branch",
+  "gitLog",
   "terminal",
   "diagnostics",
 ] as const;

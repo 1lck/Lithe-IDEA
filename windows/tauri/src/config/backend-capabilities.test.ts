@@ -15,5 +15,7 @@ describe("default Windows workbench capability policy", () => {
     expect(defaultSettings.coreFeatures.docker).toBe(false);
     expect(defaultSettings.coreFeatures.aiChat).toBe(false);
     expect(defaultSettings.coreFeatures.teamCollaboration).toBe(false);
+    expect(backendCapabilities.run).toBe(true);
+    expect(backendCapabilities.runActions).toBe(false);
   });
 });
