@@ -13,16 +13,35 @@ export interface GitStatus {
 
 export interface GitCommit {
   hash: string;
+  shortHash: string;
+  parentHashes: string[];
   message: string;
   description?: string;
   author: string;
   email?: string;
   date: string;
+  decorations: string;
+}
+
+export type GitReferenceKind = "local" | "remote" | "tag";
+
+export interface GitReference {
+  fullName: string;
+  shortName: string;
+  kind: GitReferenceKind;
+  isCurrent: boolean;
+  upstreamShortName?: string;
 }
 
 export interface GitHistorySnapshot {
+  references: GitReference[];
   commits: GitCommit[];
   hasMore: boolean;
+}
+
+export interface GitCommitFile {
+  status: string;
+  path: string;
 }
 
 export interface GitDiffLine {

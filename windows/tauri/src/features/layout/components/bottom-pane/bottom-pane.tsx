@@ -4,6 +4,7 @@ import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import DebuggerView from "@/features/debugger/components/debugger-view";
 import RunPane from "@/features/run/components/run-pane";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { GitLogToolWindow } from "@/features/git/components/log/git-log-tool-window";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
 import { activateBufferInPaneAndSync } from "@/features/panes/utils/pane-activation";
@@ -278,6 +279,12 @@ const BottomPane = () => {
         {bottomPaneActiveTab === "buffers" && (
           <div className="h-full">
             {bottomPaneBufferIds.length > 0 ? <BottomBufferPane /> : null}
+          </div>
+        )}
+
+        {bottomPaneActiveTab === "gitLog" && (
+          <div className="h-full">
+            <GitLogToolWindow />
           </div>
         )}
       </div>
