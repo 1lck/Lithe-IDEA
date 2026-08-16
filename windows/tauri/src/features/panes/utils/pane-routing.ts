@@ -15,6 +15,10 @@ export interface MainPaneRoutingInput {
   root: PaneNode;
 }
 
+export interface MainPaneBufferRoutingInput extends MainPaneRoutingInput {
+  bufferId: string;
+}
+
 export function resolveMainPaneForExternalOpen({
   activePaneId,
   mostRecentActivePaneIds,
@@ -29,6 +33,19 @@ export function resolveMainPaneForExternalOpen({
     mainPanes[0] ??
     null
   );
+}
+
+export function resolveMainPaneForBufferOpen({
+  activePaneId,
+  bufferId,
+  mostRecentActivePaneIds,
+  root,
+}: MainPaneBufferRoutingInput): PaneGroup | null {
+  const mainPanes = getAllPaneGroups(root);
+  const paneWithBuffer = mainPanes.find((pane) => pane.bufferIds.includes(bufferId));
+  if (paneWithBuffer) return paneWithBuffer;
+
+  return resolveMainPaneForExternalOpen({ activePaneId, mostRecentActivePaneIds, root });
 }
 
 export function getPaneScopeForPaneId(root: PaneNode, bottomRoot: PaneNode, paneId: string) {
