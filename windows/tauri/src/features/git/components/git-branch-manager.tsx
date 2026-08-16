@@ -883,6 +883,7 @@ function BranchRow({
               event.preventDefault();
               event.stopPropagation();
             }}
+            onClick={(event) => event.stopPropagation()}
           >
             <DropdownMenu>
               <DropdownMenuTrigger
