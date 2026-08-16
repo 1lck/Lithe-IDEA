@@ -20,6 +20,11 @@ export interface GitCommit {
   date: string;
 }
 
+export interface GitHistorySnapshot {
+  commits: GitCommit[];
+  hasMore: boolean;
+}
+
 export interface GitDiffLine {
   line_type: "added" | "removed" | "context" | "header";
   content: string;

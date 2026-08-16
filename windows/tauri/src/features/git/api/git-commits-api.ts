@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitCommit } from "../types/git.types";
+import type { GitCommit, GitHistorySnapshot } from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import {
@@ -24,24 +24,29 @@ export const commitChanges = async (repoPath: string, message: string): Promise<
   }
 };
 
-export const getGitLog = async (repoPath: string, limit = 50, skip = 0): Promise<GitCommit[]> => {
+export const getGitHistory = async (
+  repoPath: string,
+  limit = 50,
+): Promise<GitHistorySnapshot | null> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
     if (!resolvedRepoPath) {
-      return [];
+      return null;
     }
 
-    return await runGitRead(resolvedRepoPath, `log:${limit}:${skip}`, () =>
-      tauriInvoke<GitCommit[]>("git_log", {
+    return await runGitRead(resolvedRepoPath, `log:${limit}`, () =>
+      tauriInvoke<GitHistorySnapshot>("git_log", {
         repoPath: resolvedRepoPath,
         limit,
-        skip,
       }),
     );
   } catch (error) {
     if (!isNotGitRepositoryError(error)) {
       console.error("Failed to get git log:", error);
     }
-    return [];
+    return null;
   }
 };
+
+export const getGitLog = async (repoPath: string, limit = 50): Promise<GitCommit[]> =>
+  (await getGitHistory(repoPath, limit))?.commits ?? [];

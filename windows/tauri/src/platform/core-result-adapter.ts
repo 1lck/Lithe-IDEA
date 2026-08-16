@@ -63,15 +63,18 @@ export function adaptCoreResult<T>(
           : [],
       } as T;
     case "git_log":
-      return (Array.isArray(data.commits)
-        ? data.commits.map((commit: JsonRecord) => ({
-            hash: commit.hash,
-            message: commit.subject,
-            author: commit.authorName,
-            email: commit.authorEmail,
-            date: commit.date,
-          }))
-        : []) as T;
+      return {
+        commits: Array.isArray(data.commits)
+          ? data.commits.map((commit: JsonRecord) => ({
+              hash: commit.hash,
+              message: commit.subject,
+              author: commit.authorName,
+              email: commit.authorEmail,
+              date: commit.date,
+            }))
+          : [],
+        hasMore: Boolean(data.hasMore),
+      } as T;
     case "git_branches":
       return (Array.isArray(data.references)
         ? data.references

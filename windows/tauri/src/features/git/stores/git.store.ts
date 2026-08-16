@@ -1,6 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
-import { getGitLog } from "../api/git-commits-api";
+import { getGitHistory } from "../api/git-commits-api";
 import { getGitStatus } from "../api/git-status-api";
 import type { GitCommit, GitStash, GitStatus } from "../types/git.types";
 
@@ -23,6 +23,7 @@ interface GitState {
     loadFreshGitData: (data: {
       gitStatus: GitStatus | null;
       commits: GitCommit[];
+      hasMoreCommits: boolean;
       branches: string[];
       stashes: GitStash[];
       repoPath: string;
@@ -31,6 +32,7 @@ interface GitState {
       gitStatus: GitStatus | null;
       branches?: string[];
       commits?: GitCommit[];
+      hasMoreCommits?: boolean;
       repoPath: string;
     }) => void;
     refreshWorkspaceGitStatus: (repoPath: string) => Promise<void>;
@@ -47,6 +49,7 @@ interface GitState {
 }
 
 const COMMITS_PER_PAGE = 50;
+const MAX_COMMITS = 5_000;
 
 export const createGitStore = () =>
   createStore<GitState>()((set, get) => ({
@@ -79,7 +82,14 @@ export const createGitStore = () =>
         });
       },
 
-      loadFreshGitData: ({ gitStatus, commits, branches, stashes, repoPath }) => {
+      loadFreshGitData: ({
+        gitStatus,
+        commits,
+        hasMoreCommits,
+        branches,
+        stashes,
+        repoPath,
+      }) => {
         if (get().currentRepoPath !== repoPath) {
           return;
         }
@@ -89,12 +99,12 @@ export const createGitStore = () =>
           commits,
           branches,
           stashes,
-          hasMoreCommits: commits.length >= COMMITS_PER_PAGE,
+          hasMoreCommits,
           currentRepoPath: repoPath,
         });
       },
 
-      refreshGitData: ({ gitStatus, branches, commits, repoPath }) => {
+      refreshGitData: ({ gitStatus, branches, commits, hasMoreCommits, repoPath }) => {
         if (get().currentRepoPath !== repoPath) {
           return;
         }
@@ -105,7 +115,7 @@ export const createGitStore = () =>
           ...(commits
             ? {
                 commits,
-                hasMoreCommits: commits.length >= COMMITS_PER_PAGE,
+                hasMoreCommits: hasMoreCommits ?? false,
               }
             : {}),
         });
@@ -129,27 +139,28 @@ export const createGitStore = () =>
 
         if (currentRepoPath !== repoPath || !hasMoreCommits || isLoadingMoreCommits) return;
 
+        if (commits.length >= MAX_COMMITS) {
+          set({ hasMoreCommits: false });
+          return;
+        }
+
         set({ isLoadingMoreCommits: true });
 
         try {
-          const newCommits = await getGitLog(repoPath, COMMITS_PER_PAGE, commits.length);
-          if (get().currentRepoPath !== repoPath) {
+          const requestedLimit = Math.min(commits.length + COMMITS_PER_PAGE, MAX_COMMITS);
+          const history = await getGitHistory(repoPath, requestedLimit);
+          if (!history || get().currentRepoPath !== repoPath) {
             return;
           }
 
-          const existingHashSet = new Set(commits.map((c) => c.hash));
-          const uniqueNewCommits = newCommits.filter((c) => !existingHashSet.has(c.hash));
-
-          if (uniqueNewCommits.length > 0) {
-            set({
-              commits: [...commits, ...uniqueNewCommits],
-              hasMoreCommits: uniqueNewCommits.length >= COMMITS_PER_PAGE,
-            });
-          } else {
-            set({ hasMoreCommits: false });
-          }
+          set({
+            commits: history.commits,
+            hasMoreCommits: history.hasMore && requestedLimit < MAX_COMMITS,
+          });
         } finally {
-          set({ isLoadingMoreCommits: false });
+          if (get().currentRepoPath === repoPath) {
+            set({ isLoadingMoreCommits: false });
+          }
         }
       },
 
