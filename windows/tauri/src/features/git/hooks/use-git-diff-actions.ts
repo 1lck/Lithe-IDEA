@@ -8,6 +8,7 @@ import {
   type WorkingTreeDiffEntry,
   type WorkingTreeDiffScope,
 } from "../services/working-tree-diff-loader";
+import { loadWorkingTreeFileDiff } from "../services/working-tree-file-diff";
 import type { MultiFileDiff } from "../types/git-diff.types";
 import type { GitCommit, GitDiff, GitFile } from "../types/git.types";
 import { countDiffStats } from "../utils/git-diff-helpers";
@@ -20,8 +21,8 @@ const WORKING_TREE_TITLES: Record<WorkingTreeDiffScope, string> = {
 };
 
 const WORKING_TREE_EMPTY_LABELS: Record<WorkingTreeDiffScope, string> = {
-  all: "tracked changes",
-  unstaged: "unstaged tracked changes",
+  all: "changes",
+  unstaged: "unstaged changes",
   staged: "staged changes",
 };
 
@@ -119,12 +120,9 @@ export function useGitDiffActions({
       try {
         const actualFilePath = normalizeDisplayedFilePath(filePath, staged ? "new" : "old");
         const file = gitFileByPath.get(actualFilePath);
-        if (file?.status === "untracked" && !staged) {
-          await openOriginalFile(actualFilePath);
-          return;
-        }
-
-        const diff = await getFileDiff(activeRepoPath, actualFilePath, staged);
+        const diff = file
+          ? await loadWorkingTreeFileDiff(activeRepoPath, { ...file, staged })
+          : await getFileDiff(activeRepoPath, actualFilePath, staged);
         if (!diff || (diff.lines.length === 0 && !diff.is_image && !diff.is_binary)) {
           await openOriginalFile(actualFilePath);
           return;

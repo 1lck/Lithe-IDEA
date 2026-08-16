@@ -75,10 +75,10 @@ export function buildGitStatusPresentation(files: GitFile[]): GitStatusPresentat
   for (const file of files) {
     if (file.staged) {
       stagedFiles.push(file);
-      hasStagedDiffableFiles ||= file.status !== "untracked";
+      hasStagedDiffableFiles = true;
     } else {
       unstagedFiles.push(file);
-      hasUnstagedDiffableFiles ||= file.status !== "untracked";
+      hasUnstagedDiffableFiles = true;
     }
 
     const existingFile = displayFileByPath.get(file.path);

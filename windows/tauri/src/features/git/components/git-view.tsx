@@ -47,6 +47,7 @@ import {
   type WorkingTreeDiffEntry,
   type WorkingTreeDiffScope,
 } from "../services/working-tree-diff-loader";
+import { loadWorkingTreeFileDiff } from "../services/working-tree-file-diff";
 import type { GitActionsMenuAnchorRect } from "../utils/git-actions-menu-position";
 import { getStashDisplayTitle, getStashPositionLabel } from "../utils/git-stash-format";
 import { openGitWorktreeWorkspace } from "../utils/git-worktree-open";
@@ -172,7 +173,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         nextStagedFiles.push(file);
       }
 
-      if (file.status === "untracked" || seenDiffableFileKeys.has(fileKey)) {
+      if (seenDiffableFileKeys.has(fileKey)) {
         continue;
       }
 
@@ -486,6 +487,27 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         }
       }
 
+      const untrackedFiles = visibleGitFiles.filter(
+        (file) => file.status === "untracked" && !file.staged,
+      );
+      const untrackedDiffs = await Promise.all(
+        untrackedFiles.map(async (file) => {
+          try {
+            return [file, await loadWorkingTreeFileDiff(activeRepoPath, file)] as const;
+          } catch (error) {
+            console.error(`Failed to read untracked diff stats for ${file.path}:`, error);
+            return [file, null] as const;
+          }
+        }),
+      );
+      for (const [file, diff] of untrackedDiffs) {
+        if (!diff) continue;
+        nextFileDiffStats[`unstaged:${file.path}`] = {
+          additions: diff.additions ?? 0,
+          deletions: diff.deletions ?? 0,
+        };
+      }
+
       if (!isCancelled) {
         setFileDiffStats(nextFileDiffStats);
       }
@@ -496,7 +518,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     return () => {
       isCancelled = true;
     };
-  }, [activeRepoPath, visibleGitFiles.length, visibleGitFileKeySet]);
+  }, [activeRepoPath, visibleGitFiles, visibleGitFileKeySet]);
 
   const handleGitViewWorktreeChange = useCallback(
     async (worktreePath: string) => {
