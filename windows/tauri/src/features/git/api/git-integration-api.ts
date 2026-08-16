@@ -13,6 +13,7 @@ interface IntegrationPreflightResult {
 export type IntegrationOutcome =
   | { status: "clean" }
   | { status: "conflicts"; conflictedPaths: string[] }
+  | { status: "stopped" }
   | { status: "blocked"; blockingPaths: string[]; blocksEntirely: boolean }
   | { status: "error"; message: string };
 
@@ -37,26 +38,18 @@ const notifyOperationChanged = (repoPath: string, source: string) => {
 export const getOperationState = async (
   repoPath: string,
 ): Promise<GitOperationState | null> => {
-  try {
-    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    return await tauriInvoke<GitOperationState | null>("git_operation_state", {
-      repoPath: resolvedRepoPath,
-    });
-  } catch {
-    return null;
-  }
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  return tauriInvoke<GitOperationState | null>("git_operation_state", {
+    repoPath: resolvedRepoPath,
+  });
 };
 
 export const getConflictMarkerPaths = async (repoPath: string): Promise<string[]> => {
-  try {
-    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    const result = await tauriInvoke<{ paths: string[] }>("git_conflict_markers", {
-      repoPath: resolvedRepoPath,
-    });
-    return result.paths;
-  } catch {
-    return [];
-  }
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  const result = await tauriInvoke<{ paths: string[] }>("git_conflict_markers", {
+    repoPath: resolvedRepoPath,
+  });
+  return result.paths;
 };
 
 const runIntegration = async (
@@ -72,10 +65,17 @@ const runIntegration = async (
   } catch (error) {
     // A conflict stop exits non-zero like a real failure; the authoritative
     // distinction is whether Git left an operation state behind.
-    const state = await getOperationState(repoPath);
-    if (state && state.kind === operation && state.conflictedPaths.length > 0) {
-      notifyOperationChanged(repoPath, `${operation}-conflicts`);
-      return { status: "conflicts", conflictedPaths: state.conflictedPaths };
+    notifyOperationChanged(repoPath, `${operation}-rejected`);
+    try {
+      const state = await getOperationState(repoPath);
+      if (state?.kind === operation) {
+        if (state.conflictedPaths.length > 0) {
+          return { status: "conflicts", conflictedPaths: state.conflictedPaths };
+        }
+        return { status: "stopped" };
+      }
+    } catch (stateError) {
+      console.error(`Failed to read ${operation} state after Git rejected the operation:`, stateError);
     }
     return { status: "error", message: errorMessage(error) };
   }

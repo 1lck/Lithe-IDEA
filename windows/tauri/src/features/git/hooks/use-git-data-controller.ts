@@ -41,12 +41,17 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     gitActions.setIsLoadingGitData(true);
 
     try {
-      const [status, history, branches, stashes, operationState] = await Promise.all([
+      const [status, history, branches, stashes, operationStateResult] = await Promise.all([
         getGitStatus(repoPath),
         getGitHistory(repoPath, 50),
         getBranches(repoPath),
         getStashes(repoPath),
-        getOperationState(repoPath),
+        getOperationState(repoPath)
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error) => {
+            console.error("Failed to load Git operation state:", error);
+            return { ok: false as const };
+          }),
       ]);
 
       if (
@@ -62,7 +67,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         hasMoreCommits: history?.hasMore ?? false,
         branches,
         stashes,
-        operationState,
+        operationState: operationStateResult.ok ? operationStateResult.value : null,
         repoPath,
       });
     } catch (error) {
@@ -94,14 +99,19 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
             refreshAll || scopes.includes("refs") || scopes.includes("repository");
           const shouldRefreshStashes =
             refreshAll || scopes.includes("stashes") || scopes.includes("repository");
-          const [status, branches, stashes, history, operationState] = await Promise.all([
+          const [status, branches, stashes, history, operationStateResult] = await Promise.all([
             getGitStatus(repoPath),
             shouldRefreshRefs ? getBranches(repoPath) : Promise.resolve(undefined),
             shouldRefreshStashes ? getStashes(repoPath) : Promise.resolve(undefined),
             shouldRefreshHistory ? getGitHistory(repoPath, 50) : Promise.resolve(undefined),
             // Operation state rides along on every refresh: staging a file or
             // an external Git command can end a conflict at any moment.
-            getOperationState(repoPath),
+            getOperationState(repoPath)
+              .then((value) => ({ ok: true as const, value }))
+              .catch((error) => {
+                console.error("Failed to refresh Git operation state:", error);
+                return { ok: false as const };
+              }),
           ]);
 
           if (
@@ -116,7 +126,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
             branches,
             commits: history?.commits,
             hasMoreCommits: history?.hasMore,
-            operationState,
+            operationState: operationStateResult.ok ? operationStateResult.value : undefined,
             repoPath,
           });
 

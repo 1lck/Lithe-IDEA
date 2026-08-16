@@ -362,6 +362,12 @@ const GitBranchManager = ({
         type: "warning",
         duration: 6000,
       });
+    } else if (outcome.status === "stopped") {
+      showToast({
+        message: `${branchName} stopped before completion. Continue, skip, or abort from the changes list.`,
+        type: "warning",
+        duration: 6000,
+      });
     } else if (outcome.status === "blocked") {
       const listed = outcome.blockingPaths.slice(0, 3).join(", ");
       const remaining = outcome.blockingPaths.length - Math.min(outcome.blockingPaths.length, 3);
@@ -398,7 +404,11 @@ const GitBranchManager = ({
           ? await mergeBranch(repoPath, branchName)
           : await rebaseOntoBranch(repoPath, branchName);
       reportIntegrationOutcome(branchName, outcome);
-      if (outcome.status === "clean" || outcome.status === "conflicts") {
+      if (
+        outcome.status === "clean" ||
+        outcome.status === "conflicts" ||
+        outcome.status === "stopped"
+      ) {
         onBranchChange?.();
       }
     } catch (error) {

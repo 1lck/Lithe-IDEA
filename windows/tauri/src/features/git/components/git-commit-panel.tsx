@@ -297,7 +297,14 @@ const GitCommitPanel = ({
       return;
     }
 
-    const markerPaths = await getConflictMarkerPaths(repoPath);
+    let markerPaths: string[];
+    try {
+      markerPaths = await getConflictMarkerPaths(repoPath);
+    } catch (markerError) {
+      console.error("Failed to check staged files for conflict markers:", markerError);
+      setError("Unable to verify conflict markers. Retry before committing.");
+      return;
+    }
     if (markerPaths.length > 0) {
       setError(`Conflict markers remain in: ${markerPaths.join(", ")}`);
       return;

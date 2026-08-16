@@ -98,3 +98,38 @@ describe("Git history pagination", () => {
     expect(store.getState().isLoadingMoreCommits).toBe(false);
   });
 });
+
+describe("Git operation state refresh", () => {
+  test("keeps the last operation state when a refresh omits a failed query", () => {
+    const store = createGitStore();
+    store.getState().actions.prepareRepositoryLoad("C:/repo");
+    store.getState().actions.loadFreshGitData({
+      gitStatus: null,
+      commits: [],
+      hasMoreCommits: false,
+      branches: [],
+      stashes: [],
+      operationState: {
+        kind: "rebase",
+        reference: "refs/heads/main",
+        step: 2,
+        total: 4,
+        conflictedPaths: [],
+      },
+      repoPath: "C:/repo",
+    });
+
+    store.getState().actions.refreshGitData({
+      gitStatus: null,
+      repoPath: "C:/repo",
+    });
+
+    expect(store.getState().operationState).toEqual({
+      kind: "rebase",
+      reference: "refs/heads/main",
+      step: 2,
+      total: 4,
+      conflictedPaths: [],
+    });
+  });
+});

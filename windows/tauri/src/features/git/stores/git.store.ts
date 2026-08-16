@@ -35,7 +35,7 @@ interface GitState {
       branches?: string[];
       commits?: GitCommit[];
       hasMoreCommits?: boolean;
-      operationState: GitOperationState | null;
+      operationState?: GitOperationState | null;
       repoPath: string;
     }) => void;
     refreshWorkspaceGitStatus: (repoPath: string) => Promise<void>;
@@ -118,7 +118,7 @@ export const createGitStore = () =>
 
         set({
           gitStatus,
-          operationState,
+          ...(operationState !== undefined ? { operationState } : {}),
           ...(branches ? { branches } : {}),
           ...(commits
             ? {

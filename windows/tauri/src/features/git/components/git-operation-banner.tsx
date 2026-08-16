@@ -37,7 +37,7 @@ interface GitOperationBannerProps {
  */
 const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
   const operation = useGitStore((state) => state.operationState);
-  
+
   const [isResolving, setIsResolving] = useState(false);
 
   const resolve = useCallback(
