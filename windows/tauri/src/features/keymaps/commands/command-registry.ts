@@ -103,6 +103,7 @@ import {
   toggleLineNumbers,
   toggleMinimap,
   toggleRenderWhitespace,
+  toggleRunPane,
   toggleSidebar,
   toggleSourceControlSidebar,
   toggleTerminalPane,
@@ -553,6 +554,13 @@ const viewCommands: Command[] = [
     category: "View",
     keybinding: "cmd+e",
     execute: toggleSidebar,
+  },
+  {
+    id: "workbench.toggleRun",
+    title: "Toggle Run",
+    category: "View",
+    keybinding: "shift+f10",
+    execute: toggleRunPane,
   },
   {
     id: "workbench.toggleTerminal",

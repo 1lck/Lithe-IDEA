@@ -7,6 +7,9 @@ describe("Windows display language", () => {
     const translate = createTranslator("zh-CN");
 
     expect(translate("workbench.project")).toBe("项目");
+    expect(translate("workbench.run")).toBe("运行");
+    expect(translate("run.identifyAndGenerate")).toBe("识别并生成");
+    expect(createTranslator("en-US")("workbench.run")).toBe("Run");
     expect(translate("welcome.openProject")).toBe("打开项目");
     expect(translate("missing.key")).toBe("missing.key");
     expect(getLocaleCatalog("en-US")).toHaveProperty(["settings.displayLanguage"]);

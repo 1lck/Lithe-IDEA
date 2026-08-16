@@ -10,6 +10,7 @@ export const backendCapabilities = {
   git: true,
   github: false,
   remote: false,
+  run: true,
   runActions: false,
   terminal: true,
   wsl: false,

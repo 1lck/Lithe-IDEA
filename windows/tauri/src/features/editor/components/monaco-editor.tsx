@@ -63,8 +63,14 @@ import {
 } from "../engines/monaco/hover-widgets";
 import { toMonacoLanguageId } from "../engines/monaco/language";
 import { ensureMonacoLanguageTokenizer } from "../engines/monaco/language-contributions";
+import {
+  createInlineGitBlameWidget,
+  type InlineGitBlameWidget,
+} from "../engines/monaco/inline-git-blame-widget";
 import { acquireMonacoModel } from "../engines/monaco/model-lifecycle";
 import { getEditorBottomScrollPadding } from "../engines/monaco/scroll-padding";
+import { monacoModelMatchesContent } from "../engines/monaco/line-endings";
+import { applyMonacoModelContent } from "../engines/monaco/model-content";
 import {
   clampMonacoPosition,
   createModelUri,
@@ -145,10 +151,11 @@ export function MonacoEditor({
   const previousContentRef = useRef("");
   const pendingLocalContentSnapshotsRef = useRef<string[]>([]);
   const decorationsRef = useRef<string[]>([]);
-  const gitBlameDecorationRef = useRef<string[]>([]);
+  const gitBlameWidgetRef = useRef<InlineGitBlameWidget | null>(null);
   const gitBlameRenderFrameRef = useRef<number | null>(null);
   const renderedGitBlameKeyRef = useRef<string | null>(null);
   const renderInlineGitBlameRef = useRef<() => void>(() => {});
+  const mouseSelectingRef = useRef(false);
   const latestContentChangeRef = useRef(onContentChange);
   const isActiveSurfaceRef = useRef(isActiveSurface);
   const activeBufferId = useBufferStore((state) => propBufferId ?? state.activeBufferId);
@@ -216,56 +223,47 @@ export function MonacoEditor({
     const editor = editorRef.current;
     const model = modelRef.current;
     if (!editor || !model || model.isDisposed()) return;
+    if (mouseSelectingRef.current) return;
 
-    const clearDecoration = () => {
+    const widget = gitBlameWidgetRef.current ?? createInlineGitBlameWidget(editor);
+    gitBlameWidgetRef.current = widget;
+
+    const hideBlame = () => {
       renderedGitBlameKeyRef.current = null;
-      if (gitBlameDecorationRef.current.length === 0) return;
-      gitBlameDecorationRef.current = editor.deltaDecorations(gitBlameDecorationRef.current, []);
+      widget.hide();
     };
 
     if (!inlineGitBlameEnabled || !isActiveSurface || !filePath) {
-      clearDecoration();
+      hideBlame();
       return;
     }
 
     const position = editor.getPosition();
     const lineNumber = position?.lineNumber ?? 0;
     if (lineNumber < 1 || lineNumber > model.getLineCount()) {
-      clearDecoration();
+      hideBlame();
       return;
     }
 
     const blameLine = getBlameForLine(lineNumber - 1);
     if (!blameLine) {
-      clearDecoration();
+      hideBlame();
       return;
     }
 
-    const content = blameLine.is_uncommitted
+    const blameContent = blameLine.is_uncommitted
       ? "  Uncommitted changes"
       : `  ${blameLine.author}, ${formatRelativeTime(blameLine.time)}`;
-    const decorationKey = `${filePath}:${lineNumber}:${blameLine.commit_hash}:${content}`;
+    const decorationKey = `${filePath}:${lineNumber}:${blameLine.commit_hash}:${blameContent}`;
     if (renderedGitBlameKeyRef.current === decorationKey) return;
 
-    const column = model.getLineMaxColumn(lineNumber);
-    gitBlameDecorationRef.current = editor.deltaDecorations(gitBlameDecorationRef.current, [
-      {
-        range: new MonacoRange(lineNumber, column, lineNumber, column),
-        options: {
-          after: {
-            content,
-            inlineClassName: "monaco-inline-git-blame",
-            cursorStops: monacoEditor.InjectedTextCursorStops.None,
-          },
-          showIfCollapsed: false,
-        },
-      },
-    ]);
+    widget.show(lineNumber, model.getLineMaxColumn(lineNumber), blameContent);
     renderedGitBlameKeyRef.current = decorationKey;
   }, [filePath, getBlameForLine, inlineGitBlameEnabled, isActiveSurface]);
   renderInlineGitBlameRef.current = renderInlineGitBlame;
 
   const scheduleInlineGitBlameRender = useCallback(() => {
+    if (mouseSelectingRef.current) return;
     if (gitBlameRenderFrameRef.current !== null) return;
     gitBlameRenderFrameRef.current = requestAnimationFrame(() => {
       gitBlameRenderFrameRef.current = null;
@@ -565,6 +563,10 @@ export function MonacoEditor({
       domReadOnly: readOnly || isPreviewMode,
       minimap: { enabled: minimapEnabled },
       fontLigatures: editorFontLigatures,
+      // Geist Mono is a variable font; Windows DPI plus Monaco's default
+      // monospace width cache places the caret one column left of the click.
+      disableMonospaceOptimizations: true,
+      selectOnLineNumbers: true,
       stickyScroll: { enabled: editorStickyScroll },
       bracketPairColorization: { enabled: editorBracketPairColorization },
       smoothScrolling: editorSmoothScrolling,
@@ -795,6 +797,14 @@ export function MonacoEditor({
         );
         syncCursorAndSelection();
       }),
+      editor.onMouseDown((event) => {
+        if (event.event.leftButton) mouseSelectingRef.current = true;
+      }),
+      editor.onMouseUp(() => {
+        if (!mouseSelectingRef.current) return;
+        mouseSelectingRef.current = false;
+        scheduleInlineGitBlameRender();
+      }),
       editor.onDidChangeCursorSelection(() => {
         syncCursorAndSelection();
         scheduleInlineGitBlameRender();
@@ -811,14 +821,36 @@ export function MonacoEditor({
       }),
     ];
 
+    const handleWindowMouseUp = () => {
+      if (!mouseSelectingRef.current) return;
+      mouseSelectingRef.current = false;
+      scheduleInlineGitBlameRender();
+    };
+    window.addEventListener("mouseup", handleWindowMouseUp);
+
     const unsubscribeCursor = editorAPI.on("cursorChange", (position) => {
       if (!modelRef.current || editorRef.current !== editor) return;
+      if (mouseSelectingRef.current) return;
       const monacoPosition = toClampedMonacoPosition(model, position);
+      const currentPosition = editor.getPosition();
+      if (
+        currentPosition &&
+        currentPosition.lineNumber === monacoPosition.lineNumber &&
+        currentPosition.column === monacoPosition.column
+      ) {
+        return;
+      }
+      const currentSelection = editor.getSelection();
+      if (currentSelection && !currentSelection.isEmpty()) {
+        editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
+        return;
+      }
       editor.setPosition(monacoPosition);
       editor.revealPositionInCenterIfOutsideViewport(monacoPosition);
     });
     const unsubscribeSelection = editorAPI.on("selectionChange", (selection) => {
       if (!modelRef.current || editorRef.current !== editor) return;
+      if (mouseSelectingRef.current) return;
       if (selection) {
         editor.setSelection(toMonacoRange(model, selection));
       } else {
@@ -847,6 +879,7 @@ export function MonacoEditor({
       unsubscribeCursor();
       unsubscribeSelection();
       window.removeEventListener("keydown", handleWindowSelectAllShortcut, true);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
       for (const disposable of disposables) {
         disposable.dispose();
       }
@@ -859,8 +892,10 @@ export function MonacoEditor({
         cancelAnimationFrame(gitBlameRenderFrameRef.current);
         gitBlameRenderFrameRef.current = null;
       }
-      gitBlameDecorationRef.current = [];
+      gitBlameWidgetRef.current?.dispose();
+      gitBlameWidgetRef.current = null;
       renderedGitBlameKeyRef.current = null;
+      mouseSelectingRef.current = false;
       createdEditorDisposable.dispose();
       if (editorRef.current === editor) editorRef.current = null;
       if (modelRef.current === model) modelRef.current = null;
@@ -1117,8 +1152,11 @@ export function MonacoEditor({
     if (!editor || !model) return;
 
     const modelValue = model.getValue();
-    if (modelValue === content) {
+    if (monacoModelMatchesContent(modelValue, content)) {
       consumeLocalContentSnapshot(pendingLocalContentSnapshotsRef.current, content);
+      applyingExternalChangeRef.current = true;
+      applyMonacoModelContent(model, content);
+      applyingExternalChangeRef.current = false;
       previousContentRef.current = content;
       return;
     }
@@ -1130,7 +1168,7 @@ export function MonacoEditor({
 
     applyingExternalChangeRef.current = true;
     const selection = editor.getSelection();
-    model.setValue(content);
+    applyMonacoModelContent(model, content);
     if (selection) editor.setSelection(selection);
     previousContentRef.current = content;
     applyingExternalChangeRef.current = false;
@@ -1207,6 +1245,8 @@ export function MonacoEditor({
       lineNumbers: lineNumbers ? lineNumberFormatter : "off",
       minimap: { enabled: minimapEnabled },
       fontLigatures: editorFontLigatures,
+      disableMonospaceOptimizations: true,
+      selectOnLineNumbers: true,
       stickyScroll: { enabled: editorStickyScroll },
       bracketPairColorization: { enabled: editorBracketPairColorization },
       smoothScrolling: editorSmoothScrolling,
