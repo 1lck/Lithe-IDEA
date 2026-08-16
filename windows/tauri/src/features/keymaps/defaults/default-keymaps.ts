@@ -466,6 +466,7 @@ export const defaultKeymaps: Keybinding[] = [
     command: "workbench.commandPalette",
     source: "default",
   },
+  { key: "alt+9", command: "workbench.toggleGitLog", source: "default" },
   { key: "cmd+r", command: "workbench.toggleAIChat", source: "default" },
   { key: "cmd+shift+m", command: "workbench.toggleMinimap", source: "default" },
   {

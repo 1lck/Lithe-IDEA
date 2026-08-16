@@ -100,6 +100,7 @@ import {
   toggleFilesSidebar,
   toggleDockerSidebar,
   toggleGitHubSidebar,
+  toggleGitLogPane,
   toggleLineNumbers,
   toggleMinimap,
   toggleRenderWhitespace,
@@ -575,6 +576,13 @@ const viewCommands: Command[] = [
     category: "View",
     keybinding: "cmd+`",
     execute: toggleTerminalPane,
+  },
+  {
+    id: "workbench.toggleGitLog",
+    title: "Toggle Git Log",
+    category: "Git",
+    keybinding: "alt+9",
+    execute: toggleGitLogPane,
   },
   {
     id: "workbench.toggleDiagnostics",

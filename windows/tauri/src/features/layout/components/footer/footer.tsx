@@ -18,6 +18,7 @@ import { orderChromeItems, type ChromeItem } from "@/features/layout/utils/chrom
 import { useFooterGitBranchItem } from "./footer-git-branch-item";
 import { FooterTabControl } from "./footer-tab-control";
 import {
+  ClockCounterClockwiseIcon,
   DatabaseIcon,
   TerminalWindowIcon,
   WarningIcon,
@@ -55,6 +56,25 @@ const Footer = () => {
   );
   const footerLeadingItemsSource: Array<ChromeItem<FooterLeadingItemId> | null> = [
     branchItem,
+    {
+      id: "gitLog",
+      label: "Git",
+      content: (
+        <FooterTabControl
+          tooltip="Toggle Git Log"
+          active={isBottomPaneVisible && bottomPaneActiveTab === "gitLog"}
+          commandId="workbench.toggleGitLog"
+          onClick={() => {
+            const showingGitLog = !isBottomPaneVisible || bottomPaneActiveTab !== "gitLog";
+            setBottomPaneActiveTab("gitLog");
+            setIsBottomPaneVisible(showingGitLog);
+          }}
+        >
+          <ClockCounterClockwiseIcon />
+          <span>Git</span>
+        </FooterTabControl>
+      ),
+    },
     terminalEnabled
       ? {
           id: "terminal",

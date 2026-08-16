@@ -49,6 +49,16 @@ export function toggleTerminalPane(): void {
   }
 }
 
+export function toggleGitLogPane(): void {
+  const state = useUIState.getState();
+  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "gitLog") {
+    state.setIsBottomPaneVisible(false);
+  } else {
+    state.setBottomPaneActiveTab("gitLog");
+    state.setIsBottomPaneVisible(true);
+  }
+}
+
 export function openDiagnosticsBuffer(): void {
   useBufferStore.getState().actions.openDiagnosticsBuffer();
 }
