@@ -144,4 +144,51 @@ describe("git single-file diff adaptation", () => {
       { file_path: "a.txt", staged: false, additions: 1, deletions: 0 },
     ]);
   });
+
+  test("adapts an untracked file through the shared Core diff contract", () => {
+    const diff = adaptCoreResult(
+      "git_diff_file",
+      { repoPath: "C:/work", filePath: "new.txt", untracked: true },
+      {
+        patch: `diff --git a/new.txt b/new.txt
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/new.txt
+@@ -0,0 +1,2 @@
++first
++second
+`,
+        rows: [
+          { kind: "information", left: "@@ -0,0 +1,2 @@", hunkId: "hunk-0" },
+          { kind: "addition", newLine: 1, right: "first", hunkId: "hunk-0" },
+          { kind: "addition", newLine: 2, right: "second", hunkId: "hunk-0" },
+        ],
+      },
+    ) as GitDiff;
+
+    expect(diff.is_new).toBe(true);
+    expect({ additions: diff.additions, deletions: diff.deletions }).toEqual({
+      additions: 2,
+      deletions: 0,
+    });
+  });
+
+  test("keeps untracked binary files out of the text renderer", () => {
+    const diff = adaptCoreResult(
+      "git_diff_file",
+      { repoPath: "C:/work", filePath: "image.png", untracked: true },
+      {
+        patch: `diff --git a/image.png b/image.png
+new file mode 100644
+index 0000000..1234567
+Binary files /dev/null and b/image.png differ
+`,
+      },
+    ) as GitDiff;
+
+    expect(diff.is_new).toBe(true);
+    expect(diff.is_binary).toBe(true);
+    expect(diff.lines).toEqual([]);
+  });
 });

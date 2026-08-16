@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PaneGroup, PaneNode } from "../types/pane.types";
-import { resolveMainPaneForExternalOpen } from "./pane-routing";
+import { resolveMainPaneForBufferOpen, resolveMainPaneForExternalOpen } from "./pane-routing";
 
 const pane = (id: string): PaneGroup => ({
   id,
@@ -60,5 +60,41 @@ describe("main pane routing for external opens", () => {
         root,
       }),
     ).toBe(firstPane);
+  });
+});
+
+describe("main pane routing for file buffer opens", () => {
+  test("reuses the main pane that already contains the buffer", () => {
+    const activePane = pane("active");
+    const paneWithBuffer = { ...pane("with-buffer"), bufferIds: ["buffer-a"] };
+    const root: PaneNode = {
+      id: "main-split",
+      type: "split",
+      direction: "horizontal",
+      children: [activePane, paneWithBuffer],
+      sizes: [50, 50],
+    };
+
+    expect(
+      resolveMainPaneForBufferOpen({
+        activePaneId: "active",
+        bufferId: "buffer-a",
+        mostRecentActivePaneIds: ["active", "with-buffer"],
+        root,
+      }),
+    ).toBe(paneWithBuffer);
+  });
+
+  test("routes a buffer found only outside the main tree into a visible main pane", () => {
+    const mainPane = pane("main");
+
+    expect(
+      resolveMainPaneForBufferOpen({
+        activePaneId: "bottom-pane",
+        bufferId: "buffer-a",
+        mostRecentActivePaneIds: ["bottom-pane", "main"],
+        root: mainPane,
+      }),
+    ).toBe(mainPane);
   });
 });

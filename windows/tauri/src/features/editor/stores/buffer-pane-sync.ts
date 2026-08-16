@@ -3,6 +3,7 @@ import type { PaneGroup } from "@/features/panes/types/pane.types";
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { ensureBufferInPane } from "@/features/panes/utils/pane-buffer-actions";
 import {
+  resolveMainPaneForBufferOpen,
   resolveMainPaneForExternalOpen,
   resolveWritablePaneForBuffer,
 } from "@/features/panes/utils/pane-routing";
@@ -61,6 +62,22 @@ export const syncAndFocusBufferInPane = (bufferId: string, workspaceId?: string)
     return;
   }
 
+  syncBufferToPane(bufferId, workspaceId);
+};
+
+export const syncAndFocusBufferInMainPane = (bufferId: string, workspaceId?: string) => {
+  const paneStore = getPaneState(workspaceId);
+  const targetPane = resolveMainPaneForBufferOpen({
+    activePaneId: paneStore.activePaneId,
+    bufferId,
+    mostRecentActivePaneIds: paneStore.mostRecentActivePaneIds,
+    root: paneStore.root,
+  });
+  if (!targetPane) return;
+
+  if (targetPane.id !== paneStore.activePaneId) {
+    paneStore.actions.setActivePane(targetPane.id);
+  }
   syncBufferToPane(bufferId, workspaceId);
 };
 
