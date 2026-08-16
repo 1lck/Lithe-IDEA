@@ -19,12 +19,20 @@ import {
   CommandTabs,
   useCommandListNavigation,
 } from "@/ui/command";
-import { GitBranchIcon, FolderOpenIcon, NodesIcon } from "@/ui/icons";
+import { GitBranchIcon, FolderOpenIcon, GitMergeIcon, NodesIcon, DotsThreeIcon } from "@/ui/icons";
 import { showConfirmDialog } from "@/ui/dialog";
 import { cn } from "@/utils/cn";
 import { getFolderName, getRelativePath } from "@/utils/path-helpers";
 import { matchesSearchQuery } from "@/utils/search-match";
 import { checkoutBranch, createBranch, deleteBranch, getBranches } from "../api/git-branches-api";
+import { mergeBranch, rebaseOntoBranch, type IntegrationOutcome } from "../api/git-integration-api";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/ui/dropdown";
 import { resolveRepositoryPath } from "../api/git-repo-api";
 import { createStash } from "../api/git-stash-api";
 import { addWorktree, getWorktrees } from "../api/git-worktrees-api";
@@ -343,6 +351,76 @@ const GitBranchManager = ({
     }
   };
 
+  const reportIntegrationOutcome = (branchName: string, outcome: IntegrationOutcome) => {
+    if (outcome.status === "clean") {
+      showToast({ message: `Merged ${branchName} successfully.`, type: "success" });
+    } else if (outcome.status === "conflicts") {
+      showToast({
+        message: `Stopped with ${outcome.conflictedPaths.length} conflicted file${
+          outcome.conflictedPaths.length === 1 ? "" : "s"
+        }. Resolve them in the changes list, then continue.`,
+        type: "warning",
+        duration: 6000,
+      });
+    } else if (outcome.status === "stopped") {
+      showToast({
+        message: `${branchName} stopped before completion. Continue, skip, or abort from the changes list.`,
+        type: "warning",
+        duration: 6000,
+      });
+    } else if (outcome.status === "blocked") {
+      const listed = outcome.blockingPaths.slice(0, 3).join(", ");
+      const remaining = outcome.blockingPaths.length - Math.min(outcome.blockingPaths.length, 3);
+      showToast({
+        message: `Uncommitted changes would be overwritten: ${listed}${
+          remaining > 0 ? ` (+${remaining} more)`
+        : ""}. Stash or commit them first.`,
+        type: "warning",
+        duration: 6000,
+      });
+    } else {
+      showToast({ message: outcome.message, type: "error" });
+    }
+  };
+
+  const handleIntegration = async (branchName: string, operation: "merge" | "rebase") => {
+    if (!repoPath || !branchName || branchName === currentBranch) return;
+
+    const action = operation === "merge" ? "Merge" : "Rebase";
+    const message =
+      operation === "merge"
+        ? `Merge branch "${branchName}" into "${currentBranch}"? Conflicts may require resolution.`
+        : `Rebase "${currentBranch}" onto "${branchName}"? Conflicts may require resolution.`;
+    const confirmed = await showConfirmDialog(message, {
+      title: `${action} Branch`,
+      confirmLabel: action,
+    });
+    if (!confirmed) return;
+
+    setIsLoading(true);
+    try {
+      const outcome =
+        operation === "merge"
+          ? await mergeBranch(repoPath, branchName)
+          : await rebaseOntoBranch(repoPath, branchName);
+      reportIntegrationOutcome(branchName, outcome);
+      if (
+        outcome.status === "clean" ||
+        outcome.status === "conflicts" ||
+        outcome.status === "stopped"
+      ) {
+        onBranchChange?.();
+      }
+    } catch (error) {
+      showToast({
+        message: error instanceof Error ? error.message : `${action} failed.`,
+        type: "error",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleCreateBranch = async (branchName: string) => {
     if (!repoPath || !branchName.trim()) return;
 
@@ -623,6 +701,8 @@ const GitBranchManager = ({
                   onMouseEnter={() => setSelectedIndex(index + (createBranchName ? 1 : 0))}
                   onSelect={() => void handleBranchChange(branch)}
                   onDelete={() => void handleDeleteBranch(branch)}
+                  onMerge={() => void handleIntegration(branch, "merge")}
+                  onRebase={() => void handleIntegration(branch, "rebase")}
                 />
               ))}
             </div>
@@ -772,6 +852,8 @@ function BranchRow({
   onMouseEnter,
   onSelect,
   onDelete,
+  onMerge,
+  onRebase,
 }: {
   branch: string;
   isCurrent: boolean;
@@ -780,6 +862,8 @@ function BranchRow({
   onMouseEnter: () => void;
   onSelect: () => void;
   onDelete: () => void;
+  onMerge: () => void;
+  onRebase: () => void;
 }) {
   return (
     <CommandItemRow
@@ -803,30 +887,44 @@ function BranchRow({
       accessory={isCurrent ? <CommandItemBadge variant="success">current</CommandItemBadge> : null}
       action={
         !isCurrent ? (
-          <Button
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onDelete();
-            }}
+          <div
+            className="flex items-center"
             onPointerDown={(event) => {
-              event.preventDefault();
               event.stopPropagation();
             }}
-            disabled={isLoading}
-            variant="ghost"
-            size="icon-xs"
-            className={cn(
-              "text-git-deleted opacity-100 transition-opacity sm:opacity-0",
-              "hover:bg-git-deleted/10 hover:opacity-80 hover:text-git-deleted",
-              "disabled:opacity-50 sm:group-hover:opacity-100",
-            )}
-            tooltip={`Delete ${branch}`}
-            aria-label={`Delete branch ${branch}`}
-            type="button"
+            onClick={(event) => event.stopPropagation()}
           >
-            <Trash2 />
-          </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    disabled={isLoading}
+                    aria-label={`Branch actions for ${branch}`}
+                    type="button"
+                  />
+                }
+              >
+                <DotsThreeIcon />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="min-w-64">
+                <DropdownMenuItem onClick={onMerge}>
+                  <GitMergeIcon className="size-3.5" />
+                  Merge into Current Branch
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onRebase}>
+                  <NodesIcon className="size-3.5" />
+                  Rebase Current Branch onto This
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onDelete} className="text-git-deleted">
+                  <Trash2 className="size-3.5" />
+                  Delete Branch
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         ) : null
       }
     />
