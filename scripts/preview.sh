@@ -34,6 +34,7 @@ cp Resources/Info.plist "$APP_DIR/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
 cp -R Resources/DatabaseIcons "$APP_DIR/Contents/Resources/DatabaseIcons"
+cp -R Resources/Fonts "$APP_DIR/Contents/Resources/Fonts"
 for localization in en.lproj zh-Hans.lproj; do
     if [[ -d "Resources/$localization" ]]; then
         cp -R "Resources/$localization" "$APP_DIR/Contents/Resources/$localization"

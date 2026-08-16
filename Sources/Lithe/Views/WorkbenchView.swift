@@ -360,7 +360,7 @@ struct WorkbenchView: View {
                 isProjectSwitcherPresented.toggle()
             } label: {
                 HStack(spacing: 8) {
-                    LitheLogo(size: 28)
+                    LitheLogo(size: 24)
 
                     Text(model.projectName)
                         .font(.system(size: 13, weight: .semibold))
@@ -652,7 +652,7 @@ struct WorkbenchView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .padding(.horizontal, 8)
-                .frame(width: 230, height: 28, alignment: .leading)
+                .frame(width: 170, height: 28, alignment: .leading)
                 .contentShape(Rectangle())
                 .litheRowHover(
                     isActive: isRunConfigurationPickerPresented,
@@ -691,6 +691,7 @@ struct WorkbenchView: View {
                         .foregroundStyle(LitheTheme.warning)
                 } else {
                     LitheIDEAIcon(resourcePath: "actions/execute.svg", size: 16, fallbackSystemImage: "play.fill")
+                        .foregroundStyle(LitheTheme.runAction)
                 }
             }
             .litheIconButton()

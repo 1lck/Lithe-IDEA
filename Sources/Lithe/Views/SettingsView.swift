@@ -8,23 +8,28 @@ struct SettingsView: View {
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
     @State private var selection: SettingsCategory
+    @State private var searchQuery = ""
     @State private var hiddenDirectoriesDraft = ""
     @State private var hiddenFilePatternsDraft = ""
     @State private var aiAPIKeyDraft = ""
     @State private var isFormatPickerPresented = false
+    let initialCategory: SettingsCategory
+    private let onDismiss: (() -> Void)?
+    private static let footerActionLabelWidth: CGFloat = 52
 
     init(
         settings: AppSettings,
-        initialCategory: SettingsCategory = .general
+        initialCategory: SettingsCategory = .general,
+        onDismiss: (() -> Void)? = nil
     ) {
         self.settings = settings
+        self.initialCategory = initialCategory
+        self.onDismiss = onDismiss
         _selection = State(initialValue: initialCategory)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: 0) {
                 categories
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
@@ -33,8 +38,8 @@ struct SettingsView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             footer
         }
-        .frame(width: 820, height: 620)
-        .background(LitheTheme.window)
+        .frame(minWidth: 820, minHeight: 620)
+        .background(LitheTheme.settingsSurface)
         .onAppear {
             syncVisibilityDrafts()
             model.refreshAIConfigurations()
@@ -43,73 +48,168 @@ struct SettingsView: View {
         .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
-        // A sheet has its own SwiftUI presentation hierarchy on macOS. Own
-        // the locale here so every Settings presentation updates immediately.
-        .environment(\.locale, settings.language.locale)
-        .id(settings.language)
-    }
-
-    private var header: some View {
-        HStack(spacing: 9) {
-            LitheSystemIcon(systemImage: "gearshape.fill")
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text("Settings")
-                .font(.system(size: 14, weight: .semibold))
-            Spacer()
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .litheIconButton()
-            .help("Close Settings")
+        .onChange(of: initialCategory) { category in
+            searchQuery = ""
+            selection = category
         }
-        .foregroundStyle(LitheTheme.primaryText)
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(LitheTheme.toolHeader)
+        .onChange(of: searchQuery) { _ in
+            guard !filteredCategories.contains(selection),
+                  let firstMatch = filteredCategories.first else { return }
+            selection = firstMatch
+        }
+        .environment(\.locale, settings.language.locale)
     }
 
     private var categories: some View {
-        VStack(spacing: 3) {
-            ForEach(SettingsCategory.allCases) { category in
-                Button {
-                    selection = category
-                } label: {
-                    HStack(spacing: 9) {
-                        Image(systemName: category.icon).frame(width: 18)
-                        Text(LocalizedStringKey(category.rawValue))
-                        Spacer()
+        VStack(spacing: 0) {
+            settingsSearchField
+                .padding(12)
+
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+
+            ScrollView {
+                VStack(spacing: 1) {
+                    ForEach(filteredCategories) { category in
+                        categoryButton(category)
                     }
-                    .padding(.horizontal, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: 32)
-                    .background(selection == category ? LitheTheme.selection : .clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .contentShape(Rectangle())
+
+                    if filteredCategories.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 18, weight: .light))
+                            Text("No settings found")
+                                .font(.system(size: 12))
+                        }
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 28)
+                    }
+                }
+                .padding(8)
+            }
+        }
+        .frame(width: 244)
+        .frame(maxHeight: .infinity)
+        .background(LitheTheme.settingsSurface)
+    }
+
+    private var settingsSearchField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(LitheTheme.tertiaryText)
+
+            TextField("Search settings", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 .buttonStyle(.plain)
                 .lithePointer()
-                .foregroundStyle(selection == category ? Color.white : LitheTheme.primaryText)
+                .help("Clear search")
             }
-            Spacer()
         }
-        .font(.system(size: 12.5))
-        .padding(8)
-        .frame(width: 190)
-        .background(LitheTheme.sidebar)
+        .padding(.horizontal, 9)
+        .frame(height: 28)
+        .background(LitheTheme.inputBackground)
+        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+        }
+    }
+
+    private func categoryButton(_ category: SettingsCategory) -> some View {
+        let isSelected = selection == category
+        return Button {
+            selection = category
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: category.icon)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .frame(width: 18)
+                Text(LocalizedStringKey(category.rawValue))
+                    .font(.system(size: 12.5, weight: .regular))
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: LitheTheme.Metrics.treeRowHeight)
+            .background(isSelected ? LitheTheme.selection : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(LitheTreeRowButtonStyle())
+        .foregroundStyle(isSelected ? Color.white : LitheTheme.primaryText)
+    }
+
+    private var filteredCategories: [SettingsCategory] {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return SettingsCategory.allCases }
+
+        return SettingsCategory.allCases.filter { category in
+            searchTerms(for: category).contains { term in
+                localizedSearchValue(term).localizedCaseInsensitiveContains(query)
+                    || term.localizedCaseInsensitiveContains(query)
+            }
+        }
+    }
+
+    private func searchTerms(for category: SettingsCategory) -> [String] {
+        switch category {
+        case .general:
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control"]
+        case .editor:
+            ["Editor", "Display", "Editor tabs", "Font size", "Indentation", "Tab width"]
+        case .terminal:
+            ["Terminal", "Shell", "Default shell"]
+        case .lsp:
+            ["LSP", "Language server", "Java SDK", "JDK", "Maven"]
+        case .ai:
+            ["AI & Commit", "AI provider", "Model", "API key", "Commit message"]
+        case .updates:
+            ["Updates", "Application version", "Update status", "Check for Updates"]
+        }
+    }
+
+    private func localizedSearchValue(_ key: String) -> String {
+        String(
+            localized: String.LocalizationValue(key),
+            bundle: .main,
+            locale: settings.language.locale
+        )
     }
 
     @ViewBuilder
     private var content: some View {
-        if selection == .lsp {
+        if filteredCategories.isEmpty {
+            VStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 28, weight: .light))
+                Text("No settings found")
+                    .font(.system(size: 15, weight: .medium))
+                Text("Try a different search term.")
+                    .font(LitheTheme.smallFont)
+            }
+            .foregroundStyle(LitheTheme.secondaryText)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(LocalizedStringKey(selection.rawValue))
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
+                        .padding(.bottom, 8)
 
                     switch selection {
                     case .general: generalSettings
@@ -120,7 +220,8 @@ struct SettingsView: View {
                     case .updates: updatesSettings
                     }
                 }
-                .padding(24)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 22)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -130,27 +231,22 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Appearance") {
                 row("Color theme") {
-                    Picker("", selection: $settings.colorTheme) {
-                        ForEach(AppColorTheme.allCases) { theme in
-                            Text(LocalizedStringKey(theme.title)).tag(theme)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 180, alignment: .leading)
-                    .lithePointer()
+                    LitheSettingsSelect(
+                        selection: $settings.colorTheme,
+                        options: AppColorTheme.allCases,
+                        width: 180,
+                        accessibilityLabel: "Color theme",
+                        title: \AppColorTheme.title
+                    )
                 }
 
                 row("Appearance mode") {
-                    Picker("", selection: $settings.themePreference) {
-                        ForEach(AppThemePreference.allCases) { preference in
-                            Text(LocalizedStringKey(preference.title)).tag(preference)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 260)
-                    .lithePointer()
+                    LitheSettingsSegmentedControl(
+                        selection: $settings.themePreference,
+                        options: AppThemePreference.allCases,
+                        width: 260,
+                        title: \AppThemePreference.title
+                    )
                 }
 
                 Text("Choose a color theme and whether Lithe follows the system appearance.")
@@ -159,13 +255,15 @@ struct SettingsView: View {
             }
 
             group("Language") {
-                Picker("Language", selection: $settings.language) {
-                    ForEach(AppLanguage.allCases) { language in
-                        Text(LocalizedStringKey(language.title)).tag(language)
-                    }
+                row("Language") {
+                    LitheSettingsSelect(
+                        selection: $settings.language,
+                        options: AppLanguage.allCases,
+                        width: 180,
+                        accessibilityLabel: "Language",
+                        title: \AppLanguage.title
+                    )
                 }
-                .frame(maxWidth: 220, alignment: .leading)
-                .lithePointer()
 
                 Text("The interface language changes immediately. English is the default.")
                     .font(LitheTheme.smallFont)
@@ -173,13 +271,15 @@ struct SettingsView: View {
             }
 
             group("Projects") {
-                Picker("Open projects in", selection: $settings.projectOpenBehavior) {
-                    ForEach(ProjectOpenBehavior.allCases) { behavior in
-                        Text(LocalizedStringKey(behavior.title)).tag(behavior)
-                    }
+                row("Open projects in") {
+                    LitheSettingsSelect(
+                        selection: $settings.projectOpenBehavior,
+                        options: ProjectOpenBehavior.allCases,
+                        width: 180,
+                        accessibilityLabel: "Open projects in",
+                        title: \ProjectOpenBehavior.title
+                    )
                 }
-                .frame(maxWidth: 220, alignment: .leading)
-                .lithePointer()
 
                 Text("Choose whether opening another project asks first, stays in this window, or creates a new window.")
                     .font(LitheTheme.smallFont)
@@ -187,30 +287,33 @@ struct SettingsView: View {
             }
 
             group("Files") {
-                Toggle("Save changed files automatically", isOn: $settings.autoSave)
-                    .lithePointer()
+                LitheSettingsCheckbox(
+                    isOn: $settings.autoSave,
+                    title: "Save changed files automatically"
+                )
                 if settings.autoSave {
                     row("Save after") {
-                        Picker("", selection: $settings.autoSaveDelay) {
-                            Text("0.5 seconds").tag(0.5)
-                            Text("1.5 seconds").tag(1.5)
-                            Text("3 seconds").tag(3.0)
-                        }
-                        .labelsHidden()
-                        .frame(width: 150)
-                        .lithePointer()
+                        LitheSettingsSelect(
+                            selection: $settings.autoSaveDelay,
+                            options: [0.5, 1.5, 3.0],
+                            width: 150,
+                            accessibilityLabel: "Save after",
+                            title: autoSaveDelayTitle
+                        )
                     }
                 }
             }
 
             group("Git") {
-                Picker("Save local changes with", selection: $settings.gitSaveChangesPolicy) {
-                    ForEach(GitSaveChangesPolicy.allCases) { policy in
-                        Text(LocalizedStringKey(policy.title)).tag(policy)
-                    }
+                row("Save local changes with") {
+                    LitheSettingsSelect(
+                        selection: $settings.gitSaveChangesPolicy,
+                        options: GitSaveChangesPolicy.allCases,
+                        width: 180,
+                        accessibilityLabel: "Save local changes with",
+                        title: \GitSaveChangesPolicy.title
+                    )
                 }
-                .frame(maxWidth: 260, alignment: .leading)
-                .lithePointer()
 
                 Text(LocalizedStringKey(settings.gitSaveChangesPolicy.description))
                     .font(LitheTheme.smallFont)
@@ -252,11 +355,17 @@ struct SettingsView: View {
                 HStack {
                     Spacer()
                     Button("Apply") { applyVisibilityDrafts() }
-                        .buttonStyle(.borderedProminent)
-                        .lithePointer()
-                        .tint(LitheTheme.accent)
+                        .buttonStyle(LithePrimaryButtonStyle())
                 }
             }
+        }
+    }
+
+    private func autoSaveDelayTitle(_ delay: Double) -> String {
+        switch delay {
+        case 0.5: "0.5 seconds"
+        case 1.5: "1.5 seconds"
+        default: "3 seconds"
         }
     }
 
@@ -264,38 +373,40 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             group("Display") {
                 row("Font size") {
-                    Stepper(value: $settings.editorFontSize, in: 10...22, step: 1) {
-                        Text("\(Int(settings.editorFontSize)) pt")
-                            .monospacedDigit()
-                            .frame(width: 42, alignment: .trailing)
-                    }
-                    .lithePointer()
+                    LitheSettingsStepper(
+                        value: $settings.editorFontSize,
+                        in: 10...22,
+                        step: 1,
+                        width: 126,
+                        accessibilityLabel: "Font size",
+                        title: { "\(Int($0)) pt" }
+                    )
                 }
-                Toggle("Show usages and Git author", isOn: $settings.showCodeVision)
-                    .lithePointer()
+                LitheSettingsCheckbox(
+                    isOn: $settings.showCodeVision,
+                    title: "Show usages and Git author"
+                )
             }
             group("Editor tabs") {
                 row("Layout") {
-                    Picker("", selection: $settings.editorTabLayoutMode) {
-                        ForEach(EditorTabLayoutMode.allCases) { mode in
-                            Text(LocalizedStringKey(mode.title)).tag(mode)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 180)
-                    .lithePointer()
+                    LitheSettingsSelect(
+                        selection: $settings.editorTabLayoutMode,
+                        options: EditorTabLayoutMode.allCases,
+                        width: 180,
+                        accessibilityLabel: "Layout",
+                        title: \EditorTabLayoutMode.title
+                    )
                 }
             }
             group("Indentation") {
                 row("Tab width") {
-                    Picker("", selection: $settings.tabWidth) {
-                        Text("2 spaces").tag(2)
-                        Text("4 spaces").tag(4)
-                        Text("8 spaces").tag(8)
-                    }
-                    .labelsHidden()
-                    .frame(width: 130)
-                    .lithePointer()
+                    LitheSettingsSelect(
+                        selection: $settings.tabWidth,
+                        options: [2, 4, 8],
+                        width: 130,
+                        accessibilityLabel: "Tab width",
+                        title: { "\($0) spaces" }
+                    )
                 }
             }
         }
@@ -304,14 +415,13 @@ struct SettingsView: View {
     private var terminalSettings: some View {
         group("Shell") {
             row("Default shell") {
-                Picker("", selection: $settings.terminalShell) {
-                    ForEach(TerminalShell.allCases) { shell in
-                        Text(LocalizedStringKey(shell.title)).tag(shell)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 180)
-                .lithePointer()
+                LitheSettingsSelect(
+                    selection: $settings.terminalShell,
+                    options: TerminalShell.allCases,
+                    width: 180,
+                    accessibilityLabel: "Default shell",
+                    title: \TerminalShell.title
+                )
                 .onChange(of: settings.terminalShell) { _ in
                     guard model.activeTerminalSession?.isRunning == true else { return }
                     model.restartActiveTerminal(using: model.activeTerminalShellPath)
@@ -330,57 +440,58 @@ struct SettingsView: View {
                     Text("No AI provider is configured yet.")
                         .foregroundStyle(LitheTheme.secondaryText)
                 } else {
-                    Picker("Profile", selection: Binding(
-                        get: { settings.commitMessageAI.activeProviderID ?? settings.commitMessageAI.providers[0].id },
-                        set: { settings.selectCommitMessageProvider($0) }
-                    )) {
-                        ForEach(settings.commitMessageAI.providers) { provider in
-                            Text(provider.name.isEmpty ? "Unnamed provider" : provider.name)
-                                .tag(provider.id)
-                        }
+                    row("Profile") {
+                        LitheSettingsSelect(
+                            selection: Binding(
+                                get: { settings.commitMessageAI.activeProviderID ?? settings.commitMessageAI.providers[0].id },
+                                set: { settings.selectCommitMessageProvider($0) }
+                            ),
+                            options: settings.commitMessageAI.providers.map(\.id),
+                            width: 240,
+                            accessibilityLabel: "Profile",
+                            title: providerTitle
+                        )
                     }
-                    .frame(maxWidth: 300, alignment: .leading)
-                    .lithePointer()
 
                     HStack(spacing: 8) {
                         Button("Add Provider") {
                             settings.addCommitMessageProvider()
                             syncAIProviderDraft()
                         }
-                        .buttonStyle(.bordered)
-                        .lithePointer()
+                        .buttonStyle(LitheSecondaryButtonStyle())
 
                         Button("Remove") {
                             settings.removeActiveCommitMessageProvider()
                             syncAIProviderDraft()
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(LitheSecondaryButtonStyle())
                         .disabled(settings.activeCommitMessageProvider == nil)
-                        .lithePointer()
                     }
                 }
 
                 if settings.activeCommitMessageProvider != nil {
                     TextField("Provider name", text: activeProviderTextBinding(\.name))
-                        .textFieldStyle(.roundedBorder)
+                        .litheSettingsTextField()
                         .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
-                    Picker("API protocol", selection: activeProviderProtocolBinding()) {
-                        ForEach(CommitMessageAPIProtocol.allCases) { apiProtocol in
-                            Text(LocalizedStringKey(apiProtocol.title)).tag(apiProtocol)
-                        }
+                    row("API protocol") {
+                        LitheSettingsSelect(
+                            selection: activeProviderProtocolBinding(),
+                            options: CommitMessageAPIProtocol.allCases,
+                            width: 240,
+                            accessibilityLabel: "API protocol",
+                            title: \CommitMessageAPIProtocol.title
+                        )
+                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
                     }
-                    .frame(maxWidth: 300, alignment: .leading)
-                    .lithePointer()
-                    .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
                     TextField("API URL", text: activeProviderTextBinding(\.endpoint))
-                        .textFieldStyle(.roundedBorder)
+                        .litheSettingsTextField()
                         .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
                     if settings.activeCommitMessageProvider?.usesInsecureHTTP == true {
-                        Toggle(
-                            "Allow insecure HTTP",
-                            isOn: activeProviderBoolBinding(\.allowsInsecureHTTP)
+                        LitheSettingsCheckbox(
+                            isOn: activeProviderBoolBinding(\.allowsInsecureHTTP),
+                            title: "Allow insecure HTTP"
                         )
-                        .lithePointer()
+                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
                         Label(
                             settings.activeCommitMessageProvider?.allowsInsecureHTTP == true
                                 ? "HTTP sends the API credential without encryption. Use only a trusted endpoint."
@@ -391,23 +502,24 @@ struct SettingsView: View {
                         .foregroundStyle(LitheTheme.warning)
                     }
                     TextField("Model", text: activeProviderTextBinding(\.model))
-                        .textFieldStyle(.roundedBorder)
+                        .litheSettingsTextField()
                         .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
 
                     HStack(spacing: 8) {
                         SecureField("API key or token", text: $aiAPIKeyDraft)
-                            .textFieldStyle(.roundedBorder)
+                            .litheSettingsTextField()
                             .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
                         Button("Save Key") {
                             model.saveActiveCommitMessageAPIKey(aiAPIKeyDraft)
                         }
-                        .buttonStyle(.bordered)
-                        .lithePointer()
+                        .buttonStyle(LitheSecondaryButtonStyle())
                         .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
                     }
 
-                    Toggle("Provider requires an API key", isOn: activeProviderBoolBinding(\.requiresAPIKey))
-                        .lithePointer()
+                    LitheSettingsCheckbox(
+                        isOn: activeProviderBoolBinding(\.requiresAPIKey),
+                        title: "Provider requires an API key"
+                    )
                         .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
 
                     if model.activeCommitMessageCredentialIsConfigurationManaged,
@@ -445,9 +557,7 @@ struct SettingsView: View {
                                         syncAIProviderDraft()
                                     }
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .tint(LitheTheme.accent)
-                                .lithePointer()
+                                .buttonStyle(LithePrimaryButtonStyle())
                             }
                             .padding(10)
                             .background(LitheTheme.inputBackground)
@@ -461,8 +571,7 @@ struct SettingsView: View {
                             } label: {
                                 Label("Reload AI configurations", systemImage: "arrow.clockwise")
                             }
-                            .buttonStyle(.bordered)
-                            .lithePointer()
+                            .buttonStyle(LitheSecondaryButtonStyle())
                         }
                     }
                 } else {
@@ -475,8 +584,7 @@ struct SettingsView: View {
                         } label: {
                             Label("Reload AI configurations", systemImage: "arrow.clockwise")
                         }
-                        .buttonStyle(.bordered)
-                        .lithePointer()
+                        .buttonStyle(LitheSecondaryButtonStyle())
                     }
                 }
 
@@ -488,41 +596,53 @@ struct SettingsView: View {
             }
 
             group("Commit message generation") {
-                Picker("Reasoning effort", selection: $settings.commitMessageAI.reasoningEffort) {
-                    ForEach(CommitMessageReasoningEffort.allCases) { effort in
-                        Text(LocalizedStringKey(effort.title)).tag(effort)
-                    }
+                row("Reasoning effort") {
+                    LitheSettingsSelect(
+                        selection: $settings.commitMessageAI.reasoningEffort,
+                        options: CommitMessageReasoningEffort.allCases,
+                        width: 230,
+                        accessibilityLabel: "Reasoning effort",
+                        title: \CommitMessageReasoningEffort.title
+                    )
                 }
-                .frame(maxWidth: 230, alignment: .leading)
-                .lithePointer()
 
-                Picker("Output language", selection: $settings.commitMessageAI.language) {
-                    ForEach(CommitMessageLanguage.allCases) { language in
-                        Text(LocalizedStringKey(language.title)).tag(language)
-                    }
+                row("Output language") {
+                    LitheSettingsSelect(
+                        selection: $settings.commitMessageAI.language,
+                        options: CommitMessageLanguage.allCases,
+                        width: 230,
+                        accessibilityLabel: "Output language",
+                        title: \CommitMessageLanguage.title
+                    )
                 }
-                .frame(maxWidth: 230, alignment: .leading)
-                .lithePointer()
 
                 formatPicker
 
-                Toggle("Include a short body when useful", isOn: $settings.commitMessageAI.includeBody)
-                    .lithePointer()
+                LitheSettingsCheckbox(
+                    isOn: $settings.commitMessageAI.includeBody,
+                    title: "Include a short body when useful"
+                )
 
                 row("Subject maximum length") {
-                    Stepper(value: $settings.commitMessageAI.subjectMaximumLength, in: 40...120, step: 4) {
-                        Text("\(settings.commitMessageAI.subjectMaximumLength) ") + Text("chars")
-                            .monospacedDigit()
-                    }
-                    .lithePointer()
+                    LitheSettingsStepper(
+                        value: $settings.commitMessageAI.subjectMaximumLength,
+                        in: 40...120,
+                        step: 4,
+                        width: 146,
+                        accessibilityLabel: "Subject maximum length",
+                        title: { "\($0) chars" }
+                    )
                 }
 
                 row("Diff character limit") {
-                    Stepper(value: $settings.commitMessageAI.maximumDiffCharacters, in: 8_000...120_000, step: 4_000) {
-                        Text("\(settings.commitMessageAI.maximumDiffCharacters)")
-                            .monospacedDigit()
-                    }
-                    .lithePointer()
+                    LitheSettingsStepper(
+                        value: $settings.commitMessageAI.maximumDiffCharacters,
+                        in: 8_000...120_000,
+                        step: 4_000,
+                        width: 146,
+                        accessibilityLabel: "Diff character limit",
+                        title: { "\($0)" }
+                    )
                 }
 
                 if settings.commitMessageAI.format == .custom {
@@ -783,10 +903,8 @@ struct SettingsView: View {
                             systemImage: "arrow.clockwise"
                         )
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(LitheTheme.accent)
+                    .buttonStyle(LithePrimaryButtonStyle())
                     .disabled(updateChecker.isBusy)
-                    .lithePointer()
 
                     if case .available(let version, _) = updateChecker.status {
                         Button {
@@ -794,9 +912,8 @@ struct SettingsView: View {
                         } label: {
                             Label("Update \(version)", systemImage: "arrow.down.circle.fill")
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(LitheSecondaryButtonStyle())
                         .disabled(updateChecker.isBusy)
-                        .lithePointer()
                     }
                 }
             }
@@ -870,11 +987,11 @@ struct SettingsView: View {
         }
         .font(.system(size: 12.5))
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(16)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LitheTheme.sidebar)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay { RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.divider, lineWidth: 1) }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        }
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -888,6 +1005,13 @@ struct SettingsView: View {
 
     private func syncAIProviderDraft() {
         aiAPIKeyDraft = model.activeCommitMessageAPIKey
+    }
+
+    private func providerTitle(_ id: UUID) -> String {
+        guard let provider = settings.commitMessageAI.providers.first(where: { $0.id == id }) else {
+            return "Unnamed provider"
+        }
+        return provider.name.isEmpty ? "Unnamed provider" : provider.name
     }
 
     private func reloadAIConfigurations() {
@@ -936,17 +1060,26 @@ struct SettingsView: View {
     private var footer: some View {
         HStack {
             Button("Restore Defaults") { settings.restoreDefaults() }
-                .buttonStyle(.borderless)
-                .lithePointer()
-                .foregroundStyle(LitheTheme.secondaryText)
+                .buttonStyle(LitheSecondaryButtonStyle())
             Spacer()
-            Button("Done") { dismiss() }
-                .keyboardShortcut(.defaultAction)
-                .lithePointer()
+            HStack(spacing: 10) {
+                Button { closeSettings() } label: {
+                    Text("Cancel")
+                        .frame(minWidth: Self.footerActionLabelWidth)
+                }
+                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                Button { closeSettings() } label: {
+                    Text("OK")
+                        .frame(minWidth: Self.footerActionLabelWidth)
+                }
+                    .buttonStyle(LithePrimaryButtonStyle())
+                    .keyboardShortcut(.defaultAction)
+            }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 50)
-        .background(LitheTheme.toolHeader)
+        .padding(.horizontal, 16)
+        .frame(height: 52)
+        .background(LitheTheme.settingsSurface)
     }
 
     private func syncVisibilityDrafts() {
@@ -963,5 +1096,13 @@ struct SettingsView: View {
         text.split(whereSeparator: { $0 == "\n" || $0 == "," })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    private func closeSettings() {
+        if let onDismiss {
+            onDismiss()
+        } else {
+            dismiss()
+        }
     }
 }

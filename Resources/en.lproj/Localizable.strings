@@ -1,4 +1,8 @@
 /* English is the default UI language. */
+"Search settings" = "Search settings";
+"Clear search" = "Clear search";
+"No settings found" = "No settings found";
+"Try a different search term." = "Try a different search term.";
 "Expand" = "Expand";
 "Collapse" = "Collapse";
 "Pin configuration" = "Pin configuration";

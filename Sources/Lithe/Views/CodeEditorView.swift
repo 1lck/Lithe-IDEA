@@ -115,7 +115,8 @@ struct CodeEditorView: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         textView.textContainerInset = NSSize(width: 12, height: 10)
-        textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
+        textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
+        textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
         textView.indentationWidth = settings.tabWidth
         textView.applyAppearance(palette)
         textView.isEditable = !document.isReadOnly
@@ -222,8 +223,10 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.isDarkAppearance = palette.isDark
         context.coordinator.colorTheme = settings.colorTheme
         context.coordinator.requestInitialFocusIfNeeded()
-        textView.font = .monospacedSystemFont(ofSize: settings.editorFontSize, weight: .regular)
+        textView.font = LitheTheme.editorFont(size: settings.editorFontSize)
+        textView.defaultParagraphStyle = LitheTheme.editorParagraphStyle
         if let codeTextView = textView as? CodeTextView {
+            codeTextView.applyAppearance(palette)
             codeTextView.indentationWidth = settings.tabWidth
             codeTextView.languageServerFeatures = model.languageToolingSessions.features(for: document.url)
             codeTextView.isLanguageNavigationEnabled = !codeTextView.languageServerFeatures.intersection([
@@ -489,9 +492,10 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func highlight() {
-            guard let textStorage = textView?.textStorage else { return }
+            guard let textView, let textStorage = textView.textStorage else { return }
             SyntaxHighlighter.apply(
                 to: textStorage,
+                font: textView.font ?? LitheTheme.editorFont(size: 13),
                 fileExtension: fileExtension,
                 isDark: isDarkAppearance
             )
@@ -2632,14 +2636,16 @@ private final class ClosureButton: NSButton {
 
 @MainActor
 private enum SyntaxHighlighter {
-    static func apply(to storage: NSTextStorage, fileExtension: String, isDark: Bool) {
+    static func apply(to storage: NSTextStorage, font: NSFont, fileExtension: String, isDark: Bool) {
         let fullRange = NSRange(location: 0, length: storage.length)
         guard fullRange.length > 0 else { return }
         let palette = CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme)
 
         storage.beginEditing()
         storage.setAttributes([
-            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            .font: font,
+            .paragraphStyle: LitheTheme.editorParagraphStyle,
+            .ligature: 0,
             .foregroundColor: palette.text
         ], range: fullRange)
 

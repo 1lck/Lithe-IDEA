@@ -27,9 +27,9 @@ struct LSPControlCenterView: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(LitheTheme.editor)
+            .background(LitheTheme.settingsSurface)
         }
-        .background(LitheTheme.editor)
+        .background(LitheTheme.settingsSurface)
     }
 
     private var header: some View {
@@ -41,7 +41,7 @@ struct LSPControlCenterView: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 42)
-        .background(LitheTheme.toolHeader)
+        .background(LitheTheme.settingsSurface)
     }
 
     private var projectSummary: some View {
@@ -93,16 +93,15 @@ struct LSPControlCenterView: View {
                         ? "配置 \(descriptor.displayName) 语言服务器"
                         : "Configure \(descriptor.displayName) language server"))
                 }
-                Toggle("", isOn: Binding(
-                    get: { isEnabled },
-                    set: { model.setLanguageServerEnabled($0, providerID: descriptor.id) }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .lithePointer()
-                .accessibilityLabel(Text(usesChinese
-                    ? "启用 \(descriptor.displayName) 语言服务器"
-                    : "Enable \(descriptor.displayName) language server"))
+                LitheSettingsCheckbox(
+                    isOn: Binding(
+                        get: { isEnabled },
+                        set: { model.setLanguageServerEnabled($0, providerID: descriptor.id) }
+                    ),
+                    accessibilityLabel: LocalizedStringKey(usesChinese
+                        ? "启用 \(descriptor.displayName) 语言服务器"
+                        : "Enable \(descriptor.displayName) language server")
+                )
             }
 
             if configuredProviderID == descriptor.id, descriptor.id == "java" {
@@ -157,10 +156,13 @@ struct LSPControlCenterView: View {
                         }
                         .padding(.horizontal, 9)
                         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(LitheTheme.editor))
+                        .background(
+                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                                .fill(LitheTheme.inputBackground)
+                        )
                         .overlay {
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                                .stroke(LitheTheme.inputBorder, lineWidth: 1)
                         }
                     }
                     .menuStyle(.borderlessButton)
@@ -176,12 +178,12 @@ struct LSPControlCenterView: View {
         }
         .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(LitheTheme.sidebar)
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                .fill(LitheTheme.settingsSurface)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                .stroke(LitheTheme.divider, lineWidth: 1)
         }
     }
 

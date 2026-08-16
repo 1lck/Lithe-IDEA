@@ -1,7 +1,12 @@
 import AppKit
 import SwiftUI
 
+enum LitheWindowID {
+    static let settings = "settings"
+}
+
 struct RootView: View {
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var updateChecker: UpdateChecker
@@ -25,15 +30,13 @@ struct RootView: View {
         .background(
             WindowCloseGuard(
                 projectSessions: projectSessions,
-                layout: windowLayout
+                layout: windowLayout,
+                title: windowTitle
             )
         )
-        .sheet(isPresented: $model.isSettingsPresented) {
-            SettingsView(
-                settings: model.settings,
-                initialCategory: model.requestedSettingsCategory
-            )
-                .environmentObject(model)
+        .onReceive(model.$isSettingsPresented) { isPresented in
+            guard isPresented else { return }
+            openWindow(id: LitheWindowID.settings)
         }
         .sheet(isPresented: $model.isCloneRepositoryPresented) {
             CloneRepositoryView()
@@ -140,11 +143,21 @@ struct RootView: View {
     private var windowLayout: LitheWindowLayout {
         projectSessions.activeModel.workspaceURL == nil ? .welcome : .workspace
     }
+
+    private var windowTitle: String? {
+        guard windowLayout == .welcome else { return nil }
+        return String(
+            localized: "Welcome to Lithe",
+            bundle: .main,
+            locale: model.settings.language.locale
+        )
+    }
 }
 
 private struct WindowCloseGuard: NSViewRepresentable {
     let projectSessions: ProjectSessionManager
     let layout: LitheWindowLayout
+    let title: String?
 
     func makeCoordinator() -> LitheWindowCoordinator {
         LitheWindowCoordinator(projectSessions: projectSessions)
@@ -153,7 +166,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.async {
-            context.coordinator.attach(to: view.window, layout: layout)
+            context.coordinator.attach(to: view.window, layout: layout, title: title)
         }
         return view
     }
@@ -161,7 +174,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.projectSessions = projectSessions
         DispatchQueue.main.async {
-            context.coordinator.attach(to: view.window, layout: layout)
+            context.coordinator.attach(to: view.window, layout: layout, title: title)
         }
     }
 }
@@ -228,7 +241,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         self.projectSessions = projectSessions
     }
 
-    func attach(to window: NSWindow?, layout: LitheWindowLayout) {
+    func attach(to window: NSWindow?, layout: LitheWindowLayout, title: String? = nil) {
         guard let window else { return }
         if self.window !== window {
             self.window = window
@@ -236,7 +249,7 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             self.layout = nil
             restoredWorkspaceFrame = nil
         }
-        apply(layout, to: window)
+        apply(layout, title: title, to: window)
     }
 
     func toggleWorkspaceZoom() {
@@ -268,8 +281,16 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         return true
     }
 
-    private func apply(_ layout: LitheWindowLayout, to window: NSWindow) {
+    private func apply(_ layout: LitheWindowLayout, title: String?, to window: NSWindow) {
         window.contentMinSize = layout.minimumContentSize
+        if let title {
+            window.title = title
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .visible
+        } else {
+            window.title = ""
+            window.titleVisibility = .hidden
+        }
         guard self.layout != layout else { return }
 
         let shouldAnimate = self.layout != nil && window.isVisible

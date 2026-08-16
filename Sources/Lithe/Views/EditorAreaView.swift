@@ -288,8 +288,12 @@ struct EditorAreaView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+                    .litheRowHover(cornerRadius: 10)
             }
-            .litheIconButton()
+            .buttonStyle(LitheTreeRowButtonStyle())
+            .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
             .opacity(model.activeDocumentID == document.id || hoveredTabID == document.id ? 1 : 0)
             .allowsHitTesting(model.activeDocumentID == document.id || hoveredTabID == document.id)

@@ -1,6 +1,10 @@
 /* Core interface strings for Simplified Chinese. */
 "Settings" = "设置";
 "Close Settings" = "关闭设置";
+"Search settings" = "搜索设置";
+"Clear search" = "清除搜索";
+"No settings found" = "未找到设置";
+"Try a different search term." = "请尝试其他搜索词。";
 "Project" = "项目";
 "General" = "通用";
 "Appearance" = "外观";
