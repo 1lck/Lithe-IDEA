@@ -108,7 +108,13 @@ export async function loadWorkingTreeDiffsProgressively({
       const batch = diffEntriesToLoad.slice(index, index + WORKING_TREE_DIFF_BATCH_SIZE);
       const batchResults = await Promise.all(
         batch.map(async ([fileKey, entry]) => {
-          const diff = await loadWorkingTreeFileDiff(repoPath, entry);
+          let diff: GitDiff | null;
+          try {
+            diff = await loadWorkingTreeFileDiff(repoPath, entry);
+          } catch (error) {
+            console.error(`Failed to load working-tree diff for ${entry.path}:`, error);
+            return null;
+          }
           if (
             !diff ||
             (diff.lines.length === 0 && diff.is_image !== true && diff.is_binary !== true)

@@ -206,6 +206,29 @@ export const getFileDiff = async (
   }
 };
 
+export const getUntrackedFileDiff = async (
+  repoPath: string,
+  filePath: string,
+): Promise<GitDiff | null> => {
+  try {
+    const resolved = await resolveRepositoryForFile(repoPath, filePath);
+    if (!resolved) return null;
+
+    return await runGitRead(resolved.repoPath, `untracked-diff:${resolved.filePath}`, () =>
+      tauriInvoke<GitDiff>("git_diff_file", {
+        repoPath: resolved.repoPath,
+        filePath: resolved.filePath,
+        untracked: true,
+      }),
+    );
+  } catch (error) {
+    if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
+      console.error("Failed to get untracked file diff:", error);
+    }
+    return null;
+  }
+};
+
 export const getStatusDiffStats = async (repoPath: string): Promise<GitDiffStat[]> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);

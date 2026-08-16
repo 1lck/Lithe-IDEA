@@ -680,6 +680,29 @@ mod tests {
     }
 
     #[test]
+    fn translates_untracked_diff_file_pathspec() {
+        let (command, payload) = translate(
+            "git_diff_file",
+            json!({
+                "repoPath": "C:/work",
+                "filePath": "new.txt",
+                "untracked": true
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "pathspecs": ["new.txt"],
+                "untracked": true
+            })
+        );
+    }
+
+    #[test]
     fn translates_status_diff_stats_whole_tree() {
         let (command, payload) = translate(
             "git_status_diff_stats",

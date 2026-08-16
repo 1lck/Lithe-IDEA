@@ -138,10 +138,17 @@ export const buildWorkingTreeMultiDiff = async ({
     const batch = filesToLoad.slice(index, index + WORKING_TREE_MULTI_DIFF_BATCH_SIZE);
     diffResults.push(
       ...(await Promise.all(
-        batch.map(async (file) => ({
-          fileKey: getWorkingTreeFileKey(file),
-          diff: await loadDiff(repoPath, file),
-        })),
+        batch.map(async (file) => {
+          try {
+            return {
+              fileKey: getWorkingTreeFileKey(file),
+              diff: await loadDiff(repoPath, file),
+            };
+          } catch (error) {
+            console.error(`Failed to load working-tree diff for ${file.path}:`, error);
+            return { fileKey: getWorkingTreeFileKey(file), diff: null };
+          }
+        }),
       )),
     );
     await yieldToRenderer();
