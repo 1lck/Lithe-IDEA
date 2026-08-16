@@ -312,6 +312,8 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
       activeRepoPath,
       setIsSidebarVisible,
       setActiveView,
+      setIsBottomPaneVisible,
+      setBottomPaneActiveTab,
       showToast,
       gitOperations: {
         stageAllFiles,

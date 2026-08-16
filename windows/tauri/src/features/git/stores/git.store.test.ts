@@ -11,9 +11,12 @@ const { createGitStore } = await import("./git.store");
 
 const commit = (index: number): GitCommit => ({
   hash: `commit-${index}`,
+  shortHash: `commit-${index}`,
+  parentHashes: [],
   message: `Commit ${index}`,
   author: "Developer",
   date: "2026/08/16 10:00",
+  decorations: "",
 });
 
 const commits = (count: number): GitCommit[] =>
@@ -31,6 +34,7 @@ const loadInitialHistory = (
     hasMoreCommits: true,
     branches: [],
     stashes: [],
+    operationState: null,
     repoPath,
   });
 };
@@ -43,7 +47,7 @@ describe("Git history pagination", () => {
   test("requests a larger cumulative snapshot instead of an ignored offset", async () => {
     const store = createGitStore();
     loadInitialHistory(store, "C:/repo", commits(50));
-    getGitHistory.mockResolvedValue({ commits: commits(100), hasMore: true });
+    getGitHistory.mockResolvedValue({ references: [], commits: commits(100), hasMore: true });
 
     await store.getState().actions.loadMoreCommits("C:/repo");
 
@@ -55,7 +59,7 @@ describe("Git history pagination", () => {
   test("uses the shared core hasMore flag at the end of history", async () => {
     const store = createGitStore();
     loadInitialHistory(store, "C:/repo", commits(50));
-    getGitHistory.mockResolvedValue({ commits: commits(73), hasMore: false });
+    getGitHistory.mockResolvedValue({ references: [], commits: commits(73), hasMore: false });
 
     await store.getState().actions.loadMoreCommits("C:/repo");
 
@@ -89,11 +93,46 @@ describe("Git history pagination", () => {
 
     const pending = store.getState().actions.loadMoreCommits("C:/repo-a");
     store.getState().actions.prepareRepositoryLoad("C:/repo-b");
-    resolveHistory({ commits: commits(100), hasMore: true });
+    resolveHistory({ references: [], commits: commits(100), hasMore: true });
     await pending;
 
     expect(store.getState().currentRepoPath).toBe("C:/repo-b");
     expect(store.getState().commits).toEqual([]);
     expect(store.getState().isLoadingMoreCommits).toBe(false);
+  });
+});
+
+describe("Git operation state refresh", () => {
+  test("keeps the last operation state when a refresh omits a failed query", () => {
+    const store = createGitStore();
+    store.getState().actions.prepareRepositoryLoad("C:/repo");
+    store.getState().actions.loadFreshGitData({
+      gitStatus: null,
+      commits: [],
+      hasMoreCommits: false,
+      branches: [],
+      stashes: [],
+      operationState: {
+        kind: "rebase",
+        reference: "refs/heads/main",
+        step: 2,
+        total: 4,
+        conflictedPaths: [],
+      },
+      repoPath: "C:/repo",
+    });
+
+    store.getState().actions.refreshGitData({
+      gitStatus: null,
+      repoPath: "C:/repo",
+    });
+
+    expect(store.getState().operationState).toEqual({
+      kind: "rebase",
+      reference: "refs/heads/main",
+      step: 2,
+      total: 4,
+      conflictedPaths: [],
+    });
   });
 });

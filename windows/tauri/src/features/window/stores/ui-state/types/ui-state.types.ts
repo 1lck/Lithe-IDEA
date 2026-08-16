@@ -19,7 +19,8 @@ export type BottomPaneTab =
   | "diagnostics"
   | "references"
   | "buffers"
-  | "run";
+  | "run"
+  | "gitLog";
 
 export interface QuickEditSelection {
   text: string;

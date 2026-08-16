@@ -24,8 +24,10 @@ import {
 } from "@/features/editor/services/editor-inline-edit-service";
 import { getFileDiff } from "../api/git-diff-api";
 import { commitChanges, getGitLog } from "../api/git-commits-api";
+import { getConflictMarkerPaths } from "../api/git-integration-api";
 import { pullChanges, pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
 import { useGitBlameStore } from "../stores/git-blame.store";
+import { useGitStore } from "../stores/git.store";
 import type { GitDiff, GitFile } from "../types/git.types";
 
 interface GitCommitPanelProps {
@@ -286,6 +288,27 @@ const GitCommitPanel = ({
 
   const handleCommit = async () => {
     if (!repoPath || !commitMessage.trim() || stagedFilesCount === 0) return;
+
+    // A conflicted merge/rebase must be resolved before the merge commit can
+    // be finalized; guard here so Git's raw refusal never reaches the user.
+    const conflictedPaths = useGitStore.getState().operationState?.conflictedPaths ?? [];
+    if (conflictedPaths.length > 0) {
+      setError(`Resolve the conflicts first: ${conflictedPaths.join(", ")}`);
+      return;
+    }
+
+    let markerPaths: string[];
+    try {
+      markerPaths = await getConflictMarkerPaths(repoPath);
+    } catch (markerError) {
+      console.error("Failed to check staged files for conflict markers:", markerError);
+      setError("Unable to verify conflict markers. Retry before committing.");
+      return;
+    }
+    if (markerPaths.length > 0) {
+      setError(`Conflict markers remain in: ${markerPaths.join(", ")}`);
+      return;
+    }
 
     setIsCommitting(true);
     setError(null);

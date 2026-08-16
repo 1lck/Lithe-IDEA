@@ -1,5 +1,5 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitCommit, GitHistorySnapshot } from "../types/git.types";
+import type { GitCommit, GitCommitFile, GitHistorySnapshot } from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import {
@@ -27,6 +27,7 @@ export const commitChanges = async (repoPath: string, message: string): Promise<
 export const getGitHistory = async (
   repoPath: string,
   limit = 50,
+  reference?: string,
 ): Promise<GitHistorySnapshot | null> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
@@ -34,10 +35,11 @@ export const getGitHistory = async (
       return null;
     }
 
-    return await runGitRead(resolvedRepoPath, `log:${limit}`, () =>
+    return await runGitRead(resolvedRepoPath, `log:${reference ?? "all"}:${limit}`, () =>
       tauriInvoke<GitHistorySnapshot>("git_log", {
         repoPath: resolvedRepoPath,
         limit,
+        ...(reference ? { reference } : {}),
       }),
     );
   } catch (error) {
@@ -50,3 +52,26 @@ export const getGitHistory = async (
 
 export const getGitLog = async (repoPath: string, limit = 50): Promise<GitCommit[]> =>
   (await getGitHistory(repoPath, limit))?.commits ?? [];
+
+export const getCommitFiles = async (
+  repoPath: string,
+  commitHash: string,
+): Promise<GitCommitFile[] | null> => {
+  try {
+    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
+    if (!resolvedRepoPath) return null;
+
+    const result = await runGitRead(resolvedRepoPath, `commit-files:${commitHash}`, () =>
+      tauriInvoke<{ files: GitCommitFile[] }>("git.commitFiles", {
+        repoPath: resolvedRepoPath,
+        commit: commitHash,
+      }),
+    );
+    return result.files ?? [];
+  } catch (error) {
+    if (!isNotGitRepositoryError(error)) {
+      console.error("Failed to get files for commit:", error);
+    }
+    return null;
+  }
+};

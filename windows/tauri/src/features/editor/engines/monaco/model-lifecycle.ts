@@ -1,5 +1,7 @@
 import { editor as monacoEditor } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
+import { applyMonacoModelContent } from "./model-content";
+import { toMonacoModelValue } from "./line-endings";
 
 interface SharedMonacoModel {
   model: Monaco.editor.ITextModel;
@@ -21,7 +23,12 @@ export function acquireMonacoModel(
   const key = uri.toString();
   let entry = sharedModels.get(key);
   if (!entry || entry.model.isDisposed()) {
-    const model = monacoEditor.getModel(uri) ?? monacoEditor.createModel(content, languageId, uri);
+    const existing = monacoEditor.getModel(uri);
+    const model =
+      existing ?? monacoEditor.createModel(toMonacoModelValue(content), languageId, uri);
+    if (!existing) {
+      applyMonacoModelContent(model, content);
+    }
     entry = { model, referenceCount: 0 };
     sharedModels.set(key, entry);
   }
