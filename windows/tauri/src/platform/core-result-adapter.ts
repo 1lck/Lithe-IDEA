@@ -29,10 +29,11 @@ function adaptDiff(command: string, args: JsonRecord | undefined, value: unknown
     return "files" in parsed ? parsed.files[0] ?? null : parsed;
   }
   if (command === "git_status_diff_stats") {
+    const staged = Boolean(argumentsRecord.staged);
     const diffs = "files" in parsed ? parsed.files : [parsed];
     return diffs.map((diff) => ({
       file_path: diff.file_path,
-      staged: false,
+      staged,
       additions: diff.additions ?? diff.lines.filter((line) => line.line_type === "added").length,
       deletions: diff.deletions ?? diff.lines.filter((line) => line.line_type === "removed").length,
     }));

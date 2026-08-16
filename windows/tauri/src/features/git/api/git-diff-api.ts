@@ -219,14 +219,20 @@ export const getStatusDiffStats = async (repoPath: string): Promise<GitDiffStat[
     }
 
     const generation = getRepositoryCacheGeneration(resolvedRepoPath);
-    const request = tauriInvoke<GitDiffStat[]>("git_status_diff_stats", {
-      repoPath: resolvedRepoPath,
-    })
-      .then((stats) => {
+    const request = Promise.all([
+      tauriInvoke<GitDiffStat[]>("git_status_diff_stats", {
+        repoPath: resolvedRepoPath,
+      }),
+      tauriInvoke<GitDiffStat[]>("git_status_diff_stats", {
+        repoPath: resolvedRepoPath,
+        staged: true,
+      }),
+    ])
+      .then(([unstagedStats, stagedStats]) => {
         if (generation !== getRepositoryCacheGeneration(resolvedRepoPath)) {
           return getStatusDiffStats(resolvedRepoPath);
         }
-        return stats;
+        return [...unstagedStats, ...stagedStats];
       })
       .catch((error) => {
         if (!isNotGitRepositoryError(error)) {
