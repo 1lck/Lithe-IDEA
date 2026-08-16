@@ -18,6 +18,7 @@ struct GitLogView: View {
     @State private var pendingPushReference: GitReference?
     @State private var pendingCommitOperation: GitCommitOperationRequest?
     @State private var pendingBranchOperation: GitBranchOperationRequest?
+    @State private var comparisonSourceReference: GitReference?
     @State private var showCommitDecorations = true
     @State private var graphLayout = GitGraphLayout(
         rows: [],
@@ -45,6 +46,7 @@ struct GitLogView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolWindowHeader
+            primaryActionBar
 
             GeometryReader { geometry in
                 let minimumReferencePaneWidth: CGFloat = 220
@@ -123,6 +125,14 @@ struct GitLogView: View {
             }.value
             guard model.gitCommits == commits else { return }
             graphLayout = updatedLayout
+        }
+        .task(id: gitLogFilterTaskIdentity) {
+            do {
+                try await Task.sleep(for: .milliseconds(180))
+            } catch {
+                return
+            }
+            await model.applyGitLogFilter(model.gitLogSearchQuery)
         }
         .sheet(item: $branchDialogRequest) { request in
             GitBranchNameDialog(request: request) { name, checkout in
@@ -323,6 +333,68 @@ struct GitLogView: View {
         }
     }
 
+    private var primaryActionBar: some View {
+        HStack(spacing: 7) {
+            Button {
+                Task { await model.fetchGit() }
+            } label: {
+                Label("Fetch", systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .lithePointer()
+            .disabled(model.isPerformingBranchOperation)
+
+            Button {
+                showPrimaryComparison()
+            } label: {
+                Label("Compare", systemImage: "arrow.left.arrow.right")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .lithePointer()
+            .disabled(currentReference == nil || model.isLoadingBranchComparison)
+
+            Divider()
+                .frame(height: 18)
+
+            Button {
+                guard let reference = checkoutReference else { return }
+                Task { await model.checkoutReference(reference) }
+            } label: {
+                Label("Checkout", systemImage: "arrow.right.circle")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .lithePointer()
+            .disabled(checkoutReference == nil || model.isPerformingBranchOperation)
+
+            Button {
+                guard let commit = model.selectedGitCommit else { return }
+                pendingCommitOperation = GitCommitOperationRequest(kind: .cherryPick, commit: commit)
+            } label: {
+                Label("Cherry-pick", systemImage: "arrow.triangle.branch")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .lithePointer()
+            .disabled(model.selectedGitCommit == nil || model.isPerformingBranchOperation)
+
+            Spacer(minLength: 8)
+
+            Text(primaryComparisonDescription)
+                .font(GitVisual.meta)
+                .foregroundStyle(LitheTheme.secondaryText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: GitVisual.toolbarHeight)
+        .background(LitheTheme.toolHeader)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+        }
+    }
+
     private var referencePane: some View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
@@ -512,6 +584,17 @@ struct GitLogView: View {
                 Task { await model.showComparisonWithWorkingTree(for: reference) }
             }
 
+            if let source = comparisonSourceReference, source.id != reference.id {
+                Button("Compare '\(source.shortName)' with '\(reference.shortName)'") {
+                    comparisonSourceReference = nil
+                    Task { await model.showComparison(from: source, to: reference) }
+                }
+            } else {
+                Button("Select for Compare") {
+                    comparisonSourceReference = reference
+                }
+            }
+
             if reference.kind == .local {
                 Divider()
 
@@ -570,7 +653,7 @@ struct GitLogView: View {
                 HStack(spacing: 6) {
                     LitheIDEAIcon(resourcePath: "actions/search.svg", size: 14, fallbackSystemImage: "magnifyingglass")
                         .foregroundStyle(LitheTheme.secondaryText)
-                    TextField("Text or hash", text: $model.gitLogSearchQuery)
+                    TextField("Text, me, author:, branch:, path:", text: $model.gitLogSearchQuery)
                         .textFieldStyle(.plain)
                         .font(GitVisual.toolbar)
                         .focused($gitLogSearchFocused)
@@ -803,11 +886,31 @@ struct GitLogView: View {
     }
 
     private var filteredCommits: [GitCommit] {
-        let query = model.gitLogSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return model.gitCommits }
-        return model.gitCommits.filter { commit in
-            [commit.subject, commit.hash, commit.shortHash, commit.authorName, commit.authorEmail, commit.decorations]
-                .contains { $0.localizedCaseInsensitiveContains(query) }
+        guard let hashes = model.gitLogMatchedCommitHashes else { return model.gitCommits }
+        return model.gitCommits.filter { hashes.contains($0.hash) }
+    }
+
+    private var checkoutReference: GitReference? {
+        guard let reference = model.selectedGitReference,
+              reference.kind == .local,
+              !reference.isCurrent else { return nil }
+        return reference
+    }
+
+    private var primaryComparisonDescription: String {
+        guard let currentReference else { return "No current branch" }
+        if let target = model.selectedGitReference, target.id != currentReference.id {
+            return "\(currentReference.shortName) → \(target.shortName)"
+        }
+        return "\(currentReference.shortName) ↔ Working Tree"
+    }
+
+    private func showPrimaryComparison() {
+        guard let currentReference else { return }
+        if let target = model.selectedGitReference, target.id != currentReference.id {
+            Task { await model.showComparison(from: currentReference, to: target) }
+        } else {
+            Task { await model.showComparisonWithWorkingTree(for: currentReference) }
         }
     }
 
@@ -834,7 +937,12 @@ struct GitLogView: View {
     private var visibleCommitHashes: Set<String>? {
         let query = model.gitLogSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return nil }
-        return Set(filteredCommits.map(\.hash))
+        return model.gitLogMatchedCommitHashes
+    }
+
+    private var gitLogFilterTaskIdentity: String {
+        let commits = model.gitCommits.map(\.hash).joined(separator: ",")
+        return "\(model.gitLogSearchQuery)|\(commits)"
     }
 
     private var commitFileTree: GitCommitFileTreeNode {

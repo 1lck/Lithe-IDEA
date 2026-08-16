@@ -24,6 +24,21 @@ protocol JavaMavenOperations: MavenProjectOperations, RunServerPortParsing, Send
         source: String,
         declarationSources: [String]
     ) -> JavaStructureResult?
+    func springIndex(
+        at rootURL: URL,
+        files: [URL],
+        textOverrides: [URL: String],
+        refreshDependencyMetadata: Bool
+    ) -> SpringIndexResult?
+}
+
+extension JavaMavenOperations {
+    func springIndex(
+        at rootURL: URL,
+        files: [URL],
+        textOverrides: [URL: String] = [:],
+        refreshDependencyMetadata: Bool = false
+    ) -> SpringIndexResult? { nil }
 }
 
 struct JavaStructureResult: Sendable {
@@ -41,6 +56,21 @@ struct JavaCodeVisionValue: Sendable {
 
 struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
     let core: RustCoreBridge
+    let metadataRepositoryURLs: [URL]
+
+    init(
+        core: RustCoreBridge,
+        metadataRepositoryURL: URL? = nil,
+        metadataRepositoryURLs: [URL] = []
+    ) {
+        self.core = core
+        self.metadataRepositoryURLs = ([metadataRepositoryURL].compactMap { $0 }
+            + metadataRepositoryURLs)
+            .reduce(into: [URL]()) { values, url in
+                let standardized = url.standardizedFileURL
+                if !values.contains(standardized) { values.append(standardized) }
+            }
+    }
 
     func scanMavenProject(at rootURL: URL, files: [URL]) -> MavenProject? {
         let root = rootURL.standardizedFileURL
@@ -170,6 +200,88 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
             foldRegions: payload.makeFoldRegions(),
             implementationMarkers: payload.makeImplementationMarkers(),
             inlayHints: payload.makeInlayHints()
+        )
+    }
+
+    func springIndex(
+        at rootURL: URL,
+        files: [URL],
+        textOverrides: [URL: String] = [:],
+        refreshDependencyMetadata: Bool = false
+    ) -> SpringIndexResult? {
+        let root = rootURL.standardizedFileURL
+        let paths = files.compactMap { workspaceRelativePath(for: $0, root: root) }
+        guard let payload = core.springIndex(
+            at: root,
+            paths: paths,
+            metadataRepositoryURLs: metadataRepositoryURLs,
+            refreshDependencyMetadata: refreshDependencyMetadata,
+            textOverrides: Dictionary(uniqueKeysWithValues: textOverrides.compactMap { url, text in
+                workspaceRelativePath(for: url, root: root).map { ($0, text) }
+            })
+        ) else { return nil }
+        func url(_ path: String?) -> URL? {
+            path.map { root.appendingPathComponent($0).standardizedFileURL }
+        }
+        return SpringIndexResult(
+            properties: payload.properties.map { value in
+                SpringProperty(
+                    name: value.name,
+                    typeName: value.typeName,
+                    documentation: value.description,
+                    defaultValue: value.defaultValue,
+                    sourceURL: url(value.sourcePath),
+                    sourceLine: value.sourceLine,
+                    sourceColumn: value.sourceColumn
+                )
+            },
+            values: payload.values.map { value in
+                SpringConfigurationValue(
+                    key: value.key,
+                    value: value.value,
+                    url: url(value.path)!,
+                    line: value.line,
+                    column: value.column,
+                    profile: value.profile,
+                    overridesBaseValue: value.overridesBaseValue,
+                    targetURL: url(value.targetPath),
+                    targetLine: value.targetLine,
+                    targetColumn: value.targetColumn
+                )
+            },
+            propertyReferences: payload.propertyReferences.map { value in
+                SpringPropertyReference(
+                    key: value.key,
+                    url: url(value.path)!,
+                    line: value.line,
+                    column: value.column
+                )
+            },
+            diagnostics: payload.diagnostics.map { value in
+                SpringDiagnostic(
+                    url: url(value.path)!, line: value.line, column: value.column,
+                    severity: value.severity, message: value.message
+                )
+            },
+            beans: payload.beans.map { value in
+                SpringBean(
+                    id: value.id, name: value.name, typeName: value.typeName,
+                    url: url(value.path)!, line: value.line, column: value.column, kind: value.kind
+                )
+            },
+            injections: payload.injections.map { value in
+                SpringInjection(
+                    url: url(value.path)!, line: value.line, column: value.column,
+                    typeName: value.typeName, qualifier: value.qualifier, beanIDs: value.beanIds
+                )
+            },
+            endpoints: payload.endpoints.map { value in
+                SpringEndpoint(
+                    id: value.id, httpMethods: value.httpMethods, route: value.route,
+                    controller: value.controller, method: value.method,
+                    url: url(value.path)!, line: value.line, column: value.column
+                )
+            }
         )
     }
 }

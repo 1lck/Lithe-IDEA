@@ -133,9 +133,10 @@ extension AppModel {
     func performSearchEverywhereAction(_ action: LitheAction) { dismissSearchEverywhere(); action.perform() }
 
     func openSearchResult(_ result: FileSearchResult) {
-        openFile(result.url)
         if let line = result.line {
-            editorNavigationTarget = EditorNavigationTarget(url: result.url, line: line - 1, utf16Column: 0)
+            navigateToEditorLocation(url: result.url, line: line - 1, utf16Column: 0)
+        } else {
+            openFile(result.url)
         }
     }
 

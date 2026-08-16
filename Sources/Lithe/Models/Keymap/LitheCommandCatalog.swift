@@ -31,14 +31,17 @@ enum LitheCommandCatalog {
                 .keyPress(key: "o", modifiers: [.shift, .command])
             ]
         ),
+        command("navigate-back", "Back", "Navigate to the previous editor location", .navigation, "[", [.command]),
+        command("navigate-forward", "Forward", "Navigate to the next editor location", .navigation, "]", [.command]),
         command("find-in-file", "Find in File", "Search within the active editor", .navigation, "f", [.command]),
         command("find-next", "Find Next", "Move to the next match in the active editor", .navigation, "g", [.command]),
         command("find-previous", "Find Previous", "Move to the previous match in the active editor", .navigation, "g", [.shift, .command]),
-        command("go-to-usage", "Go to Usage", "Navigate to a call site of the selected symbol", .navigation, "b", [.command]),
+        command("go-to-definition", "Go to Definition", "Navigate to the declaration of the selected symbol", .navigation, "b", [.command]),
         command("go-to-implementation", "Go to Implementation", "Navigate to an implementation of the selected symbol", .navigation, "b", [.option, .command]),
         command("find-usages", "Find Usages", "Find references to the selected symbol", .navigation, "u", [.option, .command]),
         command("search-in-project", "Find in Files", "Search text across the workspace", .navigation, "f", [.shift, .command]),
         command("replace-in-project", "Replace in Files", "Replace text across the workspace", .navigation, "r", [.shift, .command]),
+        command("spring-endpoints", "Spring Endpoints", "Show indexed Spring MVC routes", .navigation),
 
         command("toggle-terminal", "Toggle Terminal", "Show or hide the Terminal tool window", .window),
         command("toggle-problems", "Toggle Problems", "Show or hide language diagnostics", .window),

@@ -9,6 +9,8 @@ struct BranchComparisonView: View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            comparisonToolbar
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             HStack(spacing: 0) {
                 filePane
@@ -25,7 +27,7 @@ struct BranchComparisonView: View {
             Image(systemName: "arrow.left.arrow.right")
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.accent)
-            Text("Diff: \(comparison.reference.shortName) with Working Tree")
+            Text("Diff: \(comparison.reference.shortName) with \(comparison.targetTitle)")
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
@@ -33,13 +35,12 @@ struct BranchComparisonView: View {
             Text(comparison.files.count == 1 ? "1 file" : "\(comparison.files.count) files")
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Button {
+            Button("Close") {
                 model.closeBranchComparison()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
             }
-            .litheIconButton()
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .lithePointer()
             .help("Close comparison")
         }
         .padding(.leading, 12)
@@ -49,6 +50,55 @@ struct BranchComparisonView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(LitheTheme.accent).frame(height: 2)
         }
+    }
+
+    private var comparisonToolbar: some View {
+        HStack(spacing: 7) {
+            Button {
+                refreshComparison()
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .lithePointer()
+            .disabled(model.isLoadingBranchComparison)
+
+            Button {
+                moveFileSelection(by: -1)
+            } label: {
+                Label("Previous File", systemImage: "chevron.up")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .lithePointer()
+            .disabled(previousFile == nil || model.isLoadingBranchComparison)
+
+            Button {
+                moveFileSelection(by: 1)
+            } label: {
+                Label("Next File", systemImage: "chevron.down")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .lithePointer()
+            .disabled(nextFile == nil || model.isLoadingBranchComparison)
+
+            Spacer()
+
+            if let selectedFileIndex {
+                Text("File \(selectedFileIndex + 1) of \(comparison.files.count)")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            } else {
+                Text(comparison.files.isEmpty ? "No changed files" : "Select a file")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 38)
+        .background(LitheTheme.toolHeader)
     }
 
     private var filePane: some View {
@@ -143,7 +193,7 @@ struct BranchComparisonView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.selectedBranchComparisonFile == nil {
-                Text(comparison.files.isEmpty ? "Working tree matches this reference" : "Select a file")
+                Text(comparison.files.isEmpty ? "The selected versions match" : "Select a file")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -170,7 +220,10 @@ struct BranchComparisonView: View {
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
             }
             .frame(width: 34)
-            versionTitle("Working Tree", icon: "folder")
+            versionTitle(
+                comparison.targetTitle,
+                icon: comparison.targetReference == nil ? "folder" : "lock"
+            )
         }
         .frame(height: 34)
         .background(LitheTheme.window)
@@ -199,6 +252,39 @@ struct BranchComparisonView: View {
     private var selectedFileExtension: String {
         guard let file = model.selectedBranchComparisonFile else { return "" }
         return URL(fileURLWithPath: file.path).pathExtension
+    }
+
+    private var selectedFileIndex: Int? {
+        guard let selected = model.selectedBranchComparisonFile else { return nil }
+        return comparison.files.firstIndex(where: { $0.id == selected.id })
+    }
+
+    private var previousFile: GitBranchComparisonFile? {
+        guard let selectedFileIndex, selectedFileIndex > comparison.files.startIndex else { return nil }
+        return comparison.files[comparison.files.index(before: selectedFileIndex)]
+    }
+
+    private var nextFile: GitBranchComparisonFile? {
+        guard let selectedFileIndex else { return comparison.files.first }
+        let nextIndex = comparison.files.index(after: selectedFileIndex)
+        guard nextIndex < comparison.files.endIndex else { return nil }
+        return comparison.files[nextIndex]
+    }
+
+    private func refreshComparison() {
+        Task {
+            if let target = comparison.targetReference {
+                await model.showComparison(from: comparison.reference, to: target)
+            } else {
+                await model.showComparisonWithWorkingTree(for: comparison.reference)
+            }
+        }
+    }
+
+    private func moveFileSelection(by offset: Int) {
+        let file = offset < 0 ? previousFile : nextFile
+        guard let file else { return }
+        Task { await model.selectBranchComparisonFile(file) }
     }
 
     private func statusColor(_ status: String) -> Color {

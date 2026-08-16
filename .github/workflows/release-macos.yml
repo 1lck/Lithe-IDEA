@@ -121,6 +121,15 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleVersion" \
             "$app_path/Contents/Info.plist"
+          for build_key in \
+            LitheBuildGitRevision \
+            LitheBuildGitBranch \
+            LitheBuildGitDirty \
+            LitheBuildTimestamp; do
+            /usr/libexec/PlistBuddy \
+              -c "Print :${build_key}" \
+              "$app_path/Contents/Info.plist"
+          done
           lipo "$app_path/Contents/MacOS/Lithe" -verify_arch "$LITHE_ARCH"
           hdiutil imageinfo "$dmg_path" > /dev/null
           test -s "$dmg_path"

@@ -30,6 +30,14 @@
 "Save the active document" = "保存当前文档";
 "Move to the next match in the active editor" = "跳转到当前编辑器中的下一个匹配项";
 "Move to the previous match in the active editor" = "跳转到当前编辑器中的上一个匹配项";
+"Back" = "后退";
+"Navigate to the previous editor location" = "跳转到上一个编辑器位置";
+"Forward" = "前进";
+"Navigate to the next editor location" = "跳转到下一个编辑器位置";
+"Go to Definition" = "跳转到定义";
+"Navigate to the declaration of the selected symbol" = "跳转到所选符号的声明";
+"Spring Endpoints" = "Spring 接口";
+"Show indexed Spring MVC routes" = "显示已索引的 Spring MVC 路由";
 "Navigate to a call site of the selected symbol" = "跳转到所选符号的调用位置";
 "Navigate to an implementation of the selected symbol" = "跳转到所选符号的实现";
 "Find references to the selected symbol" = "查找所选符号的引用";
@@ -1149,6 +1157,10 @@
 "Uninstall" = "卸载";
 "Overview" = "概览";
 "No Plugins" = "暂无插件";
+"More Language Support" = "扩展更多语言";
+"%lld languages · %lld enabled" = "%lld 种语言 · 已启用 %lld 个";
+"Expanded" = "已展开";
+"Collapsed" = "已收起";
 "Database" = "数据库连接";
 "Enabled" = "已启用";
 "Disabled" = "已禁用";

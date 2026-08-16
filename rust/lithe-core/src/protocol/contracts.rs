@@ -386,6 +386,8 @@ pub struct GitHistoryResponse {
     pub references: Vec<GitReferenceResponse>,
     pub commits: Vec<GitCommitResponse>,
     pub has_more: bool,
+    pub user_name: Option<String>,
+    pub user_email: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -548,4 +550,106 @@ pub struct GitDiffResponse {
     pub patch: String,
     pub rows: Vec<GitDiffRowResponse>,
     pub hunks: Vec<GitDiffHunkResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One Spring configuration property and its optional Java declaration.
+pub struct SpringPropertyResponse {
+    pub name: String,
+    pub type_name: Option<String>,
+    pub description: Option<String>,
+    pub default_value: Option<String>,
+    pub source_path: Option<String>,
+    pub source_line: Option<usize>,
+    pub source_column: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One key/value occurrence from a Spring application configuration document.
+pub struct SpringConfigurationValueResponse {
+    pub key: String,
+    pub value: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub profile: Option<String>,
+    pub overrides_base_value: bool,
+    pub target_path: Option<String>,
+    pub target_line: Option<usize>,
+    pub target_column: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Java `@Value` reference to a Spring configuration property.
+pub struct SpringPropertyReferenceResponse {
+    pub key: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Spring configuration problem projected onto one source location.
+pub struct SpringDiagnosticResponse {
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub severity: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Component or `@Bean` declaration available for dependency injection.
+pub struct SpringBeanResponse {
+    pub id: String,
+    pub name: String,
+    pub type_name: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Injection point and the bean declarations that satisfy it.
+pub struct SpringInjectionResponse {
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+    pub type_name: String,
+    pub qualifier: Option<String>,
+    pub bean_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// HTTP endpoint declared by a Spring MVC controller method.
+pub struct SpringEndpointResponse {
+    pub id: String,
+    pub http_methods: Vec<String>,
+    pub route: String,
+    pub controller: String,
+    pub method: String,
+    pub path: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Complete deterministic Spring semantic index for one workspace snapshot.
+pub struct SpringIndexResponse {
+    pub properties: Vec<SpringPropertyResponse>,
+    pub values: Vec<SpringConfigurationValueResponse>,
+    pub property_references: Vec<SpringPropertyReferenceResponse>,
+    pub diagnostics: Vec<SpringDiagnosticResponse>,
+    pub beans: Vec<SpringBeanResponse>,
+    pub injections: Vec<SpringInjectionResponse>,
+    pub endpoints: Vec<SpringEndpointResponse>,
 }

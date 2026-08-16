@@ -26,6 +26,7 @@ import {
   getProjectSnapDuration,
   getProjectSwipeBounds,
 } from "@/features/layout/utils/project-carousel";
+import { shouldShowProjectSwitcher } from "@/features/layout/utils/project-switcher";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -154,6 +155,10 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
     projectCarouselDirection < 0 && carouselTargetProject ? carouselTargetProject : previousProject;
   const renderedNextProject =
     projectCarouselDirection > 0 && carouselTargetProject ? carouselTargetProject : nextProject;
+  const projectSwitcherVisible = shouldShowProjectSwitcher(
+    showActivityRailProjectSwitcher,
+    openFoldersInNewWindow,
+  );
   const switchToProject = useFileSystemStore((state) => state.switchToProject);
   const isSwitchingProject = useFileSystemStore((state) => state.isSwitchingProject);
   const handleSidebarViewChange = (view: typeof activeSidebarView) => {
@@ -607,7 +612,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
       >
         {isBoundaryPanel ? null : (
           <>
-            {showActivityRailProjectSwitcher ? (
+            {projectSwitcherVisible ? (
               <SidebarProjectSwitcher
                 expanded={expanded}
                 project={project}

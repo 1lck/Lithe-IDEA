@@ -147,16 +147,19 @@ enum MacKeyboardShortcutMatcher {
 /// Matches ordinary key presses and double-modifier taps for application commands.
 private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
     private static let doubleTapThreshold: TimeInterval = 0.35
+
     private var registrations: [KeyboardShortcutRegistration] = []
     private var isSuspended = false
-    private var shiftWasDown = false
-    private var lastShiftPress = Date.distantPast
+    private var doubleShiftRecognizer: DoubleShiftGestureRecognizer
     private let onCommand: @MainActor (String) -> Void
     private var keyMonitor: Any?
     private var flagsMonitor: Any?
 
     init(onCommand: @escaping @MainActor (String) -> Void) {
         self.onCommand = onCommand
+        doubleShiftRecognizer = DoubleShiftGestureRecognizer(
+            threshold: Self.doubleTapThreshold
+        )
     }
 
     func update(registrations: [KeyboardShortcutRegistration]) {
@@ -166,15 +169,16 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
     func setSuspended(_ suspended: Bool) {
         isSuspended = suspended
         if suspended {
-            shiftWasDown = false
-            lastShiftPress = .distantPast
+            resetDoubleShiftRecognizer()
         }
     }
 
     func start() {
         guard keyMonitor == nil, flagsMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, !self.isSuspended,
+            guard let self else { return event }
+            self.doubleShiftRecognizer.handleKeyDown()
+            guard !self.isSuspended,
                   let binding = MacKeyboardShortcutEventMapper.binding(
                     keyCode: event.keyCode,
                     charactersIgnoringModifiers: event.charactersIgnoringModifiers,
@@ -193,27 +197,25 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
         }
 
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            let isShiftDown = event.modifierFlags
-                .intersection(.deviceIndependentFlagsMask)
-                .contains(.shift)
             guard let self, !self.isSuspended else { return event }
-            if isShiftDown && !self.shiftWasDown {
-                let now = Date()
-                if now.timeIntervalSince(self.lastShiftPress) < Self.doubleTapThreshold {
-                    self.lastShiftPress = .distantPast
-                    if let commandID = MacKeyboardShortcutMatcher.commandID(
-                        for: .doubleTap(.shift),
-                        registrations: self.registrations
-                    ) {
-                        Task { @MainActor in
-                            self.onCommand(commandID)
-                        }
-                    }
-                } else {
-                    self.lastShiftPress = now
-                }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let shouldTrigger = self.doubleShiftRecognizer.handleFlagsChanged(
+                isShiftDown: modifiers.contains(.shift),
+                hasOtherModifiers: !modifiers.intersection([
+                    .command, .control, .option, .function
+                ]).isEmpty,
+                timestamp: event.timestamp
+            )
+            guard shouldTrigger,
+                  let commandID = MacKeyboardShortcutMatcher.commandID(
+                    for: .doubleTap(.shift),
+                    registrations: self.registrations
+                  ) else {
+                return event
             }
-            self.shiftWasDown = isShiftDown
+            Task { @MainActor in
+                self.onCommand(commandID)
+            }
             return event
         }
     }
@@ -227,7 +229,71 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
             NSEvent.removeMonitor(flagsMonitor)
             self.flagsMonitor = nil
         }
-        shiftWasDown = false
-        lastShiftPress = .distantPast
+        resetDoubleShiftRecognizer()
+    }
+
+    private func resetDoubleShiftRecognizer() {
+        doubleShiftRecognizer = DoubleShiftGestureRecognizer(
+            threshold: Self.doubleTapThreshold
+        )
+    }
+}
+
+/// Recognizes two standalone Shift taps while rejecting Shift-modified typing.
+struct DoubleShiftGestureRecognizer {
+    let threshold: TimeInterval
+    private(set) var shiftWasDown = false
+    private var currentPressIsStandalone = false
+    private var lastStandaloneTap: TimeInterval?
+
+    init(threshold: TimeInterval) {
+        self.threshold = threshold
+    }
+
+    mutating func handleKeyDown() {
+        currentPressIsStandalone = false
+        lastStandaloneTap = nil
+    }
+
+    mutating func handleFlagsChanged(
+        isShiftDown: Bool,
+        hasOtherModifiers: Bool,
+        timestamp: TimeInterval
+    ) -> Bool {
+        if isShiftDown, !shiftWasDown {
+            currentPressIsStandalone = !hasOtherModifiers
+            shiftWasDown = true
+            return false
+        }
+
+        if isShiftDown, shiftWasDown {
+            if hasOtherModifiers {
+                currentPressIsStandalone = false
+                lastStandaloneTap = nil
+            }
+            return false
+        }
+
+        if !isShiftDown, shiftWasDown {
+            shiftWasDown = false
+            defer { currentPressIsStandalone = false }
+            guard currentPressIsStandalone, !hasOtherModifiers else {
+                lastStandaloneTap = nil
+                return false
+            }
+            if let lastStandaloneTap,
+               timestamp - lastStandaloneTap >= 0,
+               timestamp - lastStandaloneTap < threshold {
+                self.lastStandaloneTap = nil
+                return true
+            }
+            lastStandaloneTap = timestamp
+            return false
+        }
+
+        if hasOtherModifiers {
+            lastStandaloneTap = nil
+        }
+        return false
     }
 }

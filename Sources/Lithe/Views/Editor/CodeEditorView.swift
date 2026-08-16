@@ -26,6 +26,9 @@ fileprivate struct CodeEditorPalette {
     var foldIndicator: NSColor { color(light: (0.28, 0.30, 0.34, 0.58), dark: (0.62, 0.62, 0.62, 0.46)) }
     var foldIndicatorHover: NSColor { color(light: (0.12, 0.14, 0.17, 0.90), dark: (0.86, 0.86, 0.86, 0.96)) }
     var blameText: NSColor { color(light: (0.38, 0.40, 0.44, 1), dark: (0.53, 0.53, 0.53, 1)) }
+    var gitAdded: NSColor { color(light: (0.15, 0.62, 0.31, 1), dark: (0.31, 0.78, 0.45, 1)) }
+    var gitModified: NSColor { color(light: (0.16, 0.48, 0.86, 1), dark: (0.31, 0.64, 0.96, 1)) }
+    var gitDeleted: NSColor { color(light: (0.82, 0.22, 0.25, 1), dark: (0.94, 0.34, 0.37, 1)) }
 
     var keyword: NSColor { themeColor(.skill) }
     var annotation: NSColor { themeColor(.warning) }
@@ -199,6 +202,7 @@ struct CodeEditorView: NSViewRepresentable {
         container.gutter = gutter
         container.gutterWidthConstraint = gutterWidthConstraint
         context.coordinator.updateCodeVisionAndBlame()
+        context.coordinator.updateGitLineChanges()
         context.coordinator.updateDiagnostics()
         context.coordinator.shouldFocus = shouldFocus
         context.coordinator.requestInitialFocusIfNeeded()
@@ -255,6 +259,7 @@ struct CodeEditorView: NSViewRepresentable {
             (textView as? CodeTextView)?.updateEditorDecorations()
         }
         context.coordinator.updateCodeVisionAndBlame()
+        context.coordinator.updateGitLineChanges()
         context.coordinator.updateDiagnostics()
         context.coordinator.applyNavigationTargetIfNeeded()
         if let codeTextView = textView as? CodeTextView {
@@ -287,6 +292,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var markdownScrollObserver: NSObjectProtocol?
         private var isApplyingSynchronizedMarkdownScroll = false
         private var lastObservedMarkdownScrollRevision: UInt64?
+        private var isLoadingGitLineChanges = false
 
         init(
             document: EditorDocument,
@@ -588,6 +594,41 @@ struct CodeEditorView: NSViewRepresentable {
             }
             gutter?.updateDebugBreakpointLines(debugBreakpointLines) { [weak model] line in
                 model?.toggleDebugBreakpoint(fileURL: url, line: line)
+            }
+        }
+
+        func updateGitLineChanges() {
+            guard let document, let model, let gutter else { return }
+            let url = document.url.standardizedFileURL
+            if let markers = model.gitLineChangeMarkers(for: url) {
+                isLoadingGitLineChanges = false
+                let change = model.gitChange(for: url)
+                gutter.updateGitLineChanges(
+                    markers,
+                    onShow: { [weak model] marker in
+                        Task { await model?.showGitLineChange(marker, for: url) }
+                    },
+                    onStage: change?.hasWorkingTreeChange == true ? { [weak model] marker in
+                        Task { await model?.stageGitLineChange(marker, for: url) }
+                    } : nil,
+                    onUnstage: change?.isStaged == true && change?.hasWorkingTreeChange == false
+                        ? { [weak model] marker in
+                            Task { await model?.unstageGitLineChange(marker, for: url) }
+                        }
+                        : nil,
+                    onDiscard: change?.hasWorkingTreeChange == true ? { [weak model] marker in
+                        Task { await model?.requestDiscardGitLineChange(marker, for: url) }
+                    } : nil
+                )
+                return
+            }
+
+            gutter.updateGitLineChanges([], onShow: { _ in })
+            guard !isLoadingGitLineChanges else { return }
+            isLoadingGitLineChanges = true
+            Task { @MainActor [weak self, weak model] in
+                await model?.loadGitLineChanges(for: url)
+                self?.isLoadingGitLineChanges = false
             }
         }
 
@@ -959,9 +1000,14 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         reportFindState(index: currentFindMatchIndex, count: total)
     }
 
+    /// Publishes only meaningful find-state transitions so SwiftUI updates do
+    /// not create a feedback loop through `updateNSView`.
     private func reportFindState(index: Int, count: Int) {
-        guard lastReportedFindState?.index != index
-                || lastReportedFindState?.count != count else { return }
+        if let lastReportedFindState,
+           lastReportedFindState.index == index,
+           lastReportedFindState.count == count {
+            return
+        }
         lastReportedFindState = (index, count)
         onFindStateChange?(index, count)
     }
@@ -1976,6 +2022,12 @@ final class LineNumberGutterView: NSView {
     private var hoveredFoldID: String?
     private var trackingArea: NSTrackingArea?
     private var palette = CodeEditorPalette.dark
+    private var gitLineChangeMarkersByLine: [Int: GitLineChangeMarker] = [:]
+    private var onShowGitLineChange: ((GitLineChangeMarker) -> Void)?
+    private var onStageGitLineChange: ((GitLineChangeMarker) -> Void)?
+    private var onUnstageGitLineChange: ((GitLineChangeMarker) -> Void)?
+    private var onDiscardGitLineChange: ((GitLineChangeMarker) -> Void)?
+    private var contextGitLineChange: GitLineChangeMarker?
 
     override var isFlipped: Bool { true }
 
@@ -2089,6 +2141,21 @@ final class LineNumberGutterView: NSView {
         needsDisplay = true
     }
 
+    func updateGitLineChanges(
+        _ markers: [GitLineChangeMarker],
+        onShow: @escaping (GitLineChangeMarker) -> Void,
+        onStage: ((GitLineChangeMarker) -> Void)? = nil,
+        onUnstage: ((GitLineChangeMarker) -> Void)? = nil,
+        onDiscard: ((GitLineChangeMarker) -> Void)? = nil
+    ) {
+        gitLineChangeMarkersByLine = Dictionary(uniqueKeysWithValues: markers.map { ($0.line, $0) })
+        onShowGitLineChange = onShow
+        onStageGitLineChange = onStage
+        onUnstageGitLineChange = onUnstage
+        onDiscardGitLineChange = onDiscard
+        needsDisplay = true
+    }
+
     private func layoutBlameButtons() {
         guard isBlameVisible,
               let textView,
@@ -2193,6 +2260,9 @@ final class LineNumberGutterView: NSView {
             if !isBlameVisible, debugBreakpointLines.contains(lineNumber - 1) {
                 drawDebugBreakpoint(y: y, height: lineRect.height)
             }
+            if let marker = gitLineChangeMarkersByLine[lineNumber - 1] {
+                drawGitLineChange(marker, y: y, height: lineRect.height)
+            }
             drawLineNumber(lineNumber, y: y + 1)
 
             let nextGlyph = NSMaxRange(lineGlyphRange)
@@ -2296,6 +2366,31 @@ final class LineNumberGutterView: NSView {
         ).fill()
     }
 
+    private func drawGitLineChange(
+        _ marker: GitLineChangeMarker,
+        y: CGFloat,
+        height: CGFloat
+    ) {
+        let color: NSColor
+        switch marker.kind {
+        case .added: color = palette.gitAdded
+        case .modified: color = palette.gitModified
+        case .deleted: color = palette.gitDeleted
+        }
+        color.setFill()
+        let markerHeight = marker.kind == .deleted ? 3 : max(4, height - 2)
+        NSBezierPath(
+            roundedRect: NSRect(
+                x: bounds.width - 4,
+                y: y + max(1, (height - markerHeight) / 2),
+                width: 3,
+                height: markerHeight
+            ),
+            xRadius: 1.5,
+            yRadius: 1.5
+        ).fill()
+    }
+
     private var centeredParagraphStyle: NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.alignment = .center
@@ -2374,7 +2469,9 @@ final class LineNumberGutterView: NSView {
         let source = textView.string as NSString
         let line = (textView as? CodeTextView)?.lineNumber(at: characterIndex, in: source)
             ?? source.substring(to: min(characterIndex, source.length)).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
-        if point.x <= 16, let region = foldRegions.first(where: { $0.startLine == line }) {
+        if point.x >= bounds.width - 8, let marker = gitLineChangeMarkersByLine[line] {
+            onShowGitLineChange?(marker)
+        } else if point.x <= 16, let region = foldRegions.first(where: { $0.startLine == line }) {
             onToggleFold?(region)
         } else if point.x <= 34,
                   let marker = implementationMarkers.first(where: { $0.line == line }) {
@@ -2387,6 +2484,67 @@ final class LineNumberGutterView: NSView {
             textView.window?.makeFirstResponder(textView)
             textView.setSelectedRange(NSRange(location: characterIndex, length: 0))
         }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        guard point.x >= bounds.width - 10,
+              let line = editorLine(at: point),
+              let marker = gitLineChangeMarkersByLine[line] else {
+            return super.menu(for: event)
+        }
+        contextGitLineChange = marker
+        let menu = NSMenu(title: "Git Line Change")
+        menu.addItem(withTitle: "Show Git Diff", action: #selector(showGitLineChangeFromMenu), keyEquivalent: "")
+        menu.items.last?.target = self
+        if onStageGitLineChange != nil {
+            menu.addItem(withTitle: "Stage Change Block", action: #selector(stageGitLineChangeFromMenu), keyEquivalent: "")
+            menu.items.last?.target = self
+        }
+        if onUnstageGitLineChange != nil {
+            menu.addItem(withTitle: "Unstage Change Block", action: #selector(unstageGitLineChangeFromMenu), keyEquivalent: "")
+            menu.items.last?.target = self
+        }
+        if onDiscardGitLineChange != nil {
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Discard Change Block…", action: #selector(discardGitLineChangeFromMenu), keyEquivalent: "")
+            menu.items.last?.target = self
+        }
+        return menu
+    }
+
+    private func editorLine(at point: NSPoint) -> Int? {
+        guard let textView,
+              let scrollView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              layoutManager.numberOfGlyphs > 0 else { return nil }
+        let documentY = point.y + scrollView.documentVisibleRect.minY - textView.textContainerOrigin.y
+        let glyphIndex = layoutManager.glyphIndex(
+            for: NSPoint(x: textView.textContainerInset.width, y: documentY),
+            in: textContainer
+        )
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        let source = textView.string as NSString
+        return (textView as? CodeTextView)?.lineNumber(at: characterIndex, in: source)
+            ?? source.substring(to: min(characterIndex, source.length)).reduce(0) { $1 == "\n" ? $0 + 1 : $0 }
+    }
+
+    @objc private func showGitLineChangeFromMenu() {
+        if let contextGitLineChange { onShowGitLineChange?(contextGitLineChange) }
+    }
+
+    @objc private func stageGitLineChangeFromMenu() {
+        if let contextGitLineChange { onStageGitLineChange?(contextGitLineChange) }
+    }
+
+    @objc private func unstageGitLineChangeFromMenu() {
+        if let contextGitLineChange { onUnstageGitLineChange?(contextGitLineChange) }
+    }
+
+    @objc private func discardGitLineChangeFromMenu() {
+        if let contextGitLineChange { onDiscardGitLineChange?(contextGitLineChange) }
     }
 
     deinit {
