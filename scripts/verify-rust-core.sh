@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+scripts/verify-rust-core-comments.sh
 scripts/verify-rust-core-layout.sh
 cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo test --manifest-path rust/Cargo.toml
@@ -51,4 +52,4 @@ if ! nm -gU "$BINARY" | grep -F "_lithe_core_lsp_provider_catalog_json" > /dev/n
     exit 1
 fi
 
-print "Rust Core verification passed: Rust tests, Swift bridge build, and linked symbols"
+print "Rust Core verification passed: comments, Rust tests, Swift bridge build, and linked symbols"

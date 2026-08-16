@@ -423,22 +423,6 @@ const WindowMenuBar = ({
           </MenubarItem>
         </MenubarContent>
       ),
-      Agent: (
-        <MenubarContent>
-          <MenubarItem shortcut="mod+r" onClick={() => handleClickEmit("menu_toggle_ai_chat")}>
-            Toggle Agent
-          </MenubarItem>
-          <MenubarItem
-            shortcut="mod+shift+space"
-            onClick={() => handleCommand("workbench.agentLauncher")}
-          >
-            New Agent
-          </MenubarItem>
-          <MenubarItem shortcut="mod+i" onClick={() => handleCommand("editor.inlineEdit")}>
-            Inline Edit
-          </MenubarItem>
-        </MenubarContent>
-      ),
       Tools: (
         <MenubarContent>
           <MenubarItem
@@ -455,13 +439,6 @@ const WindowMenuBar = ({
           <MenubarSeparator />
           <MenubarItem onClick={() => handleClickEmit("menu_open_settings")}>
             Preferences
-          </MenubarItem>
-          <MenubarItem
-            onClick={() => handleClickEmit("menu_open_extensions")}
-            disabled={!isBackendCapabilityAvailable("extensions")}
-            title={BACKEND_UNAVAILABLE_TOOLTIP}
-          >
-            Extensions
           </MenubarItem>
           <MenubarItem onClick={() => handleCommand("workbench.openKeyboardShortcuts")}>
             Keyboard Shortcuts
@@ -560,13 +537,11 @@ const WindowMenuBar = ({
             <MenubarTrigger
               disabled={
                 (menuName === "Terminal" && !isBackendCapabilityAvailable("terminal")) ||
-                (menuName === "Run" && !isBackendCapabilityAvailable("debugger")) ||
-                (menuName === "Agent" && !isBackendCapabilityAvailable("agent"))
+                (menuName === "Run" && !isBackendCapabilityAvailable("debugger"))
               }
               title={
                 (menuName === "Terminal" && !isBackendCapabilityAvailable("terminal")) ||
-                (menuName === "Run" && !isBackendCapabilityAvailable("debugger")) ||
-                (menuName === "Agent" && !isBackendCapabilityAvailable("agent"))
+                (menuName === "Run" && !isBackendCapabilityAvailable("debugger"))
                   ? BACKEND_UNAVAILABLE_TOOLTIP
                   : undefined
               }

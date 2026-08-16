@@ -7,7 +7,9 @@ enum LitheSplitAxis {
 }
 
 struct SplitHandleView: View {
-    static let thickness: CGFloat = 6
+    // Keep the hit target wider than the visible divider so resizing does not
+    // depend on landing on a single pixel row or column.
+    static let thickness: CGFloat = 10
 
     let axis: LitheSplitAxis
     let onDragStarted: () -> Void
@@ -16,6 +18,7 @@ struct SplitHandleView: View {
 
     @State private var isHovering = false
     @State private var isDragging = false
+    @State private var lastTranslation: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -34,12 +37,19 @@ struct SplitHandleView: View {
                 .onChanged { value in
                     if !isDragging {
                         isDragging = true
+                        lastTranslation = 0
                         onDragStarted()
                     }
-                    onDragChanged(axis == .horizontal ? value.translation.width : value.translation.height)
+                    let currentTranslation = axis == .horizontal ? value.translation.width : value.translation.height
+                    // Only report changes larger than 1pt to reduce update frequency
+                    if abs(currentTranslation - lastTranslation) >= 1 {
+                        lastTranslation = currentTranslation
+                        onDragChanged(currentTranslation)
+                    }
                 }
                 .onEnded { _ in
                     isDragging = false
+                    lastTranslation = 0
                     onDragEnded()
                 }
         )
@@ -71,12 +81,12 @@ struct SplitHandleView: View {
             if axis == .horizontal {
                 Rectangle()
                     .fill(color)
-                    .frame(width: isDragging ? 2 : 1)
+                    .frame(width: isDragging ? 3 : (isHovering ? 2 : 1))
                     .frame(maxHeight: .infinity)
             } else {
                 Rectangle()
                     .fill(color)
-                    .frame(height: isDragging ? 2 : 1)
+                    .frame(height: isDragging ? 3 : (isHovering ? 2 : 1))
                     .frame(maxWidth: .infinity)
             }
         }

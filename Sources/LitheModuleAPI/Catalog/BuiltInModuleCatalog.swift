@@ -12,7 +12,7 @@ public enum BuiltInModuleCatalog {
             defaultState: .disabled,
             activationPolicy: .onDemand,
             sleepPolicy: .whenIdle(afterSeconds: 5 * 60),
-            providedCapabilities: [.aiCommitMessage]
+            providedCapabilities: [.aiCommitMessage, .aiPullRequestDescription]
         ),
         ModuleManifest(
             id: .database,
@@ -100,6 +100,7 @@ public enum BuiltInModuleCatalog {
     public static let contributions: [ModuleID: [ModuleContribution]] = [
         .aiAssistance: [
             ModuleContribution(id: "ai.commit-message", kind: .command, title: "Generate Commit Message", icon: "wand.and.stars"),
+            ModuleContribution(id: "ai.pull-request-description", kind: .command, title: "Generate Pull Request Description", icon: "wand.and.stars"),
             ModuleContribution(id: "ai.settings", kind: .settings, title: "AI Assistance", icon: "wand.and.stars")
         ],
         .database: [

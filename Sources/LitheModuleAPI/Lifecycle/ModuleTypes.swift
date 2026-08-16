@@ -289,6 +289,7 @@ public extension ModuleCapabilityID {
     static let terminalWorkspace = ModuleCapabilityID("dev.lithe.capability.terminal-workspace")
     static let databaseWorkspace = ModuleCapabilityID("dev.lithe.capability.database-workspace")
     static let aiCommitMessage = ModuleCapabilityID("dev.lithe.capability.ai-commit-message")
+    static let aiPullRequestDescription = ModuleCapabilityID("dev.lithe.capability.ai-pull-request-description")
 
     static func languageServerExtension(_ languageID: String) -> ModuleCapabilityID {
         ModuleCapabilityID("dev.lithe.capability.language.\(languageID).language-server")

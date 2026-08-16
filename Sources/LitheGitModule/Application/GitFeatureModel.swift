@@ -8,6 +8,7 @@ import LitheModuleAPI
 @MainActor
 package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var gitChanges: [GitChange] = []
+    @Published private var pendingStagingStates: [GitChange.ID: Bool] = [:]
     @Published package private(set) var gitStashes: [GitStash] = []
     @Published package private(set) var gitShelves: [GitShelfEntry] = []
     @Published package private(set) var isPerformingStashOperation = false
@@ -134,6 +135,7 @@ package final class GitFeatureModel: ObservableObject {
 
     package func reset() {
         gitChanges = []
+        pendingStagingStates = [:]
         gitStashes = []
         gitShelves = []
         gitOperationState = nil
@@ -216,6 +218,7 @@ package final class GitFeatureModel: ObservableObject {
                 gitChanges = snapshot.changes
                 didChange = true
             }
+            reconcilePendingStagingStates(with: snapshot.changes)
             if !gitConflictFilterPaths.isEmpty {
                 let previousFilter = gitConflictFilterPaths
                 gitConflictFilterPaths.formIntersection(Set(snapshot.changes.map(\.path)))
@@ -616,15 +619,77 @@ package final class GitFeatureModel: ObservableObject {
         return true
     }
 
-    package func toggleStaging(_ change: GitChange) async {
-        selectedChange = change
-        let result = await withGitOperation {
-            change.isStaged
-                ? await service.unstage(change)
-                : await service.stage(change)
+    func reconcilePendingStagingStates(with changes: [GitChange]) {
+        let changesByID = Dictionary(uniqueKeysWithValues: changes.map { ($0.id, $0) })
+        pendingStagingStates = pendingStagingStates.filter { id, staged in
+            changesByID[id]?.isStaged != staged
         }
-        let verb = change.isStaged ? "Unstaged" : "Staged"
+    }
+
+    package func effectiveStagingState(for change: GitChange) -> Bool {
+        pendingStagingStates[change.id] ?? change.isStaged
+    }
+
+    package func beginToggleStaging(_ change: GitChange) -> Bool? {
+        guard pendingStagingStates[change.id] == nil else { return nil }
+        let staged = !change.isStaged
+        pendingStagingStates[change.id] = staged
+        return staged
+    }
+
+    package func beginSetStaging(_ changes: [GitChange], staged: Bool) -> [GitChange] {
+        let pendingChanges = changes.filter {
+            pendingStagingStates[$0.id] == nil && $0.isStaged != staged
+        }
+        for change in pendingChanges {
+            pendingStagingStates[change.id] = staged
+        }
+        return pendingChanges
+    }
+
+    package func finishToggleStaging(_ change: GitChange, staged: Bool) async {
+        let result = await withGitOperation {
+            staged
+                ? await service.stage(change)
+                : await service.unstage(change)
+        }
+        let verb = staged ? "Staged" : "Unstaged"
         showResult(result, success: "\(verb) \(change.path)")
+        if !result.succeeded {
+            pendingStagingStates.removeValue(forKey: change.id)
+        }
+        await refreshGit()
+    }
+
+    package func finishSetStaging(_ pendingChanges: [GitChange], staged: Bool) async {
+        guard !pendingChanges.isEmpty else { return }
+
+        var completedChangeIDs = Set<GitChange.ID>()
+        var failedChange: GitChange?
+        var failedResult: GitService.CommandResult?
+        await withGitOperation {
+            for change in pendingChanges {
+                let result = staged
+                    ? await service.stage(change)
+                    : await service.unstage(change)
+                guard result.succeeded else {
+                    failedChange = change
+                    failedResult = result
+                    break
+                }
+                completedChangeIDs.insert(change.id)
+            }
+        }
+
+        if let failedChange, let failedResult {
+            notify?("Could not \(staged ? "stage" : "unstage") \(failedChange.path): \(trimmedMessage(failedResult))")
+        } else {
+            let verb = staged ? "Staged" : "Unstaged"
+            notify?("\(verb) \(pendingChanges.count) file(s)")
+        }
+        for change in pendingChanges where !completedChangeIDs.contains(change.id) {
+            pendingStagingStates.removeValue(forKey: change.id)
+        }
         await refreshGit()
     }
 

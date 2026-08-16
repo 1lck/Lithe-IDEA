@@ -26,6 +26,7 @@ struct OutputTextView: View {
             searchRoots: searchRoots,
             fileExists: fileExists,
             emptyMessage: emptyMessage,
+            theme: LitheTheme.activeTheme,
             scrollToLatestRequest: scrollToLatestRequest,
             bottomThreshold: Self.bottomThreshold,
             render: Self.renderOutput,
@@ -47,18 +48,47 @@ struct OutputTextView: View {
 
     // MARK: - 渲染
 
-    fileprivate static func renderOutput(_ source: String, searchRoots: [URL], fileExists: @escaping (URL) -> Bool) -> AttributedString {
-        let parsed = ANSIOutputRenderer.parse(source)
-        guard !parsed.cleanText.isEmpty else { return AttributedString() }
+    fileprivate static func renderOutput(
+        _ source: String,
+        searchRoots: [URL],
+        fileExists: @escaping (URL) -> Bool,
+        isDark: Bool,
+        theme: AppColorTheme
+    ) -> NSAttributedString {
+        let defaultForeground = LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
+        let parsed = ANSIOutputRenderer.parse(source, defaultForeground: defaultForeground)
+        guard !parsed.cleanText.isEmpty else { return NSAttributedString() }
         var result = ANSIOutputRenderer.render(parsed, fontSize: 11.5)
-        applySeverityColors(to: &result, text: parsed.cleanText, ansiStyled: parsed.hasStyling)
-        dimTimestamps(in: &result, text: parsed.cleanText)
+        applySeverityColors(
+            to: &result,
+            text: parsed.cleanText,
+            ansiStyled: parsed.hasStyling,
+            theme: theme,
+            isDark: isDark
+        )
+        dimTimestamps(in: &result, text: parsed.cleanText, theme: theme, isDark: isDark)
         for location in matchLocations(in: parsed.cleanText, searchRoots: searchRoots, fileExists: fileExists) {
-            guard let range = Range(location.range, in: result) else { continue }
-            result[range].link = locationURL(path: location.url.path, line: location.line, column: location.column)
-            result[range].foregroundColor = location.kind == .warning ? LitheTheme.warning : LitheTheme.error
+            let range = NSRange(location.range, in: parsed.cleanText)
+            result.addAttribute(
+                .link,
+                value: locationURL(path: location.url.path, line: location.line, column: location.column),
+                range: range
+            )
+            result.addAttribute(.foregroundColor, value: resolvedColor(
+                location.kind == .warning ? .warning : .error,
+                theme: theme,
+                isDark: isDark
+            ), range: range)
         }
         return result
+    }
+
+    private static func resolvedColor(
+        _ token: LitheTheme.ResolvedColorToken,
+        theme: AppColorTheme,
+        isDark: Bool
+    ) -> NSColor {
+        LitheTheme.nsColor(token, theme: theme, isDark: isDark)
     }
 
     // MARK: - 日志级别着色
@@ -66,12 +96,12 @@ struct OutputTextView: View {
     enum Severity {
         case error, warning, info, debug
 
-        var color: Color {
+        func color(theme: AppColorTheme, isDark: Bool) -> NSColor {
             switch self {
-            case .error: LitheTheme.error
-            case .warning: LitheTheme.warning
-            case .info: Color(red: 0.55, green: 0.72, blue: 0.95)
-            case .debug: LitheTheme.secondaryText
+            case .error: resolvedColor(.error, theme: theme, isDark: isDark)
+            case .warning: resolvedColor(.warning, theme: theme, isDark: isDark)
+            case .info: NSColor(srgbRed: 0.55, green: 0.72, blue: 0.95, alpha: 1)
+            case .debug: resolvedColor(.secondaryText, theme: theme, isDark: isDark)
             }
         }
     }
@@ -99,9 +129,11 @@ struct OutputTextView: View {
     /// scannable bands. Skipped when the process emitted its own ANSI colors --
     /// overriding those would fight the tool's intended formatting.
     private static func applySeverityColors(
-        to result: inout AttributedString,
+        to result: inout NSMutableAttributedString,
         text: String,
-        ansiStyled: Bool
+        ansiStyled: Bool,
+        theme: AppColorTheme,
+        isDark: Bool
     ) {
         guard !ansiStyled else { return }
         var colored: [(Range<String.Index>, Severity)] = []
@@ -110,15 +142,23 @@ struct OutputTextView: View {
             colored.append((lineRange, severity))
         }
         for (lineRange, severity) in colored {
-            guard let range = Range(lineRange, in: result) else { continue }
-            result[range].foregroundColor = severity.color
+            result.addAttribute(
+                .foregroundColor,
+                value: severity.color(theme: theme, isDark: isDark),
+                range: NSRange(lineRange, in: text)
+            )
         }
     }
 
     /// Recedes the leading clock on every line so the timestamps read as a
     /// gutter rather than competing with the message for attention. Applied
     /// after severity coloring, which paints whole lines including the stamp.
-    private static func dimTimestamps(in result: inout AttributedString, text: String) {
+    private static func dimTimestamps(
+        in result: inout NSMutableAttributedString,
+        text: String,
+        theme: AppColorTheme,
+        isDark: Bool
+    ) {
         var stamps: [Range<String.Index>] = []
         text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: [.byLines]) { substring, lineRange, _, _ in
             guard let line = substring,
@@ -131,8 +171,11 @@ struct OutputTextView: View {
             stamps.append(lineRange.lowerBound..<end)
         }
         for stamp in stamps {
-            guard let range = Range(stamp, in: result) else { continue }
-            result[range].foregroundColor = LitheTheme.secondaryText.opacity(0.7)
+            result.addAttribute(
+                .foregroundColor,
+                value: resolvedColor(.secondaryText, theme: theme, isDark: isDark).withAlphaComponent(0.7),
+                range: NSRange(stamp, in: text)
+            )
         }
     }
 
@@ -331,9 +374,10 @@ private struct OutputTextStorageView: NSViewRepresentable {
     let searchRoots: [URL]
     let fileExists: (URL) -> Bool
     let emptyMessage: String
+    let theme: AppColorTheme
     let scrollToLatestRequest: Int
     let bottomThreshold: CGFloat
-    let render: (String, [URL], @escaping (URL) -> Bool) -> AttributedString
+    let render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme) -> NSAttributedString
     let onOpenLocation: (URL, Int, Int?) -> Void
     let onBottomStateChange: @MainActor (Bool) -> Void
 
@@ -367,6 +411,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
         textView.linkTextAttributes = [
             NSAttributedString.Key.foregroundColor: LitheTheme.nsColor(
                 .accent,
+                theme: theme,
                 isDark: context.environment.colorScheme == .dark
             ),
             NSAttributedString.Key.underlineStyle: NSUnderlineStyle.single.rawValue
@@ -390,6 +435,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
             output: output,
             emptyMessage: emptyMessage,
             isDark: colorScheme == .dark,
+            theme: theme,
             searchRoots: searchRoots,
             fileExists: fileExists,
             render: render
@@ -411,6 +457,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         private var source = ""
         private var sourceHadANSI = false
         private var showingEmptyMessage = false
+        private var renderedTheme: AppColorTheme?
+        private var renderedIsDark: Bool?
         private var isAtBottom = true
         private var boundsObserver: NSObjectProtocol?
 
@@ -430,34 +478,39 @@ private struct OutputTextStorageView: NSViewRepresentable {
             output: String,
             emptyMessage: String,
             isDark: Bool,
+            theme: AppColorTheme,
             searchRoots: [URL],
             fileExists: @escaping (URL) -> Bool,
-            render: (String, [URL], @escaping (URL) -> Bool) -> AttributedString
+            render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme) -> NSAttributedString
         ) {
             guard let storage = textView?.textStorage else { return }
             let wasAtBottom = isAtBottom
+            let appearanceChanged = renderedTheme != theme || renderedIsDark != isDark
             if output.isEmpty {
-                guard !showingEmptyMessage || storage.string != emptyMessage else { return }
+                guard appearanceChanged || !showingEmptyMessage || storage.string != emptyMessage else { return }
                 storage.setAttributedString(NSAttributedString(
                     string: emptyMessage,
                     attributes: [
                         .font: NSFont(name: "Menlo", size: 11.5) ?? .monospacedSystemFont(ofSize: 11.5, weight: .regular),
-                        .foregroundColor: LitheTheme.nsColor(.primaryText, isDark: isDark)
+                        .foregroundColor: LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
                     ]
                 ))
                 source = ""
                 sourceHadANSI = false
                 showingEmptyMessage = true
             } else {
-                switch OutputTextUpdate.plan(previous: source, next: output, previousHadANSI: sourceHadANSI) {
+                let update = appearanceChanged
+                    ? OutputTextUpdate.replace
+                    : OutputTextUpdate.plan(previous: source, next: output, previousHadANSI: sourceHadANSI)
+                switch update {
                 case .unchanged:
                     return
                 case let .append(suffix):
-                    let rendered = render(suffix, searchRoots, fileExists)
-                    storage.append(NSAttributedString(rendered))
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
+                    storage.append(rendered)
                     sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
                 case let .replaceTail(length, suffix):
-                    let rendered = NSAttributedString(render(suffix, searchRoots, fileExists))
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
                     let replacementRange = NSRange(
                         location: max(0, storage.length - length),
                         length: min(length, storage.length)
@@ -465,13 +518,15 @@ private struct OutputTextStorageView: NSViewRepresentable {
                     storage.replaceCharacters(in: replacementRange, with: rendered)
                     sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
                 case .replace:
-                    let rendered = render(output, searchRoots, fileExists)
-                    storage.setAttributedString(NSAttributedString(rendered))
+                    let rendered = render(output, searchRoots, fileExists, isDark, theme)
+                    storage.setAttributedString(rendered)
                     sourceHadANSI = output.unicodeScalars.contains { $0.value == 27 }
                 }
                 source = output
                 showingEmptyMessage = false
             }
+            renderedTheme = theme
+            renderedIsDark = isDark
             if wasAtBottom { scrollToBottom() }
             reportBottomState()
         }
@@ -505,19 +560,25 @@ private struct OutputTextStorageView: NSViewRepresentable {
 
 // MARK: - ANSI 渲染器
 
-/// 将含 ANSI 转义序列的文本解析为「干净文本 + 样式段」,再组装成 AttributedString。
+/// 将含 ANSI 转义序列的文本解析为「干净文本 + 样式段」,再组装成 NSAttributedString。
 /// 终端、Maven 构建输出与运行输出共用。
 enum ANSIOutputRenderer {
     struct Style {
-        var foreground = LitheTheme.primaryText
-        var background: Color?
+        var foreground: NSColor
+        var background: NSColor?
         var bold = false
+
+        init(foreground: NSColor = .labelColor, background: NSColor? = nil, bold: Bool = false) {
+            self.foreground = foreground
+            self.background = background
+            self.bold = bold
+        }
     }
 
     struct Segment {
         var range: Range<String.Index>
-        var foreground: Color
-        var background: Color?
+        var foreground: NSColor
+        var background: NSColor?
         var bold: Bool
     }
 
@@ -529,33 +590,46 @@ enum ANSIOutputRenderer {
         var hasStyling = false
     }
 
-    /// 便捷渲染:直接由源文本生成 AttributedString。
-    static func render(_ source: String, fontSize: CGFloat) -> AttributedString {
+    /// 便捷渲染:直接由源文本生成 NSAttributedString。
+    static func render(_ source: String, fontSize: CGFloat) -> NSMutableAttributedString {
         render(parse(source), fontSize: fontSize)
     }
 
-    static func render(_ parsed: ParsedOutput, fontSize: CGFloat) -> AttributedString {
-        var result = AttributedString()
+    static func render(_ parsed: ParsedOutput, fontSize: CGFloat) -> NSMutableAttributedString {
+        let result = NSMutableAttributedString()
         for segment in parsed.segments {
-            var run = AttributedString(String(parsed.cleanText[segment.range]))
-            run.foregroundColor = segment.foreground
-            run.backgroundColor = segment.background
-            run.font = segment.bold
-                ? .custom("Menlo-Bold", size: fontSize)
-                : .custom("Menlo", size: fontSize)
-            result.append(run)
+            var attributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: segment.foreground,
+                .font: NSFont(
+                    name: segment.bold ? "Menlo-Bold" : "Menlo",
+                    size: fontSize
+                ) ?? .monospacedSystemFont(
+                    ofSize: fontSize,
+                    weight: segment.bold ? .bold : .regular
+                )
+            ]
+            if let background = segment.background {
+                attributes[.backgroundColor] = background
+            }
+            result.append(NSAttributedString(
+                string: String(parsed.cleanText[segment.range]),
+                attributes: attributes
+            ))
         }
         return result
     }
 
-    static func parse(_ source: String) -> ParsedOutput {
+    static func parse(
+        _ source: String,
+        defaultForeground: NSColor = .labelColor
+    ) -> ParsedOutput {
         let scalars = Array(source.unicodeScalars)
         var cleanText = ""
         cleanText.reserveCapacity(scalars.count)
         var segments: [Segment] = []
         var buffer = ""
         var segmentStart: String.Index?
-        var style = Style()
+        var style = Style(foreground: defaultForeground)
         var index = 0
         var sawColorCode = false
 
@@ -590,7 +664,7 @@ enum ANSIOutputRenderer {
                     if end < scalars.count {
                         if scalars[end] == "m" {
                             let parameters = String(String.UnicodeScalarView(scalars[(index + 2)..<end]))
-                            applySGR(parameters, to: &style)
+                            applySGR(parameters, defaultForeground: defaultForeground, to: &style)
                             if parameters != "0" && !parameters.isEmpty { sawColorCode = true }
                         }
                         index = end + 1
@@ -622,17 +696,21 @@ enum ANSIOutputRenderer {
         return ParsedOutput(cleanText: cleanText, segments: segments, hasStyling: sawColorCode)
     }
 
-    private static func applySGR(_ parameters: String, to style: inout Style) {
+    private static func applySGR(
+        _ parameters: String,
+        defaultForeground: NSColor,
+        to style: inout Style
+    ) {
         let codes = parameters.isEmpty ? [0] : parameters.split(separator: ";").compactMap { Int($0) }
         var index = 0
         while index < codes.count {
             let code = codes[index]
             switch code {
-            case 0: style = Style()
+            case 0: style = Style(foreground: defaultForeground)
             case 1: style.bold = true
             case 22: style.bold = false
             case 30...37, 90...97: style.foreground = paletteColor(code)
-            case 39: style.foreground = Style().foreground
+            case 39: style.foreground = defaultForeground
             case 40...47, 100...107: style.background = paletteColor(code - 10)
             case 49: style.background = nil
             case 38, 48:
@@ -641,10 +719,11 @@ enum ANSIOutputRenderer {
                     setColor(color256(codes[index + 2]), foreground: isForeground, style: &style)
                     index += 2
                 } else if index + 4 < codes.count, codes[index + 1] == 2 {
-                    let color = Color(
-                        red: Double(codes[index + 2]) / 255,
+                    let color = NSColor(
+                        srgbRed: Double(codes[index + 2]) / 255,
                         green: Double(codes[index + 3]) / 255,
-                        blue: Double(codes[index + 4]) / 255
+                        blue: Double(codes[index + 4]) / 255,
+                        alpha: 1
                     )
                     setColor(color, foreground: isForeground, style: &style)
                     index += 4
@@ -655,32 +734,36 @@ enum ANSIOutputRenderer {
         }
     }
 
-    private static func setColor(_ color: Color, foreground: Bool, style: inout Style) {
+    private static func setColor(_ color: NSColor, foreground: Bool, style: inout Style) {
         if foreground { style.foreground = color } else { style.background = color }
     }
 
-    private static func paletteColor(_ code: Int) -> Color {
-        let values: [Color] = [
-            .black, Color(red: 0.80, green: 0.27, blue: 0.29),
-            Color(red: 0.31, green: 0.72, blue: 0.39), Color(red: 0.86, green: 0.68, blue: 0.31),
-            Color(red: 0.35, green: 0.55, blue: 0.90), Color(red: 0.72, green: 0.40, blue: 0.78),
-            Color(red: 0.35, green: 0.72, blue: 0.75), Color(red: 0.78, green: 0.80, blue: 0.82)
+    private static func paletteColor(_ code: Int) -> NSColor {
+        let values: [NSColor] = [
+            .black, NSColor(srgbRed: 0.80, green: 0.27, blue: 0.29, alpha: 1),
+            NSColor(srgbRed: 0.31, green: 0.72, blue: 0.39, alpha: 1),
+            NSColor(srgbRed: 0.86, green: 0.68, blue: 0.31, alpha: 1),
+            NSColor(srgbRed: 0.35, green: 0.55, blue: 0.90, alpha: 1),
+            NSColor(srgbRed: 0.72, green: 0.40, blue: 0.78, alpha: 1),
+            NSColor(srgbRed: 0.35, green: 0.72, blue: 0.75, alpha: 1),
+            NSColor(srgbRed: 0.78, green: 0.80, blue: 0.82, alpha: 1)
         ]
         return values[(code >= 90 ? code - 90 : code - 30) % values.count]
     }
 
-    private static func color256(_ value: Int) -> Color {
+    private static func color256(_ value: Int) -> NSColor {
         if value < 16 { return paletteColor(value < 8 ? value + 30 : value - 8 + 90) }
         if value >= 232 {
             let component = Double(8 + (value - 232) * 10) / 255
-            return Color(red: component, green: component, blue: component)
+            return NSColor(srgbRed: component, green: component, blue: component, alpha: 1)
         }
         let offset = value - 16
         let components = [offset / 36, (offset / 6) % 6, offset % 6].map { $0 == 0 ? 0 : 55 + $0 * 40 }
-        return Color(
-            red: Double(components[0]) / 255,
+        return NSColor(
+            srgbRed: Double(components[0]) / 255,
             green: Double(components[1]) / 255,
-            blue: Double(components[2]) / 255
+            blue: Double(components[2]) / 255,
+            alpha: 1
         )
     }
 }

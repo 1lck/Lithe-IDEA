@@ -20,11 +20,10 @@ import Select from "@/ui/select";
 import Switch from "@/ui/switch";
 import Textarea from "@/ui/textarea";
 import Tooltip from "@/ui/tooltip";
-
-const FONT_HELP_TEXT =
-  "Note: Selected font must be installed on your system to work correctly. If icons are missing, try installing a Nerd Font.";
+import { useTranslation } from "@/i18n/locale-provider";
 
 export const TerminalSettings = () => {
+  const { t } = useTranslation();
   const settings = useSettingsStore((state) => state.settings);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const monospaceFonts = useFontStore.use.monospaceFonts();
@@ -47,7 +46,7 @@ export const TerminalSettings = () => {
   const fontOptions = [
     ...installedNerdFonts.map((font) => ({
       value: font,
-      label: `${font} (Nerd Font)`,
+      label: `${font} (${t("settings.terminal.nerdFont")})`,
     })),
     ...monospaceFonts
       .filter((f) => !COMMON_TERMINAL_NERD_FONTS.includes(f.family))
@@ -61,12 +60,12 @@ export const TerminalSettings = () => {
   ) {
     fontOptions.unshift({
       value: settings.terminalFontFamily,
-      label: `${settings.terminalFontFamily} (Custom)`,
+      label: `${settings.terminalFontFamily} (${t("settings.terminal.custom")})`,
     });
   }
 
   const shellOptions = [
-    { value: DEFAULT_SHELL_OPTION_VALUE, label: "System Default" },
+    { value: DEFAULT_SHELL_OPTION_VALUE, label: t("settings.terminal.systemDefault") },
     ...shells.map((shell) => ({
       value: shell.id,
       label: shell.name,
@@ -110,12 +109,12 @@ export const TerminalSettings = () => {
   return (
     <SettingsView>
       <Section
-        title="Launch"
-        description="Choose which shell and profile new terminal tabs should use by default."
+        title={t("settings.terminal.launch")}
+        description={t("settings.terminal.launchDescription")}
       >
         <SettingRow
-          label="Default Shell"
-          description="Fallback shell when a terminal profile does not override it."
+          label={t("settings.terminal.defaultShell")}
+          description={t("settings.terminal.defaultShellDescription")}
           onReset={() =>
             updateSetting("terminalDefaultShellId", getDefaultSetting("terminalDefaultShellId"))
           }
@@ -139,8 +138,8 @@ export const TerminalSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Default Profile"
-          description="Used by the terminal toolbar button and Cmd+T when the terminal is focused."
+          label={t("settings.terminal.defaultProfile")}
+          description={t("settings.terminal.defaultProfileDescription")}
           onReset={() =>
             updateSetting("terminalDefaultProfileId", getDefaultSetting("terminalDefaultProfileId"))
           }
@@ -167,20 +166,19 @@ export const TerminalSettings = () => {
       </Section>
 
       <Section
-        title="Profiles"
-        description="Create reusable launch presets with a shell override, startup directory, and optional startup commands."
+        title={t("settings.terminal.profiles")}
+        description={t("settings.terminal.profilesDescription")}
       >
         <div className="space-y-3 px-1">
           <div className="flex items-center justify-between">
             <div className="font-sans ui-text-base text-subtle-foreground">
-              Built-in profiles are generated from detected shells. Custom profiles appear in the
-              terminal toolbar profile picker.
+              {t("settings.terminal.profilesHelp")}
             </div>
             <Button
               variant="default"
               onClick={() =>
                 profileActions.addProfile({
-                  name: `Custom Profile ${profiles.length + 1}`,
+                  name: t("settings.terminal.customProfile", { number: profiles.length + 1 }),
                   shell: settings.terminalDefaultShellId || undefined,
                   startupCommands: [],
                 })
@@ -188,14 +186,14 @@ export const TerminalSettings = () => {
               size="sm"
             >
               <Plus className="mr-1" />
-              Add Profile
+              {t("settings.terminal.addProfile")}
             </Button>
           </div>
 
           {profiles.length === 0 ? (
             <Empty className="min-h-24 border border-border/70 bg-surface/50 px-3 py-3">
               <EmptyDescription className="ui-text-base">
-                No custom terminal profiles yet.
+                {t("settings.terminal.noCustomProfiles")}
               </EmptyDescription>
             </Empty>
           ) : (
@@ -210,13 +208,13 @@ export const TerminalSettings = () => {
                       {profile.name}
                     </div>
                     <div className="font-sans ui-text-base text-subtle-foreground">
-                      Visible in the terminal profile picker.
+                      {t("settings.terminal.profilePickerDescription")}
                     </div>
                   </div>
                   <Button
                     variant="danger"
                     onClick={() => profileActions.deleteProfile(profile.id)}
-                    aria-label={`Delete ${profile.name}`}
+                    aria-label={t("settings.terminal.deleteProfile", { profile: profile.name })}
                     size="icon-sm"
                   >
                     <Trash2 />
@@ -225,7 +223,9 @@ export const TerminalSettings = () => {
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <Field>
-                    <FieldLabel htmlFor={`terminal-profile-name-${profile.id}`}>Name</FieldLabel>
+                    <FieldLabel htmlFor={`terminal-profile-name-${profile.id}`}>
+                      {t("settings.terminal.profileName")}
+                    </FieldLabel>
                     <Input
                       id={`terminal-profile-name-${profile.id}`}
                       value={profile.name}
@@ -234,12 +234,14 @@ export const TerminalSettings = () => {
                           name: event.target.value,
                         })
                       }
-                      placeholder="My Profile"
+                      placeholder={t("settings.terminal.profileNamePlaceholder")}
                       size="md"
                     />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor={`terminal-profile-shell-${profile.id}`}>Shell</FieldLabel>
+                    <FieldLabel htmlFor={`terminal-profile-shell-${profile.id}`}>
+                      {t("settings.terminal.profileShell")}
+                    </FieldLabel>
                     <Select
                       id={`terminal-profile-shell-${profile.id}`}
                       value={profile.shell || DEFAULT_SHELL_OPTION_VALUE}
@@ -260,7 +262,7 @@ export const TerminalSettings = () => {
 
                 <Field>
                   <FieldLabel htmlFor={`terminal-profile-directory-${profile.id}`}>
-                    Startup Directory
+                    {t("settings.terminal.startupDirectory")}
                   </FieldLabel>
                   <Input
                     id={`terminal-profile-directory-${profile.id}`}
@@ -270,17 +272,17 @@ export const TerminalSettings = () => {
                         startupDirectory: event.target.value || undefined,
                       })
                     }
-                    placeholder="Leave empty to use the current workspace directory"
+                    placeholder={t("settings.terminal.startupDirectoryPlaceholder")}
                     size="md"
                   />
                   <FieldDescription>
-                    Leave empty to use the current workspace directory.
+                    {t("settings.terminal.startupDirectoryDescription")}
                   </FieldDescription>
                 </Field>
 
                 <Field>
                   <FieldLabel htmlFor={`terminal-profile-commands-${profile.id}`}>
-                    Startup Commands
+                    {t("settings.terminal.startupCommands")}
                   </FieldLabel>
                   <Textarea
                     id={`terminal-profile-commands-${profile.id}`}
@@ -293,11 +295,11 @@ export const TerminalSettings = () => {
                           .filter(Boolean),
                       })
                     }
-                    placeholder="One command per line"
+                    placeholder={t("settings.terminal.startupCommandsPlaceholder")}
                     rows={3}
                     size="md"
                   />
-                  <FieldDescription>Enter one command per line.</FieldDescription>
+                  <FieldDescription>{t("settings.terminal.startupCommandsDescription")}</FieldDescription>
                 </Field>
               </div>
             ))
@@ -305,10 +307,10 @@ export const TerminalSettings = () => {
         </div>
       </Section>
 
-      <Section title="Typography">
+      <Section title={t("settings.terminal.typography")}>
         <SettingRow
-          label="Font Family"
-          description="Font family for the integrated terminal. Select a Nerd Font for best icon support."
+          label={t("settings.terminal.fontFamily")}
+          description={t("settings.terminal.fontFamilyDescription")}
           onReset={() =>
             updateSetting("terminalFontFamily", getDefaultSetting("terminalFontFamily"))
           }
@@ -324,17 +326,17 @@ export const TerminalSettings = () => {
               variant="default"
               searchable
               searchableTrigger="input"
-              placeholder="Select font..."
+              placeholder={t("settings.terminal.selectFont")}
             />
-            <Tooltip content={FONT_HELP_TEXT} side="left">
+            <Tooltip content={t("settings.terminal.fontHelp")} side="left">
               <Info className="size-4 cursor-help text-subtle-foreground transition-colors hover:text-foreground" />
             </Tooltip>
           </div>
         </SettingRow>
 
         <SettingRow
-          label="Font Size"
-          description="Terminal font size in pixels"
+          label={t("settings.terminal.fontSize")}
+          description={t("settings.terminal.fontSizeDescription")}
           onReset={() => updateSetting("terminalFontSize", getDefaultSetting("terminalFontSize"))}
           canReset={settings.terminalFontSize !== getDefaultSetting("terminalFontSize")}
         >
@@ -349,8 +351,8 @@ export const TerminalSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Line Height"
-          description="Line height multiplier"
+          label={t("settings.terminal.lineHeight")}
+          description={t("settings.terminal.lineHeightDescription")}
           onReset={() =>
             updateSetting("terminalLineHeight", getDefaultSetting("terminalLineHeight"))
           }
@@ -368,8 +370,8 @@ export const TerminalSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Letter Spacing"
-          description="Additional spacing between characters"
+          label={t("settings.terminal.letterSpacing")}
+          description={t("settings.terminal.letterSpacingDescription")}
           onReset={() =>
             updateSetting("terminalLetterSpacing", getDefaultSetting("terminalLetterSpacing"))
           }
@@ -387,8 +389,8 @@ export const TerminalSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Scrollback"
-          description="How many lines of terminal history to keep in memory"
+          label={t("settings.terminal.scrollback")}
+          description={t("settings.terminal.scrollbackDescription")}
           onReset={() =>
             updateSetting("terminalScrollback", getDefaultSetting("terminalScrollback"))
           }
@@ -406,10 +408,10 @@ export const TerminalSettings = () => {
         </SettingRow>
       </Section>
 
-      <Section title="Interaction">
+      <Section title={t("settings.terminal.interaction")}>
         <SettingRow
-          label="Alt Click Moves Cursor"
-          description="Move the shell prompt cursor to the clicked position when supported"
+          label={t("settings.terminal.altClickMovesCursor")}
+          description={t("settings.terminal.altClickMovesCursorDescription")}
           onReset={() =>
             updateSetting(
               "terminalAltClickMovesCursor",
@@ -429,8 +431,8 @@ export const TerminalSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Option as Meta"
-          description="Treat the Option key as Meta in terminal applications on macOS"
+          label={t("settings.terminal.optionAsMeta")}
+          description={t("settings.terminal.optionAsMetaDescription")}
           onReset={() =>
             updateSetting("terminalMacOptionIsMeta", getDefaultSetting("terminalMacOptionIsMeta"))
           }
@@ -446,8 +448,8 @@ export const TerminalSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Right Click Selects Word"
-          description="Select the word under the pointer before opening the context menu"
+          label={t("settings.terminal.rightClickSelectsWord")}
+          description={t("settings.terminal.rightClickSelectsWordDescription")}
           onReset={() =>
             updateSetting(
               "terminalRightClickSelectsWord",
@@ -467,10 +469,10 @@ export const TerminalSettings = () => {
         </SettingRow>
       </Section>
 
-      <Section title="Cursor">
+      <Section title={t("settings.terminal.cursor")}>
         <SettingRow
-          label="Cursor Style"
-          description="Shape of the cursor"
+          label={t("settings.terminal.cursorStyle")}
+          description={t("settings.terminal.cursorStyleDescription")}
           onReset={() =>
             updateSetting("terminalCursorStyle", getDefaultSetting("terminalCursorStyle"))
           }
@@ -479,9 +481,9 @@ export const TerminalSettings = () => {
           <Select
             value={settings.terminalCursorStyle}
             options={[
-              { value: "block", label: "Block" },
-              { value: "underline", label: "Underline" },
-              { value: "bar", label: "Bar" },
+              { value: "block", label: t("settings.terminal.block") },
+              { value: "underline", label: t("settings.terminal.underline") },
+              { value: "bar", label: t("settings.terminal.bar") },
             ]}
             onChange={(val) =>
               updateSetting("terminalCursorStyle", val as "block" | "underline" | "bar")
@@ -495,8 +497,8 @@ export const TerminalSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Blinking Cursor"
-          description="Whether the cursor should blink"
+          label={t("settings.terminal.blinkingCursor")}
+          description={t("settings.terminal.blinkingCursorDescription")}
           onReset={() =>
             updateSetting("terminalCursorBlink", getDefaultSetting("terminalCursorBlink"))
           }
@@ -510,8 +512,8 @@ export const TerminalSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Cursor Width"
-          description="Thickness of the bar or block cursor"
+          label={t("settings.terminal.cursorWidth")}
+          description={t("settings.terminal.cursorWidthDescription")}
           onReset={() =>
             updateSetting("terminalCursorWidth", getDefaultSetting("terminalCursorWidth"))
           }
@@ -528,8 +530,8 @@ export const TerminalSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Inactive Cursor Style"
-          description="Appearance of the terminal cursor when the terminal is not focused"
+          label={t("settings.terminal.inactiveCursorStyle")}
+          description={t("settings.terminal.inactiveCursorStyleDescription")}
           onReset={() =>
             updateSetting(
               "terminalCursorInactiveStyle",
@@ -544,11 +546,11 @@ export const TerminalSettings = () => {
           <Select
             value={settings.terminalCursorInactiveStyle}
             options={[
-              { value: "outline", label: "Outline" },
-              { value: "block", label: "Block" },
-              { value: "bar", label: "Bar" },
-              { value: "underline", label: "Underline" },
-              { value: "none", label: "Hidden" },
+              { value: "outline", label: t("settings.terminal.outline") },
+              { value: "block", label: t("settings.terminal.block") },
+              { value: "bar", label: t("settings.terminal.bar") },
+              { value: "underline", label: t("settings.terminal.underline") },
+              { value: "none", label: t("settings.terminal.hidden") },
             ]}
             onChange={(value) =>
               updateSetting(

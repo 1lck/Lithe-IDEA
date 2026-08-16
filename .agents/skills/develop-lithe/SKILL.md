@@ -127,6 +127,11 @@ Windows/Tauri Rust crates, generated code, or third-party sources.
   when the test name and assertions do not make that intent clear.
 - Do not narrate statements, restate descriptive names, or add comments to
   trivial accessors and straightforward control flow solely for coverage.
+- Run `./scripts/verify-rust-core-comments.sh` before slower Rust Core checks.
+  It enforces module documentation, exported Rustdoc, English comments, and
+  unsafe API safety sections without requiring documentation on every internal
+  helper. Still review changed internal types and implementations for the
+  semantic cases above, which a static check cannot judge reliably.
 
 ### Windows React and Tauri
 

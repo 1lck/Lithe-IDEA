@@ -79,13 +79,19 @@ const settingsTabLabels: Record<SettingsTab, string> = {
 
 const settingsTabCommands = (Object.entries(settingsTabLabels) as Array<[SettingsTab, string]>)
   .map(([tab, label]) => ({ tab, label }))
-  .filter(({ tab }) => tab !== "language");
+  .filter(
+    ({ tab }) =>
+      !["account", "ai", "collaboration", "enterprise", "language"].includes(tab),
+  );
 
 function getMatchingSettingsRecords(query: string) {
   const trimmedQuery = query.trim();
   if (trimmedQuery.length < 2) return [];
 
   return settingsSearchIndex
+    .filter(
+      (record) => !["account", "ai", "collaboration", "enterprise"].includes(record.tab),
+    )
     .filter((record) => record.id !== "editor-vim-mode")
     .map((record) => {
       const score = scoreSearchQuery(trimmedQuery, [

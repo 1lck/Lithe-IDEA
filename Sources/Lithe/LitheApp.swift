@@ -135,20 +135,20 @@ struct LitheApp: App {
                 Button("Open Project…") {
                     model.chooseProject()
                 }
-                .keyboardShortcut("o", modifiers: .command)
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "open-project"))
             }
 
             CommandGroup(after: .saveItem) {
                 Button("Save") {
                     model.saveActiveDocument()
                 }
-                .keyboardShortcut("s", modifiers: .command)
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "save"))
                 .disabled(model.activeDocument == nil)
 
                 Button("Close Project") {
                     model.closeProject()
                 }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "close-project"))
                 .disabled(model.workspaceURL == nil)
             }
 
@@ -156,7 +156,7 @@ struct LitheApp: App {
                 Button("Settings…") {
                     model.showSettings()
                 }
-                .keyboardShortcut(",", modifiers: .command)
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "settings"))
             }
 
             CommandGroup(after: .appInfo) {
@@ -171,9 +171,7 @@ struct LitheApp: App {
                     Button("Search Everywhere…") {
                         model.toggleSearchEverywhere()
                     }
-                    // 双 Shift 是主入口。IntelliJ 的 ⇧⌘A 是 Find Action，
-                    // 这里不再占用它，改用 ⇧⌘O（Go to File 家族）作为可见的菜单快捷键。
-                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "search-everywhere"))
                     .disabled(model.workspaceURL == nil)
 
                     Divider()
@@ -181,19 +179,19 @@ struct LitheApp: App {
                     Button("Find in File…") {
                         model.showFindBar()
                     }
-                    .keyboardShortcut("f", modifiers: .command)
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-in-file"))
                     .disabled(model.activeDocument == nil)
 
                     Button("Find Next") {
                         model.navigateFind(offset: 1)
                     }
-                    .keyboardShortcut("g", modifiers: .command)
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-next"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
                     Button("Find Previous") {
                         model.navigateFind(offset: -1)
                     }
-                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-previous"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
                 }
 
@@ -202,19 +200,19 @@ struct LitheApp: App {
                 Button("Go to Usage") {
                     model.goToUsages()
                 }
-                .keyboardShortcut("b", modifiers: .command)
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-usage"))
                 .disabled(!model.supportsLanguageServerFeature(.references))
 
                 Button("Go to Implementation") {
                     model.goToImplementation()
                 }
-                .keyboardShortcut("b", modifiers: [.command, .option])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-implementation"))
                 .disabled(!model.supportsLanguageServerFeature(.implementation))
 
                 Button("Find Usages") {
                     model.findReferences()
                 }
-                .keyboardShortcut("u", modifiers: [.command, .option])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-usages"))
                 .disabled(!model.supportsLanguageServerFeature(.references))
 
                 Divider()
@@ -222,13 +220,13 @@ struct LitheApp: App {
                 Button("Find in Files…") {
                     model.openProjectSearch()
                 }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "search-in-project"))
                 .disabled(model.workspaceURL == nil)
 
                 Button("Replace in Files…") {
                     model.openProjectReplace()
                 }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "replace-in-project"))
                 .disabled(model.workspaceURL == nil)
             }
 

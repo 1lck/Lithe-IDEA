@@ -1,5 +1,6 @@
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import DebuggerView from "@/features/debugger/components/debugger-view";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
@@ -62,10 +63,24 @@ const BottomPane = () => {
   }, [bottomPaneActiveTab, isBottomPaneVisible]);
 
   useEffect(() => {
-    if (isBottomPaneVisible && bottomPaneActiveTab === "debugger" && !debuggerEnabled) {
+    if (
+      isBottomPaneVisible &&
+      bottomPaneActiveTab === "debugger" &&
+      (!debuggerEnabled || !isBackendCapabilityAvailable("debugger"))
+    ) {
       useUIState.getState().setIsBottomPaneVisible(false);
     }
   }, [bottomPaneActiveTab, isBottomPaneVisible, debuggerEnabled]);
+
+  useEffect(() => {
+    if (
+      isBottomPaneVisible &&
+      bottomPaneActiveTab === "terminal" &&
+      (!terminalEnabled || !isBackendCapabilityAvailable("terminal"))
+    ) {
+      useUIState.getState().setIsBottomPaneVisible(false);
+    }
+  }, [bottomPaneActiveTab, isBottomPaneVisible, terminalEnabled]);
 
   useEffect(() => {
     if (
@@ -226,7 +241,7 @@ const BottomPane = () => {
     >
       <div className="h-full overflow-hidden">
         {/* Terminal Container - Always mounted to preserve terminal sessions */}
-        {terminalEnabled && (
+        {terminalEnabled && isBackendCapabilityAvailable("terminal") && (
           <TerminalContainer
             currentDirectory={rootFolderPath}
             className={cn("h-full", bottomPaneActiveTab === "terminal" ? "block" : "hidden")}
@@ -235,7 +250,9 @@ const BottomPane = () => {
           />
         )}
 
-        {debuggerEnabled && bottomPaneActiveTab === "debugger" && (
+        {debuggerEnabled &&
+          isBackendCapabilityAvailable("debugger") &&
+          bottomPaneActiveTab === "debugger" && (
           <div className="h-full">
             <DebuggerView />
           </div>

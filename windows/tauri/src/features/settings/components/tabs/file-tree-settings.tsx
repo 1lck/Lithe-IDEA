@@ -7,8 +7,10 @@ import Select from "@/ui/select";
 import Textarea from "@/ui/textarea";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
 import Switch from "@/ui/switch";
+import { useTranslation } from "@/i18n/locale-provider";
 
 export const FileTreeSettings = () => {
+  const { t } = useTranslation();
   const settings = useSettingsStore(
     useShallow((state) => ({
       autoRevealActiveFileInFileTree: state.settings.autoRevealActiveFileInFileTree,
@@ -59,18 +61,18 @@ export const FileTreeSettings = () => {
 
   return (
     <SettingsView>
-      <Section title="Display">
+      <Section title={t("settings.files.display")}>
         <SettingRow
-          label="Sort Order"
-          description="Choose whether folders stay above files or everything sorts by name"
+          label={t("settings.files.sortOrder")}
+          description={t("settings.files.sortOrderDescription")}
           onReset={() => updateSetting("fileTreeSortOrder", getDefaultSetting("fileTreeSortOrder"))}
           canReset={settings.fileTreeSortOrder !== getDefaultSetting("fileTreeSortOrder")}
         >
           <Select
             value={settings.fileTreeSortOrder}
             options={[
-              { value: "folders-first", label: "Folders First" },
-              { value: "name", label: "Name" },
+              { value: "folders-first", label: t("settings.files.foldersFirst") },
+              { value: "name", label: t("settings.files.name") },
             ]}
             onChange={(value) => updateSetting("fileTreeSortOrder", value as FileTreeSortOrder)}
             className={SETTINGS_CONTROL_WIDTHS.default}
@@ -80,8 +82,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Indent Size"
-          description="Pixels per nesting level"
+          label={t("settings.files.indentSize")}
+          description={t("settings.files.indentSizeDescription")}
           onReset={() =>
             updateSetting("fileTreeIndentSize", getDefaultSetting("fileTreeIndentSize"))
           }
@@ -98,8 +100,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Show File Icons"
-          description="Show themed file and folder icons"
+          label={t("settings.files.showFileIcons")}
+          description={t("settings.files.showFileIconsDescription")}
           onReset={() =>
             updateSetting("showFileIconsInFileTree", getDefaultSetting("showFileIconsInFileTree"))
           }
@@ -115,8 +117,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Show Indent Guides"
-          description="Show vertical guides for nested folders"
+          label={t("settings.files.showIndentGuides")}
+          description={t("settings.files.showIndentGuidesDescription")}
           onReset={() =>
             updateSetting(
               "showIndentGuidesInFileTree",
@@ -135,8 +137,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Compact Folders"
-          description="Collapse single-child folder chains"
+          label={t("settings.files.compactFolders")}
+          description={t("settings.files.compactFoldersDescription")}
           onReset={() =>
             updateSetting("compactFoldersInFileTree", getDefaultSetting("compactFoldersInFileTree"))
           }
@@ -152,8 +154,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Hide Root Folder"
-          description="Show project files directly at the top level"
+          label={t("settings.files.hideRootFolder")}
+          description={t("settings.files.hideRootFolderDescription")}
           onReset={() =>
             updateSetting("hideRootFolderInFileTree", getDefaultSetting("hideRootFolderInFileTree"))
           }
@@ -169,8 +171,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Show Hidden Files"
-          description="Show dotfiles and hidden directories"
+          label={t("settings.files.showHiddenFiles")}
+          description={t("settings.files.showHiddenFilesDescription")}
           onReset={() =>
             updateSetting(
               "showHiddenFilesInFileTree",
@@ -189,8 +191,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Respect .gitignore"
-          description="Hide files matched by root and nested .gitignore files"
+          label={t("settings.files.respectGitignore")}
+          description={t("settings.files.respectGitignoreDescription")}
           onReset={() =>
             updateSetting(
               "showGitignoredFilesInFileTree",
@@ -210,8 +212,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Show Git Status"
-          description="Display Git color decorations beside changed files"
+          label={t("settings.files.showGitStatus")}
+          description={t("settings.files.showGitStatusDescription")}
           onReset={() =>
             updateSetting("showGitStatusInFileTree", getDefaultSetting("showGitStatusInFileTree"))
           }
@@ -227,10 +229,10 @@ export const FileTreeSettings = () => {
         </SettingRow>
       </Section>
 
-      <Section title="Behavior">
+      <Section title={t("settings.files.behavior")}>
         <SettingRow
-          label="Auto Reveal Active File"
-          description="Expand and scroll Files to the active editor file"
+          label={t("settings.files.autoReveal")}
+          description={t("settings.files.autoRevealDescription")}
           onReset={() =>
             updateSetting(
               "autoRevealActiveFileInFileTree",
@@ -250,8 +252,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Confirm Before Delete"
-          description="Ask for confirmation before deleting a file or folder"
+          label={t("settings.files.confirmBeforeDelete")}
+          description={t("settings.files.confirmBeforeDeleteDescription")}
           onReset={() =>
             updateSetting("confirmBeforeFileDelete", getDefaultSetting("confirmBeforeFileDelete"))
           }
@@ -267,10 +269,10 @@ export const FileTreeSettings = () => {
         </SettingRow>
       </Section>
 
-      <Section title="Filters">
+      <Section title={t("settings.files.filters")}>
         <SettingRow
-          label="Hidden Files"
-          description="Comma-separated glob patterns"
+          label={t("settings.files.hiddenFiles")}
+          description={t("settings.files.globPatterns")}
           onReset={() =>
             updateSetting("hiddenFilePatterns", getDefaultSetting("hiddenFilePatterns"))
           }
@@ -297,8 +299,8 @@ export const FileTreeSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Hidden Directories"
-          description="Comma-separated glob patterns"
+          label={t("settings.files.hiddenDirectories")}
+          description={t("settings.files.globPatterns")}
           onReset={() =>
             updateSetting("hiddenDirectoryPatterns", getDefaultSetting("hiddenDirectoryPatterns"))
           }

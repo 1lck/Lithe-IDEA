@@ -1,10 +1,12 @@
 import { useShallow } from "zustand/react/shallow";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import Section, { SETTINGS_CONTROL_WIDTHS, SettingsView, SettingRow } from "../settings-section";
 import Select from "@/ui/select";
 import Switch from "@/ui/switch";
 
 export const GitSettings = () => {
+  const { t } = useTranslation();
   const settings = useSettingsStore(
     useShallow((state) => ({
       autoRefreshGitStatus: state.settings.autoRefreshGitStatus,
@@ -32,10 +34,10 @@ export const GitSettings = () => {
 
   return (
     <SettingsView>
-      <Section title="Integration">
+      <Section title={t("settings.git.integration")}>
         <SettingRow
-          label="Git Integration"
-          description="Enable source control management with Git repositories"
+          label={t("settings.git.gitIntegration")}
+          description={t("settings.git.gitIntegrationDescription")}
           onReset={() => updateSetting("coreFeatures", getDefaultSetting("coreFeatures"))}
           canReset={settings.coreFeatures.git !== getDefaultSetting("coreFeatures").git}
         >
@@ -43,8 +45,8 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Auto Refresh Git Status"
-          description="Refresh the Git view automatically after relevant file changes and Git events"
+          label={t("settings.git.autoRefresh")}
+          description={t("settings.git.autoRefreshDescription")}
           onReset={() =>
             updateSetting("autoRefreshGitStatus", getDefaultSetting("autoRefreshGitStatus"))
           }
@@ -58,8 +60,8 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Confirm Before Discard"
-          description="Show a confirmation before discarding file or repository changes"
+          label={t("settings.git.confirmDiscard")}
+          description={t("settings.git.confirmDiscardDescription")}
           onReset={() =>
             updateSetting("confirmBeforeDiscard", getDefaultSetting("confirmBeforeDiscard"))
           }
@@ -73,10 +75,10 @@ export const GitSettings = () => {
         </SettingRow>
       </Section>
 
-      <Section title="Git View">
+      <Section title={t("settings.git.view")}>
         <SettingRow
-          label="Folder-Based Changes"
-          description="Show Git changes in a folder tree, similar to Files"
+          label={t("settings.git.folderChanges")}
+          description={t("settings.git.folderChangesDescription")}
           onReset={() =>
             updateSetting("gitChangesFolderView", getDefaultSetting("gitChangesFolderView"))
           }
@@ -90,8 +92,8 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Show Untracked Files"
-          description="Display untracked files in the Git status panel"
+          label={t("settings.git.untracked")}
+          description={t("settings.git.untrackedDescription")}
           onReset={() =>
             updateSetting("showUntrackedFiles", getDefaultSetting("showUntrackedFiles"))
           }
@@ -105,8 +107,8 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Show Staged First"
-          description="Render staged changes above unstaged changes in the Git panel"
+          label={t("settings.git.stagedFirst")}
+          description={t("settings.git.stagedFirstDescription")}
           onReset={() => updateSetting("showStagedFirst", getDefaultSetting("showStagedFirst"))}
           canReset={settings.showStagedFirst !== getDefaultSetting("showStagedFirst")}
         >
@@ -118,8 +120,8 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Open Diff On Click"
-          description="Open the diff when clicking a changed file instead of opening the file directly"
+          label={t("settings.git.openDiff")}
+          description={t("settings.git.openDiffDescription")}
           onReset={() => updateSetting("openDiffOnClick", getDefaultSetting("openDiffOnClick"))}
           canReset={settings.openDiffOnClick !== getDefaultSetting("openDiffOnClick")}
         >
@@ -131,8 +133,8 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Compact Git Status Badges"
-          description="Use a denser layout for diff stats and staged labels in the Git panel"
+          label={t("settings.git.compactBadges")}
+          description={t("settings.git.compactBadgesDescription")}
           onReset={() =>
             updateSetting("compactGitStatusBadges", getDefaultSetting("compactGitStatusBadges"))
           }
@@ -146,8 +148,8 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Collapse Empty Sections"
-          description="Hide empty Git sections like Staged Changes when they have no items"
+          label={t("settings.git.collapseEmpty")}
+          description={t("settings.git.collapseEmptyDescription")}
           onReset={() =>
             updateSetting("collapseEmptyGitSections", getDefaultSetting("collapseEmptyGitSections"))
           }
@@ -163,8 +165,8 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Remember Last Git Panel Mode"
-          description="Restore the last open bottom Git panel section when reopening the Git view"
+          label={t("settings.git.rememberPanel")}
+          description={t("settings.git.rememberPanelDescription")}
           onReset={() =>
             updateSetting("rememberLastGitPanelMode", getDefaultSetting("rememberLastGitPanelMode"))
           }
@@ -180,8 +182,8 @@ export const GitSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label="Default Diff View"
-          description="Choose the default layout for Git diffs"
+          label={t("settings.git.defaultDiff")}
+          description={t("settings.git.defaultDiffDescription")}
           onReset={() =>
             updateSetting("gitDefaultDiffView", getDefaultSetting("gitDefaultDiffView"))
           }
@@ -190,8 +192,8 @@ export const GitSettings = () => {
           <Select
             value={settings.gitDefaultDiffView}
             options={[
-              { value: "unified", label: "Unified" },
-              { value: "split", label: "Split" },
+              { value: "unified", label: t("settings.git.unified") },
+              { value: "split", label: t("settings.git.split") },
             ]}
             onChange={(value) => updateSetting("gitDefaultDiffView", value as "unified" | "split")}
             className={SETTINGS_CONTROL_WIDTHS.default}
@@ -203,10 +205,10 @@ export const GitSettings = () => {
         </SettingRow>
       </Section>
 
-      <Section title="Editor">
+      <Section title={t("settings.git.editor")}>
         <SettingRow
-          label="Enable Inline Blame"
-          description="Show inline Git blame metadata for the current line in the editor"
+          label={t("settings.git.inlineBlame")}
+          description={t("settings.git.inlineBlameDescription")}
           onReset={() =>
             updateSetting("enableInlineGitBlame", getDefaultSetting("enableInlineGitBlame"))
           }

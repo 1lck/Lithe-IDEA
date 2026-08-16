@@ -8,6 +8,10 @@ export function filterVisibleSettingsTabs<T extends { id: SettingsTab }>(
   },
 ) {
   return tabs.filter((item) => {
+    if (item.id === "account" || item.id === "ai") {
+      return false;
+    }
+
     if (!params.canShowEnterpriseSettings && item.id === "enterprise") {
       return false;
     }
