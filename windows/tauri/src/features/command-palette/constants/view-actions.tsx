@@ -1,3 +1,4 @@
+import { RunIcon } from "@/features/run/components/run-icon";
 import {
   WarningCircleIcon as AlertCircle,
   ColumnsIcon as Columns,
@@ -99,6 +100,24 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
       category: "View",
       action: () => {
         setIsBottomPaneVisible(!isBottomPaneVisible);
+        onClose();
+      },
+    },
+    {
+      id: "toggle-run",
+      label:
+        isBottomPaneVisible && bottomPaneActiveTab === "run" ? "View: Hide Run" : "View: Show Run",
+      description: "Toggle the Run tool window",
+      icon: <RunIcon />,
+      category: "View",
+      commandId: "workbench.toggleRun",
+      action: () => {
+        if (isBottomPaneVisible && bottomPaneActiveTab === "run") {
+          setIsBottomPaneVisible(false);
+        } else {
+          setBottomPaneActiveTab("run");
+          setIsBottomPaneVisible(true);
+        }
         onClose();
       },
     },

@@ -27,6 +27,16 @@ export function toggleActivitySidebar(): void {
   void actions.updateSetting("activityRailExpanded", !settings.activityRailExpanded);
 }
 
+export function toggleRunPane(): void {
+  const state = useUIState.getState();
+  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "run") {
+    state.setIsBottomPaneVisible(false);
+  } else {
+    state.setBottomPaneActiveTab("run");
+    state.setIsBottomPaneVisible(true);
+  }
+}
+
 export function toggleTerminalPane(): void {
   const state = useUIState.getState();
   if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "terminal") {

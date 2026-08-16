@@ -13,7 +13,13 @@ export type SettingsTab =
   | "terminal"
   | "file-explorer";
 
-export type BottomPaneTab = "terminal" | "debugger" | "diagnostics" | "references" | "buffers";
+export type BottomPaneTab =
+  | "terminal"
+  | "debugger"
+  | "diagnostics"
+  | "references"
+  | "buffers"
+  | "run";
 
 export interface QuickEditSelection {
   text: string;

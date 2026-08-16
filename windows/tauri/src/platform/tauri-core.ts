@@ -40,6 +40,13 @@ const nativeCommands = new Set([
   "record_startup_milestone",
   "remove_secure_secret",
   "rename_file",
+  "run_discover_toolchains",
+  "run_list_java_sources",
+  "run_resolve_launch",
+  "run_start_process",
+  "run_stop_process",
+  "run_write_document",
+  "run_write_generated",
   "set_native_window_appearance",
   "set_project_root",
   "start_watching",
@@ -96,6 +103,17 @@ function capabilityForCommand(command: string): BackendCapability | null {
     return "database";
   }
   if (command.startsWith("debug_")) return "debugger";
+  if (
+    command === "run_discover_toolchains" ||
+    command === "run_list_java_sources" ||
+    command === "run_resolve_launch" ||
+    command === "run_start_process" ||
+    command === "run_stop_process" ||
+    command === "run_write_document" ||
+    command === "run_write_generated"
+  ) {
+    return "run";
+  }
   if (command.startsWith("notebook_run_") || command.startsWith("run_config_")) {
     return "runActions";
   }
