@@ -2,6 +2,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import DebuggerView from "@/features/debugger/components/debugger-view";
+import RunPane from "@/features/run/components/run-pane";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { BOTTOM_PANE_ID } from "@/features/panes/constants/pane";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
@@ -81,6 +82,16 @@ const BottomPane = () => {
       useUIState.getState().setIsBottomPaneVisible(false);
     }
   }, [bottomPaneActiveTab, isBottomPaneVisible, terminalEnabled]);
+
+  useEffect(() => {
+    if (
+      isBottomPaneVisible &&
+      bottomPaneActiveTab === "run" &&
+      !isBackendCapabilityAvailable("run")
+    ) {
+      useUIState.getState().setIsBottomPaneVisible(false);
+    }
+  }, [bottomPaneActiveTab, isBottomPaneVisible]);
 
   useEffect(() => {
     if (
@@ -255,6 +266,12 @@ const BottomPane = () => {
           bottomPaneActiveTab === "debugger" && (
           <div className="h-full">
             <DebuggerView />
+          </div>
+        )}
+
+        {bottomPaneActiveTab === "run" && isBackendCapabilityAvailable("run") && (
+          <div className="h-full">
+            <RunPane />
           </div>
         )}
 

@@ -28,6 +28,7 @@ import {
 } from "@/features/layout/utils/project-carousel";
 import { shouldShowProjectSwitcher } from "@/features/layout/utils/project-switcher";
 import type { SidebarView } from "@/features/layout/utils/sidebar-pane-utils";
+import { RunIcon } from "@/features/run/components/run-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -107,6 +108,10 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const activeSidebarView = useUIState((state) => state.activeSidebarView);
   const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
+  const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
+  const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
+  const setBottomPaneActiveTab = useUIState((state) => state.setBottomPaneActiveTab);
   const openGlobalSearchBuffer = useBufferStore.use.actions().openGlobalSearchBuffer;
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const openFoldersInNewWindow = useSettingsStore((state) => state.settings.openFoldersInNewWindow);
@@ -194,6 +199,11 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         id: "database",
         label: "Database",
         icon: <DatabaseIcon />,
+      },
+      {
+        id: "run",
+        label: "Run",
+        icon: <RunIcon />,
       },
       {
         id: "settings",
@@ -630,7 +640,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                 />
               </div>
             ) : (
-              <div className="scrollbar-hidden min-h-0 w-full flex-1 overflow-y-auto">
+              <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
                 <SidebarPaneSelector
                   activeSidebarView={activeSidebarView}
                   isGitViewActive={isGitViewActive}
@@ -639,6 +649,15 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   onViewChange={handleSidebarViewChange}
                   onSearchClick={() => openGlobalSearchBuffer()}
                   onSettingsClick={() => openSettingsDialog()}
+                  onRunClick={() => {
+                    if (isBottomPaneVisible && bottomPaneActiveTab === "run") {
+                      setIsBottomPaneVisible(false);
+                    } else {
+                      setBottomPaneActiveTab("run");
+                      setIsBottomPaneVisible(true);
+                    }
+                  }}
+                  isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
                   compact={!expanded}
                   showLabels={expanded}
                   orientation="vertical"
