@@ -164,7 +164,9 @@ const ensureCursorVisible = (position: Position) => {
       : null;
   const textarea = scopedTextarea ?? focusedTextarea;
 
-  if (!textarea) return;
+  // Monaco's hidden inputarea is not a full-document textarea. Scrolling it
+  // desyncs the visual caret from Backspace/Delete and mouse selection.
+  if (!textarea || textarea.classList.contains("inputarea")) return;
 
   const computedStyle = window.getComputedStyle(textarea);
   const lineHeight =
