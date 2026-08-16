@@ -59,6 +59,13 @@ stable error code and a user-facing message:
 | Command | Purpose |
 | --- | --- |
 | `core.ping` | Verify the ABI and protocol version |
+| `community.discourse.auth.begin` | Create an ephemeral RSA-OAEP authorization session and return the Discourse browser URL |
+| `community.discourse.auth.complete` | Decrypt, validate, and consume one Discourse user API key callback |
+| `community.discourse.auth.revoke` | Revoke the current Discourse user API key |
+| `community.discourse.topics` | List normalized latest or top topic summaries |
+| `community.discourse.topic` | Read one topic with ordered, sanitized post HTML |
+| `community.discourse.categories` | List normalized visible categories |
+| `community.discourse.search` | Search normalized topics and sanitized posts |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
@@ -132,6 +139,26 @@ before changing a response shape or search rule.
 GitHub command shapes, authorization behavior, and supported pull-request
 operations are documented in [`github.md`](github.md). Rust Core performs no
 network or credential I/O for these commands.
+
+`community.discourse.auth.begin` accepts an HTTPS `origin`, stable `clientId`,
+user-visible `applicationName`, platform-owned `authRedirect`, and a non-empty
+array of supported `scopes`. It returns an opaque `flowId`, an
+`authorizationUrl` that requests RSA-OAEP padding, and an `expiresAt` Unix
+timestamp. The private key and nonce remain in Rust memory and expire after ten
+minutes. `community.discourse.auth.complete` accepts that `flowId` and the full
+`callbackUrl`; it consumes the flow, verifies the callback target, decrypts the
+payload, and checks the nonce before returning `userApiKey` and `apiVersion`.
+Platform hosts open the browser, receive their registered URL scheme, and store
+the returned credential in Keychain or Windows Credential Manager. They do not
+implement Discourse cryptography or callback validation.
+
+The authenticated community commands accept `origin`, `userApiKey`, and
+`clientId` plus their operation-specific fields. Rust owns HTTPS requests,
+authentication headers, a 30-second request timeout, a 5 MB response limit,
+Discourse JSON decoding, deterministic post ordering, and HTML sanitization.
+Platform clients never issue a parallel Discourse request or parse a second
+response shape. Credential vault reads and writes remain native adapters; the
+credential is passed to Core only for the duration of one command.
 
 `git.watchContext` accepts `{ "root": string }`. When `root` is not inside a
 Git repository, it returns `null`. Otherwise it returns

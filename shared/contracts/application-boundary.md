@@ -34,6 +34,7 @@ verification scripts are the executable source of boundary checks.
 | Terminal | input bytes, output bytes, lifecycle | PTY/ConPTY, shell and environment |
 | Local History | revision metadata, text content, restore result | persistence location and file operations |
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
+| Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
 
 ## Module Lifecycle Contract
 
