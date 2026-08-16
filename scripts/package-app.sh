@@ -132,6 +132,7 @@ cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R "$ROOT_DIR/Resources/IDEAIcons" "$APP_DIR/Contents/Resources/IDEAIcons"
 cp -R "$ROOT_DIR/Resources/DatabaseIcons" "$APP_DIR/Contents/Resources/DatabaseIcons"
+cp -R "$ROOT_DIR/Resources/Fonts" "$APP_DIR/Contents/Resources/Fonts"
 for localization in en.lproj zh-Hans.lproj; do
     if [[ -d "$ROOT_DIR/Resources/$localization" ]]; then
         cp -R "$ROOT_DIR/Resources/$localization" "$APP_DIR/Contents/Resources/$localization"

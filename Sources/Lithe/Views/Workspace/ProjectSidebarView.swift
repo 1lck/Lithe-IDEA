@@ -329,41 +329,47 @@ private struct FileNodeRow: View {
 
     @ViewBuilder
     private var fileContextMenu: some View {
-        Button("Open") {
-            model.openFile(node.url)
-        }
+        Group {
+            Button("Open") {
+                model.openFile(node.url)
+            }
 
-        if let change = model.gitChange(for: node.url) {
-            Button("Show Git Diff") {
-                model.selectChange(change)
+            if let change = model.gitChange(for: node.url) {
+                Button("Show Git Diff") {
+                    model.selectChange(change)
+                }
             }
         }
 
         Divider()
 
-        Button("Duplicate") {
-            Task { await model.duplicateProjectItem(at: node.url) }
-        }
-        Button("Rename…") {
-            model.requestRenameProjectItem(at: node.url)
-        }
-        Button("Local History…") {
-            model.showLocalHistory(for: node.url)
-        }
-        Button("Move to Trash", role: .destructive) {
-            model.requestDeleteProjectItem(at: node.url, isDirectory: false)
+        Group {
+            Button("Duplicate") {
+                Task { await model.duplicateProjectItem(at: node.url) }
+            }
+            Button("Rename…") {
+                model.requestRenameProjectItem(at: node.url)
+            }
+            Button("Local History…") {
+                model.showLocalHistory(for: node.url)
+            }
+            Button("Move to Trash", role: .destructive) {
+                model.requestDeleteProjectItem(at: node.url, isDirectory: false)
+            }
         }
 
         Divider()
 
-        Button("Show in Finder") {
-            model.revealProjectItemInFinder(node.url)
-        }
-        Button("Copy Path") {
-            model.copyProjectItemPath(node.url, relative: false)
-        }
-        Button("Copy Relative Path") {
-            model.copyProjectItemPath(node.url, relative: true)
+        Group {
+            Button("Show in Finder") {
+                model.revealProjectItemInFinder(node.url)
+            }
+            Button("Copy Path") {
+                model.copyProjectItemPath(node.url, relative: false)
+            }
+            Button("Copy Relative Path") {
+                model.copyProjectItemPath(node.url, relative: true)
+            }
         }
     }
 
