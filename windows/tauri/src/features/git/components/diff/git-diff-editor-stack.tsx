@@ -53,6 +53,7 @@ import type { MultiFileDiff } from "../../types/git-diff.types";
 import type { GitDiff } from "../../types/git.types";
 import { gitDiffCache } from "../../utils/git-diff-cache";
 import { getFileStatus } from "../../utils/git-diff-helpers";
+import { resolveDiffViewMode } from "../../utils/git-diff-split-layout";
 import {
   findMultiDiffMatches,
   getMultiDiffSectionKey,
@@ -506,6 +507,7 @@ const DiffFileBody = memo(function DiffFileBody({
   const fileName = filePath.split("/").pop() || filePath;
   const shouldUseInlineTextDiff =
     !shouldUseScrollableDiffEditor(diff) && diff.lines.length <= DIFF_INLINE_RENDER_LINE_THRESHOLD;
+  const displayViewMode = resolveDiffViewMode(diff, viewMode);
   const searchHighlights = useMemo(() => {
     const highlights = new Map<number, Array<{ start: number; end: number; isCurrent: boolean }>>();
 
@@ -534,7 +536,7 @@ const DiffFileBody = memo(function DiffFileBody({
     <TextDiffViewer
       diff={diff}
       isStaged={sectionKey.startsWith("staged:")}
-      viewMode={viewMode}
+      viewMode={displayViewMode}
       showWhitespace={showWhitespace}
       isEmbeddedInScrollView={true}
       searchHighlights={searchHighlights}
@@ -543,7 +545,7 @@ const DiffFileBody = memo(function DiffFileBody({
     <DiffSectionEditor
       diff={diff}
       cacheKey={sectionKey}
-      viewMode={viewMode}
+      viewMode={displayViewMode}
       searchQuery={searchQuery}
       searchOptions={searchOptions}
       searchMatches={searchMatches}
@@ -748,6 +750,14 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       sectionKey: selectedFileKey,
     };
   }, [multiDiff, selectedFileKey]);
+  const selectedDisplayViewMode =
+    isWorkingTree && selectedDiffFile
+      ? resolveDiffViewMode(selectedDiffFile.diff, viewMode)
+      : viewMode;
+  const splitViewDisabled =
+    isWorkingTree &&
+    selectedDiffFile !== null &&
+    (selectedDiffFile.diff.is_new || selectedDiffFile.diff.is_deleted);
   const handleToggleSection = useCallback((sectionKey: string) => {
     setExpandedFiles((prev) => {
       const next = new Set(prev);
@@ -1073,7 +1083,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
             <div className="flex items-center gap-0.5">
               <BreadcrumbActionButton
                 type="button"
-                active={viewMode === "unified"}
+                active={selectedDisplayViewMode === "unified"}
                 onClick={() => setViewMode("unified")}
                 tooltip="Unified view"
                 tooltipSide="bottom"
@@ -1083,11 +1093,16 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               </BreadcrumbActionButton>
               <BreadcrumbActionButton
                 type="button"
-                active={viewMode === "split"}
+                active={selectedDisplayViewMode === "split"}
                 onClick={() => setViewMode("split")}
-                tooltip="Split view"
+                tooltip={
+                  splitViewDisabled
+                    ? "Split view is unavailable for added or deleted files"
+                    : "Split view"
+                }
                 tooltipSide="bottom"
                 aria-label="Split view"
+                disabled={splitViewDisabled}
               >
                 <Columns2 weight="duotone" />
               </BreadcrumbActionButton>
@@ -1265,7 +1280,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                   <DiffFileBody
                     diff={selectedDiffFile.diff}
                     sectionKey={selectedDiffFile.sectionKey}
-                    viewMode={viewMode}
+                    viewMode={selectedDisplayViewMode}
                     showWhitespace={showWhitespace}
                     searchMatches={
                       isFindVisible
