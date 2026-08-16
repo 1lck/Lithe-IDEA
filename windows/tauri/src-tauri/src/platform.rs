@@ -148,6 +148,41 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             );
             "git.checkoutPreflight"
         }
+        "git_merge" | "git_rebase" => {
+            let branch = take_text(&mut payload, "branchName")?;
+            payload.insert(
+                "reference".into(),
+                json!(local_branch_reference(&branch)),
+            );
+            payload.insert(
+                "operation".into(),
+                json!(if command == "git_merge" {
+                    "merge"
+                } else {
+                    "rebase"
+                }),
+            );
+            "git.write"
+        }
+        "git_integration_preflight" => {
+            let branch = take_text(&mut payload, "branchName")?;
+            payload.insert(
+                "reference".into(),
+                json!(local_branch_reference(&branch)),
+            );
+            "git.integrationPreflight"
+        }
+        "git_operation_state" => "git.operationState",
+        "git_operation_continue" | "git_operation_abort" | "git_operation_skip" => {
+            let operation = match command {
+                "git_operation_continue" => "operationContinue",
+                "git_operation_abort" => "operationAbort",
+                _ => "operationSkip",
+            };
+            payload.insert("operation".into(), json!(operation));
+            "git.write"
+        }
+        "git_conflict_markers" => "git.conflictMarkers",
         "git_create_stash" => {
             payload.insert("operation".into(), json!("stashPush"));
             "git.write"
@@ -498,6 +533,89 @@ mod tests {
             payload,
             json!({ "root": "C:/work", "reference": "refs/heads/main" })
         );
+    }
+
+    #[test]
+    fn translates_merge_and_rebase_to_qualified_references() {
+        let (merge_command, merge_payload) = translate(
+            "git_merge",
+            json!({ "repoPath": "C:/work", "branchName": "feature/demo" }),
+        )
+        .unwrap();
+        assert_eq!(merge_command, "git.write");
+        assert_eq!(
+            merge_payload,
+            json!({
+                "root": "C:/work",
+                "operation": "merge",
+                "reference": "refs/heads/feature/demo"
+            })
+        );
+
+        let (rebase_command, rebase_payload) = translate(
+            "git_rebase",
+            json!({ "repoPath": "C:/work", "branchName": "main" }),
+        )
+        .unwrap();
+        assert_eq!(rebase_command, "git.write");
+        assert_eq!(
+            rebase_payload,
+            json!({
+                "root": "C:/work",
+                "operation": "rebase",
+                "reference": "refs/heads/main"
+            })
+        );
+    }
+
+    #[test]
+    fn translates_integration_preflight_operation() {
+        let (command, payload) = translate(
+            "git_integration_preflight",
+            json!({ "repoPath": "C:/work", "branchName": "main", "operation": "rebase" }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.integrationPreflight");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "reference": "refs/heads/main",
+                "operation": "rebase"
+            })
+        );
+    }
+
+    #[test]
+    fn translates_operation_state_and_resolution_commands() {
+        let (state_command, state_payload) =
+            translate("git_operation_state", json!({ "repoPath": "C:/work" })).unwrap();
+        assert_eq!(state_command, "git.operationState");
+        assert_eq!(state_payload, json!({ "root": "C:/work" }));
+
+        for (compat, operation) in [
+            ("git_operation_continue", "operationContinue"),
+            ("git_operation_abort", "operationAbort"),
+            ("git_operation_skip", "operationSkip"),
+        ] {
+            let (command, payload) =
+                translate(compat, json!({ "repoPath": "C:/work" })).unwrap();
+            assert_eq!(command, "git.write");
+            assert_eq!(
+                payload,
+                json!({ "root": "C:/work", "operation": operation })
+            );
+        }
+    }
+
+    #[test]
+    fn translates_conflict_markers_request() {
+        let (command, payload) =
+            translate("git_conflict_markers", json!({ "repoPath": "C:/work" })).unwrap();
+
+        assert_eq!(command, "git.conflictMarkers");
+        assert_eq!(payload, json!({ "root": "C:/work" }));
     }
 
     #[test]
