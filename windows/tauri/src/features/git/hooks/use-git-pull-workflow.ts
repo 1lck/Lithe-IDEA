@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { executePullChanges, fetchChanges, getPullPreflight } from "../api/git-remotes-api";
-import { getOperationState } from "../api/git-integration-api";
+import { getGitPullWorkflow } from "../api/git-remotes-api";
 import { emitGitChanged } from "../events/git-events";
 import type { GitPullResult, PullStrategy } from "../types/git.types";
-import { GitPullWorkflow } from "./git-pull-workflow";
 
 interface UseGitPullWorkflowOptions {
   repoPath: string;
@@ -25,16 +23,7 @@ const reportResult = (result: GitPullResult) => {
 };
 
 export function useGitPullWorkflow({ repoPath, refresh }: UseGitPullWorkflowOptions) {
-  const workflow = useMemo(
-    () =>
-      new GitPullWorkflow({
-        fetch: fetchChanges,
-        preflight: getPullPreflight,
-        pull: executePullChanges,
-        operationState: getOperationState,
-      }),
-    [],
-  );
+  const workflow = useMemo(() => getGitPullWorkflow(repoPath), [repoPath]);
   const snapshot = useSyncExternalStore(
     workflow.subscribe,
     workflow.getSnapshot,

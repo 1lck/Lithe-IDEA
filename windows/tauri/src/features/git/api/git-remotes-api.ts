@@ -136,24 +136,35 @@ export const fetchChanges = async (repoPath: string): Promise<GitRemoteActionRes
   }
 };
 
-const headlessPullWorkflow = new GitPullWorkflow({
-  fetch: fetchChanges,
-  preflight: getPullPreflight,
-  pull: executePullChanges,
-  operationState: getOperationState,
-});
+const pullWorkflows = new Map<string, GitPullWorkflow>();
+
+/** Returns the shared Pull coordinator for one repository. */
+export const getGitPullWorkflow = (repoPath: string): GitPullWorkflow => {
+  const existingWorkflow = pullWorkflows.get(repoPath);
+  if (existingWorkflow) return existingWorkflow;
+
+  const workflow = new GitPullWorkflow({
+    fetch: fetchChanges,
+    preflight: getPullPreflight,
+    pull: executePullChanges,
+    operationState: getOperationState,
+  });
+  pullWorkflows.set(repoPath, workflow);
+  return workflow;
+};
 
 /**
  * Safe compatibility entry point for non-Source-Control callers. Divergence
  * cancels because only the Source Control workflow can present the choice UI.
  */
 export const pullChanges = async (repoPath: string): Promise<GitRemoteActionResult> => {
-  const unsubscribe = headlessPullWorkflow.subscribe(() => {
-    if (headlessPullWorkflow.getSnapshot().pendingPreflight) {
-      headlessPullWorkflow.chooseStrategy(null);
+  const workflow = getGitPullWorkflow(repoPath);
+  const unsubscribe = workflow.subscribe(() => {
+    if (workflow.getSnapshot().pendingPreflight) {
+      workflow.chooseStrategy(null);
     }
   });
-  const resultPromise = headlessPullWorkflow.run(repoPath, {
+  const resultPromise = workflow.run(repoPath, {
     refresh: async () => {
       const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
       // Cache invalidation must precede the explicit reads below; otherwise a

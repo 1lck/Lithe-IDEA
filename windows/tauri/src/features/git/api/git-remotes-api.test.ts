@@ -22,7 +22,7 @@ mock.module("./git-branches-api", () => ({ getBranches }));
 mock.module("./git-commits-api", () => ({ getGitHistory }));
 mock.module("./git-status-api", () => ({ getGitStatus }));
 
-const { executePullChanges, fetchChanges, getPullPreflight, pullChanges } =
+const { executePullChanges, fetchChanges, getGitPullWorkflow, getPullPreflight, pullChanges } =
   await import("./git-remotes-api");
 
 beforeEach(() => {
@@ -38,6 +38,11 @@ beforeEach(() => {
 });
 
 describe("Git remote Pull API", () => {
+  test("shares a Pull workflow only within the same repository", () => {
+    expect(getGitPullWorkflow("C:/repo")).toBe(getGitPullWorkflow("C:/repo"));
+    expect(getGitPullWorkflow("C:/repo")).not.toBe(getGitPullWorkflow("C:/other-repo"));
+  });
+
   test("calls the shared git.pullPreflight contract for the current branch", async () => {
     const preflight: GitPullPreflight = {
       upstream: "origin/main",

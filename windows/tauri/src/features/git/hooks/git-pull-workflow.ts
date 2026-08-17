@@ -112,6 +112,38 @@ export class GitPullWorkflow {
         if (!selectedStrategy) {
           return { status: "cancelled", message: "Pull cancelled." };
         }
+
+        let currentPreflight: GitPullPreflight;
+        try {
+          currentPreflight = await this.dependencies.preflight(repoPath);
+        } catch (error) {
+          return {
+            status: "failed",
+            stage: "preflight",
+            message: `Pull safety check failed: ${errorText(error, "Unable to inspect the branch.")}`,
+          };
+        }
+
+        if (currentPreflight.hasLocalChanges) {
+          return {
+            status: "blocked",
+            reason: "dirty",
+            message: "Commit or stash local changes before pulling.",
+          };
+        }
+
+        if (
+          currentPreflight.upstream !== preflight.upstream ||
+          currentPreflight.ahead !== preflight.ahead ||
+          currentPreflight.behind !== preflight.behind ||
+          currentPreflight.diverged !== preflight.diverged
+        ) {
+          return {
+            status: "blocked",
+            reason: "state-changed",
+            message: "The branch changed while choosing a pull strategy. Review it and try again.",
+          };
+        }
         strategy = selectedStrategy;
       }
 

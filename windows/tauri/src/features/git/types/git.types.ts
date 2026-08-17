@@ -112,7 +112,7 @@ export type GitPullResult =
   | { status: "cancelled"; message: string }
   | {
       status: "blocked";
-      reason: "no-upstream" | "up-to-date" | "dirty";
+      reason: "no-upstream" | "up-to-date" | "dirty" | "state-changed";
       message: string;
     }
   | {

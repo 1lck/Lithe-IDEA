@@ -447,7 +447,7 @@ const GitCommitPanel = ({
                 <Button
                   type="button"
                   onClick={() => void handlePush(() => pushChanges(repoPath!))}
-                  disabled={!repoPath || isRemoteActionLoading}
+                  disabled={!repoPath || isRemoteActionLoading || isPulling}
                   variant="ghost"
                   size="xs"
                   className={cn(composerButtonClassName, "text-git-added hover:text-git-added")}
