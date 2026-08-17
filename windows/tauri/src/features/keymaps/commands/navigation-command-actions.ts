@@ -20,7 +20,7 @@ import {
   resolveSpringReferences,
 } from "@/features/spring/utils/spring-navigation";
 import { useUIState } from "@/features/window/stores/ui-state.store";
-import { getBaseName } from "@/utils/path-helpers";
+import { getBaseName, normalizePath } from "@/utils/path-helpers";
 import { showPromptDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 
@@ -56,6 +56,19 @@ function activeEditorNavigationContext() {
   const editorState = useEditorStateStore.getState();
   if (!activeBuffer || activeBuffer.type !== "editor" || !activeBuffer.path) return null;
   return { bufferStore, activeBuffer, editorState };
+}
+
+function canonicalizeEditorPath(path: string): string {
+  return normalizePath(path).replace(/^\/([A-Za-z]:)/, "$1");
+}
+
+function isCurrentNavigationTarget(
+  filePath: string,
+  line: number,
+  targetPath: string,
+  targetLine: number,
+): boolean {
+  return canonicalizeEditorPath(filePath) === canonicalizeEditorPath(targetPath) && line === targetLine;
 }
 
 function unavailableLanguageServerToast(filePath: string, lspClient: { hasSessionForFile(path: string): boolean }): string | null {
@@ -315,8 +328,20 @@ export async function goToReferences(): Promise<void> {
 
   if (!activeBuffer?.path) return;
 
-  const springLocations = springLocationsForActiveFile("references");
-  if (springLocations.length > 0) {
+  const springLocations = springLocationsForActiveFile("references").filter(
+    (location) =>
+      !isCurrentNavigationTarget(
+        activeBuffer.path,
+        cursorPosition.line,
+        location.filePath,
+        location.line,
+      ),
+  );
+  if (springLocations.length === 1) {
+    await navigateToSpringLocation(springLocations[0]);
+    return;
+  }
+  if (springLocations.length > 1) {
     await presentSpringReferences(springLocations, springLocations[0]?.symbol || "Spring");
     return;
   }
@@ -332,10 +357,6 @@ export async function goToReferences(): Promise<void> {
   const wordEnd = currentLine.slice(cursorPosition.column).match(/^[\w$]*/);
   const symbol = (wordMatch?.[0] || "") + (wordEnd?.[0]?.slice(1) || "");
 
-  const referencesActions = useReferencesStore.getState().actions;
-  referencesActions.setIsLoading(true);
-  bufferStore.actions.openReferencesBuffer();
-
   const references = await lspClient.getReferences(
     activeBuffer.path,
     cursorPosition.line,
@@ -350,14 +371,41 @@ export async function goToReferences(): Promise<void> {
   };
 
   if (!references || references.length === 0) {
-    referencesActions.setReferences(origin, []);
+    toast.info("No references found.");
     return;
   }
+
+  const otherReferences = references.filter((reference) => {
+    const filePath = filePathFromUri(reference.uri);
+    return !isCurrentNavigationTarget(
+      activeBuffer.path,
+      cursorPosition.line,
+      filePath,
+      reference.range.start.line,
+    );
+  });
+
+  if (otherReferences.length === 0) {
+    toast.info("No other references found.");
+    return;
+  }
+
+  if (otherReferences.length === 1) {
+    const target = otherReferences[0];
+    await goToActiveLspLocation("reference", async () => [target], {
+      requireLanguageServer: false,
+    });
+    return;
+  }
+
+  const referencesActions = useReferencesStore.getState().actions;
+  referencesActions.setIsLoading(true);
+  bufferStore.actions.openReferencesBuffer();
 
   const lineContextCache = new Map<string, Map<number, string>>();
   const referenceLinesByFile = new Map<string, Set<number>>();
 
-  for (const ref of references) {
+  for (const ref of otherReferences) {
     const filePath = filePathFromUri(ref.uri);
     const lineNumbers = referenceLinesByFile.get(filePath) ?? new Set<number>();
     lineNumbers.add(ref.range.start.line);
@@ -387,7 +435,7 @@ export async function goToReferences(): Promise<void> {
     lineContextCache.set(filePath, lines);
   }
 
-  const converted = references.map((ref) => {
+  const converted = otherReferences.map((ref) => {
     const filePath = filePathFromUri(ref.uri);
     const fileLines = lineContextCache.get(filePath);
     return {

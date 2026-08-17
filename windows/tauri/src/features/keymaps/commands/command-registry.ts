@@ -895,7 +895,7 @@ const navigationCommands: Command[] = [
     id: "editor.goToReferences",
     title: "Go to References",
     category: "Navigation",
-    keybinding: "shift+F12",
+    keybinding: "cmd+b",
     execute: goToReferences,
   },
   {
