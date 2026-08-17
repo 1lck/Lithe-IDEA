@@ -35,6 +35,7 @@ import {
 } from "@/features/editor/utils/search";
 import { formatRelativeDate } from "@/utils/date";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
 import { Avatar } from "@/ui/avatar";
 import { Button } from "@/ui/button";
@@ -647,6 +648,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
 }: {
   multiDiff: MultiFileDiff;
 }) {
+  const { t } = useTranslation();
   const activeBuffer = useBufferStore((state) => {
     return getBufferById(state.buffers, state.activeBufferId);
   });
@@ -769,12 +771,12 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const selectedFileStatus = selectedDiffFile ? getFileStatus(selectedDiffFile.diff) : null;
   const selectedStatusLabel = selectedFileStatus
     ? selectedFileStatus === "added"
-      ? "ADDED"
+      ? t("git.diff.statusAdded")
       : selectedFileStatus === "deleted"
-        ? "DELETED"
+        ? t("git.diff.statusDeleted")
         : selectedFileStatus === "renamed"
-          ? "RENAMED"
-          : "MODIFIED"
+          ? t("git.diff.statusRenamed")
+          : t("git.diff.statusModified")
     : null;
   const handleToggleSection = useCallback((sectionKey: string) => {
     setExpandedFiles((prev) => {
@@ -1054,7 +1056,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-background">
       <Breadcrumb
-        filePathOverride={multiDiff.title || "Uncommitted Changes"}
+        filePathOverride={multiDiff.title || t("git.diff.uncommitted")}
         interactive={false}
         showPath={false}
         showDefaultActions={false}
@@ -1076,13 +1078,13 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                   {selectedStatusLabel}
                 </span>
                 <span className="rounded-md bg-accent/70 px-1.5 py-0.5 font-medium text-muted-foreground">
-                  WORKTREE
+                  {t("git.diff.worktree")}
                 </span>
               </>
             ) : (
               <>
                 <span className="shrink-0 font-medium text-foreground">
-                  {multiDiff.title || "Uncommitted Changes"}
+                  {multiDiff.title || t("git.diff.uncommitted")}
                 </span>
                 <span className="truncate">{indexedFileLabel}</span>
               </>
@@ -1102,9 +1104,9 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               type="button"
               active={isFindVisible}
               onClick={() => setIsFindVisible(!isFindVisible)}
-              tooltip="Search changes"
+              tooltip={t("git.diff.searchChanges")}
               tooltipSide="bottom"
-              aria-label="Search changes"
+              aria-label={t("git.diff.searchChanges")}
             >
               <Search />
             </BreadcrumbActionButton>
@@ -1126,9 +1128,9 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 type="button"
                 active={selectedDisplayViewMode === "unified"}
                 onClick={() => setViewMode("unified")}
-                tooltip="Unified view"
+                tooltip={t("git.diff.unified")}
                 tooltipSide="bottom"
-                aria-label="Unified view"
+                aria-label={t("git.diff.unified")}
               >
                 <Rows3 weight="duotone" />
               </BreadcrumbActionButton>
@@ -1170,7 +1172,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem onClick={() => setShowWhitespace((current) => !current)}>
-                  {showWhitespace ? "Hide whitespace" : "Show whitespace"}
+                  {showWhitespace ? t("git.diff.hideWhitespace") : t("git.diff.showWhitespace")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1190,7 +1192,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               )}
             >
               <Search className="shrink-0" />
-              <span className="flex-1">Search Diff</span>
+              <span className="flex-1">{t("git.diff.search")}</span>
             </button>
 
             <div className="h-5 w-px bg-border/70" />
@@ -1206,7 +1208,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 aria-pressed={selectedDisplayViewMode === "unified"}
               >
                 <Rows3 weight="duotone" />
-                Unified
+                {t("git.diff.unified")}
               </button>
               <button
                 type="button"
@@ -1219,7 +1221,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 aria-pressed={selectedDisplayViewMode === "split"}
               >
                 <Columns2 weight="duotone" />
-                Side-by-side
+                {t("git.diff.split")}
               </button>
             </div>
 
@@ -1232,7 +1234,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               )}
               aria-pressed={showWhitespace}
             >
-              {showWhitespace ? "Hide whitespace" : "Show whitespace"}
+              {showWhitespace ? t("git.diff.hideWhitespace") : t("git.diff.showWhitespace")}
             </button>
 
             <span className="ml-auto min-w-0 truncate text-right ui-text-sm text-subtle-foreground">
@@ -1252,13 +1254,17 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               <>
                 <div className="ui-text-sm flex min-w-0 items-center gap-2 border-border/70 border-r px-3">
                   <Lock className="shrink-0 text-subtle-foreground" />
-                  <span className="shrink-0 font-medium text-foreground">Index version</span>
+                  <span className="shrink-0 font-medium text-foreground">
+                    {t("git.diff.indexVersion")}
+                  </span>
                   <span className="truncate text-subtle-foreground">{selectedFilePath}</span>
                 </div>
                 <div className="border-border/70 border-r bg-surface/50" />
                 <div className="ui-text-sm flex min-w-0 items-center gap-2 px-3">
                   <FileText className="shrink-0 text-git-added" />
-                  <span className="shrink-0 font-medium text-foreground">Current version</span>
+                  <span className="shrink-0 font-medium text-foreground">
+                    {t("git.diff.currentVersion")}
+                  </span>
                   <span className="truncate text-subtle-foreground">{selectedFilePath}</span>
                 </div>
               </>
@@ -1272,10 +1278,10 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 />
                 <span className="shrink-0 font-medium text-foreground">
                   {selectedFileStatus === "added"
-                    ? "Added version"
+                    ? t("git.diff.addedVersion")
                     : selectedFileStatus === "deleted"
-                      ? "Deleted version"
-                      : "Current version"}
+                      ? t("git.diff.deletedVersion")
+                      : t("git.diff.currentVersion")}
                 </span>
                 <span className="truncate text-subtle-foreground">{selectedFilePath}</span>
               </div>

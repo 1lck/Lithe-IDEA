@@ -19,6 +19,7 @@ import {
 } from "@/ui/icons";
 import { Button } from "@/ui/button";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   type GitLogFilterScope,
   useGitLogPreferencesStore,
@@ -53,6 +54,7 @@ export function GitCommitTable({
   onCopyMessage: (commit: GitCommit) => void;
   onLoadMore: () => void;
 }) {
+  const { t } = useTranslation();
   const query = useGitLogPreferencesStore.use.filterQuery();
   const scope = useGitLogPreferencesStore.use.filterScope();
   const showDecorations = useGitLogPreferencesStore.use.showDecorations();
@@ -127,15 +129,23 @@ export function GitCommitTable({
             value={query}
             onChange={(event) => setFilterQuery(event.target.value)}
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-subtle-foreground"
-            placeholder={`${scope[0].toUpperCase()}${scope.slice(1)} filter`}
-            aria-label="Filter Git log"
+            placeholder={t("git.log.filterPlaceholder", {
+              field: t(
+                scope === "author"
+                  ? "git.log.filterAuthor"
+                  : scope === "branch"
+                    ? "git.log.filterBranch"
+                    : "git.log.filterText",
+              ),
+            })}
+            aria-label={t("git.log.filter")}
           />
           {query ? (
             <button
               type="button"
               onClick={() => setFilterQuery("")}
               className="text-subtle-foreground hover:text-foreground"
-              aria-label="Clear Git log filter"
+              aria-label={t("git.log.clearFilter")}
             >
               <XIcon className="size-3" />
             </button>
@@ -145,19 +155,19 @@ export function GitCommitTable({
           value={scope}
           onChange={(event) => setFilterScope(event.target.value as GitLogFilterScope)}
           className="h-6 rounded border border-border bg-background px-1.5 text-subtle-foreground outline-none"
-          aria-label="Git log filter field"
+          aria-label={t("git.log.filterField")}
         >
-          <option value="text">Text</option>
-          <option value="author">Author</option>
-          <option value="branch">Branch</option>
+          <option value="text">{t("git.log.filterText")}</option>
+          <option value="author">{t("git.log.filterAuthor")}</option>
+          <option value="branch">{t("git.log.filterBranch")}</option>
         </select>
         <Button
           type="button"
           variant="ghost"
           size="icon-xs"
           onClick={() => setShowDecorations(!showDecorations)}
-          tooltip={showDecorations ? "Hide branch and tag labels" : "Show branch and tag labels"}
-          aria-label={showDecorations ? "Hide Git decorations" : "Show Git decorations"}
+          tooltip={showDecorations ? t("git.log.hideDecorations") : t("git.log.showDecorations")}
+          aria-label={showDecorations ? t("git.log.hideDecorations") : t("git.log.showDecorations")}
           aria-pressed={showDecorations}
         >
           {showDecorations ? <Eye /> : <EyeSlash />}
@@ -168,15 +178,15 @@ export function GitCommitTable({
       </div>
 
       <div className="flex h-6 shrink-0 items-center border-border border-b bg-surface/70 px-2 text-subtle-foreground">
-        <span className="min-w-0 flex-1">Commit</span>
-        <span className="w-28 shrink-0">Author</span>
-        <span className="w-32 shrink-0 text-right">Date</span>
+        <span className="min-w-0 flex-1">{t("git.log.commit")}</span>
+        <span className="w-28 shrink-0">{t("git.log.author")}</span>
+        <span className="w-32 shrink-0 text-right">{t("git.log.date")}</span>
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         {visibleRows.length === 0 ? (
           <div className="flex h-full items-center justify-center text-subtle-foreground">
-            {query ? "No commits match this filter" : "No commits in this view"}
+            {query ? t("git.log.noMatch") : t("git.log.noCommits")}
           </div>
         ) : (
           <>
@@ -203,7 +213,7 @@ export function GitCommitTable({
                       onDoubleClick={() => onOpenDiff(row.commit)}
                       onContextMenu={() => onSelect(row.commit)}
                       onKeyDown={(event) => handleRowKeyDown(event, row.commit)}
-                      title="Double-click or press Enter to open commit diff"
+                      title={t("git.log.openDiffHint")}
                     >
                       <GitGraphRow row={row} showDecorations={showDecorations} />
                       <span className="w-28 shrink-0 truncate px-2 text-subtle-foreground">
@@ -216,21 +226,21 @@ export function GitCommitTable({
                     <ContextMenuContent>
                       <ContextMenuItem onClick={() => onOpenDiff(row.commit)}>
                         <GitDiff />
-                        Open Commit Diff
+                        {t("git.log.openCommitDiff")}
                         <ContextMenuShortcut>Enter</ContextMenuShortcut>
                       </ContextMenuItem>
                       <ContextMenuItem onClick={() => onCompareWithHead(row.commit)}>
                         <GitBranch />
-                        Compare with HEAD
+                        {t("git.log.compareWithHead")}
                       </ContextMenuItem>
                       <ContextMenuSeparator />
                       <ContextMenuItem onClick={() => onCopyHash(row.commit)}>
                         <Copy />
-                        Copy Commit Hash
+                        {t("git.log.copyCommitHash")}
                       </ContextMenuItem>
                       <ContextMenuItem onClick={() => onCopyMessage(row.commit)}>
                         <Copy />
-                        Copy Commit Message
+                        {t("git.log.copyCommitMessage")}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>
@@ -246,7 +256,7 @@ export function GitCommitTable({
                   disabled={isLoadingMore}
                   onClick={onLoadMore}
                 >
-                  {isLoadingMore ? "Loading commits…" : "Load more commits"}
+                  {isLoadingMore ? t("git.log.loadingCommits") : t("git.log.loadMore")}
                 </Button>
               </div>
             ) : null}

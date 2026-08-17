@@ -11,6 +11,7 @@ import { calculateLineHeight } from "@/features/editor/utils/lines";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useZoomStore } from "@/features/window/stores/zoom.store";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import { stageHunk, unstageHunk } from "../../api/git-status-api";
 import type { DiffHunkHeaderProps } from "../../types/git-diff.types";
 import { createGitHunk, parseDiffHunkRange } from "../../utils/git-diff-helpers";
@@ -28,6 +29,7 @@ const DiffHunkHeader = memo(
     onUnstageHunk,
     isInMultiFileView = false,
   }: DiffHunkHeaderProps) => {
+    const { t } = useTranslation();
     const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
     const editorFontSize = useEditorSettingsStore.use.fontSize();
     const editorFontFamily = useEditorSettingsStore.use.fontFamily();
@@ -138,11 +140,11 @@ const DiffHunkHeader = memo(
                     ? "bg-git-deleted/20 text-git-deleted hover:bg-git-deleted/30"
                     : "bg-git-added/20 text-git-added hover:bg-git-added/30",
                 )}
-                title={isStaged ? "Unstage hunk" : "Stage hunk"}
-                aria-label={isStaged ? "Unstage hunk" : "Stage hunk"}
+                title={isStaged ? t("git.diff.unstage") : t("git.diff.stage")}
+                aria-label={isStaged ? t("git.diff.unstage") : t("git.diff.stage")}
               >
                 {isStaged ? <Minus size={iconSize} /> : <Plus size={iconSize} />}
-                <span>{isStaged ? "Unstage" : "Stage"}</span>
+                <span>{isStaged ? t("git.diff.unstage") : t("git.diff.stage")}</span>
               </button>
             )}
           </div>
