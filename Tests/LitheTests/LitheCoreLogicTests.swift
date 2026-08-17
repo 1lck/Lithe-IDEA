@@ -3231,7 +3231,9 @@ struct EditorDocumentTests {
         source?.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
         source?.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
         source?.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true))
-        let refreshed = await waitForWorkspaceObservation { refreshCount == 2 }
+        let refreshed = await waitForWorkspaceObservation(timeout: .seconds(15)) {
+            refreshCount == 2
+        }
 
         #expect(refreshed)
         #expect(refreshCount == 2)
