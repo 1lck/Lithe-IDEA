@@ -12,6 +12,8 @@ use crate::protocol::{
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::io::Write;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
@@ -526,7 +528,7 @@ fn execute_git_with_options(
     disable_optional_locks: bool,
 ) -> Result<GitCommandResponse, CoreError> {
     crate::protocol::cancellation::check()?;
-    let mut process = Command::new("git");
+    let mut process = git_process();
     process.args(arguments).current_dir(root);
     if disable_optional_locks {
         process.env("GIT_OPTIONAL_LOCKS", "0");
@@ -597,6 +599,21 @@ fn execute_git_with_options(
         exit_code: status.code().unwrap_or(1),
         stash_restore: None,
     })
+}
+
+fn git_process() -> Command {
+    let mut process = Command::new("git");
+    #[cfg(target_os = "windows")]
+    process.creation_flags(git_process_creation_flags());
+    process
+}
+
+#[cfg(target_os = "windows")]
+fn git_process_creation_flags() -> u32 {
+    // Git runs as an IDE background task; attaching a console can briefly open
+    // the user's default terminal whenever status or repository data refreshes.
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    CREATE_NO_WINDOW
 }
 
 /// Builds a structured working-tree, staged, untracked, or commit diff.
@@ -2752,7 +2769,7 @@ fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output,
     // may otherwise refresh its optional index data while answering a query,
     // which emits `.git/index` events into the native watcher and can trigger
     // another status refresh.
-    Command::new("git")
+    git_process()
         .env("GIT_OPTIONAL_LOCKS", "0")
         .args(arguments)
         .current_dir(directory)
@@ -2817,6 +2834,12 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 mod tests {
     use super::{line_similarity, pair_diff_entries, parse_diff, DiffEntry, MAX_ALIGNMENT_CELLS};
     use serde_json::Value;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn background_git_processes_do_not_create_windows_console() {
+        assert_eq!(super::git_process_creation_flags(), 0x08000000);
+    }
 
     fn entries(texts: &[&str]) -> Vec<DiffEntry> {
         texts

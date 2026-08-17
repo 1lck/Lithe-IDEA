@@ -46,6 +46,7 @@ import {
 interface NewProjectContentProps {
   onBack: () => void;
   onClose: () => void;
+  initialSource?: NewProjectSource;
 }
 
 interface ProjectSourceOption {
@@ -104,13 +105,19 @@ function getCreationLabel(source: NewProjectSource) {
   return "Create & Install";
 }
 
-export default function NewProjectContent({ onBack, onClose }: NewProjectContentProps) {
+export default function NewProjectContent({
+  onBack,
+  onClose,
+  initialSource,
+}: NewProjectContentProps) {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const repositoryInputRef = useRef<HTMLInputElement>(null);
-  const [step, setStep] = useState<"source" | "details" | "creating">("source");
+  const [step, setStep] = useState<"source" | "details" | "creating">(
+    initialSource ? "details" : "source",
+  );
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [source, setSource] = useState<NewProjectSource>("empty");
+  const [source, setSource] = useState<NewProjectSource>(initialSource ?? "empty");
   const [projectName, setProjectName] = useState("");
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [locationPath, setLocationPath] = useState("");
