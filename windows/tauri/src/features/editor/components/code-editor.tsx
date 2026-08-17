@@ -18,7 +18,7 @@ import { useEditorSettingsStore } from "@/features/editor/stores/settings.store"
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { useEditorViewStore } from "@/features/editor/stores/view.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
-import { calculateLineHeight } from "@/features/editor/utils/lines";
+import { calculateLineHeight, splitLines } from "@/features/editor/utils/lines";
 import { resolveGoToLineTarget } from "@/features/editor/utils/go-to-line";
 import type { EditorModelPositionResolver } from "@/features/editor/view-model/view-layout";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
@@ -250,7 +250,7 @@ const CodeEditor = ({
     [],
   );
   const getCodeLensLineText = useCallback((line: number) => {
-    return valueRef.current.split("\n")[line];
+    return splitLines(valueRef.current)[line] ?? "";
   }, []);
   const measureCodeLensContentLeft = useCallback(() => {
     const container = editorRef.current;
@@ -514,6 +514,7 @@ const CodeEditor = ({
             editorViewKey={editorViewKey}
             bufferId={activeBufferId ?? undefined}
             filePathOverride={breadcrumbProps?.filePathOverride ?? filePath}
+            showFilePath={breadcrumbProps?.showFilePath ?? false}
           />
         )}
 

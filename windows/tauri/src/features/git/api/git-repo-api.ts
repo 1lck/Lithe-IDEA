@@ -81,6 +81,16 @@ function joinPath(basePath: string, childPath: string): string {
   return normalizePath(`${base}/${child}`);
 }
 
+function parentPath(path: string): string {
+  const normalized = normalizePath(path);
+  const separatorIndex = normalized.lastIndexOf("/");
+  if (separatorIndex < 0) return normalized;
+  if (separatorIndex === 2 && /^[A-Za-z]:\//.test(normalized)) {
+    return normalized.slice(0, separatorIndex + 1);
+  }
+  return separatorIndex === 0 ? "/" : normalized.slice(0, separatorIndex);
+}
+
 function toRelativePath(from: string, to: string): string {
   const normalizedFrom = normalizePath(from);
   const normalizedTo = normalizePath(to);
@@ -205,7 +215,7 @@ export async function resolveRepositoryForFile(
   filePath: string,
 ): Promise<{ repoPath: string; filePath: string } | null> {
   const absoluteFilePath = isAbsolutePath(filePath) ? filePath : joinPath(repoPath, filePath);
-  const discoveredRepo = await discoverRepo(absoluteFilePath);
+  const discoveredRepo = await discoverRepo(parentPath(absoluteFilePath));
 
   if (!discoveredRepo) {
     return null;

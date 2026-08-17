@@ -13,8 +13,9 @@ import Breadcrumb, {
 } from "@/features/editor/components/toolbar/breadcrumb";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { DiffHeaderProps } from "../../types/git-diff.types";
-import { getFileStatus } from "../../utils/git-diff-helpers";
+import { countDiffStats, getFileStatus } from "../../utils/git-diff-helpers";
 
 const DiffHeader = memo(
   ({
@@ -31,6 +32,7 @@ const DiffHeader = memo(
     onClose,
     showDisplayControls = true,
   }: DiffHeaderProps) => {
+    const { t } = useTranslation();
     const { closeBuffer } = useBufferStore.use.actions();
     const activeBufferId = useBufferStore.use.activeBufferId();
 
@@ -45,12 +47,7 @@ const DiffHeader = memo(
     const renderStats = () => {
       if (!diff) return null;
 
-      let additions = 0;
-      let deletions = 0;
-      for (const l of diff.lines) {
-        if (l.line_type === "added") additions++;
-        else if (l.line_type === "removed") deletions++;
-      }
+      const { additions, deletions } = countDiffStats([diff]);
 
       return (
         <>
@@ -133,8 +130,12 @@ const DiffHeader = memo(
                     onClick={() => onShowWhitespaceChange?.(!showWhitespace)}
                     active={showWhitespace}
                     className="gap-1"
-                    tooltip={showWhitespace ? "Hide whitespace" : "Show whitespace"}
-                    aria-label={showWhitespace ? "Hide whitespace" : "Show whitespace"}
+                    tooltip={
+                      showWhitespace ? t("git.diff.hideWhitespace") : t("git.diff.showWhitespace")
+                    }
+                    aria-label={
+                      showWhitespace ? t("git.diff.hideWhitespace") : t("git.diff.showWhitespace")
+                    }
                   >
                     <Trash2 weight="duotone" />
                     {showWhitespace && <Check weight="duotone" />}

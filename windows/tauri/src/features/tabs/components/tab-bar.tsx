@@ -25,6 +25,7 @@ import { splitEditorGroup } from "@/features/panes/utils/pane-command-actions";
 import { moveBufferToPaneDropTarget } from "@/features/panes/utils/pane-drop-actions";
 import { findPaneGroup } from "@/features/panes/utils/pane-tree";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
 import { getChromeNavigationIndex } from "@/features/layout/utils/chrome-keyboard";
@@ -59,6 +60,7 @@ const TabBar = ({
   onTabClick: externalTabClick,
   disablePaneActions = false,
 }: TabBarProps) => {
+  const { t } = useTranslation();
   // Get everything from stores
   const pendingClose = useBufferStore.use.pendingClose();
   const paneRoot = usePaneStore.use.root();
@@ -321,13 +323,21 @@ const TabBar = ({
         if (dirLabel) return dirLabel;
       }
 
+      if (buffer.type === "globalSearch") {
+        return t("workbench.search");
+      }
+
+      if (buffer.type === "diagnostics") {
+        return t("workbench.diagnostics");
+      }
+
       if (buffer.type === "diff") {
         return formatDiffBufferLabel(displayNames.get(buffer.id) || buffer.name, buffer.path);
       }
 
       return displayNames.get(buffer.id) ?? buffer.name;
     },
-    [displayNames, getCommandLabel, getDirectoryLabel, isUsefulTerminalTitle, terminalSessions],
+    [displayNames, getCommandLabel, getDirectoryLabel, isUsefulTerminalTitle, t, terminalSessions],
   );
 
   useEffect(() => {

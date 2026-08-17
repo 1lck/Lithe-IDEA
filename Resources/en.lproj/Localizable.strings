@@ -1,4 +1,8 @@
 /* English is the default UI language. */
+"Search settings" = "Search settings";
+"Clear search" = "Clear search";
+"No settings found" = "No settings found";
+"Try a different search term." = "Try a different search term.";
 "Plugins" = "Plugins";
 "Marketplace" = "Marketplace";
 "Installed" = "Installed";

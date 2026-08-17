@@ -1,9 +1,9 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
-import { getFileDiff } from "../api/git-diff-api";
 import type { MultiFileDiff } from "../types/git-diff.types";
 import type { GitDiff, GitFile } from "../types/git.types";
 import { countDiffStats } from "../utils/git-diff-helpers";
+import { loadWorkingTreeFileDiff } from "./working-tree-file-diff";
 
 export type WorkingTreeDiffScope = "all" | "unstaged" | "staged";
 export type WorkingTreeDiffEntry = readonly [fileKey: string, file: GitFile];
@@ -108,7 +108,13 @@ export async function loadWorkingTreeDiffsProgressively({
       const batch = diffEntriesToLoad.slice(index, index + WORKING_TREE_DIFF_BATCH_SIZE);
       const batchResults = await Promise.all(
         batch.map(async ([fileKey, entry]) => {
-          const diff = await getFileDiff(repoPath, entry.path, entry.staged);
+          let diff: GitDiff | null;
+          try {
+            diff = await loadWorkingTreeFileDiff(repoPath, entry);
+          } catch (error) {
+            console.error(`Failed to load working-tree diff for ${entry.path}:`, error);
+            return null;
+          }
           if (
             !diff ||
             (diff.lines.length === 0 && diff.is_image !== true && diff.is_binary !== true)

@@ -68,6 +68,8 @@
   color: var(--subtle-foreground, rgba(128, 128, 128, 0.78));
   opacity: 0.8;
   white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
 }
 
 .monaco-editor-shell .monaco-resizable-hover,

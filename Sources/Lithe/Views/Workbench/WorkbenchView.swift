@@ -360,7 +360,7 @@ struct WorkbenchView: View {
                 isProjectSwitcherPresented.toggle()
             } label: {
                 HStack(spacing: 8) {
-                    LitheLogo(size: 28)
+                    LitheLogo(size: 24)
 
                     Text(model.projectName)
                         .font(.system(size: 13, weight: .semibold))

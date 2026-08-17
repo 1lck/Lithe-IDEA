@@ -94,102 +94,110 @@ struct GenericDebugView: View {
     private var inspector: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                sectionHeader("Breakpoints", count: feature.breakpoints.count)
-                if feature.breakpoints.isEmpty {
-                    placeholder("Click the editor gutter to add a breakpoint")
-                } else {
-                    ForEach(feature.breakpoints) { breakpoint in
-                        HStack(spacing: 7) {
-                            Image(systemName: breakpoint.verified ? "circle.fill" : "circle")
-                                .font(.system(size: 8))
-                                .foregroundStyle(breakpoint.verified ? LitheTheme.error : LitheTheme.warning)
-                            Text(breakpoint.title)
-                                .font(.system(size: 11, design: .monospaced))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .help(breakpoint.message ?? breakpoint.title)
-                        .padding(.horizontal, 10)
-                        .frame(height: 27)
-                    }
-                }
-
-                divider
-                sectionHeader("Threads", count: feature.threads.count)
-                if feature.threads.isEmpty {
-                    Button("Load threads") { feature.inspectThreads() }
-                        .buttonStyle(.plain)
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.accent)
-                        .padding(10)
-                } else {
-                    ForEach(feature.threads) { thread in
-                        rowButton(selected: feature.selectedThreadID == thread.id) {
-                            feature.selectThread(thread)
-                        } label: {
-                            Image(systemName: "circle")
-                            Text(thread.name).lineLimit(1)
-                        }
-                    }
-                }
-
-                divider
-                sectionHeader("Call Stack", count: feature.stackFrames.count)
-                if feature.stackFrames.isEmpty {
-                    placeholder("Pause the process to inspect frames")
-                } else {
-                    ForEach(feature.stackFrames) { frame in
-                        rowButton(selected: feature.selectedFrameID == frame.id) {
-                            feature.selectFrame(frame)
-                            if let sourceURL = frame.sourceURL {
-                                model.openSourceLocation(
-                                    url: sourceURL,
-                                    line: frame.line,
-                                    column: frame.column
-                                )
+                Group {
+                    sectionHeader("Breakpoints", count: feature.breakpoints.count)
+                    if feature.breakpoints.isEmpty {
+                        placeholder("Click the editor gutter to add a breakpoint")
+                    } else {
+                        ForEach(feature.breakpoints) { breakpoint in
+                            HStack(spacing: 7) {
+                                Image(systemName: breakpoint.verified ? "circle.fill" : "circle")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(breakpoint.verified ? LitheTheme.error : LitheTheme.warning)
+                                Text(breakpoint.title)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
                             }
-                        } label: {
-                            Image(systemName: "chevron.right")
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(frame.name).lineLimit(1)
+                            .help(breakpoint.message ?? breakpoint.title)
+                            .padding(.horizontal, 10)
+                            .frame(height: 27)
+                        }
+                    }
+                }
+
+                Group {
+                    divider
+                    sectionHeader("Threads", count: feature.threads.count)
+                    if feature.threads.isEmpty {
+                        Button("Load threads") { feature.inspectThreads() }
+                            .buttonStyle(.plain)
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.accent)
+                            .padding(10)
+                    } else {
+                        ForEach(feature.threads) { thread in
+                            rowButton(selected: feature.selectedThreadID == thread.id) {
+                                feature.selectThread(thread)
+                            } label: {
+                                Image(systemName: "circle")
+                                Text(thread.name).lineLimit(1)
+                            }
+                        }
+                    }
+                }
+
+                Group {
+                    divider
+                    sectionHeader("Call Stack", count: feature.stackFrames.count)
+                    if feature.stackFrames.isEmpty {
+                        placeholder("Pause the process to inspect frames")
+                    } else {
+                        ForEach(feature.stackFrames) { frame in
+                            rowButton(selected: feature.selectedFrameID == frame.id) {
+                                feature.selectFrame(frame)
                                 if let sourceURL = frame.sourceURL {
-                                    Text("\(sourceURL.lastPathComponent):\(frame.line)")
-                                        .font(.system(size: 9.5, design: .monospaced))
-                                        .foregroundStyle(LitheTheme.secondaryText)
+                                    model.openSourceLocation(
+                                        url: sourceURL,
+                                        line: frame.line,
+                                        column: frame.column
+                                    )
+                                }
+                            } label: {
+                                Image(systemName: "chevron.right")
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(frame.name).lineLimit(1)
+                                    if let sourceURL = frame.sourceURL {
+                                        Text("\(sourceURL.lastPathComponent):\(frame.line)")
+                                            .font(.system(size: 9.5, design: .monospaced))
+                                            .foregroundStyle(LitheTheme.secondaryText)
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                divider
-                sectionHeader("Variables", count: feature.variables.count)
-                if feature.variables.isEmpty {
-                    placeholder("Select a stack frame to inspect variables")
-                } else {
-                    ForEach(feature.variables) { variable in
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Image(systemName: variable.isExpandable ? "chevron.right" : "circle.fill")
-                                .font(.system(size: variable.isExpandable ? 8 : 4))
-                                .foregroundStyle(LitheTheme.secondaryText)
-                            Text(variable.name)
-                                .font(.system(size: 10.5, design: .monospaced))
-                            Text("=")
-                                .foregroundStyle(LitheTheme.secondaryText)
-                            Text(variable.value)
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundStyle(LitheTheme.accent)
-                                .lineLimit(2)
-                            Spacer(minLength: 0)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if variable.isExpandable {
-                                feature.loadVariables(reference: variable.variablesReference)
+                Group {
+                    divider
+                    sectionHeader("Variables", count: feature.variables.count)
+                    if feature.variables.isEmpty {
+                        placeholder("Select a stack frame to inspect variables")
+                    } else {
+                        ForEach(feature.variables) { variable in
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Image(systemName: variable.isExpandable ? "chevron.right" : "circle.fill")
+                                    .font(.system(size: variable.isExpandable ? 8 : 4))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                Text(variable.name)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                Text("=")
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                Text(variable.value)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.accent)
+                                    .lineLimit(2)
+                                Spacer(minLength: 0)
                             }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if variable.isExpandable {
+                                    feature.loadVariables(reference: variable.variablesReference)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
                     }
                 }
 

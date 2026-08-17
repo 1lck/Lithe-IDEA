@@ -315,6 +315,7 @@ export const defaultKeymaps: Keybinding[] = [
   { key: "cmd+b", command: "workbench.toggleActivitySidebar", source: "default" },
   { key: "cmd+e", command: "workbench.toggleSidebar", source: "default" },
   { key: "cmd+j", command: "workbench.toggleTerminal", source: "default" },
+  { key: "shift+f10", command: "workbench.toggleRun", source: "default" },
   { key: "cmd+`", command: "workbench.toggleTerminalAlt", source: "default" },
   {
     key: "cmd+shift+j",
@@ -465,6 +466,7 @@ export const defaultKeymaps: Keybinding[] = [
     command: "workbench.commandPalette",
     source: "default",
   },
+  { key: "alt+9", command: "workbench.toggleGitLog", source: "default" },
   { key: "cmd+r", command: "workbench.toggleAIChat", source: "default" },
   { key: "cmd+shift+m", command: "workbench.toggleMinimap", source: "default" },
   {

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { getBranches } from "../api/git-branches-api";
-import { getGitLog } from "../api/git-commits-api";
+import { getGitHistory } from "../api/git-commits-api";
+import { getOperationState } from "../api/git-integration-api";
 import { getStashes } from "../api/git-stash-api";
 import { getGitStatus } from "../api/git-status-api";
 import {
@@ -24,6 +25,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     useRepositoryStore.use.actions();
   const gitActions = useGitStore((state) => state.actions);
   const gitStatus = useGitStore((state) => state.gitStatus);
+  const loadedCommitCount = useGitStore((state) => state.commits.length);
   const autoRefreshGitStatus = useSettingsStore((state) => state.settings.autoRefreshGitStatus);
   const requestIdRef = useRef(0);
   const refreshPromisesRef = useRef(new Map<string, Promise<void>>());
@@ -40,11 +42,17 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     gitActions.setIsLoadingGitData(true);
 
     try {
-      const [status, commits, branches, stashes] = await Promise.all([
+      const [status, history, branches, stashes, operationStateResult] = await Promise.all([
         getGitStatus(repoPath),
-        getGitLog(repoPath, 50, 0),
+        getGitHistory(repoPath, 50),
         getBranches(repoPath),
         getStashes(repoPath),
+        getOperationState(repoPath)
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error) => {
+            console.error("Failed to load Git operation state:", error);
+            return { ok: false as const };
+          }),
       ]);
 
       if (
@@ -56,9 +64,11 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
       gitActions.loadFreshGitData({
         gitStatus: status,
-        commits,
+        commits: history?.commits ?? [],
+        hasMoreCommits: history?.hasMore ?? false,
         branches,
         stashes,
+        operationState: operationStateResult.ok ? operationStateResult.value : null,
         repoPath,
       });
     } catch (error) {
@@ -90,11 +100,21 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
             refreshAll || scopes.includes("refs") || scopes.includes("repository");
           const shouldRefreshStashes =
             refreshAll || scopes.includes("stashes") || scopes.includes("repository");
-          const [status, branches, stashes, commits] = await Promise.all([
+          const [status, branches, stashes, history, operationStateResult] = await Promise.all([
             getGitStatus(repoPath),
             shouldRefreshRefs ? getBranches(repoPath) : Promise.resolve(undefined),
             shouldRefreshStashes ? getStashes(repoPath) : Promise.resolve(undefined),
-            shouldRefreshHistory ? getGitLog(repoPath, 50, 0) : Promise.resolve(undefined),
+            shouldRefreshHistory
+              ? getGitHistory(repoPath, Math.max(loadedCommitCount, 50))
+              : Promise.resolve(undefined),
+            // Operation state rides along on every refresh: staging a file or
+            // an external Git command can end a conflict at any moment.
+            getOperationState(repoPath)
+              .then((value) => ({ ok: true as const, value }))
+              .catch((error) => {
+                console.error("Failed to refresh Git operation state:", error);
+                return { ok: false as const };
+              }),
           ]);
 
           if (
@@ -107,7 +127,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
           gitActions.refreshGitData({
             gitStatus: status,
             branches,
-            commits,
+            commits: history?.commits,
+            hasMoreCommits: history?.hasMore,
+            operationState: operationStateResult.ok ? operationStateResult.value : undefined,
             repoPath,
           });
 
@@ -132,7 +154,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
       refreshPromisesRef.current.set(refreshKey, request);
       return request;
     },
-    [activeRepoPath, gitActions],
+    [activeRepoPath, gitActions, loadedCommitCount],
   );
 
   const refresh = useCallback(async () => {

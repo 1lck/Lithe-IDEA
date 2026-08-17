@@ -68,6 +68,7 @@ enum LitheTheme {
         let secondaryText: RGBA
         let tertiaryText: RGBA
         let accent: RGBA
+        let runAction: RGBA
         let success: RGBA
         let warning: RGBA
         let error: RGBA
@@ -157,6 +158,7 @@ enum LitheTheme {
                 secondaryText: ink.withAlpha(isDark ? 0.62 : 0.60),
                 tertiaryText: ink.withAlpha(isDark ? 0.43 : 0.42),
                 accent: accent,
+                runAction: isDark ? RGBA(0x59a869) : RGBA(0x2e7d32),
                 success: diffAdded,
                 warning: isDark ? RGBA(0xe6a23c) : RGBA(0xa96500),
                 error: diffRemoved,
@@ -201,6 +203,7 @@ enum LitheTheme {
                 secondaryText: adaptive(light: (0, 0, 0, 0.55), dark: (1, 1, 1, 0.50)),
                 tertiaryText: adaptive(light: (0, 0, 0, 0.38), dark: (1, 1, 1, 0.34)),
                 accent: adaptive(light: (0.180, 0.425, 0.790, 1), dark: (0.31, 0.58, 0.98, 1)),
+                runAction: adaptive(light: (0.180, 0.490, 0.196, 1), dark: (0.349, 0.659, 0.412, 1)),
                 success: adaptive(light: (0.105, 0.545, 0.235, 1), dark: (0.28, 0.72, 0.39, 1)),
                 warning: adaptive(light: (0.690, 0.410, 0.035, 1), dark: (0.91, 0.63, 0.20, 1)),
                 error: adaptive(light: (0.780, 0.175, 0.175, 1), dark: (0.92, 0.33, 0.33, 1)),
@@ -252,6 +255,7 @@ enum LitheTheme {
     // MARK: - 背景层次
     static var window: Color { adaptive(\.window) }
     static var titlebar: Color { adaptive(\.titlebar) }
+    static var settingsSurface: Color { editor }
     static var toolHeader: Color { adaptive(\.toolHeader) }
     static var sidebar: Color { adaptive(\.sidebar) }
     static var editor: Color { adaptive(\.editor) }
@@ -291,6 +295,7 @@ enum LitheTheme {
 
     // MARK: - 语义色
     static var accent: Color { adaptive(\.accent) }
+    static var runAction: Color { adaptive(\.runAction) }
     static var success: Color { adaptive(\.success) }
     static var warning: Color { adaptive(\.warning) }
     static var error: Color { adaptive(\.error) }
@@ -316,7 +321,22 @@ enum LitheTheme {
 
     static var uiFont: Font { uiFont(size: 14) }
     static var smallFont: Font { uiFont(size: 12) }
-    static let codeFont = Font.system(size: 13, design: .monospaced)
+    static let codeFont = Font.custom("JetBrainsMono-Regular", size: 13)
+    static let editorLineHeightMultiple: CGFloat = 1.2
+
+    static func editorFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        let postScriptName = weight.rawValue >= NSFont.Weight.semibold.rawValue
+            ? "JetBrainsMono-Bold"
+            : "JetBrainsMono-Regular"
+        return NSFont(name: postScriptName, size: size)
+            ?? .monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
+    static var editorParagraphStyle: NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineHeightMultiple = editorLineHeightMultiple
+        return style
+    }
 
     private static func uiFont(size: CGFloat) -> Font {
         if activeTheme != .lithe, NSFont(name: "Inter", size: size) != nil {

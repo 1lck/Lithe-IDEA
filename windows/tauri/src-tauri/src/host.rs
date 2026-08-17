@@ -9,6 +9,16 @@ use tauri_plugin_opener::OpenerExt;
 
 static WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 
+// Windows 11 taskbar downscales a 256-only ICO into an empty pill. Use the 32px
+// asset after window creation so frameless windows keep a readable app icon.
+const WINDOW_TASKBAR_ICON: tauri::image::Image<'_> = tauri::include_image!("./icons/32x32.png");
+
+pub fn apply_window_taskbar_icon(window: &WebviewWindow) {
+    if let Err(error) = window.set_icon(WINDOW_TASKBAR_ICON.clone()) {
+        eprintln!("[host] failed to set window icon: {error}");
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct FontInfo {
     name: String,
@@ -273,13 +283,16 @@ pub fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<Strin
     } else {
         format!("index.html?{query}")
     };
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
+    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
         .title("Lithe")
         .decorations(false)
         .inner_size(1280.0, 800.0)
         .min_inner_size(720.0, 480.0)
+        .icon(WINDOW_TASKBAR_ICON)
+        .map_err(|error| error.to_string())?
         .build()
         .map_err(|error| error.to_string())?;
+    apply_window_taskbar_icon(&window);
     Ok(label)
 }
 
@@ -287,6 +300,7 @@ pub fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<Strin
 mod tests {
     use super::{cli_payloads, copy_path, unique_destination};
     use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn parses_path_and_web_cli_arguments() {
@@ -322,6 +336,27 @@ mod tests {
         assert_eq!(unique_destination(destination), target.join("source copy"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bundled_windows_icon_includes_taskbar_sizes() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("icons/icon.ico");
+        let data = fs::read(path).unwrap();
+        assert!(data.len() >= 6);
+        let count = u16::from_le_bytes(data[4..6].try_into().unwrap()) as usize;
+        let mut widths = Vec::new();
+        let mut offset = 6usize;
+        for _ in 0..count {
+            let width = match data[offset] {
+                0 => 256,
+                value => u32::from(value),
+            };
+            widths.push(width);
+            offset += 16;
+        }
+        assert!(widths.contains(&16), "{widths:?}");
+        assert!(widths.contains(&32), "{widths:?}");
+        assert!(widths.contains(&256), "{widths:?}");
     }
 }
 

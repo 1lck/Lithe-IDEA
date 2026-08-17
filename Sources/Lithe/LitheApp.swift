@@ -63,6 +63,7 @@ struct LitheApp: App {
     @StateObject private var updateChecker = UpdateChecker()
 
     init() {
+        MacBundledFontRegistry.registerFonts()
         let store = MacUserDefaultsStore()
         let settings = AppSettings(store: store)
         let processRegistry = ManagedProcessRegistry()
@@ -272,6 +273,19 @@ struct LitheApp: App {
                 .disabled(model.workspaceURL == nil)
             }
         }
+
+        Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
+            SettingsWindow(
+                model: model,
+                settings: settings
+            )
+            .environmentObject(settings)
+            .environmentObject(updateChecker)
+            .environment(\.locale, settings.language.locale)
+            .preferredColorScheme(settings.themePreference.preferredColorScheme)
+        }
+        .defaultSize(width: 1040, height: 720)
+        .windowResizability(.contentMinSize)
     }
 
     private static var startupProjectURL: URL? {
@@ -293,6 +307,76 @@ struct LitheApp: App {
             configuration: configuration
         )
     }
+}
+
+private struct SettingsWindow: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var settings: AppSettings
+    @StateObject private var windowReference = SettingsWindowReference()
+
+    var body: some View {
+        SettingsView(
+            settings: settings,
+            initialCategory: model.requestedSettingsCategory,
+            onDismiss: close
+        )
+        .environmentObject(model)
+        .background(
+            SettingsWindowAccessor(
+                reference: windowReference,
+                title: settingsWindowTitle(for: settings.language)
+            )
+        )
+        .onDisappear {
+            model.isSettingsPresented = false
+        }
+    }
+
+    private func close() {
+        model.isSettingsPresented = false
+        windowReference.window?.performClose(nil)
+    }
+}
+
+@MainActor
+private final class SettingsWindowReference: ObservableObject {
+    weak var window: NSWindow?
+}
+
+private struct SettingsWindowAccessor: NSViewRepresentable {
+    let reference: SettingsWindowReference
+    let title: String
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        configureWindow(for: view)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        configureWindow(for: view)
+    }
+
+    private func configureWindow(for view: NSView) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            reference.window = window
+            window.title = title
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .visible
+            window.backgroundColor = NSColor(LitheTheme.settingsSurface)
+            window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
+            window.standardWindowButton(.zoomButton)?.isEnabled = true
+        }
+    }
+}
+
+private func settingsWindowTitle(for language: AppLanguage) -> String {
+    String(
+        localized: "Settings",
+        bundle: .main,
+        locale: language.locale
+    )
 }
 
 private extension AppThemePreference {
