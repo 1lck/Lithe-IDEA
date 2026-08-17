@@ -431,31 +431,56 @@ package enum GitChangeKind: String, Sendable {
 /// Projects repository-relative Git changes onto file and directory rows.
 /// Directory status uses the most urgent descendant state so conflicts and
 /// deletions are never hidden behind a lower-priority modification.
-package struct GitTreeStatusProjection: Sendable {
-    private let changes: [GitChange]
+package struct GitTreeStatusProjection: Equatable, Sendable {
+    private let changesByPath: [String: GitChange]
+    private let directoryKinds: [String: GitChangeKind]
 
     package init(changes: [GitChange]) {
-        self.changes = changes
+        var changesByPath: [String: GitChange] = [:]
+        var directoryKinds: [String: GitChangeKind] = [:]
+        for change in changes {
+            let path = Self.normalized(change.path)
+            if changesByPath[path] == nil {
+                changesByPath[path] = change
+            }
+            var remainder = path
+            while let slash = remainder.lastIndex(of: "/") {
+                remainder = String(remainder[..<slash])
+                if let current = directoryKinds[remainder] {
+                    if Self.priority(change.kind) > Self.priority(current) {
+                        directoryKinds[remainder] = change.kind
+                    }
+                } else {
+                    directoryKinds[remainder] = change.kind
+                }
+            }
+            if !path.isEmpty {
+                if let current = directoryKinds[""] {
+                    if Self.priority(change.kind) > Self.priority(current) {
+                        directoryKinds[""] = change.kind
+                    }
+                } else {
+                    directoryKinds[""] = change.kind
+                }
+            }
+        }
+        self.changesByPath = changesByPath
+        self.directoryKinds = directoryKinds
     }
 
     package func change(relativePath: String) -> GitChange? {
-        let normalized = Self.normalized(relativePath)
-        return changes.first { Self.normalized($0.path) == normalized }
+        changesByPath[Self.normalized(relativePath)]
     }
 
     package func kind(relativePath: String, isDirectory: Bool) -> GitChangeKind? {
         let normalized = Self.normalized(relativePath)
         if !isDirectory {
-            return change(relativePath: normalized)?.kind
+            return changesByPath[normalized]?.kind
         }
-        let prefix = normalized.isEmpty ? "" : normalized + "/"
-        return changes
-            .filter { normalized.isEmpty || Self.normalized($0.path).hasPrefix(prefix) }
-            .map(\.kind)
-            .max { priority($0) < priority($1) }
+        return directoryKinds[normalized]
     }
 
-    private func priority(_ kind: GitChangeKind) -> Int {
+    private static func priority(_ kind: GitChangeKind) -> Int {
         switch kind {
         case .modified: 0
         case .copied: 1

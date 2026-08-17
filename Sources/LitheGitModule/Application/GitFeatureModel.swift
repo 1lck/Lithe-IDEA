@@ -7,7 +7,10 @@ import LitheModuleAPI
 /// in AppModel. Git command construction and parsing remain in GitService/Core.
 @MainActor
 package final class GitFeatureModel: ObservableObject {
-    @Published package private(set) var gitChanges: [GitChange] = []
+    @Published package private(set) var gitChanges: [GitChange] = [] {
+        didSet { gitTreeStatus = GitTreeStatusProjection(changes: gitChanges) }
+    }
+    package private(set) var gitTreeStatus = GitTreeStatusProjection(changes: [])
     @Published private var pendingStagingStates: [GitChange.ID: Bool] = [:]
     @Published package private(set) var gitStashes: [GitStash] = []
     @Published package private(set) var gitShelves: [GitShelfEntry] = []
