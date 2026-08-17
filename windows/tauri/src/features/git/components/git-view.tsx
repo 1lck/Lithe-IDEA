@@ -36,11 +36,13 @@ import { matchesSearchQuery } from "@/utils/search-match";
 import { getBranches } from "../api/git-branches-api";
 import { getStatusDiffStats } from "../api/git-diff-api";
 import { clearRepositoryDiscoveryCache, resolveRepositoryPath } from "../api/git-repo-api";
-import { fetchChanges, pullChanges, pushChanges } from "../api/git-remotes-api";
+import { fetchChanges, getRemotes, pushChanges } from "../api/git-remotes-api";
 import { applyStash, dropStash, popStash } from "../api/git-stash-api";
 import { getGitStatus, initRepository } from "../api/git-status-api";
 import { useGitDataController } from "../hooks/use-git-data-controller";
 import { useGitDiffActions } from "../hooks/use-git-diff-actions";
+import { useGitPullWorkflow } from "../hooks/use-git-pull-workflow";
+import { useGitBlameStore } from "../stores/git-blame.store";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
 import type { GitFile } from "../types/git.types";
@@ -60,6 +62,7 @@ import GitCommandSurface from "./git-command-surface";
 import GitRemoteManager from "./git-remote-manager";
 import GitTagManager from "./git-tag-manager";
 import GitOperationBanner from "./git-operation-banner";
+import GitPullStrategyDialog from "./git-pull-strategy-dialog";
 import GitStatusPanel from "./status/git-status-panel";
 
 interface GitViewProps {
@@ -108,6 +111,24 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     workspacePath: repoPath,
     isActive,
   });
+  const refreshPullState = useCallback(async () => {
+    if (!activeRepoPath) return;
+    await Promise.all([handleManualRefresh(), getRemotes(activeRepoPath)]);
+  }, [activeRepoPath, handleManualRefresh]);
+  const pullWorkflow = useGitPullWorkflow({
+    repoPath: activeRepoPath ?? "",
+    refresh: refreshPullState,
+  });
+  const handlePull = useCallback(async () => {
+    if (!activeRepoPath) {
+      toast.error("No repository open");
+      return;
+    }
+    const result = await pullWorkflow.pull();
+    if (result.status === "pulled") {
+      useGitBlameStore.getState().actions.clearAllBlame();
+    }
+  }, [activeRepoPath, pullWorkflow.pull]);
   const [showGitActionsMenu, setShowGitActionsMenu] = useState(false);
   const [showStashList, setShowStashList] = useState(false);
   const [isSelectingRepo, setIsSelectingRepo] = useState(false);
@@ -294,6 +315,10 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       }
 
       setIsSyncMenuOpen(false);
+      if (action === "pull") {
+        await handlePull();
+        return;
+      }
       setRemoteAction(action);
       const label = REMOTE_ACTION_LABELS[action];
       const toastId = toast.info(`${label.present} changes...`, {
@@ -304,9 +329,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         const result =
           action === "push"
             ? await pushChanges(activeRepoPath)
-            : action === "pull"
-              ? await pullChanges(activeRepoPath)
-              : await fetchChanges(activeRepoPath);
+            : await fetchChanges(activeRepoPath);
 
         toast.dismiss(toastId);
 
@@ -324,22 +347,23 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         setRemoteAction(null);
       }
     },
-    [activeRepoPath, handleManualRefresh],
+    [activeRepoPath, handleManualRefresh, handlePull],
   );
 
   const aheadCount = gitStatus?.ahead ?? 0;
   const behindCount = gitStatus?.behind ?? 0;
   const primaryRemoteAction: GitRemoteAction =
     aheadCount > 0 ? "push" : behindCount > 0 ? "pull" : "fetch";
-  const syncActionLabel =
-    remoteAction !== null
+  const syncActionLabel = pullWorkflow.isPulling
+    ? t("git.pulling")
+    : remoteAction !== null
       ? t(`git.${remoteAction}ing`)
       : primaryRemoteAction === "push"
         ? t("git.pushCount", { count: aheadCount })
         : primaryRemoteAction === "pull"
           ? t("git.pullCount", { count: behindCount })
           : t("git.fetch");
-  const isRemoteActionLoading = remoteAction !== null;
+  const isRemoteActionLoading = remoteAction !== null || pullWorkflow.isPulling;
 
   const syncMenuItems = useMemo<MenuItem[]>(
     () => [
@@ -660,6 +684,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       hasGitRepo={hasGitRepo}
       repoPath={activeRepoPath ?? repoPath}
       onRefresh={onRefresh}
+      onPull={handlePull}
+      isPulling={pullWorkflow.isPulling}
       onOpenBranchManager={handleOpenBranchManager}
       onShowBranchDiff={() => void handleShowBranchDiffList()}
       onOpenRemoteManager={() => setShowRemoteManager(true)}
@@ -912,6 +938,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
               ahead={gitStatus.ahead}
               behind={gitStatus.behind}
               onCommitSuccess={refreshAfterAction}
+              onPull={handlePull}
+              isPulling={pullWorkflow.isPulling}
             />
           </SidebarFooter>
           </div>
@@ -919,6 +947,10 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       </SidebarPanel>
 
       {renderGitActionsMenu({ hasGitRepo: !!gitStatus, onRefresh: refreshAfterAction })}
+      <GitPullStrategyDialog
+        preflight={pullWorkflow.pendingPreflight}
+        onSelect={pullWorkflow.chooseStrategy}
+      />
       <GitCommandSurface
         isOpen={showCommitDiffList}
         onClose={() => {

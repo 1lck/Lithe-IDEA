@@ -26,7 +26,7 @@ import {
 import { getFileDiff } from "../api/git-diff-api";
 import { commitChanges, getGitLog } from "../api/git-commits-api";
 import { getConflictMarkerPaths } from "../api/git-integration-api";
-import { pullChanges, pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
+import { pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import { useGitStore } from "../stores/git.store";
 import type { GitDiff, GitFile } from "../types/git.types";
@@ -39,6 +39,8 @@ interface GitCommitPanelProps {
   ahead?: number;
   behind?: number;
   onCommitSuccess?: () => void;
+  onPull?: () => Promise<unknown> | void;
+  isPulling?: boolean;
 }
 
 const MAX_STAGED_FILES_FOR_AI_CONTEXT = 120;
@@ -191,6 +193,8 @@ const GitCommitPanel = ({
   ahead = 0,
   behind = 0,
   onCommitSuccess,
+  onPull,
+  isPulling = false,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -201,7 +205,7 @@ const GitCommitPanel = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [commitMessageMode, setCommitMessageMode] = useState<CommitMessageMode>("title");
   const [isGenerateModeMenuOpen, setIsGenerateModeMenuOpen] = useState(false);
-  const [remoteAction, setRemoteAction] = useState<"push" | "pull" | null>(null);
+  const [remoteAction, setRemoteAction] = useState<"push" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generateMenuAnchorRef = useRef<HTMLDivElement>(null);
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -331,42 +335,33 @@ const GitCommitPanel = ({
     }
   };
 
-  const handleRemoteAction = async (
-    action: "push" | "pull",
-    run: () => Promise<GitRemoteActionResult>,
-  ) => {
+  const handlePush = async (run: () => Promise<GitRemoteActionResult>) => {
     if (!repoPath) return;
 
-    const label = action === "push" ? "Push" : "Pull";
     let toastId: string | number | null = null;
-    setRemoteAction(action);
+    setRemoteAction("push");
     setError(null);
 
     try {
-      toastId = toast.info(`${label}ing changes...`, {
+      toastId = toast.info("Pushing changes...", {
         duration: 0,
       });
 
       const result = await run();
       if (result.success) {
-        if (action === "pull") {
-          useGitBlameStore.getState().actions.clearAllBlame();
-        }
         toast.dismiss(toastId);
-        toast.success(
-          action === "push" ? "Changes pushed successfully." : "Changes pulled successfully.",
-        );
+        toast.success("Changes pushed successfully.");
         onCommitSuccess?.();
         return;
       }
 
-      const errorMessage = result.error || `Failed to ${action} changes.`;
+      const errorMessage = result.error || "Failed to push changes.";
       toast.dismiss(toastId);
       toast.error(errorMessage);
       setError(errorMessage);
     } catch (remoteError) {
       const errorMessage =
-        remoteError instanceof Error ? remoteError.message : `Failed to ${action} changes.`;
+        remoteError instanceof Error ? remoteError.message : "Failed to push changes.";
       if (toastId) toast.dismiss(toastId);
       toast.error(errorMessage);
       setError(errorMessage);
@@ -451,7 +446,7 @@ const GitCommitPanel = ({
               {ahead > 0 && (
                 <Button
                   type="button"
-                  onClick={() => void handleRemoteAction("push", () => pushChanges(repoPath!))}
+                  onClick={() => void handlePush(() => pushChanges(repoPath!))}
                   disabled={!repoPath || isRemoteActionLoading}
                   variant="ghost"
                   size="xs"
@@ -466,8 +461,8 @@ const GitCommitPanel = ({
               {behind > 0 && (
                 <Button
                   type="button"
-                  onClick={() => void handleRemoteAction("pull", () => pullChanges(repoPath!))}
-                  disabled={!repoPath || isRemoteActionLoading}
+                  onClick={() => void onPull?.()}
+                  disabled={!repoPath || isRemoteActionLoading || isPulling}
                   variant="ghost"
                   size="xs"
                   className={cn(composerButtonClassName, "text-git-deleted hover:text-git-deleted")}

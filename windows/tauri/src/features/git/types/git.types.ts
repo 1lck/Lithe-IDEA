@@ -95,6 +95,34 @@ export interface GitRemote {
   url: string;
 }
 
+/** The current branch's relationship with its configured upstream. */
+export interface GitPullPreflight {
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  diverged: boolean;
+  hasLocalChanges: boolean;
+}
+
+/** A pull policy accepted by the shared Rust Core. */
+export type PullStrategy = "ffOnly" | "merge" | "rebase";
+
+export type GitPullResult =
+  | { status: "pulled"; strategy: PullStrategy; message: string }
+  | { status: "cancelled"; message: string }
+  | {
+      status: "blocked";
+      reason: "no-upstream" | "up-to-date" | "dirty";
+      message: string;
+    }
+  | {
+      status: "failed";
+      stage: "fetch" | "preflight" | "pull";
+      message: string;
+    }
+  | { status: "conflict"; operation: GitOperationState; message: string }
+  | { status: "duplicate"; message: string };
+
 export interface GitStash {
   index: number;
   message: string;

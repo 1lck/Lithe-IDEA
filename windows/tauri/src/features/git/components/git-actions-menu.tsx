@@ -18,12 +18,7 @@ import { Spinner } from "@/ui/spinner";
 import { showConfirmDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
-import {
-  fetchChanges,
-  pullChanges,
-  pushChanges,
-  type GitRemoteActionResult,
-} from "../api/git-remotes-api";
+import { fetchChanges, pushChanges, type GitRemoteActionResult } from "../api/git-remotes-api";
 import { discardAllChanges, initRepository } from "../api/git-status-api";
 import { useGitStore } from "../stores/git.store";
 import { type GitActionsMenuAnchorRect } from "../utils/git-actions-menu-position";
@@ -35,6 +30,8 @@ interface GitActionsMenuProps {
   hasGitRepo: boolean;
   repoPath?: string;
   onRefresh?: () => void;
+  onPull?: () => Promise<unknown> | void;
+  isPulling?: boolean;
   onOpenBranchManager?: () => void;
   onShowBranchDiff?: () => void;
   onOpenRemoteManager?: () => void;
@@ -53,6 +50,8 @@ const GitActionsMenu = ({
   hasGitRepo,
   repoPath,
   onRefresh,
+  onPull,
+  isPulling = false,
   onOpenBranchManager,
   onShowBranchDiff,
   onOpenRemoteManager,
@@ -122,11 +121,8 @@ const GitActionsMenu = ({
   };
 
   const handlePull = () => {
-    handleAction(() => pullChanges(repoPath!), "Pull", {
-      loading: "Pulling changes...",
-      success: "Changes pulled successfully.",
-      error: "Failed to pull changes.",
-    });
+    void onPull?.();
+    onClose();
   };
 
   const handleFetch = () => {
@@ -234,7 +230,7 @@ const GitActionsMenu = ({
           id: "pull",
           label: t("git.pullChanges"),
           icon: <Download weight="fill" />,
-          disabled: isLoading,
+          disabled: isLoading || isPulling,
           onClick: handlePull,
         },
         {

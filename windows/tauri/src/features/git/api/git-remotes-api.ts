@@ -1,7 +1,12 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import type { GitRemote } from "../types/git.types";
+import type { GitPullPreflight, GitRemote, PullStrategy } from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
+import { GitPullWorkflow } from "../hooks/git-pull-workflow";
 import { runGitRead } from "../runtime/git-read-coordinator";
+import { getBranches } from "./git-branches-api";
+import { getGitHistory } from "./git-commits-api";
+import { getOperationState } from "./git-integration-api";
+import { getGitStatus } from "./git-status-api";
 import {
   isNotGitRepositoryError,
   resolveRepositoryPath,
@@ -88,19 +93,20 @@ export const pushChanges = async (
   }
 };
 
-export const pullChanges = async (
+export const getPullPreflight = async (repoPath: string): Promise<GitPullPreflight> => {
+  const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+  return tauriInvoke<GitPullPreflight>("git.pullPreflight", {
+    repoPath: resolvedRepoPath,
+  });
+};
+
+export const executePullChanges = async (
   repoPath: string,
-  branch?: string,
-  remote: string = "origin",
+  strategy: PullStrategy,
 ): Promise<GitRemoteActionResult> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_pull", { repoPath: resolvedRepoPath, branch, remote });
-    emitGitChanged({
-      repoPath: resolvedRepoPath,
-      scopes: ["working-tree", "history", "refs", "remotes"],
-      source: "pull",
-    });
+    await tauriInvoke("git_pull", { repoPath: resolvedRepoPath, mode: strategy });
     return { success: true };
   } catch (error) {
     console.error("Failed to pull changes:", error);
@@ -111,13 +117,10 @@ export const pullChanges = async (
   }
 };
 
-export const fetchChanges = async (
-  repoPath: string,
-  remote?: string,
-): Promise<GitRemoteActionResult> => {
+export const fetchChanges = async (repoPath: string): Promise<GitRemoteActionResult> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_fetch", { repoPath: resolvedRepoPath, remote });
+    await tauriInvoke("git_fetch", { repoPath: resolvedRepoPath });
     emitGitChanged({
       repoPath: resolvedRepoPath,
       scopes: ["refs", "remotes"],
@@ -130,5 +133,56 @@ export const fetchChanges = async (
       success: false,
       error: error instanceof Error ? error.message : String(error),
     };
+  }
+};
+
+const headlessPullWorkflow = new GitPullWorkflow({
+  fetch: fetchChanges,
+  preflight: getPullPreflight,
+  pull: executePullChanges,
+  operationState: getOperationState,
+});
+
+/**
+ * Safe compatibility entry point for non-Source-Control callers. Divergence
+ * cancels because only the Source Control workflow can present the choice UI.
+ */
+export const pullChanges = async (repoPath: string): Promise<GitRemoteActionResult> => {
+  const unsubscribe = headlessPullWorkflow.subscribe(() => {
+    if (headlessPullWorkflow.getSnapshot().pendingPreflight) {
+      headlessPullWorkflow.chooseStrategy(null);
+    }
+  });
+  const resultPromise = headlessPullWorkflow.run(repoPath, {
+    refresh: async () => {
+      const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+      // Cache invalidation must precede the explicit reads below; otherwise a
+      // failed or successful Pull could refresh the UI from stale snapshots.
+      emitGitChanged({
+        repoPath: resolvedRepoPath,
+        scopes: ["working-tree", "history", "refs", "remotes"],
+        source: "pull-finished",
+      });
+      await Promise.all([
+        getGitStatus(resolvedRepoPath),
+        getGitHistory(resolvedRepoPath, 50),
+        getBranches(resolvedRepoPath),
+        getRemotes(resolvedRepoPath),
+      ]);
+    },
+  });
+  try {
+    const result = await resultPromise;
+    return result.status === "pulled"
+      ? { success: true }
+      : {
+          success: false,
+          error:
+            result.status === "cancelled"
+              ? "Branches have diverged. Open Source Control and choose Merge or Rebase."
+              : result.message,
+        };
+  } finally {
+    unsubscribe();
   }
 };
