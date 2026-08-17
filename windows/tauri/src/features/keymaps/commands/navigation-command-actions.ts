@@ -10,7 +10,17 @@ import {
 } from "@/features/editor/utils/position";
 import { useReferencesStore } from "@/features/references/stores/references.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { languageIdForEditorFile } from "@/features/editor/lsp/built-in-language-support";
+import { languageServerUnavailableMessage } from "@/features/editor/lsp/language-server-navigation";
+import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
+import { useSpringStore } from "@/features/spring/stores/spring.store";
+import type { SpringNavigationLocation } from "@/features/spring/types/spring.types";
+import {
+  resolveSpringDefinitions,
+  resolveSpringReferences,
+} from "@/features/spring/utils/spring-navigation";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { getBaseName } from "@/utils/path-helpers";
 import { showPromptDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 
@@ -40,6 +50,119 @@ type LspNavigationClient = {
   ) => Promise<LspNavigationLocation[] | null>;
 };
 
+function activeEditorNavigationContext() {
+  const bufferStore = useBufferStore.getState();
+  const activeBuffer = bufferStore.buffers.find((buffer) => buffer.id === bufferStore.activeBufferId);
+  const editorState = useEditorStateStore.getState();
+  if (!activeBuffer || activeBuffer.type !== "editor" || !activeBuffer.path) return null;
+  return { bufferStore, activeBuffer, editorState };
+}
+
+function unavailableLanguageServerToast(filePath: string, lspClient: { hasSessionForFile(path: string): boolean }): string | null {
+  const status = useLspStore.getState().lspStatus;
+  return languageServerUnavailableMessage({
+    languageId: languageIdForEditorFile(filePath),
+    status: status.status,
+    lastError: status.lastError,
+    hasSession: lspClient.hasSessionForFile(filePath),
+  });
+}
+
+function springLocationsForActiveFile(kind: "definition" | "references"): SpringNavigationLocation[] {
+  const context = activeEditorNavigationContext();
+  const springState = useSpringStore.getState();
+  if (!context || !springState.root) return [];
+  return kind === "definition"
+    ? resolveSpringDefinitions(
+        springState.index,
+        springState.root,
+        context.activeBuffer.path,
+        context.editorState.cursorPosition.line,
+      )
+    : resolveSpringReferences(
+        springState.index,
+        springState.root,
+        context.activeBuffer.path,
+        context.editorState.cursorPosition.line,
+      );
+}
+
+async function navigateToSpringLocation(location: SpringNavigationLocation): Promise<void> {
+  await goToActiveLspLocation(
+    "definition",
+    async () => [
+      {
+        uri: location.filePath,
+        range: {
+          start: { line: location.line, character: location.column },
+          end: { line: location.line, character: location.column },
+        },
+      },
+    ],
+    { requireLanguageServer: false },
+  );
+}
+
+async function presentSpringReferences(
+  locations: SpringNavigationLocation[],
+  symbol: string,
+): Promise<void> {
+  const context = activeEditorNavigationContext();
+  if (!context) return;
+
+  const [{ readFileContent }] = await Promise.all([
+    import("@/features/file-system/controllers/file-operations"),
+  ]);
+  const referencesActions = useReferencesStore.getState().actions;
+  referencesActions.setIsLoading(true);
+  context.bufferStore.actions.openReferencesBuffer();
+
+  const lineContextCache = new Map<string, Map<number, string>>();
+  const referenceLinesByFile = new Map<string, Set<number>>();
+  for (const location of locations) {
+    const lineNumbers = referenceLinesByFile.get(location.filePath) ?? new Set<number>();
+    lineNumbers.add(location.line);
+    referenceLinesByFile.set(location.filePath, lineNumbers);
+  }
+
+  const lineContextEntries = await Promise.all(
+    Array.from(referenceLinesByFile, async ([filePath, lineNumbers]) => {
+      let content = "";
+      const buffer = context.bufferStore.buffers.find((candidate) => candidate.path === filePath);
+      if (buffer && "content" in buffer && typeof buffer.content === "string") {
+        content = buffer.content;
+      } else {
+        try {
+          content = await readFileContent(filePath);
+        } catch {
+          content = "";
+        }
+      }
+      return [filePath, getLineTextsFromContent(content, lineNumbers)] as const;
+    }),
+  );
+  for (const [filePath, lines] of lineContextEntries) {
+    lineContextCache.set(filePath, lines);
+  }
+
+  referencesActions.setReferences(
+    {
+      symbol,
+      filePath: context.activeBuffer.path,
+      line: context.editorState.cursorPosition.line,
+      column: context.editorState.cursorPosition.column,
+    },
+    locations.map((location) => ({
+      filePath: location.filePath,
+      line: location.line,
+      column: location.column,
+      endLine: location.line,
+      endColumn: location.column,
+      lineContent: lineContextCache.get(location.filePath)?.get(location.line) || "",
+    })),
+  );
+}
+
 async function goToActiveLspLocation(
   label: string,
   resolveLocations: (
@@ -48,6 +171,7 @@ async function goToActiveLspLocation(
     line: number,
     character: number,
   ) => Promise<LspNavigationLocation[] | null>,
+  options: { requireLanguageServer?: boolean } = {},
 ): Promise<void> {
   const [{ LspClient }, { readFileContent }, { filePathFromUri }] = await Promise.all([
     import("@/features/editor/lsp/lsp-client"),
@@ -62,6 +186,14 @@ async function goToActiveLspLocation(
   const cursorPosition = editorState.cursorPosition;
 
   if (!activeBuffer || activeBuffer.type !== "editor" || !activeBuffer.path) return;
+
+  if (options.requireLanguageServer !== false) {
+    const unavailable = unavailableLanguageServerToast(activeBuffer.path, lspClient);
+    if (unavailable) {
+      toast.error(unavailable);
+      return;
+    }
+  }
 
   const locations = await resolveLocations(
     lspClient,
@@ -86,14 +218,14 @@ async function goToActiveLspLocation(
   });
 
   const target = locations[0];
-  const filePath = filePathFromUri(target.uri);
+  const filePath = target.uri.includes("://") ? filePathFromUri(target.uri) : target.uri;
   const existingBuffer = bufferStore.buffers.find((b) => b.path === filePath);
 
   if (existingBuffer) {
     bufferStore.actions.setActiveBuffer(existingBuffer.id);
   } else {
     const content = await readFileContent(filePath);
-    const fileName = filePath.split("/").pop() || "untitled";
+    const fileName = getBaseName(filePath);
     const bufferId = bufferStore.actions.openBuffer(filePath, fileName, content);
     bufferStore.actions.setActiveBuffer(bufferId);
   }
@@ -143,6 +275,15 @@ export function openOutlineSidebar(): void {
 }
 
 export async function goToDefinition(): Promise<void> {
+  const springLocations = springLocationsForActiveFile("definition");
+  if (springLocations.length === 1) {
+    await navigateToSpringLocation(springLocations[0]);
+    return;
+  }
+  if (springLocations.length > 1) {
+    await presentSpringReferences(springLocations, springLocations[0]?.symbol || "Spring");
+    return;
+  }
   await goToActiveLspLocation("definition", (lspClient, filePath, line, character) =>
     lspClient.getDefinition(filePath, line, character),
   );
@@ -173,6 +314,18 @@ export async function goToReferences(): Promise<void> {
   const cursorPosition = useEditorStateStore.getState().cursorPosition;
 
   if (!activeBuffer?.path) return;
+
+  const springLocations = springLocationsForActiveFile("references");
+  if (springLocations.length > 0) {
+    await presentSpringReferences(springLocations, springLocations[0]?.symbol || "Spring");
+    return;
+  }
+
+  const unavailable = unavailableLanguageServerToast(activeBuffer.path, lspClient);
+  if (unavailable) {
+    toast.error(unavailable);
+    return;
+  }
 
   const currentLine = getLineTextFromContent(editorAPI.getContent(), cursorPosition.line);
   const wordMatch = currentLine.slice(0, cursorPosition.column + 1).match(/[\w$]+$/);
