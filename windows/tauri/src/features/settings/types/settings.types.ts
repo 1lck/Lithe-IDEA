@@ -102,6 +102,7 @@ export interface Settings {
   hiddenSidebarActivityItems: string[];
   footerLeadingItemsOrder: FooterLeadingItemId[];
   footerTrailingItemsOrder: FooterTrailingItemId[];
+  askWhereToOpenProjects: boolean;
   openFoldersInNewWindow: boolean;
   // AI
   aiProviderId: string;
@@ -123,7 +124,6 @@ export interface Settings {
   // Layout
   activityRailExpanded: boolean;
   activityRailWidth: number;
-  showActivityRailProjectSwitcher: boolean;
   showActivityRailAgentHistory: boolean;
   showActivityRailTerminals: boolean;
   showActivityRailWorktrees: boolean;

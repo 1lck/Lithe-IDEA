@@ -98,6 +98,7 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
       updateSetting("telemetry", telemetry),
       updateSetting("vimMode", vimMode),
       updateSetting("openFoldersInNewWindow", openFoldersInNewWindow),
+      updateSetting("askWhereToOpenProjects", false),
       updateSetting("keybindingPreset", keybindingPreset),
     ]);
   };

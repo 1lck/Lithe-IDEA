@@ -1,11 +1,17 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
+import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
+import { getFolderName } from "@/utils/path-helpers";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { createSafeJSONStorage } from "@/utils/zustand-storage";
 import type { RecentFolder, RecentFolderMetadata } from "../types/recent-folders.types";
+import {
+  chooseProjectOpenDestination,
+  executeProjectOpenDecision,
+  hasOpenProjectWorkspace,
+} from "../controllers/project-open-destination";
 import {
   removeMissingRecentFolders,
   toggleRecentFolderPinned,
@@ -84,10 +90,13 @@ const useRecentFoldersStoreBase = create<RecentFoldersStore>()(
             try {
               const { getSymlinkInfo } = await import("../controllers/platform");
               const { useFileSystemStore } = await import("../stores/file-system.store");
-              const { handleOpenFolderByPath, rootFolderPath } = useFileSystemStore.getState();
-              const { settings } = useSettingsStore.getState();
-              const hasOpenWorkspace =
-                !!rootFolderPath || useFileSystemStore.getState().files.length > 0;
+              const fileSystemState = useFileSystemStore.getState();
+              const { handleOpenFolderByPath, rootFolderPath } = fileSystemState;
+              const hasOpenWorkspace = hasOpenProjectWorkspace({
+                rootFolderPath,
+                fileCount: fileSystemState.files.length,
+                projectTabCount: useWorkspaceTabsStore.getState().projectTabs.length,
+              });
 
               try {
                 const pathInfo = await getSymlinkInfo(folderPath);
@@ -105,25 +114,34 @@ const useRecentFoldersStoreBase = create<RecentFoldersStore>()(
                 return;
               }
 
-              if (settings.openFoldersInNewWindow && hasOpenWorkspace) {
-                await createAppWindow({
-                  path: folderPath,
-                  isDirectory: true,
-                });
-                get().actions.addToRecents(folderPath, {
-                  missing: false,
-                  openInNewWindow: true,
-                });
-                return;
-              }
+              const decision = await chooseProjectOpenDestination({
+                projectName: getFolderName(folderPath),
+                hasOpenWorkspace,
+              });
+              if (!decision) return;
 
-              const opened = await handleOpenFolderByPath(folderPath);
-              if (opened) {
-                get().actions.addToRecents(folderPath, {
-                  missing: false,
-                  openInNewWindow: false,
-                });
-              }
+              await executeProjectOpenDecision(decision, async (destination) => {
+                if (destination === "new-window") {
+                  await createAppWindow({
+                    path: folderPath,
+                    isDirectory: true,
+                  });
+                  get().actions.addToRecents(folderPath, {
+                    missing: false,
+                    openInNewWindow: true,
+                  });
+                  return true;
+                }
+
+                const opened = await handleOpenFolderByPath(folderPath);
+                if (opened) {
+                  get().actions.addToRecents(folderPath, {
+                    missing: false,
+                    openInNewWindow: false,
+                  });
+                }
+                return opened;
+              });
             } catch (error) {
               console.error("Error opening recent folder:", error);
             }

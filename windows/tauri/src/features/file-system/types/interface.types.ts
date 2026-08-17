@@ -25,7 +25,9 @@ export interface FsState {
 
 export interface FsActions {
   // Folder operations
-  handleOpenFolder: () => Promise<boolean>;
+  handleOpenFolder: (options?: {
+    destination?: "new-window" | "this-window";
+  }) => Promise<boolean>;
   handleOpenFolderByPath: (path: string) => Promise<boolean>;
   addFolderToWorkspace: (path?: string) => Promise<boolean>;
   removeFolderFromWorkspace: (path: string) => Promise<boolean>;

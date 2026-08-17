@@ -76,6 +76,11 @@ import {
   readFileContent,
 } from "../controllers/file-operations";
 import {
+  chooseProjectOpenDestination,
+  executeProjectOpenDecision,
+  hasOpenProjectWorkspace,
+} from "../controllers/project-open-destination";
+import {
   addFileToTree,
   findFileInTree,
   removeFileFromTree,
@@ -741,49 +746,61 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       projectFilesCache: undefined,
 
       // Actions
-      handleOpenFolder: async (): Promise<boolean> => {
+      handleOpenFolder: async (options): Promise<boolean> => {
         const selected = await openFolder();
         if (!selected) return false;
 
-        const { settings } = useSettingsStore.getState();
-        const hasOpenWorkspace =
-          !!get().rootFolderPath || useWorkspaceTabsStore.getState().projectTabs.length > 0;
+        const currentState = get();
+        const hasOpenWorkspace = hasOpenProjectWorkspace({
+          rootFolderPath: currentState.rootFolderPath,
+          fileCount: currentState.files.length,
+          projectTabCount: useWorkspaceTabsStore.getState().projectTabs.length,
+        });
+        const decision = await chooseProjectOpenDestination({
+          projectName: getFolderName(selected),
+          hasOpenWorkspace,
+          explicitDestination: options?.destination,
+        });
 
-        if (settings.openFoldersInNewWindow && hasOpenWorkspace) {
-          await createAppWindow({
-            path: selected,
-            isDirectory: true,
-          });
-          return true;
-        }
+        if (!decision) return false;
 
-        const { openWorkspaceRuntime } =
-          await import("@/features/workspace/services/workspace-lifecycle");
-        return await openWorkspaceRuntime({
-          descriptor: { path: selected, name: getFolderName(selected) },
-          persistCurrent: () => get().persistActiveProjectSession(),
-          initialize: (workspaceId): Promise<boolean> =>
-            getScopedFileSystemStore(workspaceId).getState().initializeLocalWorkspace({
-              workspaceId,
+        return await executeProjectOpenDecision(decision, async (destination) => {
+          if (destination === "new-window") {
+            await createAppWindow({
               path: selected,
-              traceLabel: "handleOpenFolder",
-              treeState: "expand-root",
-              restoreUiState: false,
-            }),
-          resume: async (workspaceId) => {
-            const targetStore = getScopedFileSystemStore(workspaceId).getState();
-            targetStore.resumeWorkspaceSession();
-            initializeLocalWorkspaceInBackground(
-              workspaceId,
-              selected,
-              () => targetStore,
-              "Failed to resume workspace services:",
-              {
-                deferWatcher: true,
-                preserveGitStatus: true,
-              },
-            );
-          },
+              isDirectory: true,
+            });
+            return true;
+          }
+
+          const { openWorkspaceRuntime } =
+            await import("@/features/workspace/services/workspace-lifecycle");
+          return await openWorkspaceRuntime({
+            descriptor: { path: selected, name: getFolderName(selected) },
+            persistCurrent: () => get().persistActiveProjectSession(),
+            initialize: (workspaceId): Promise<boolean> =>
+              getScopedFileSystemStore(workspaceId).getState().initializeLocalWorkspace({
+                workspaceId,
+                path: selected,
+                traceLabel: "handleOpenFolder",
+                treeState: "expand-root",
+                restoreUiState: false,
+              }),
+            resume: async (workspaceId) => {
+              const targetStore = getScopedFileSystemStore(workspaceId).getState();
+              targetStore.resumeWorkspaceSession();
+              initializeLocalWorkspaceInBackground(
+                workspaceId,
+                selected,
+                () => targetStore,
+                "Failed to resume workspace services:",
+                {
+                  deferWatcher: true,
+                  preserveGitStatus: true,
+                },
+              );
+            },
+          });
         });
       },
 
