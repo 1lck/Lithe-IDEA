@@ -37,6 +37,10 @@ describe("Windows display language", () => {
     expect(translate("git.log.headCurrentBranch")).toBe("HEAD（当前分支）");
     expect(translate("run.identifyAndGenerate")).toBe("识别并生成");
     expect(createTranslator("en-US")("workbench.run")).toBe("Run");
+    expect(createTranslator("en-US")("titleProject.closeProject", { name: "Lithe" })).toBe(
+      "Close project Lithe",
+    );
+    expect(translate("titleProject.closeProject", { name: "Lithe" })).toBe("关闭项目 Lithe");
     expect(translate("welcome.openProject")).toBe("打开项目");
     expect(translate("workbench.diagnostics")).toBe("诊断");
     expect(translate("diagnostics.empty")).toBe("未检测到问题");
