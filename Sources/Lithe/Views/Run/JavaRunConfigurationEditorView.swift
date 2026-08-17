@@ -62,7 +62,8 @@ struct RunConfigurationEditorView: View {
                 }
                 Button("Done") {
                     options.environment = Self.environment(from: environmentText)
-                    if feature.updateOptions(options, for: configuration, scope: saveScope) {
+                    guard let scopedOptions = scopedOptionsForSave() else { return }
+                    if feature.updateOptions(scopedOptions, for: configuration, scope: saveScope) {
                         dismiss()
                     } else {
                         saveError = feature.configurationSaveError
@@ -170,7 +171,6 @@ struct RunConfigurationEditorView: View {
                     text: stringBinding(\.javaHomePath),
                     chooseDirectory: { chooseDirectory(for: \.javaHomePath) }
                 )
-                .disabled(saveScope == .project)
             }
             if configuration.kind.isMavenBacked {
                 pathRow(
@@ -180,14 +180,12 @@ struct RunConfigurationEditorView: View {
                     chooseDirectory: { chooseFileOrDirectory(for: \.mavenExecutablePath) },
                     chooseHelp: "Choose Maven executable or home"
                 )
-                .disabled(saveScope == .project)
                 pathRow(
                     title: "Maven JDK Home",
                     placeholder: "Use service JDK",
                     text: stringBinding(\.mavenJavaHomePath),
                     chooseDirectory: { chooseDirectory(for: \.mavenJavaHomePath) }
                 )
-                .disabled(saveScope == .project)
             }
             pathRow(
                 title: "Working directory",
@@ -354,12 +352,57 @@ struct RunConfigurationEditorView: View {
         switch result {
         case .success(let url):
             guard let activePathPicker else { return }
-            options[keyPath: activePathPicker.keyPath] = url.path
+            if saveScope == .project {
+                guard let projectURL = model.workspaceURL,
+                      let path = projectRelativePath(url.path, root: projectURL) else {
+                    saveError = String(localized: "Project paths must stay inside the current project.")
+                    return
+                }
+                options[keyPath: activePathPicker.keyPath] = path
+            } else {
+                options[keyPath: activePathPicker.keyPath] = url.path
+            }
+            saveError = nil
         case .failure(let error):
             let cocoaError = error as NSError
             guard !(cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError) else { return }
             saveError = error.localizedDescription
         }
+    }
+
+    private func scopedOptionsForSave() -> RunOptions? {
+        guard saveScope == .project else { return options }
+        guard let projectURL = model.workspaceURL else {
+            saveError = String(localized: "Open a project before choosing project paths.")
+            return nil
+        }
+        var scopedOptions = options
+        for keyPath in [
+            \.javaHomePath,
+            \.mavenExecutablePath,
+            \.mavenJavaHomePath,
+            \.workingDirectoryPath
+        ] as [WritableKeyPath<RunOptions, String>] {
+            let value = scopedOptions[keyPath: keyPath].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            guard let relativePath = projectRelativePath(value, root: projectURL) else {
+                saveError = String(localized: "Project paths must stay inside the current project.")
+                return nil
+            }
+            scopedOptions[keyPath: keyPath] = relativePath
+        }
+        return scopedOptions
+    }
+
+    private func projectRelativePath(_ path: String, root: URL) -> String? {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        guard (expandedPath as NSString).isAbsolutePath else { return path }
+        let rootPath = root.standardizedFileURL.path
+        let selectedPath = URL(fileURLWithPath: expandedPath).standardizedFileURL.path
+        if selectedPath == rootPath { return "." }
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard selectedPath.hasPrefix(prefix) else { return nil }
+        return String(selectedPath.dropFirst(prefix.count))
     }
 
     private enum PathPicker {

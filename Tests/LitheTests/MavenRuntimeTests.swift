@@ -90,6 +90,24 @@ struct MavenRuntimeTests {
 
     @Test
     @MainActor
+    func projectRelativeJavaOverridesResolveAgainstProjectRoot() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-project-relative-runtime", isDirectory: true)
+            .standardizedFileURL
+        let javaHome = root.appendingPathComponent("toolchains/jdk", isDirectory: true).standardizedFileURL
+        let mavenJavaHome = root.appendingPathComponent("toolchains/maven-jdk", isDirectory: true).standardizedFileURL
+        let service = ProjectRuntimeService(
+            runtimeLocator: ProjectRelativeRuntimeLocator(validJavaHomes: [javaHome.path, mavenJavaHome.path]),
+            store: EmptyKeyValueStore()
+        )
+        service.openProject(at: root)
+
+        #expect(service.javaHomeURL(overridePath: "toolchains/jdk") == javaHome)
+        #expect(service.mavenJavaHomeURL(overridePath: "toolchains/maven-jdk") == mavenJavaHome)
+    }
+
+    @Test
+    @MainActor
     func canceledRuntimeDiscoveryClearsDiscoveringState() async throws {
         let locator = BlockingRuntimeLocator()
         let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
@@ -109,6 +127,25 @@ struct MavenRuntimeTests {
 
         #expect(!service.isDiscovering)
     }
+}
+
+private struct ProjectRelativeRuntimeLocator: RuntimeLocator {
+    let validJavaHomes: Set<String>
+
+    func environment() -> [String: String] { [:] }
+    func discover() -> RuntimeDiscoveryResult {
+        RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
+    }
+    func validJavaHome(path: String) -> URL? {
+        validJavaHomes.contains(path) ? URL(fileURLWithPath: path, isDirectory: true) : nil
+    }
+    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
+    func isExecutable(at url: URL) -> Bool { false }
+    func systemMavenExecutable() -> URL? { nil }
+    func mavenExecutable(forHomePath path: String) -> URL? { nil }
+    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
+    func systemJDBExecutable() -> URL? { nil }
+    func javaLanguageServerExecutable() -> URL? { nil }
 }
 
 private final class BlockingRuntimeLocator: RuntimeLocator, @unchecked Sendable {
