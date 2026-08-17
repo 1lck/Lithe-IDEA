@@ -1,0 +1,137 @@
+name: Release Windows Preview
+
+on:
+  schedule:
+    # Offset from the macOS preview so the shared rolling tag usually exists first.
+    - cron: "27 3 * * *"
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "Preview branch to build"
+        required: true
+        default: "preview/0.3.0"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-preview-windows
+  cancel-in-progress: false
+
+env:
+  PREVIEW_BRANCH: preview/0.3.0
+  PREVIEW_VERSION: 0.3.0
+  PREVIEW_TAG: preview-0.3.0
+
+jobs:
+  release:
+    name: Build and publish Windows preview
+    if: github.actor == github.repository_owner || github.event_name == 'schedule'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out preview source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+
+      - name: Record source revision
+        id: source
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.12"
+
+      - name: Build Windows Tauri application
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -Configuration Release
+
+      - name: Import Authenticode certificate
+        id: signing
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)) {
+            Write-Output "No Authenticode certificate is configured; the Windows preview installer will be unsigned."
+            "signed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $path = Join-Path $env:RUNNER_TEMP "lithe-signing.pfx"
+          [System.IO.File]::WriteAllBytes(
+            $path,
+            [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE_BASE64))
+          $password = ConvertTo-SecureString $env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $path `
+            -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          if ($null -eq $certificate) { throw "Could not import the Authenticode certificate." }
+          "LITHE_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" >> $env:GITHUB_ENV
+          "signed=true" >> $env:GITHUB_OUTPUT
+
+      - name: Package Windows installer
+        shell: pwsh
+        env:
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+          LITHE_WINDOWS_TIMESTAMP_SERVER: ${{ secrets.WINDOWS_TIMESTAMP_SERVER }}
+          WINDOWS_RELEASE_SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          $packageArgs = @(
+            "-Configuration", "Release",
+            "-Version", $env:LITHE_VERSION
+          )
+          if ($env:WINDOWS_RELEASE_SIGNED -eq "true") {
+            $packageArgs += "-RequireAuthenticodeSignature"
+          } else {
+            Write-Output "Packaging an unsigned Windows preview installer."
+          }
+          ./scripts/package-windows.ps1 @packageArgs
+
+      - name: Verify installer checksum
+        shell: pwsh
+        run: |
+          $installer = "dist/Lithe-${{ env.PREVIEW_VERSION }}-windows-x64.exe"
+          $expected = ((Get-Content "$installer.sha256" -Raw) -split '\s+')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Installer checksum mismatch" }
+
+      - name: Create or update rolling preview Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ env.PREVIEW_TAG }}
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: pwsh
+        run: |
+          $notes = "Rolling Preview build from $env:SOURCE_SHA. This release is replaced by the next scheduled build. The Windows installer may be unsigned until an Authenticode certificate is configured."
+          $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:RELEASE_TAG `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:SOURCE_SHA `
+              --title "Lithe $env:LITHE_VERSION Preview" `
+              --notes $notes `
+              --prerelease
+            if ($LASTEXITCODE -ne 0) {
+              $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
+              if ($LASTEXITCODE -ne 0) { throw "Could not create or find preview release $env:RELEASE_TAG" }
+            }
+          }
+          gh release upload $env:RELEASE_TAG `
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe" `
+            "dist/Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256" `
+            --repo $env:GITHUB_REPOSITORY --clobber
