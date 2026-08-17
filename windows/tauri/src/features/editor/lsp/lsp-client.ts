@@ -658,6 +658,10 @@ export class LspClient {
     }
   }
 
+  hasSessionForFile(filePath: string): boolean {
+    return this.findServerKeyForFile(filePath, languageIdForEditorFile(filePath)) !== null;
+  }
+
   /**
    * Get display name for a language ID
    */
