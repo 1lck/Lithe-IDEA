@@ -88,12 +88,12 @@ jobs:
           LITHE_WINDOWS_TIMESTAMP_SERVER: ${{ secrets.WINDOWS_TIMESTAMP_SERVER }}
           WINDOWS_RELEASE_SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
-          $packageArgs = @(
-            "-Configuration", "Release",
-            "-Version", $env:LITHE_VERSION
-          )
+          $packageArgs = @{
+            Configuration = "Release"
+            Version = $env:LITHE_VERSION
+          }
           if ($env:WINDOWS_RELEASE_SIGNED -eq "true") {
-            $packageArgs += "-RequireAuthenticodeSignature"
+            $packageArgs.RequireAuthenticodeSignature = $true
           } else {
             Write-Output "Packaging an unsigned Windows installer."
           }
