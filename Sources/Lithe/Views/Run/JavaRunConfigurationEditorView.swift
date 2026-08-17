@@ -1,4 +1,5 @@
-import AppKit
+import Foundation
+import UniformTypeIdentifiers
 import SwiftUI
 
 struct RunConfigurationEditorView: View {
@@ -10,6 +11,8 @@ struct RunConfigurationEditorView: View {
     @State private var environmentText: String
     @State private var saveScope: RunConfigurationSaveScope = .local
     @State private var saveError: String?
+    @State private var activePathPicker: PathPicker?
+    @State private var isPathPickerPresented = false
 
     init(feature: RunFeatureModel, configuration: RunConfiguration) {
         self.feature = feature
@@ -75,6 +78,12 @@ struct RunConfigurationEditorView: View {
         .frame(width: 520, height: 470)
         .background(LitheTheme.window)
         .preferredColorScheme(.dark)
+        .fileImporter(
+            isPresented: $isPathPickerPresented,
+            allowedContentTypes: activePathPicker?.allowedContentTypes ?? [.folder]
+        ) { result in
+            selectPath(result)
+        }
     }
 
     private var effectiveCapabilities: RunConfigurationCapabilities {
@@ -168,7 +177,8 @@ struct RunConfigurationEditorView: View {
                     title: "Maven executable",
                     placeholder: "Use mvnw or detected Maven",
                     text: stringBinding(\.mavenExecutablePath),
-                    chooseDirectory: { chooseFileOrDirectory(for: \.mavenExecutablePath) }
+                    chooseDirectory: { chooseFileOrDirectory(for: \.mavenExecutablePath) },
+                    chooseHelp: "Choose Maven executable or home"
                 )
                 .disabled(saveScope == .project)
                 pathRow(
@@ -274,7 +284,8 @@ struct RunConfigurationEditorView: View {
         title: String,
         placeholder: String,
         text: Binding<String>,
-        chooseDirectory: @escaping () -> Void
+        chooseDirectory: @escaping () -> Void,
+        chooseHelp: String = "Choose directory"
     ) -> some View {
         HStack(spacing: 8) {
             Text(LocalizedStringKey(title))
@@ -286,7 +297,7 @@ struct RunConfigurationEditorView: View {
                 LitheSystemIcon(systemImage: "folder")
             }
             .litheIconButton()
-            .help("Choose directory")
+            .help(chooseHelp)
         }
         .font(.system(size: 12))
     }
@@ -326,26 +337,46 @@ struct RunConfigurationEditorView: View {
     }
 
     private func chooseDirectory(for keyPath: WritableKeyPath<RunOptions, String>) {
-        let panel = NSOpenPanel()
-        panel.title = "Choose Directory"
-        panel.prompt = "Choose"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            options[keyPath: keyPath] = url.path
-        }
+        presentPathPicker(.directory(keyPath))
     }
 
     private func chooseFileOrDirectory(for keyPath: WritableKeyPath<RunOptions, String>) {
-        let panel = NSOpenPanel()
-        panel.title = "Choose Maven Executable or Home"
-        panel.prompt = "Choose"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            options[keyPath: keyPath] = url.path
+        presentPathPicker(.fileOrDirectory(keyPath))
+    }
+
+    private func presentPathPicker(_ picker: PathPicker) {
+        activePathPicker = picker
+        isPathPickerPresented = true
+    }
+
+    private func selectPath(_ result: Result<URL, Error>) {
+        defer { activePathPicker = nil }
+        switch result {
+        case .success(let url):
+            guard let activePathPicker else { return }
+            options[keyPath: activePathPicker.keyPath] = url.path
+        case .failure(let error):
+            let cocoaError = error as NSError
+            guard !(cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == NSUserCancelledError) else { return }
+            saveError = error.localizedDescription
+        }
+    }
+
+    private enum PathPicker {
+        case directory(WritableKeyPath<RunOptions, String>)
+        case fileOrDirectory(WritableKeyPath<RunOptions, String>)
+
+        var keyPath: WritableKeyPath<RunOptions, String> {
+            switch self {
+            case .directory(let keyPath), .fileOrDirectory(let keyPath): keyPath
+            }
+        }
+
+        var allowedContentTypes: [UTType] {
+            switch self {
+            case .directory: [.folder]
+            case .fileOrDirectory: [.item]
+            }
         }
     }
 
