@@ -241,7 +241,7 @@ export function buildEditorContextMenuItems({
       id: "find-references",
       label: t("editor.findAllReferences"),
       icon: <Search />,
-      keybinding: <Keybinding keys={["Shift", "F12"]} className="opacity-60" />,
+      keybinding: <Keybinding binding="cmd+b" className="opacity-60" />,
       disabled: isDisabled(onFindReferences),
       onClick: onFindReferences ?? noop,
     },
