@@ -227,6 +227,7 @@ struct MainWindow : MainWindowT<MainWindow> {
 private:
     void showWelcomeSurface();
     void showWorkbenchSurface();
+    void checkForUpdates();
     void renderWelcomeProjects(std::string query = {});
     struct NavigationTarget {
         std::string relativePath;
@@ -412,6 +413,7 @@ private:
     bool externalConflictVisible_ = false;
     bool terminalUiUpdating_ = false;
     bool showWelcomeOnLoad_ = false;
+    bool startupUpdateCheckStarted_ = false;
     std::uint64_t terminalRevision_ = 0;
     double bottomPanelHeight_ = 290.0;
 };
