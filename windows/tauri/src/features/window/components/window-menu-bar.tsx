@@ -383,7 +383,7 @@ const WindowMenuBar = ({
           <MenubarItem onClick={() => handleCommand("editor.goToTypeDefinition")}>
             Go to Type Definition
           </MenubarItem>
-          <MenubarItem shortcut="shift+f12" onClick={() => handleCommand("editor.goToReferences")}>
+          <MenubarItem shortcut="mod+b" onClick={() => handleCommand("editor.goToReferences")}>
             Go to References
           </MenubarItem>
           <MenubarItem shortcut="f2" onClick={() => handleCommand("editor.renameSymbol")}>

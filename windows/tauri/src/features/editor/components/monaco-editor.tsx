@@ -47,6 +47,7 @@ import { useEditorStateStore } from "../stores/state.store";
 import type { EditorContentChangeOptions, Position, Range } from "../types/editor.types";
 import { getBufferById } from "../utils/buffer-index";
 import { fileOpenBenchmark } from "../utils/file-open-benchmark";
+import { isEditorGoToDefinitionModifierClick } from "../utils/go-to-definition-gesture";
 import { getLanguageIdFromPath } from "../utils/language-id";
 import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
@@ -798,7 +799,21 @@ export function MonacoEditor({
         syncCursorAndSelection();
       }),
       editor.onMouseDown((event) => {
-        if (event.event.leftButton) mouseSelectingRef.current = true;
+        const mouseEvent = event.event;
+        if (
+          isEditorGoToDefinitionModifierClick(mouseEvent) &&
+          event.target.type === monacoEditor.MouseTargetType.CONTENT_TEXT &&
+          event.target.position
+        ) {
+          mouseEvent.preventDefault();
+          mouseEvent.stopPropagation();
+          mouseSelectingRef.current = false;
+          editor.setPosition(event.target.position);
+          syncCursorAndSelection();
+          void keymapRegistry.executeCommand("editor.goToDefinition");
+          return;
+        }
+        if (mouseEvent.leftButton) mouseSelectingRef.current = true;
       }),
       editor.onMouseUp(() => {
         if (!mouseSelectingRef.current) return;
