@@ -67,6 +67,7 @@ type SyncableSettingsKey =
   | "hiddenSidebarActivityItems"
   | "footerLeadingItemsOrder"
   | "footerTrailingItemsOrder"
+  | "askWhereToOpenProjects"
   | "openFoldersInNewWindow"
   | "aiProviderId"
   | "aiModelId"
@@ -86,7 +87,6 @@ type SyncableSettingsKey =
   | "ollamaBaseUrl"
   | "activityRailExpanded"
   | "activityRailWidth"
-  | "showActivityRailProjectSwitcher"
   | "showActivityRailAgentHistory"
   | "showActivityRailTerminals"
   | "showActivityRailWorktrees"
@@ -193,6 +193,7 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "hiddenSidebarActivityItems",
   "footerLeadingItemsOrder",
   "footerTrailingItemsOrder",
+  "askWhereToOpenProjects",
   "openFoldersInNewWindow",
   "aiProviderId",
   "aiModelId",
@@ -212,7 +213,6 @@ const SYNCABLE_SETTINGS_KEYS: SyncableSettingsKey[] = [
   "ollamaBaseUrl",
   "activityRailExpanded",
   "activityRailWidth",
-  "showActivityRailProjectSwitcher",
   "showActivityRailAgentHistory",
   "showActivityRailTerminals",
   "showActivityRailWorktrees",

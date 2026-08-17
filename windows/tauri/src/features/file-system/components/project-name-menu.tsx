@@ -27,7 +27,7 @@ export const ProjectNameMenu = () => {
         id: "open-folder",
         label: "Open Folder in New Tab",
         icon: <FolderOpen />,
-        onClick: () => handleOpenFolder(),
+        onClick: () => handleOpenFolder({ destination: "this-window" }),
       },
       {
         id: "add-folder-to-workspace",

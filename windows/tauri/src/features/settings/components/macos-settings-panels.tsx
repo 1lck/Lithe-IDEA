@@ -2,6 +2,11 @@ import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useState, type ReactNode } from "react";
 import { useUpdater } from "@/features/settings/hooks/use-updater";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import {
+  getProjectOpenPreference,
+  getProjectOpenPreferencePatch,
+  type ProjectOpenPreference,
+} from "@/features/settings/lib/project-open-preference";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
@@ -57,9 +62,7 @@ function GeneralPanel() {
   const { t } = useTranslation();
   const settings = useSettingsStore((state) => state.settings);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-  const [projectPlacement, setProjectPlacement] = useState(
-    settings.openFoldersInNewWindow ? "new-window" : "same-window",
-  );
+  const projectPlacement = getProjectOpenPreference(settings);
   const [gitPolicy, setGitPolicy] = useState("ask");
   const [directoryPatterns, setDirectoryPatterns] = useState(
     settings.hiddenDirectoryPatterns.join("\n"),
@@ -141,15 +144,20 @@ function GeneralPanel() {
             className={`${controlClassName} w-40`}
             value={projectPlacement}
             onChange={(event) => {
-              const value = event.target.value;
-              setProjectPlacement(value);
-              if (value !== "ask") {
-                void updateSetting("openFoldersInNewWindow", value === "new-window");
+              const patch = getProjectOpenPreferencePatch(
+                event.target.value as ProjectOpenPreference,
+              );
+              if (patch.openFoldersInNewWindow !== undefined) {
+                void updateSetting("openFoldersInNewWindow", patch.openFoldersInNewWindow);
               }
+              void updateSetting(
+                "askWhereToOpenProjects",
+                patch.askWhereToOpenProjects ?? true,
+              );
             }}
           >
             <option value="ask">{t("settings.mac.askEveryTime")}</option>
-            <option value="same-window">{t("settings.mac.thisWindow")}</option>
+            <option value="this-window">{t("settings.mac.thisWindow")}</option>
             <option value="new-window">{t("settings.mac.newWindow")}</option>
           </select>
         </SettingsRow>

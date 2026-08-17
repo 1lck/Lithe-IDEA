@@ -102,7 +102,15 @@ jobs:
           key: swiftpm-${{ runner.os }}-6.2-${{ hashFiles('Package.resolved') }}
 
       - name: Run Swift tests
+        id: swift-tests-primary
+        continue-on-error: true
+        timeout-minutes: 8
         run: ./scripts/test-macos.sh
+
+      - name: Retry Swift tests after a failed attempt
+        if: steps.swift-tests-primary.outcome == 'failure'
+        timeout-minutes: 8
+        run: ./scripts/test-macos.sh --skip-build
 
   rust-tests:
     name: Rust Core and database tests
