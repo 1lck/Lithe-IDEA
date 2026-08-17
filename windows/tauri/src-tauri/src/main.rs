@@ -3,6 +3,7 @@
 mod core;
 mod file_events;
 mod host;
+mod lsp;
 mod platform;
 mod run;
 mod secure_storage;
@@ -92,6 +93,7 @@ fn main() {
             host::clipboard_paste,
             host::clipboard_clear,
             host::create_app_window,
+            lsp::lsp_resolve_java_launch,
             run::run_list_java_sources,
             run::run_write_generated,
             run::run_write_document,

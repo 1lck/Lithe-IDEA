@@ -10,7 +10,7 @@ import {
   isWorkspaceEdit,
   type LspTextEdit,
 } from "@/features/editor/lsp/workspace-edit";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import { MONACO_HIGHLIGHT_LANGUAGE_IDS } from "./language";
 import { filePathFromLitheModelUri } from "./model-uri";
 import { createMonacoSemanticTokenProvider } from "./semantic-token-provider";
@@ -181,7 +181,7 @@ function toWorkspaceEdit(edit: unknown): Monaco.languages.WorkspaceEdit | undefi
 
 function isLspModel(model: Monaco.editor.ITextModel): boolean {
   const filePath = filePathFromModel(model);
-  return Boolean(filePath && extensionRegistry.isLspSupported(filePath));
+  return isEditorLspSupported(filePath);
 }
 
 export function registerMonacoLspProviders() {

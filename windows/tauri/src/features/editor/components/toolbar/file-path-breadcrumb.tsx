@@ -3,7 +3,7 @@ import { CaretLeftIcon as ChevronLeft } from "@/ui/icons";
 import { useRef, useState } from "react";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { logger } from "@/features/editor/utils/logger";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import { readDirectory } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -133,7 +133,7 @@ export function FilePathBreadcrumb({
     event.stopPropagation();
 
     if (segmentIndex === segments.length - 1) {
-      if (!filePath.includes("://") && extensionRegistry.isLspSupported(filePath)) {
+      if (!filePath.includes("://") && isEditorLspSupported(filePath)) {
         openCommandPaletteView("outline");
         return;
       }
