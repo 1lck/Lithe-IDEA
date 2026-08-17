@@ -2959,6 +2959,83 @@ struct EditorDocumentTests {
     }
 
     @Test
+    @MainActor
+    func capturedProjectDeletionSurvivesConfirmationDialogDismissal() async throws {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-delete-confirmation")
+        let target = workspace.appendingPathComponent("obsolete.swift")
+        let fileOperations = RecordingTrashWorkspaceFileOperations()
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true, false],
+            files: [target]
+        )
+        var historyRecordCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: fileOperations,
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(),
+            refreshGit: {},
+            recordHistory: { _, _ in historyRecordCount += 1 }
+        )
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        model.requestDeleteProjectItem(at: target, isDirectory: false)
+        let request = try #require(model.pendingProjectItemDeletion)
+
+        // SwiftUI dismisses the confirmation dialog before its asynchronous
+        // action runs, so the captured request must not depend on pending state.
+        model.cancelProjectItemDeletion()
+        let deletionTask = Task { await model.confirmProjectItemDeletion(request) }
+
+        for _ in 0..<100 where !fileOperations.hasStarted {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(fileOperations.hasStarted)
+        #expect(model.projectFiles.isEmpty)
+        #expect(model.rootNode?.children?.isEmpty == true)
+
+        fileOperations.release()
+        await deletionTask.value
+
+        #expect(model.pendingProjectItemDeletion == nil)
+        #expect(fileOperations.trashedURLs == [target.standardizedFileURL])
+        #expect(historyRecordCount == 0)
+        #expect(model.projectFiles.isEmpty)
+        #expect(model.rootNode?.children?.isEmpty == true)
+    }
+
+    @Test
+    @MainActor
+    func failedProjectDeletionRestoresOptimisticallyRemovedItem() async {
+        let workspace = URL(fileURLWithPath: "/tmp/lithe-delete-failure")
+        let target = workspace.appendingPathComponent("still-here.swift")
+        let operations = SequencedWorkspaceOperations(
+            snapshotAvailability: [true, true],
+            files: [target]
+        )
+        let model = makeWorkspaceObservationUnitModel(
+            operations: operations,
+            fileOperations: FailingTrashWorkspaceFileOperations(),
+            provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(),
+            refreshGit: {}
+        )
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        model.requestDeleteProjectItem(at: target, isDirectory: false)
+        guard let request = model.pendingProjectItemDeletion else {
+            Issue.record("The deletion request should be available")
+            return
+        }
+
+        await model.confirmProjectItemDeletion(request)
+
+        #expect(model.projectFiles == [target])
+        #expect(model.rootNode?.children?.map(\.url) == [target])
+    }
+
+    @Test
     func workspaceFilesystemFallbackBuildsAVisibleTreeAndHonorsHiddenRules() throws {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
@@ -3394,7 +3471,8 @@ private func makeWorkspaceObservationUnitModel(
     watcherFactory: TestDirectoryWatcherFactory,
     refreshGit: @escaping @MainActor () async -> Void,
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
-    reloadProjectServices: @escaping @MainActor () async -> Void = {}
+    reloadProjectServices: @escaping @MainActor () async -> Void = {},
+    recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in }
 ) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: operations,
@@ -3412,7 +3490,7 @@ private func makeWorkspaceObservationUnitModel(
         restoreSession: { _, _ in },
         openFile: { _ in },
         notify: { _ in },
-        recordHistory: { _, _ in },
+        recordHistory: recordHistory,
         relocateHistory: { _, _ in },
         relocateOpenDocuments: { _, _ in },
         closeDocuments: { _ in },
@@ -3725,9 +3803,11 @@ private final class BlockingWorkspaceOperations: WorkspaceOperations, @unchecked
 private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
     private let lock = NSLock()
     private var snapshotAvailability: [Bool]
+    private let files: [URL]
 
-    init(snapshotAvailability: [Bool]) {
+    init(snapshotAvailability: [Bool], files: [URL] = []) {
         self.snapshotAvailability = snapshotAvailability
+        self.files = files
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
@@ -3736,8 +3816,12 @@ private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecke
         lock.unlock()
         guard isAvailable else { return nil }
         return WorkspaceSnapshot(
-            root: FileNode(url: rootURL, isDirectory: true, children: []),
-            files: []
+            root: FileNode(
+                url: rootURL,
+                isDirectory: true,
+                children: files.map { FileNode(url: $0, isDirectory: false, children: nil) }
+            ),
+            files: files
         )
     }
 
@@ -3797,6 +3881,57 @@ private struct EmptyWorkspaceFileOperations: WorkspaceFileOperations {
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
     func removeItem(at url: URL) throws {}
     func trashItem(at url: URL) throws {}
+    func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { "" }
+}
+
+private final class RecordingTrashWorkspaceFileOperations: WorkspaceFileOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let releaseSemaphore = DispatchSemaphore(value: 0)
+    private var recordedTrashedURLs: [URL] = []
+    private var startedValue = false
+
+    var trashedURLs: [URL] {
+        lock.withLock { recordedTrashedURLs }
+    }
+
+    var hasStarted: Bool {
+        lock.withLock { startedValue }
+    }
+
+    func release() {
+        releaseSemaphore.signal()
+    }
+
+    func fileExists(at url: URL) -> Bool { true }
+    func isDirectory(at url: URL) -> Bool { false }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func removeItem(at url: URL) throws {}
+    func trashItem(at url: URL) throws {
+        lock.withLock {
+            startedValue = true
+        }
+        releaseSemaphore.wait()
+        lock.withLock {
+            recordedTrashedURLs.append(url.standardizedFileURL)
+        }
+    }
+    func writeText(_ text: String, to url: URL) throws {}
+    func readText(from url: URL) throws -> String { "" }
+}
+
+private struct FailingTrashWorkspaceFileOperations: WorkspaceFileOperations {
+    func fileExists(at url: URL) -> Bool { true }
+    func isDirectory(at url: URL) -> Bool { false }
+    func createFile(at url: URL) throws {}
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func removeItem(at url: URL) throws {}
+    func trashItem(at url: URL) throws { throw CocoaError(.fileWriteNoPermission) }
     func writeText(_ text: String, to url: URL) throws {}
     func readText(from url: URL) throws -> String { "" }
 }

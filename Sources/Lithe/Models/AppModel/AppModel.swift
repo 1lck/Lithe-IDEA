@@ -1136,8 +1136,8 @@ final class AppModel: ObservableObject, Identifiable {
         workspaceFeature.cancelProjectItemDeletion()
     }
 
-    func confirmProjectItemDeletion() async {
-        await workspaceFeature.confirmProjectItemDeletion()
+    func confirmProjectItemDeletion(_ request: ProjectItemDeletionRequest) async {
+        await workspaceFeature.confirmProjectItemDeletion(request)
     }
 
     func revealProjectItemInFinder(_ url: URL) {
