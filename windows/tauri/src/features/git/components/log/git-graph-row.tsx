@@ -10,16 +10,16 @@ function graphColor(index: number) {
   return GRAPH_COLORS[index % GRAPH_COLORS.length];
 }
 
-function labelClassName(label: GitGraphLabel) {
+export function gitGraphLabelClassName(label: GitGraphLabel) {
   switch (label.kind) {
     case "head":
-      return "border-sky-500/40 bg-sky-500/18 text-sky-300";
+      return "border-sky-700/35 bg-sky-500/18 text-sky-800 dark:border-sky-400/45 dark:bg-sky-500/20 dark:text-sky-200";
     case "remote":
-      return "border-indigo-500/40 bg-indigo-500/18 text-indigo-300";
+      return "border-indigo-700/35 bg-indigo-500/18 text-indigo-800 dark:border-indigo-400/45 dark:bg-indigo-500/20 dark:text-indigo-200";
     case "tag":
-      return "border-amber-500/40 bg-amber-500/18 text-amber-300";
+      return "border-amber-700/40 bg-amber-500/20 text-amber-900 dark:border-amber-400/45 dark:bg-amber-500/20 dark:text-amber-200";
     default:
-      return "border-emerald-500/40 bg-emerald-500/18 text-emerald-300";
+      return "border-emerald-700/35 bg-emerald-500/18 text-emerald-800 dark:border-emerald-400/45 dark:bg-emerald-500/20 dark:text-emerald-200";
   }
 }
 
@@ -85,7 +85,7 @@ export function GitGraphRow({ row, showDecorations }: { row: GraphRow; showDecor
               key={`${label.kind}:${label.title}:${index}`}
               className={cn(
                 "max-w-28 shrink-0 truncate rounded border px-1.5 py-0.5 font-medium text-[10px] leading-none",
-                labelClassName(label),
+                gitGraphLabelClassName(label),
               )}
               title={label.title}
             >

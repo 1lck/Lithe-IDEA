@@ -514,6 +514,7 @@ const CodeEditor = ({
             editorViewKey={editorViewKey}
             bufferId={activeBufferId ?? undefined}
             filePathOverride={breadcrumbProps?.filePathOverride ?? filePath}
+            showFilePath={breadcrumbProps?.showFilePath ?? false}
           />
         )}
 

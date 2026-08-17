@@ -633,6 +633,12 @@ const viewCommands: Command[] = [
     execute: openGlobalSearchBuffer,
   },
   {
+    id: "workbench.searchEverywhere",
+    title: "Search Everywhere",
+    category: "View",
+    execute: openQuickOpen,
+  },
+  {
     id: "workbench.showProjectSearch",
     title: "Project Search",
     category: "View",

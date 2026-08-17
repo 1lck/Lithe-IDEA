@@ -1,5 +1,6 @@
 import { CaretDownIcon, CaretRightIcon, FileIcon, FolderIcon } from "@/ui/icons";
 import { useMemo, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import type { GitCommitFile } from "../../types/git.types";
 
@@ -69,6 +70,7 @@ function FileNode({
   onSelect: (path: string) => void;
   onOpen: (path: string) => void;
 }) {
+  const { t } = useTranslation();
   const isDirectory = node.children.length > 0 && !node.file;
   const isCollapsed = collapsed.has(node.path);
 
@@ -83,7 +85,7 @@ function FileNode({
         style={{ paddingLeft: 7 + depth * 14 }}
         onClick={() => (node.file ? onSelect(node.path) : onToggle(node.path))}
         onDoubleClick={() => node.file && onOpen(node.path)}
-        title={node.file ? "Double-click to open file diff" : node.path}
+        title={node.file ? t("git.log.openFileDiff") : node.path}
       >
         {isDirectory ? (
           isCollapsed ? (

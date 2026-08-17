@@ -25,6 +25,7 @@ import type { MenuItem } from "@/ui/dropdown";
 import { writeClipboardText } from "@/utils/clipboard";
 import { getBaseName, getDirName } from "@/utils/path-helpers";
 import Keybinding from "@/features/keymaps/components/keybinding";
+import { useTranslation } from "@/i18n/locale-provider";
 import { IS_MAC } from "@/utils/platform";
 
 interface TabContextMenuProps {
@@ -64,11 +65,12 @@ const TabContextMenu = ({
   isPaneLocked = false,
   onTogglePaneLocked,
 }: TabContextMenuProps) => {
+  const { t } = useTranslation();
   const closeKeys = [IS_MAC ? "Cmd" : "Ctrl", "W"];
   const items: MenuItem[] = [
     {
       id: "pin",
-      label: buffer.isPinned ? "Unpin Tab" : "Pin Tab",
+      label: buffer.isPinned ? t("tabs.unpin") : t("tabs.pin"),
       icon: buffer.isPinned ? <PinOff /> : <Pin />,
       onClick: () => onPin(buffer.id),
     },
@@ -76,7 +78,7 @@ const TabContextMenu = ({
       ? [
           {
             id: "rename-terminal",
-            label: "Rename",
+            label: t("files.rename"),
             icon: <PencilSimpleLine />,
             onClick: () => onRename?.(buffer.id),
           },
@@ -87,7 +89,7 @@ const TabContextMenu = ({
       ? [
           {
             id: "split-right",
-            label: "Split Right",
+            label: t("tabs.splitRight"),
             icon: <Columns2 />,
             onClick: () => onSplitRight(paneId, buffer.id),
           },
@@ -97,7 +99,7 @@ const TabContextMenu = ({
       ? [
           {
             id: "split-down",
-            label: "Split Down",
+            label: t("tabs.splitDown"),
             icon: <Rows2 />,
             onClick: () => onSplitDown(paneId, buffer.id),
           },
@@ -110,7 +112,7 @@ const TabContextMenu = ({
       ? [
           {
             id: "toggle-editor-group-lock",
-            label: isPaneLocked ? "Unlock Editor Group" : "Lock Editor Group",
+            label: isPaneLocked ? t("tabs.unlockEditorGroup") : t("tabs.lockEditorGroup"),
             icon: isPaneLocked ? <LockOpen /> : <Lock />,
             onClick: onTogglePaneLocked,
           },
@@ -119,7 +121,7 @@ const TabContextMenu = ({
       : []),
     {
       id: "copy-path",
-      label: "Copy Path",
+      label: t("files.copyPath"),
       icon: <Copy />,
       onClick: async () => {
         if (onCopyPath) {
@@ -136,13 +138,13 @@ const TabContextMenu = ({
     },
     {
       id: "copy-relative-path",
-      label: "Copy Relative Path",
+      label: t("files.copyRelativePath"),
       icon: <Copy />,
       onClick: () => onCopyRelativePath?.(buffer.path),
     },
     {
       id: "reveal",
-      label: "Reveal in Finder",
+      label: t("files.reveal"),
       icon: <FolderOpen />,
       onClick: () => onRevealInFinder?.(buffer.path),
     },
@@ -150,7 +152,7 @@ const TabContextMenu = ({
       ? [
           {
             id: "terminal",
-            label: "Open in Terminal",
+            label: t("files.openInTerminal"),
             icon: <Terminal />,
             onClick: () => {
               const dirPath = getDirName(buffer.path);
@@ -168,7 +170,7 @@ const TabContextMenu = ({
       ? [
           {
             id: "reload",
-            label: "Reload",
+            label: t("tabs.reload"),
             icon: <RotateCcw />,
             onClick: () => onReload?.(buffer.id),
           },
@@ -177,24 +179,24 @@ const TabContextMenu = ({
     { id: "sep-3", label: "", separator: true, onClick: () => {} },
     {
       id: "close",
-      label: "Close",
+      label: t("tabs.close"),
       icon: <X />,
       keybinding: <Keybinding keys={closeKeys} className="opacity-60" />,
       onClick: () => onCloseTab(buffer.id),
     },
     {
       id: "close-others",
-      label: "Close Others",
+      label: t("tabs.closeOthers"),
       onClick: () => onCloseOthers(buffer.id),
     },
     {
       id: "close-right",
-      label: "Close to Right",
+      label: t("tabs.closeToRight"),
       onClick: () => onCloseToRight(buffer.id),
     },
     {
       id: "close-all",
-      label: "Close All",
+      label: t("tabs.closeAll"),
       onClick: onCloseAll,
     },
   ];
