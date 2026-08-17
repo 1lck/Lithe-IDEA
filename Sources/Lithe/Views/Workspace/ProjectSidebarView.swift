@@ -180,29 +180,56 @@ private struct ProjectGitStatusSnapshot: Equatable {
     }
 }
 
-@MainActor
-private final class ProjectTreeActions {
+private final class ProjectTreeActions: @unchecked Sendable {
     private let model: AppModel
 
     init(model: AppModel) {
         self.model = model
     }
 
-    func openFile(_ url: URL) { model.openFile(url) }
-    func requestCreateFile(in url: URL) { model.requestCreateFile(in: url) }
-    func requestCreateDirectory(in url: URL) { model.requestCreateDirectory(in: url) }
-    func revealInFinder(_ url: URL) { model.revealProjectItemInFinder(url) }
-    func copyPath(_ url: URL, relative: Bool) { model.copyProjectItemPath(url, relative: relative) }
-    func duplicate(_ url: URL) async { await model.duplicateProjectItem(at: url) }
-    func requestRename(_ url: URL) { model.requestRenameProjectItem(at: url) }
-    func requestDelete(_ url: URL, isDirectory: Bool) {
-        model.requestDeleteProjectItem(at: url, isDirectory: isDirectory)
+    // Button and context-menu closures are not MainActor-isolated under the
+    // Swift 6 test/release check. Keep these methods synchronous and hop.
+    nonisolated func openFile(_ url: URL) {
+        Task { @MainActor in self.model.openFile(url) }
     }
-    func refreshWorkspace() async { await model.refreshWorkspace() }
-    func showGitDirectoryDiff(_ url: URL) async { await model.showGitDirectoryDiff(for: url) }
-    func selectChange(_ change: GitChange) { model.selectChange(change) }
-    func showLocalHistory(_ url: URL) { model.showLocalHistory(for: url) }
-    func javaIconKind(for url: URL) async -> LitheIconKind? { await model.javaIconKind(for: url) }
+    nonisolated func requestCreateFile(_ url: URL) {
+        Task { @MainActor in self.model.requestCreateFile(in: url) }
+    }
+    nonisolated func requestCreateDirectory(_ url: URL) {
+        Task { @MainActor in self.model.requestCreateDirectory(in: url) }
+    }
+    nonisolated func revealInFinder(_ url: URL) {
+        Task { @MainActor in self.model.revealProjectItemInFinder(url) }
+    }
+    nonisolated func copyPath(_ url: URL, relative: Bool) {
+        Task { @MainActor in self.model.copyProjectItemPath(url, relative: relative) }
+    }
+    nonisolated func duplicate(_ url: URL) {
+        Task { await self.model.duplicateProjectItem(at: url) }
+    }
+    nonisolated func requestRename(_ url: URL) {
+        Task { @MainActor in self.model.requestRenameProjectItem(at: url) }
+    }
+    nonisolated func requestDelete(_ url: URL, _ isDirectory: Bool) {
+        Task { @MainActor in
+            self.model.requestDeleteProjectItem(at: url, isDirectory: isDirectory)
+        }
+    }
+    nonisolated func refreshWorkspace() {
+        Task { await self.model.refreshWorkspace() }
+    }
+    nonisolated func showGitDirectoryDiff(_ url: URL) {
+        Task { await self.model.showGitDirectoryDiff(for: url) }
+    }
+    nonisolated func selectChange(_ change: GitChange) {
+        Task { @MainActor in self.model.selectChange(change) }
+    }
+    nonisolated func showLocalHistory(_ url: URL) {
+        Task { @MainActor in self.model.showLocalHistory(for: url) }
+    }
+    func javaIconKind(_ url: URL) async -> LitheIconKind? {
+        await model.javaIconKind(for: url)
+    }
 }
 
 private struct ProjectFileTreeContent: View, Equatable {
@@ -361,7 +388,7 @@ private struct FileNodeRow: View {
         .contextMenu { fileContextMenu }
         .task(id: node.url.standardizedFileURL.path) {
             guard node.url.pathExtension.lowercased() == "java" else { return }
-            resolvedJavaIconKind = await actions.javaIconKind(for: node.url)
+            resolvedJavaIconKind = await actions.javaIconKind(node.url)
         }
     }
 
@@ -369,16 +396,16 @@ private struct FileNodeRow: View {
     private var directoryContextMenu: some View {
         if gitStatus.kind(for: node.url, isDirectory: true) != nil {
             Button("Show Git Diff") {
-                Task { await actions.showGitDirectoryDiff(node.url) }
+                actions.showGitDirectoryDiff(node.url)
             }
             Divider()
         }
 
         Button("New File…") {
-            actions.requestCreateFile(in: node.url)
+            actions.requestCreateFile(node.url)
         }
         Button("New Directory…") {
-            actions.requestCreateDirectory(in: node.url)
+            actions.requestCreateDirectory(node.url)
         }
 
         Divider()
@@ -397,20 +424,20 @@ private struct FileNodeRow: View {
             Divider()
 
             Button("Duplicate") {
-                Task { await actions.duplicate(node.url) }
+                actions.duplicate(node.url)
             }
             Button("Rename…") {
                 actions.requestRename(node.url)
             }
             Button("Move to Trash", role: .destructive) {
-                actions.requestDelete(node.url, isDirectory: true)
+                actions.requestDelete(node.url, true)
             }
         }
 
         Divider()
 
         Button("Refresh") {
-            Task { await actions.refreshWorkspace() }
+            actions.refreshWorkspace()
         }
     }
 
@@ -432,7 +459,7 @@ private struct FileNodeRow: View {
 
         Group {
             Button("Duplicate") {
-                Task { await actions.duplicate(node.url) }
+                actions.duplicate(node.url)
             }
             Button("Rename…") {
                 actions.requestRename(node.url)
@@ -441,7 +468,7 @@ private struct FileNodeRow: View {
                 actions.showLocalHistory(node.url)
             }
             Button("Move to Trash", role: .destructive) {
-                actions.requestDelete(node.url, isDirectory: false)
+                actions.requestDelete(node.url, false)
             }
         }
 
