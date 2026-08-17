@@ -59,13 +59,16 @@ jobs:
         run: ./scripts/build-windows.ps1 -Configuration Release
 
       - name: Import Authenticode certificate
+        id: signing
         shell: pwsh
         env:
           WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
           WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64)) {
-            throw "WINDOWS_SIGNING_CERTIFICATE_BASE64 is required for a signed Windows release."
+            Write-Output "No Authenticode certificate is configured; the Windows installer will be unsigned."
+            "signed=false" >> $env:GITHUB_OUTPUT
+            exit 0
           }
           $path = Join-Path $env:RUNNER_TEMP "lithe-signing.pfx"
           [System.IO.File]::WriteAllBytes(
@@ -76,13 +79,25 @@ jobs:
             -CertStoreLocation Cert:\CurrentUser\My -Password $password
           if ($null -eq $certificate) { throw "Could not import the Authenticode certificate." }
           "LITHE_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" >> $env:GITHUB_ENV
+          "signed=true" >> $env:GITHUB_OUTPUT
 
       - name: Package Windows installer
         shell: pwsh
         env:
           LITHE_VERSION: ${{ steps.version.outputs.version }}
           LITHE_WINDOWS_TIMESTAMP_SERVER: ${{ secrets.WINDOWS_TIMESTAMP_SERVER }}
-        run: ./scripts/package-windows.ps1 -Configuration Release -Version $env:LITHE_VERSION -RequireAuthenticodeSignature
+          WINDOWS_RELEASE_SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          $packageArgs = @(
+            "-Configuration", "Release",
+            "-Version", $env:LITHE_VERSION
+          )
+          if ($env:WINDOWS_RELEASE_SIGNED -eq "true") {
+            $packageArgs += "-RequireAuthenticodeSignature"
+          } else {
+            Write-Output "Packaging an unsigned Windows installer."
+          }
+          ./scripts/package-windows.ps1 @packageArgs
 
       - name: Verify installer checksum
         shell: pwsh
