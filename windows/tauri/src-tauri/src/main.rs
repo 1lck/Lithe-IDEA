@@ -48,6 +48,9 @@ fn main() {
             ));
             app.manage(host::FileClipboard::default());
             app.manage(run::RunProcessManager::default());
+            if let Some(window) = app.get_webview_window("main") {
+                host::apply_window_taskbar_icon(&window);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

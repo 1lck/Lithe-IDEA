@@ -26,6 +26,7 @@ import {
 } from "@/features/editor/utils/language-id";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 import {
@@ -72,7 +73,7 @@ interface EditorStatusActionsProps {
 
 type LanguageOption = ReturnType<typeof getAllLanguages>[number];
 
-function CursorPositionChip({ editorViewKey }: { editorViewKey?: string | null }) {
+export function CursorPositionChip({ editorViewKey }: { editorViewKey?: string | null }) {
   const activeEditorViewKey = useEditorStateStore.use.activeEditorViewKey();
   const cursorPosition = useEditorStateStore.use.cursorPosition();
   const [isEditing, setIsEditing] = useState(false);
@@ -157,7 +158,8 @@ function CursorPositionChip({ editorViewKey }: { editorViewKey?: string | null }
   );
 }
 
-export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusActionsProps = {}) {
+export function EditorStatusActions({ bufferId }: EditorStatusActionsProps = {}) {
+  const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const resolvedBufferId = useBufferStore((state) => bufferId ?? state.activeBufferId);
   const breadcrumbsEnabled = useSettingsStore((state) => state.settings.coreFeatures.breadcrumbs);
@@ -190,25 +192,25 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         return {
           icon: <Zap className="[&_path]:fill-current" weight="fill" />,
           color: "text-success",
-          title: "Language Servers Active",
+          title: t("lsp.active"),
         };
       case "connecting":
         return {
-          icon: <Spinner label="Connecting" compact />,
+          icon: <Spinner label={t("lsp.connectingShort")} compact />,
           color: "text-warning",
-          title: "Connecting to Language Server...",
+          title: t("lsp.connecting"),
         };
       case "error":
         return {
           icon: <ZapOff weight="duotone" />,
           color: "text-destructive",
-          title: "Language server issue",
+          title: t("lsp.issue"),
         };
       default:
         return {
           icon: <ZapOff weight="duotone" />,
           color: "text-subtle-foreground opacity-50",
-          title: "No active language servers",
+          title: t("lsp.noActive"),
         };
     }
   };
@@ -216,7 +218,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
   const config = getStatusConfig(lspStatus.status);
   const activeServers = lspStatus.supportedLanguages || [];
   const hasActiveServers = lspStatus.status === "connected" && activeServers.length > 0;
-  const projectName = rootFolderPath ? getFilenameFromPath(rootFolderPath) : "No Project";
+  const projectName = rootFolderPath ? getFilenameFromPath(rootFolderPath) : t("lsp.noProject");
   const activeBuffer = useBufferStore(
     useShallow((state) => {
       const buffer = getBufferById(state.buffers, resolvedBufferId);
@@ -384,7 +386,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
   const displayOptions = [
     {
       id: "breadcrumbs",
-      label: "Breadcrumbs",
+      label: t("settings.advanced.feature.breadcrumbs.name"),
       checked: breadcrumbsEnabled,
       shortcut: null,
       onToggle: () => {
@@ -397,14 +399,14 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "minimap",
-      label: "Minimap",
+      label: t("editor.minimap"),
       checked: showMinimap,
       shortcut: minimapShortcut,
       onToggle: () => updateSetting("showMinimap", !showMinimap),
     },
     {
       id: "line-numbers",
-      label: "Line Numbers",
+      label: t("settings.editor.lineNumbers"),
       checked: lineNumbers,
       shortcut: null,
       onToggle: () => updateSetting("lineNumbers", !lineNumbers),
@@ -412,7 +414,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "relative-line-numbers",
-      label: "Relative Line Numbers",
+      label: t("settings.editor.relativeLineNumbers"),
       checked: vimRelativeLineNumbers,
       shortcut: null,
       onToggle: () => updateSetting("vimRelativeLineNumbers", !vimRelativeLineNumbers),
@@ -420,7 +422,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "word-wrap",
-      label: "Word Wrap",
+      label: t("settings.editor.wordWrap"),
       checked: wordWrap,
       shortcut: null,
       onToggle: () => updateSetting("wordWrap", !wordWrap),
@@ -428,7 +430,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "parameter-hints",
-      label: "Parameter Hints",
+      label: t("settings.editor.parameterHints"),
       checked: parameterHints,
       shortcut: null,
       onToggle: () => updateSetting("parameterHints", !parameterHints),
@@ -436,7 +438,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "auto-completion",
-      label: "Auto Completion",
+      label: t("settings.editor.autoCompletion"),
       checked: autoCompletion,
       shortcut: null,
       onToggle: () => updateSetting("autoCompletion", !autoCompletion),
@@ -444,7 +446,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "inlay-hints",
-      label: "Inlay Hints",
+      label: t("settings.editor.inlayHints"),
       checked: inlayHints,
       shortcut: null,
       onToggle: () => updateSetting("inlayHints", !inlayHints),
@@ -452,7 +454,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "code-lens",
-      label: "Code Lens",
+      label: t("settings.editor.codeLens"),
       checked: codeLens,
       shortcut: null,
       onToggle: () => updateSetting("codeLens", !codeLens),
@@ -460,7 +462,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "semantic-tokens",
-      label: "Semantic Tokens",
+      label: t("settings.editor.semanticTokens"),
       checked: semanticTokens,
       shortcut: null,
       onToggle: () => updateSetting("semanticTokens", !semanticTokens),
@@ -468,7 +470,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "vim-mode",
-      label: "Vim Mode",
+      label: t("settings.keyboard.vimMode"),
       checked: vimMode,
       shortcut: null,
       onToggle: () => updateSetting("vimMode", !vimMode),
@@ -476,7 +478,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
     },
     {
       id: "inline-git-blame",
-      label: "Inline Git Blame",
+      label: t("editor.inlineGitBlame"),
       checked: enableInlineGitBlame,
       shortcut: null,
       onToggle: () => updateSetting("enableInlineGitBlame", !enableInlineGitBlame),
@@ -486,8 +488,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
 
   return (
     <>
-      <CursorPositionChip editorViewKey={editorViewKey} />
-
       {activeBuffer?.type === "editor" && (
         <div className="flex h-5 items-center self-center">
           <Combobox
@@ -504,8 +504,8 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
             filter={filterLanguages}
           >
             <ComboboxInput
-              aria-label="Select language mode"
-              placeholder={currentFileDisplayName || "Plain Text"}
+              aria-label={t("editor.selectLanguage")}
+              placeholder={currentFileDisplayName || t("editor.plainText")}
               size="xs"
               variant="ghost"
               showClear={false}
@@ -533,7 +533,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                     <span className="truncate">{lang.displayName}</span>
                   </ComboboxItem>
                 ))}
-                <ComboboxEmpty className="ui-text-sm">No languages found</ComboboxEmpty>
+                <ComboboxEmpty className="ui-text-sm">{t("editor.noLanguages")}</ComboboxEmpty>
               </ComboboxList>
             </ComboboxContent>
           </Combobox>
@@ -554,7 +554,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
             config.color,
             isLspOpen && "bg-accent text-foreground",
           )}
-          aria-label="Language server status"
+          aria-label={t("lsp.status")}
           tooltip={config.title}
           tooltipSide="bottom"
         >
@@ -584,7 +584,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                       size="xs"
                       className={cn(editorMenuActionButtonClass, "flex-1")}
                     >
-                      {bulkLspAction === "restart" ? "Restarting..." : "Restart all"}
+                      {bulkLspAction === "restart" ? t("lsp.restarting") : t("lsp.restartAll")}
                     </Button>
                     <Button
                       type="button"
@@ -594,7 +594,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                       size="xs"
                       className={cn(editorMenuActionButtonClass, "flex-1")}
                     >
-                      {bulkLspAction === "stop" ? "Stopping..." : "Stop all"}
+                      {bulkLspAction === "stop" ? t("lsp.stopping") : t("lsp.stopAll")}
                     </Button>
                   </div>
                 )}
@@ -617,7 +617,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                           size="xs"
                           className={editorMenuActionButtonClass}
                         >
-                          {isBusy ? "..." : "Restart"}
+                          {isBusy ? "..." : t("lsp.restart")}
                         </Button>
                         <Button
                           type="button"
@@ -651,7 +651,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                         size="xs"
                         className={editorMenuActionButtonClass}
                       >
-                        {isRestartingCurrent ? "Starting..." : "Start"}
+                        {isRestartingCurrent ? t("lsp.starting") : t("lsp.start")}
                       </Button>
                     </div>
                   </div>
@@ -660,7 +660,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
             ) : lspStatus.status === "connecting" ? (
               <Empty className="min-h-0 flex-none items-start rounded-lg px-2 py-2 text-left">
                 <EmptyDescription>
-                  <Spinner label="Connecting" showLabel compact />
+                  <Spinner label={t("lsp.connectingShort")} showLabel compact />
                 </EmptyDescription>
               </Empty>
             ) : lspStatus.status === "error" ? (
@@ -672,19 +672,16 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
                 <EmptyHeader className="items-start">
                   <EmptyTitle className="flex items-center gap-2">
                     <ZapOff weight="duotone" />
-                    Language server issue
+                    {t("lsp.issue")}
                   </EmptyTitle>
-                  <EmptyDescription>
-                    Check notifications for the latest error. Reinstall the affected language tools
-                    from Extensions if the server binary is missing or failed to launch.
-                  </EmptyDescription>
+                  <EmptyDescription>{t("lsp.issueHint")}</EmptyDescription>
                 </EmptyHeader>
               </Empty>
             ) : (
               <Empty className="min-h-0 flex-none items-start rounded-lg px-2 py-2 text-left">
                 <EmptyDescription className="flex items-center gap-2">
                   <ZapOff className="opacity-50" weight="duotone" />
-                  No active language servers
+                  {t("lsp.noActive")}
                 </EmptyDescription>
               </Empty>
             )}
@@ -703,7 +700,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
             "text-subtle-foreground",
             isViewMenuOpen && "border-border/60 bg-accent/80 text-foreground",
           )}
-          tooltip="Editor preferences"
+          tooltip={t("editor.preferences")}
           tooltipSide="bottom"
         >
           <span className="flex size-full items-center justify-center">

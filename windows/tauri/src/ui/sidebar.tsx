@@ -71,7 +71,7 @@ export const SidebarFooter = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "ui-text-chrome mx-2 mb-2 shrink-0 rounded-xl border border-border/60 bg-[color-mix(in_srgb,var(--surface)_82%,var(--border)_18%)] p-0 pb-1 transition-[border-radius,background-color,border-color,box-shadow]",
+        "ui-text-chrome relative z-20 isolate mx-2 mb-2 shrink-0 rounded-xl border border-border/60 bg-background p-0 pb-1 transition-[border-radius,background-color,border-color,box-shadow]",
         className,
       )}
       {...props}
@@ -113,7 +113,7 @@ export function SidebarComposerBody({
       className={cn(
         "overflow-hidden",
         variant === "surface" &&
-          "rounded-xl border border-border/60 bg-[color-mix(in_srgb,var(--background)_96%,var(--surface)_4%)]",
+          "relative z-10 rounded-xl border border-border/60 bg-background",
         className,
       )}
       {...props}
@@ -437,7 +437,11 @@ export function SidebarTabPanels<TValue extends string>({
   return (
     <>
       {items.map((item) => (
-        <TabsContent key={item.id} value={item.id} className={className}>
+        <TabsContent
+          key={item.id}
+          value={item.id}
+          className={cn("flex min-h-0 flex-col overflow-hidden", className)}
+        >
           {item.content}
         </TabsContent>
       ))}

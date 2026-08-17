@@ -5,6 +5,7 @@ import Command, {
   CommandInput,
   CommandList,
 } from "@/ui/command";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useQuickOpen } from "../hooks/use-quick-open";
 import { getWorkspaceSymbolKey } from "../hooks/use-workspace-symbol-search";
 import { EmptyState } from "./empty-state";
@@ -13,6 +14,7 @@ import { FileListItem } from "./file-list-item";
 import { SymbolListItem } from "./symbol-list-item";
 
 const QuickOpen = () => {
+  const { t } = useTranslation();
   const {
     isVisible,
     query,
@@ -62,20 +64,24 @@ const QuickOpen = () => {
           onKeyDown={handleInputKeyDown}
           placeholder={
             isSymbolMode
-              ? "Type to filter symbols..."
+              ? t("quickOpen.searchSymbols")
               : isWorkspaceSymbolMode
-                ? "Type to search symbols across the project..."
-                : "Type to search files..."
+                ? t("quickOpen.searchWorkspaceSymbols")
+                : t("quickOpen.searchFiles")
           }
           className="font-sans"
         />
         {isSymbolMode ? (
           <CommandHeaderBadge>
-            {isLoadingSymbols ? "..." : `${symbols.length} symbols`}
+            {isLoadingSymbols
+              ? "..."
+              : t("quickOpen.symbolsCount", { count: symbols.length })}
           </CommandHeaderBadge>
         ) : isWorkspaceSymbolMode ? (
           <CommandHeaderBadge>
-            {isLoadingWorkspaceSymbols ? "..." : `${workspaceSymbols.length} symbols`}
+            {isLoadingWorkspaceSymbols
+              ? "..."
+              : t("quickOpen.symbolsCount", { count: workspaceSymbols.length })}
           </CommandHeaderBadge>
         ) : (
           <FileCountBadge
@@ -91,7 +97,7 @@ const QuickOpen = () => {
         {isSymbolMode ? (
           symbols.length === 0 ? (
             <CommandEmpty>
-              {isLoadingSymbols ? "Loading symbols..." : "No symbols found"}
+              {isLoadingSymbols ? t("quickOpen.loadingSymbols") : t("quickOpen.noSymbols")}
             </CommandEmpty>
           ) : (
             symbols.map((symbol, index) => (
@@ -109,7 +115,9 @@ const QuickOpen = () => {
         ) : isWorkspaceSymbolMode ? (
           workspaceSymbols.length === 0 ? (
             <CommandEmpty>
-              {isLoadingWorkspaceSymbols ? "Loading symbols..." : "No symbols found"}
+              {isLoadingWorkspaceSymbols
+                ? t("quickOpen.loadingSymbols")
+                : t("quickOpen.noSymbols")}
             </CommandEmpty>
           ) : (
             workspaceSymbols.map((symbol, index) => (
