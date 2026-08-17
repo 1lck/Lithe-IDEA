@@ -185,9 +185,14 @@ final class ProjectSessionManager: ObservableObject {
                 self.removeClosedSession(model)
             }
         )
-        modelObservations[model.id] = model.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
+        // Only workspace open/close should wake the window chrome. Relaying
+        // every AppModel tick rebuilds every mounted project session.
+        modelObservations[model.id] = model.$workspaceURL
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
     }
 
     private func removeClosedSession(_ model: AppModel) {

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreServices
 import Foundation
 @testable import LitheDatabaseModule
@@ -2121,6 +2122,38 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func codeEditorLineIndexKeepsLineNumbersAfterSingleLineEdit() {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "one\ntwo\nthree"
+        textView.rebuildLineIndex()
+        #expect(textView.lineNumber(at: 4, in: textView.string as NSString) == 1)
+
+        textView.string = "oneX\ntwo\nthree"
+        textView.applyLineIndexEdit(replacedRange: NSRange(location: 3, length: 0), replacement: "X")
+        let source = textView.string as NSString
+        #expect(textView.lineNumber(at: 0, in: source) == 0)
+        #expect(textView.lineNumber(at: 5, in: source) == 1)
+        #expect(textView.lineNumber(at: 9, in: source) == 2)
+        #expect(textView.characterOffset(forLine: 2, in: source) == 9)
+    }
+
+    @Test
+    @MainActor
+    func codeEditorShiftsFindMatchesAcrossASingleLineEdit() {
+        let textView = CodeTextView(frame: .zero)
+        textView.string = "alpha beta alpha"
+        textView.rebuildLineIndex()
+        textView.updateFindMatches(query: "alpha")
+        #expect(textView.currentFindMatchCountForTesting == 2)
+
+        textView.string = "Xalpha beta alpha"
+        textView.applyFindEdit(replacedRange: NSRange(location: 0, length: 0), insertedLength: 1, query: "alpha")
+        #expect(textView.currentFindMatchCountForTesting == 2)
+        #expect(textView.findMatchLocationsForTesting == [1, 12])
+    }
+
+    @Test
+    @MainActor
     func codeEditorReportsEachFindStateOnlyOnce() {
         let textView = CodeTextView(frame: .zero)
         textView.string = "alpha beta alpha"
@@ -2590,6 +2623,34 @@ struct EditorDocumentTests {
 
         #expect(!document.isDirty)
         #expect(try String(contentsOf: url, encoding: .utf8) == "after")
+    }
+
+    @Test
+    @MainActor
+    func liveEditorTextPublishesOnlyWhenDirtyStateChanges() {
+        let document = EditorDocument(
+            url: URL(fileURLWithPath: "/tmp/live-editor.txt"),
+            text: "before",
+            modificationDate: nil
+        )
+        var publishCount = 0
+        let observation = document.objectWillChange.sink { _ in publishCount += 1 }
+        defer { observation.cancel() }
+
+        document.applyLiveEditorText("before")
+        #expect(publishCount == 0)
+
+        document.applyLiveEditorText("after")
+        #expect(document.isDirty)
+        #expect(publishCount == 1)
+
+        document.applyLiveEditorText("after more")
+        #expect(document.isDirty)
+        #expect(publishCount == 1)
+
+        document.applyLiveEditorText("before")
+        #expect(!document.isDirty)
+        #expect(publishCount == 2)
     }
 
     @Test

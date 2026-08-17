@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProblemsView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var diagnosticsStore: EditorDiagnosticsStore
     @State private var severityFilter = Set(DiagnosticSeverity.allCases)
 
     var body: some View {
@@ -80,7 +81,7 @@ struct ProblemsView: View {
     }
 
     private var allDiagnostics: [EditorDiagnostic] {
-        model.editorDiagnostics.values
+        diagnosticsStore.diagnosticsByURL.values
             .flatMap { $0 }
             .sorted {
                 let left = model.relativePath(for: $0.fileURL)

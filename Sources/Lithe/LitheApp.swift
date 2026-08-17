@@ -60,6 +60,7 @@ struct LitheApp: App {
     @StateObject private var settings: AppSettings
     @StateObject private var projectSessions: ProjectSessionManager
     @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
+    @StateObject private var frameRateMonitor = FrameRateMonitor()
     @StateObject private var updateChecker = UpdateChecker()
 
     init() {
@@ -122,6 +123,7 @@ struct LitheApp: App {
                 .environmentObject(projectSessions)
                 .environmentObject(settings)
                 .environmentObject(memoryUsageMonitor)
+                .environmentObject(frameRateMonitor)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
                 // SwiftUI does not consistently re-resolve every existing
@@ -132,6 +134,7 @@ struct LitheApp: App {
                 .preferredColorScheme(settings.themePreference.preferredColorScheme)
                 .task {
                     memoryUsageMonitor.start()
+                    frameRateMonitor.start()
                 }
         }
         .defaultSize(
