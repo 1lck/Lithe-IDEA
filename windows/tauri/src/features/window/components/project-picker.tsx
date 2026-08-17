@@ -52,11 +52,16 @@ import { Spinner } from "@/ui/spinner";
 import { toast } from "sonner";
 import { cn } from "@/utils/cn";
 import { connectionStore } from "@/features/remote/stores/remote-connection.store";
+import {
+  getProjectPickerInitialState,
+  type ProjectPickerMode,
+} from "@/features/window/utils/project-picker-mode";
 import NewProjectContent from "./new-project-content";
 
 interface ProjectPickerProps {
   isOpen: boolean;
   onClose: () => void;
+  initialMode?: ProjectPickerMode;
 }
 
 const createRemoteConnectionFormData = (): RemoteConnectionFormData => ({
@@ -70,8 +75,9 @@ const createRemoteConnectionFormData = (): RemoteConnectionFormData => ({
   saveCredentials: false,
 });
 
-const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
-  const { t } = useTranslation();
+const ProjectPicker = memo(
+  ({ isOpen, onClose, initialMode = "picker" }: ProjectPickerProps) => {
+    const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const remoteNameInputRef = useRef<HTMLInputElement>(null);
   const [connections, setConnections] = useState<RemoteConnection[]>([]);
@@ -126,11 +132,13 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
     }
   }, []);
 
+  const initialPickerState = getProjectPickerInitialState(initialMode);
+
   useEffect(() => {
     if (isOpen) {
       setQuery("");
       setSelectedIndex(0);
-      setCommandStep("picker");
+      setCommandStep(initialPickerState.commandStep);
       setRemoteFormData(createRemoteConnectionFormData());
       setShowRemotePassword(false);
       setRemoteValidationStatus("idle");
@@ -141,7 +149,7 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
       loadWslDistributions();
       window.setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [isOpen, loadConnections, loadWslDistributions]);
+  }, [initialPickerState.commandStep, isOpen, loadConnections, loadWslDistributions]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -425,16 +433,22 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
         isVisible={isOpen}
         onClose={onClose}
         title={
-            commandStep === "addRemote"
-              ? t("welcome.newRemoteConnection")
-              : commandStep === "newProject"
-                ? t("welcome.newProject")
-                : t("welcome.openProject")
+          commandStep === "addRemote"
+            ? t("welcome.newRemoteConnection")
+            : commandStep === "newProject"
+              ? initialMode === "clone-repository"
+                ? t("welcome.cloneRepository")
+                : t("welcome.newProject")
+              : t("welcome.openProject")
         }
         autoFocus={commandStep === "picker"}
       >
         {commandStep === "newProject" ? (
-          <NewProjectContent onBack={handleBackToPicker} onClose={onClose} />
+          <NewProjectContent
+            initialSource={initialPickerState.newProjectSource}
+            onBack={handleBackToPicker}
+            onClose={onClose}
+          />
         ) : commandStep === "picker" ? (
           <CommandHeader onClose={onClose}>
             <Search className="size-4 shrink-0 text-subtle-foreground" />
@@ -698,7 +712,8 @@ const ProjectPicker = memo(({ isOpen, onClose }: ProjectPickerProps) => {
       />
     </>
   );
-});
+  },
+);
 
 ProjectPicker.displayName = "ProjectPicker";
 

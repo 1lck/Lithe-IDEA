@@ -84,6 +84,7 @@ export const defaultSettings: Settings = {
   hiddenSidebarActivityItems: [],
   footerLeadingItemsOrder: [...FOOTER_LEADING_ITEM_IDS],
   footerTrailingItemsOrder: [...FOOTER_TRAILING_ITEM_IDS],
+  askWhereToOpenProjects: true,
   openFoldersInNewWindow: true,
   // AI
   aiProviderId: DEFAULT_AI_PROVIDER_ID,
@@ -105,7 +106,6 @@ export const defaultSettings: Settings = {
   // Layout
   activityRailExpanded: false,
   activityRailWidth: 180,
-  showActivityRailProjectSwitcher: true,
   showActivityRailAgentHistory: false,
   showActivityRailTerminals: false,
   showActivityRailWorktrees: false,

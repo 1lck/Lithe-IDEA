@@ -247,7 +247,7 @@ fn copy_path(source: &std::path::Path, destination: &std::path::Path) -> Result<
 }
 
 #[tauri::command]
-pub fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<String, String> {
+pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<String, String> {
     let label = format!("workspace-{}", WINDOW_ID.fetch_add(1, Ordering::Relaxed));
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     if let Some(request) = request.and_then(|value| value.as_object().cloned()) {
@@ -298,9 +298,22 @@ pub fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_payloads, copy_path, unique_destination};
+    use super::{cli_payloads, copy_path, create_app_window, unique_destination};
     use std::fs;
+    use std::future::Future;
     use std::path::PathBuf;
+
+    fn assert_async_window_command<F, Fut>(_command: F)
+    where
+        F: Fn(tauri::AppHandle, Option<serde_json::Value>) -> Fut,
+        Fut: Future<Output = Result<String, String>>,
+    {
+    }
+
+    #[test]
+    fn creates_app_windows_outside_the_synchronous_ipc_handler() {
+        assert_async_window_command(create_app_window);
+    }
 
     #[test]
     fn parses_path_and_web_cli_arguments() {
