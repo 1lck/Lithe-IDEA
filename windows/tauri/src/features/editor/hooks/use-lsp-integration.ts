@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef } from "react";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { deferUntilAfterNextPaint } from "@/features/editor/lsp/deferred-lsp-work";
+import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getSourceEditorBufferByPath } from "@/features/editor/utils/buffer-index";
 import { logger } from "@/features/editor/utils/logger";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { getDirName } from "@/utils/path-helpers";
 
 interface UseLspIntegrationOptions {
   enabled?: boolean;
@@ -26,7 +27,7 @@ export const useLspIntegration = ({
   const installedExtensions = useExtensionStore.use.installedExtensions();
   const activeFilePath = enabled ? filePath : undefined;
   const isLspSupported = useMemo(
-    () => Boolean(activeFilePath && extensionRegistry.isLspSupported(activeFilePath)),
+    () => isEditorLspSupported(activeFilePath),
     [activeFilePath, installedExtensions],
   );
   const documentChangeTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -41,7 +42,7 @@ export const useLspIntegration = ({
   useEffect(() => {
     if (!enabled || !filePath || !isLspSupported) return;
 
-    const workspacePath = rootFolderPath || filePath.substring(0, filePath.lastIndexOf("/"));
+    const workspacePath = rootFolderPath || getDirName(filePath);
     if (!workspacePath) {
       console.warn("LSP: Could not determine workspace path for", filePath);
       return;

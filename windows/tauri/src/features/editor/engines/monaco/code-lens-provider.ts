@@ -7,7 +7,7 @@ import {
 } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
 import { toast } from "sonner";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { filePathFromUri } from "@/features/editor/lsp/workspace-edit";
@@ -154,7 +154,7 @@ export function registerMonacoCodeLensProvider(): void {
       const filePath = filePathFromModel(model);
       if (
         !filePath ||
-        !extensionRegistry.isLspSupported(filePath) ||
+        !isEditorLspSupported(filePath) ||
         !lspClient.getActiveServerEntryForFile(filePath) ||
         !lspClient.isDocumentOpen(filePath)
       ) {
