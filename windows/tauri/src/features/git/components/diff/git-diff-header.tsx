@@ -13,6 +13,7 @@ import Breadcrumb, {
 } from "@/features/editor/components/toolbar/breadcrumb";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import type { DiffHeaderProps } from "../../types/git-diff.types";
 import { countDiffStats, getFileStatus } from "../../utils/git-diff-helpers";
 
@@ -31,6 +32,7 @@ const DiffHeader = memo(
     onClose,
     showDisplayControls = true,
   }: DiffHeaderProps) => {
+    const { t } = useTranslation();
     const { closeBuffer } = useBufferStore.use.actions();
     const activeBufferId = useBufferStore.use.activeBufferId();
 
@@ -128,8 +130,12 @@ const DiffHeader = memo(
                     onClick={() => onShowWhitespaceChange?.(!showWhitespace)}
                     active={showWhitespace}
                     className="gap-1"
-                    tooltip={showWhitespace ? "Hide whitespace" : "Show whitespace"}
-                    aria-label={showWhitespace ? "Hide whitespace" : "Show whitespace"}
+                    tooltip={
+                      showWhitespace ? t("git.diff.hideWhitespace") : t("git.diff.showWhitespace")
+                    }
+                    aria-label={
+                      showWhitespace ? t("git.diff.hideWhitespace") : t("git.diff.showWhitespace")
+                    }
                   >
                     <Trash2 weight="duotone" />
                     {showWhitespace && <Check weight="duotone" />}

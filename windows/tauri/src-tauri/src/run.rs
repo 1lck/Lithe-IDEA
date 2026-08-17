@@ -380,7 +380,7 @@ fn pretty_json(value: &Value) -> Result<String, String> {
     serde_json::to_string_pretty(value).map_err(|error| error.to_string())
 }
 
-fn discover_toolchains(project_root: Option<&Path>) -> DiscoveredToolchains {
+pub(crate) fn discover_toolchains(project_root: Option<&Path>) -> DiscoveredToolchains {
     let mut java = Vec::new();
     let mut seen_homes = std::collections::HashSet::new();
     for home in java_home_candidates(project_root) {
@@ -513,7 +513,7 @@ fn probe_maven(executable: &Path) -> Option<MavenRuntime> {
     })
 }
 
-fn java_executable(home: &Path) -> Option<PathBuf> {
+pub(crate) fn java_executable(home: &Path) -> Option<PathBuf> {
     for name in ["java.exe", "java"] {
         let candidate = home.join("bin").join(name);
         if candidate.is_file() {

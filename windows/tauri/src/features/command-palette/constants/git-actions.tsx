@@ -5,6 +5,7 @@ import {
   FolderOpenIcon as FolderOpen,
   GitBranchIcon as GitBranch,
   GitCommitIcon as GitCommit,
+  GitGraphIcon as GitGraph,
   HardDrivesIcon as Server,
   NodesIcon as Nodes,
   TagIcon as Tag,
@@ -163,7 +164,7 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       id: "git-open-log",
       label: "Git: Open Log",
       description: "Open the full Git Log tool window",
-      icon: <ClockCounterClockwise />,
+      icon: <GitGraph />,
       category: "Git",
       action: () => {
         setBottomPaneActiveTab("gitLog");

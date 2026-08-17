@@ -145,17 +145,24 @@ function sessionForFile(filePath: string): Session {
 async function start(args: JsonRecord): Promise<void> {
   const workspacePath = String(args.workspacePath ?? "");
   const languageId = String(args.languageId ?? "plaintext");
+  const providerId = String(args.providerId ?? languageId);
   const key = `${workspacePath}:${languageId}`;
   let session = sessions.get(key);
   if (!session) {
+    const environment = {
+      ...(args.tools?.lsp?.env ?? {}),
+      ...(args.environment ?? {}),
+    };
     const started = await core<{ sessionId: string }>("lsp.startServer", {
-      providerId: languageId,
+      providerId,
       executablePath: args.serverPath,
       arguments: args.serverArgs ?? [],
-      environment: args.tools?.lsp?.env ?? {},
+      environment,
       rootUri: fileUri(workspacePath),
       workingDirectory: workspacePath,
       initializationOptions: args.initializationOptions ?? null,
+      runtimeExecutablePath: args.runtimeExecutablePath ?? null,
+      cacheDirectory: args.cacheDirectory ?? null,
     });
     session = {
       id: started.sessionId,

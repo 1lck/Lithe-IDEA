@@ -528,11 +528,19 @@ package final class WorkspaceFeatureModel: ObservableObject {
         pendingProjectItemDeletion = nil
     }
 
-    package func confirmProjectItemDeletion() async {
-        guard let request = pendingProjectItemDeletion else { return }
-        pendingProjectItemDeletion = nil
+    package func confirmProjectItemDeletion(_ request: ProjectItemDeletionRequest) async {
+        if pendingProjectItemDeletion?.id == request.id {
+            pendingProjectItemDeletion = nil
+        }
+        guard !isPerformingProjectItemOperation,
+              isWorkspaceURL(request.url),
+              request.url.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
         isPerformingProjectItemOperation = true
-        await recordHistory?(request.url, .beforeDelete)
+        // Update the visible tree before waiting for the native Trash operation.
+        // A failed operation reloads the disk snapshot below to restore the item.
+        removeProjectItemFromSnapshot(request.url)
+        // The system Trash is the recovery boundary. Recording every descendant
+        // first would make deleting a directory scale with its entire file tree.
         let fileOperations = self.fileOperations
         let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
             do {
@@ -545,6 +553,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         isPerformingProjectItemOperation = false
         if let errorMessage {
             notify?(errorMessage)
+            await refreshCurrent()
             return
         }
         closeDocuments?(request.url)
@@ -790,6 +799,23 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let parentPath = parent.standardizedFileURL.path
         let childPath = child.standardizedFileURL.path
         return childPath == parentPath || childPath.hasPrefix(parentPath + "/")
+    }
+
+    private func removeProjectItemFromSnapshot(_ targetURL: URL) {
+        projectFiles.removeAll { urlContains(targetURL, child: $0) }
+        rootNode = rootNode.flatMap { removingProjectItem(targetURL, from: $0) }
+    }
+
+    private func removingProjectItem(_ targetURL: URL, from node: FileNode) -> FileNode? {
+        guard node.url.standardizedFileURL != targetURL.standardizedFileURL else { return nil }
+        guard let children = node.children else { return node }
+        return FileNode(
+            url: node.url,
+            isDirectory: node.isDirectory,
+            children: children.compactMap { removingProjectItem(targetURL, from: $0) },
+            collapsedAncestorPaths: node.collapsedAncestorPaths,
+            isInsideSourceRoot: node.isInsideSourceRoot
+        )
     }
 
     private func availableDuplicateURL(for sourceURL: URL) -> URL {

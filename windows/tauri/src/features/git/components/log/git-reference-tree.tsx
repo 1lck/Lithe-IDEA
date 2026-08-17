@@ -8,14 +8,15 @@ import {
 } from "@/ui/icons";
 import { useMemo } from "react";
 import { cn } from "@/utils/cn";
+import { useTranslation } from "@/i18n/locale-provider";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitReference, GitReferenceKind } from "../../types/git.types";
 import { buildGitReferenceTree, type GitReferenceTreeNode } from "../../utils/git-reference-tree";
 
-const SECTIONS: Array<{ kind: GitReferenceKind; title: string }> = [
-  { kind: "local", title: "Local" },
-  { kind: "remote", title: "Remote" },
-  { kind: "tag", title: "Tags" },
+const SECTION_KEYS: Array<{ kind: GitReferenceKind; titleKey: string }> = [
+  { kind: "local", titleKey: "git.log.local" },
+  { kind: "remote", titleKey: "git.log.remote" },
+  { kind: "tag", titleKey: "git.log.tags" },
 ];
 
 function ReferenceIcon({ kind }: { kind: GitReferenceKind }) {
@@ -41,6 +42,7 @@ function ReferenceNode({
   onToggleGroup: (id: string) => void;
   onSelect: (reference: GitReference) => void;
 }) {
+  const { t } = useTranslation();
   const isGroup = node.children.length > 0;
   const isCollapsed = collapsedGroups.has(node.id);
   const left = 10 + depth * 14;
@@ -59,7 +61,7 @@ function ReferenceNode({
             type="button"
             className="flex size-3.5 shrink-0 items-center justify-center"
             onClick={() => onToggleGroup(node.id)}
-            aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${node.path}`}
+            aria-label={t(isCollapsed ? "git.log.expand" : "git.log.collapse", { name: node.path })}
           >
             {isCollapsed ? <CaretRightIcon /> : <CaretDownIcon />}
           </button>
@@ -109,6 +111,7 @@ export function GitReferenceTree({
   selectedReference: GitReference | null;
   onSelect: (reference: GitReference | null) => void;
 }) {
+  const { t } = useTranslation();
   const collapsedSectionIds = useGitLogPreferencesStore.use.collapsedReferenceSections();
   const collapsedGroupIds = useGitLogPreferencesStore.use.collapsedReferenceGroups();
   const { toggleReferenceSection, toggleReferenceGroup } = useGitLogPreferencesStore.use.actions();
@@ -116,14 +119,14 @@ export function GitReferenceTree({
   const collapsedGroups = useMemo(() => new Set(collapsedGroupIds), [collapsedGroupIds]);
   const currentReference = references.find((reference) => reference.isCurrent) ?? null;
   const trees = useMemo(
-    () => new Map(SECTIONS.map(({ kind }) => [kind, buildGitReferenceTree(references, kind)])),
+    () => new Map(SECTION_KEYS.map(({ kind }) => [kind, buildGitReferenceTree(references, kind)])),
     [references],
   );
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface/45 font-sans ui-text-sm select-none">
       <div className="flex h-8 shrink-0 items-center border-border border-b px-2 text-subtle-foreground">
-        References
+        {t("git.log.references")}
         <span className="ml-auto tabular-nums">{references.length}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-1.5">
@@ -137,7 +140,7 @@ export function GitReferenceTree({
           )}
         >
           <span className="text-primary">→</span>
-          <span className="truncate">HEAD (Current Branch)</span>
+          <span className="truncate">{t("git.log.headCurrentBranch")}</span>
           {currentReference ? (
             <span className="ml-auto max-w-24 truncate text-subtle-foreground">
               {currentReference.shortName}
@@ -145,7 +148,7 @@ export function GitReferenceTree({
           ) : null}
         </button>
 
-        {SECTIONS.map(({ kind, title }) => {
+        {SECTION_KEYS.map(({ kind, titleKey }) => {
           const collapsed = collapsedSections.has(kind);
           const nodes = trees.get(kind) ?? [];
           return (
@@ -161,7 +164,7 @@ export function GitReferenceTree({
                   <CaretDownIcon className="size-3" />
                 )}
                 <FolderIcon className="size-3.5 text-subtle-foreground" />
-                {title}
+                {t(titleKey)}
                 <span className="ml-auto text-subtle-foreground tabular-nums">{nodes.length}</span>
               </button>
               {!collapsed &&
@@ -179,7 +182,7 @@ export function GitReferenceTree({
                     />
                   ))
                 ) : (
-                  <div className="h-6 pl-8 leading-6 text-subtle-foreground">None</div>
+                  <div className="h-6 pl-8 leading-6 text-subtle-foreground">{t("git.log.none")}</div>
                 ))}
             </div>
           );

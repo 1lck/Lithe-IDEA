@@ -1,5 +1,5 @@
 import { Fragment, useMemo } from "react";
-import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { resolveEditorViewCursorPosition } from "@/features/editor/utils/editor-view-cursor-position";
@@ -38,7 +38,7 @@ export function SymbolBreadcrumb({
   const availableExtensions = useExtensionStore.use.availableExtensions();
   const isExtensionStoreReady = availableExtensions.size > 0;
 
-  const isLspSupported = !filePath.includes("://") && extensionRegistry.isLspSupported(filePath);
+  const isLspSupported = !filePath.includes("://") && isEditorLspSupported(filePath);
   const { symbols, isSupported } = useDocumentOutline({
     isActive: breadcrumbShowSymbols && isLspSupported,
     bufferId,

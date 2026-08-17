@@ -14,11 +14,12 @@ import type {
   Diagnostic,
   DiagnosticCodeAction,
 } from "@/features/diagnostics/types/diagnostics.types";
-import type { BackendLanguageToolConfigSet } from "@/extensions/registry/extension-store-runtime";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
 import { getSourceEditorBufferByPath } from "../utils/buffer-index";
 import { logger } from "../utils/logger";
+import { isBuiltInLspPath, languageIdForEditorFile } from "./built-in-language-support";
+import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
 import type { LspSemanticTokensResponse } from "./semantic-token-types";
 import { useLspStore } from "./stores/lsp.store";
 import {
@@ -456,73 +457,42 @@ export class LspClient {
         return;
       }
 
-      // Get LSP server info from extension registry if file path is provided
-      let serverPath: string | undefined;
-      let serverArgs: string[] | undefined;
-      let languageId: string | undefined;
-      let initOptions: Record<string, unknown> | undefined;
-      let tools: BackendLanguageToolConfigSet | undefined;
-
-      if (filePath) {
-        const [{ extensionRegistry }, { getLanguageToolConfigSet }] = await Promise.all([
-          import("@/extensions/registry/extension-registry"),
-          import("@/extensions/registry/extension-store-runtime"),
-        ]);
-        const extension = extensionRegistry.getExtensionForFilePath(filePath);
-
-        serverPath = extensionRegistry.getLspServerPath(filePath) || undefined;
-        serverArgs = extensionRegistry.getLspServerArgs(filePath);
-        languageId = extensionRegistry.getLanguageId(filePath) || undefined;
-        initOptions = extensionRegistry.getLspInitializationOptions(filePath);
-        tools = getLanguageToolConfigSet(extension?.manifest);
-
-        logger.debug("LSPClient", `Using LSP server: ${serverPath} for language: ${languageId}`);
-
-        // Check if this language server is already running for this workspace
-        if (serverPath && languageId) {
-          const serverKey = `${workspacePath}:${languageId}`;
-          if (this.activeLanguageServers.has(serverKey)) {
-            logger.debug("LSPClient", `LSP for ${languageId} already running in workspace`);
-            return;
-          }
-        }
+      const launch = filePath ? await resolveEditorLspLaunch(filePath, workspacePath) : null;
+      if (!launch) {
+        logger.debug("LSPClient", `No LSP server configured for workspace ${workspacePath}`);
+        return;
       }
 
-      // If no LSP server is configured, return early
-      if (!serverPath) {
-        if (languageId) {
-          logger.warn(
-            "LSPClient",
-            `LSP configured for language '${languageId}' but server binary is missing (file: ${filePath})`,
-          );
-        } else {
-          logger.debug("LSPClient", `No LSP server configured for workspace ${workspacePath}`);
-        }
+      logger.debug("LSPClient", `Using LSP server: ${launch.serverPath} for language: ${launch.languageId}`);
+      const serverKey = `${workspacePath}:${launch.languageId}`;
+      if (this.activeLanguageServers.has(serverKey)) {
+        logger.debug("LSPClient", `LSP for ${launch.languageId} already running in workspace`);
         return;
       }
 
       logger.debug("LSPClient", `Invoking lsp_start with:`, {
         workspacePath,
-        serverPath,
-        serverArgs,
+        serverPath: launch.serverPath,
+        serverArgs: launch.serverArgs,
       });
 
       await invoke<void>("lsp_start", {
         workspacePath,
-        serverPath,
-        serverArgs,
-        languageId: languageId || null,
-        tools: tools || null,
-        initializationOptions: initOptions || null,
+        filePath: filePath || null,
+        serverPath: launch.serverPath,
+        serverArgs: launch.serverArgs,
+        languageId: launch.languageId,
+        providerId: launch.providerId,
+        tools: launch.tools || null,
+        initializationOptions: launch.initializationOptions || null,
+        runtimeExecutablePath: launch.runtimeExecutablePath || null,
+        cacheDirectory: launch.cacheDirectory || null,
+        environment: launch.environment || null,
       });
 
-      // Track this language server
-      if (languageId) {
-        const serverKey = `${workspacePath}:${languageId}`;
-        this.activeLanguageServers.add(serverKey);
-        if (filePath) {
-          this.addTrackedFile(serverKey, filePath);
-        }
+      this.activeLanguageServers.add(serverKey);
+      if (filePath) {
+        this.addTrackedFile(serverKey, filePath);
       }
 
       logger.debug("LSPClient", "LSP started successfully for workspace:", workspacePath);
@@ -574,22 +544,28 @@ export class LspClient {
         return false;
       }
 
-      // Get LSP server info from extension registry
-      const [{ extensionRegistry }, { getLanguageToolConfigSet }] = await Promise.all([
-        import("@/extensions/registry/extension-registry"),
-        import("@/extensions/registry/extension-store-runtime"),
-      ]);
-      const extension = extensionRegistry.getExtensionForFilePath(filePath);
+      let launch: Awaited<ReturnType<typeof resolveEditorLspLaunch>> = null;
+      try {
+        launch = await resolveEditorLspLaunch(filePath, workspacePath);
+      } catch (error) {
+        if (!options.repairAttempted && !isBuiltInLspPath(filePath)) {
+          const languageId = languageIdForEditorFile(filePath);
+          if (languageId) {
+            const repaired = await this.repairLanguageServerForFile(filePath, languageId);
+            if (repaired) {
+              return this.startForFile(filePath, workspacePath, {
+                forceRetry: true,
+                repairAttempted: true,
+              });
+            }
+          }
+        }
+        throw error;
+      }
 
-      const serverPath = extensionRegistry.getLspServerPath(filePath) || undefined;
-      const serverArgs = extensionRegistry.getLspServerArgs(filePath);
-      const languageId = extensionRegistry.getLanguageId(filePath) || undefined;
-      const initializationOptions = extensionRegistry.getLspInitializationOptions(filePath);
-      const tools = getLanguageToolConfigSet(extension?.manifest);
-
-      // If no LSP server is configured for this file type, return early
-      if (!serverPath) {
-        if (languageId && !options.repairAttempted) {
+      if (!launch) {
+        const languageId = languageIdForEditorFile(filePath);
+        if (languageId && !options.repairAttempted && !isBuiltInLspPath(filePath)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
           if (repaired) {
             return this.startForFile(filePath, workspacePath, {
@@ -613,22 +589,21 @@ export class LspClient {
         throw new Error(message);
       }
 
-      logger.debug("LSPClient", `Using LSP server: ${serverPath} for language: ${languageId}`);
+      const languageId = launch.languageId;
+      logger.debug("LSPClient", `Using LSP server: ${launch.serverPath} for language: ${languageId}`);
 
-      if (languageId) {
-        const serverKey = `${workspacePath}:${languageId}`;
-        if (options.forceRetry) {
-          this.failedLanguageServers.delete(serverKey);
-        }
-        if (this.failedLanguageServers.has(serverKey)) {
-          logger.debug(
-            "LSPClient",
-            `Skipping LSP restart for ${languageId} in ${workspacePath} after a previous startup failure`,
-          );
-          throw new Error(
-            `${this.getLanguageDisplayName(languageId)} language server previously failed to start.`,
-          );
-        }
+      const serverKey = `${workspacePath}:${languageId}`;
+      if (options.forceRetry) {
+        this.failedLanguageServers.delete(serverKey);
+      }
+      if (this.failedLanguageServers.has(serverKey)) {
+        logger.debug(
+          "LSPClient",
+          `Skipping LSP restart for ${languageId} in ${workspacePath} after a previous startup failure`,
+        );
+        throw new Error(
+          `${this.getLanguageDisplayName(languageId)} language server previously failed to start.`,
+        );
       }
 
       useLspStore.getState().actions.updateLspStatus("connecting");
@@ -636,35 +611,32 @@ export class LspClient {
       logger.debug("LSPClient", `Invoking lsp_start_for_file with:`, {
         filePath,
         workspacePath,
-        serverPath,
-        serverArgs,
+        serverPath: launch.serverPath,
+        serverArgs: launch.serverArgs,
       });
 
       try {
         await invoke<void>("lsp_start_for_file", {
           filePath,
           workspacePath,
-          serverPath,
-          serverArgs,
-          languageId: languageId || null,
-          tools: tools || null,
-          initializationOptions: initializationOptions || null,
+          serverPath: launch.serverPath,
+          serverArgs: launch.serverArgs,
+          languageId,
+          providerId: launch.providerId,
+          tools: launch.tools || null,
+          initializationOptions: launch.initializationOptions || null,
+          runtimeExecutablePath: launch.runtimeExecutablePath || null,
+          cacheDirectory: launch.cacheDirectory || null,
+          environment: launch.environment || null,
         });
-        if (languageId) {
-          const serverKey = `${workspacePath}:${languageId}`;
-          this.failedLanguageServers.delete(serverKey);
-          this.activeLanguageServers.add(serverKey);
-          this.addTrackedFile(serverKey, filePath);
-          const displayName = this.getLanguageDisplayName(languageId);
-          this.activeLanguages.add(displayName);
-          this.updateLspStatus();
-        }
+        this.failedLanguageServers.delete(serverKey);
+        this.activeLanguageServers.add(serverKey);
+        this.addTrackedFile(serverKey, filePath);
+        this.activeLanguages.add(this.getLanguageDisplayName(languageId));
+        this.updateLspStatus();
       } catch (error) {
-        if (languageId) {
-          const serverKey = `${workspacePath}:${languageId}`;
-          this.failedLanguageServers.add(serverKey);
-        }
-        if (languageId && !options.repairAttempted && this.isRepairableStartupError(error)) {
+        this.failedLanguageServers.add(serverKey);
+        if (!options.repairAttempted && this.isRepairableStartupError(error)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
           if (repaired) {
             return this.startForFile(filePath, workspacePath, {
@@ -734,8 +706,7 @@ export class LspClient {
   async stopForFile(filePath: string): Promise<void> {
     try {
       logger.debug("LSPClient", "Stopping LSP for file:", filePath);
-      const { extensionRegistry } = await import("@/extensions/registry/extension-registry");
-      const languageId = extensionRegistry.getLanguageId(filePath) || undefined;
+      const languageId = languageIdForEditorFile(filePath);
       await invoke<void>("lsp_stop_for_file", { filePath });
 
       if (languageId) {
@@ -1273,8 +1244,7 @@ export class LspClient {
   async notifyDocumentOpen(filePath: string, content: string): Promise<void> {
     try {
       logger.debug("LSPClient", `Opening document: ${filePath}`);
-      const { extensionRegistry } = await import("@/extensions/registry/extension-registry");
-      const languageId = extensionRegistry.getLanguageId(filePath) || undefined;
+      const languageId = languageIdForEditorFile(filePath);
       await invoke<void>("lsp_document_open", { filePath, content, languageId });
       this.openDocuments.add(filePath);
       this.documentVersions.set(filePath, 1);

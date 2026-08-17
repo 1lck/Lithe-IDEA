@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { GitDiffIcon } from "@/ui/icons";
 import { Button } from "@/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getCommitFiles } from "../../api/git-commits-api";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit, GitCommitFile } from "../../types/git.types";
@@ -18,6 +19,7 @@ export function GitCommitInspector({
   commit: GitCommit | null;
   onOpenDiff: (commit: GitCommit, filePath?: string) => void;
 }) {
+  const { t } = useTranslation();
   const [files, setFiles] = useState<GitCommitFile[]>([]);
   const [loadState, setLoadState] = useState<FilesLoadState>("idle");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -62,9 +64,11 @@ export function GitCommitInspector({
         <ResizablePanel id="files" defaultSize="62" minSize={90}>
           <div className="flex h-full min-h-0 flex-col">
             <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-surface px-2 text-subtle-foreground">
-              <span>Commit files</span>
+              <span>{t("git.log.commitFiles")}</span>
               <span className="ml-auto tabular-nums">
-                {loadState === "loading" ? "Loading…" : `${files.length} files`}
+                {loadState === "loading"
+                  ? t("git.log.loadingShort")
+                  : t("git.log.filesCount", { count: files.length })}
               </span>
               <Button
                 type="button"
@@ -72,27 +76,27 @@ export function GitCommitInspector({
                 size="icon-xs"
                 disabled={!commit}
                 onClick={() => commit && onOpenDiff(commit)}
-                tooltip="Open commit diff"
-                aria-label="Open commit diff"
+                tooltip={t("git.log.openCommitDiff")}
+                aria-label={t("git.log.openCommitDiff")}
               >
                 <GitDiffIcon />
               </Button>
             </div>
             {!commit ? (
               <div className="flex min-h-0 flex-1 items-center justify-center text-subtle-foreground">
-                Select a commit
+                {t("git.log.selectCommit")}
               </div>
             ) : loadState === "loading" ? (
               <div className="flex min-h-0 flex-1 items-center justify-center text-subtle-foreground">
-                Loading changed files…
+                {t("git.log.loadingChangedFiles")}
               </div>
             ) : loadState === "failed" ? (
               <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-destructive">
-                Unable to load changed files
+                {t("git.log.unableToLoadFiles")}
               </div>
             ) : files.length === 0 ? (
               <div className="flex min-h-0 flex-1 items-center justify-center text-subtle-foreground">
-                No changed files
+                {t("git.log.noChangedFiles")}
               </div>
             ) : (
               <GitCommitFileTree
@@ -129,7 +133,7 @@ export function GitCommitInspector({
               </div>
             ) : (
               <div className="flex h-full items-center justify-center text-subtle-foreground">
-                Commit details
+                {t("git.log.commitDetails")}
               </div>
             )}
           </div>

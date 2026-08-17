@@ -11,6 +11,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useAuthStore } from "@/features/window/stores/auth.store";
 import { hasProductCapability } from "@/features/window/lib/product-capabilities";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
@@ -191,6 +192,7 @@ const GitCommitPanel = ({
   behind = 0,
   onCommitSuccess,
 }: GitCommitPanelProps) => {
+  const { t } = useTranslation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const subscription = useAuthStore((state) => state.subscription);
   const aiAutocompleteModelId = useSettingsStore((state) => state.settings.aiAutocompleteModelId);
@@ -390,13 +392,13 @@ const GitCommitPanel = ({
   const generateModeItems: MenuItem[] = [
     {
       id: "title",
-      label: "Title only",
+      label: t("git.commitMessageTitleOnly"),
       icon: commitMessageMode === "title" ? <Check /> : undefined,
       onClick: () => setCommitMessageMode("title"),
     },
     {
       id: "body",
-      label: "Title + body",
+      label: t("git.commitMessageTitleAndBody"),
       icon: commitMessageMode === "body" ? <Check /> : undefined,
       onClick: () => setCommitMessageMode("body"),
     },
@@ -422,7 +424,7 @@ const GitCommitPanel = ({
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Commit message..."
+          placeholder={t("git.commitMessagePlaceholder")}
           variant="ghost"
           className={cn(
             "max-h-32 min-h-16 w-full resize-none overflow-x-hidden bg-transparent",
@@ -438,8 +440,10 @@ const GitCommitPanel = ({
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
           <span className="px-1 ui-text-sm text-subtle-foreground">
             {stagedFilesCount > 0
-              ? `${stagedFilesCount} file${stagedFilesCount !== 1 ? "s" : ""} staged`
-              : "No files staged"}
+              ? t(stagedFilesCount === 1 ? "git.fileStaged" : "git.filesStaged", {
+                  count: stagedFilesCount,
+                })
+              : t("git.noFilesStaged")}
           </span>
 
           {hasRemoteChanges && (
@@ -485,8 +489,8 @@ const GitCommitPanel = ({
               size="xs"
               onClick={() => void handleGenerateCommitMessage()}
               disabled={isGenerateDisabled}
-              tooltip="Generate commit message with AI"
-              aria-label="Generate commit message with AI"
+              tooltip={t("git.generateCommitMessageWithAI")}
+              aria-label={t("git.generateCommitMessageWithAI")}
             >
               <Sparkles />
             </Button>
@@ -498,8 +502,8 @@ const GitCommitPanel = ({
               onClick={() => setIsGenerateModeMenuOpen((open) => !open)}
               disabled={isGenerating || isCommitting}
               active={isGenerateModeMenuOpen}
-              tooltip="Commit message format"
-              aria-label="Commit message format"
+              tooltip={t("git.commitMessageFormat")}
+              aria-label={t("git.commitMessageFormat")}
               aria-haspopup="menu"
               aria-expanded={isGenerateModeMenuOpen}
             >
@@ -528,7 +532,7 @@ const GitCommitPanel = ({
                 : "text-primary hover:bg-primary/8 hover:text-primary/80",
             )}
           >
-            {isCommitting ? "Committing..." : "Commit"}
+            {isCommitting ? t("git.committing") : t("git.commit")}
           </Button>
         </div>
       </div>

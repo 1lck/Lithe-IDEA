@@ -3,6 +3,7 @@
 mod core;
 mod file_events;
 mod host;
+mod lsp;
 mod platform;
 mod run;
 mod secure_storage;
@@ -48,6 +49,9 @@ fn main() {
             ));
             app.manage(host::FileClipboard::default());
             app.manage(run::RunProcessManager::default());
+            if let Some(window) = app.get_webview_window("main") {
+                host::apply_window_taskbar_icon(&window);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -89,6 +93,7 @@ fn main() {
             host::clipboard_paste,
             host::clipboard_clear,
             host::create_app_window,
+            lsp::lsp_resolve_java_launch,
             run::run_list_java_sources,
             run::run_write_generated,
             run::run_write_document,
