@@ -36,7 +36,8 @@ platform contract and enabled in the UI only when the capability exists.
 2. Route workspace search, Local History, remaining non-Java LSP, Java/Maven,
    and run configurations through the same dispatcher. Built-in Java LSP now
    starts through the Windows host (`jdtls` + JDK discovery) and
-   `lsp.startServer` with `providerId: "java"`.
+   `lsp.startServer` with `providerId: "java"`. Spring configuration, `@Value`,
+   and bean-injection navigation uses `spring.index` before falling back to LSP.
 3. Implement Windows-owned process, debug, update, and secure-storage flows in
    Rust where the current UI exposes them.
 4. Hide or capability-gate future feature surfaces until their shared backend
