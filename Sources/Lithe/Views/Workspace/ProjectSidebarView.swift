@@ -105,17 +105,18 @@ struct ProjectSidebarView: View {
                 get: { model.pendingProjectItemDeletion != nil },
                 set: { if !$0 { model.cancelProjectItemDeletion() } }
             ),
-            titleVisibility: .visible
-        ) {
+            titleVisibility: .visible,
+            presenting: model.pendingProjectItemDeletion
+        ) { request in
             Button("Move to Trash", role: .destructive) {
-                Task { await model.confirmProjectItemDeletion() }
+                Task { await model.confirmProjectItemDeletion(request) }
             }
             .lithePointer()
             Button("Cancel", role: .cancel) {
                 model.cancelProjectItemDeletion()
             }
             .lithePointer()
-        } message: {
+        } message: { _ in
             Text("The item can be recovered from the macOS Trash.")
         }
     }
