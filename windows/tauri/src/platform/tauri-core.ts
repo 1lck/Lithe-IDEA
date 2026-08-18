@@ -48,6 +48,7 @@ const nativeCommands = new Set([
   "run_stop_process",
   "run_write_document",
   "run_write_generated",
+  "run_write_stdin",
   "set_native_window_appearance",
   "set_project_root",
   "start_watching",
@@ -111,7 +112,8 @@ function capabilityForCommand(command: string): BackendCapability | null {
     command === "run_start_process" ||
     command === "run_stop_process" ||
     command === "run_write_document" ||
-    command === "run_write_generated"
+    command === "run_write_generated" ||
+    command === "run_write_stdin"
   ) {
     return "run";
   }

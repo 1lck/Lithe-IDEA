@@ -6,6 +6,7 @@ import {
   generateRunConfiguration,
   inspectRunConfiguration,
   resolveRunConfiguration,
+  updateGlobalToolchain,
   updateRunOptions,
 } from "../api/run-core-api";
 import {
@@ -16,11 +17,16 @@ import {
   stopRunProcess,
   writeGeneratedRunDocuments,
   writeRunDocument,
+  writeRunStdin,
 } from "../api/run-host-api";
 import {
   CURRENT_FILE_ID,
+  EMPTY_GLOBAL_TOOLCHAIN,
   EMPTY_RUN_OPTIONS,
   PRIMARY_SESSION_ID,
+  type GlobalToolchain,
+  type JavaRuntime,
+  type MavenRuntime,
   type RunConfiguration,
   type RunConfigurationStatus,
   type RunDiagnostic,
@@ -33,6 +39,7 @@ import {
   defaultGeneratedConfigurationId,
   isBlockingToolchainDiagnostic,
   mapCoreConfiguration,
+  mapCoreToolchain,
   mapDiagnostics,
   mergeLaunchEnvironment,
   recoveryActionForError,
@@ -62,6 +69,9 @@ interface RunState {
   selectedSessionId: string | null;
   saveError: string | null;
   generationNotice: string | null;
+  discoveredJava: JavaRuntime[];
+  discoveredMaven: MavenRuntime[];
+  globalToolchain: GlobalToolchain;
   actions: {
     loadProject: (root: string) => Promise<void>;
     generate: (root: string) => Promise<void>;
@@ -75,6 +85,8 @@ interface RunState {
       options: RunOptions,
       scope: RunSaveScope,
     ) => Promise<boolean>;
+    saveToolchain: (toolchain: GlobalToolchain) => Promise<boolean>;
+    writeStdin: (sessionId: string, input: string) => Promise<void>;
     appendOutput: (sessionId: string, chunk: string) => void;
     finishProcess: (sessionId: string, exitCode: number) => void;
   };
@@ -101,6 +113,9 @@ async function resolveConfigurations(root: string): Promise<{
   configurations: RunConfiguration[];
   diagnostics: RunDiagnostic[];
   defaultConfigurationId: string | null;
+  discoveredJava: JavaRuntime[];
+  discoveredMaven: MavenRuntime[];
+  globalToolchain: GlobalToolchain;
 }> {
   const discovered = await discoverRunToolchains(root);
   const toolchainCandidates = [
@@ -122,6 +137,9 @@ async function resolveConfigurations(root: string): Promise<{
     configurations: (resolved.configurations ?? []).map(mapCoreConfiguration),
     diagnostics: mapDiagnostics(resolved.diagnostics),
     defaultConfigurationId: resolved.defaultRunConfiguration ?? null,
+    discoveredJava: discovered.java,
+    discoveredMaven: discovered.maven,
+    globalToolchain: mapCoreToolchain(resolved.toolchain),
   };
 }
 
@@ -144,6 +162,9 @@ export const createRunStore = () =>
     selectedSessionId: null,
     saveError: null,
     generationNotice: null,
+    discoveredJava: [],
+    discoveredMaven: [],
+    globalToolchain: EMPTY_GLOBAL_TOOLCHAIN,
     actions: {
       loadProject: async (root) => {
         set({
@@ -181,6 +202,9 @@ export const createRunStore = () =>
             configurations: resolved.configurations,
             selectedConfigurationId,
             defaultConfigurationId: resolved.defaultConfigurationId,
+            discoveredJava: resolved.discoveredJava,
+            discoveredMaven: resolved.discoveredMaven,
+            globalToolchain: resolved.globalToolchain,
             isLoading: false,
           });
         } catch (error) {
@@ -226,6 +250,9 @@ export const createRunStore = () =>
               resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)?.id ??
               null,
             defaultConfigurationId: resolved.defaultConfigurationId,
+            discoveredJava: resolved.discoveredJava,
+            discoveredMaven: resolved.discoveredMaven,
+            globalToolchain: resolved.globalToolchain,
             generationNotice: notice,
             isGenerating: false,
             isLoading: false,
@@ -380,6 +407,27 @@ export const createRunStore = () =>
           });
           return false;
         }
+      },
+
+      saveToolchain: async (toolchain) => {
+        const root = get().root;
+        if (!root) return false;
+        try {
+          const mutation = await updateGlobalToolchain(root, toolchain);
+          await writeRunDocument(root, "run/local.json", mutation.document);
+          await get().actions.loadProject(root);
+          set({ saveError: null });
+          return true;
+        } catch (error) {
+          set({
+            saveError: error instanceof Error ? error.message : "Could not save the toolchain.",
+          });
+          return false;
+        }
+      },
+
+      writeStdin: async (sessionId, input) => {
+        await writeRunStdin(sessionId, input).catch(() => undefined);
       },
 
       appendOutput: (sessionId, chunk) => {

@@ -1,6 +1,8 @@
 import {
   CURRENT_FILE_ID,
+  type CoreGlobalToolchain,
   type CoreResolvedConfiguration,
+  type GlobalToolchain,
   type RunConfiguration,
   type RunDiagnostic,
   type RunExecution,
@@ -26,6 +28,7 @@ export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfi
     provider: value.provider,
     kindTitle: configurationTitle(value.provider),
     execution: normalizeExecution(value.execution, value.provider),
+    toolchains: value.toolchains ?? {},
     modulePath: maven?.module && maven.module !== "." ? maven.module : undefined,
     mainClass: maven?.mainClass,
     cwd: value.cwd && value.cwd !== "." ? value.cwd : "",
@@ -55,6 +58,14 @@ export function normalizeExecution(execution: string | undefined, provider: stri
   if (provider.endsWith(".maven") && provider !== "maven.module") return "service";
   if (provider === "maven.module") return "task";
   return "application";
+}
+
+export function mapCoreToolchain(toolchain: CoreGlobalToolchain | null | undefined): GlobalToolchain {
+  return {
+    javaHomePath: toolchain?.java?.homePath ?? "",
+    mavenExecutablePath: toolchain?.maven?.executablePath ?? "",
+    mavenJavaHomePath: toolchain?.maven?.javaHomePath ?? "",
+  };
 }
 
 export function runnableConfigurations(configurations: RunConfiguration[]): RunConfiguration[] {
@@ -110,10 +121,30 @@ export function defaultGeneratedConfigurationId(generated: unknown): string | un
 export function workspaceRelativePath(root: string, filePath: string): string | undefined {
   const normalizedRoot = root.replace(/[\\/]+$/, "").replace(/\\/g, "/");
   const normalizedFile = filePath.replace(/\\/g, "/");
+  if (normalizedFile.toLowerCase() === normalizedRoot.toLowerCase()) {
+    return ".";
+  }
   if (!normalizedFile.toLowerCase().startsWith(normalizedRoot.toLowerCase() + "/")) {
     return undefined;
   }
   return normalizedFile.slice(normalizedRoot.length + 1);
+}
+
+export function projectScopedPath(root: string, value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const relative = workspaceRelativePath(root, trimmed);
+  if (relative !== undefined) return relative;
+  if (isAbsolutePath(trimmed)) return "";
+  return trimmed.replace(/\\/g, "/");
+}
+
+function isAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("/") || value.startsWith("\\\\");
+}
+
+export function configurationUsesMaven(configuration: { toolchains?: Record<string, string> }): boolean {
+  return Boolean(configuration.toolchains?.maven);
 }
 
 export function environmentText(environment: Record<string, string>): string {

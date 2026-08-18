@@ -8,12 +8,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const SKIPPED_DIRECTORIES: &[&str] = &[
@@ -41,6 +41,7 @@ pub struct RunProcessManager;
 
 struct RunningSession {
     pid: u32,
+    stdin: Option<ChildStdin>,
 }
 
 impl Default for RunProcessManager {
@@ -225,7 +226,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
     command
         .current_dir(&args.working_directory)
         .envs(&args.environment)
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_creation_flags(&mut command);
@@ -233,12 +234,16 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         .spawn()
         .map_err(|error| format!("Unable to start process: {error}"))?;
     let pid = child.id();
+    let stdin = child.stdin.take();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     sessions()
         .lock()
         .map_err(|_| "Run process state is unavailable".to_string())?
-        .insert(args.session_id.clone(), RunningSession { pid });
+        .insert(
+            args.session_id.clone(),
+            RunningSession { pid, stdin },
+        );
 
     let stdout_reader = spawn_output_reader(app.clone(), args.session_id.clone(), stdout);
     let stderr_reader = spawn_output_reader(app.clone(), args.session_id.clone(), stderr);
@@ -250,6 +255,31 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
 pub fn run_stop_process(session_id: String) -> Result<(), String> {
     stop_session(&session_id);
     Ok(())
+}
+
+#[tauri::command]
+pub fn run_write_stdin(session_id: String, input: String) -> Result<(), String> {
+    let mut current = sessions()
+        .lock()
+        .map_err(|_| "Run process state is unavailable".to_string())?;
+    if let Some(session) = current.get_mut(&session_id) {
+        if let Some(stdin) = session.stdin.as_mut() {
+            let _ = stdin.write_all(input.as_bytes());
+        }
+    }
+    Ok(())
+}
+
+/// Removes the abandoned `run/` app-data directory written by an earlier
+/// implementation. Other app-data content (window state, settings) is kept.
+pub fn cleanup_legacy_appdata(app: &AppHandle) {
+    let Ok(app_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let run_dir = app_dir.join("run");
+    if run_dir.is_dir() {
+        let _ = fs::remove_dir_all(&run_dir);
+    }
 }
 
 fn write_generated_documents(

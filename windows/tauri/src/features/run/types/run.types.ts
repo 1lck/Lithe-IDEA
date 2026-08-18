@@ -33,6 +33,7 @@ export interface RunConfiguration {
   javaHomePath: string;
   mavenExecutablePath: string;
   mavenJavaHomePath: string;
+  toolchains: Record<string, string>;
   source: RunConfigurationSource;
   disabled: boolean;
 }
@@ -93,6 +94,18 @@ export interface CoreResolveResult {
   configurations: CoreResolvedConfiguration[];
   diagnostics?: Array<Record<string, string>>;
   defaultRunConfiguration?: string | null;
+  toolchain?: CoreGlobalToolchain | null;
+}
+
+export interface CoreGlobalToolchain {
+  java?: { homePath?: string };
+  maven?: { executablePath?: string; javaHomePath?: string };
+}
+
+export interface GlobalToolchain {
+  javaHomePath: string;
+  mavenExecutablePath: string;
+  mavenJavaHomePath: string;
 }
 
 export interface CoreResolvedConfiguration {
@@ -103,6 +116,7 @@ export interface CoreResolvedConfiguration {
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
+  toolchains?: Record<string, string>;
   source?: string;
   disabled?: boolean;
   extensions?: {
@@ -132,4 +146,10 @@ export const EMPTY_RUN_OPTIONS: RunOptions = {
   vmArguments: "",
   programArguments: "",
   environment: {},
+};
+
+export const EMPTY_GLOBAL_TOOLCHAIN: GlobalToolchain = {
+  javaHomePath: "",
+  mavenExecutablePath: "",
+  mavenJavaHomePath: "",
 };

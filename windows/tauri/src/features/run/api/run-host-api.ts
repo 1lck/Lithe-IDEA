@@ -20,6 +20,10 @@ export function writeRunDocument(root: string, relativePath: string, contents: s
   });
 }
 
+export function writeRunStdin(sessionId: string, input: string) {
+  return invoke<void>("run_write_stdin", { sessionId, input });
+}
+
 export function discoverRunToolchains(root: string) {
   return invoke<{ java: JavaRuntime[]; maven: MavenRuntime[] }>("run_discover_toolchains", { root });
 }
