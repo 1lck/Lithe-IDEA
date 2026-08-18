@@ -33,6 +33,7 @@ final class AppSettings: ObservableObject {
     }
 
     private let defaults: any KeyValueStore
+    private let logDirectoryProvider: any LogDirectoryProviding
 
     @Published var colorTheme: AppColorTheme {
         didSet {
@@ -81,9 +82,14 @@ final class AppSettings: ObservableObject {
     @Published private(set) var customLogDirectory: URL?
 
     private var fileVisibilityRulesObservers: [UUID: () -> Void] = [:]
+    private var logDirectoryObservers: [UUID: (URL) -> Void] = [:]
 
-    init(store: any KeyValueStore) {
+    init(
+        store: any KeyValueStore,
+        logDirectoryProvider: any LogDirectoryProviding
+    ) {
         self.defaults = store
+        self.logDirectoryProvider = logDirectoryProvider
         colorTheme = AppColorTheme(
             rawValue: defaults.string(forKey: Key.colorTheme) ?? ""
         ) ?? .lithe
@@ -128,8 +134,7 @@ final class AppSettings: ObservableObject {
     var terminalShellPath: String? { terminalShell.path }
 
     var defaultLogDirectory: URL {
-        FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Logs/Lithe", isDirectory: true)
+        logDirectoryProvider.defaultLogDirectory
     }
 
     var logDirectory: URL { customLogDirectory ?? defaultLogDirectory }
@@ -137,6 +142,16 @@ final class AppSettings: ObservableObject {
     func setCustomLogDirectory(_ url: URL?) {
         customLogDirectory = url?.standardizedFileURL
         defaults.set(customLogDirectory?.path, forKey: Key.customLogDirectory)
+        for observer in logDirectoryObservers.values {
+            observer(logDirectory)
+        }
+    }
+
+    @discardableResult
+    func addLogDirectoryObserver(_ observer: @escaping (URL) -> Void) -> UUID {
+        let id = UUID()
+        logDirectoryObservers[id] = observer
+        return id
     }
 
     var fileVisibilityRules: FileVisibilityRules {

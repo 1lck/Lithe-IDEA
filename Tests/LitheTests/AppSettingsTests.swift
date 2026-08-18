@@ -49,6 +49,22 @@ struct AppSettingsTests {
         #expect(restored.customLogDirectory == nil)
         #expect(AppSettings(store: store).logDirectory == restored.defaultLogDirectory)
     }
+
+    @Test
+    func logDirectoryObserversReceiveCustomAndRestoredDirectories() {
+        let settings = AppSettings(store: AppSettingsTestStore())
+        let customDirectory = URL(fileURLWithPath: "/tmp/lithe-observed-logs", isDirectory: true)
+        var observedDirectories: [URL] = []
+        settings.addLogDirectoryObserver { observedDirectories.append($0) }
+
+        settings.setCustomLogDirectory(customDirectory)
+        settings.setCustomLogDirectory(nil)
+
+        #expect(observedDirectories == [
+            customDirectory.standardizedFileURL,
+            settings.defaultLogDirectory
+        ])
+    }
 }
 
 private final class AppSettingsTestStore: KeyValueStore, @unchecked Sendable {
