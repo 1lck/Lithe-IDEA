@@ -11,24 +11,25 @@ struct MacApplicationLogWriterTests {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let originalTarget = root.appendingPathComponent("original-target")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        #expect(FileManager.default.createFile(atPath: originalTarget.path, contents: nil))
-        let targetHandle = try FileHandle(forWritingTo: originalTarget)
+        let targetDescriptor: Int32 = originalTarget.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
+            return open(path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR)
+        }
+        #expect(targetDescriptor >= 0)
         defer {
-            try? targetHandle.close()
+            close(targetDescriptor)
             try? FileManager.default.removeItem(at: root)
         }
 
-        let writer = MacApplicationLogWriter(targetFileDescriptor: targetHandle.fileDescriptor)
+        let writer = MacApplicationLogWriter(targetFileDescriptor: targetDescriptor)
         let defaultDirectory = root.appendingPathComponent("default", isDirectory: true)
         let selectedDirectory = root.appendingPathComponent("selected", isDirectory: true)
 
         try writer.redirect(to: defaultDirectory)
-        try targetHandle.write(contentsOf: Data("default log line\n".utf8))
-        try targetHandle.synchronize()
+        try write("default log line\n", to: targetDescriptor)
 
         try writer.redirect(to: selectedDirectory)
-        try targetHandle.write(contentsOf: Data("selected log line\n".utf8))
-        try targetHandle.synchronize()
+        try write("selected log line\n", to: targetDescriptor)
 
         let defaultContents = try String(
             contentsOf: defaultDirectory.appendingPathComponent("lithe.log"),
@@ -47,5 +48,15 @@ struct MacApplicationLogWriterTests {
         let directory = MacLogDirectoryProvider().defaultLogDirectory
 
         #expect(directory.path.hasSuffix("/Library/Logs/Lithe"))
+    }
+
+    private func write(_ value: String, to descriptor: Int32) throws {
+        let data = Data(value.utf8)
+        let written = data.withUnsafeBytes { bytes in
+            Darwin.write(descriptor, bytes.baseAddress, bytes.count)
+        }
+        guard written == data.count, fsync(descriptor) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
     }
 }
