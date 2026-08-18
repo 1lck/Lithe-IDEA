@@ -49,6 +49,7 @@ fn main() {
             ));
             app.manage(host::FileClipboard::default());
             app.manage(run::RunProcessManager::default());
+            run::cleanup_legacy_appdata(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
             }
@@ -98,6 +99,7 @@ fn main() {
             run::run_list_java_sources,
             run::run_write_generated,
             run::run_write_document,
+            run::run_write_stdin,
             run::run_discover_toolchains,
             run::run_resolve_launch,
             run::run_start_process,

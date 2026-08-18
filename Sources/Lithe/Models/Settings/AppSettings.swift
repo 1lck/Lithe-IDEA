@@ -95,7 +95,7 @@ final class AppSettings: ObservableObject {
             rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
         ) ?? .singleLine
         showCodeVision = defaults.object(forKey: Key.showCodeVision) as? Bool ?? true
-        autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? false
+        autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? true
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
         terminalShell = TerminalShell(rawValue: defaults.string(forKey: Key.terminalShell) ?? "") ?? .system
         hiddenDirectoryNames = defaults.stringArray(forKey: Key.hiddenDirectories)
@@ -153,7 +153,7 @@ final class AppSettings: ObservableObject {
         tabWidth = 4
         editorTabLayoutMode = .singleLine
         showCodeVision = true
-        autoSave = false
+        autoSave = true
         autoSaveDelay = 1.5
         terminalShell = .system
         hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames

@@ -3,10 +3,12 @@ import type {
   CoreGenerateResult,
   CoreInspectResult,
   CoreResolveResult,
+  GlobalToolchain,
   LaunchPlan,
   RunOptions,
   RunSaveScope,
 } from "../types/run.types";
+import { projectScopedPath } from "../utils/run-configuration";
 
 let requestSequence = 0;
 
@@ -70,17 +72,32 @@ export function updateRunOptions(
   scope: RunSaveScope,
   options: RunOptions,
 ) {
+  const workingDirectory = scope === "project"
+    ? projectScopedPath(root, options.workingDirectoryPath)
+    : options.workingDirectoryPath;
+  if (workingDirectory === undefined) {
+    throw new Error("Project working directory must stay inside the workspace.");
+  }
   return runCore<{ document: string }>("runConfig.updateOptions", {
     root,
     scope,
     configurationId,
-    workingDirectory: options.workingDirectoryPath,
+    workingDirectory,
     jvmArguments: options.vmArguments,
     arguments: options.programArguments,
     environment: options.environment,
     mavenProfiles: [],
-    javaHomePath: scope === "local" ? options.javaHomePath : "",
-    mavenExecutablePath: scope === "local" ? options.mavenExecutablePath : "",
-    mavenJavaHomePath: scope === "local" ? options.mavenJavaHomePath : "",
+    javaHomePath: "",
+    mavenExecutablePath: "",
+    mavenJavaHomePath: "",
+  });
+}
+
+export function updateGlobalToolchain(root: string, toolchain: GlobalToolchain) {
+  return runCore<{ document: string }>("runConfig.updateOptions", {
+    root,
+    scope: "local",
+    configurationId: "toolchain",
+    toolchain,
   });
 }
