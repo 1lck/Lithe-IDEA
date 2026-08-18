@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -8,6 +8,7 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/ui/context-menu";
+import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import {
   CopyIcon as Copy,
   EyeIcon as Eye,
@@ -72,6 +73,12 @@ export function GitCommitTable({
     estimateSize: () => ROW_HEIGHT,
     overscan: 14,
   });
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    return bindScrollContainerWheel(element);
+  }, []);
 
   useEffect(() => {
     if (!selectedCommit) return;
@@ -183,7 +190,11 @@ export function GitCommitTable({
         <span className="w-32 shrink-0 text-right">{t("git.log.date")}</span>
       </div>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+      <div
+        ref={scrollRef}
+        data-scroll-container=""
+        className="min-h-0 flex-1 overflow-auto [overflow-anchor:none]"
+      >
         {visibleRows.length === 0 ? (
           <div className="flex h-full items-center justify-center text-subtle-foreground">
             {query ? t("git.log.noMatch") : t("git.log.noCommits")}
@@ -216,10 +227,10 @@ export function GitCommitTable({
                       title={t("git.log.openDiffHint")}
                     >
                       <GitGraphRow row={row} showDecorations={showDecorations} />
-                      <span className="w-28 shrink-0 truncate px-2 text-subtle-foreground">
+                      <span className="w-28 shrink-0 overflow-clip px-2 text-ellipsis whitespace-nowrap text-subtle-foreground">
                         {row.commit.author}
                       </span>
-                      <span className="w-32 shrink-0 truncate text-right font-mono text-[11px] text-subtle-foreground">
+                      <span className="w-32 shrink-0 overflow-clip text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-subtle-foreground">
                         {row.commit.date}
                       </span>
                     </ContextMenuTrigger>
