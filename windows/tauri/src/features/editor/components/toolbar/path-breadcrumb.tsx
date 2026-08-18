@@ -8,6 +8,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/ui/breadcrumb";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 
 interface PathBreadcrumbProps {
@@ -27,11 +28,12 @@ export function PathBreadcrumb({
   lastSegmentLeading,
   className,
 }: PathBreadcrumbProps) {
+  const { t } = useTranslation();
   if (segments.length === 0) return null;
 
   return (
     <Breadcrumb
-      aria-label="File path"
+      aria-label={t("footer.filePath")}
       className={cn("min-w-0 overflow-x-auto scrollbar-none", className)}
     >
       <BreadcrumbList className="flex-nowrap gap-0">

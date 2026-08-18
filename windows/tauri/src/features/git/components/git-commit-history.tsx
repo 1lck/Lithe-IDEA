@@ -291,13 +291,13 @@ const GitCommitHistory = ({
           {ahead > 0 ? (
             <div className="ui-text-sm text-subtle-foreground">
               <span className="text-primary">{ahead}</span>{" "}
-              {`local commit${ahead !== 1 ? "s" : ""} not pushed`}
+              {t("git.localCommitsNotPushed", { count: ahead, plural: ahead !== 1 ? "s" : "" })}
             </div>
           ) : null}
           {behind > 0 ? (
             <div className="ui-text-sm text-subtle-foreground">
               <span className="text-primary">{behind}</span>{" "}
-              {`remote commit${behind !== 1 ? "s" : ""} not pulled`}
+              {t("git.remoteCommitsNotPulled", { count: behind, plural: behind !== 1 ? "s" : "" })}
             </div>
           ) : null}
         </div>

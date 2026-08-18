@@ -36,6 +36,7 @@ import {
   type SidebarDragResource,
 } from "@/features/sidebar/utils/sidebar-resource-drag";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   Attachment,
   AttachmentAction,
@@ -83,6 +84,7 @@ const AIChatInputBar = memo(function AIChatInputBar({
   onSendMessage,
   onStopStreaming,
 }: AIChatInputBarProps) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLDivElement>(null);
   const contextDropdownRef = useRef<HTMLDivElement>(null);
   const aiChatContainerRef = useRef<HTMLDivElement>(null);
@@ -1024,7 +1026,7 @@ const AIChatInputBar = memo(function AIChatInputBar({
           )}
           role="textbox"
           aria-multiline={!isInitialPresentation}
-          aria-label="Message input"
+          aria-label={t("ai.messageInput")}
           tabIndex={isInputEnabled ? 0 : -1}
         />
 
@@ -1082,8 +1084,8 @@ const AIChatInputBar = memo(function AIChatInputBar({
                 variant="ghost"
                 size="icon-sm"
                 active={slashCommandState.active}
-                tooltip="Show slash commands"
-                aria-label="Show slash commands"
+                tooltip={t("ai.showSlashCommands")}
+                aria-label={t("ai.showSlashCommands")}
               >
                 <CommandIcon size={12} />
               </Button>
@@ -1121,14 +1123,14 @@ const AIChatInputBar = memo(function AIChatInputBar({
               )}
               tooltip={
                 isMacDevSpeechRecognitionBlocked
-                  ? "Voice input is disabled in macOS dev mode"
+                  ? t("ai.voiceDisabledMacDevShort")
                   : !isSpeechRecognitionSupported
-                    ? "Voice input is not supported"
+                    ? t("ai.voiceNotSupported")
                     : isListening
-                      ? interimTranscript || "Stop voice input"
-                      : "Start voice input"
+                      ? interimTranscript || t("ai.stopVoiceInput")
+                      : t("ai.startVoiceInput")
               }
-              aria-label={isListening ? "Stop voice input" : "Start voice input"}
+              aria-label={isListening ? t("ai.stopVoiceInput") : t("ai.startVoiceInput")}
               size="sm"
             >
               <Mic size={12} className={cn(isListening && "animate-pulse")} />
@@ -1149,10 +1151,14 @@ const AIChatInputBar = memo(function AIChatInputBar({
                       : "bg-accent/70 text-subtle-foreground hover:bg-accent hover:text-foreground",
               )}
               tooltip={
-                isStreaming ? "Stop generation" : queueCount > 0 ? "Add to queue" : "Send message"
+                isStreaming
+                  ? t("ai.stopGeneration")
+                  : queueCount > 0
+                    ? t("ai.addToQueue")
+                    : t("ai.sendMessage")
               }
               shortcut={isStreaming ? "escape" : "enter"}
-              aria-label={isStreaming ? "Stop generation" : "Send message"}
+              aria-label={isStreaming ? t("ai.stopGeneration") : t("ai.sendMessage")}
               size="icon-sm"
             >
               {isStreaming ? <Stop /> : <ArrowUp />}
@@ -1164,7 +1170,7 @@ const AIChatInputBar = memo(function AIChatInputBar({
           <AttachmentGroup
             className={cn("px-2 pb-2", isInitialPresentation && "px-3 pb-3")}
             role="list"
-            aria-label="Selected context"
+            aria-label={t("ai.selectedContext")}
           >
             {selectedContextItems.map((item) => (
               <Attachment
@@ -1173,7 +1179,7 @@ const AIChatInputBar = memo(function AIChatInputBar({
                 data-context-chip
                 role="listitem"
                 tabIndex={0}
-                aria-label={`${item.name}. Press Delete to remove from context.`}
+                aria-label={t("ai.removeContextItemHint", { name: item.name })}
                 title={item.type === "file" ? item.path : item.name}
                 onKeyDown={(event) => {
                   if (event.key === "ArrowLeft" || event.key === "ArrowRight") {

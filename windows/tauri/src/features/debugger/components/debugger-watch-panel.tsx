@@ -9,6 +9,7 @@ import { useDebuggerStore } from "../stores/debugger.store";
 import type { DebugRequestContext } from "../types/debugger.types";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
+import { useTranslation } from "@/i18n/locale-provider";
 import { DebugEmptyState } from "./debugger-panels";
 
 interface DebugWatchPanelProps {
@@ -28,6 +29,7 @@ export function DebugWatchPanel({
   const watchResults = useDebuggerStore.use.watchResults();
   const debuggerActions = useDebuggerStore.use.actions();
   const [newExpression, setNewExpression] = useState("");
+  const { t } = useTranslation();
 
   const pendingExpressionIds = useMemo(
     () =>
@@ -95,12 +97,12 @@ export function DebugWatchPanel({
               addExpression();
             }
           }}
-          placeholder="Add expression"
+          placeholder={t("debugger.addExpression")}
           size="xs"
         />
         <Button
           variant="default"
-          tooltip="Add watch"
+          tooltip={t("debugger.addWatch")}
           disabled={!newExpression.trim()}
           onClick={addExpression}
           size="icon-xs"
@@ -109,7 +111,7 @@ export function DebugWatchPanel({
         </Button>
         <Button
           variant="ghost"
-          tooltip="Refresh watches"
+          tooltip={t("debugger.refreshWatches")}
           disabled={!activeSessionId || !isPaused || watchExpressions.length === 0}
           onClick={evaluateAll}
           size="icon-xs"
@@ -119,7 +121,7 @@ export function DebugWatchPanel({
       </div>
 
       {watchExpressions.length === 0 ? (
-        <DebugEmptyState>Add expressions to inspect while paused.</DebugEmptyState>
+        <DebugEmptyState>{t("debugger.watchEmpty")}</DebugEmptyState>
       ) : (
         <div className="space-y-1">
           {watchExpressions.map((watchExpression) => {
@@ -144,7 +146,7 @@ export function DebugWatchPanel({
                   <Button
                     variant="ghost"
                     className="opacity-0 group-hover:opacity-100"
-                    tooltip="Remove watch"
+                    tooltip={t("debugger.removeWatch")}
                     onClick={() => debuggerActions.removeWatchExpression(watchExpression.id)}
                     size="icon"
                   >
@@ -153,10 +155,10 @@ export function DebugWatchPanel({
                 </div>
                 <div className="mt-1 truncate font-mono ui-text-sm text-subtle-foreground">
                   {isPending
-                    ? "Evaluating..."
+                    ? t("debugger.evaluating")
                     : result?.error
                       ? result.error
-                      : result?.value || "Not evaluated"}
+                      : result?.value || t("debugger.notEvaluated")}
                   {result?.type && !result.error ? (
                     <span className="ml-1 text-subtle-foreground/70">({result.type})</span>
                   ) : null}

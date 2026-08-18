@@ -21,6 +21,7 @@ import { useDesktopSignIn } from "@/features/window/hooks/use-desktop-sign-in";
 import { useGenerateStore } from "@/features/generate/stores/generate.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useToast } from "@/features/layout/contexts/toast-context";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getServiceUrls } from "@/config/services";
 import { Alert, AlertDescription, AlertTitle } from "@/ui/alert";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/ui/card";
@@ -144,11 +145,13 @@ const INTENT_OPTIONS: Record<UIExtensionContributionType, IntentOption[]> = {
 };
 
 const GENERATING_MESSAGES = [
-  "Reading your selections",
-  "Designing the extension surface",
-  "Preparing an installable extension",
-  "Building the preview",
+  "generate.readingSelections",
+  "generate.designingSurface",
+  "generate.preparingInstallable",
+  "generate.buildingPreview",
 ];
+
+type Translator = (key: string, values?: Record<string, string | number>) => string;
 
 function getOption(id: UIExtensionContributionType | null) {
   return CONTRIBUTION_OPTIONS.find((option) => option.id === id) ?? CONTRIBUTION_OPTIONS[0];
@@ -166,18 +169,46 @@ function getPreviewHighlights(
   result: UIExtensionGenerationResult,
   selectedOption: ContributionOption,
   selectedIntent: IntentOption | null,
+  t: Translator,
 ) {
   const previewHighlights = result.preview?.highlights?.filter(Boolean) ?? [];
   if (previewHighlights.length > 0) return previewHighlights.slice(0, 3);
 
   return [
-    `${selectedOption.label} contribution`,
-    selectedIntent?.description ?? selectedOption.description,
+    t("generate.contribution", { label: getContributionLabel(selectedOption, t) }),
+    selectedIntent
+      ? getIntentDescription(selectedIntent, t)
+      : getContributionDescription(selectedOption, t),
     result.description,
   ].filter(Boolean);
 }
 
+function getContributionLabel(option: ContributionOption, t: Translator) {
+  return t(`generate.${option.id}.label`);
+}
+
+function getContributionDescription(option: ContributionOption, t: Translator) {
+  return t(`generate.${option.id}.description`);
+}
+
+function getContributionPrompt(option: ContributionOption, t: Translator) {
+  return t(`generate.${option.id}.prompt`);
+}
+
+function getIntentLabel(option: IntentOption, t: Translator) {
+  return t(`generate.intent.${option.id}.label`);
+}
+
+function getIntentDescription(option: IntentOption, t: Translator) {
+  return t(`generate.intent.${option.id}.description`);
+}
+
+function getIntentPrompt(option: IntentOption, t: Translator) {
+  return t(`generate.intent.${option.id}.prompt`);
+}
+
 export function ExtensionGenerationCommand() {
+  const { t } = useTranslation();
   const isVisible = useGenerateStore.use.isExtensionGenerationVisible();
   const { closeExtensionGeneration } = useGenerateStore.use.actions();
   const setActiveView = useUIState((state) => state.setActiveView);
@@ -204,16 +235,19 @@ export function ExtensionGenerationCommand() {
   const filteredTypeOptions = useMemo(
     () =>
       CONTRIBUTION_OPTIONS.filter((option) =>
-        matchesSearchQuery(query, [option.label, option.description]),
+        matchesSearchQuery(query, [
+          getContributionLabel(option, t),
+          getContributionDescription(option, t),
+        ]),
       ),
-    [query],
+    [query, t],
   );
   const filteredIntentOptions = useMemo(
     () =>
       intentOptions.filter((option) =>
-        matchesSearchQuery(query, [option.label, option.description]),
+        matchesSearchQuery(query, [getIntentLabel(option, t), getIntentDescription(option, t)]),
       ),
-    [intentOptions, query],
+    [intentOptions, query, t],
   );
   const visibleOptionCount =
     step === "type"
@@ -330,7 +364,7 @@ export function ExtensionGenerationCommand() {
     } catch (generationError) {
       if (generationRunRef.current !== runId || !isVisibleRef.current) return;
 
-      setError(generationError instanceof Error ? generationError.message : "Generation failed.");
+      setError(generationError instanceof Error ? generationError.message : t("generate.failedMessage"));
     }
 
     if (generationRunRef.current !== runId || !isVisibleRef.current) return;
@@ -355,9 +389,9 @@ export function ExtensionGenerationCommand() {
         setIsSidebarVisible(true);
       }
       setStep("installed");
-      showToast({ message: "Extension installed", type: "success" });
+      showToast({ message: t("generate.installedToast"), type: "success" });
     } catch (installError) {
-      setError(installError instanceof Error ? installError.message : "Install failed.");
+      setError(installError instanceof Error ? installError.message : t("generate.installFailed"));
     } finally {
       setIsInstalling(false);
     }
@@ -410,8 +444,12 @@ export function ExtensionGenerationCommand() {
       onClick={onSelect}
       onMouseEnter={() => setSelectedIndex(index)}
       icon={Icon ? <Icon className="size-4 text-subtle-foreground" /> : undefined}
-      title={option.label}
-      description={option.description}
+      title={
+        "icon" in option ? getContributionLabel(option, t) : getIntentLabel(option, t)
+      }
+      description={
+        "icon" in option ? getContributionDescription(option, t) : getIntentDescription(option, t)
+      }
     />
   );
 
@@ -419,7 +457,7 @@ export function ExtensionGenerationCommand() {
     <Command
       isVisible={isVisible}
       onClose={close}
-      title="Generate extension"
+      title={t("generate.extension")}
       className="w-140 max-w-[calc(100vw-2rem)]"
     >
       {locked ? (
@@ -428,9 +466,9 @@ export function ExtensionGenerationCommand() {
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <Sparkles className="size-4 shrink-0 text-primary" />
               <div className="min-w-0 truncate font-sans ui-text-base text-foreground">
-                Generate Extension
+                {t("generate.extensionTitle")}
               </div>
-              <CommandHeaderBadge>Hosted</CommandHeaderBadge>
+              <CommandHeaderBadge>{t("generate.hosted")}</CommandHeaderBadge>
             </div>
           </CommandHeader>
           <CommandList>
@@ -438,30 +476,30 @@ export function ExtensionGenerationCommand() {
               <Card size="sm">
                 <CardHeader>
                   <CardTitle>
-                    {isAuthenticated ? "Upgrade to generate extensions" : "Sign in to continue"}
+                    {isAuthenticated ? t("generate.upgradeTitle") : t("generate.signInTitle")}
                   </CardTitle>
                   <CardDescription>
                     {isAuthenticated
-                      ? "Hosted extension generation is available with Lithe Pro."
-                      : "Sign in with your Lithe account to generate UI extensions."}
+                      ? t("generate.upgradeDescription")
+                      : t("generate.signInDescription")}
                   </CardDescription>
                 </CardHeader>
               </Card>
             </div>
           </CommandList>
           <CommandFooter>
-            <CommandFooterAction onClick={close}>Close</CommandFooterAction>
+            <CommandFooterAction onClick={close}>{t("ui.close")}</CommandFooterAction>
             {isAuthenticated ? (
               <CommandFooterAction
                 onClick={() =>
                   window.open(getServiceUrls().pricingUrl, "_blank", "noopener,noreferrer")
                 }
               >
-                Upgrade
+                {t("generate.upgrade")}
               </CommandFooterAction>
             ) : (
               <CommandFooterAction onClick={() => void signIn()} disabled={isSigningIn}>
-                {isSigningIn ? "Signing in..." : "Sign in"}
+                {isSigningIn ? t("generate.signingIn") : t("generate.signIn")}
               </CommandFooterAction>
             )}
           </CommandFooter>
@@ -473,12 +511,12 @@ export function ExtensionGenerationCommand() {
               value={query}
               onChange={setQuery}
               onKeyDown={handlePickerKeyDown}
-              placeholder="What should I generate?"
+              placeholder={t("generate.whatShouldIGenerate")}
             />
           </CommandHeader>
           <CommandList>
             {filteredTypeOptions.length === 0 ? (
-              <CommandEmpty>No extension types found</CommandEmpty>
+              <CommandEmpty>{t("generate.noExtensionTypesFound")}</CommandEmpty>
             ) : (
               filteredTypeOptions.map((option, index) =>
                 renderPickerItem(option, index, () => chooseType(option.id), option.icon),
@@ -493,12 +531,12 @@ export function ExtensionGenerationCommand() {
               value={query}
               onChange={setQuery}
               onKeyDown={handlePickerKeyDown}
-              placeholder="What should it help with?"
+              placeholder={t("generate.whatShouldItHelpWith")}
             />
           </CommandHeader>
           <CommandList>
             {filteredIntentOptions.length === 0 ? (
-              <CommandEmpty>No matching choices</CommandEmpty>
+              <CommandEmpty>{t("generate.noMatchingChoices")}</CommandEmpty>
             ) : (
               filteredIntentOptions.map((option, index) =>
                 renderPickerItem(option, index, () => chooseIntent(option)),
@@ -508,7 +546,7 @@ export function ExtensionGenerationCommand() {
           <CommandFooter>
             <CommandFooterAction onClick={goToType}>
               <ArrowLeft />
-              Type
+              {t("generate.type")}
             </CommandFooterAction>
           </CommandFooter>
         </>
@@ -518,7 +556,9 @@ export function ExtensionGenerationCommand() {
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <Package className="size-4 shrink-0 text-primary" />
               <div className="min-w-0 truncate font-sans ui-text-base text-foreground">
-                {selectedIntent?.detailPrompt ?? selectedOption.detailPrompt}
+                {selectedIntent
+                  ? getIntentPrompt(selectedIntent, t)
+                  : getContributionPrompt(selectedOption, t)}
               </div>
             </div>
           </CommandHeader>
@@ -526,20 +566,24 @@ export function ExtensionGenerationCommand() {
             <div className="space-y-2 p-2">
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-border/70 bg-surface/50 px-3 py-2">
-                  <div className="font-sans ui-text-base text-subtle-foreground">Surface</div>
+                  <div className="font-sans ui-text-base text-subtle-foreground">
+                    {t("generate.surface")}
+                  </div>
                   <div className="mt-0.5 truncate font-sans ui-text-base text-foreground">
-                    {selectedOption.label}
+                    {getContributionLabel(selectedOption, t)}
                   </div>
                 </div>
                 <div className="rounded-lg border border-border/70 bg-surface/50 px-3 py-2">
-                  <div className="font-sans ui-text-base text-subtle-foreground">Behavior</div>
+                  <div className="font-sans ui-text-base text-subtle-foreground">
+                    {t("generate.behavior")}
+                  </div>
                   <div className="mt-0.5 truncate font-sans ui-text-base text-foreground">
-                    {selectedIntent?.label}
+                    {selectedIntent ? getIntentLabel(selectedIntent, t) : null}
                   </div>
                 </div>
               </div>
               <Textarea
-                aria-label="Extension details"
+                aria-label={t("generate.extensionDetails")}
                 data-command-input=""
                 value={details}
                 onChange={(event) => setDetails(event.target.value)}
@@ -549,7 +593,11 @@ export function ExtensionGenerationCommand() {
                     void generate();
                   }
                 }}
-                placeholder={selectedOption.detailPrompt}
+                placeholder={
+                  selectedIntent
+                    ? getIntentPrompt(selectedIntent, t)
+                    : getContributionPrompt(selectedOption, t)
+                }
                 className="min-h-28 resize-none bg-background/70 ui-text-base leading-[1.45]"
               />
             </div>
@@ -562,11 +610,11 @@ export function ExtensionGenerationCommand() {
               }}
             >
               <ArrowLeft />
-              Choice
+              {t("generate.choice")}
             </CommandFooterAction>
             <CommandFooterAction onClick={() => void generate()} disabled={!canGenerate}>
               <Sparkles />
-              Generate
+              {t("generate.generate")}
             </CommandFooterAction>
           </CommandFooter>
         </>
@@ -575,19 +623,23 @@ export function ExtensionGenerationCommand() {
           <CommandHeader onClose={close}>
             <div className="flex min-w-0 flex-1 items-center gap-2 font-sans ui-text-base text-foreground">
               <Sparkles className="size-4 shrink-0 text-primary" />
-              Generating {selectedOption.label.toLowerCase()}
+              {t("generate.generating", {
+                type: getContributionLabel(selectedOption, t).toLowerCase(),
+              })}
             </div>
           </CommandHeader>
           <Empty className="min-h-40 rounded-none" role="status" aria-live="polite">
             <EmptyDescription>
               <Spinner
-                label={GENERATING_MESSAGES[generationMessageIndex]}
+                label={t(GENERATING_MESSAGES[generationMessageIndex])}
                 showLabel
                 role={undefined}
               />
             </EmptyDescription>
             <EmptyDescription className="ui-text-base">
-              {selectedIntent?.label ?? selectedOption.label}
+              {selectedIntent
+                ? getIntentLabel(selectedIntent, t)
+                : getContributionLabel(selectedOption, t)}
             </EmptyDescription>
           </Empty>
         </>
@@ -596,7 +648,7 @@ export function ExtensionGenerationCommand() {
           <CommandHeader onClose={close}>
             <div className="flex min-w-0 flex-1 items-center gap-2 font-sans ui-text-base text-foreground">
               <Check className="size-4 shrink-0 text-success" />
-              Extension installed
+              {t("generate.installed")}
             </div>
           </CommandHeader>
           <CommandList>
@@ -606,17 +658,17 @@ export function ExtensionGenerationCommand() {
                 <AlertTitle>{result?.name}</AlertTitle>
                 <AlertDescription>
                   {selectedType === "sidebar"
-                    ? "The new sidebar view is open now."
+                    ? t("generate.sidebarInstalled")
                     : selectedType === "toolbar"
-                      ? "The new toolbar action is active in the editor."
-                      : "The new command is available from the command palette."}
+                      ? t("generate.toolbarInstalled")
+                      : t("generate.commandInstalled")}
                 </AlertDescription>
               </Alert>
             </div>
           </CommandList>
           <CommandFooter>
-            <CommandFooterAction onClick={close}>Done</CommandFooterAction>
-            <CommandFooterAction onClick={openExtensions}>Extensions</CommandFooterAction>
+            <CommandFooterAction onClick={close}>{t("ui.done")}</CommandFooterAction>
+            <CommandFooterAction onClick={openExtensions}>{t("generate.extensions")}</CommandFooterAction>
           </CommandFooter>
         </>
       ) : (
@@ -628,14 +680,14 @@ export function ExtensionGenerationCommand() {
               ) : (
                 <Check className="size-4 shrink-0 text-success" />
               )}
-              {error ? "Generation failed" : "Preview extension"}
+              {error ? t("generate.failed") : t("generate.preview")}
             </div>
           </CommandHeader>
           <CommandList>
             <div className="space-y-2 p-2">
               {error ? (
                 <Alert tone="error">
-                  <AlertTitle>Generation failed</AlertTitle>
+                  <AlertTitle>{t("generate.failed")}</AlertTitle>
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               ) : result ? (
@@ -652,7 +704,7 @@ export function ExtensionGenerationCommand() {
                     </div>
                   </div>
                   <div className="grid gap-1.5">
-                    {getPreviewHighlights(result, selectedOption, selectedIntent).map(
+                    {getPreviewHighlights(result, selectedOption, selectedIntent, t).map(
                       (highlight) => (
                         <div
                           key={highlight}
@@ -676,13 +728,13 @@ export function ExtensionGenerationCommand() {
               }}
             >
               <ArrowLeft />
-              Details
+              {t("generate.details")}
             </CommandFooterAction>
             {error ? (
-              <CommandFooterAction onClick={() => void generate()}>Try again</CommandFooterAction>
+              <CommandFooterAction onClick={() => void generate()}>{t("generate.tryAgain")}</CommandFooterAction>
             ) : (
               <CommandFooterAction onClick={install} disabled={!result || isInstalling}>
-                {isInstalling ? "Installing..." : result?.preview?.primaryAction || "Install"}
+                {isInstalling ? t("generate.installing") : result?.preview?.primaryAction || t("generate.install")}
               </CommandFooterAction>
             )}
           </CommandFooter>

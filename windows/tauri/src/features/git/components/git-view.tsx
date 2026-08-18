@@ -80,12 +80,6 @@ type GitSidebarTab = "changes" | "history";
 const GIT_VIEW_BRANCH_MANAGER_EVENT = "lithe:open-git-view-branch-manager";
 type GitRemoteAction = "push" | "pull" | "fetch";
 
-const REMOTE_ACTION_LABELS: Record<GitRemoteAction, { present: string; past: string }> = {
-  push: { present: "Pushing", past: "Pushed" },
-  pull: { present: "Pulling", past: "Pulled" },
-  fetch: { present: "Fetching", past: "Fetched" },
-};
-
 type GitPaletteAction =
   | { type: "select-repository" }
   | { type: "show-tab"; tab: GitSidebarTab }
@@ -99,6 +93,11 @@ type GitPaletteAction =
 
 const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const { t } = useTranslation();
+  const remoteActionLabels: Record<GitRemoteAction, { present: string; past: string }> = {
+    push: { present: t("git.pushingChanges"), past: t("git.pushedChanges") },
+    pull: { present: t("git.pullingChanges"), past: t("git.pulledChanges") },
+    fetch: { present: t("git.fetchingChanges"), past: t("git.fetchedChanges") },
+  };
   const gitStatus = useGitStore((state) => state.gitStatus);
   const isLoadingGitData = useGitStore((state) => state.isLoadingGitData);
   const isRefreshing = useGitStore((state) => state.isRefreshing);
@@ -121,7 +120,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   });
   const handlePull = useCallback(async () => {
     if (!activeRepoPath) {
-      toast.error("No repository open");
+      toast.error(t("git.noRepositoryOpen"));
       return;
     }
     const result = await pullWorkflow.pull();
@@ -257,18 +256,18 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
 
       const resolvedRepoPath = await resolveRepositoryPath(selected);
       if (!resolvedRepoPath) {
-        const message = "Selected folder is not inside a Git repository.";
+        const message = t("git.selectedFolderNotRepo");
         setRepoSelectionError(message);
-        await showAlertDialog(message, "Select Repository");
+        await showAlertDialog(message, t("git.selectRepository"));
         return;
       }
 
       setManualRepository(resolvedRepoPath);
     } catch (error) {
       console.error("Failed to select repository:", error);
-      const message = "Failed to select repository";
+      const message = t("git.failedToSelectRepository");
       setRepoSelectionError(message);
-      await showAlertDialog(`${message}:\n${error}`, "Select Repository");
+      await showAlertDialog(`${message}:\n${error}`, t("git.selectRepository"));
     } finally {
       setIsSelectingRepo(false);
     }
@@ -278,7 +277,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     const targetPath = repoPath;
 
     if (!targetPath) {
-      toast.error("Open a folder before initializing a repository.");
+      toast.error(t("git.openFolderBeforeInit"));
       return;
     }
 
@@ -287,7 +286,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     try {
       const success = await initRepository(targetPath);
       if (!success) {
-        const message = "Failed to initialize repository.";
+        const message = t("git.failedToInitializeRepository");
         setRepoSelectionError(message);
         toast.error(message);
         return;
@@ -296,10 +295,11 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       clearRepositoryDiscoveryCache();
       setManualRepository(targetPath);
       await syncWorkspaceRepositories(targetPath, { force: true });
-      toast.success("Repository initialized.");
+      toast.success(t("git.repositoryInitialized"));
     } catch (error) {
       console.error("Failed to initialize repository:", error);
-      const message = error instanceof Error ? error.message : "Failed to initialize repository.";
+      const message =
+        error instanceof Error ? error.message : t("git.failedToInitializeRepository");
       setRepoSelectionError(message);
       toast.error(message);
     } finally {
@@ -310,7 +310,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const handleRemoteAction = useCallback(
     async (action: GitRemoteAction) => {
       if (!activeRepoPath) {
-        toast.error("No repository open");
+        toast.error(t("git.noRepositoryOpen"));
         return;
       }
 
@@ -320,8 +320,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         return;
       }
       setRemoteAction(action);
-      const label = REMOTE_ACTION_LABELS[action];
-      const toastId = toast.info(`${label.present} changes...`, {
+      const label = remoteActionLabels[action];
+      const toastId = toast.info(label.present, {
         duration: Infinity,
       });
 
@@ -334,15 +334,19 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         toast.dismiss(toastId);
 
         if (result.success) {
-          toast.success(`${label.past} changes successfully.`);
+          toast.success(label.past);
           await handleManualRefresh();
           return;
         }
 
-        toast.error(result.error || `Failed to ${action} changes.`);
+        toast.error(result.error || t(action === "push" ? "git.pushFailed" : "git.fetchFailed"));
       } catch (error) {
         toast.dismiss(toastId);
-        toast.error(error instanceof Error ? error.message : `Failed to ${action} changes.`);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t(action === "push" ? "git.pushFailed" : "git.fetchFailed"),
+        );
       } finally {
         setRemoteAction(null);
       }
@@ -641,12 +645,12 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         size="xs"
         tooltip={
           canInitializeRepository
-            ? "Initialize Git repository"
-            : "Open a folder before initializing Git"
+            ? t("git.initializeGitRepository")
+            : t("git.openFolderBeforeInitializing")
         }
       >
         <GitBranch weight="duotone" />
-        {isInitializingRepo ? "Initializing..." : "Initialize"}
+        {isInitializingRepo ? t("git.initializing") : t("git.initialize")}
       </Button>
     );
   };
@@ -661,7 +665,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         onClick={() => void handleSelectRepository()}
       >
         <FolderSimpleStar weight="duotone" />
-        {isSelectingRepo ? "Selecting..." : "Browse"}
+        {isSelectingRepo ? t("git.selecting") : t("git.browse")}
       </Button>
       {renderInitializeRepositoryButton()}
     </>
@@ -776,7 +780,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           <SidebarTitleBar title={t("workbench.sourceControl")}>{renderActionsButton()}</SidebarTitleBar>
           <Empty className="h-full">
             <EmptyHeader>
-              <EmptyTitle>No repository selected</EmptyTitle>
+              <EmptyTitle>{t("git.noRepositorySelected")}</EmptyTitle>
               {repoSelectionError ? (
                 <EmptyDescription className="text-destructive">
                   {repoSelectionError}
@@ -796,7 +800,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       <>
         <SidebarPanel>
           <SidebarTitleBar title={t("workbench.sourceControl")}>{renderActionsButton()}</SidebarTitleBar>
-          <Spinner label="Loading Git status" showLabel compact className="m-auto" />
+          <Spinner label={t("git.loadingGitStatus")} showLabel compact className="m-auto" />
         </SidebarPanel>
         {renderGitActionsMenu({ hasGitRepo: false, onRefresh: handleManualRefresh })}
       </>
@@ -810,7 +814,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           <SidebarTitleBar title={t("workbench.sourceControl")}>{renderActionsButton()}</SidebarTitleBar>
           <Empty className="h-full">
             <EmptyHeader>
-              <EmptyTitle>Not a Git repository</EmptyTitle>
+              <EmptyTitle>{t("git.notAGitRepository")}</EmptyTitle>
               {repoSelectionError ? (
                 <EmptyDescription className="text-destructive">
                   {repoSelectionError}
@@ -859,7 +863,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                   className="min-w-0 flex-1"
                   onClick={() => void handleRemoteAction(primaryRemoteAction)}
                   disabled={!activeRepoPath || isRemoteActionLoading}
-                  aria-label={`${syncActionLabel} remote changes`}
+                  aria-label={t("git.remoteChangesAction", { action: syncActionLabel })}
                 >
                   <span className="min-w-0 truncate whitespace-nowrap">{syncActionLabel}</span>
                 </Button>
@@ -871,7 +875,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                   onClick={() => setIsSyncMenuOpen((open) => !open)}
                   disabled={!activeRepoPath || isRemoteActionLoading}
                   active={isSyncMenuOpen}
-                  aria-label="Choose remote action"
+                  aria-label={t("git.chooseRemoteAction")}
                   aria-haspopup="menu"
                   aria-expanded={isSyncMenuOpen}
                 >
@@ -1086,14 +1090,14 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                           void handleStashListAction(
                             () => applyStash(activeRepoPath!, stash.index),
                             stash.index,
-                            "Apply stash",
+                            t("git.applyStash"),
                           );
                         }}
                         disabled={isActionLoading}
                         variant="ghost"
                         size="icon-xs"
                         className="rounded-md text-subtle-foreground disabled:opacity-50"
-                        tooltip="Apply stash"
+                        tooltip={t("git.applyStash")}
                       >
                         <Download weight="fill" />
                       </Button>
@@ -1104,14 +1108,14 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                           void handleStashListAction(
                             () => popStash(activeRepoPath!, stash.index),
                             stash.index,
-                            "Pop stash",
+                            t("git.popStash"),
                           );
                         }}
                         disabled={isActionLoading}
                         variant="ghost"
                         size="icon-xs"
                         className="rounded-md text-subtle-foreground disabled:opacity-50"
-                        tooltip="Pop stash"
+                        tooltip={t("git.popStash")}
                       >
                         <Upload />
                       </Button>
@@ -1122,14 +1126,14 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                           void handleStashListAction(
                             () => dropStash(activeRepoPath!, stash.index),
                             stash.index,
-                            "Drop stash",
+                            t("git.dropStash"),
                           );
                         }}
                         disabled={isActionLoading}
                         variant="ghost"
                         size="icon-xs"
                         className="rounded-md text-destructive hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                        tooltip="Drop stash"
+                        tooltip={t("git.dropStash")}
                       >
                         <Trash2 />
                       </Button>

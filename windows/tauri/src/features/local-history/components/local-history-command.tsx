@@ -37,6 +37,7 @@ import { cn } from "@/utils/cn";
 import { formatRelativeDate, formatShortDateTime } from "@/utils/date";
 import { getBaseName } from "@/utils/path-helpers";
 import { matchesSearchQuery } from "@/utils/search-match";
+import { useTranslation } from "@/i18n/locale-provider";
 
 interface LocalHistoryCommandContentProps {
   isActive: boolean;
@@ -65,9 +66,10 @@ export function LocalHistoryCommandContent({
   onBack,
   onClose,
 }: LocalHistoryCommandContentProps) {
+  const { t } = useTranslation();
   const storedTargetPath = useLocalHistoryStore.use.targetPath();
   const targetPath = storedTargetPath ?? activeFilePath ?? null;
-  const fileName = targetPath ? getBaseName(targetPath, "file") : "Local History";
+  const fileName = targetPath ? getBaseName(targetPath, "file") : t("localHistory.title");
   const [query, setQuery] = useState("");
   const [entries, setEntries] = useState<LocalHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -104,7 +106,7 @@ export function LocalHistoryCommandContent({
       setEntries(await listLocalHistoryFile(targetPath));
     } catch (error) {
       console.error("Failed to load local history:", error);
-      toast.error("Failed to load local history");
+      toast.error(t("localHistory.loadFailed"));
       setEntries([]);
     } finally {
       setIsLoading(false);
@@ -150,7 +152,7 @@ export function LocalHistoryCommandContent({
         onClose();
       } catch (error) {
         console.error("Failed to open local history snapshot:", error);
-        toast.error("Failed to open snapshot");
+        toast.error(t("localHistory.openFailed"));
       }
     },
     [fileName, onClose, targetPath],
@@ -159,24 +161,24 @@ export function LocalHistoryCommandContent({
   const createSnapshot = useCallback(async () => {
     if (!targetPath) return;
 
-    const label = await showPromptDialog("Name this local history entry:", {
-      title: "Create Local History Entry",
-      placeholder: "Optional name",
-      confirmLabel: "Create",
+    const label = await showPromptDialog(t("localHistory.namePrompt"), {
+      title: t("localHistory.createEntry"),
+      placeholder: t("localHistory.optionalName"),
+      confirmLabel: t("git.create"),
     });
     if (label === null) return;
 
     try {
       const entry = await recordLocalHistoryFile(targetPath, "manual", label.trim() || undefined);
       if (!entry) {
-        toast.info("No file changes to snapshot.");
+        toast.info(t("localHistory.noChanges"));
         return;
       }
       setEntries((current) => [entry, ...current]);
-      toast.success("Local history entry created");
+      toast.success(t("localHistory.entryCreated"));
     } catch (error) {
       console.error("Failed to create local history snapshot:", error);
-      toast.error("Failed to create snapshot");
+      toast.error(t("localHistory.createFailed"));
     }
   }, [targetPath]);
 
@@ -196,7 +198,7 @@ export function LocalHistoryCommandContent({
       if (!targetPath) return;
 
       if (params.oldContent === params.newContent) {
-        toast.info("No changes to compare.");
+        toast.info(t("localHistory.noChangesToCompare"));
         return;
       }
 
@@ -240,7 +242,7 @@ export function LocalHistoryCommandContent({
         });
       } catch (error) {
         console.error("Failed to compare local history snapshot:", error);
-        toast.error("Failed to compare snapshot");
+        toast.error(t("localHistory.compareFailed"));
       }
     },
     [fileName, getCurrentContent, openDiff, targetPath],
@@ -253,7 +255,7 @@ export function LocalHistoryCommandContent({
       const entryIndex = entries.findIndex((candidate) => candidate.id === entry.id);
       const previousEntry = entryIndex >= 0 ? entries[entryIndex + 1] : undefined;
       if (!previousEntry) {
-        toast.info("No previous local history entry.");
+        toast.info(t("localHistory.noPreviousEntry"));
         return;
       }
 
@@ -270,7 +272,7 @@ export function LocalHistoryCommandContent({
         });
       } catch (error) {
         console.error("Failed to compare local history snapshots:", error);
-        toast.error("Failed to compare snapshots");
+        toast.error(t("localHistory.compareSnapshotsFailed"));
       }
     },
     [entries, fileName, openDiff, targetPath],
@@ -299,11 +301,11 @@ export function LocalHistoryCommandContent({
           scopes: ["working-tree"],
           source: "restore-local-history",
         });
-        toast.success("Snapshot restored");
+        toast.success(t("localHistory.snapshotRestored"));
         onClose();
       } catch (error) {
         console.error("Failed to restore local history snapshot:", error);
-        toast.error("Failed to restore snapshot");
+        toast.error(t("localHistory.restoreFailed"));
       }
     },
     [onClose, targetPath],
@@ -318,7 +320,7 @@ export function LocalHistoryCommandContent({
         setEntries((current) => current.filter((candidate) => candidate.id !== entry.id));
       } catch (error) {
         console.error("Failed to delete local history snapshot:", error);
-        toast.error("Failed to delete snapshot");
+        toast.error(t("localHistory.deleteFailed"));
       }
     },
     [targetPath],
@@ -339,7 +341,7 @@ export function LocalHistoryCommandContent({
         );
       } catch (error) {
         console.error("Failed to rename local history snapshot:", error);
-        toast.error("Failed to rename snapshot");
+        toast.error(t("localHistory.renameFailed"));
       } finally {
         setRenamingEntryId(null);
         setRenameValue("");
@@ -380,20 +382,20 @@ export function LocalHistoryCommandContent({
   return (
     <>
       <CommandHeader onClose={onClose}>
-        <CommandHeaderAction aria-label="Back" onClick={onBack}>
+        <CommandHeaderAction aria-label={t("localHistory.back")} onClick={onBack}>
           <ArrowLeft />
         </CommandHeaderAction>
         <ClockCounterClockwise className="size-4 shrink-0 text-subtle-foreground" />
         <div className="min-w-0 flex-1">
           <div className="truncate font-sans ui-text-base text-foreground">
-            Local History: {fileName}
+            {t("localHistory.titleForFile", { file: fileName })}
           </div>
           <div className="truncate font-sans ui-text-base text-subtle-foreground">{targetPath}</div>
         </div>
         <CommandHeaderAction
-          aria-label="Create local history entry"
+          aria-label={t("localHistory.createEntryAria")}
           onClick={() => void createSnapshot()}
-          tooltip="Create entry"
+          tooltip={t("localHistory.createEntry")}
         >
           <Plus />
         </CommandHeaderAction>
@@ -404,17 +406,17 @@ export function LocalHistoryCommandContent({
           ref={inputRef}
           value={query}
           onChange={setQuery}
-          placeholder="Search timeline..."
+          placeholder={t("localHistory.searchTimeline")}
         />
       </div>
 
       <CommandList ref={listRef}>
         {!targetPath ? (
-          <CommandEmpty>No local file selected</CommandEmpty>
+          <CommandEmpty>{t("localHistory.noFileSelected")}</CommandEmpty>
         ) : isLoading ? (
-          <CommandEmpty>Loading timeline...</CommandEmpty>
+          <CommandEmpty>{t("localHistory.loadingTimeline")}</CommandEmpty>
         ) : filteredEntries.length === 0 ? (
-          <CommandEmpty>No local history snapshots</CommandEmpty>
+          <CommandEmpty>{t("localHistory.noSnapshots")}</CommandEmpty>
         ) : (
           filteredEntries.map((entry, index) => (
             <div
@@ -445,7 +447,7 @@ export function LocalHistoryCommandContent({
                     onMouseDown={(event) => event.stopPropagation()}
                     allowEmpty
                     aria-label={`Rename ${getEntryTitle(entry)}`}
-                    placeholder="Entry name"
+                    placeholder={t("localHistory.entryName")}
                   />
                 ) : (
                   <div className="truncate font-sans ui-text-base text-foreground">
@@ -462,7 +464,7 @@ export function LocalHistoryCommandContent({
                 <Button
                   type="button"
                   variant="ghost"
-                  tooltip="Open snapshot"
+                  tooltip={t("localHistory.openSnapshot")}
                   onClick={(event) => {
                     event.stopPropagation();
                     void openSnapshot(entry);
@@ -474,7 +476,7 @@ export function LocalHistoryCommandContent({
                 <Button
                   type="button"
                   variant="ghost"
-                  tooltip="Compare with current"
+                  tooltip={t("localHistory.compareWithCurrent")}
                   onClick={(event) => {
                     event.stopPropagation();
                     void compareWithCurrent(entry);
@@ -486,7 +488,7 @@ export function LocalHistoryCommandContent({
                 <Button
                   type="button"
                   variant="ghost"
-                  tooltip="Compare with previous"
+                  tooltip={t("localHistory.compareWithPrevious")}
                   onClick={(event) => {
                     event.stopPropagation();
                     void compareWithPrevious(entry);
@@ -498,7 +500,7 @@ export function LocalHistoryCommandContent({
                 <Button
                   type="button"
                   variant="ghost"
-                  tooltip="Restore snapshot"
+                  tooltip={t("localHistory.restoreSnapshot")}
                   onClick={(event) => {
                     event.stopPropagation();
                     void restoreSnapshot(entry);
@@ -510,7 +512,7 @@ export function LocalHistoryCommandContent({
                 <Button
                   type="button"
                   variant="ghost"
-                  tooltip="Rename snapshot"
+                  tooltip={t("localHistory.renameSnapshot")}
                   onClick={(event) => {
                     event.stopPropagation();
                     setRenamingEntryId(entry.id);
@@ -523,7 +525,7 @@ export function LocalHistoryCommandContent({
                 <Button
                   type="button"
                   variant="danger"
-                  tooltip="Delete snapshot"
+                  tooltip={t("localHistory.deleteSnapshot")}
                   onClick={(event) => {
                     event.stopPropagation();
                     void deleteSnapshot(entry);

@@ -6,8 +6,10 @@ import { openGitWorktreeWorkspace } from "@/features/git/utils/git-worktree-open
 import type { FooterLeadingItemId } from "@/features/layout/config/item-order";
 import type { ChromeItem } from "@/features/layout/utils/chrome-items";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { useTranslation } from "@/i18n/locale-provider";
 
 export function useFooterGitBranchItem(): ChromeItem<FooterLeadingItemId> | null {
+  const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const gitStatus = useGitStore((state) => state.gitStatus);
@@ -26,7 +28,7 @@ export function useFooterGitBranchItem(): ChromeItem<FooterLeadingItemId> | null
 
   return {
     id: "branch",
-    label: "Git branch",
+    label: t("footer.gitBranch"),
     content: (
       <GitBranchManager
         currentBranch={footerBranch}

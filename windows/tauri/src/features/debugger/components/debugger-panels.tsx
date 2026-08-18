@@ -12,17 +12,11 @@ import Badge from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import { Spinner } from "@/ui/spinner";
+import { useTranslation } from "@/i18n/locale-provider";
 import { ScrollArea } from "@/ui/scroll-area";
 import { cn } from "@/utils/cn";
 import { getBaseName } from "@/utils/path-helpers";
 import type { DebugBreakpoint, DebugStackFrame } from "../types/debugger.types";
-
-export const EMPTY_DEBUG_SECTION_MESSAGES = {
-  stack: "Start a session to see frames.",
-  variables: "Pause on a frame to inspect values.",
-  console: "Adapter output appears here.",
-  breakpoints: "Click a gutter line or toggle the current line.",
-};
 
 const debugSectionVariants = cva(
   "flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface/30",
@@ -90,8 +84,9 @@ export function DebugEmptyState({ children }: { children: ReactNode }) {
 }
 
 export function DebugSessionStatusIcon({ status }: { status: "idle" | "running" | "paused" }) {
+  const { t } = useTranslation();
   if (status === "running") {
-    return <Spinner label="Running" compact />;
+    return <Spinner label={t("debugger.statusRunning")} compact />;
   }
 
   if (status === "paused") {
@@ -110,8 +105,9 @@ export function DebugStackFrames({
   selectedFrameId: number | null;
   onSelect: (frameId: number, sourcePath?: string, line?: number) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   if (frames.length === 0) {
-    return <DebugEmptyState>{EMPTY_DEBUG_SECTION_MESSAGES.stack}</DebugEmptyState>;
+    return <DebugEmptyState>{t("debugger.stackEmpty")}</DebugEmptyState>;
   }
 
   return (
@@ -134,7 +130,7 @@ export function DebugStackFrames({
               <span className="block truncate ui-text-sm text-subtle-foreground">
                 {frame.sourcePath
                   ? `${getBaseName(frame.sourcePath, "file")}:${frame.line}`
-                  : `Line ${frame.line}`}
+                  : t("debugger.lineNumber", { line: frame.line })}
               </span>
             </span>
           </button>
@@ -155,8 +151,9 @@ export function DebugBreakpointsList({
   onToggle: (breakpoint: DebugBreakpoint) => void;
   onRemove: (breakpoint: DebugBreakpoint) => void;
 }) {
+  const { t } = useTranslation();
   if (breakpoints.length === 0) {
-    return <DebugEmptyState>{EMPTY_DEBUG_SECTION_MESSAGES.breakpoints}</DebugEmptyState>;
+    return <DebugEmptyState>{t("debugger.breakpointsEmpty")}</DebugEmptyState>;
   }
 
   return (
@@ -168,7 +165,11 @@ export function DebugBreakpointsList({
         >
           <button
             type="button"
-            aria-label={breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint"}
+            aria-label={
+              breakpoint.enabled
+                ? t("debugger.disableBreakpoint")
+                : t("debugger.enableBreakpoint")
+            }
             className={cn(
               "size-3 rounded-full border",
               breakpoint.enabled
@@ -186,13 +187,13 @@ export function DebugBreakpointsList({
               {getBaseName(breakpoint.filePath, "file")}
             </div>
             <div className="truncate ui-text-sm text-subtle-foreground">
-              Line {breakpoint.line + 1}
+              {t("debugger.lineNumber", { line: breakpoint.line + 1 })}
             </div>
           </button>
           <Button
             variant="ghost"
             className="opacity-0 group-hover:opacity-100"
-            tooltip="Remove breakpoint"
+            tooltip={t("debugger.removeBreakpoint")}
             onClick={() => onRemove(breakpoint)}
             size="icon-xs"
           >

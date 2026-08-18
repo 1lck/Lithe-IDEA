@@ -3,6 +3,7 @@ import { type KeyboardEvent, type RefObject, useEffect, useMemo, useRef, useStat
 import { useTokenizer } from "@/features/editor/hooks/use-tokenizer";
 import { Button } from "@/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/ui/input-group";
+import { useTranslation } from "@/i18n/locale-provider";
 import Textarea from "@/ui/textarea";
 import { cn } from "@/utils/cn";
 import { databaseCardClassName } from "./database-surface";
@@ -60,6 +61,7 @@ function SqlEditor({
     languageIdOverride: "sql",
     incremental: false,
   });
+  const { t } = useTranslation();
 
   useEffect(() => {
     void tokenize(value);
@@ -163,7 +165,10 @@ function SqlEditor({
               className="h-6 border border-border/60 px-2 text-subtle-foreground"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => applyCompletion(index)}
-              aria-label={`Insert SQL ${item.detail} ${item.label}`}
+              aria-label={t("database.insertSqlCompletion", {
+                detail: item.detail,
+                label: item.label,
+              })}
               tooltip={item.detail}
             >
               <span className="font-sans ui-text-sm">{item.label}</span>
@@ -194,6 +199,7 @@ export default function QueryBar({
   const [selectedQuery, setSelectedQuery] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const previousCustomQueryRef = useRef(customQuery);
+  const { t } = useTranslation();
 
   useEffect(() => {
     setDraftSearchTerm(searchTerm);
@@ -274,18 +280,18 @@ export default function QueryBar({
         <div className="flex items-center justify-between gap-2">
           <div className="font-sans ui-text-sm text-subtle-foreground">
             {selectedQuery
-              ? "Selection will run"
+              ? t("database.selectionWillRun")
               : lastQueryExecutionMs !== null && lastQueryExecutionMs !== undefined
-                ? `Last run ${lastQueryExecutionMs}ms`
-                : "Cmd/Ctrl+Enter to run"}
+                ? t("database.lastRunMs", { ms: lastQueryExecutionMs })
+                : t("database.cmdCtrlEnterToRun")}
           </div>
           <div className="flex justify-end gap-2">
             <Button onClick={() => setIsCustomQuery(false)} variant="ghost" size="xs">
-              Cancel
+              {t("ui.cancel")}
             </Button>
             {isCustomQueryLoading && (
               <Button onClick={cancelCustomQuery} variant="ghost" size="xs">
-                Stop
+                {t("debugger.stop")}
               </Button>
             )}
             <Button
@@ -294,7 +300,7 @@ export default function QueryBar({
               disabled={isLoading || !(selectedQuery || customQuery).trim()}
               size="xs"
             >
-              {selectedQuery ? "Run Selection" : "Execute"}
+              {selectedQuery ? t("database.runSelection") : t("database.execute")}
             </Button>
           </div>
         </div>
@@ -312,7 +318,7 @@ export default function QueryBar({
           <InputGroupInput
             value={draftSearchTerm}
             onChange={(e) => setDraftSearchTerm(e.target.value)}
-            placeholder="Search..."
+            placeholder={t("ui.searchPlaceholder")}
           />
           {draftSearchTerm && (
             <InputGroupAddon align="inline-end">
@@ -323,8 +329,8 @@ export default function QueryBar({
                   setDraftSearchTerm("");
                   setSearchTerm("");
                 }}
-                aria-label="Clear search"
-                tooltip="Clear search"
+                aria-label={t("search.clear")}
+                tooltip={t("search.clear")}
                 size="icon-xs"
               >
                 <X />

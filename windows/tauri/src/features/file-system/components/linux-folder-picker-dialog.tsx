@@ -8,6 +8,7 @@ import {
 } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLinuxFolderPickerStore } from "@/features/file-system/stores/linux-folder-picker.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
 import {
@@ -53,6 +54,7 @@ function joinPath(parent: string, child: string): string {
 }
 
 export default function LinuxFolderPickerDialog() {
+  const { t } = useTranslation();
   const isOpen = useLinuxFolderPickerStore.use.isOpen();
   const initialPath = useLinuxFolderPickerStore.use.initialPath();
   const { resolve } = useLinuxFolderPickerStore.use.actions();
@@ -82,12 +84,12 @@ export default function LinuxFolderPickerDialog() {
       setEntries(folders);
     } catch (loadError) {
       setEntries([]);
-      setError("Unable to read this folder.");
+      setError(t("linuxFolderPicker.unableToReadFolder"));
       console.error("Failed to read folder:", path, loadError);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const navigateToPath = useCallback(
     (nextPath: string) => {
@@ -132,7 +134,7 @@ export default function LinuxFolderPickerDialog() {
 
   const handleOpen = () => {
     if (error) {
-      toast.error("Choose a readable folder.");
+      toast.error(t("linuxFolderPicker.chooseReadableFolder"));
       return;
     }
 
@@ -143,17 +145,17 @@ export default function LinuxFolderPickerDialog() {
 
   return (
     <Dialog
-      title="Open Folder"
+      title={t("welcome.openFolder")}
       onClose={() => resolve(null)}
       size="lg"
       headerBorder={false}
       footer={
         <>
           <Button type="button" variant="ghost" onClick={() => resolve(null)}>
-            Cancel
+            {t("ui.cancel")}
           </Button>
           <Button type="button" variant="accent" onClick={handleOpen} size="xs">
-            Open Folder
+            {t("welcome.openFolder")}
           </Button>
         </>
       }
@@ -168,8 +170,8 @@ export default function LinuxFolderPickerDialog() {
             type="button"
             variant="ghost"
             onClick={() => navigateToPath(homePath)}
-            tooltip="Home"
-            aria-label="Home"
+            tooltip={t("linuxFolderPicker.home")}
+            aria-label={t("linuxFolderPicker.home")}
             size="icon"
           >
             <House />
@@ -179,8 +181,8 @@ export default function LinuxFolderPickerDialog() {
             variant="ghost"
             onClick={() => navigateToPath(parentPath(currentPath))}
             disabled={!canGoUp}
-            tooltip="Parent folder"
-            aria-label="Parent folder"
+            tooltip={t("linuxFolderPicker.parentFolder")}
+            aria-label={t("linuxFolderPicker.parentFolder")}
             size="icon"
           >
             <ArrowUp />
@@ -195,12 +197,12 @@ export default function LinuxFolderPickerDialog() {
             <Input
               value={pathInput}
               onChange={(event) => setPathInput(event.target.value)}
-              aria-label="Folder path"
+              aria-label={t("linuxFolderPicker.folderPath")}
               spellCheck={false}
               className="font-mono"
             />
             <Button type="submit" variant="default" size="xs">
-              Go
+              {t("linuxFolderPicker.go")}
             </Button>
           </form>
         </div>
@@ -227,11 +229,11 @@ export default function LinuxFolderPickerDialog() {
         ) : isLoading ? (
           <Empty className="rounded-none">
             <EmptyDescription>
-              <Spinner label="Loading folders" showLabel compact />
+              <Spinner label={t("linuxFolderPicker.loadingFolders")} showLabel compact />
             </EmptyDescription>
           </Empty>
         ) : entries.length === 0 ? (
-          <EmptyState message="No folders" />
+          <EmptyState message={t("linuxFolderPicker.noFolders")} />
         ) : (
           <div className="max-h-80 overflow-y-auto py-1">
             {entries.map((entry) => (

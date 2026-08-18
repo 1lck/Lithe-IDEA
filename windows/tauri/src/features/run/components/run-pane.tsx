@@ -270,6 +270,7 @@ function ConfigurationSection({
   onRun: (configuration: RunConfiguration) => void;
   onEdit: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   if (configurations.length === 0) return null;
   return (
     <section className="px-1">
@@ -297,7 +298,7 @@ function ConfigurationSection({
               size="icon-xs"
               className="opacity-0 group-hover:opacity-100"
               onClick={() => onEdit(configuration.id)}
-              aria-label="Edit"
+              aria-label={t("ui.edit")}
             >
               <GearIcon />
             </Button>
@@ -305,7 +306,7 @@ function ConfigurationSection({
               variant="ghost"
               size="icon-xs"
               onClick={() => onRun(configuration)}
-              aria-label="Run"
+              aria-label={t("run.title")}
             >
               {running ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
             </Button>

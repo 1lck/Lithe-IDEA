@@ -113,10 +113,10 @@ const GitActionsMenu = ({
   };
 
   const handlePush = () => {
-    handleAction(() => pushChanges(repoPath!), "Push", {
-      loading: "Pushing changes...",
-      success: "Changes pushed successfully.",
-      error: "Failed to push changes.",
+    handleAction(() => pushChanges(repoPath!), t("git.push"), {
+      loading: t("git.pushingChanges"),
+      success: t("git.changesPushed"),
+      error: t("git.pushFailed"),
     });
   };
 
@@ -126,10 +126,10 @@ const GitActionsMenu = ({
   };
 
   const handleFetch = () => {
-    handleAction(() => fetchChanges(repoPath!), "Fetch", {
-      loading: "Fetching changes...",
-      success: "Fetched successfully.",
-      error: "Failed to fetch changes.",
+    handleAction(() => fetchChanges(repoPath!), t("git.fetch"), {
+      loading: t("git.fetchingChanges"),
+      success: t("git.changesFetched"),
+      error: t("git.fetchFailed"),
     });
   };
 
@@ -137,14 +137,14 @@ const GitActionsMenu = ({
     if (!repoPath) return;
     if (
       confirmBeforeDiscard &&
-      !(await showConfirmDialog("Discard all unstaged changes? This cannot be undone.", {
-        title: "Discard Changes",
-        confirmLabel: "Discard",
+      !(await showConfirmDialog(t("git.discardChangesConfirm"), {
+        title: t("git.discardChanges"),
+        confirmLabel: t("git.discard"),
       }))
     ) {
       return;
     }
-    handleAction(() => discardAllChanges(repoPath!), "Discard all changes");
+    handleAction(() => discardAllChanges(repoPath!), t("git.discardAllChanges"));
   };
 
   const handleInitRepository = () => {
@@ -154,7 +154,7 @@ const GitActionsMenu = ({
       return;
     }
 
-    handleAction(() => initRepository(repoPath!), "Initialize repository");
+    handleAction(() => initRepository(repoPath!), t("git.initializeRepository"));
   };
 
   const handleRefresh = async () => {
@@ -280,7 +280,9 @@ const GitActionsMenu = ({
     : [
         {
           id: "init-repository",
-          label: isInitializingRepository ? "Initializing..." : "Initialize Repository",
+          label: isInitializingRepository
+            ? t("git.initializing")
+            : t("git.initializeRepository"),
           icon: <Settings />,
           disabled: isLoading || isInitializingRepository,
           onClick: handleInitRepository,

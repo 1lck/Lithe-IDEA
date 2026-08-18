@@ -63,6 +63,7 @@ import {
 } from "@/ui/sidebar";
 import { toast } from "sonner";
 import Tooltip from "@/ui/tooltip";
+import { useTranslation } from "@/i18n/locale-provider";
 import { getBaseName } from "@/utils/path-helpers";
 import {
   ChannelIconPicker,
@@ -94,46 +95,46 @@ type SidebarNoteItem = NonNullable<
 >["notesItems"][number];
 type CollaborationFilterOption<T extends string> = {
   id: T;
-  label: string;
+  labelKey: string;
 };
 
 const COLLABORATION_TABS: Array<{
   id: CollaborationSidebarTab;
-  label: string;
+  labelKey: string;
 }> = [
   {
     id: "channels",
-    label: "Channels",
+    labelKey: "collaboration.channels",
   },
   {
     id: "people",
-    label: "People",
+    labelKey: "collaboration.people",
   },
   {
     id: "notes",
-    label: "Notes",
+    labelKey: "collaboration.notes",
   },
 ];
 
 const CHANNEL_FILTER_OPTIONS: Array<CollaborationFilterOption<CollaborationChannelFilter>> = [
-  { id: "all", label: "All" },
-  { id: "active", label: "Active" },
-  { id: "with-guests", label: "With guests" },
-  { id: "empty", label: "Empty" },
+  { id: "all", labelKey: "collaboration.all" },
+  { id: "active", labelKey: "collaboration.active" },
+  { id: "with-guests", labelKey: "collaboration.withGuests" },
+  { id: "empty", labelKey: "collaboration.empty" },
 ];
 
 const PEOPLE_FILTER_OPTIONS: Array<CollaborationFilterOption<CollaborationPeopleFilter>> = [
-  { id: "all", label: "All" },
-  { id: "online", label: "Online" },
-  { id: "offline", label: "Offline" },
-  { id: "sharing", label: "Sharing" },
-  { id: "has-file", label: "Has file" },
+  { id: "all", labelKey: "collaboration.all" },
+  { id: "online", labelKey: "collaboration.online" },
+  { id: "offline", labelKey: "collaboration.offline" },
+  { id: "sharing", labelKey: "collaboration.sharing" },
+  { id: "has-file", labelKey: "collaboration.hasFile" },
 ];
 
 const NOTE_FILTER_OPTIONS: Array<CollaborationFilterOption<CollaborationNotesFilter>> = [
-  { id: "notes", label: "Notes" },
-  { id: "secrets", label: "Secrets" },
-  { id: "all", label: "All" },
+  { id: "notes", labelKey: "collaboration.notes" },
+  { id: "secrets", labelKey: "collaboration.secrets" },
+  { id: "all", labelKey: "collaboration.all" },
 ];
 
 function stopMediaStream(stream: MediaStream | null) {
@@ -161,6 +162,7 @@ function matchesSearchQuery(
 }
 
 export function CollaborationSidebarView() {
+  const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
   const collaboration = useAuthStore((state) => state.subscription?.collaboration);
   const setCollaborationSnapshot = useAuthStore((state) => state.actions.setCollaborationSnapshot);
@@ -208,6 +210,10 @@ export function CollaborationSidebarView() {
   const deferredChannelSearchQuery = useDeferredValue(channelSearchQuery);
   const deferredPeopleSearchQuery = useDeferredValue(peopleSearchQuery);
   const deferredNotesSearchQuery = useDeferredValue(notesSearchQuery);
+  const tabs = useMemo(
+    () => COLLABORATION_TABS.map((tab) => ({ id: tab.id, label: t(tab.labelKey) })),
+    [t],
+  );
 
   const model = useMemo(
     () =>
@@ -590,8 +596,8 @@ export function CollaborationSidebarView() {
   if (!model) {
     return (
       <SidebarPanel>
-        <SidebarTitleBar title="Collaboration" />
-        <EmptyState message="Teams workspace is not available for this account." />
+        <SidebarTitleBar title={t("collaboration.title")} />
+        <EmptyState message={t("collaboration.teamsWorkspaceUnavailable")} />
       </SidebarPanel>
     );
   }
@@ -613,7 +619,7 @@ export function CollaborationSidebarView() {
       setCollaborationSnapshot(nextCollaboration);
       setDraft("");
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Message failed");
+          setSendError(error instanceof Error ? error.message : t("collaboration.messageFailed"));
     } finally {
       setIsSending(false);
     }
@@ -632,7 +638,7 @@ export function CollaborationSidebarView() {
       setCollaborationSnapshot(nextCollaboration);
       setDraft("");
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Message failed");
+      setSendError(error instanceof Error ? error.message : t("collaboration.messageFailed"));
     } finally {
       setIsSending(false);
     }
@@ -679,9 +685,9 @@ export function CollaborationSidebarView() {
           ? `${error.name}: ${error.message}`
           : error instanceof Error
             ? error.message
-            : "Unknown error";
+            : t("collaboration.unknownError");
       console.error("Microphone access failed", error);
-      toast.error(`Microphone access failed: ${detail}`);
+      toast.error(t("collaboration.microphoneAccessFailedDetail", { detail }));
     }
   };
 
@@ -697,7 +703,7 @@ export function CollaborationSidebarView() {
     const getDisplayMedia = navigator.mediaDevices.getDisplayMedia;
     if (!getDisplayMedia) {
       setScreenState("error");
-      toast.error("Screen sharing is unavailable in this webview.");
+        toast.error(t("collaboration.screenSharingUnavailable"));
       return;
     }
 
@@ -726,9 +732,9 @@ export function CollaborationSidebarView() {
           ? `${error.name}: ${error.message}`
           : error instanceof Error
             ? error.message
-            : "Unknown error";
+            : t("collaboration.unknownError");
       console.error("Screen sharing failed", error);
-      toast.error(`Screen sharing failed: ${detail}`);
+      toast.error(t("collaboration.screenSharingFailedDetail", { detail }));
     }
   };
 
@@ -738,7 +744,7 @@ export function CollaborationSidebarView() {
     const selected = await open({
       multiple: true,
       directory: false,
-      title: "Share Documents",
+      title: t("collaboration.shareDocuments"),
     });
     const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
     if (paths.length === 0) return;
@@ -747,12 +753,12 @@ export function CollaborationSidebarView() {
     const saved = await updateNote(
       appendCollaborationSharedDocuments({
         contentMarkdown: selectedNoteContent,
-        author: user?.name || user?.email || "Member",
+        author: user?.name || user?.email || t("collaboration.member"),
         documentNames: names,
       }),
-      "Document share failed",
+      t("collaboration.documentShareFailed"),
     );
-    if (saved) toast.success(`${names.length} document${names.length === 1 ? "" : "s"} shared.`);
+    if (saved) toast.success(t("collaboration.documentsShared", { count: names.length }));
   };
 
   const beginCreateChannel = () => {
@@ -781,7 +787,8 @@ export function CollaborationSidebarView() {
       );
       if (createdChannel) openChannelChat(createdChannel.id);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Channel creation failed";
+      const message =
+        error instanceof Error ? error.message : t("collaboration.channelCreationFailed");
       setSendError(message);
       toast.error(message);
     } finally {
@@ -795,7 +802,9 @@ export function CollaborationSidebarView() {
       const bufferId = openBuffer(path, getBaseName(path, path), content);
       setActiveBuffer(bufferId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to open collaborator file.");
+      toast.error(
+        error instanceof Error ? error.message : t("collaboration.failedOpenCollaboratorFile"),
+      );
     }
   };
 
@@ -818,7 +827,7 @@ export function CollaborationSidebarView() {
   const createNoteFile = async (folderPath?: string | null) => {
     if (!selectedChannel || !model.canEditNotes) return;
     const path = window.prompt(
-      "Markdown file name",
+      t("collaboration.markdownFileName"),
       folderPath ? `${folderPath}/notes.md` : "notes.md",
     );
     if (!path?.trim()) return;
@@ -828,7 +837,7 @@ export function CollaborationSidebarView() {
       path: path.trim(),
       folderPath,
     });
-    const saved = await updateNote(next.contentMarkdown, "File creation failed");
+    const saved = await updateNote(next.contentMarkdown, t("collaboration.fileCreationFailed"));
     if (!saved) return;
     const file = { type: "file" as const, path: next.path, content: "" };
     setSelectedNoteItemType("file");
@@ -838,14 +847,14 @@ export function CollaborationSidebarView() {
 
   const createNoteFolder = async () => {
     if (!selectedChannel || !model.canEditNotes) return;
-    const path = window.prompt("Folder name", selectedNoteFolder?.path ?? "Notes");
+    const path = window.prompt(t("collaboration.folderName"), selectedNoteFolder?.path ?? t("collaboration.notes"));
     if (!path?.trim()) return;
 
     const next = addCollaborationNoteFolder({
       contentMarkdown: selectedNoteContent,
       path: path.trim(),
     });
-    const saved = await updateNote(next.contentMarkdown, "Folder creation failed");
+    const saved = await updateNote(next.contentMarkdown, t("collaboration.folderCreationFailed"));
     if (!saved) return;
     setSelectedNoteItemType("folder");
     setSelectedNoteFolderPath(next.path);
@@ -865,7 +874,7 @@ export function CollaborationSidebarView() {
       path: item.path,
       nextPath,
     });
-    const saved = await updateNote(next.contentMarkdown, "Rename failed");
+    const saved = await updateNote(next.contentMarkdown, t("collaboration.renameFailed"));
     if (!saved) {
       setRenamingNotePath(null);
       setRenameNoteValue("");
@@ -884,14 +893,14 @@ export function CollaborationSidebarView() {
 
   const deleteNoteItem = async (item: SidebarNoteItem) => {
     if (!selectedChannel || !model.canEditNotes) return;
-    if (!window.confirm(`Delete ${item.path}?`)) return;
+    if (!window.confirm(t("collaboration.deletePathConfirm", { path: item.path }))) return;
 
     const nextContent = deleteCollaborationNoteItem({
       contentMarkdown: selectedNoteContent,
       type: item.type,
       path: item.path,
     });
-    await updateNote(nextContent, "Delete failed");
+    await updateNote(nextContent, t("collaboration.deleteFailed"));
   };
 
   const openChannelChat = (channelId: number) => {
@@ -933,13 +942,13 @@ export function CollaborationSidebarView() {
       ? [
           {
             id: "open",
-            label: "Open Channel",
+            label: t("collaboration.openChannel"),
             icon: <ChatCircleText />,
             onClick: () => openChannelChat(channel.id),
           },
           {
             id: "change-icon",
-            label: "Change Icon",
+            label: t("collaboration.changeIcon"),
             icon: <Hash />,
             onClick: () => channelContextMenu.openAt(channelsContextMenu.position, channel),
           },
@@ -947,7 +956,7 @@ export function CollaborationSidebarView() {
       : []),
     {
       id: "new-channel",
-      label: "New Channel",
+      label: t("collaboration.newChannel"),
       icon: <Hash />,
       disabled: !collaboration?.capabilities.canCreateChannels,
       onClick: beginCreateChannel,
@@ -959,13 +968,13 @@ export function CollaborationSidebarView() {
     ? [
         {
           id: "message",
-          label: "Message",
+          label: t("collaboration.message"),
           icon: <ChatCircleText />,
           onClick: () => openPrivateChat(participant.id),
         },
         {
           id: "follow",
-          label: "Follow",
+          label: t("collaboration.follow"),
           icon: <UsersThree />,
           disabled: !participant.followableUserId || participant.followableUserId === user?.id,
           onClick: () =>
@@ -974,7 +983,7 @@ export function CollaborationSidebarView() {
         },
         {
           id: "open-file",
-          label: "Open Active File",
+          label: t("collaboration.openActiveFile"),
           icon: <FileText />,
           disabled: !participant.activeFilePath,
           onClick: () =>
@@ -987,14 +996,14 @@ export function CollaborationSidebarView() {
   const noteMenuItems: MenuItem[] = [
     {
       id: "new-file",
-      label: "New Markdown File",
+      label: t("collaboration.newMarkdownFile"),
       icon: <FileText />,
       disabled: !model.canEditNotes,
       onClick: () => void createNoteFile(item?.type === "folder" ? item.path : null),
     },
     {
       id: "new-folder",
-      label: "New Folder",
+      label: t("collaboration.newFolder"),
       icon: <Folder />,
       disabled: !model.canEditNotes,
       onClick: () => void createNoteFolder(),
@@ -1003,7 +1012,7 @@ export function CollaborationSidebarView() {
       ? [
           {
             id: "rename",
-            label: "Rename",
+            label: t("collaboration.rename"),
             icon: <FileText />,
             disabled: !model.canEditNotes,
             onClick: () => {
@@ -1013,7 +1022,7 @@ export function CollaborationSidebarView() {
           },
           {
             id: "delete",
-            label: "Delete",
+            label: t("collaboration.delete"),
             icon: <FileText />,
             disabled: !model.canEditNotes,
             onClick: () => void deleteNoteItem(item),
@@ -1034,16 +1043,16 @@ export function CollaborationSidebarView() {
             <SidebarSearchPopover
               value={channelSearchQuery}
               onChange={setChannelSearchQuery}
-              aria-label="Search channels"
+              aria-label={t("collaboration.searchChannels")}
             />
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
                   <SidebarHeaderIconButton
                     active={channelFilter !== "all"}
-                    tooltip="Filter channels"
+                    tooltip={t("collaboration.filterChannels")}
                     tooltipSide="bottom"
-                    aria-label="Filter channels"
+                    aria-label={t("collaboration.filterChannels")}
                   />
                 }
               >
@@ -1056,7 +1065,7 @@ export function CollaborationSidebarView() {
                 >
                   {CHANNEL_FILTER_OPTIONS.map((option) => (
                     <DropdownMenuRadioItem key={option.id} value={option.id} closeOnClick>
-                      {option.label}
+                      {t(option.labelKey)}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
@@ -1070,7 +1079,7 @@ export function CollaborationSidebarView() {
               count={filteredChannels.length}
               onToggle={() => setIsChannelsSectionCollapsed((collapsed) => !collapsed)}
             >
-              Channels
+              {t("collaboration.channels")}
             </SidebarSectionHeader>
             {!isChannelsSectionCollapsed ? (
               <>
@@ -1177,7 +1186,7 @@ export function CollaborationSidebarView() {
             {(channelSearch || channelFilter !== "all") &&
             filteredChannels.length === 0 &&
             filteredPrivateChatParticipants.length === 0 ? (
-              <EmptyState message="No matching channels." />
+              <EmptyState message={t("collaboration.noMatchingChannels")} />
             ) : null}
           </div>
         </ScrollArea>
@@ -1188,7 +1197,7 @@ export function CollaborationSidebarView() {
             <Button
               type="button"
               variant="ghost"
-              tooltip="Back to Channels"
+              tooltip={t("collaboration.backToChannels")}
               tooltipSide="bottom"
               onClick={() => setOpenConversation(null)}
               size="icon-sm"
@@ -1230,7 +1239,7 @@ export function CollaborationSidebarView() {
                               {entry.kind === "document" ? (
                                 <span className="mb-0.5 flex items-center gap-1.5 text-subtle-foreground">
                                   <FileText className="size-3" weight="duotone" />
-                                  Document
+                                  {t("collaboration.document")}
                                 </span>
                               ) : null}
                               {entry.body}
@@ -1242,7 +1251,7 @@ export function CollaborationSidebarView() {
                   </div>
                 ))
               ) : (
-                <EmptyState message="No chats yet." />
+                <EmptyState message={t("collaboration.noChatsYet")} />
               )}
             </div>
           </ScrollArea>
@@ -1250,7 +1259,9 @@ export function CollaborationSidebarView() {
           <CollaborationMessageComposer
             value={draft}
             placeholder={
-              model.canEditNotes ? `Message #${openChannel?.slug ?? "channel"}` : "Read only"
+              model.canEditNotes
+                ? t("collaboration.messageChannel", { channel: openChannel?.slug ?? "channel" })
+                : t("collaboration.readOnly")
             }
             error={sendError}
             disabled={!selectedChannel || !model.canEditNotes}
@@ -1268,7 +1279,7 @@ export function CollaborationSidebarView() {
             <Button
               type="button"
               variant="ghost"
-              tooltip="Back to Channels"
+              tooltip={t("collaboration.backToChannels")}
               tooltipSide="bottom"
               onClick={() => setOpenConversation(null)}
               size="icon-sm"
@@ -1295,7 +1306,7 @@ export function CollaborationSidebarView() {
                   const author = model.activeMembers.find(
                     (member) => member.id === entry.authorMemberId,
                   );
-                  const authorName = author?.name ?? "Member";
+                  const authorName = author?.name ?? t("collaboration.member");
                   return (
                     <div key={entry.id} className="flex gap-2">
                       <CollaborationAvatar name={authorName} />
@@ -1309,7 +1320,7 @@ export function CollaborationSidebarView() {
                   );
                 })
               ) : (
-                <EmptyState message="No private messages yet." />
+                <EmptyState message={t("collaboration.noPrivateMessagesYet")} />
               )}
             </div>
           </ScrollArea>
@@ -1318,8 +1329,10 @@ export function CollaborationSidebarView() {
             value={draft}
             placeholder={
               model.canEditNotes
-                ? `Message ${openPrivateParticipant?.name ?? "teammate"}`
-                : "Read only"
+                ? t("collaboration.messagePerson", {
+                    name: openPrivateParticipant?.name ?? t("collaboration.teammate"),
+                  })
+                : t("collaboration.readOnly")
             }
             error={sendError}
             disabled={!openPrivateParticipant || !model.canEditNotes}
@@ -1338,16 +1351,16 @@ export function CollaborationSidebarView() {
         <SidebarSearchPopover
           value={peopleSearchQuery}
           onChange={setPeopleSearchQuery}
-          aria-label="Search people"
+          aria-label={t("collaboration.searchPeople")}
         />
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <SidebarHeaderIconButton
                 active={peopleFilter !== "all"}
-                tooltip="Filter people"
+                tooltip={t("collaboration.filterPeople")}
                 tooltipSide="bottom"
-                aria-label="Filter people"
+                aria-label={t("collaboration.filterPeople")}
               />
             }
           >
@@ -1360,7 +1373,7 @@ export function CollaborationSidebarView() {
             >
               {PEOPLE_FILTER_OPTIONS.map((option) => (
                 <DropdownMenuRadioItem key={option.id} value={option.id} closeOnClick>
-                  {option.label}
+                  {t(option.labelKey)}
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
@@ -1416,7 +1429,9 @@ export function CollaborationSidebarView() {
         ) : (
           <Empty>
             <EmptyDescription>
-              {peopleSearch || peopleFilter !== "all" ? "No matching members." : "No members yet."}
+              {peopleSearch || peopleFilter !== "all"
+                ? t("collaboration.noMatchingMembers")
+                : t("collaboration.noMembersYet")}
             </EmptyDescription>
           </Empty>
         )}
@@ -1434,16 +1449,16 @@ export function CollaborationSidebarView() {
         <SidebarSearchPopover
           value={notesSearchQuery}
           onChange={setNotesSearchQuery}
-          aria-label="Search notes"
+          aria-label={t("collaboration.searchNotes")}
         />
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <SidebarHeaderIconButton
                 active={notesFilter !== "notes"}
-                tooltip="Filter notes"
+                tooltip={t("collaboration.filterNotes")}
                 tooltipSide="bottom"
-                aria-label="Filter notes"
+                aria-label={t("collaboration.filterNotes")}
               />
             }
           >
@@ -1456,7 +1471,7 @@ export function CollaborationSidebarView() {
             >
               {NOTE_FILTER_OPTIONS.map((option) => (
                 <DropdownMenuRadioItem key={option.id} value={option.id} closeOnClick>
-                  {option.label}
+                  {t(option.labelKey)}
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
@@ -1488,7 +1503,7 @@ export function CollaborationSidebarView() {
                       setRenamingNotePath(null);
                       setRenameNoteValue("");
                     }}
-                    aria-label={`Rename ${item.path}`}
+                    aria-label={t("collaboration.renamePath", { path: item.path })}
                   />
                 </div>
               </SidebarListEditor>
@@ -1541,11 +1556,13 @@ export function CollaborationSidebarView() {
           <Empty>
             <EmptyHeader>
               <EmptyTitle>
-                {notesFilter === "secrets" ? "No secrets yet." : "No matching notes."}
+                {notesFilter === "secrets"
+                  ? t("collaboration.noSecretsYet")
+                  : t("collaboration.noMatchingNotes")}
               </EmptyTitle>
               {notesFilter === "secrets" ? (
                 <EmptyDescription>
-                  Shared environment files will appear here when they are added.
+                  {t("collaboration.sharedEnvironmentFilesHint")}
                 </EmptyDescription>
               ) : null}
             </EmptyHeader>
@@ -1557,10 +1574,10 @@ export function CollaborationSidebarView() {
 
   return (
     <SidebarPanel>
-      <SidebarTitleBar title="Collaboration" />
+      <SidebarTitleBar title={t("collaboration.title")} />
       <SidebarTabBar
         className="relative z-10020"
-        items={COLLABORATION_TABS}
+        items={tabs}
         value={activeTab}
         onChange={selectTab}
       >

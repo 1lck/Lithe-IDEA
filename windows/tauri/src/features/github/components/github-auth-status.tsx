@@ -12,6 +12,7 @@ import {
 } from "@/ui/empty";
 import { useDesktopSignIn } from "@/features/window/hooks/use-desktop-sign-in";
 import { useAuthStore } from "@/features/window/stores/auth.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Spinner } from "@/ui/spinner";
 import { GITHUB_ACCOUNT_API_BASE, GITHUB_CONNECTION_URL } from "../services/github-token-service";
 import { useGitHubStore } from "../stores/github.store";
@@ -51,6 +52,7 @@ export function GitHubAuthStatusMessage() {
   const checkAuth = useGitHubStore.use.actions().checkAuth;
   const isLitheAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isLitheAuthLoading = useAuthStore((s) => s.isLoading);
+  const { t } = useTranslation();
   const { signIn, isSigningIn } = useDesktopSignIn({
     apiBase: GITHUB_ACCOUNT_API_BASE,
     onSuccess: () => void checkAuth({ force: true }),
@@ -67,7 +69,7 @@ export function GitHubAuthStatusMessage() {
     return (
       <Empty className="rounded-none p-4">
         <EmptyDescription>
-          <Spinner label="Checking GitHub account" showLabel compact />
+          <Spinner label={t("github.checkingAccount")} showLabel compact />
         </EmptyDescription>
       </Empty>
     );
@@ -76,7 +78,7 @@ export function GitHubAuthStatusMessage() {
   if (authError && githubAccountStatus === "unknown") {
     return (
       <GitHubAuthState
-        title="GitHub is temporarily unavailable"
+        title={t("github.temporarilyUnavailable")}
         description={authError}
         tone="error"
       >
@@ -84,10 +86,10 @@ export function GitHubAuthStatusMessage() {
           onClick={retry}
           variant="ghost"
           className="h-auto px-0 text-primary hover:bg-transparent hover:text-primary/80"
-          aria-label="Retry GitHub authentication check"
+          aria-label={t("github.retryAuthCheck")}
           size="xs"
         >
-          Retry
+          {t("github.retry")}
         </Button>
       </GitHubAuthState>
     );
@@ -96,8 +98,8 @@ export function GitHubAuthStatusMessage() {
   if (!isLitheAuthenticated || githubAccountStatus === "notSignedIn") {
     return (
       <GitHubAuthState
-        title="GitHub account required"
-        description="Sign in to Lithe to use your connected GitHub account."
+        title={t("github.accountRequired")}
+        description={t("github.accountRequiredDescription")}
         error={authError}
       >
         <Button
@@ -106,9 +108,9 @@ export function GitHubAuthStatusMessage() {
           size="xs"
           disabled={isSigningIn}
           className="h-auto px-0 text-primary hover:bg-transparent hover:text-primary/80"
-          aria-label="Sign in to Lithe"
+          aria-label={t("github.signInToLithe")}
         >
-          {isSigningIn ? "Signing in..." : "Sign in"}
+          {isSigningIn ? t("github.signingIn") : t("account.signIn")}
         </Button>
       </GitHubAuthState>
     );
@@ -117,27 +119,27 @@ export function GitHubAuthStatusMessage() {
   if (githubAccountStatus === "notConnected") {
     return (
       <GitHubAuthState
-        title="GitHub not connected"
-        description="Connect your account to use PRs, Issues, Actions, and Releases."
+        title={t("github.notConnected")}
+        description={t("github.notConnectedDescription")}
         error={authError}
       >
         <Button
           onClick={openGitHubConnection}
           variant="ghost"
           className="h-auto px-0 text-primary hover:bg-transparent hover:text-primary/80"
-          aria-label="Connect GitHub"
+          aria-label={t("github.connectGitHub")}
           size="xs"
         >
-          Connect GitHub
+          {t("github.connectGitHub")}
         </Button>
         <Button
           onClick={retry}
           variant="ghost"
           className="h-auto px-0 text-primary hover:bg-transparent hover:text-primary/80"
-          aria-label="Retry authentication check"
+          aria-label={t("github.retryAuthCheck")}
           size="xs"
         >
-          Retry
+          {t("github.retry")}
         </Button>
       </GitHubAuthState>
     );
@@ -145,27 +147,27 @@ export function GitHubAuthStatusMessage() {
 
   return (
     <GitHubAuthState
-      title="GitHub not authenticated"
-      description="Connect GitHub, then retry this view."
+      title={t("github.notAuthenticated")}
+      description={t("github.notAuthenticatedDescription")}
       error={authError}
     >
       <Button
         onClick={openGitHubConnection}
         variant="ghost"
         className="h-auto px-0 text-primary hover:bg-transparent hover:text-primary/80"
-        aria-label="Connect GitHub"
+        aria-label={t("github.connectGitHub")}
         size="xs"
       >
-        Connect GitHub
+        {t("github.connectGitHub")}
       </Button>
       <Button
         onClick={retry}
         variant="ghost"
         className="h-auto px-0 text-primary hover:bg-transparent hover:text-primary/80"
-        aria-label="Retry authentication check"
+        aria-label={t("github.retryAuthCheck")}
         size="xs"
       >
-        Retry
+        {t("github.retry")}
       </Button>
     </GitHubAuthState>
   );

@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { dispatchAIChatSkillInsert } from "@/features/ai/lib/skill-events";
 import type { AIChatSkill } from "@/features/ai/types/skills.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { cn } from "@/utils/cn";
 
@@ -16,29 +17,29 @@ const shortcutIconClassNames = ["text-primary", "text-success", "text-warning", 
 const builtinShortcuts: AIChatSkill[] = [
   {
     id: "builtin-plan-implementation",
-    title: "Plan an implementation",
-    content: "Inspect the relevant code and propose a focused implementation plan for this task:",
+    title: "aiShortcut.planImplementation",
+    content: "aiShortcut.planImplementationContent",
     createdAt: "",
     updatedAt: "",
   },
   {
     id: "builtin-find-fix-bug",
-    title: "Find and fix a bug",
-    content: "Investigate this bug, identify the root cause, implement the fix, and verify it:",
+    title: "aiShortcut.findFixBug",
+    content: "aiShortcut.findFixBugContent",
     createdAt: "",
     updatedAt: "",
   },
   {
     id: "builtin-write-tests",
-    title: "Write tests for a change",
-    content: "Inspect the relevant behavior and add focused tests for this change:",
+    title: "aiShortcut.writeTests",
+    content: "aiShortcut.writeTestsContent",
     createdAt: "",
     updatedAt: "",
   },
   {
     id: "builtin-review-changes",
-    title: "Review current changes",
-    content: "Review the current workspace changes for bugs, regressions, and missing tests:",
+    title: "aiShortcut.reviewChanges",
+    content: "aiShortcut.reviewChangesContent",
     createdAt: "",
     updatedAt: "",
   },
@@ -51,6 +52,7 @@ export function AgentShortcuts({
   className?: string;
   surfaceId: string;
 }) {
+  const { t } = useTranslation();
   const skills = useSettingsStore((state) => state.settings.aiSkills);
   const visibleSkills = useMemo(
     () =>
@@ -62,21 +64,28 @@ export function AgentShortcuts({
   );
 
   return (
-    <section className={cn("flex w-full flex-col gap-0.5", className)} aria-label="Suggestions">
+    <section
+      className={cn("flex w-full flex-col gap-0.5", className)}
+      aria-label={t("ai.suggestions")}
+    >
       {visibleSkills.map((skill, index) => {
         const Icon = shortcutIcons[index % shortcutIcons.length];
+        const isBuiltinShortcut = skill.id.startsWith("builtin-");
+        const localizedSkill = isBuiltinShortcut
+          ? { ...skill, title: t(skill.title), content: t(skill.content) }
+          : skill;
 
         return (
           <Button
-            key={skill.id}
+            key={localizedSkill.id}
             type="button"
             variant="ghost"
             size="lg"
             className="w-full justify-start overflow-hidden"
-            onClick={() => dispatchAIChatSkillInsert(skill, surfaceId)}
+            onClick={() => dispatchAIChatSkillInsert(localizedSkill, surfaceId)}
           >
             <Icon className={shortcutIconClassNames[index % shortcutIconClassNames.length]} />
-            <span className="min-w-0 truncate">{skill.title}</span>
+            <span className="min-w-0 truncate">{localizedSkill.title}</span>
           </Button>
         );
       })}

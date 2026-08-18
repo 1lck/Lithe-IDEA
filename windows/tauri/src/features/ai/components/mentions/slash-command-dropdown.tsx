@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, type RefObject } from "react";
 import type { SlashCommand } from "@/features/ai/types/acp.types";
 import type { SlashCommandState } from "@/features/ai/types/chat-composer.types";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   CommandEmpty,
   CommandItemBadge,
@@ -30,6 +31,7 @@ export const SlashCommandDropdown = React.memo(function SlashCommandDropdown({
   filteredCommands,
   onSelectedIndexChange,
 }: SlashCommandDropdownProps) {
+  const { t } = useTranslation();
   const listRef = useRef<HTMLDivElement>(null);
 
   const setIsQuickOpenVisible = useUIState((state) => state.setIsQuickOpenVisible);
@@ -83,14 +85,14 @@ export const SlashCommandDropdown = React.memo(function SlashCommandDropdown({
       open={slashCommandState.active}
       anchorRef={anchorRef}
       onClose={closeSlashCommands}
-      ariaLabel="Slash command suggestions"
+      ariaLabel={t("ai.slashCommandSuggestions")}
       maxHeight={240}
     >
       {filteredCommands.length > 0 ? (
         <CommandList
           ref={listRef}
           role="listbox"
-          aria-label="Slash command suggestions"
+          aria-label={t("ai.slashCommandSuggestions")}
           contentClassName="p-1.5"
         >
           {filteredCommands.map((command, index) => (
@@ -123,8 +125,8 @@ export const SlashCommandDropdown = React.memo(function SlashCommandDropdown({
       ) : (
         <CommandEmpty>
           {availableSlashCommands.length > 0
-            ? "No matching slash commands"
-            : "No slash commands available yet"}
+            ? t("ai.noMatchingSlashCommands")
+            : t("ai.noSlashCommandsAvailable")}
         </CommandEmpty>
       )}
     </ComposerAttachedPanel>

@@ -1,4 +1,5 @@
 import { Avatar } from "@/ui/avatar";
+import { useTranslation } from "@/i18n/locale-provider";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 
@@ -19,10 +20,12 @@ export function CollaborationAvatar({ name, online }: { name: string; online?: b
 }
 
 export function PresenceStatusDot({ online }: { online: boolean }) {
+  const { t } = useTranslation();
+
   if (!online) return null;
 
   return (
-    <Tooltip content="Online" side="top">
+    <Tooltip content={t("collaboration.online")} side="top">
       <span className="block size-2 rounded-full bg-primary" />
     </Tooltip>
   );

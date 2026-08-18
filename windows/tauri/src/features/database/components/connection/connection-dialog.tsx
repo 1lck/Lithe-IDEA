@@ -13,6 +13,7 @@ import { Marker, MarkerContent } from "@/ui/marker";
 import { Spinner } from "@/ui/spinner";
 import Select from "@/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
+import { useTranslation } from "@/i18n/locale-provider";
 import { normalizeDatabaseError } from "../../lib/database-errors";
 import type { DatabaseType } from "../../types/provider.types";
 import { PROVIDER_REGISTRY } from "../../providers/provider-registry";
@@ -45,6 +46,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<boolean | null>(null);
   const connectionFeedbackVersionRef = useRef(0);
+  const { t } = useTranslation();
 
   const installedDbTypes = getInstalledDatabaseTypes(availableExtensions);
 
@@ -60,16 +62,25 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
 
   const provider = PROVIDER_REGISTRY[dbType];
   const isFileBased = provider.isFileBased;
-  const validationError = validateConnectionInput({
-    dbType,
-    isFileBased,
-    mode,
-    filePath,
-    host,
-    port,
-    database,
-    connectionString,
-  });
+  const validationError = validateConnectionInput(
+    {
+      dbType,
+      isFileBased,
+      mode,
+      filePath,
+      host,
+      port,
+      database,
+      connectionString,
+    },
+    {
+      selectDatabaseFile: t("database.selectDatabaseFile"),
+      enterConnectionString: t("database.enterConnectionString"),
+      enterHost: t("database.enterHost"),
+      enterValidPort: t("database.enterValidPort"),
+      enterDatabaseName: t("database.enterDatabaseName"),
+    },
+  );
 
   const clearConnectionFeedback = () => {
     connectionFeedbackVersionRef.current += 1;
@@ -151,7 +162,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
       const result = await actions.testConnection(buildConfig(), password || undefined);
       if (connectionFeedbackVersionRef.current !== feedbackVersion) return;
       setTestResult(result.ok);
-      if (!result.ok) setError(result.error ?? "Connection test failed");
+      if (!result.ok) setError(result.error ?? t("database.connectionTestFailed"));
     } catch (err) {
       if (connectionFeedbackVersionRef.current !== feedbackVersion) return;
       setError(normalizeDatabaseError(err));
@@ -204,7 +215,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
   return (
     <Dialog
       onClose={onClose}
-      title="Connect to Database"
+      title={t("database.connectToDatabase")}
       headerBorder={false}
       footerBorder={false}
       classNames={{
@@ -221,11 +232,11 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
               onClick={handleTest}
               disabled={isTesting || isConnecting}
               className="gap-1.5"
-              aria-label="Test connection"
+              aria-label={t("database.testConnection")}
               size="xs"
             >
-              {isTesting ? <Spinner label="Testing" compact /> : <PlugZap />}
-              Test
+              {isTesting ? <Spinner label={t("database.testing")} compact /> : <PlugZap />}
+              {t("database.test")}
             </Button>
           )}
           <Button
@@ -233,18 +244,18 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
             onClick={handleConnect}
             disabled={installedDbTypes.length === 0 || isConnecting || validationError !== null}
             className="gap-1.5"
-            aria-label={isFileBased ? "Open database" : "Connect"}
+            aria-label={isFileBased ? t("database.openDatabase") : t("database.connect")}
             size="xs"
           >
-            {isConnecting && <Spinner label="Connecting" compact />}
-            {isFileBased ? "Open Database" : "Connect"}
+            {isConnecting && <Spinner label={t("database.connecting")} compact />}
+            {isFileBased ? t("database.openDatabase") : t("database.connect")}
           </Button>
         </>
       }
     >
       {installedDbTypes.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface/35 px-3 py-2 text-subtle-foreground ui-text-sm">
-          Install a database provider from Settings &gt; Extensions to connect to databases.
+          {t("database.installProviderFromExtensions")}
         </div>
       ) : null}
 
@@ -262,11 +273,15 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
 
       <Tabs value={mode} onValueChange={(value) => handleModeChange(value as "form" | "string")}>
         <TabsList variant="default" className="grid w-full grid-cols-2">
-          <TabsTrigger value="form" aria-label="Form mode">
-            Form
+          <TabsTrigger value="form" aria-label={t("database.formMode")}>
+            {t("database.form")}
           </TabsTrigger>
-          <TabsTrigger value="string" aria-label="Connection string mode" disabled={isFileBased}>
-            Connection String
+          <TabsTrigger
+            value="string"
+            aria-label={t("database.connectionStringMode")}
+            disabled={isFileBased}
+          >
+            {t("database.connectionString")}
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -274,7 +289,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
       {mode === "form" ? (
         <div className="space-y-3">
           <Field>
-            <FieldLabel htmlFor="db-conn-name">Connection Name</FieldLabel>
+            <FieldLabel htmlFor="db-conn-name">{t("database.connectionName")}</FieldLabel>
             <Input
               id="db-conn-name"
               className="w-full"
@@ -286,14 +301,14 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
 
           {isFileBased ? (
             <Field>
-              <FieldLabel htmlFor="db-conn-file">Database File</FieldLabel>
+              <FieldLabel htmlFor="db-conn-file">{t("database.databaseFile")}</FieldLabel>
               <div className="flex gap-2">
                 <Input
                   id="db-conn-file"
                   className="w-full"
                   value={filePath}
                   onChange={(e) => updateConnectionField(setFilePath, e.target.value)}
-                  placeholder="Select a SQLite database file"
+                  placeholder={t("database.selectSqliteDatabaseFile")}
                 />
                 <Button
                   type="button"
@@ -303,7 +318,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
                   size="xs"
                 >
                   <FolderOpen />
-                  Browse
+                  {t("ui.browse")}
                 </Button>
               </div>
             </Field>
@@ -311,7 +326,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
             <>
               <div className="flex gap-3">
                 <Field className="flex-1">
-                  <FieldLabel htmlFor="db-conn-host">Host</FieldLabel>
+                  <FieldLabel htmlFor="db-conn-host">{t("database.host")}</FieldLabel>
                   <Input
                     id="db-conn-host"
                     className="w-full"
@@ -320,7 +335,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
                   />
                 </Field>
                 <Field className="w-24">
-                  <FieldLabel htmlFor="db-conn-port">Port</FieldLabel>
+                  <FieldLabel htmlFor="db-conn-port">{t("database.port")}</FieldLabel>
                   <Input
                     id="db-conn-port"
                     type="number"
@@ -332,7 +347,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
               </div>
               {dbType !== "redis" && (
                 <Field>
-                  <FieldLabel htmlFor="db-conn-database">Database</FieldLabel>
+                  <FieldLabel htmlFor="db-conn-database">{t("database.database")}</FieldLabel>
                   <Input
                     id="db-conn-database"
                     className="w-full"
@@ -343,7 +358,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
               )}
               <div className="flex gap-3">
                 <Field className="flex-1">
-                  <FieldLabel htmlFor="db-conn-username">Username</FieldLabel>
+                  <FieldLabel htmlFor="db-conn-username">{t("database.username")}</FieldLabel>
                   <Input
                     id="db-conn-username"
                     className="w-full"
@@ -352,7 +367,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
                   />
                 </Field>
                 <Field className="flex-1">
-                  <FieldLabel htmlFor="db-conn-password">Password</FieldLabel>
+                  <FieldLabel htmlFor="db-conn-password">{t("database.password")}</FieldLabel>
                   <Input
                     id="db-conn-password"
                     type="password"
@@ -367,13 +382,13 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
                   id="db-conn-save-password"
                   checked={saveCredential}
                   onCheckedChange={(checked) => updateConnectionField(setSaveCredential, checked)}
-                  aria-label="Save password securely"
+                  aria-label={t("database.savePasswordSecurely")}
                 />
                 <FieldLabel
                   htmlFor="db-conn-save-password"
                   className="cursor-pointer text-subtle-foreground"
                 >
-                  Save password securely
+                  {t("database.savePasswordSecurely")}
                 </FieldLabel>
               </Field>
             </>
@@ -381,7 +396,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
         </div>
       ) : (
         <Field>
-          <FieldLabel htmlFor="db-conn-string">Connection String</FieldLabel>
+          <FieldLabel htmlFor="db-conn-string">{t("database.connectionString")}</FieldLabel>
           <Input
             id="db-conn-string"
             className="w-full"
@@ -400,7 +415,7 @@ export function ConnectionDialog({ isOpen, onClose }: ConnectionDialogProps) {
 
       {testResult === true && (
         <Marker tone="success">
-          <MarkerContent>Connection test successful</MarkerContent>
+          <MarkerContent>{t("database.connectionTestSuccessful")}</MarkerContent>
         </Marker>
       )}
     </Dialog>

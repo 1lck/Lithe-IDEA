@@ -11,6 +11,7 @@ import { ViewerLayout } from "@/features/viewer/components/viewer-layout";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 import { ViewerLoadingState } from "@/features/viewer/components/viewer-state";
 import { useProjectStore } from "@/features/window/stores/project.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { writeClipboardText } from "@/utils/clipboard";
 import { useEmbeddedWebview } from "../hooks/use-embedded-webview";
 import { useWebViewerNavigationStore } from "../stores/web-viewer-navigation.store";
@@ -93,6 +94,7 @@ export function WebViewer({
   isActive = true,
   isVisible = true,
 }: WebViewerProps) {
+  const { t } = useTranslation();
   const canOpenDevTools = import.meta.env.DEV;
   const isNewTab = initialUrl === "https://" || initialUrl === "http://" || !initialUrl;
   const [currentUrl, setCurrentUrl] = useState(isNewTab ? "" : initialUrl);
@@ -143,7 +145,7 @@ export function WebViewer({
     isVisible,
     onLoadStateChange: setIsLoading,
   });
-  const security = getWebViewerSecurity(currentUrl);
+  const security = getWebViewerSecurity(currentUrl, t);
 
   useEffect(() => {
     if (webViewerBuffer?.type !== "webViewer") return;
@@ -867,9 +869,9 @@ export function WebViewer({
             {!currentUrl && !isLoading && (
               <Empty className="absolute inset-0 bg-background px-6">
                 <EmptyHeader>
-                  <EmptyTitle>Open a page</EmptyTitle>
+                  <EmptyTitle>{t("viewer.openPage")}</EmptyTitle>
                   <EmptyDescription>
-                    Enter a URL to load a website, local development server, or app-bound page.
+                    {t("viewer.openPageDescription")}
                   </EmptyDescription>
                 </EmptyHeader>
               </Empty>
@@ -877,7 +879,7 @@ export function WebViewer({
 
             {isLoading && (
               <div className="absolute inset-0 z-50">
-                <ViewerLoadingState label="Loading page" />
+                <ViewerLoadingState label={t("viewer.loadingPage")} />
               </div>
             )}
           </div>

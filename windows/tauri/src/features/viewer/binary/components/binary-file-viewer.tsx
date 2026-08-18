@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card";
 import { FileIcon } from "@/ui/icons";
 import { ScrollArea } from "@/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/ui/table";
+import { useTranslation } from "@/i18n/locale-provider";
 import { formatFileSize } from "@/utils/format-file-size";
 import { cn } from "@/utils/cn";
 import { getRelativePath } from "@/utils/path-helpers";
@@ -21,6 +22,7 @@ interface BinaryFileViewerProps {
 }
 
 export function BinaryFileViewer({ filePath, fileName, rootFolderPath }: BinaryFileViewerProps) {
+  const { t } = useTranslation();
   const [metadata, setMetadata] = useState<BinaryMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export function BinaryFileViewer({ filePath, fileName, rootFolderPath }: BinaryF
         const data = await readFile(filePath);
         setMetadata(getBinaryMetadata(data, filePath));
       } catch (err) {
-        setError(`Failed to read file: ${err}`);
+        setError(t("viewer.failedToReadFile", { error: String(err) }));
       } finally {
         setLoading(false);
       }
@@ -46,11 +48,11 @@ export function BinaryFileViewer({ filePath, fileName, rootFolderPath }: BinaryF
   }, [filePath]);
 
   if (loading) {
-    return <ViewerLoadingState label="Loading binary file" />;
+    return <ViewerLoadingState label={t("viewer.loadingBinaryFile")} />;
   }
 
   if (error || !metadata) {
-    return <ViewerErrorState message={error || "Failed to load file"} />;
+    return <ViewerErrorState message={error || t("viewer.failedToLoadFile")} />;
   }
 
   return (
@@ -69,25 +71,25 @@ export function BinaryFileViewer({ filePath, fileName, rootFolderPath }: BinaryF
         <div className="mx-auto max-w-2xl space-y-4">
           <Card className="gap-0 border-border/60 py-0">
             <CardHeader className="border-border/40 border-b py-2.5">
-              <CardTitle>File Information</CardTitle>
+              <CardTitle>{t("viewer.fileInformation")}</CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-x-6 gap-y-2 py-4">
-              <InfoRow label="Type" value={metadata.fileType} />
-              <InfoRow label="Size" value={formatFileSize(metadata.fileSize)} />
-              <InfoRow label="Extension" value={`.${ext.toLowerCase()}`} />
-              <InfoRow label="Path" value={relativePath} />
+              <InfoRow label={t("viewer.type")} value={metadata.fileType} />
+              <InfoRow label={t("viewer.size")} value={formatFileSize(metadata.fileSize)} />
+              <InfoRow label={t("viewer.extension")} value={`.${ext.toLowerCase()}`} />
+              <InfoRow label={t("viewer.path")} value={relativePath} />
             </CardContent>
           </Card>
 
           {metadata.wasmMetadata && (
             <Card className="gap-0 border-border/60 py-0">
               <CardHeader className="border-border/40 border-b py-2.5">
-                <CardTitle>WebAssembly Module</CardTitle>
+                <CardTitle>{t("viewer.webAssemblyModule")}</CardTitle>
               </CardHeader>
               <CardContent className="py-4">
                 <div className="mb-3 grid grid-cols-2 gap-x-6 gap-y-2">
-                  <InfoRow label="WASM Version" value={`${metadata.wasmMetadata.version}`} />
-                  <InfoRow label="Sections" value={`${metadata.wasmMetadata.sections.length}`} />
+                  <InfoRow label={t("viewer.wasmVersion")} value={`${metadata.wasmMetadata.version}`} />
+                  <InfoRow label={t("viewer.sections")} value={`${metadata.wasmMetadata.sections.length}`} />
                 </div>
 
                 {metadata.wasmMetadata.sections.length > 0 && (
@@ -95,8 +97,12 @@ export function BinaryFileViewer({ filePath, fileName, rootFolderPath }: BinaryF
                     <Table>
                       <TableHeader className="static bg-background/50">
                         <TableRow>
-                          <TableHead className="px-3 font-normal">Section</TableHead>
-                          <TableHead className="px-3 text-right font-normal">Size</TableHead>
+                          <TableHead className="px-3 font-normal">
+                            {t("viewer.section")}
+                          </TableHead>
+                          <TableHead className="px-3 text-right font-normal">
+                            {t("viewer.size")}
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -124,7 +130,7 @@ export function BinaryFileViewer({ filePath, fileName, rootFolderPath }: BinaryF
 
           <Card className="gap-0 border-border/60 py-0">
             <CardHeader className="border-border/40 border-b py-2.5">
-              <CardTitle>Hex Preview</CardTitle>
+              <CardTitle>{t("viewer.hexPreview")}</CardTitle>
             </CardHeader>
             <CardContent className="overflow-auto py-4">
               <pre className="ui-text-sm font-mono text-subtle-foreground leading-4.5">

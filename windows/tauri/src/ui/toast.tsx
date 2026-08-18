@@ -5,6 +5,7 @@ import { Toast as ToastPrimitive } from "@base-ui/react/toast";
 
 import { cn } from "@/utils/cn";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import {
   AiLoadingIcon,
   CheckCircleIcon,
@@ -118,10 +119,12 @@ function ToastClose({
   render = <Button variant="ghost" size="icon-sm" />,
   ...props
 }: ToastPrimitive.Close.Props) {
+  const { t } = useTranslation();
+
   return (
     <ToastPrimitive.Close
       data-slot="toast-close"
-      aria-label="Close toast"
+      aria-label={t("ui.closeToast")}
       render={render}
       className={cn(
         "relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground",

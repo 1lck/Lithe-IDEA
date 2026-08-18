@@ -16,6 +16,7 @@ import Command, {
   CommandItemRow,
   CommandList,
 } from "@/ui/command";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 import { ProviderIcon } from "../icons/provider-icons";
 
@@ -45,6 +46,7 @@ export default function ChatHistoryDropdown({
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const { t } = useTranslation();
 
   const filteredChats = useMemo(() => {
     const query = deferredSearchQuery.trim().toLowerCase();
@@ -118,15 +120,15 @@ export default function ChatHistoryDropdown({
           ref={inputRef}
           value={searchQuery}
           onChange={setSearchQuery}
-          placeholder="Search agent history..."
+          placeholder={t("aiHistory.searchPlaceholder")}
         />
       </CommandHeader>
 
       <CommandList ref={resultsRef}>
         {chats.length === 0 ? (
-          <CommandEmpty>No agent history yet</CommandEmpty>
+          <CommandEmpty>{t("aiHistory.empty")}</CommandEmpty>
         ) : filteredChats.length === 0 ? (
-          <CommandEmpty>No sessions match "{searchQuery}"</CommandEmpty>
+          <CommandEmpty>{t("aiHistory.noMatches", { query: searchQuery })}</CommandEmpty>
         ) : (
           filteredChats.map((chat, index) => {
             const isCurrent = chat.id === currentChatId;
@@ -159,8 +161,8 @@ export default function ChatHistoryDropdown({
                 title={<span className={cn(isCurrent && "text-primary")}>{chat.title}</span>}
                 accessory={
                   <>
-                    {chat.isPinned ? <CommandItemBadge>Pinned</CommandItemBadge> : null}
-                    {chat.archivedAt ? <CommandItemBadge>Archived</CommandItemBadge> : null}
+                    {chat.isPinned ? <CommandItemBadge>{t("layout.pinned")}</CommandItemBadge> : null}
+                    {chat.archivedAt ? <CommandItemBadge>{t("aiHistory.archived")}</CommandItemBadge> : null}
                     <CommandItemBadge>{providerLabel}</CommandItemBadge>
                     <CommandItemBadge>{getRelativeTime(chat.lastMessageAt)}</CommandItemBadge>
                   </>
@@ -174,8 +176,8 @@ export default function ChatHistoryDropdown({
                           event.stopPropagation();
                           onSetChatArchived(chat.id, false);
                         }}
-                        aria-label={`Restore ${chat.title}`}
-                        tooltip="Restore session"
+                        aria-label={t("aiHistory.restoreSessionNamed", { title: chat.title })}
+                        tooltip={t("aiHistory.restoreSession")}
                       >
                         <Restore size={13} />
                       </CommandItemAction>
@@ -187,8 +189,8 @@ export default function ChatHistoryDropdown({
                         event.stopPropagation();
                         onDeleteChat(chat.id, event);
                       }}
-                      aria-label={`Delete ${chat.title}`}
-                      tooltip="Delete session"
+                      aria-label={t("aiHistory.deleteSessionNamed", { title: chat.title })}
+                      tooltip={t("aiHistory.deleteSession")}
                     >
                       <Trash2 size={13} />
                     </CommandItemAction>

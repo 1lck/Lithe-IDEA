@@ -717,11 +717,21 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const indexingProgress = multiDiff.indexingProgress;
   const isIndexingDiffs = Boolean(multiDiff.isLoading);
   const indexingLabel = indexingProgress
-    ? `${indexingProgress.label ?? "Indexing"} ${indexingProgress.processed.toLocaleString()}/${indexingProgress.total.toLocaleString()}`
-    : "Indexing changes";
+    ? t("git.indexingWithCount", {
+        label: indexingProgress.label ?? t("git.indexing"),
+        processed: indexingProgress.processed.toLocaleString(),
+        total: indexingProgress.total.toLocaleString(),
+      })
+    : t("git.indexingChanges");
   const indexedFileLabel = indexingProgress
-    ? `${multiDiff.files.length.toLocaleString()} of ${indexingProgress.total.toLocaleString()} changed files`
-    : `${multiDiff.totalFiles.toLocaleString()} changed file${multiDiff.totalFiles !== 1 ? "s" : ""}`;
+    ? t("git.indexedFilesOfTotal", {
+        visible: multiDiff.files.length.toLocaleString(),
+        total: indexingProgress.total.toLocaleString(),
+      })
+    : t("git.changedFilesCount", {
+        count: multiDiff.totalFiles.toLocaleString(),
+        plural: multiDiff.totalFiles !== 1 ? "s" : "",
+      });
   const diffFileItems = useMemo<FileNavigatorItem[]>(
     () =>
       multiDiff.files.map((diff, index) => {
@@ -1116,9 +1126,13 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 active={isFileTreeVisible}
                 onClick={() => setIsFileTreeVisible((current) => !current)}
                 className="gap-1"
-                tooltip={isFileTreeVisible ? "Hide changed files" : "Show changed files"}
+                tooltip={
+                  isFileTreeVisible ? t("git.diff.hideChangedFiles") : t("git.diff.showChangedFiles")
+                }
                 tooltipSide="bottom"
-                aria-label={isFileTreeVisible ? "Hide changed files" : "Show changed files"}
+                aria-label={
+                  isFileTreeVisible ? t("git.diff.hideChangedFiles") : t("git.diff.showChangedFiles")
+                }
               >
                 <ListBullets weight="duotone" />
               </BreadcrumbActionButton>
@@ -1140,25 +1154,25 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 onClick={() => setViewMode("split")}
                 tooltip={
                   splitViewDisabled
-                    ? "Split view is unavailable for added or deleted files"
-                    : "Split view"
+                    ? t("git.diff.splitUnavailableForAddedDeleted")
+                    : t("git.diff.split")
                 }
                 tooltipSide="bottom"
-                aria-label="Split view"
+                aria-label={t("git.diff.split")}
                 disabled={splitViewDisabled}
               >
                 <Columns2 weight="duotone" />
               </BreadcrumbActionButton>
             </div>
             <DropdownMenu>
-              <Tooltip content="Diff actions" side="bottom">
+              <Tooltip content={t("git.diff.actions")} side="bottom">
                 <DropdownMenuTrigger
                   render={
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon-xs"
-                      aria-label="Diff actions"
+                      aria-label={t("git.diff.actions")}
                     />
                   }
                 >
@@ -1168,7 +1182,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               <DropdownMenuContent>
                 {githubCommitUrl ? (
                   <DropdownMenuItem onClick={() => void openUrl(githubCommitUrl)}>
-                    View on GitHub
+                    {t("git.diff.viewOnGitHub")}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem onClick={() => setShowWhitespace((current) => !current)}>
@@ -1304,15 +1318,18 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
             }
           }}
           onClose={() => setIsFindVisible(false)}
-          placeholder="Search changes"
+          placeholder={t("git.diff.searchChanges")}
           inputRef={searchInputRef}
           matchLabel={
             searchQuery
               ? isInvalidSearch
-                ? "Invalid expression"
+                ? t("git.diff.invalidExpression")
                 : searchMatches.length > 0
-                  ? `${currentSearchMatchIndex + 1} of ${searchMatches.length}`
-                  : "No results"
+                  ? t("git.diff.matchCount", {
+                      current: currentSearchMatchIndex + 1,
+                      total: searchMatches.length,
+                    })
+                  : t("git.diff.noResults")
               : null
           }
           matchTone={
@@ -1326,7 +1343,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
           options={[
             {
               id: "case-sensitive",
-              label: "Match case",
+              label: t("search.matchCase"),
               icon: SEARCH_TOGGLE_ICONS.caseSensitive,
               active: searchOptions.caseSensitive,
               onToggle: () =>
@@ -1337,7 +1354,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
             },
             {
               id: "whole-word",
-              label: "Match whole word",
+              label: t("search.matchWholeWord"),
               icon: SEARCH_TOGGLE_ICONS.wholeWord,
               active: searchOptions.wholeWord,
               onToggle: () =>
@@ -1348,7 +1365,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
             },
             {
               id: "regex",
-              label: "Use regular expression",
+              label: t("search.useRegex"),
               icon: SEARCH_TOGGLE_ICONS.regex,
               active: searchOptions.useRegex,
               onToggle: () =>
@@ -1407,7 +1424,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
               items={diffFileItems}
               selectedKey={selectedFileKey}
               onSelect={handleSelectFileFromTree}
-              ariaLabel="Changed files"
+              ariaLabel={t("git.diff.changedFiles")}
               viewMode={fileNavigatorViewMode}
               onViewModeChange={setFileNavigatorViewMode}
               surface="review"
@@ -1449,7 +1466,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 </div>
               ) : (
                 <Empty className="h-full rounded-none bg-background">
-                  <EmptyDescription>No changed file selected</EmptyDescription>
+                  <EmptyDescription>{t("git.diff.noChangedFileSelected")}</EmptyDescription>
                 </Empty>
               )
             ) : (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import Input from "@/ui/input";
 import { Spinner } from "@/ui/spinner";
 import GitHubMarkdown from "./github-markdown";
@@ -11,6 +12,7 @@ interface GitHubInlineTitleProps {
 }
 
 export function GitHubInlineTitle({ value, onSave }: GitHubInlineTitleProps) {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -26,7 +28,7 @@ export function GitHubInlineTitle({ value, onSave }: GitHubInlineTitleProps) {
         type="button"
         className="block w-full rounded-lg text-left outline-none hover:bg-accent/35 focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => setIsEditing(true)}
-        aria-label="Edit title"
+        aria-label={t("github.editTitle")}
       >
         <span className="block font-sans text-2xl leading-tight font-semibold tracking-tight text-foreground">
           {value}
@@ -74,13 +76,13 @@ export function GitHubInlineTitle({ value, onSave }: GitHubInlineTitleProps) {
         variant="ghost"
         size="md"
         className="github-composer-title h-auto px-0 py-0.5 font-semibold tracking-tight"
-        aria-label="Title"
+        aria-label={t("github.title")}
         disabled={isSaving}
         autoFocus
       />
       {isSaving ? (
         <div className="absolute top-1/2 right-1 -translate-y-1/2">
-          <Spinner label="Saving title" compact />
+          <Spinner label={t("github.savingTitle")} compact />
         </div>
       ) : null}
     </div>
@@ -102,6 +104,7 @@ export function GitHubInlineMarkdown({
   repoPath,
   onSave,
 }: GitHubInlineMarkdownProps) {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -129,7 +132,7 @@ export function GitHubInlineMarkdown({
             setIsEditing(true);
           }
         }}
-        aria-label="Edit description"
+        aria-label={t("github.editDescription")}
       >
         {value ? (
           <GitHubMarkdown
@@ -162,7 +165,7 @@ export function GitHubInlineMarkdown({
       <GitHubMarkdownEditor
         value={draft}
         onChange={setDraft}
-        placeholder="Write a description..."
+        placeholder={t("github.writeDescription")}
         minHeight={220}
         autoFocus
         disabled={isSaving}
@@ -178,7 +181,7 @@ export function GitHubInlineMarkdown({
             setIsEditing(false);
           }}
         >
-          Cancel
+          {t("github.cancel")}
         </Button>
         <Button
           type="button"
@@ -187,8 +190,8 @@ export function GitHubInlineMarkdown({
           disabled={isSaving}
           onClick={() => void save()}
         >
-          {isSaving ? <Spinner label="Saving" compact /> : null}
-          Save
+          {isSaving ? <Spinner label={t("github.saving")} compact /> : null}
+          {t("github.save")}
         </Button>
       </div>
     </div>

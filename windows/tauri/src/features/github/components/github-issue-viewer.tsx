@@ -11,6 +11,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { Button } from "@/ui/button";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Empty, EmptyDescription } from "@/ui/empty";
 import {
   DropdownMenu,
@@ -60,6 +61,7 @@ interface GitHubIssueViewerProps {
 }
 
 const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssueViewerProps) => {
+  const { t } = useTranslation();
   const updateBuffer = useBufferStore.use.actions().updateBuffer;
   const buffer = useBufferStore((state) => state.buffers.find((item) => item.id === bufferId));
   const [details, setDetails] = useState<IssueDetails | null>(null);
@@ -89,7 +91,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
   const fetchIssue = useCallback(
     async (force = false) => {
       if (!repoPath) {
-        setError("No repository selected.");
+        setError(t("github.noRepositorySelected"));
         setIsLoading(false);
         return;
       }
@@ -129,7 +131,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
         setIsLoading(false);
       }
     },
-    [issueNumber, repoPath],
+    [issueNumber, repoPath, t],
   );
 
   useEffect(() => {
@@ -214,19 +216,19 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
 
   const handleOpenInBrowser = useCallback(() => {
     if (!details?.url) {
-      toast.error("Issue link is not available.");
+      toast.error(t("github.issueLinkUnavailable"));
       return;
     }
     void openUrl(details.url);
-  }, [details?.url]);
+  }, [details?.url, t]);
 
   const handleCopyIssueLink = useCallback(() => {
     if (!details?.url) {
-      toast.error("Issue link is not available.");
+      toast.error(t("github.issueLinkUnavailable"));
       return;
     }
-    void copyToClipboard(details.url, "Issue link copied");
-  }, [details?.url]);
+    void copyToClipboard(details.url, t("github.issueLinkCopied"));
+  }, [details?.url, t]);
 
   const applyIssueDetails = useCallback(
     (nextDetails: IssueDetails) => {
@@ -270,11 +272,11 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
           }),
         (nextDetails) => {
           applyIssueDetails(nextDetails);
-          toast.success(state === "open" ? "Issue reopened" : "Issue closed");
+          toast.success(state === "open" ? t("github.issueReopened") : t("github.issueClosed"));
         },
       );
     },
-    [applyIssueDetails, issueNumber, repoPath, runMutation],
+    [applyIssueDetails, issueNumber, repoPath, runMutation, t],
   );
 
   const updateIssue = useCallback(
@@ -301,11 +303,11 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
           }),
         (nextDetails) => {
           applyIssueDetails(nextDetails);
-          toast.success("Issue updated");
+          toast.success(t("github.issueUpdated"));
         },
       );
     },
-    [applyIssueDetails, details, issueNumber, repoPath, runMutation],
+    [applyIssueDetails, details, issueNumber, repoPath, runMutation, t],
   );
 
   const updateLock = useCallback(
@@ -321,11 +323,11 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
         () => {
           githubIssueDetailsCache.clear(`${repoPath}::${issueNumber}`);
           void fetchIssue(true);
-          toast.success(shouldUnlock ? "Issue unlocked" : "Issue locked");
+          toast.success(shouldUnlock ? t("github.issueUnlocked") : t("github.issueLocked"));
         },
       );
     },
-    [details, fetchIssue, issueNumber, repoPath, runMutation],
+    [details, fetchIssue, issueNumber, repoPath, runMutation, t],
   );
 
   const addComment = useCallback(async () => {
@@ -342,10 +344,10 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
         if (details) applyIssueDetails({ ...details, comments: [...details.comments, comment] });
         setCommentBody("");
         setVisibleCommentCount(Number.MAX_SAFE_INTEGER);
-        toast.success("Comment added");
+        toast.success(t("github.commentAdded"));
       },
     );
-  }, [applyIssueDetails, commentBody, details, issueNumber, repoPath, runMutation]);
+  }, [applyIssueDetails, commentBody, details, issueNumber, repoPath, runMutation, t]);
 
   const editComment = useCallback(
     (commentId: number, body: string) => {
@@ -360,11 +362,11 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
               comments: details.comments.map((item) => (item.id === commentId ? comment : item)),
             });
           }
-          toast.success("Comment updated");
+          toast.success(t("github.commentUpdated"));
         },
       );
     },
-    [applyIssueDetails, details, repoPath, runMutation],
+    [applyIssueDetails, details, repoPath, runMutation, t],
   );
 
   const deleteComment = useCallback(
@@ -380,11 +382,11 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
               comments: details.comments.filter((item) => item.id !== commentId),
             });
           }
-          toast.success("Comment deleted");
+          toast.success(t("github.commentDeleted"));
         },
       );
     },
-    [applyIssueDetails, details, repoPath, runMutation],
+    [applyIssueDetails, details, repoPath, runMutation, t],
   );
 
   return (
@@ -396,7 +398,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
               <span className="shrink-0 text-subtle-foreground">{`Issue #${issueNumber}`}</span>
               <span className="text-subtle-foreground/60">&rsaquo;</span>
               <span className="min-w-0 truncate">
-                {details?.title ?? buffer?.name ?? "Loading issue"}
+                {details?.title ?? buffer?.name ?? t("github.loadingIssue")}
               </span>
             </span>
           }
@@ -410,8 +412,8 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                   variant="ghost"
                   size="xs"
                 >
-                  {mutationKey === "state" ? <Spinner label="Closing" compact /> : <CheckCircle />}
-                  Close
+                  {mutationKey === "state" ? <Spinner label={t("github.closing")} compact /> : <CheckCircle />}
+                  {t("github.close")}
                 </Button>
               ) : (
                 <Button
@@ -421,19 +423,19 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                   variant="ghost"
                   size="xs"
                 >
-                  {mutationKey === "state" ? <Spinner label="Reopening" compact /> : <CircleDot />}
-                  Reopen
+                  {mutationKey === "state" ? <Spinner label={t("github.reopening")} compact /> : <CircleDot />}
+                  {t("github.reopen")}
                 </Button>
               )}
               <DropdownMenu>
-                <Tooltip content="Issue actions" side="bottom">
+                <Tooltip content={t("github.issueActions")} side="bottom">
                   <DropdownMenuTrigger
                     render={
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon-xs"
-                        aria-label="Issue actions"
+                        aria-label={t("github.issueActions")}
                       />
                     }
                   >
@@ -446,7 +448,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                       disabled={Boolean(mutationKey)}
                       onClick={() => void updateIssueState("closed", "not_planned")}
                     >
-                      Close as not planned
+                      {t("github.closeAsNotPlanned")}
                     </DropdownMenuItem>
                   ) : null}
                   {details?.locked ? (
@@ -455,7 +457,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                       onClick={() => void updateLock()}
                     >
                       <LockOpen />
-                      Unlock conversation
+                      {t("github.unlockConversation")}
                     </DropdownMenuItem>
                   ) : (
                     <>
@@ -464,25 +466,25 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                         onClick={() => void updateLock("resolved")}
                       >
                         <Lock />
-                        Lock as resolved
+                        {t("github.lockAsResolved")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         disabled={Boolean(mutationKey)}
                         onClick={() => void updateLock("off-topic")}
                       >
-                        Lock as off-topic
+                        {t("github.lockAsOffTopic")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         disabled={Boolean(mutationKey)}
                         onClick={() => void updateLock("too heated")}
                       >
-                        Lock as too heated
+                        {t("github.lockAsTooHeated")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         disabled={Boolean(mutationKey)}
                         onClick={() => void updateLock("spam")}
                       >
-                        Lock as spam
+                        {t("github.lockAsSpam")}
                       </DropdownMenuItem>
                     </>
                   )}
@@ -490,10 +492,10 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                     disabled={isLoading && Boolean(details)}
                     onClick={() => void fetchIssue(true)}
                   >
-                    {isLoading && details ? "Refreshing..." : "Refresh"}
+                    {isLoading && details ? t("github.refreshing") : t("github.refresh")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleOpenInBrowser}>Open on GitHub</DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleCopyIssueLink}>Copy link</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleOpenInBrowser}>{t("github.openOnGitHub")}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleCopyIssueLink}>{t("github.copyLink")}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </>
@@ -504,7 +506,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
       {error ? (
         <GitHubViewerState
           description={error}
-          actionLabel="Retry"
+          actionLabel={t("github.retry")}
           onAction={() => void fetchIssue(true)}
           tone="error"
         />
@@ -512,7 +514,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
         <GitHubDetailLayout
           sidebar={
             <GitHubDetailSidebar>
-              <GitHubDetailSection label="Status">
+              <GitHubDetailSection label={t("github.status")}>
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <CircleDot
@@ -534,19 +536,19 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                       <Lock />
                       <span>
                         {details.activeLockReason
-                          ? `Locked as ${details.activeLockReason}`
-                          : "Locked"}
+                          ? t("github.lockedAs", { reason: details.activeLockReason })
+                          : t("github.locked")}
                       </span>
                     </div>
                   ) : null}
                 </div>
               </GitHubDetailSection>
 
-              <GitHubDetailSection label="Type">
+              <GitHubDetailSection label={t("github.type")}>
                 <Select
                   value={details.issueType?.name ?? "none"}
                   options={[
-                    { value: "none", label: "No type" },
+                    { value: "none", label: t("github.noType") },
                     ...issueTypes.map((issueType) => ({
                       value: issueType.name,
                       label: issueType.name,
@@ -560,15 +562,15 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                   variant="ghost"
                   className="w-full"
                   triggerClassName="justify-start"
-                  aria-label="Issue type"
+                  aria-label={t("github.issueType")}
                 />
               </GitHubDetailSection>
 
-              <GitHubDetailSection label="Milestone">
+              <GitHubDetailSection label={t("github.milestone")}>
                 <Select
                   value={details.milestone?.number.toString() ?? "none"}
                   options={[
-                    { value: "none", label: "No milestone" },
+                    { value: "none", label: t("github.noMilestone") },
                     ...milestones.map((milestone) => ({
                       value: milestone.number.toString(),
                       label: milestone.title,
@@ -583,12 +585,12 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                   variant="ghost"
                   className="w-full"
                   triggerClassName="justify-start"
-                  aria-label="Issue milestone"
+                  aria-label={t("github.issueMilestone")}
                 />
               </GitHubDetailSection>
 
               <GitHubDetailSection
-                label="Assignees"
+                label={t("github.assignees")}
                 action={
                   <GitHubAssigneePicker
                     value={details.assignees.map((assignee) => assignee.login)}
@@ -620,12 +622,12 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                     ))}
                   </div>
                 ) : (
-                  <span className="text-subtle-foreground">Unassigned</span>
+                  <span className="text-subtle-foreground">{t("github.unassigned")}</span>
                 )}
               </GitHubDetailSection>
 
               <GitHubDetailSection
-                label="Labels"
+                label={t("github.labels")}
                 action={
                   <GitHubLabelPicker
                     labels={availableLabels}
@@ -641,17 +643,17 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                 {details.labels.length > 0 ? (
                   <LabelBadges labels={details.labels} />
                 ) : (
-                  <span className="text-subtle-foreground">No labels</span>
+                  <span className="text-subtle-foreground">{t("github.noLabels")}</span>
                 )}
               </GitHubDetailSection>
 
-              <GitHubDetailSection label="Activity">
+              <GitHubDetailSection label={t("github.activity")}>
                 <div className="space-y-1 text-subtle-foreground">
-                  <p>{`${details.comments.length} comments`}</p>
-                  <p>{`Opened ${getTimeAgo(details.createdAt)}`}</p>
-                  <p>{`Updated ${getTimeAgo(details.updatedAt)}`}</p>
-                  {details.closedAt ? <p>{`Closed ${getTimeAgo(details.closedAt)}`}</p> : null}
-                  {details.closedBy ? <p>{`Closed by ${details.closedBy.login}`}</p> : null}
+                  <p>{t("github.commentsCount", { count: details.comments.length })}</p>
+                  <p>{t("github.openedAgo", { time: getTimeAgo(details.createdAt) })}</p>
+                  <p>{t("github.updatedAgo", { time: getTimeAgo(details.updatedAt) })}</p>
+                  {details.closedAt ? <p>{t("github.closedAgo", { time: getTimeAgo(details.closedAt) })}</p> : null}
+                  {details.closedBy ? <p>{t("github.closedBy", { author: details.closedBy.login })}</p> : null}
                 </div>
               </GitHubDetailSection>
             </GitHubDetailSidebar>
@@ -675,11 +677,11 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
 
             <section className="space-y-3">
               <h2 className="font-sans ui-text-sm font-normal text-subtle-foreground">
-                Description
+                {t("github.description")}
               </h2>
               <GitHubInlineMarkdown
                 value={details.body}
-                emptyLabel="No description provided"
+                emptyLabel={t("github.noDescriptionProvided")}
                 repositoryUrl={repositoryUrl}
                 repoPath={repoPath}
                 onSave={(body) => updateIssue({ body })}
@@ -687,7 +689,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
             </section>
 
             <section className="space-y-3">
-              <h2 className="font-sans ui-text-sm font-normal text-subtle-foreground">Activity</h2>
+              <h2 className="font-sans ui-text-sm font-normal text-subtle-foreground">{t("github.activity")}</h2>
               <div className="w-full space-y-3">
                 {details.comments.length > 0 ? (
                   visibleComments.map((comment, index) => (
@@ -709,14 +711,14 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                   <Empty className="min-h-0 flex-none items-start rounded-lg border border-border/60 bg-surface/25 px-3 py-4 text-left">
                     <EmptyDescription className="flex items-center gap-2">
                       <MessageSquare className="size-4" />
-                      No comments yet
+                      {t("github.noCommentsYet")}
                     </EmptyDescription>
                   </Empty>
                 )}
                 {details.comments.length > visibleComments.length ? (
                   <div className="px-1 py-2">
                     <Spinner
-                      label={`Loading ${details.comments.length - visibleComments.length} more comments`}
+                      label={t("github.loadingMoreComments", { count: details.comments.length - visibleComments.length })}
                       showLabel
                       compact
                     />
@@ -727,7 +729,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                     value={commentBody}
                     onChange={setCommentBody}
                     placeholder={
-                      details.locked ? "This conversation is locked" : "Leave a comment..."
+                      details.locked ? t("github.conversationLocked") : t("github.leaveComment")
                     }
                     minHeight={150}
                     disabled={details.locked || Boolean(mutationKey)}
@@ -743,11 +745,11 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
                       onClick={() => void addComment()}
                     >
                       {mutationKey === "new-comment" ? (
-                        <Spinner label="Commenting" compact />
+                        <Spinner label={t("github.commenting")} compact />
                       ) : (
                         <MessageSquare />
                       )}
-                      Comment
+                      {t("github.comment")}
                     </Button>
                   </div>
                 </div>
@@ -756,7 +758,7 @@ const GitHubIssueViewer = memo(({ issueNumber, repoPath, bufferId }: GitHubIssue
           </div>
         </GitHubDetailLayout>
       ) : (
-        <GitHubViewerLoadingState label="Loading issue" />
+        <GitHubViewerLoadingState label={t("github.loadingIssue")} />
       )}
     </GitHubViewerShell>
   );

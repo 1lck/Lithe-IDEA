@@ -34,6 +34,7 @@ import { SINGLETON_TOOL_BUFFER_METADATA } from "@/features/panes/constants/tool-
 import { ensureBufferInPane as ensureBufferInWorkspacePane } from "@/features/panes/utils/pane-buffer-actions";
 import { defaultSettings } from "@/features/settings/config/default-settings";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { cleanupBufferHistoryTracking } from "@/features/editor/stores/buffer-history-tracking";
 import type {
   EditorContent,
@@ -1794,7 +1795,8 @@ const createBufferStore = (workspaceId: string) => {
 
           if (closedBuffersHistory.length === 0) {
             const { toast } = await import("sonner");
-            toast.info("No recently closed tabs");
+            const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+            toast.info(t("tabs.noRecentlyClosed"));
             return;
           }
 
@@ -1817,7 +1819,8 @@ const createBufferStore = (workspaceId: string) => {
 
           if (!closedBuffer) {
             const { toast } = await import("sonner");
-            toast.info("No recently closed tabs");
+            const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+            toast.info(t("tabs.noRecentlyClosed"));
             return;
           }
 
@@ -1862,7 +1865,8 @@ const createBufferStore = (workspaceId: string) => {
           } catch (error) {
             logger.warn("Editor", `Failed to reopen closed tab: ${closedBuffer.path}`, error);
             const { toast } = await import("sonner");
-            toast.error(`Couldn't reopen ${closedBuffer.name}`);
+            const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+            toast.error(t("tabs.couldNotReopen", { name: closedBuffer.name }));
           }
         },
       },

@@ -5,6 +5,7 @@ import { Button, type ButtonProps } from "@/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
 import { SearchField } from "@/ui/search";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
+import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
 
 export function SidebarPanel({
@@ -163,15 +164,17 @@ export const SidebarSearchPopover = forwardRef<
     onChange,
     open,
     onOpenChange,
-    placeholder = "Search",
+    placeholder,
     "aria-label": ariaLabel,
     ...props
   },
   ref,
 ) {
+  const { t } = useTranslation();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const isOpen = open ?? uncontrolledOpen;
-  const label = ariaLabel ?? placeholder;
+  const resolvedPlaceholder = placeholder ?? t("search.search");
+  const label = ariaLabel ?? resolvedPlaceholder;
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (open === undefined) {
@@ -201,7 +204,7 @@ export const SidebarSearchPopover = forwardRef<
           onChange={onChange}
           leftIcon={Search}
           size="sm"
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           aria-label={ariaLabel}
           autoFocus
           {...props}
@@ -399,6 +402,8 @@ export function SidebarTabBar<TValue extends string>({
   children?: ReactNode;
   className?: string;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Tabs
       value={value}
@@ -412,7 +417,7 @@ export function SidebarTabBar<TValue extends string>({
         )}
       >
         <div className="scrollbar-hidden min-w-0 overflow-x-auto">
-          <TabsList aria-label="Sidebar sections">
+          <TabsList aria-label={t("layout.sidebarSections")}>
             {items.map((item) => (
               <TabsTrigger key={item.id} value={item.id} disabled={item.disabled} size="xs">
                 {item.icon}

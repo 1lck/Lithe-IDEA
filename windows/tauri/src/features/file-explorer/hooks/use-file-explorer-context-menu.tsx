@@ -131,7 +131,7 @@ export function useFileExplorerContextMenu({
 
       try {
         if (targetPath === sourcePath) {
-          toast.error("Choose a different env file name");
+          toast.error(t("files.chooseDifferentEnvFileName"));
           return;
         }
 
@@ -329,7 +329,7 @@ export function useFileExplorerContextMenu({
               { id: "sep-env-template", label: "", separator: true, onClick: () => {} },
               ...ENV_TEMPLATE_TARGETS.map((target, index) => ({
                 id: target.id,
-                label: target.label,
+                label: t(target.labelKey),
                 icon: index === 0 ? <FilePlus /> : menuIconSpacer,
                 onClick: () => void createEnvTemplateFile(contextMenu.path, target.fileName),
               })),

@@ -29,6 +29,7 @@ import { writeClipboardText } from "@/utils/clipboard";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { openFile } from "@/features/file-system/controllers/platform";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { EmptyState } from "@/ui/empty";
 import {
   SidebarHeader,
@@ -54,14 +55,14 @@ const OUTLINE_FILTER_KINDS: Record<Exclude<OutlineFilter, "other">, Set<string>>
 
 const OUTLINE_FILTER_OPTIONS: Array<{
   id: OutlineFilter;
-  label: string;
+  labelKey: string;
   icon: ReactNode;
 }> = [
-  { id: "types", label: "Types", icon: <SquaresFour /> },
-  { id: "functions", label: "Functions", icon: <FunctionIcon /> },
-  { id: "properties", label: "Properties", icon: <Braces /> },
-  { id: "variables", label: "Variables", icon: <Code /> },
-  { id: "other", label: "Other", icon: <Code /> },
+  { id: "types", labelKey: "outline.filter.types", icon: <SquaresFour /> },
+  { id: "functions", labelKey: "outline.filter.functions", icon: <FunctionIcon /> },
+  { id: "properties", labelKey: "outline.filter.properties", icon: <Braces /> },
+  { id: "variables", labelKey: "outline.filter.variables", icon: <Code /> },
+  { id: "other", labelKey: "outline.filter.other", icon: <Code /> },
 ];
 
 function matchesOutlineFilter(kind: string, selectedFilters: Set<OutlineFilter>) {
@@ -77,6 +78,7 @@ function matchesOutlineFilter(kind: string, selectedFilters: Set<OutlineFilter>)
 }
 
 export function OutlineSidebar() {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState<Set<OutlineFilter>>(
@@ -284,7 +286,7 @@ export function OutlineSidebar() {
           onChange={setQuery}
           open={isSearchOpen}
           onOpenChange={setIsSearchOpen}
-          aria-label="Search outline"
+          aria-label={t("outline.search")}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown" && visibleSymbols.length > 0) {
               event.preventDefault();
@@ -297,9 +299,9 @@ export function OutlineSidebar() {
             render={
               <SidebarHeaderIconButton
                 active={!areAllFiltersSelected}
-                tooltip="Filter outline"
+                tooltip={t("outline.filter")}
                 tooltipSide="bottom"
-                aria-label="Filter outline"
+                aria-label={t("outline.filter")}
               />
             }
           >
@@ -312,7 +314,7 @@ export function OutlineSidebar() {
               onClick={setAllFilters}
             >
               <Funnel />
-              Show All
+              {t("outline.showAll")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {OUTLINE_FILTER_OPTIONS.map((option) => (
@@ -323,7 +325,7 @@ export function OutlineSidebar() {
                 onCheckedChange={() => toggleFilter(option.id)}
               >
                 {option.icon}
-                {option.label}
+                {t(option.labelKey)}
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>
@@ -345,15 +347,15 @@ export function OutlineSidebar() {
       >
         {!isSupported ? (
           <EmptyState
-            message={activeBuffer ? "No outline for the active file." : "No active file."}
-            action={{ label: "Open a File", onClick: () => void handleOpenFile() }}
+            message={activeBuffer ? t("outline.noOutlineForActiveFile") : t("outline.noActiveFile")}
+            action={{ label: t("outline.openFile"), onClick: () => void handleOpenFile() }}
           />
         ) : isLoading ? (
           <div className="flex items-center justify-center py-8">
-            <Spinner label="Loading outline" showLabel compact />
+            <Spinner label={t("outline.loading")} showLabel compact />
           </div>
         ) : visibleSymbols.length === 0 ? (
-          <EmptyState message="No symbols found." />
+          <EmptyState message={t("outline.noSymbolsFound")} />
         ) : (
           visibleSymbols.map((symbol) => (
             <ContextMenu key={symbol.id}>
@@ -389,11 +391,11 @@ export function OutlineSidebar() {
                   }}
                 >
                   <ArrowSquareOut />
-                  Go to Symbol
+                  {t("outline.goToSymbol")}
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => copyText(symbol.name)}>
                   <Copy />
-                  Copy Name
+                  {t("outline.copyName")}
                 </ContextMenuItem>
                 <ContextMenuItem
                   onClick={() =>
@@ -401,7 +403,7 @@ export function OutlineSidebar() {
                   }
                 >
                   <Copy />
-                  Copy Location
+                  {t("outline.copyLocation")}
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
@@ -409,18 +411,18 @@ export function OutlineSidebar() {
                   onClick={() => toggleSymbol(symbol)}
                 >
                   {collapsedIds.has(symbol.id) ? <CaretDown /> : <CaretRight />}
-                  {collapsedIds.has(symbol.id) ? "Expand" : "Collapse"}
+                  {collapsedIds.has(symbol.id) ? t("outline.expand") : t("outline.collapse")}
                 </ContextMenuItem>
                 <ContextMenuItem
                   disabled={symbolsWithChildren.length === 0}
                   onClick={collapseAllSymbols}
                 >
                   <CaretRight />
-                  Collapse All
+                  {t("outline.collapseAll")}
                 </ContextMenuItem>
                 <ContextMenuItem disabled={collapsedIds.size === 0} onClick={expandAllSymbols}>
                   <CaretDown />
-                  Expand All
+                  {t("outline.expandAll")}
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>

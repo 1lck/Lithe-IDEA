@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import type { FileItem } from "@/features/global-search/types/global-search.types";
 import { useProjectStore } from "@/features/window/stores/project.store";
+import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { ComboboxActionItem } from "@/ui/combobox";
 import Input from "@/ui/input";
@@ -22,13 +23,13 @@ import { AIFileSelector } from "../mentions/ai-file-selector";
 
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 
-function getBufferContextDescription(buffer: PaneContent) {
+function getBufferContextDescription(buffer: PaneContent, t: (key: string, values?: Record<string, string | number>) => string) {
   if (buffer.type === "webViewer") return buffer.url;
-  if (buffer.type === "terminal") return buffer.workingDirectory || "Terminal";
-  if (buffer.type === "database") return `${buffer.databaseType} database`;
-  if (buffer.type === "pullRequest") return `Pull request #${buffer.prNumber}`;
+  if (buffer.type === "terminal") return buffer.workingDirectory || t("ai.terminal");
+  if (buffer.type === "database") return t("ai.databaseContext", { type: buffer.databaseType });
+  if (buffer.type === "pullRequest") return t("ai.pullRequestNumber", { number: buffer.prNumber });
   if (buffer.type === "githubIssue") return `Issue #${buffer.issueNumber}`;
-  if (buffer.type === "githubAction") return `Action run #${buffer.runId}`;
+  if (buffer.type === "githubAction") return t("ai.actionRunNumber", { number: buffer.runId });
   return buffer.path;
 }
 
@@ -64,6 +65,7 @@ export function ContextSelector({
   anchorRef,
   className,
 }: Omit<ContextSelectorProps, "allProjectFiles">) {
+  const { t } = useTranslation();
   const triggerRef = useRef<HTMLDivElement>(null);
   const dropdownAnchorRef = anchorRef ?? triggerRef;
 
@@ -80,8 +82,8 @@ export function ContextSelector({
           <Button
             onClick={onToggleOpen}
             variant="ghost"
-            tooltip="Add context"
-            aria-label="Add context"
+            tooltip={t("ai.addContext")}
+            aria-label={t("ai.addContext")}
             aria-expanded={isOpen}
             aria-haspopup="true"
             size="icon-sm"
@@ -95,7 +97,7 @@ export function ContextSelector({
         open={isOpen}
         anchorRef={dropdownAnchorRef}
         onClose={closeDropdown}
-        ariaLabel="Add context"
+        ariaLabel={t("ai.addContext")}
         maxHeight={320}
       >
         {isOpen ? (
@@ -124,6 +126,7 @@ function ContextSelectorDropdownContent({
   onToggleBuffer,
   onToggleFile,
 }: ContextSelectorDropdownContentProps) {
+  const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedContextIndex, setSelectedContextIndex] = useState(0);
   const [visibleFileResults, setVisibleFileResults] = useState<FileItem[]>([]);
@@ -142,10 +145,10 @@ function ContextSelectorDropdownContent({
         buffer.name.toLowerCase().includes(normalizedSearch) ||
         buffer.path.toLowerCase().includes(normalizedSearch) ||
         buffer.type.toLowerCase().includes(normalizedSearch) ||
-        getBufferContextDescription(buffer).toLowerCase().includes(normalizedSearch)
+        getBufferContextDescription(buffer, t).toLowerCase().includes(normalizedSearch)
       );
     });
-  }, [searchTerm, selectableBuffers]);
+  }, [searchTerm, selectableBuffers, t]);
 
   const bufferByPath = useMemo(
     () => new Map(selectableBuffers.map((buffer) => [buffer.path, buffer])),
@@ -195,7 +198,7 @@ function ContextSelectorDropdownContent({
         <Input
           ref={searchInputRef}
           type="text"
-          placeholder="Search context..."
+          placeholder={t("ai.searchContext")}
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
           onKeyDown={(event) => {
@@ -236,7 +239,7 @@ function ContextSelectorDropdownContent({
           size="xs"
           leftIcon={Search}
           className="w-full"
-          aria-label="Search context"
+          aria-label={t("ai.searchContext")}
         />
       </div>
       {shouldShowContextResults ? (
@@ -251,7 +254,7 @@ function ContextSelectorDropdownContent({
             setSelectedContextIndex(filteredContextBuffers.length + index)
           }
           onResultsChange={setVisibleFileResults}
-          emptyLabel="No matching context found"
+          emptyLabel={t("ai.noMatchingContextFound")}
           compact
           showSearchInput={false}
           listClassName="max-h-66"
@@ -259,7 +262,7 @@ function ContextSelectorDropdownContent({
             filteredContextBuffers.length > 0 ? (
               <>
                 <div className="ui-text-sm px-2 pt-1.5 pb-1 font-medium leading-row text-subtle-foreground/75">
-                  Open tabs
+                  {t("ai.openTabs")}
                 </div>
                 {filteredContextBuffers.map((buffer) => {
                   const index = filteredContextBuffers.indexOf(buffer);
@@ -293,12 +296,12 @@ function ContextSelectorDropdownContent({
                           {buffer.name}
                         </span>
                         <span className="min-w-0 flex-1 truncate text-subtle-foreground/70">
-                          {getBufferContextDescription(buffer)}
+                          {getBufferContextDescription(buffer, t)}
                         </span>
                       </span>
                       {isSelected && (
                         <Badge variant="default" size="compact" className="shrink-0">
-                          added
+                          {t("ai.added")}
                         </Badge>
                       )}
                     </ComboboxActionItem>

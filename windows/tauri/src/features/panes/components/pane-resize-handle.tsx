@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "@/i18n/locale-provider";
 import { MIN_PANE_SIZE } from "../constants/pane";
 
 interface PaneResizeHandleProps {
@@ -16,6 +17,7 @@ export function PaneResizeHandle({
   initialSizes,
   resizeHandleCount,
 }: PaneResizeHandleProps) {
+  const { t } = useTranslation();
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const startPositionRef = useRef(0);
@@ -149,7 +151,7 @@ export function PaneResizeHandle({
       onMouseDown={handleMouseDown}
       role="separator"
       aria-orientation={isHorizontal ? "vertical" : "horizontal"}
-      aria-label="Resize panes"
+      aria-label={t("panes.resizePanes")}
       aria-valuenow={Math.round(initialSizes[0])}
       aria-valuemin={MIN_PANE_SIZE}
       aria-valuemax={100 - MIN_PANE_SIZE}
